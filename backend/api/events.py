@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query, Request
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-from starlette.responses import StreamingResponse
+from starlette.responses import JSONResponse, StreamingResponse
 
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.job_repo import JobRepository
@@ -18,19 +18,25 @@ from backend.services.sse_manager import SSEConnection
 router = APIRouter(tags=["events"])
 
 
-@router.get("/events")
+@router.get("/events", response_model=None)
 async def stream_events(
     request: Request,
     job_id: str | None = Query(default=None),
     last_event_id: str | None = Query(default=None, alias="Last-Event-ID"),
-) -> StreamingResponse:
+) -> StreamingResponse | JSONResponse:
     """SSE stream for live events.
 
     Optional ``job_id`` query param scopes the stream to a single job.
     ``Last-Event-ID`` (header or query) enables reconnection replay.
     """
-    sse_manager = request.app.state.sse_manager
-    session_factory = request.app.state.session_factory
+    try:
+        sse_manager = request.app.state.sse_manager
+        session_factory = request.app.state.session_factory
+    except AttributeError:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "SSE infrastructure not ready"},
+        )
 
     # Also check the standard SSE header
     header_last_id = request.headers.get("Last-Event-ID") or last_event_id

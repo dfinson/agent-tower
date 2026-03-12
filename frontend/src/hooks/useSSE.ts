@@ -65,7 +65,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
 
       for (const eventType of eventTypes) {
         es.addEventListener(eventType, (ev: MessageEvent) => {
-          if (ev.lastEventId) {
+          if (ev.lastEventId && /^\d+$/.test(ev.lastEventId)) {
             lastEventIdRef.current = ev.lastEventId;
           }
           try {

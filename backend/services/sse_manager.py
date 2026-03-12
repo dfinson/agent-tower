@@ -311,9 +311,14 @@ class SSEManager:
             needs_snapshot = True
 
         if needs_snapshot:
-            # Build and send snapshot
-            all_jobs = await job_repo.list(limit=10000)
+            # Build and send snapshot (scoped to conn.job_id if set)
             from backend.models.api_schemas import JobResponse
+
+            if conn.job_id is not None:
+                single = await job_repo.get(conn.job_id)
+                fetched_jobs = [single] if single else []
+            else:
+                fetched_jobs = await job_repo.list(limit=10000)
 
             job_responses = [
                 JobResponse(
@@ -329,7 +334,7 @@ class SSEManager:
                     updated_at=j.updated_at,
                     completed_at=j.completed_at,
                 )
-                for j in all_jobs
+                for j in fetched_jobs
             ]
             snapshot = SnapshotPayload(
                 jobs=job_responses,

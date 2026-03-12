@@ -148,7 +148,7 @@ class TestStubRoutes:
     @pytest.mark.asyncio
     async def test_get_events_sse_returns_error_without_lifespan(self, client: AsyncClient) -> None:
         resp = await client.get("/api/events")
-        assert resp.status_code in (200, 500)
+        assert resp.status_code in (200, 500, 503)
 
     @pytest.mark.asyncio
     async def test_get_approvals_returns_404(self, client: AsyncClient) -> None:

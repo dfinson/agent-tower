@@ -9,8 +9,9 @@ import { create } from "zustand";
 
 // ---------------------------------------------------------------------------
 // Types — inline until schema generation (npm run generate:api) is wired up.
-// These mirror the CamelModel shapes from the backend and will be replaced
+// These mirror the CamelModel shapes from the backend and MUST be replaced
 // by imports from ../api/types once that module is populated.
+// See: frontend/src/api/types.ts for the planned generated aliases.
 // ---------------------------------------------------------------------------
 
 /** Connection status exposed to UI components. */
