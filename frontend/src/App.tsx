@@ -1,33 +1,50 @@
-import { useEffect, useState } from "react";
+import { Routes, Route, NavLink } from "react-router-dom";
 import { useSSE } from "./hooks/useSSE";
 import { useTowerStore, selectConnectionStatus } from "./store";
+import { DashboardScreen } from "./components/DashboardScreen";
+import { JobDetailScreen } from "./components/JobDetailScreen";
+import { JobCreationScreen } from "./components/JobCreationScreen";
+import { RepositoryDetailView } from "./components/RepositoryDetailView";
 
 export function App() {
-  const [health, setHealth] = useState<{ status: string; version: string } | null>(null);
   const connectionStatus = useTowerStore(selectConnectionStatus);
 
   // Mount global SSE connection
   useSSE();
 
-  useEffect(() => {
-    fetch("/api/health")
-      .then((r) => r.json())
-      .then(setHealth)
-      .catch(() => setHealth(null));
-  }, []);
-
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1>Tower</h1>
-      <p>Control tower for coding agents</p>
-      {health ? (
-        <p>
-          Backend: {health.status} (v{health.version})
-        </p>
-      ) : (
-        <p>Backend: connecting…</p>
+    <div className="app-layout">
+      {connectionStatus === "disconnected" && (
+        <div className="disconnected-banner">
+          Connection lost — events may be stale
+        </div>
       )}
-      <p>SSE: {connectionStatus}</p>
+      <header className="app-header">
+        <div className="app-header__title">Tower</div>
+        <nav className="app-header__nav">
+          <NavLink to="/" end>
+            Dashboard
+          </NavLink>
+          <NavLink to="/jobs/new">New Job</NavLink>
+        </nav>
+        <div className="app-header__status">
+          <span
+            className={`status-dot status-dot--${connectionStatus}`}
+          />
+          {connectionStatus}
+        </div>
+      </header>
+      <main className="app-main">
+        <Routes>
+          <Route path="/" element={<DashboardScreen />} />
+          <Route path="/jobs/new" element={<JobCreationScreen />} />
+          <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
+          <Route
+            path="/repos/:repoPath"
+            element={<RepositoryDetailView />}
+          />
+        </Routes>
+      </main>
     </div>
   );
 }
