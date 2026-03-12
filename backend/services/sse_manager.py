@@ -11,8 +11,14 @@ from typing import TYPE_CHECKING
 import structlog
 
 from backend.models.api_schemas import (
+    ApprovalRequestedPayload,
+    ApprovalResolvedPayload,
+    DiffUpdatePayload,
     JobStateChangedPayload,
+    LogLinePayload,
+    SessionHeartbeatPayload,
     SnapshotPayload,
+    TranscriptPayload,
 )
 from backend.models.events import DomainEvent, DomainEventKind
 
@@ -36,6 +42,13 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.job_failed: "job_state_changed",
     DomainEventKind.job_canceled: "job_state_changed",
     DomainEventKind.session_heartbeat: "session_heartbeat",
+}
+
+# State implied by each domain event kind (for job_state_changed payloads)
+_KIND_TO_STATE: dict[DomainEventKind, str] = {
+    DomainEventKind.job_succeeded: "succeeded",
+    DomainEventKind.job_failed: "failed",
+    DomainEventKind.job_canceled: "canceled",
 }
 
 # High-frequency event types suppressed in selective mode (>20 active jobs)
@@ -73,13 +86,79 @@ class SSEConnection:
         self.closed = True
 
 
-def _format_sse(event_id: str, event_type: str, data: str) -> str:
-    """Format a single SSE frame."""
-    return f"id: {event_id}\nevent: {event_type}\ndata: {data}\n\n"
+def _format_sse(event_id: str | None, event_type: str, data: str) -> str:
+    """Format a single SSE frame. Omits ``id:`` when *event_id* is ``None``."""
+    parts: list[str] = []
+    if event_id is not None:
+        parts.append(f"id: {event_id}")
+    parts.append(f"event: {event_type}")
+    parts.append(f"data: {data}")
+    return "\n".join(parts) + "\n\n"
 
 
-def _domain_to_sse_data(event: DomainEvent) -> str:
-    """Serialize the domain event payload to JSON for SSE data field."""
+def _build_sse_data(event: DomainEvent, sse_type: str) -> str:
+    """Serialize the domain event payload via the appropriate Pydantic SSE model.
+
+    This ensures all SSE payloads use **camelCase** keys matching the API contract.
+    """
+    if sse_type == "job_state_changed":
+        new_state = _KIND_TO_STATE.get(event.kind, event.payload.get("state", event.payload.get("new_state", "queued")))
+        return JobStateChangedPayload(
+            job_id=event.job_id,
+            previous_state=event.payload.get("previous_state"),
+            new_state=new_state,
+            timestamp=event.timestamp,
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "log_line":
+        return LogLinePayload(
+            job_id=event.job_id,
+            seq=event.payload.get("seq", 0),
+            timestamp=event.payload.get("timestamp", event.timestamp),
+            level=event.payload.get("level", "info"),
+            message=event.payload.get("message", ""),
+            context=event.payload.get("context"),
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "transcript_update":
+        return TranscriptPayload(
+            job_id=event.job_id,
+            seq=event.payload.get("seq", 0),
+            timestamp=event.payload.get("timestamp", event.timestamp),
+            role=event.payload.get("role", "agent"),
+            content=event.payload.get("content", ""),
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "diff_update":
+        return DiffUpdatePayload(
+            job_id=event.job_id,
+            changed_files=event.payload.get("changed_files", []),
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "approval_requested":
+        return ApprovalRequestedPayload(
+            job_id=event.job_id,
+            approval_id=event.payload.get("approval_id", ""),
+            description=event.payload.get("description", ""),
+            proposed_action=event.payload.get("proposed_action"),
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "approval_resolved":
+        return ApprovalResolvedPayload(
+            job_id=event.job_id,
+            approval_id=event.payload.get("approval_id", ""),
+            resolution=event.payload.get("resolution", ""),
+            timestamp=event.payload.get("timestamp", event.timestamp),
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "session_heartbeat":
+        return SessionHeartbeatPayload(
+            job_id=event.job_id,
+            session_id=event.payload.get("session_id", ""),
+            timestamp=event.payload.get("timestamp", event.timestamp),
+        ).model_dump_json(by_alias=True)
+
+    # Fallback (should not happen for known types)
     return json.dumps(event.payload, default=str)
 
 
@@ -124,7 +203,8 @@ class SSEManager:
         if sse_type is None:
             return  # internal-only event
 
-        frame = _format_sse(event.event_id, sse_type, _domain_to_sse_data(event))
+        sse_id = str(event.db_id) if event.db_id is not None else event.event_id
+        frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
         selective = self._active_job_count > 20
 
         for conn in list(self._connections):
@@ -153,8 +233,9 @@ class SSEManager:
                 new_state="waiting_for_approval",
                 timestamp=event.timestamp,
             )
+            secondary_id = f"{sse_id}-state" if event.db_id is not None else None
             state_frame = _format_sse(
-                f"{event.event_id}-state",
+                secondary_id,
                 "job_state_changed",
                 state_payload.model_dump_json(by_alias=True),
             )
@@ -168,8 +249,9 @@ class SSEManager:
                 new_state=new_state,
                 timestamp=event.timestamp,
             )
+            secondary_id = f"{sse_id}-state" if event.db_id is not None else None
             state_frame = _format_sse(
-                f"{event.event_id}-state",
+                secondary_id,
                 "job_state_changed",
                 state_payload.model_dump_json(by_alias=True),
             )
@@ -185,9 +267,14 @@ class SSEManager:
             await conn.send(frame)
 
     async def send_snapshot(self, conn: SSEConnection, snapshot: SnapshotPayload) -> None:
-        """Send a snapshot event to a specific connection."""
+        """Send a snapshot event to a specific connection.
+
+        Snapshot frames omit the ``id:`` field so they don't advance the
+        client's ``lastEventId`` cursor — replay IDs stay monotonic with
+        the DB autoincrement sequence.
+        """
         frame = _format_sse(
-            "snapshot",
+            None,
             "snapshot",
             snapshot.model_dump_json(by_alias=True),
         )
@@ -243,7 +330,12 @@ class SSEManager:
                 )
                 for j in all_jobs
             ]
-            snapshot = SnapshotPayload(jobs=job_responses, pending_approvals=[])
+            snapshot = SnapshotPayload(
+                jobs=job_responses,
+                # TODO: populate from ApprovalRepository once approval
+                # persistence is fully wired up (Phase 4+).
+                pending_approvals=[],
+            )
             await self.send_snapshot(conn, snapshot)
 
             # Filter events to only those within the replay window
@@ -254,7 +346,8 @@ class SSEManager:
             sse_type = _SSE_EVENT_TYPE.get(event.kind)
             if sse_type is None:
                 continue
-            frame = _format_sse(event.event_id, sse_type, _domain_to_sse_data(event))
+            sse_id = str(event.db_id) if event.db_id is not None else event.event_id
+            frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
             await conn.send(frame)
 
     async def close_all(self) -> None:

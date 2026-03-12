@@ -16,7 +16,7 @@ from backend.services.sse_manager import (
     MAX_REPLAY_EVENTS,
     SSEConnection,
     SSEManager,
-    _domain_to_sse_data,
+    _build_sse_data,
     _format_sse,
 )
 
@@ -26,6 +26,7 @@ def _make_event(
     job_id: str = "job-1",
     event_id: str = "evt-1",
     payload: dict[str, object] | None = None,
+    db_id: int | None = None,
 ) -> DomainEvent:
     return DomainEvent(
         event_id=event_id,
@@ -33,6 +34,7 @@ def _make_event(
         timestamp=datetime.now(UTC),
         kind=kind,
         payload=payload or {"test": True},
+        db_id=db_id,
     )
 
 
@@ -68,13 +70,31 @@ class TestFormatSSE:
         assert "event: test\n" in result
         assert f"data: {data}\n" in result
 
+    def test_none_id_omits_id_line(self) -> None:
+        result = _format_sse(None, "snapshot", '{"jobs":[]}')
+        assert "id:" not in result
+        assert "event: snapshot\n" in result
+        assert 'data: {"jobs":[]}\n' in result
 
-class TestDomainToSSEData:
-    def test_serializes_payload(self) -> None:
-        event = _make_event(payload={"key": "value"})
-        result = _domain_to_sse_data(event)
+
+class TestBuildSSEData:
+    def test_serializes_log_line_camel_case(self) -> None:
+        event = _make_event(
+            kind=DomainEventKind.log_line_emitted,
+            payload={"seq": 1, "message": "hello", "level": "info"},
+        )
+        result = _build_sse_data(event, "log_line")
         parsed = json.loads(result)
-        assert parsed == {"key": "value"}
+        # CamelModel serialization: keys must be camelCase
+        assert "jobId" in parsed
+        assert parsed["message"] == "hello"
+
+    def test_serializes_job_state_changed(self) -> None:
+        event = _make_event(kind=DomainEventKind.job_succeeded)
+        result = _build_sse_data(event, "job_state_changed")
+        parsed = json.loads(result)
+        assert parsed["newState"] == "succeeded"
+        assert "jobId" in parsed
 
 
 # --- SSEConnection tests ---
@@ -136,12 +156,12 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        event = _make_event(kind=DomainEventKind.job_created)
+        event = _make_event(kind=DomainEventKind.job_created, db_id=42)
         await mgr.handle_event(event)
 
         data = conn.queue.get_nowait()
         assert "event: job_state_changed" in data
-        assert "id: evt-1" in data
+        assert "id: 42\n" in data
 
     @pytest.mark.asyncio
     async def test_handle_event_routes_to_scoped_connection(self) -> None:
@@ -151,7 +171,7 @@ class TestSSEManager:
         mgr.register(conn1)
         mgr.register(conn2)
 
-        event = _make_event(kind=DomainEventKind.job_created, job_id="job-1")
+        event = _make_event(kind=DomainEventKind.job_created, job_id="job-1", db_id=10)
         await mgr.handle_event(event)
 
         assert not conn1.queue.empty()
@@ -314,6 +334,8 @@ class TestSSEManager:
 
         data = conn.queue.get_nowait()
         assert "event: snapshot" in data
+        # Snapshot frames must NOT have an id: line (avoids advancing cursor)
+        assert "id:" not in data
 
     @pytest.mark.asyncio
     async def test_close_all(self) -> None:
@@ -344,6 +366,7 @@ class TestSSEManager:
                 timestamp=now,
                 kind=DomainEventKind.job_created,
                 payload={"state": "running"},
+                db_id=1,
             ),
             DomainEvent(
                 event_id="evt-2",
@@ -351,6 +374,7 @@ class TestSSEManager:
                 timestamp=now,
                 kind=DomainEventKind.log_line_emitted,
                 payload={"seq": 1, "message": "hello"},
+                db_id=2,
             ),
         ]
 
@@ -361,11 +385,13 @@ class TestSSEManager:
 
         await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
 
-        # Should have 2 replayed frames
+        # Should have 2 replayed frames with numeric IDs
         frames = []
         while not conn.queue.empty():
             frames.append(conn.queue.get_nowait())
         assert len(frames) == 2
+        assert "id: 1\n" in frames[0]
+        assert "id: 2\n" in frames[1]
 
     @pytest.mark.asyncio
     async def test_replay_events_sends_snapshot_on_overflow(self) -> None:

@@ -213,6 +213,48 @@ describe("TowerStore", () => {
       ).toHaveLength(2);
     });
 
+    it("handles session_heartbeat sets connected", () => {
+      expect(selectConnectionStatus(useTowerStore.getState())).toBe(
+        "disconnected"
+      );
+
+      useTowerStore.getState().dispatchSSEEvent("session_heartbeat", {
+        jobId: "job-1",
+        sessionId: "sess-1",
+        timestamp: "2025-01-01T00:00:00Z",
+      });
+
+      expect(selectConnectionStatus(useTowerStore.getState())).toBe(
+        "connected"
+      );
+    });
+
+    it("session_heartbeat is no-op when already connected", () => {
+      useTowerStore.getState().setConnectionStatus("connected");
+
+      useTowerStore.getState().dispatchSSEEvent("session_heartbeat", {
+        jobId: "job-1",
+        sessionId: "sess-1",
+        timestamp: "2025-01-01T00:00:00Z",
+      });
+
+      expect(selectConnectionStatus(useTowerStore.getState())).toBe(
+        "connected"
+      );
+    });
+
+    it("handles diff_update without error", () => {
+      const beforeState = useTowerStore.getState();
+      useTowerStore.getState().dispatchSSEEvent("diff_update", {
+        jobId: "job-1",
+        changedFiles: ["src/app.ts"],
+      });
+      const afterState = useTowerStore.getState();
+
+      // diff_update is a no-op placeholder for now
+      expect(selectJobs(afterState)).toEqual(selectJobs(beforeState));
+    });
+
     it("ignores unknown event types", () => {
       const beforeState = useTowerStore.getState();
       useTowerStore.getState().dispatchSSEEvent("unknown_event", {});

@@ -35,17 +35,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus = EventBus()
     sse_manager = SSEManager()
 
-    # Subscribe SSE manager to the event bus
-    event_bus.subscribe(sse_manager.handle_event)
-
-    # Event persistence subscriber
-    async def _persist_event(event: DomainEvent) -> None:
+    # Persist-then-broadcast subscriber: ensures event.db_id is set
+    # (monotonic autoincrement) before SSE frames are built.
+    async def _persist_and_broadcast(event: DomainEvent) -> None:
         async with session_factory() as session:
             repo = EventRepository(session)
             await repo.append(event)
             await session.commit()
+        await sse_manager.handle_event(event)
 
-    event_bus.subscribe(_persist_event)
+    event_bus.subscribe(_persist_and_broadcast)
 
     # Store on app.state for access from route handlers
     app.state.event_bus = event_bus

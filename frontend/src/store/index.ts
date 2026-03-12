@@ -8,7 +8,9 @@
 import { create } from "zustand";
 
 // ---------------------------------------------------------------------------
-// Types (inline until schema.d.ts generation is wired up)
+// Types — inline until schema generation (npm run generate:api) is wired up.
+// These mirror the CamelModel shapes from the backend and will be replaced
+// by imports from ../api/types once that module is populated.
 // ---------------------------------------------------------------------------
 
 /** Connection status exposed to UI components. */
@@ -187,6 +189,18 @@ export const useTowerStore = create<TowerState>((set) => ({
             jobs: Object.fromEntries(jobs.map((j) => [j.id, j])),
             approvals: Object.fromEntries(approvals.map((a) => [a.id, a])),
           };
+        }
+
+        case "session_heartbeat": {
+          if (state.connectionStatus !== "connected") {
+            return { connectionStatus: "connected" as ConnectionStatus };
+          }
+          return state;
+        }
+
+        case "diff_update": {
+          // Acknowledged but not yet applied to local store.
+          return state;
         }
 
         default:

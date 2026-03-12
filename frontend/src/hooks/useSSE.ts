@@ -2,7 +2,8 @@
  * SSE client with exponential backoff reconnection.
  *
  * Connects to /api/events on mount, dispatches events to the Zustand store,
- * and handles reconnection with Last-Event-ID header.
+ * and handles reconnection with a Last-Event-ID query parameter (EventSource
+ * does not support custom request headers).
  */
 
 import { useEffect, useRef } from "react";
