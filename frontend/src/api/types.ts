@@ -52,3 +52,69 @@ export interface JobStateChangedPayload {
   newState: string;
   timestamp: string;
 }
+
+// --- Diff types ---
+
+export type DiffLineType = "context" | "addition" | "deletion";
+export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+
+export interface DiffLineModel {
+  type: DiffLineType;
+  content: string;
+}
+
+export interface DiffHunkModel {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLineModel[];
+}
+
+export interface DiffFileModel {
+  path: string;
+  status: DiffFileStatus;
+  additions: number;
+  deletions: number;
+  hunks: DiffHunkModel[];
+}
+
+export interface DiffUpdatePayload {
+  jobId: string;
+  changedFiles: DiffFileModel[];
+}
+
+// --- Artifact types ---
+
+export type ArtifactType = "diff_snapshot" | "agent_summary" | "custom";
+
+export interface ArtifactResponse {
+  id: string;
+  jobId: string;
+  name: string;
+  type: ArtifactType;
+  mimeType: string;
+  sizeBytes: number;
+  phase: string;
+  createdAt: string;
+}
+
+export interface ArtifactListResponse {
+  items: ArtifactResponse[];
+}
+
+// --- Workspace types ---
+
+export type WorkspaceEntryType = "file" | "directory";
+
+export interface WorkspaceEntry {
+  path: string;
+  type: WorkspaceEntryType;
+  sizeBytes: number | null;
+}
+
+export interface WorkspaceListResponse {
+  items: WorkspaceEntry[];
+  cursor: string | null;
+  hasMore: boolean;
+}

@@ -14,6 +14,8 @@ import { create } from "zustand";
 // See: frontend/src/api/types.ts for the planned generated aliases.
 // ---------------------------------------------------------------------------
 
+import type { DiffFileModel } from "../api/types";
+
 /** Connection status exposed to UI components. */
 export type ConnectionStatus = "connected" | "reconnecting" | "disconnected";
 
@@ -69,6 +71,7 @@ interface TowerState {
   approvals: Record<string, ApprovalRequest>;
   logs: Record<string, LogLine[]>; // keyed by jobId
   transcript: Record<string, TranscriptEntry[]>; // keyed by jobId
+  diffs: Record<string, DiffFileModel[]>; // keyed by jobId
 
   // UI state
   connectionStatus: ConnectionStatus;
@@ -84,6 +87,7 @@ export const useTowerStore = create<TowerState>((set) => ({
   approvals: {},
   logs: {},
   transcript: {},
+  diffs: {},
   connectionStatus: "disconnected",
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
@@ -202,8 +206,11 @@ export const useTowerStore = create<TowerState>((set) => ({
         }
 
         case "diff_update": {
-          // Acknowledged but not yet applied to local store.
-          return state;
+          const jobId = payload.jobId as string;
+          const changedFiles = (payload.changedFiles as DiffFileModel[]) ?? [];
+          return {
+            diffs: { ...state.diffs, [jobId]: changedFiles },
+          };
         }
 
         default:
@@ -224,3 +231,5 @@ export const selectJobLogs = (jobId: string) => (state: TowerState) =>
   state.logs[jobId] ?? [];
 export const selectJobTranscript = (jobId: string) => (state: TowerState) =>
   state.transcript[jobId] ?? [];
+export const selectJobDiffs = (jobId: string) => (state: TowerState) =>
+  state.diffs[jobId] ?? [];

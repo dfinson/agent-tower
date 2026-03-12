@@ -95,16 +95,16 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 
 > Diff generation, file browsing, artifact collection.
 
-- [ ] `DiffService` — run `git diff base_ref...HEAD`, parse unified diff
-- [ ] Diff hunk parser (file status, hunk headers, line classification)
-- [ ] Per-job diff throttling (5-second window)
-- [ ] Final diff snapshot at job completion
-- [ ] DiffViewer component (Monaco DiffEditor, file list, hunk navigation)
-- [ ] Workspace browser API (`GET /api/jobs/{id}/workspace`, `/workspace/file`)
-- [ ] Workspace browser component (`react-arborist` file tree)
-- [ ] `ArtifactService` — collection from `.tower/artifacts/`, diff snapshots, agent summaries
-- [ ] Artifact list + download endpoints
-- [ ] Artifact viewer component
+- [x] `DiffService` — run `git diff base_ref...HEAD`, parse unified diff
+- [x] Diff hunk parser (file status, hunk headers, line classification)
+- [x] Per-job diff throttling (5-second window)
+- [x] Final diff snapshot at job completion
+- [x] DiffViewer component (Monaco DiffEditor, file list, hunk navigation)
+- [x] Workspace browser API (`GET /api/jobs/{id}/workspace`, `/workspace/file`)
+- [x] Workspace browser component (`react-arborist` file tree)
+- [x] `ArtifactService` — collection from `.tower/artifacts/`, diff snapshots, agent summaries
+- [x] Artifact list + download endpoints
+- [x] Artifact viewer component
 
 ---
 

@@ -54,6 +54,10 @@ class GitService:
             )
         return stdout
 
+    async def diff(self, diff_spec: str, *, cwd: str | Path) -> str:
+        """Run `git diff <diff_spec>` and return raw output."""
+        return await self._run_git("diff", diff_spec, cwd=cwd)
+
     async def validate_repo(self, repo_path: str) -> bool:
         """Check that a path is a valid git repository."""
         path = Path(repo_path).expanduser().resolve()

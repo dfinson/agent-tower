@@ -2,8 +2,137 @@
 
 from __future__ import annotations
 
+import json
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import structlog
+
+from backend.models.api_schemas import ArtifactType, ExecutionPhase
+from backend.models.domain import Artifact
+
+if TYPE_CHECKING:
+    from backend.models.api_schemas import DiffFileModel
+    from backend.persistence.artifact_repo import ArtifactRepository
+
+log = structlog.get_logger()
+
+# Default base directory for artifact files on disk
+_ARTIFACTS_BASE = Path.home() / ".tower" / "artifacts"
+
 
 class ArtifactService:
     """Collects, stores, and retrieves job artifacts."""
 
-    pass
+    def __init__(self, artifact_repo: ArtifactRepository) -> None:
+        self._repo = artifact_repo
+
+    async def store_diff_snapshot(
+        self,
+        job_id: str,
+        diff_files: list[DiffFileModel],
+    ) -> Artifact:
+        """Persist the final diff snapshot as an artifact on disk + DB."""
+        artifact_id = f"art-{uuid.uuid4().hex[:12]}"
+        name = "diff-snapshot.json"
+
+        # Serialize to disk
+        disk_dir = _ARTIFACTS_BASE / job_id
+        disk_dir.mkdir(parents=True, exist_ok=True)
+        disk_path = disk_dir / f"{artifact_id}-{name}"
+        content = json.dumps(
+            [f.model_dump(by_alias=True) for f in diff_files],
+            indent=2,
+        )
+        disk_path.write_text(content, encoding="utf-8")
+        size_bytes = disk_path.stat().st_size
+
+        artifact = Artifact(
+            id=artifact_id,
+            job_id=job_id,
+            name=name,
+            type=ArtifactType.diff_snapshot,
+            mime_type="application/json",
+            size_bytes=size_bytes,
+            disk_path=str(disk_path),
+            phase=ExecutionPhase.post_completion,
+            created_at=datetime.now(UTC),
+        )
+        return await self._repo.create(artifact)
+
+    async def collect_from_workspace(
+        self,
+        job_id: str,
+        worktree_path: str,
+    ) -> list[Artifact]:
+        """Scan .tower/artifacts/ in the worktree for custom artifacts."""
+        collected: list[Artifact] = []
+        artifacts_dir = Path(worktree_path) / ".tower" / "artifacts"
+        if not artifacts_dir.is_dir():
+            return collected
+
+        for entry in sorted(artifacts_dir.iterdir()):
+            if not entry.is_file() or entry.is_symlink():
+                continue
+            # Ensure resolved path is inside the worktree (prevent symlink escape)
+            if not entry.resolve().is_relative_to(Path(worktree_path).resolve()):
+                log.warning("artifact_outside_worktree", path=str(entry))
+                continue
+            # Skip files larger than 50 MB
+            entry_size = entry.stat().st_size
+            if entry_size > 50 * 1024 * 1024:
+                log.warning("artifact_too_large", path=str(entry), size=entry_size)
+                continue
+            artifact_id = f"art-{uuid.uuid4().hex[:12]}"
+            # Copy to central store
+            disk_dir = _ARTIFACTS_BASE / job_id
+            disk_dir.mkdir(parents=True, exist_ok=True)
+            dest = disk_dir / f"{artifact_id}-{entry.name}"
+            dest.write_bytes(entry.read_bytes())
+
+            mime = _guess_mime(entry.name)
+            artifact = Artifact(
+                id=artifact_id,
+                job_id=job_id,
+                name=entry.name,
+                type=ArtifactType.custom,
+                mime_type=mime,
+                size_bytes=dest.stat().st_size,
+                disk_path=str(dest),
+                phase=ExecutionPhase.post_completion,
+                created_at=datetime.now(UTC),
+            )
+            collected.append(await self._repo.create(artifact))
+        return collected
+
+    async def list_for_job(self, job_id: str) -> list[Artifact]:
+        """Return all artifacts for a job."""
+        return await self._repo.list_for_job(job_id)
+
+    async def get(self, artifact_id: str) -> Artifact | None:
+        """Retrieve a single artifact by ID."""
+        return await self._repo.get(artifact_id)
+
+
+def _guess_mime(filename: str) -> str:
+    """Simple MIME type guessing from file extension."""
+    ext = Path(filename).suffix.lower()
+    mapping = {
+        ".json": "application/json",
+        ".txt": "text/plain",
+        ".md": "text/markdown",
+        ".log": "text/plain",
+        ".html": "text/html",
+        ".csv": "text/csv",
+        ".xml": "application/xml",
+        ".yaml": "text/yaml",
+        ".yml": "text/yaml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".svg": "image/svg+xml",
+        ".pdf": "application/pdf",
+    }
+    return mapping.get(ext, "application/octet-stream")
