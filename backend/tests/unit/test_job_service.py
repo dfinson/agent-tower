@@ -157,7 +157,7 @@ class TestJobService:
             await session.commit()
 
         assert job.id == "job-1"
-        assert job.state == JobState.running
+        assert job.state == JobState.queued
         assert job.repo == "/repos/test"
         assert job.prompt == "Fix the bug"
         assert job.branch == "tower/job-1"
@@ -446,6 +446,8 @@ class TestJobService:
             await job_service.create_job(repo="/repos/test", prompt="Fix it")
             await session.commit()
 
+        # Phase 4: jobs start as queued, must transition through running first
+        await job_service.transition_state("job-1", JobState.running)
         job = await job_service.transition_state("job-1", JobState.succeeded)
         assert job.state == JobState.succeeded
         assert job.completed_at is not None

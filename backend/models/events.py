@@ -22,6 +22,7 @@ class DomainEventKind(StrEnum):
     job_succeeded = "JobSucceeded"
     job_failed = "JobFailed"
     job_canceled = "JobCanceled"
+    job_state_changed = "JobStateChanged"
     session_heartbeat = "SessionHeartbeat"
 
 
