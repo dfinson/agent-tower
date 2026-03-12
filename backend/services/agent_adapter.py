@@ -53,6 +53,11 @@ class CopilotAdapter(AgentAdapterInterface):
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
         self._sessions: dict[str, CopilotSession] = {}
 
+    def _cleanup_session(self, session_id: str) -> None:
+        """Remove session and queue references for a completed/aborted session."""
+        self._sessions.pop(session_id, None)
+        self._queues.pop(session_id, None)
+
     async def create_session(self, config: SessionConfig) -> str:
         from copilot import CopilotClient
 
@@ -82,7 +87,11 @@ class CopilotAdapter(AgentAdapterInterface):
 
         session.on(_on_event)
         # Send initial prompt
-        await session.send({"prompt": config.prompt, "mode": "immediate", "attachments": []})
+        try:
+            await session.send({"prompt": config.prompt, "mode": "immediate", "attachments": []})
+        except Exception:
+            self._cleanup_session(session_id)
+            raise
         log.info("copilot_session_created", session_id=session_id)
         return session_id
 
@@ -92,18 +101,21 @@ class CopilotAdapter(AgentAdapterInterface):
             log.error("copilot_stream_no_queue", session_id=session_id)
             yield SessionEvent(kind=SessionEventKind.error, payload={"message": "No queue for session"})
             return
-        while True:
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=300)
-            except TimeoutError:
-                yield SessionEvent(
-                    kind=SessionEventKind.error,
-                    payload={"message": "Session timed out waiting for events"},
-                )
-                return
-            if event is None:
-                return
-            yield event
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=300)
+                except TimeoutError:
+                    yield SessionEvent(
+                        kind=SessionEventKind.error,
+                        payload={"message": "Session timed out waiting for events"},
+                    )
+                    return
+                if event is None:
+                    return
+                yield event
+        finally:
+            self._cleanup_session(session_id)
 
     async def send_message(self, session_id: str, message: str) -> None:
         session = self._sessions.get(session_id)
@@ -120,3 +132,5 @@ class CopilotAdapter(AgentAdapterInterface):
             await session.abort()
         except Exception:
             log.warning("copilot_abort_failed", session_id=session_id, exc_info=True)
+        finally:
+            self._cleanup_session(session_id)

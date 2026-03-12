@@ -69,6 +69,7 @@ def _job_to_response(job: object) -> JobResponse:
 async def create_job(
     body: CreateJobRequest,
     svc: Annotated[JobService, Depends(_get_job_service)],
+    session: Annotated[AsyncSession, Depends(_get_session)],
     request: Request,
 ) -> CreateJobResponse:
     """Create a new job."""
@@ -82,6 +83,9 @@ async def create_job(
         )
     except RepoNotAllowedError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Commit so the job row is visible to RuntimeService (separate session)
+    await session.commit()
 
     # Hand off to RuntimeService for execution / queueing
     runtime: RuntimeService = request.app.state.runtime_service

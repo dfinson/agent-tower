@@ -367,6 +367,7 @@ class TestJobLifecycle:
     async def test_cancel_queued_job(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: TowerConfig
     ) -> None:
+        """cancel() for a non-running job is a no-op (state change is the API layer's job)."""
         slow_adapter = FakeAgentAdapter(delay=5.0)
         runtime._adapter = slow_adapter
 
@@ -383,7 +384,7 @@ class TestJobLifecycle:
         await runtime.start_or_enqueue(j3)  # queued
         await asyncio.sleep(0.1)
 
-        # Cancel the queued job
+        # cancel() should be a no-op for queued jobs (no task to cancel)
         await runtime.cancel("j3")
         async with session_factory() as session:
             from backend.persistence.job_repo import JobRepository
@@ -391,7 +392,8 @@ class TestJobLifecycle:
             repo = JobRepository(session)
             row = await repo.get("j3")
             assert row is not None
-            assert row.state == JobState.canceled
+            # State remains queued — API layer handles the transition
+            assert row.state == JobState.queued
 
         await runtime.shutdown()
 
@@ -848,3 +850,113 @@ class TestMakeEventId:
     def test_unique(self) -> None:
         ids = {_make_event_id() for _ in range(100)}
         assert len(ids) == 100
+
+
+# ---------------------------------------------------------------------------
+# Red-team: error events should cause job failure, not succeeded
+# ---------------------------------------------------------------------------
+
+
+class ErrorAdapter(AgentAdapterInterface):
+    """Adapter that emits an error event before completing."""
+
+    async def create_session(self, config: SessionConfig) -> str:
+        return "err-session"
+
+    async def stream_events(self, session_id: str) -> AsyncGenerator[SessionEvent, None]:
+        yield SessionEvent(
+            kind=SessionEventKind.log,
+            payload={"level": "info", "message": "Starting"},
+        )
+        yield SessionEvent(
+            kind=SessionEventKind.error,
+            payload={"message": "Something went wrong"},
+        )
+
+    async def send_message(self, session_id: str, message: str) -> None:
+        pass
+
+    async def abort_session(self, session_id: str) -> None:
+        pass
+
+
+class TestErrorEventCausesFailure:
+    async def test_error_event_fails_job(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: TowerConfig,
+    ) -> None:
+        """A job whose adapter emits an error event should end as failed, not succeeded."""
+        error_adapter = ErrorAdapter()
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter=error_adapter,
+            config=config,
+        )
+
+        published: list[DomainEvent] = []
+
+        async def _collect(e: DomainEvent) -> None:
+            published.append(e)
+
+        event_bus.subscribe(_collect)
+
+        job = _make_job(repo=config.repos[0])
+        await _create_db_job(session_factory, job)
+
+        await runtime.start_or_enqueue(job)
+        await asyncio.sleep(0.5)
+
+        # Should have a job_failed event, NOT job_succeeded
+        kinds = [e.kind for e in published]
+        assert DomainEventKind.job_failed in kinds
+        assert DomainEventKind.job_succeeded not in kinds
+
+        # DB state should be failed
+        from backend.models.db import JobRow
+
+        async with session_factory() as session:
+            from sqlalchemy import select
+
+            row = (await session.execute(select(JobRow).where(JobRow.id == job.id))).scalar_one()
+            assert row.state == JobState.failed
+
+
+# ---------------------------------------------------------------------------
+# Red-team: start_or_enqueue uses dequeue lock
+# ---------------------------------------------------------------------------
+
+
+class TestStartOrEnqueueCapacitySafety:
+    async def test_concurrent_start_or_enqueue_respects_capacity(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: TowerConfig,
+    ) -> None:
+        """Multiple concurrent start_or_enqueue calls should not exceed max_concurrent."""
+        slow_adapter = FakeAgentAdapter(delay=5.0)
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter=slow_adapter,
+            config=config,
+        )
+        config.runtime.max_concurrent_jobs = 1
+
+        jobs = []
+        for i in range(3):
+            job = _make_job(job_id=f"race-{i}", repo=config.repos[0])
+            await _create_db_job(session_factory, job)
+            jobs.append(job)
+
+        # Fire all start_or_enqueue calls concurrently
+        await asyncio.gather(*(runtime.start_or_enqueue(j) for j in jobs))
+        await asyncio.sleep(0.1)
+
+        # Should only have 1 running (max_concurrent=1)
+        assert runtime.running_count <= config.runtime.max_concurrent_jobs
+
+        await runtime.shutdown()

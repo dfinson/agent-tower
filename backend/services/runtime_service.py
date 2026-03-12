@@ -148,6 +148,8 @@ class RuntimeService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._strategies: dict[str, ExecutionStrategy] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
+        self._last_activity: dict[str, float] = {}
+        self._session_ids: dict[str, str] = {}
         self._dequeue_lock = asyncio.Lock()
 
     def _make_job_service(self, session: AsyncSession) -> JobService:
@@ -172,18 +174,19 @@ class RuntimeService:
 
     async def start_or_enqueue(self, job: Job) -> None:
         """Start the job if capacity allows, otherwise keep it queued."""
-        if self.running_count >= self.max_concurrent:
-            # Job is already queued from create_job; only transition if needed
-            if job.state != JobState.queued:
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    await svc.transition_state(job.id, JobState.queued)
-                    await session.commit()
-                await self._publish_state_event(job.id, None, JobState.queued)
-            log.info("job_enqueued", job_id=job.id, running=self.running_count)
-            return
+        async with self._dequeue_lock:
+            if self.running_count >= self.max_concurrent:
+                # Job is already queued from create_job; only transition if needed
+                if job.state != JobState.queued:
+                    async with self._session_factory() as session:
+                        svc = self._make_job_service(session)
+                        await svc.transition_state(job.id, JobState.queued)
+                        await session.commit()
+                    await self._publish_state_event(job.id, None, JobState.queued)
+                log.info("job_enqueued", job_id=job.id, running=self.running_count)
+                return
 
-        await self._start_job(job)
+            await self._start_job(job)
 
     async def _start_job(self, job: Job) -> None:
         """Create an asyncio task to execute the job."""
@@ -232,6 +235,9 @@ class RuntimeService:
     ) -> None:
         """Execute a job strategy, translate events, and handle completion."""
         # Start heartbeat
+        import time
+
+        self._last_activity[job_id] = time.monotonic()
         heartbeat_task = asyncio.create_task(
             self._heartbeat_loop(job_id),
             name=f"heartbeat-{job_id}",
@@ -239,13 +245,23 @@ class RuntimeService:
         self._heartbeat_tasks[job_id] = heartbeat_task
 
         session_id: str | None = None
+        error_reason: str | None = None
         try:
             async for session_event in strategy.execute(config, self._adapter):
+                self._last_activity[job_id] = time.monotonic()
                 domain_event = self._translate_event(job_id, session_event)
                 if domain_event is not None:
                     if session_id is None and domain_event.payload.get("session_id"):
                         session_id = domain_event.payload["session_id"]
+                        self._session_ids[job_id] = session_id
+                    if domain_event.kind == DomainEventKind.job_failed:
+                        error_reason = domain_event.payload.get("message", "Agent error")
                     await self._event_bus.publish(domain_event)
+
+            if error_reason:
+                # An error event was received during execution
+                await self._fail_job(job_id, error_reason)
+                return
 
             # Strategy completed normally → succeeded
             async with self._session_factory() as session:
@@ -296,29 +312,36 @@ class RuntimeService:
             self._heartbeat_tasks.pop(job_id, None)
             self._tasks.pop(job_id, None)
             self._strategies.pop(job_id, None)
+            self._last_activity.pop(job_id, None)
+            self._session_ids.pop(job_id, None)
             # Check if any queued jobs can now start
             await self._dequeue_next()
 
     async def _heartbeat_loop(self, job_id: str) -> None:
-        """Emit periodic heartbeats for a running job."""
-        elapsed = 0.0
+        """Emit periodic heartbeats; timeout based on time since last activity."""
+        import time
+
         try:
             while True:
                 await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
-                elapsed += _HEARTBEAT_INTERVAL_S
 
-                if elapsed >= _HEARTBEAT_TIMEOUT_S:
-                    log.warning("job_heartbeat_timeout", job_id=job_id, elapsed=elapsed)
-                    # Cancel the job task — it will be handled in _run_job
+                last = self._last_activity.get(job_id)
+                if last is None:
+                    return
+                since_last = time.monotonic() - last
+
+                if since_last >= _HEARTBEAT_TIMEOUT_S:
+                    log.warning("job_heartbeat_timeout", job_id=job_id, idle_s=since_last)
+                    await self._fail_job(job_id, "heartbeat_timeout")
                     task = self._tasks.get(job_id)
                     if task:
                         task.cancel()
                     return
 
-                warning = elapsed >= _HEARTBEAT_WARNING_S
-                if warning:
-                    log.warning("job_heartbeat_warning", job_id=job_id, elapsed=elapsed)
+                if since_last >= _HEARTBEAT_WARNING_S:
+                    log.warning("job_heartbeat_warning", job_id=job_id, idle_s=since_last)
 
+                session_id = self._session_ids.get(job_id, "")
                 await self._event_bus.publish(
                     DomainEvent(
                         event_id=_make_event_id(),
@@ -327,7 +350,7 @@ class RuntimeService:
                         kind=DomainEventKind.session_heartbeat,
                         payload={
                             "job_id": job_id,
-                            "session_id": "",
+                            "session_id": session_id,
                             "timestamp": datetime.now(UTC).isoformat(),
                         },
                     )
@@ -336,29 +359,18 @@ class RuntimeService:
             pass
 
     async def cancel(self, job_id: str) -> None:
-        """Cancel a running job by cancelling its asyncio task."""
+        """Cancel a running job by cancelling its asyncio task.
+
+        State transitions for non-running jobs (e.g. queued) are handled
+        by the service layer (JobService.cancel_job). This method only
+        interacts with in-memory runtime tasks.
+        """
         task = self._tasks.get(job_id)
         if task is not None:
             task.cancel()
             log.info("job_cancel_requested", job_id=job_id)
         else:
-            # Job might be queued, not running — just transition state
-            try:
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    await svc.transition_state(job_id, JobState.canceled)
-                    await session.commit()
-                await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=_make_event_id(),
-                        job_id=job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.job_canceled,
-                        payload={"reason": "operator_cancel"},
-                    )
-                )
-            except Exception:
-                log.warning("cancel_queued_job_failed", job_id=job_id, exc_info=True)
+            log.info("job_cancel_no_running_task", job_id=job_id)
 
     async def send_message(self, job_id: str, message: str) -> None:
         """Send a message to a running job's strategy."""
