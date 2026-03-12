@@ -355,6 +355,40 @@ class SSEManager:
             frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
             await conn.send(frame)
 
+            # Mirror handle_event(): approval events emit a derived
+            # job_state_changed frame so the client sees the state
+            # transition on reconnect.  Reuse the same SSE id so the
+            # replay cursor does not advance beyond the underlying event.
+            if event.kind == DomainEventKind.approval_requested:
+                derived_payload = JobStateChangedPayload(
+                    job_id=event.job_id,
+                    previous_state=event.payload.get("previous_state"),
+                    new_state="waiting_for_approval",
+                    timestamp=event.timestamp,
+                )
+                await conn.send(
+                    _format_sse(
+                        sse_id,
+                        "job_state_changed",
+                        derived_payload.model_dump_json(by_alias=True),
+                    )
+                )
+            elif event.kind == DomainEventKind.approval_resolved:
+                new_state = "running" if event.payload.get("resolution") == "approved" else "failed"
+                derived_payload = JobStateChangedPayload(
+                    job_id=event.job_id,
+                    previous_state="waiting_for_approval",
+                    new_state=new_state,
+                    timestamp=event.timestamp,
+                )
+                await conn.send(
+                    _format_sse(
+                        sse_id,
+                        "job_state_changed",
+                        derived_payload.model_dump_json(by_alias=True),
+                    )
+                )
+
     async def close_all(self) -> None:
         """Close all connections (used during shutdown)."""
         for conn in list(self._connections):

@@ -34,6 +34,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Event infrastructure ---
     event_bus = EventBus()
     sse_manager = SSEManager()
+    # TODO(Phase 5+): wire sse_manager.set_active_job_count() from
+    # JobService state-transition callbacks so selective streaming
+    # activates when >20 jobs are running concurrently.
 
     # Persist-then-broadcast subscriber: ensures event.db_id is set
     # (monotonic autoincrement) before SSE frames are built.

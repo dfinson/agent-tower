@@ -35,6 +35,10 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
 
     function connect() {
       if (disposed) return;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       es?.close();
       es = null;
       connectRef.current = connect;
@@ -94,11 +98,15 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
 
         setConnectionStatus("reconnecting");
 
+        if (reconnectTimer) clearTimeout(reconnectTimer);
         const delay = Math.min(
           INITIAL_DELAY_MS * BACKOFF_MULTIPLIER ** (attemptRef.current - 1),
           MAX_DELAY_MS
         );
-        reconnectTimer = setTimeout(connect, delay + jitter());
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, delay + jitter());
       };
     }
 

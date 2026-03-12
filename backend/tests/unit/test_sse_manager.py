@@ -713,3 +713,75 @@ class TestBuildSSEDataAllTypes:
         result = _build_sse_data(event, "unknown_type")
         parsed = json.loads(result)
         assert parsed["custom"] == "data"
+
+
+class TestReplayDerivedFrames:
+    """Replay must emit derived job_state_changed frames for approval events."""
+
+    @pytest.mark.asyncio
+    async def test_replay_approval_requested_emits_derived_frame(self) -> None:
+        mgr = SSEManager()
+        conn = SSEConnection()
+        mgr.register(conn)
+
+        now = datetime.now(UTC)
+        events = [
+            DomainEvent(
+                event_id="evt-1",
+                job_id="job-1",
+                timestamp=now,
+                kind=DomainEventKind.approval_requested,
+                payload={"approval_id": "apr-1", "description": "ok?"},
+                db_id=10,
+            ),
+        ]
+        event_repo = AsyncMock()
+        event_repo.list_after.return_value = events
+        job_repo = AsyncMock()
+
+        await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
+
+        frames: list[str] = []
+        while not conn.queue.empty():
+            frames.append(conn.queue.get_nowait())
+
+        assert len(frames) == 2
+        assert "event: approval_requested" in frames[0]
+        assert "event: job_state_changed" in frames[1]
+        assert "waiting_for_approval" in frames[1]
+        # Derived frame reuses the same SSE id (no cursor advancement)
+        assert "id: 10\n" in frames[1]
+
+    @pytest.mark.asyncio
+    async def test_replay_approval_resolved_emits_derived_frame(self) -> None:
+        mgr = SSEManager()
+        conn = SSEConnection()
+        mgr.register(conn)
+
+        now = datetime.now(UTC)
+        events = [
+            DomainEvent(
+                event_id="evt-2",
+                job_id="job-1",
+                timestamp=now,
+                kind=DomainEventKind.approval_resolved,
+                payload={"approval_id": "apr-1", "resolution": "rejected"},
+                db_id=20,
+            ),
+        ]
+        event_repo = AsyncMock()
+        event_repo.list_after.return_value = events
+        job_repo = AsyncMock()
+
+        await mgr.replay_events(conn, event_repo, job_repo, last_event_id=0)
+
+        frames: list[str] = []
+        while not conn.queue.empty():
+            frames.append(conn.queue.get_nowait())
+
+        assert len(frames) == 2
+        assert "event: approval_resolved" in frames[0]
+        assert "event: job_state_changed" in frames[1]
+        # rejected → failed
+        assert '"failed"' in frames[1] or "failed" in frames[1]
+        assert "id: 20\n" in frames[1]
