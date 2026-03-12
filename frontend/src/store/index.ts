@@ -154,7 +154,7 @@ export const useTowerStore = create<TowerState>((set) => ({
             jobId: payload.jobId as string,
             description: payload.description as string,
             proposedAction: (payload.proposedAction as string | null) ?? null,
-            requestedAt: payload.timestamp as string,
+            requestedAt: (payload.timestamp as string) ?? new Date().toISOString(),
             resolvedAt: null,
             resolution: null,
           };

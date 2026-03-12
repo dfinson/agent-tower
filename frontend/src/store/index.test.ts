@@ -161,6 +161,22 @@ describe("TowerStore", () => {
       const approvals = selectApprovals(useTowerStore.getState());
       expect(approvals["apr-1"]).toBeDefined();
       expect(approvals["apr-1"]!.description).toBe("Delete file?");
+      expect(approvals["apr-1"]!.requestedAt).toBe("2025-01-01T00:00:00Z");
+    });
+
+    it("approval_requested falls back to now when timestamp missing", () => {
+      useTowerStore.getState().dispatchSSEEvent("approval_requested", {
+        approvalId: "apr-2",
+        jobId: "job-1",
+        description: "No timestamp",
+        proposedAction: null,
+      });
+
+      const approvals = selectApprovals(useTowerStore.getState());
+      expect(approvals["apr-2"]).toBeDefined();
+      // requestedAt should be a valid ISO string, not undefined
+      expect(approvals["apr-2"]!.requestedAt).toBeDefined();
+      expect(new Date(approvals["apr-2"]!.requestedAt).getTime()).not.toBeNaN();
     });
 
     it("handles approval_resolved", () => {

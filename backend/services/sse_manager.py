@@ -46,6 +46,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
 
 # State implied by each domain event kind (for job_state_changed payloads)
 _KIND_TO_STATE: dict[DomainEventKind, str] = {
+    DomainEventKind.job_created: "running",
     DomainEventKind.job_succeeded: "succeeded",
     DomainEventKind.job_failed: "failed",
     DomainEventKind.job_canceled: "canceled",
@@ -141,6 +142,7 @@ def _build_sse_data(event: DomainEvent, sse_type: str) -> str:
             approval_id=event.payload.get("approval_id", ""),
             description=event.payload.get("description", ""),
             proposed_action=event.payload.get("proposed_action"),
+            timestamp=event.payload.get("timestamp", event.timestamp),
         ).model_dump_json(by_alias=True)
 
     if sse_type == "approval_resolved":
@@ -233,9 +235,8 @@ class SSEManager:
                 new_state="waiting_for_approval",
                 timestamp=event.timestamp,
             )
-            secondary_id = f"{sse_id}-state" if event.db_id is not None else None
             state_frame = _format_sse(
-                secondary_id,
+                None,
                 "job_state_changed",
                 state_payload.model_dump_json(by_alias=True),
             )

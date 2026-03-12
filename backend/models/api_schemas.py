@@ -262,6 +262,7 @@ class ApprovalRequestedPayload(CamelModel):
     approval_id: str
     description: str
     proposed_action: str | None = None
+    timestamp: datetime
 
 
 class ApprovalResolvedPayload(CamelModel):

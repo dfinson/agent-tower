@@ -96,6 +96,12 @@ class TestBuildSSEData:
         assert parsed["newState"] == "succeeded"
         assert "jobId" in parsed
 
+    def test_job_created_maps_to_running(self) -> None:
+        event = _make_event(kind=DomainEventKind.job_created)
+        result = _build_sse_data(event, "job_state_changed")
+        parsed = json.loads(result)
+        assert parsed["newState"] == "running"
+
 
 # --- SSEConnection tests ---
 
@@ -271,6 +277,8 @@ class TestSSEManager:
         assert "event: approval_requested" in frames[0]
         assert "event: job_state_changed" in frames[1]
         assert "waiting_for_approval" in frames[1]
+        # Secondary frame must not carry an id: line (would break replay)
+        assert "id:" not in frames[1]
 
     @pytest.mark.asyncio
     async def test_approval_resolved_approved_emits_running(self) -> None:

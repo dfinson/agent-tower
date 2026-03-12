@@ -6,7 +6,7 @@
  * does not support custom request headers).
  */
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTowerStore } from "../store";
 
 /** Reconnection parameters per SPEC §3.5 */
@@ -20,9 +20,10 @@ function jitter(): number {
   return Math.round((Math.random() - 0.5) * 2 * JITTER_MS);
 }
 
-export function useSSE(jobId?: string): void {
+export function useSSE(jobId?: string): { reconnect: () => void } {
   const lastEventIdRef = useRef<string | null>(null);
   const attemptRef = useRef(0);
+  const connectRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -34,6 +35,7 @@ export function useSSE(jobId?: string): void {
 
     function connect() {
       if (disposed) return;
+      connectRef.current = connect;
 
       let url = "/api/events";
       const params = new URLSearchParams();
@@ -102,8 +104,17 @@ export function useSSE(jobId?: string): void {
 
     return () => {
       disposed = true;
+      connectRef.current = null;
       es?.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, [jobId]);
+
+  const reconnect = useCallback(() => {
+    attemptRef.current = 0;
+    useTowerStore.getState().setConnectionStatus("reconnecting");
+    connectRef.current?.();
+  }, []);
+
+  return { reconnect };
 }
