@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTowerStore, selectJobs } from "../store";
 import type { JobSummary } from "../store";
@@ -9,6 +9,12 @@ import { TranscriptPanel } from "./TranscriptPanel";
 import { LogsPanel } from "./LogsPanel";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 
+const DiffViewer = lazy(() => import("./DiffViewer"));
+const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
+const ArtifactViewer = lazy(() => import("./ArtifactViewer"));
+
+type DetailTab = "live" | "diff" | "workspace" | "artifacts";
+
 export function JobDetailScreen() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
@@ -16,6 +22,7 @@ export function JobDetailScreen() {
   const job: JobSummary | undefined = jobId ? jobs[jobId] : undefined;
   const [loading, setLoading] = useState(!job);
   const [actionLoading, setActionLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<DetailTab>("live");
 
   // Job-scoped SSE connection for full event streaming
   useSSE(jobId);
@@ -174,11 +181,55 @@ export function JobDetailScreen() {
         <div className="job-meta__prompt">{job.prompt}</div>
       </div>
 
-      <div className="panels">
-        <TranscriptPanel jobId={jobId} />
-        <LogsPanel jobId={jobId} />
-        <ExecutionTimeline jobId={jobId} />
+      <div className="job-detail__tabs">
+        <button
+          className={`job-detail__tab ${activeTab === "live" ? "job-detail__tab--active" : ""}`}
+          onClick={() => setActiveTab("live")}
+        >
+          Live
+        </button>
+        <button
+          className={`job-detail__tab ${activeTab === "diff" ? "job-detail__tab--active" : ""}`}
+          onClick={() => setActiveTab("diff")}
+        >
+          Diff
+        </button>
+        <button
+          className={`job-detail__tab ${activeTab === "workspace" ? "job-detail__tab--active" : ""}`}
+          onClick={() => setActiveTab("workspace")}
+        >
+          Workspace
+        </button>
+        <button
+          className={`job-detail__tab ${activeTab === "artifacts" ? "job-detail__tab--active" : ""}`}
+          onClick={() => setActiveTab("artifacts")}
+        >
+          Artifacts
+        </button>
       </div>
+
+      {activeTab === "live" && (
+        <div className="panels">
+          <TranscriptPanel jobId={jobId} />
+          <LogsPanel jobId={jobId} />
+          <ExecutionTimeline jobId={jobId} />
+        </div>
+      )}
+      {activeTab === "diff" && (
+        <Suspense fallback={<div className="empty-state"><div className="empty-state__text">Loading…</div></div>}>
+          <DiffViewer jobId={jobId} />
+        </Suspense>
+      )}
+      {activeTab === "workspace" && (
+        <Suspense fallback={<div className="empty-state"><div className="empty-state__text">Loading…</div></div>}>
+          <WorkspaceBrowser jobId={jobId} />
+        </Suspense>
+      )}
+      {activeTab === "artifacts" && (
+        <Suspense fallback={<div className="empty-state"><div className="empty-state__text">Loading…</div></div>}>
+          <ArtifactViewer jobId={jobId} />
+        </Suspense>
+      )}
     </div>
   );
 }

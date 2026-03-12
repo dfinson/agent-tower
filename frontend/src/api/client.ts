@@ -6,6 +6,7 @@
  */
 
 import type {
+  ArtifactListResponse,
   CreateJobRequest,
   CreateJobResponse,
   GlobalConfigResponse,
@@ -13,6 +14,7 @@ import type {
   Job,
   JobListResponse,
   RepoListResponse,
+  WorkspaceListResponse,
 } from "./types";
 
 const BASE = "/api";
@@ -28,10 +30,14 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (init?.body) {
+    headers["Content-Type"] = "application/json";
+  }
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...headers,
       ...init?.headers,
     },
   });
@@ -121,6 +127,38 @@ export function updateGlobalConfig(configYaml: string): Promise<GlobalConfigResp
 
 export function cleanupWorktrees(): Promise<{ removed: number }> {
   return request("/settings/cleanup-worktrees", { method: "POST" });
+}
+
+// --- Artifacts ---
+
+export function fetchArtifacts(jobId: string): Promise<ArtifactListResponse> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/artifacts`);
+}
+
+export function downloadArtifactUrl(artifactId: string): string {
+  return `${BASE}/artifacts/${encodeURIComponent(artifactId)}`;
+}
+
+// --- Workspace ---
+
+export function fetchWorkspaceFiles(
+  jobId: string,
+  params?: { path?: string; cursor?: string; limit?: number },
+): Promise<WorkspaceListResponse> {
+  const qs = new URLSearchParams();
+  if (params?.path) qs.set("path", params.path);
+  if (params?.cursor) qs.set("cursor", params.cursor);
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const query = qs.toString();
+  return request(`/jobs/${encodeURIComponent(jobId)}/workspace${query ? `?${query}` : ""}`);
+}
+
+export function fetchWorkspaceFile(
+  jobId: string,
+  path: string,
+): Promise<{ path: string; content: string }> {
+  const qs = new URLSearchParams({ path });
+  return request(`/jobs/${encodeURIComponent(jobId)}/workspace/file?${qs.toString()}`);
 }
 
 export { ApiError };

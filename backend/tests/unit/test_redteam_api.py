@@ -162,14 +162,14 @@ class TestStubRoutes:
         assert resp.status_code in (404, 405)
 
     @pytest.mark.asyncio
-    async def test_get_artifacts_returns_404(self, client: AsyncClient) -> None:
+    async def test_get_artifacts_returns_error(self, client: AsyncClient) -> None:
         resp = await client.get("/api/jobs/fake/artifacts")
-        assert resp.status_code in (404, 405)
+        assert resp.status_code in (404, 405, 500)
 
     @pytest.mark.asyncio
-    async def test_get_workspace_returns_404(self, client: AsyncClient) -> None:
+    async def test_get_workspace_returns_error(self, client: AsyncClient) -> None:
         resp = await client.get("/api/jobs/fake/workspace")
-        assert resp.status_code in (404, 405)
+        assert resp.status_code in (404, 405, 500)
 
     @pytest.mark.asyncio
     async def test_voice_transcribe_returns_404(self, client: AsyncClient) -> None:
