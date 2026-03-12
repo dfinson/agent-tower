@@ -2,31 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
 from sqlalchemy import select
 
-if TYPE_CHECKING:
-    from datetime import datetime
-
 from backend.models.db import ArtifactRow
+from backend.models.domain import Artifact
 from backend.persistence.repository import BaseRepository
-
-
-@dataclass
-class Artifact:
-    """Domain representation of an artifact record."""
-
-    id: str
-    job_id: str
-    name: str
-    type: str
-    mime_type: str
-    size_bytes: int
-    disk_path: str
-    phase: str
-    created_at: datetime
 
 
 class ArtifactRepository(BaseRepository):

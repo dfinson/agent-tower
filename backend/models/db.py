@@ -32,7 +32,7 @@ class EventRow(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     event_id = Column(String, nullable=False, unique=True)
-    job_id = Column(String, ForeignKey("jobs.id"), nullable=False, index=True)
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
     kind = Column(String, nullable=False)
     timestamp = Column(DateTime, nullable=False)
     payload = Column(Text, nullable=False)  # JSON
@@ -70,7 +70,7 @@ class DiffSnapshotRow(Base):
     __tablename__ = "diff_snapshots"
 
     id = Column(String, primary_key=True)
-    job_id = Column(String, ForeignKey("jobs.id"), nullable=False, index=True)
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
     snapshot_at = Column(DateTime, nullable=False)
     diff_json = Column(Text, nullable=False)  # JSON
 

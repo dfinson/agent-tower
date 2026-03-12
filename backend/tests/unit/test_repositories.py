@@ -12,9 +12,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 from backend.models.db import Base
-from backend.models.domain import Job
+from backend.models.domain import Artifact, Job
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.persistence.artifact_repo import Artifact, ArtifactRepository
+from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.job_repo import JobRepository
 

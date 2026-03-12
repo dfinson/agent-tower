@@ -20,7 +20,7 @@ class EventRepository(BaseRepository):
             event_id=row.event_id,  # type: ignore[arg-type]
             job_id=row.job_id,  # type: ignore[arg-type]
             timestamp=row.timestamp,  # type: ignore[arg-type]
-            kind=DomainEventKind(row.kind),
+            kind=DomainEventKind(row.kind),  # type: ignore[arg-type]
             payload=json.loads(row.payload),  # type: ignore[arg-type]
         )
 

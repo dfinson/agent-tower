@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datetime import datetime
 
 
-class SessionEventKind(str, Enum):
+class SessionEventKind(StrEnum):
     log = "log"
     transcript = "transcript"
     file_changed = "file_changed"
@@ -54,3 +54,18 @@ class Job:
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
+
+
+@dataclass
+class Artifact:
+    """Domain representation of an artifact record."""
+
+    id: str
+    job_id: str
+    name: str
+    type: str
+    mime_type: str
+    size_bytes: int
+    disk_path: str
+    phase: str
+    created_at: datetime
