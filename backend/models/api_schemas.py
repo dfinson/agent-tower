@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from enum import Enum
+from datetime import datetime  # noqa: TC003 — Pydantic resolves annotations at runtime
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
@@ -18,11 +18,11 @@ class CamelModel(BaseModel):
 # --- Enums ---
 
 
-class StrategyKind(str, Enum):
+class StrategyKind(StrEnum):
     single_agent = "single_agent"
 
 
-class JobState(str, Enum):
+class JobState(StrEnum):
     queued = "queued"
     running = "running"
     waiting_for_approval = "waiting_for_approval"
@@ -31,52 +31,52 @@ class JobState(str, Enum):
     canceled = "canceled"
 
 
-class ApprovalResolution(str, Enum):
+class ApprovalResolution(StrEnum):
     approved = "approved"
     rejected = "rejected"
 
 
-class ArtifactType(str, Enum):
+class ArtifactType(StrEnum):
     diff_snapshot = "diff_snapshot"
     agent_summary = "agent_summary"
     custom = "custom"
 
 
-class ExecutionPhase(str, Enum):
+class ExecutionPhase(StrEnum):
     environment_setup = "environment_setup"
     agent_reasoning = "agent_reasoning"
     finalization = "finalization"
     post_completion = "post_completion"
 
 
-class LogLevel(str, Enum):
+class LogLevel(StrEnum):
     debug = "debug"
     info = "info"
     warn = "warn"
     error = "error"
 
 
-class HealthStatus(str, Enum):
+class HealthStatus(StrEnum):
     healthy = "healthy"
 
 
-class WorkspaceEntryType(str, Enum):
+class WorkspaceEntryType(StrEnum):
     file = "file"
     directory = "directory"
 
 
-class TranscriptRole(str, Enum):
+class TranscriptRole(StrEnum):
     agent = "agent"
     operator = "operator"
 
 
-class DiffLineType(str, Enum):
+class DiffLineType(StrEnum):
     context = "context"
     addition = "addition"
     deletion = "deletion"
 
 
-class DiffFileStatus(str, Enum):
+class DiffFileStatus(StrEnum):
     added = "added"
     modified = "modified"
     deleted = "deleted"
@@ -112,8 +112,8 @@ class UpdateGlobalConfigRequest(BaseModel):
 class CreateJobResponse(CamelModel):
     id: str
     state: str
-    branch: str
-    worktree_path: str
+    branch: str | None = None
+    worktree_path: str | None = None
     created_at: datetime
 
 
