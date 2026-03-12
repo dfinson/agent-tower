@@ -14,7 +14,9 @@ from backend.api import approvals, artifacts, events, health, jobs, settings, vo
 from backend.config import init_config, load_config
 from backend.persistence.database import create_engine, create_session_factory, run_migrations
 from backend.persistence.event_repo import EventRepository
+from backend.services.agent_adapter import CopilotAdapter
 from backend.services.event_bus import EventBus
+from backend.services.runtime_service import RuntimeService
 from backend.services.sse_manager import SSEManager
 
 if TYPE_CHECKING:
@@ -49,9 +51,24 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus.subscribe(_persist_and_broadcast)
 
+    # --- Runtime service ---
+    config = load_config()
+    adapter = CopilotAdapter()
+
+    runtime_service = RuntimeService(
+        session_factory=session_factory,
+        event_bus=event_bus,
+        adapter=adapter,
+        config=config,
+    )
+
+    # Recover orphaned jobs from a previous crash
+    await runtime_service.recover_on_startup()
+
     # Store on app.state for access from route handlers
     app.state.event_bus = event_bus
     app.state.sse_manager = sse_manager
+    app.state.runtime_service = runtime_service
 
     # Session factory available for route handlers that need ad-hoc sessions
     app.state.session_factory = session_factory
@@ -67,6 +84,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     app.dependency_overrides[jobs._get_session] = _session_dep
     yield
+    await runtime_service.shutdown()
     await sse_manager.close_all()
     app.dependency_overrides.clear()
     await engine.dispose()

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
 from backend.config import TowerConfig, load_config
@@ -17,6 +17,9 @@ from backend.models.api_schemas import (
 from backend.persistence.job_repo import JobRepository
 from backend.services.git_service import GitService
 from backend.services.job_service import JobNotFoundError, JobService, RepoNotAllowedError, StateConflictError
+
+if TYPE_CHECKING:
+    from backend.services.runtime_service import RuntimeService
 
 router = APIRouter(tags=["jobs"])
 
@@ -66,6 +69,8 @@ def _job_to_response(job: object) -> JobResponse:
 async def create_job(
     body: CreateJobRequest,
     svc: Annotated[JobService, Depends(_get_job_service)],
+    session: Annotated[AsyncSession, Depends(_get_session)],
+    request: Request,
 ) -> CreateJobResponse:
     """Create a new job."""
     try:
@@ -78,6 +83,17 @@ async def create_job(
         )
     except RepoNotAllowedError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Commit so the job row is visible to RuntimeService (separate session)
+    await session.commit()
+
+    # Hand off to RuntimeService for execution / queueing
+    runtime: RuntimeService = request.app.state.runtime_service
+    await runtime.start_or_enqueue(job)
+
+    # Re-fetch to get updated state (may have been enqueued)
+    job = await svc.get_job(job.id)
+
     return CreateJobResponse(
         id=job.id,
         state=job.state,
@@ -124,6 +140,7 @@ async def get_job(
 async def cancel_job(
     job_id: str,
     svc: Annotated[JobService, Depends(_get_job_service)],
+    request: Request,
 ) -> JobResponse:
     """Cancel a running or queued job."""
     try:
@@ -132,6 +149,11 @@ async def cancel_job(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except StateConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # Also cancel the runtime task if running
+    runtime: RuntimeService = request.app.state.runtime_service
+    await runtime.cancel(job_id)
+
     return _job_to_response(job)
 
 
