@@ -57,3 +57,12 @@ class SingleAgentExecutor(ExecutionStrategy):
     async def abort(self) -> None:
         if self._adapter and self._session_id:
             await self._adapter.abort_session(self._session_id)
+
+
+# --- Strategy Registry ---
+
+from backend.models.api_schemas import StrategyKind  # noqa: E402
+
+STRATEGY_REGISTRY: dict[StrategyKind, type[ExecutionStrategy]] = {
+    StrategyKind.single_agent: SingleAgentExecutor,
+}

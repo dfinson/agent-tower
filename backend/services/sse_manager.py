@@ -41,6 +41,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.job_succeeded: "job_state_changed",
     DomainEventKind.job_failed: "job_state_changed",
     DomainEventKind.job_canceled: "job_state_changed",
+    DomainEventKind.job_state_changed: "job_state_changed",
     DomainEventKind.session_heartbeat: "session_heartbeat",
 }
 

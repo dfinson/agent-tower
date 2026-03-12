@@ -133,9 +133,9 @@ class JobService:
             log.error("job_worktree_failed", job_id=job_id, error=str(exc))
             return job
 
-        # Initial state — queuing logic will be added in Phase 4 (RuntimeService)
-        # to respect max_concurrent_jobs from config.
-        initial_state = JobState.running
+        # Job starts as queued; RuntimeService.start_or_enqueue() transitions
+        # to running immediately when capacity allows, or keeps it queued.
+        initial_state = JobState.queued
 
         job = Job(
             id=job_id,
