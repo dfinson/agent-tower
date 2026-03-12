@@ -23,10 +23,12 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 
 ## Phase 2: Git & Job CRUD
 
-> Worktree management, job creation, state machine.
+> Worktree management, repository registration, job creation, state machine.
 
 - [ ] `GitService` — worktree creation (main vs secondary), branch creation, cleanup
 - [ ] Worktree creation error handling (catch failures, transition job to failed)
+- [ ] Repository registration — add local repos by path, clone remote repos by URL via `git` subprocess
+- [ ] Repository registration API (`POST /api/settings/repos`, `DELETE /api/settings/repos/{repo_path}`)
 - [ ] Job CRUD API (`POST /api/jobs`, `GET /api/jobs`, `GET /api/jobs/{id}`)
 - [ ] Job state machine (all transitions from §12.2)
 - [ ] Repository allowlist validation
@@ -85,6 +87,7 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 - [ ] Job Detail — logs panel (virtualized, level filtering)
 - [ ] Job Detail — execution timeline (grouped by phase)
 - [ ] Job Creation screen — repo selector, prompt input, advanced options
+- [ ] Repository Detail view — resolved MCP/tool config table (local/global/disabled), repo config, active + recent jobs
 
 ---
 
@@ -140,7 +143,7 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 - [ ] Graceful shutdown (SIGTERM/SIGINT handler, cancel running jobs, close SSE)
 - [ ] Restart recovery (transition orphaned running/waiting jobs to failed)
 - [ ] Retention policy — artifact cleanup, worktree cleanup, daily background task
-- [ ] Settings API (`GET/PUT /api/settings/global`, `GET /api/settings/repos`)
+- [ ] Settings API (`GET/PUT /api/settings/global`, `GET /api/settings/repos`, `GET /api/settings/repos/{repo_path}`)
 - [ ] Settings screen (global config editor, repo config list, cleanup action)
 - [ ] Dev Tunnel integration (`tower up --tunnel`)
 - [ ] Dynamic CORS for tunnel origin
