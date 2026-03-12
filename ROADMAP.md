@@ -161,6 +161,24 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 - [ ] Virtualized rendering for logs and transcript panels (`@tanstack/react-virtual`)
 - [ ] Memoized Kanban column selectors (prevent full-board re-renders)
 - [ ] Large diff lazy loading in Monaco
+
+---
+
+## Phase 11: MCP Orchestration Server
+
+> Expose Tower's full functionality as an MCP server so external agents can use it as an orchestration layer.
+
+- [ ] MCP server transport — Streamable HTTP on `/mcp`, mounted in FastAPI app
+- [ ] MCP tool handlers for Job management (`tower_job_create`, `tower_job_list`, `tower_job_get`, `tower_job_cancel`, `tower_job_rerun`, `tower_job_message`)
+- [ ] MCP tool handlers for Approvals (`tower_approval_list`, `tower_approval_resolve`)
+- [ ] MCP tool handlers for Workspace & Artifacts (`tower_workspace_list`, `tower_workspace_read`, `tower_artifact_list`, `tower_artifact_get`)
+- [ ] MCP tool handlers for Configuration (`tower_settings_get`, `tower_settings_update`, `tower_repo_list`, `tower_repo_get`, `tower_repo_register`, `tower_repo_remove`)
+- [ ] MCP tool handlers for Observability (`tower_health`, `tower_cleanup_worktrees`)
+- [ ] Server-to-client notifications via event bus subscription (`tower/job_state_changed`, `tower/approval_requested`, `tower/job_completed`, `tower/agent_message`)
+- [ ] Schema derivation from existing Pydantic models
+- [ ] MCP server configuration (`mcp_server.enabled`, `mcp_server.path`)
+- [ ] Dev Tunnel authentication for remote MCP connections
+- [ ] Integration tests for MCP tool calls end-to-end
 - [ ] Comprehensive unit tests (state machine, diff parser, config, approval logic)
 - [ ] Integration tests (git service, concurrent jobs, approval flow, SSE replay, restart recovery)
 - [ ] End-to-end tests (Playwright)
