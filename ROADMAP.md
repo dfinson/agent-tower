@@ -23,10 +23,12 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 
 ## Phase 2: Git & Job CRUD
 
-> Worktree management, job creation, state machine.
+> Worktree management, repository registration, job creation, state machine.
 
 - [ ] `GitService` — worktree creation (main vs secondary), branch creation, cleanup
 - [ ] Worktree creation error handling (catch failures, transition job to failed)
+- [ ] Repository registration — add local repos by path, clone remote repos by URL via `git` subprocess
+- [ ] Repository registration API (`POST /api/settings/repos`, `DELETE /api/settings/repos/{repo_path}`)
 - [ ] Job CRUD API (`POST /api/jobs`, `GET /api/jobs`, `GET /api/jobs/{id}`)
 - [ ] Job state machine (all transitions from §12.2)
 - [ ] Repository allowlist validation

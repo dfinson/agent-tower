@@ -186,6 +186,9 @@ App
 │   │   ├── VoiceInputButton
 │   │   └── AdvancedOptions
 │   └── SettingsScreen
+│       ├── RepoManager
+│       │   ├── AddRepoForm
+│       │   └── RepoList
 │       ├── GlobalConfigEditor
 │       └── RepoConfigList
 └── SSEProvider (global)
@@ -1033,6 +1036,49 @@ This is a best-effort operation — if PR creation fails (e.g., no remote config
 
 Completed branches are **not** auto-deleted after merge. The branch remains on disk until the operator explicitly cleans it up or the retention policy removes the worktree.
 
+### 8.8 Repository Registration
+
+Operators manage the set of repositories Tower can work with through the web UI or by editing the global config directly.
+
+#### Adding a Local Repository
+
+The operator provides an absolute path on the developer machine (e.g. `/repos/service-a`). The backend validates that:
+
+1. The path exists and is a directory
+2. The directory is a valid Git repository (contains `.git`)
+3. The path is not already registered
+
+On success the path is appended to the `repos` list in the global config and persisted.
+
+#### Adding a Remote Repository
+
+The operator provides a remote URL (HTTPS or SSH) — for example `https://github.com/org/repo.git`. The backend:
+
+1. Resolves a local clone directory under a configurable `repos_base_dir` (default: `~/tower-repos`). The directory name is derived from the URL (e.g. `org/repo`)
+2. Runs `git clone <url> <target_dir>` via subprocess
+3. Authentication relies entirely on the machine's existing Git credential configuration (SSH keys, credential helpers, `.netrc`, etc.). Tower never stores or prompts for credentials
+4. On success the cloned path is appended to the global config `repos` list
+5. On failure (auth error, network issue, invalid URL) a descriptive error is returned — the `repos` list is not modified
+
+#### Removal
+
+Operators can remove a repository from the `repos` list. This only removes the config entry — it does **not** delete the directory from disk. Active jobs targeting the removed repo continue to completion.
+
+#### Configuration
+
+Registered repositories are stored in the global config:
+
+```yaml
+repos_base_dir: ~/tower-repos    # clone target for remote repos
+
+repos:
+  - /repos/service-a             # local path
+  - /repos/service-b
+  - ~/tower-repos/org/repo        # previously cloned from remote
+```
+
+Glob patterns remain supported for static discovery, but explicitly registered repos always appear in the allowlist regardless of glob expansion.
+
 ---
 
 ## 9. Voice Input and Transcription
@@ -1202,6 +1248,8 @@ logging:
 
 rate_limits:
   max_sse_connections: 5             # Maximum concurrent SSE connections
+
+repos_base_dir: ~/tower-repos    # target directory for cloned remote repos
 
 repos:
   - /repos/service-a
@@ -1498,6 +1546,7 @@ Fields:
 
 Sections:
 
+- **Repository management** — Add repositories from local disk (browse/type path) or from a remote hub (paste URL). List of registered repos with remove action. Clone progress indicator for remote repos
 - Global config viewer/editor (YAML text editor with validation)
 - Repository config list (per-repo `.tower.yml` viewer)
 - Worktree cleanup action
@@ -1809,7 +1858,36 @@ POST /api/approvals/{approval_id}/resolve
 | `GET` | `/api/settings/global` | Get current global config |
 | `PUT` | `/api/settings/global` | Update global config |
 | `GET` | `/api/settings/repos` | List repo configs |
+| `POST` | `/api/settings/repos` | Register a repository (local path or remote URL) |
+| `DELETE` | `/api/settings/repos/{repo_path}` | Remove a repository from the allowlist |
 | `POST` | `/api/settings/cleanup-worktrees` | Clean up completed job worktrees |
+
+#### `POST /api/settings/repos` — Register Repository
+
+Request body:
+
+```json
+{
+  "source": "/repos/service-c"
+}
+```
+
+`source` is either an absolute local path or a remote Git URL (HTTPS/SSH). The backend auto-detects the type:
+
+- **Local path** (starts with `/` or `~`): validated as an existing Git repository
+- **Remote URL** (contains `://` or matches `git@`): cloned to `repos_base_dir` via `git clone` subprocess
+
+Response (`201 Created`):
+
+```json
+{
+  "path": "/home/user/tower-repos/org/repo",
+  "source": "https://github.com/org/repo.git",
+  "cloned": true
+}
+```
+
+Errors: `400` if path doesn't exist or isn't a git repo, `409` if already registered, `502` if clone fails (auth/network).
 
 ### 17.9 Connection Limits
 
