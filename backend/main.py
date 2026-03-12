@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator  # noqa: TC003
+
 import click
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
 from backend.api import approvals, artifacts, events, health, jobs, settings, voice, workspace
 from backend.config import init_config, load_config
-from backend.persistence.database import run_migrations
+from backend.persistence.database import create_engine, create_session_factory, run_migrations
 
 
 def create_app(*, dev: bool = False) -> FastAPI:
@@ -24,6 +27,23 @@ def create_app(*, dev: bool = False) -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    # Create database engine and session factory
+    engine = create_engine()
+    session_factory = create_session_factory(engine)
+
+    # Wire the session dependency into the jobs router
+    async def _session_dep() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    # Override the placeholder dependency in jobs module
+    jobs._get_session = _session_dep  # type: ignore[assignment]
 
     app.include_router(health.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
