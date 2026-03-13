@@ -44,7 +44,7 @@ class ApprovalRow(Base):
     __tablename__ = "approvals"
 
     id = Column(String, primary_key=True)
-    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=False, index=True)
     description = Column(Text, nullable=False)
     proposed_action = Column(Text, nullable=True)
     requested_at = Column(DateTime, nullable=False)

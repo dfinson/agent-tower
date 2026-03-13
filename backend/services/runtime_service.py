@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from backend.config import TowerConfig
     from backend.services.agent_adapter import AgentAdapterInterface
+    from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
     from backend.services.execution_strategy import ExecutionStrategy
     from backend.services.job_service import JobService
@@ -140,11 +141,13 @@ class RuntimeService:
         event_bus: EventBus,
         adapter: AgentAdapterInterface,
         config: TowerConfig,
+        approval_service: ApprovalService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
         self._adapter = adapter
         self._config = config
+        self._approval_service = approval_service
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._strategies: dict[str, ExecutionStrategy] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
@@ -256,6 +259,57 @@ class RuntimeService:
                         self._session_ids[job_id] = session_id
                     if domain_event.kind == DomainEventKind.job_failed:
                         error_reason = domain_event.payload.get("message", "Agent error")
+
+                    # Handle approval requests: persist, transition, wait, resume
+                    if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
+                        approval = await self._approval_service.create_request(
+                            job_id=job_id,
+                            description=domain_event.payload.get("description", ""),
+                            proposed_action=domain_event.payload.get("proposed_action"),
+                        )
+                        # Inject approval_id into the event payload
+                        domain_event.payload["approval_id"] = approval.id
+
+                        # Transition to waiting_for_approval
+                        async with self._session_factory() as sess:
+                            svc = self._make_job_service(sess)
+                            await svc.transition_state(job_id, JobState.waiting_for_approval)
+                            await sess.commit()
+
+                        await self._event_bus.publish(domain_event)
+
+                        # Wait for operator resolution
+                        resolution = await self._approval_service.wait_for_resolution(approval.id)
+
+                        # Publish approval_resolved event
+                        await self._event_bus.publish(
+                            DomainEvent(
+                                event_id=_make_event_id(),
+                                job_id=job_id,
+                                timestamp=datetime.now(UTC),
+                                kind=DomainEventKind.approval_resolved,
+                                payload={
+                                    "approval_id": approval.id,
+                                    "resolution": resolution,
+                                    "timestamp": datetime.now(UTC).isoformat(),
+                                },
+                            )
+                        )
+
+                        # Transition back to running
+                        async with self._session_factory() as sess:
+                            svc = self._make_job_service(sess)
+                            await svc.transition_state(job_id, JobState.running)
+                            await sess.commit()
+                        await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
+                        self._last_activity[job_id] = time.monotonic()
+
+                        # If rejected, abort
+                        if resolution == "rejected":
+                            error_reason = "Approval rejected by operator"
+                            break
+                        continue
+
                     await self._event_bus.publish(domain_event)
 
             if error_reason:
@@ -314,6 +368,8 @@ class RuntimeService:
             self._strategies.pop(job_id, None)
             self._last_activity.pop(job_id, None)
             self._session_ids.pop(job_id, None)
+            if self._approval_service is not None:
+                self._approval_service.cleanup_job(job_id)
             # Check if any queued jobs can now start
             await self._dequeue_next()
 
@@ -372,13 +428,14 @@ class RuntimeService:
         else:
             log.info("job_cancel_no_running_task", job_id=job_id)
 
-    async def send_message(self, job_id: str, message: str) -> None:
-        """Send a message to a running job's strategy."""
+    async def send_message(self, job_id: str, message: str) -> bool:
+        """Send a message to a running job's strategy. Returns True if sent."""
         strategy = self._strategies.get(job_id)
         if strategy is None:
             log.warning("send_message_no_strategy", job_id=job_id)
-            return
+            return False
         await strategy.send_message(message)
+        return True
 
     async def _dequeue_next(self) -> None:
         """Start the next queued job if capacity allows."""
