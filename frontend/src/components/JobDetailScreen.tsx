@@ -31,7 +31,13 @@ export function JobDetailScreen() {
 
   // Fetch job details if not in store
   useEffect(() => {
-    if (!jobId || job) {
+    if (!jobId) {
+      setLoading(false);
+      return;
+    }
+    // If already in store, no need to fetch
+    const existing = useTowerStore.getState().jobs[jobId];
+    if (existing) {
       setLoading(false);
       return;
     }
@@ -48,7 +54,7 @@ export function JobDetailScreen() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [jobId, job]);
+  }, [jobId]);
 
   const handleCancel = useCallback(async () => {
     if (!jobId) return;
