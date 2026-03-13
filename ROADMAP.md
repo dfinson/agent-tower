@@ -185,4 +185,4 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 - [x] Integration tests for MCP tool calls end-to-end
 - [x] Comprehensive unit tests (state machine, diff parser, config, approval logic)
 - [x] Integration tests (git service, concurrent jobs, approval flow, SSE replay, restart recovery)
-- [ ] End-to-end tests (Playwright)
+- [x] End-to-end tests (Playwright)
