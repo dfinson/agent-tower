@@ -312,9 +312,9 @@ def _start_tunnel(port: int) -> tuple[str | None, Any]:
         tunnel_url: str | None = None
         if proc.stdout:
             for line in proc.stdout:
-                match = re.search(r"(https://\S+\.devtunnels\.ms\S*)", line)
+                match = re.search(r"(https://\S+\.devtunnels\.ms)", line)
                 if match:
-                    tunnel_url = match.group(1).rstrip("/")
+                    tunnel_url = match.group(1).rstrip("/,")
                     break
         if tunnel_url:
             log.info("tunnel_started", url=tunnel_url)
