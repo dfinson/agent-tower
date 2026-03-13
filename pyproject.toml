@@ -29,6 +29,8 @@ dependencies = [
     "pydantic-settings>=2.0,<3",
     # CLI
     "click>=8.0,<9",
+    # MCP server
+    "mcp>=1.9,<2",
 ]
 
 [project.scripts]
@@ -66,8 +68,12 @@ warn_unused_configs = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["faster_whisper.*", "copilot.*"]
+module = ["faster_whisper.*", "copilot.*", "mcp.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["backend.mcp.server"]
+disable_error_code = ["misc"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]

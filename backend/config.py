@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-TOWER_DIR = Path.home() / ".tower"
+
+def _resolve_tower_dir() -> Path:
+    """Resolve AGENT_TOWER_HOME from env var, falling back to ~/.tower."""
+    env = os.environ.get("AGENT_TOWER_HOME")
+    if env:
+        return Path(env).expanduser().resolve()
+    return Path.home() / ".tower"
+
+
+TOWER_DIR = _resolve_tower_dir()
 DEFAULT_CONFIG_PATH = TOWER_DIR / "config.yaml"
 DEFAULT_DB_PATH = TOWER_DIR / "data.db"
 
@@ -86,6 +96,12 @@ class RateLimitConfig:
 
 
 @dataclass
+class McpServerConfig:
+    enabled: bool = True
+    path: str = "/mcp"
+
+
+@dataclass
 class TowerConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -93,6 +109,7 @@ class TowerConfig:
     retention: RetentionConfig = field(default_factory=RetentionConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     rate_limits: RateLimitConfig = field(default_factory=RateLimitConfig)
+    mcp_server: McpServerConfig = field(default_factory=McpServerConfig)
     repos: list[str] = field(default_factory=list)
     repos_base_dir: str = "~/tower-repos"
 
@@ -125,6 +142,7 @@ def load_config(path: Path | None = None) -> TowerConfig:
         retention=_parse_section(raw, RetentionConfig, "retention"),
         logging=_parse_section(raw, LoggingConfig, "logging"),
         rate_limits=_parse_section(raw, RateLimitConfig, "rate_limits"),
+        mcp_server=_parse_section(raw, McpServerConfig, "mcp_server"),
         repos=[str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else [],
         repos_base_dir=raw.get("repos_base_dir", "~/tower-repos"),
     )
@@ -159,6 +177,10 @@ def save_config(config: TowerConfig, path: Path | None = None) -> None:
         },
         "rate_limits": {
             "max_sse_connections": config.rate_limits.max_sse_connections,
+        },
+        "mcp_server": {
+            "enabled": config.mcp_server.enabled,
+            "path": config.mcp_server.path,
         },
         "repos_base_dir": config.repos_base_dir,
         "repos": config.repos,

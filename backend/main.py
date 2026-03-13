@@ -106,6 +106,19 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Session factory available for route handlers that need ad-hoc sessions
     app.state.session_factory = session_factory
 
+    # --- MCP server ---
+    if config.mcp_server.enabled:
+        from backend.mcp.server import create_mcp_server
+
+        mcp_server = create_mcp_server(
+            session_factory=session_factory,
+            runtime_service=runtime_service,
+            approval_service=approval_service,
+        )
+        app.state.mcp_server = mcp_server
+        app.mount(config.mcp_server.path, mcp_server.streamable_http_app())
+        log.info("mcp_server_mounted", path=config.mcp_server.path)
+
     async def _session_dep() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:
             try:
@@ -280,6 +293,28 @@ def init() -> None:
 def version() -> None:
     """Print Tower version."""
     click.echo("tower 0.1.0")
+
+
+@cli.command()
+def setup() -> None:
+    """Interactive setup wizard — check dependencies, configure data directory, authenticate."""
+    from backend.services.setup_service import run_setup
+
+    run_setup()
+
+
+@cli.command()
+def doctor() -> None:
+    """Quick dependency check (non-interactive)."""
+    from backend.services.setup_service import preflight_check
+
+    click.echo("Checking dependencies...")
+    ok = preflight_check(verbose=True)
+    if ok:
+        click.secho("\nAll required dependencies are present.", fg="green")
+    else:
+        click.secho("\nSome required dependencies are missing. Run 'tower setup' to install.", fg="red")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
