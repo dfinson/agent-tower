@@ -82,26 +82,31 @@ class RetentionService:
             if not rows:
                 return 0
 
-            # Delete files from disk
+            # Delete metadata rows first (orphan files are harmless; orphan rows cause errors)
+            artifact_ids = [str(row.id) for row in rows]
+            await session.execute(delete(ArtifactRow).where(ArtifactRow.id.in_(artifact_ids)))
+            await session.commit()
+
+            # Delete files from disk — only if under the expected artifacts directory
+            artifacts_root = ARTIFACTS_DIR.resolve()
             for row in rows:
-                disk_path = Path(str(row.disk_path))
+                disk_path = Path(str(row.disk_path)).resolve()
+                if not disk_path.is_relative_to(artifacts_root):
+                    log.warning("retention_artifact_path_outside_store", path=str(disk_path))
+                    continue
                 if disk_path.exists():
                     disk_path.unlink(missing_ok=True)
 
             # Delete per-job artifact directories if empty
             job_dirs: set[Path] = set()
             for row in rows:
-                job_dir = Path(str(row.disk_path)).parent
-                job_dirs.add(job_dir)
+                job_dir = Path(str(row.disk_path)).resolve()
+                if job_dir.is_relative_to(artifacts_root):
+                    job_dirs.add(job_dir.parent)
 
             for job_dir in job_dirs:
                 if job_dir.exists() and not any(job_dir.iterdir()):
                     job_dir.rmdir()
-
-            # Delete metadata rows
-            artifact_ids = [str(row.id) for row in rows]
-            await session.execute(delete(ArtifactRow).where(ArtifactRow.id.in_(artifact_ids)))
-            await session.commit()
 
             log.info("retention_artifacts_cleaned", count=len(rows))
             return len(rows)
@@ -144,7 +149,11 @@ class RetentionService:
 
             count = 0
             for row in rows:
-                wt_path = Path(str(row.worktree_path))
+                wt_path = Path(str(row.worktree_path)).resolve()
+                repo_worktrees_dir = (Path(str(row.repo)) / self._worktrees_dirname).resolve()
+                if not str(wt_path).startswith(str(repo_worktrees_dir) + "/"):
+                    log.warning("retention_worktree_outside_dir", path=str(wt_path))
+                    continue
                 if wt_path.exists() and wt_path.is_dir():
                     shutil.rmtree(wt_path, ignore_errors=True)
                     count += 1
