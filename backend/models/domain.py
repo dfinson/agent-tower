@@ -115,6 +115,7 @@ class Job:
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
+    pr_url: str | None = None
 
 
 @dataclass
