@@ -22,6 +22,7 @@ function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-01T00:00:00Z",
     completedAt: null,
+    prUrl: null,
     ...overrides,
   };
 }

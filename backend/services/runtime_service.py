@@ -321,10 +321,18 @@ class RuntimeService:
                 await self._fail_job(job_id, error_reason)
                 return
 
+            # Best-effort PR creation before transitioning to succeeded
+            pr_url = await self._try_create_pr(job_id)
+
             # Strategy completed normally → succeeded
             async with self._session_factory() as session:
                 svc = self._make_job_service(session)
                 await svc.transition_state(job_id, JobState.succeeded)
+                if pr_url:
+                    from backend.persistence.job_repo import JobRepository
+
+                    job_repo = JobRepository(session)
+                    await job_repo.update_pr_url(job_id, pr_url)
                 await session.commit()
             await self._event_bus.publish(
                 DomainEvent(
@@ -332,10 +340,10 @@ class RuntimeService:
                     job_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.job_succeeded,
-                    payload={},
+                    payload={"pr_url": pr_url} if pr_url else {},
                 )
             )
-            log.info("job_succeeded", job_id=job_id)
+            log.info("job_succeeded", job_id=job_id, pr_url=pr_url)
         except asyncio.CancelledError:
             log.info("job_canceled_by_task", job_id=job_id)
             try:
@@ -474,6 +482,69 @@ class RuntimeService:
             )
         except Exception:
             log.error("fail_job_transition_failed", job_id=job_id, exc_info=True)
+
+    async def _try_create_pr(self, job_id: str) -> str | None:
+        """Best-effort PR creation via ``gh pr create``. Returns the PR URL or None."""
+        import re
+        import shutil
+        import subprocess  # noqa: S404
+
+        if shutil.which("gh") is None:
+            log.info("pr_creation_skipped_no_gh", job_id=job_id)
+            return None
+
+        async with self._session_factory() as session:
+            svc = self._make_job_service(session)
+            job = await svc.get_job(job_id)
+
+        if job is None or not job.worktree_path or not job.branch:
+            log.info("pr_creation_skipped_no_worktree", job_id=job_id)
+            return None
+
+        # Validate branch and base_ref to prevent argument injection
+        _ref_pattern = re.compile(r"^[a-zA-Z0-9/_.-]+$")
+        if not _ref_pattern.match(job.branch):
+            log.warning("pr_creation_invalid_branch", job_id=job_id)
+            return None
+        if not _ref_pattern.match(job.base_ref):
+            log.warning("pr_creation_invalid_base_ref", job_id=job_id)
+            return None
+
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,  # noqa: S603
+                [
+                    "gh",
+                    "pr",
+                    "create",
+                    "--title",
+                    f"[Tower] {job.prompt[:80]}",
+                    "--body",
+                    f"Automated PR created by Tower for job `{job_id}`.",
+                    "--head",
+                    job.branch,
+                    "--base",
+                    job.base_ref,
+                    "--",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=job.worktree_path,
+                timeout=60,
+            )
+            if result.returncode == 0:
+                pr_url = result.stdout.strip()
+                log.info("pr_created", job_id=job_id, pr_url=pr_url)
+                return pr_url
+            log.warning(
+                "pr_creation_failed",
+                job_id=job_id,
+                returncode=result.returncode,
+                stderr=result.stderr[:500],
+            )
+        except Exception:
+            log.warning("pr_creation_error", job_id=job_id, exc_info=True)
+        return None
 
     async def _publish_state_event(self, job_id: str, previous_state: str | None, new_state: str) -> None:
         """Publish a job state change event."""

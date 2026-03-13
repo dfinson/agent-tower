@@ -62,6 +62,7 @@ def _job_to_response(job: object) -> JobResponse:
         created_at=j.created_at,
         updated_at=j.updated_at,
         completed_at=j.completed_at,
+        pr_url=j.pr_url,
     )
 
 
