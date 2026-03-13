@@ -118,6 +118,19 @@ class Job:
 
 
 @dataclass
+class Approval:
+    """Domain representation of an approval request."""
+
+    id: str
+    job_id: str
+    description: str
+    proposed_action: str | None
+    requested_at: datetime
+    resolved_at: datetime | None = None
+    resolution: str | None = None
+
+
+@dataclass
 class Artifact:
     """Domain representation of an artifact record."""
 
