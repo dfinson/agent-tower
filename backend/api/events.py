@@ -67,8 +67,6 @@ async def stream_events(
             yield ": keepalive\n\n"
 
             while not conn.closed:
-                if await request.is_disconnected():
-                    break
                 try:
                     data = await asyncio.wait_for(conn.queue.get(), timeout=5.0)
                     yield data
