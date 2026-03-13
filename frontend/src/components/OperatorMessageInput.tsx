@@ -1,50 +1,39 @@
-import { useState, useCallback, type ReactNode, type FormEvent } from "react";
+import { useState, useCallback } from "react";
 import { sendOperatorMessage } from "../api/client";
-import { VoiceButton } from "./VoiceButton";
+import { Button } from "../ui/Button";
+import { Input } from "../ui/Form";
+import { toast } from "sonner";
 
-export function OperatorMessageInput({ jobId }: { jobId: string }): ReactNode {
-  const [content, setContent] = useState("");
+export function OperatorMessageInput({ jobId }: { jobId: string }) {
+  const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
 
-  const handleSubmit = useCallback(
-    async (e: FormEvent) => {
-      e.preventDefault();
-      const trimmed = content.trim();
-      if (!trimmed) return;
-      setSending(true);
-      try {
-        await sendOperatorMessage(jobId, trimmed);
-        setContent("");
-      } catch {
-        // ApiError already thrown
-      } finally {
-        setSending(false);
-      }
-    },
-    [jobId, content],
-  );
+  const handleSend = useCallback(async () => {
+    if (!message.trim()) return;
+    setSending(true);
+    try {
+      await sendOperatorMessage(jobId, message.trim());
+      setMessage("");
+      toast.success("Message sent");
+    } catch (e) {
+      toast.error(`Failed to send: ${e}`);
+    } finally {
+      setSending(false);
+    }
+  }, [jobId, message]);
 
   return (
-    <form className="operator-message" onSubmit={handleSubmit}>
-      <input
-        className="operator-message__input"
-        type="text"
-        placeholder="Send a message to the agent…"
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
+    <div className="flex gap-2 mt-3">
+      <Input
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        placeholder="Send message to agent…"
+        onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
         disabled={sending}
       />
-      <button
-        className="btn btn--sm operator-message__send"
-        type="submit"
-        disabled={sending || !content.trim()}
-      >
-        Send
-      </button>
-      <VoiceButton
-        onTranscript={(text) => setContent((prev) => (prev ? `${prev} ${text}` : text))}
-        disabled={sending}
-      />
-    </form>
+      <Button size="sm" disabled={sending || !message.trim()} onClick={handleSend}>
+        {sending ? "Sending…" : "Send"}
+      </Button>
+    </div>
   );
 }

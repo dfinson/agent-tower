@@ -1,64 +1,51 @@
-import { useState, useCallback } from "react";
-import {
-  useTowerStore,
-  selectActiveJobs,
-  selectSignoffJobs,
-  selectFailedJobs,
-  selectHistoryJobs,
-} from "../store";
+import { useMemo, useState, useCallback } from "react";
+import { useTowerStore, selectJobs } from "../store";
+import type { JobSummary } from "../store";
 import { KanbanColumn } from "./KanbanColumn";
 import { fetchJobs } from "../api/client";
-import { useShallow } from "zustand/react/shallow";
+
+const COLUMN_STATES: Record<string, string[]> = {
+  Active: ["queued", "running"],
+  "Sign-off": ["waiting_for_approval"],
+  Failed: ["failed"],
+  History: ["succeeded", "canceled"],
+};
+
+function filterByStates(jobs: Record<string, JobSummary>, states: string[]): JobSummary[] {
+  return Object.values(jobs)
+    .filter((j) => states.includes(j.state))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
 
 export function KanbanBoard() {
-  const activeJobs = useTowerStore(useShallow(selectActiveJobs));
-  const signoffJobs = useTowerStore(useShallow(selectSignoffJobs));
-  const failedJobs = useTowerStore(useShallow(selectFailedJobs));
-  const historyJobs = useTowerStore(useShallow(selectHistoryJobs));
+  const jobs = useTowerStore(selectJobs);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyHasMore, setHistoryHasMore] = useState(true);
 
+  const activeJobs = useMemo(() => filterByStates(jobs, COLUMN_STATES.Active ?? []), [jobs]);
+  const signoffJobs = useMemo(() => filterByStates(jobs, COLUMN_STATES["Sign-off"] ?? []), [jobs]);
+  const failedJobs = useMemo(() => filterByStates(jobs, COLUMN_STATES.Failed ?? []), [jobs]);
+  const historyJobs = useMemo(() => filterByStates(jobs, COLUMN_STATES.History ?? []), [jobs]);
+
   const loadMoreHistory = useCallback(async () => {
     try {
-      const result = await fetchJobs({
-        state: "succeeded,canceled",
-        limit: 50,
-        cursor: historyCursor ?? undefined,
-      });
-      const { dispatchSSEEvent } = useTowerStore.getState();
-      for (const job of result.items) {
-        dispatchSSEEvent("job_state_changed", {
-          jobId: job.id,
-          newState: job.state,
-          timestamp: job.updatedAt,
-        });
-      }
-      // Also upsert these jobs into the store
+      const result = await fetchJobs({ state: "succeeded,canceled", limit: 50, cursor: historyCursor ?? undefined });
       useTowerStore.setState((state) => {
         const updated = { ...state.jobs };
-        for (const job of result.items) {
-          updated[job.id] = job;
-        }
+        for (const job of result.items) updated[job.id] = job;
         return { jobs: updated };
       });
       setHistoryCursor(result.cursor);
       setHistoryHasMore(result.hasMore);
-    } catch {
-      // Silently fail — user can retry
-    }
+    } catch { /* user can retry */ }
   }, [historyCursor]);
 
   return (
-    <div className="kanban">
+    <div className="grid grid-cols-4 gap-3 h-full max-md:grid-cols-2 max-sm:hidden">
       <KanbanColumn title="Active" jobs={activeJobs} />
       <KanbanColumn title="Sign-off" jobs={signoffJobs} />
       <KanbanColumn title="Failed" jobs={failedJobs} />
-      <KanbanColumn
-        title="History"
-        jobs={historyJobs}
-        hasMore={historyHasMore}
-        onLoadMore={loadMoreHistory}
-      />
+      <KanbanColumn title="History" jobs={historyJobs} hasMore={historyHasMore} onLoadMore={loadMoreHistory} />
     </div>
   );
 }

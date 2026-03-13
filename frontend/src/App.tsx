@@ -1,5 +1,6 @@
 import { Routes, Route, NavLink } from "react-router-dom";
 import { Component, type ReactNode } from "react";
+import { Toaster } from "sonner";
 import { useSSE } from "./hooks/useSSE";
 import { useTowerStore, selectConnectionStatus } from "./store";
 import { DashboardScreen } from "./components/DashboardScreen";
@@ -7,6 +8,7 @@ import { JobDetailScreen } from "./components/JobDetailScreen";
 import { JobCreationScreen } from "./components/JobCreationScreen";
 import { RepositoryDetailView } from "./components/RepositoryDetailView";
 import { SettingsScreen } from "./components/SettingsScreen";
+import { cn } from "./ui/cn";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -14,14 +16,15 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   render() {
     if (this.state.error) {
       return (
-        <div style={{ padding: 32, color: "#f85149" }}>
-          <h2>Something went wrong</h2>
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, marginTop: 12, color: "#e6edf3" }}>
-            {this.state.error.message}
-            {"\n"}
-            {this.state.error.stack}
+        <div className="p-8">
+          <h2 className="text-error text-lg font-semibold mb-3">Something went wrong</h2>
+          <pre className="text-sm text-text-muted whitespace-pre-wrap bg-surface rounded-lg p-4 border border-border overflow-auto">
+            {this.state.error.message}{"\n"}{this.state.error.stack}
           </pre>
-          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 16, padding: "8px 16px", background: "#238636", border: "none", color: "#fff", borderRadius: 6, cursor: "pointer" }}>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="mt-4 px-4 py-2 bg-success text-white rounded-md text-sm font-medium hover:bg-success/90 cursor-pointer"
+          >
             Try again
           </button>
         </div>
@@ -33,43 +36,63 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 
 export function App() {
   const connectionStatus = useTowerStore(selectConnectionStatus);
-
-  // Mount global SSE connection
   useSSE();
 
   return (
-    <div className="app-layout">
+    <div className="flex flex-col h-full">
+      <Toaster theme="dark" position="top-right" richColors closeButton />
+
       {connectionStatus === "disconnected" && (
-        <div className="disconnected-banner">
+        <div className="bg-error text-white text-center py-1.5 text-sm flex items-center justify-center gap-2">
           Connection lost — events may be stale
         </div>
       )}
-      <header className="app-header">
-        <div className="app-header__title">Tower</div>
-        <nav className="app-header__nav">
-          <NavLink to="/" end>
-            Dashboard
-          </NavLink>
-          <NavLink to="/jobs/new">New Job</NavLink>
-          <NavLink to="/settings">Settings</NavLink>
+
+      <header className="flex items-center justify-between px-4 h-12 border-b border-border bg-surface shrink-0">
+        <div className="font-semibold text-base">Tower</div>
+        <nav className="flex items-center gap-1">
+          {[
+            { to: "/", label: "Dashboard", end: true },
+            { to: "/jobs/new", label: "New Job" },
+            { to: "/settings", label: "Settings" },
+          ].map(({ to, label, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                cn(
+                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-surface-hover text-text"
+                    : "text-text-muted hover:text-text hover:bg-surface-hover"
+                )
+              }
+            >
+              {label}
+            </NavLink>
+          ))}
         </nav>
-        <div className="app-header__status">
+        <div className="flex items-center gap-2 text-xs text-text-muted">
           <span
-            className={`status-dot status-dot--${connectionStatus}`}
+            className={cn(
+              "w-2 h-2 rounded-full",
+              connectionStatus === "connected" && "bg-success",
+              connectionStatus === "reconnecting" && "bg-warning animate-pulse",
+              connectionStatus === "disconnected" && "bg-error"
+            )}
           />
           {connectionStatus}
         </div>
       </header>
-      <main className="app-main">
+
+      <main className="flex-1 overflow-y-auto p-4">
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<DashboardScreen />} />
             <Route path="/jobs/new" element={<JobCreationScreen />} />
             <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
-            <Route
-              path="/repos/:repoPath"
-              element={<RepositoryDetailView />}
-            />
+            <Route path="/repos/:repoPath" element={<RepositoryDetailView />} />
             <Route path="/settings" element={<SettingsScreen />} />
           </Routes>
         </ErrorBoundary>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   fetchGlobalConfig,
   updateGlobalConfig,
@@ -7,149 +7,150 @@ import {
   unregisterRepo,
   cleanupWorktrees,
 } from "../api/client";
+import { Card, CardHeader, CardTitle, CardContent } from "../ui/Card";
+import { Button } from "../ui/Button";
+import { Input, Textarea } from "../ui/Form";
+import { Spinner, EmptyState } from "../ui/Feedback";
+import { toast } from "sonner";
 
 export function SettingsScreen() {
+  const [loading, setLoading] = useState(true);
+  const [repos, setRepos] = useState<string[]>([]);
   const [configYaml, setConfigYaml] = useState("");
   const [savedYaml, setSavedYaml] = useState("");
-  const [repos, setRepos] = useState<string[]>([]);
   const [newRepo, setNewRepo] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadData = useCallback(async () => {
-    try {
-      const [configRes, reposRes] = await Promise.all([
-        fetchGlobalConfig(),
-        fetchRepos(),
-      ]);
-      setConfigYaml(configRes.config_yaml);
-      setSavedYaml(configRes.config_yaml);
-      setRepos(reposRes.items);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load settings");
-    }
-  }, []);
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    Promise.all([fetchGlobalConfig(), fetchRepos()])
+      .then(([configRes, reposRes]) => {
+        setConfigYaml(configRes.config_yaml);
+        setSavedYaml(configRes.config_yaml);
+        setRepos(reposRes.items);
+      })
+      .catch(() => toast.error("Failed to load settings"))
+      .finally(() => setLoading(false));
+  }, []);
 
-  const handleSaveConfig = async () => {
-    setError(null);
-    setStatus(null);
+  const handleSaveConfig = useCallback(async () => {
     try {
       const res = await updateGlobalConfig(configYaml);
       setSavedYaml(res.config_yaml);
-      setStatus("Configuration saved.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save config");
-    }
-  };
+      toast.success("Config saved");
+    } catch (e) { toast.error(`Save failed: ${e}`); }
+  }, [configYaml]);
 
-  const handleAddRepo = async () => {
+  const handleAddRepo = useCallback(async () => {
     if (!newRepo.trim()) return;
-    setError(null);
-    setStatus(null);
     try {
       await registerRepo(newRepo.trim());
       setNewRepo("");
-      const reposRes = await fetchRepos();
-      setRepos(reposRes.items);
-      setStatus("Repository added.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add repo");
-    }
-  };
+      const res = await fetchRepos();
+      setRepos(res.items);
+      toast.success("Repository added");
+    } catch (e) { toast.error(`Add failed: ${e}`); }
+  }, [newRepo]);
 
-  const handleRemoveRepo = async (repoPath: string) => {
-    setError(null);
-    setStatus(null);
+  const handleRemoveRepo = useCallback(async (path: string) => {
     try {
-      await unregisterRepo(repoPath);
-      const reposRes = await fetchRepos();
-      setRepos(reposRes.items);
-      setStatus("Repository removed.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove repo");
-    }
-  };
+      await unregisterRepo(path);
+      setRepos((prev) => prev.filter((r) => r !== path));
+      toast.success("Repository removed");
+    } catch (e) { toast.error(`Remove failed: ${e}`); }
+  }, []);
 
-  const handleCleanup = async () => {
-    setError(null);
-    setStatus(null);
+  const handleCleanup = useCallback(async () => {
     try {
-      const res = await cleanupWorktrees();
-      setStatus(`Cleanup complete — ${res.removed} worktree(s) removed.`);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Cleanup failed",
-      );
-    }
-  };
+      await cleanupWorktrees();
+      toast.success("Worktrees cleaned up");
+    } catch (e) { toast.error(`Cleanup failed: ${e}`); }
+  }, []);
 
-  const configDirty = configYaml !== savedYaml;
+  if (loading) return <Spinner />;
 
   return (
-    <div className="settings-screen">
-      <h1>Settings</h1>
+    <div className="max-w-3xl mx-auto space-y-6">
+      <h2 className="text-xl font-semibold">Settings</h2>
 
-      {error && <div className="settings-error">{error}</div>}
-      {status && <div className="settings-status">{status}</div>}
-
-      <section className="settings-section">
-        <h2>Global Configuration</h2>
-        <textarea
-          className="settings-config-editor"
-          value={configYaml}
-          onChange={(e) => setConfigYaml(e.target.value)}
-          spellCheck={false}
-          rows={20}
-        />
-        <button
-          onClick={() => void handleSaveConfig()}
-          disabled={!configDirty}
-        >
-          Save Config
-        </button>
-      </section>
-
-      <section className="settings-section">
-        <h2>Repositories</h2>
-        <div className="settings-repo-add">
-          <input
-            type="text"
-            value={newRepo}
-            onChange={(e) => setNewRepo(e.target.value)}
-            placeholder="Local path or remote URL"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleAddRepo();
-            }}
-          />
-          <button onClick={() => void handleAddRepo()}>Add</button>
-        </div>
-        <ul className="settings-repo-list">
-          {repos.map((repo) => (
-            <li key={repo}>
-              <span>{repo}</span>
-              <button onClick={() => void handleRemoveRepo(repo)}>
-                Remove
-              </button>
-            </li>
-          ))}
-          {repos.length === 0 && (
-            <li className="settings-repo-empty">
-              No repositories registered.
-            </li>
+      {/* Repos */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Repositories ({repos.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 mb-4">
+            <Input
+              value={newRepo}
+              onChange={(e) => setNewRepo(e.target.value)}
+              placeholder="Local path or git URL"
+              onKeyDown={(e) => e.key === "Enter" && handleAddRepo()}
+            />
+            <Button size="sm" onClick={handleAddRepo} disabled={!newRepo.trim()}>Add</Button>
+          </div>
+          {repos.length === 0 ? (
+            <EmptyState text="No repositories registered" />
+          ) : (
+            <div className="space-y-1">
+              {repos.map((r) => (
+                <div key={r} className="flex items-center justify-between py-2 px-3 rounded hover:bg-surface-hover group">
+                  <span className="text-sm font-mono text-text-muted truncate" title={r}>{r}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="opacity-0 group-hover:opacity-100 text-error"
+                    onClick={() => handleRemoveRepo(r)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
           )}
-        </ul>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="settings-section">
-        <h2>Maintenance</h2>
-        <button onClick={() => void handleCleanup()}>
-          Clean Up Worktrees
-        </button>
-      </section>
+      {/* Global Config */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Global Configuration</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            value={configYaml}
+            onChange={(e) => setConfigYaml(e.target.value)}
+            className="font-mono text-xs min-h-[300px]"
+          />
+          <div className="flex gap-2 justify-end mt-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={configYaml === savedYaml}
+              onClick={() => setConfigYaml(savedYaml)}
+            >
+              Reset
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={configYaml === savedYaml}
+              onClick={handleSaveConfig}
+            >
+              Save Config
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Maintenance</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button size="sm" onClick={handleCleanup}>
+            Clean Up Worktrees
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

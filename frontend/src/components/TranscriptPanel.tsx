@@ -1,89 +1,51 @@
-import { useRef, useEffect, useCallback } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useRef, useEffect } from "react";
 import { useTowerStore, selectJobTranscript } from "../store";
-
-const ESTIMATED_ROW_HEIGHT = 60;
+import { Card, CardHeader, CardTitle } from "../ui/Card";
+import { EmptyState } from "../ui/Feedback";
+import { cn } from "../ui/cn";
 
 export function TranscriptPanel({ jobId }: { jobId: string }) {
-  const transcript = useTowerStore(selectJobTranscript(jobId));
-  const parentRef = useRef<HTMLDivElement>(null);
-  const wasAtBottom = useRef(true);
+  const entries = useTowerStore(selectJobTranscript(jobId));
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true);
 
-  const virtualizer = useVirtualizer({
-    count: transcript.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => ESTIMATED_ROW_HEIGHT,
-    overscan: 10,
-  });
-
-  const onScroll = useCallback(() => {
-    const el = parentRef.current;
-    if (!el) return;
-    wasAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  }, []);
-
-  // Auto-scroll to bottom on new entries
   useEffect(() => {
-    if (wasAtBottom.current && transcript.length > 0) {
-      virtualizer.scrollToIndex(transcript.length - 1, { align: "end" });
+    if (stickRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [transcript.length, virtualizer]);
+  }, [entries.length]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  };
 
   return (
-    <div className="panel">
-      <div className="panel__header">
-        <span>Transcript</span>
-        <span style={{ fontSize: 11 }}>{transcript.length} messages</span>
-      </div>
-      <div
-        ref={parentRef}
-        className="panel__body"
-        onScroll={onScroll}
-        style={{ overflow: "auto" }}
-      >
-        {transcript.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state__text">No transcript entries yet</div>
-          </div>
+    <Card className="flex flex-col max-h-[500px]">
+      <CardHeader>
+        <CardTitle>Transcript</CardTitle>
+        <span className="text-xs text-text-dim">{entries.length} messages</span>
+      </CardHeader>
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0">
+        {entries.length === 0 ? (
+          <EmptyState text="No transcript entries yet" />
         ) : (
-          <div
-            style={{
-              height: virtualizer.getTotalSize(),
-              width: "100%",
-              position: "relative",
-            }}
-          >
-            {virtualizer.getVirtualItems().map((virtualItem) => {
-              const entry = transcript[virtualItem.index]!;
-              return (
-                <div
-                  key={`${entry.jobId}-${entry.seq}`}
-                  className="transcript-entry"
-                  data-index={virtualItem.index}
-                  ref={virtualizer.measureElement}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
-                >
-                  <div
-                    className={`transcript-entry__role transcript-entry__role--${entry.role}`}
-                  >
-                    {entry.role}
-                  </div>
-                  <div className="transcript-entry__content">{entry.content}</div>
-                  <div className="transcript-entry__time">
-                    {new Date(entry.timestamp).toLocaleTimeString()}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          entries.map((e, i) => (
+            <div key={i} className="px-4 py-2 border-b border-border last:border-b-0">
+              <div className={cn(
+                "text-[11px] font-semibold uppercase tracking-wide mb-1",
+                e.role === "agent" ? "text-accent" : "text-success"
+              )}>
+                {e.role}
+              </div>
+              <div className="text-[13px] leading-relaxed whitespace-pre-wrap">{e.content}</div>
+              <div className="text-[10px] text-text-dim mt-1">
+                {new Date(e.timestamp).toLocaleTimeString()}
+              </div>
+            </div>
+          ))
         )}
       </div>
-    </div>
+    </Card>
   );
 }
