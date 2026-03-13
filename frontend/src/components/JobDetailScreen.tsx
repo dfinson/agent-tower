@@ -178,12 +178,12 @@ export function JobDetailScreen() {
               </span>
             </div>
           )}
-          {job.prUrl && (
+          {job.prUrl && /^https:\/\/github\.com\//.test(job.prUrl) && (
             <div className="job-meta__field">
               <span className="job-meta__label">Pull Request</span>
               <span className="job-meta__value">
                 <a href={job.prUrl} target="_blank" rel="noopener noreferrer">
-                  {job.prUrl.replace(/^https?:\/\/github\.com\//, "")}
+                  {job.prUrl.replace(/^https:\/\/github\.com\//, "")}
                 </a>
               </span>
             </div>

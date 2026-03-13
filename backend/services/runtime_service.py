@@ -485,6 +485,7 @@ class RuntimeService:
 
     async def _try_create_pr(self, job_id: str) -> str | None:
         """Best-effort PR creation via ``gh pr create``. Returns the PR URL or None."""
+        import re
         import shutil
         import subprocess  # noqa: S404
 
@@ -500,6 +501,15 @@ class RuntimeService:
             log.info("pr_creation_skipped_no_worktree", job_id=job_id)
             return None
 
+        # Validate branch and base_ref to prevent argument injection
+        _ref_pattern = re.compile(r"^[a-zA-Z0-9/_.-]+$")
+        if not _ref_pattern.match(job.branch):
+            log.warning("pr_creation_invalid_branch", job_id=job_id)
+            return None
+        if not _ref_pattern.match(job.base_ref):
+            log.warning("pr_creation_invalid_base_ref", job_id=job_id)
+            return None
+
         try:
             result = await asyncio.to_thread(
                 subprocess.run,  # noqa: S603
@@ -510,11 +520,12 @@ class RuntimeService:
                     "--title",
                     f"[Tower] {job.prompt[:80]}",
                     "--body",
-                    f"Automated PR created by Tower for job `{job_id}`.\n\n**Prompt:** {job.prompt}",
+                    f"Automated PR created by Tower for job `{job_id}`.",
                     "--head",
                     job.branch,
                     "--base",
                     job.base_ref,
+                    "--",
                 ],
                 capture_output=True,
                 text=True,

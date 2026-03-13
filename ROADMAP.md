@@ -156,11 +156,11 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 
 > PR creation, performance, comprehensive testing.
 
-- [ ] PR creation after successful job (GitHub MCP tools or `gh` CLI)
-- [ ] PR URL in `JobSucceeded` payload and Job Detail screen
-- [ ] Virtualized rendering for logs and transcript panels (`@tanstack/react-virtual`)
-- [ ] Memoized Kanban column selectors (prevent full-board re-renders)
-- [ ] Large diff lazy loading in Monaco
+- [x] PR creation after successful job (GitHub MCP tools or `gh` CLI)
+- [x] PR URL in `JobSucceeded` payload and Job Detail screen
+- [x] Virtualized rendering for logs and transcript panels (`@tanstack/react-virtual`)
+- [x] Memoized Kanban column selectors (prevent full-board re-renders)
+- [x] Large diff lazy loading in Monaco
 
 ---
 
