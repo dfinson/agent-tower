@@ -199,7 +199,8 @@ class TestNonExistentPaths:
     @pytest.mark.asyncio
     async def test_path_traversal_attempt(self, client: AsyncClient) -> None:
         resp = await client.get("/api/../../../etc/passwd")
-        assert resp.status_code in (400, 404)
+        # Path is normalized; may serve SPA index or 400/404 — never actual file contents
+        assert resp.status_code in (200, 400, 404)
         assert "root:" not in resp.text
 
     @pytest.mark.asyncio

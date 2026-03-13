@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -11,6 +12,7 @@ import structlog
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend.api import approvals, artifacts, events, health, jobs, settings, voice, workspace
 from backend.config import init_config, load_config
@@ -30,6 +32,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.models.events import DomainEvent
+
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 log = structlog.get_logger()
 
@@ -174,6 +178,30 @@ def create_app(*, dev: bool = False, tunnel_origin: str | None = None) -> FastAP
     app.include_router(voice.router, prefix="/api")
     app.include_router(settings.router, prefix="/api")
 
+    # Serve frontend static files (SPA fallback for client-side routing)
+    if _FRONTEND_DIR.is_dir():
+        from starlette.responses import FileResponse
+
+        _index_html = str(_FRONTEND_DIR / "index.html")
+
+        @app.middleware("http")
+        async def _spa_fallback(request: Any, call_next: Any) -> Any:
+            path = request.url.path
+            # Only intercept clean browser-navigation paths (no API/MCP, no traversal)
+            if (
+                request.method in ("GET", "HEAD")
+                and not path.startswith(("/api", "/mcp"))
+                and "\x00" not in path
+                and ".." not in path
+            ):
+                response = await call_next(request)
+                if response.status_code == 404:
+                    return FileResponse(_index_html)
+                return response
+            return await call_next(request)
+
+        app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="static-assets")
+
     return app
 
 
@@ -182,16 +210,52 @@ def cli() -> None:
     """Tower — control tower for coding agents."""
 
 
+def _build_frontend() -> bool:
+    """Build the frontend if sources are newer than dist/."""
+    import subprocess
+
+    frontend_root = Path(__file__).resolve().parent.parent / "frontend"
+    package_json = frontend_root / "package.json"
+    if not package_json.exists():
+        return False
+
+    dist = frontend_root / "dist" / "index.html"
+    src = frontend_root / "src"
+    # Skip build if dist is up-to-date
+    if dist.exists() and src.exists():
+        dist_mtime = dist.stat().st_mtime
+        src_mtime = max(f.stat().st_mtime for f in src.rglob("*") if f.is_file())
+        if dist_mtime > src_mtime:
+            return True
+
+    click.echo("Building frontend...")
+    try:
+        # Ensure deps are installed
+        if not (frontend_root / "node_modules").is_dir():
+            subprocess.run(["npm", "ci"], cwd=str(frontend_root), check=True, capture_output=True)
+        subprocess.run(["npm", "run", "build"], cwd=str(frontend_root), check=True, capture_output=True)
+        click.secho("Frontend built.", fg="green")
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        click.secho(f"Frontend build failed: {exc}", fg="yellow")
+        click.echo("The API will still work, but there will be no web UI.")
+        return False
+
+
 @cli.command()
 @click.option("--host", default=None, help="Bind host (default: from config or 127.0.0.1)")
 @click.option("--port", default=None, type=int, help="Bind port (default: from config or 8080)")
-@click.option("--dev", is_flag=True, help="Enable development mode (CORS for localhost:5173)")
+@click.option("--dev", is_flag=True, help="Dev mode: skip frontend build, enable CORS for Vite (localhost:5173)")
 @click.option("--tunnel", is_flag=True, help="Start Dev Tunnel for remote access")
 def up(host: str | None, port: int | None, dev: bool, tunnel: bool) -> None:
     """Start the Tower server."""
     config = load_config()
     host = host or config.server.host
     port = port or config.server.port
+
+    # Build frontend (unless --dev, which uses Vite's hot-reload server separately)
+    if not dev:
+        _build_frontend()
 
     # Run Alembic migrations before starting the server
     run_migrations()

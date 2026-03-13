@@ -15,9 +15,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "cd .. && source .venv/bin/activate && tower up --dev",
+    command: "cd .. && source .venv/bin/activate && tower up",
     url: "http://127.0.0.1:8080/api/health",
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    timeout: 60_000,
   },
 });

@@ -4,15 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
-    "format": "prettier --write src/",
-    "format:check": "prettier --check src/",
     "generate:api": "openapi-typescript http://localhost:8080/openapi.json -o src/api/schema.d.ts"
   },
   "dependencies": {
