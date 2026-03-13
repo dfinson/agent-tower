@@ -32,7 +32,7 @@ export interface JobSummary {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
-  prUrl: string | null;
+  prUrl?: string | null;
 }
 
 export interface ApprovalRequest {
