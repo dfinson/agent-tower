@@ -47,7 +47,6 @@ dmypy.json
 frontend/node_modules/
 frontend/dist/
 frontend/coverage/
-frontend/src/api/schema.d.ts
 
 # IDE
 .idea/

@@ -15,12 +15,12 @@ from backend.models.api_schemas import (
 from backend.services.approval_service import (
     ApprovalAlreadyResolvedError,
     ApprovalNotFoundError,
+    ApprovalService,
 )
+from backend.services.runtime_service import RuntimeService  # noqa: TC001
 
 if TYPE_CHECKING:
     from backend.models.domain import Approval
-    from backend.services.approval_service import ApprovalService
-    from backend.services.runtime_service import RuntimeService
 
 router = APIRouter(tags=["approvals"])
 
