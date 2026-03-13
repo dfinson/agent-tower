@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { useNavigate } from "react-router-dom";
 import type { JobSummary } from "../store";
-import { StateBadge } from "./StateBadge";
+import { Badge } from "../ui/Badge";
 
 function elapsed(createdAt: string): string {
   const ms = Date.now() - new Date(createdAt).getTime();
@@ -18,25 +18,20 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   const repoName = job.repo.split("/").pop() ?? job.repo;
 
   return (
-    <div
-      className="job-card"
+    <button
+      className="w-full text-left bg-bg border border-border rounded-md p-3 mb-2 last:mb-0 cursor-pointer transition-colors hover:border-accent group"
       onClick={() => navigate(`/jobs/${job.id}`)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") navigate(`/jobs/${job.id}`);
-      }}
     >
-      <div className="job-card__header">
-        <span className="job-card__id">{job.id.slice(0, 8)}</span>
-        <StateBadge state={job.state} />
+      <div className="flex justify-between items-center mb-1.5">
+        <span className="font-semibold text-[13px] text-accent">{job.id.slice(0, 8)}</span>
+        <Badge state={job.state} />
       </div>
-      <div className="job-card__repo">{repoName}</div>
-      <div className="job-card__prompt">{job.prompt}</div>
-      <div className="job-card__footer">
+      <div className="text-xs text-text-muted truncate mb-1" title={job.repo}>{repoName}</div>
+      <div className="text-xs text-text line-clamp-2 leading-snug">{job.prompt}</div>
+      <div className="flex justify-between items-center mt-2 text-[11px] text-text-dim">
         <span>{elapsed(job.createdAt)}</span>
         <span>{job.strategy}</span>
       </div>
-    </div>
+    </button>
   );
 });

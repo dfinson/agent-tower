@@ -1,100 +1,65 @@
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useTowerStore, selectJobs } from "../store";
-import type { JobSummary } from "../store";
-import { JobCard } from "./JobCard";
+import { Card, CardHeader, CardTitle, CardContent } from "../ui/Card";
+import { Button } from "../ui/Button";
+import { Spinner, EmptyState } from "../ui/Feedback";
+import { toast } from "sonner";
+
+interface RepoDetail {
+  path: string;
+  originUrl: string | null;
+  baseBranch: string | null;
+  activeJobCount?: number;
+}
 
 export function RepositoryDetailView() {
   const { repoPath } = useParams<{ repoPath: string }>();
   const navigate = useNavigate();
-  const jobs = useTowerStore(selectJobs);
-  const decodedPath = useMemo(
-    () => (repoPath ? decodeURIComponent(repoPath) : ""),
-    [repoPath],
-  );
+  const [detail, setDetail] = useState<RepoDetail | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const repoJobs: JobSummary[] = Object.values(jobs)
-    .filter((j) => j.repo === decodedPath)
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
+  useEffect(() => {
+    if (!repoPath) return;
+    fetch(`/api/settings/repos/${encodeURIComponent(repoPath)}`)
+      .then((r) => r.json())
+      .then(setDetail)
+      .catch(() => toast.error("Failed to load repo details"))
+      .finally(() => setLoading(false));
+  }, [repoPath]);
 
-  const activeJobs = repoJobs.filter((j) =>
-    ["queued", "running", "waiting_for_approval"].includes(j.state),
-  );
-  const recentJobs = repoJobs.filter(
-    (j) => !["queued", "running", "waiting_for_approval"].includes(j.state),
-  ).slice(0, 20);
-
-  const repoName = decodedPath.split("/").pop() ?? decodedPath;
-
-  if (!decodedPath) {
-    return (
-      <div className="empty-state">
-        <div className="empty-state__text">Repository not found</div>
-      </div>
-    );
-  }
+  if (loading) return <Spinner />;
+  if (!detail) return <EmptyState text="Repository not found" />;
 
   return (
-    <div className="repo-detail">
-      <button className="job-detail__back" onClick={() => navigate("/")}>
-        ← Back to Dashboard
-      </button>
-
-      <div className="repo-detail__header">
-        <div className="repo-detail__name">{repoName}</div>
-        <div className="repo-detail__path">{decodedPath}</div>
-      </div>
-
-      {/* MCP/Tool Config Table — placeholder for Phase 5 */}
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel__header">
-          <span>Tool / MCP Configuration</span>
-        </div>
-        <div className="panel__body">
-          <div className="empty-state">
-            <div className="empty-state__text">
-              MCP configuration will be available in a future update
+    <div className="max-w-3xl mx-auto">
+      <Button variant="ghost" size="sm" onClick={() => navigate("/settings")} className="mb-4">
+        ← Back to Settings
+      </Button>
+      <Card>
+        <CardHeader>
+          <CardTitle>{detail.path.split("/").pop()}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3 text-sm">
+            <div>
+              <span className="text-text-dim text-xs uppercase tracking-wide">Path</span>
+              <div className="font-mono text-text-muted">{detail.path}</div>
             </div>
+            {detail.originUrl && (
+              <div>
+                <span className="text-text-dim text-xs uppercase tracking-wide">Origin</span>
+                <div className="text-text-muted">{detail.originUrl}</div>
+              </div>
+            )}
+            {detail.baseBranch && (
+              <div>
+                <span className="text-text-dim text-xs uppercase tracking-wide">Base Branch</span>
+                <div className="text-text-muted">{detail.baseBranch}</div>
+              </div>
+            )}
           </div>
-        </div>
-      </div>
-
-      {/* Active Jobs */}
-      <div className="panel" style={{ marginBottom: 16, maxHeight: "none" }}>
-        <div className="panel__header">
-          <span>Active Jobs</span>
-          <span style={{ fontSize: 11 }}>{activeJobs.length}</span>
-        </div>
-        <div className="panel__body" style={{ padding: 8 }}>
-          {activeJobs.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state__text">No active jobs</div>
-            </div>
-          ) : (
-            activeJobs.map((job) => <JobCard key={job.id} job={job} />)
-          )}
-        </div>
-      </div>
-
-      {/* Recent Jobs */}
-      <div className="panel" style={{ maxHeight: "none" }}>
-        <div className="panel__header">
-          <span>Recent Jobs</span>
-          <span style={{ fontSize: 11 }}>{recentJobs.length}</span>
-        </div>
-        <div className="panel__body" style={{ padding: 8 }}>
-          {recentJobs.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state__text">No recent jobs</div>
-            </div>
-          ) : (
-            recentJobs.map((job) => <JobCard key={job.id} job={job} />)
-          )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

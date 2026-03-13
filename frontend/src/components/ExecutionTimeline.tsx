@@ -1,68 +1,53 @@
 import { useMemo } from "react";
 import { useTowerStore, selectJobLogs } from "../store";
+import { Card, CardHeader, CardTitle } from "../ui/Card";
+import { EmptyState } from "../ui/Feedback";
+import { cn } from "../ui/cn";
 
-interface TimelineEvent {
-  timestamp: string;
-  text: string;
-  variant: "active" | "success" | "error" | "default";
+function isTimelineEvent(msg: string, level: string): boolean {
+  if (level === "error") return true;
+  const lower = msg.toLowerCase();
+  return ["state", "started", "completed", "created", "failed", "succeeded", "canceled", "approval"].some(
+    (kw) => lower.includes(kw)
+  );
+}
+
+function dotVariant(level: string, msg: string): string {
+  if (level === "error") return "bg-error";
+  const lower = msg.toLowerCase();
+  if (lower.includes("succeeded") || lower.includes("completed")) return "bg-success";
+  if (lower.includes("running") || lower.includes("started")) return "bg-accent";
+  if (lower.includes("failed") || lower.includes("canceled")) return "bg-error";
+  return "bg-border";
 }
 
 export function ExecutionTimeline({ jobId }: { jobId: string }) {
   const logs = useTowerStore(selectJobLogs(jobId));
-
-  const events = useMemo<TimelineEvent[]>(() => {
-    // Derive timeline from meaningful log events — state changes, errors, etc.
-    const result: TimelineEvent[] = [];
-    for (const log of logs) {
-      if (log.level === "error") {
-        result.push({
-          timestamp: log.timestamp,
-          text: log.message,
-          variant: "error",
-        });
-      } else if (
-        log.message.toLowerCase().includes("state") ||
-        log.message.toLowerCase().includes("started") ||
-        log.message.toLowerCase().includes("completed") ||
-        log.message.toLowerCase().includes("created")
-      ) {
-        result.push({
-          timestamp: log.timestamp,
-          text: log.message,
-          variant: log.message.toLowerCase().includes("completed")
-            ? "success"
-            : "active",
-        });
-      }
-    }
-    return result;
-  }, [logs]);
+  const events = useMemo(
+    () => logs.filter((l) => isTimelineEvent(l.message, l.level)),
+    [logs]
+  );
 
   return (
-    <div className="panel panel--full">
-      <div className="panel__header">
-        <span>Execution Timeline</span>
-        <span style={{ fontSize: 11 }}>{events.length} events</span>
-      </div>
-      <div className="panel__body">
+    <Card className="flex flex-col max-h-[500px]">
+      <CardHeader>
+        <CardTitle>Timeline</CardTitle>
+      </CardHeader>
+      <div className="flex-1 overflow-y-auto min-h-0 p-4">
         {events.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state__text">No timeline events yet</div>
-          </div>
+          <EmptyState text="No timeline events yet" />
         ) : (
-          <div className="timeline">
-            {events.map((ev, i) => (
-              <div key={`${ev.timestamp}-${i}`} className="timeline-event">
-                <div className={`timeline-event__dot timeline-event__dot--${ev.variant}`} />
-                <span className="timeline-event__time">
-                  {new Date(ev.timestamp).toLocaleTimeString()}
-                </span>
-                <span className="timeline-event__text">{ev.text}</span>
-              </div>
-            ))}
-          </div>
+          events.map((e, i) => (
+            <div key={i} className="flex items-start gap-2 py-1 text-xs">
+              <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", dotVariant(e.level, e.message))} />
+              <span className="text-text-dim font-mono shrink-0">
+                {new Date(e.timestamp).toLocaleTimeString()}
+              </span>
+              <span className="text-text-muted">{e.message}</span>
+            </div>
+          ))
         )}
       </div>
-    </div>
+    </Card>
   );
 }

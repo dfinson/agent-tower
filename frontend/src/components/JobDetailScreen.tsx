@@ -4,12 +4,17 @@ import { useTowerStore, selectJobs } from "../store";
 import type { JobSummary } from "../store";
 import { fetchJob, cancelJob, rerunJob } from "../api/client";
 import { useSSE } from "../hooks/useSSE";
-import { StateBadge } from "./StateBadge";
+import { Badge } from "../ui/Badge";
+import { Button } from "../ui/Button";
+import { Card, CardContent } from "../ui/Card";
+import { Tabs } from "../ui/Tabs";
+import { Spinner, EmptyState } from "../ui/Feedback";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { LogsPanel } from "./LogsPanel";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { ApprovalBanner } from "./ApprovalBanner";
 import { OperatorMessageInput } from "./OperatorMessageInput";
+import { toast } from "sonner";
 
 const DiffViewer = lazy(() => import("./DiffViewer"));
 const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
@@ -26,34 +31,16 @@ export function JobDetailScreen() {
   const [actionLoading, setActionLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>("live");
 
-  // Job-scoped SSE connection for full event streaming
   useSSE(jobId);
 
-  // Fetch job details if not in store
   useEffect(() => {
-    if (!jobId) {
-      setLoading(false);
-      return;
-    }
-    // If already in store, no need to fetch
+    if (!jobId) { setLoading(false); return; }
     const existing = useTowerStore.getState().jobs[jobId];
-    if (existing) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
+    if (existing) { setLoading(false); return; }
     fetchJob(jobId)
-      .then((fetched) => {
-        if (cancelled) return;
-        useTowerStore.setState((state) => ({
-          jobs: { ...state.jobs, [fetched.id]: fetched },
-        }));
-      })
-      .catch(() => {
-        // Job not found — stay on page with error state
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .then((f) => useTowerStore.setState((s) => ({ jobs: { ...s.jobs, [f.id]: f } })))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [jobId]);
 
   const handleCancel = useCallback(async () => {
@@ -61,14 +48,10 @@ export function JobDetailScreen() {
     setActionLoading(true);
     try {
       const updated = await cancelJob(jobId);
-      useTowerStore.setState((state) => ({
-        jobs: { ...state.jobs, [updated.id]: updated },
-      }));
-    } catch {
-      // Error already handled by ApiError
-    } finally {
-      setActionLoading(false);
-    }
+      useTowerStore.setState((s) => ({ jobs: { ...s.jobs, [updated.id]: updated } }));
+      toast.success("Job canceled");
+    } catch (e) { toast.error(`Cancel failed: ${e}`); }
+    finally { setActionLoading(false); }
   }, [jobId]);
 
   const handleRerun = useCallback(async () => {
@@ -76,177 +59,116 @@ export function JobDetailScreen() {
     setActionLoading(true);
     try {
       const result = await rerunJob(jobId);
+      toast.success(`Rerun created: ${result.id}`);
       navigate(`/jobs/${result.id}`);
-    } catch {
-      // Error already handled by ApiError
-    } finally {
-      setActionLoading(false);
-    }
+    } catch (e) { toast.error(`Rerun failed: ${e}`); }
+    finally { setActionLoading(false); }
   }, [jobId, navigate]);
 
   if (!jobId) return null;
-
-  if (loading) {
-    return (
-      <div className="job-detail">
-        <div className="empty-state">
-          <div className="empty-state__text">Loading job…</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!job) {
-    return (
-      <div className="job-detail">
-        <button className="job-detail__back" onClick={() => navigate("/")}>
-          ← Back to Dashboard
-        </button>
-        <div className="empty-state">
-          <div className="empty-state__text">Job not found</div>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <Spinner />;
+  if (!job) return (
+    <div>
+      <Button variant="ghost" size="sm" onClick={() => navigate("/")}>← Back</Button>
+      <EmptyState text="Job not found" className="mt-8" />
+    </div>
+  );
 
   const repoName = job.repo.split("/").pop() ?? job.repo;
-  const canCancel = job.state === "queued" || job.state === "running" || job.state === "waiting_for_approval";
-  const canRerun = job.state === "succeeded" || job.state === "failed" || job.state === "canceled";
+  const canCancel = ["queued", "running", "waiting_for_approval"].includes(job.state);
+  const canRerun = ["succeeded", "failed", "canceled"].includes(job.state);
 
   return (
-    <div className="job-detail">
-      <button className="job-detail__back" onClick={() => navigate("/")}>
+    <div className="max-w-5xl mx-auto">
+      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4">
         ← Back to Dashboard
-      </button>
+      </Button>
 
-      <div className="job-meta">
-        <div className="job-meta__header">
-          <div className="job-meta__title">
-            <span>{job.id.slice(0, 8)}</span>
-            <StateBadge state={job.state} />
-          </div>
-          <div className="job-meta__actions">
-            {canCancel && (
-              <button
-                className="btn btn--danger btn--sm"
-                onClick={handleCancel}
-                disabled={actionLoading}
-              >
-                Cancel
-              </button>
-            )}
-            {canRerun && (
-              <button
-                className="btn btn--sm"
-                onClick={handleRerun}
-                disabled={actionLoading}
-              >
-                Rerun
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="job-meta__grid">
-          <div className="job-meta__field">
-            <span className="job-meta__label">Repository</span>
-            <span className="job-meta__value">{repoName}</span>
-          </div>
-          <div className="job-meta__field">
-            <span className="job-meta__label">Branch</span>
-            <span className="job-meta__value">{job.branch ?? "—"}</span>
-          </div>
-          <div className="job-meta__field">
-            <span className="job-meta__label">Base Ref</span>
-            <span className="job-meta__value">{job.baseRef}</span>
-          </div>
-          <div className="job-meta__field">
-            <span className="job-meta__label">Strategy</span>
-            <span className="job-meta__value">{job.strategy}</span>
-          </div>
-          <div className="job-meta__field">
-            <span className="job-meta__label">Created</span>
-            <span className="job-meta__value">
-              {new Date(job.createdAt).toLocaleString()}
-            </span>
-          </div>
-          <div className="job-meta__field">
-            <span className="job-meta__label">Updated</span>
-            <span className="job-meta__value">
-              {new Date(job.updatedAt).toLocaleString()}
-            </span>
-          </div>
-          {job.completedAt && (
-            <div className="job-meta__field">
-              <span className="job-meta__label">Completed</span>
-              <span className="job-meta__value">
-                {new Date(job.completedAt).toLocaleString()}
-              </span>
+      {/* Metadata */}
+      <Card className="mb-4">
+        <CardContent>
+          <div className="flex justify-between items-start flex-wrap gap-2 mb-3">
+            <div className="flex items-center gap-2 text-lg font-semibold">
+              {job.id} <Badge state={job.state} />
             </div>
-          )}
-          {job.prUrl && /^https:\/\/github\.com\//.test(job.prUrl) && (
-            <div className="job-meta__field">
-              <span className="job-meta__label">Pull Request</span>
-              <span className="job-meta__value">
-                <a href={job.prUrl} target="_blank" rel="noopener noreferrer">
-                  {job.prUrl.replace(/^https:\/\/github\.com\//, "")}
-                </a>
-              </span>
+            <div className="flex gap-2">
+              {canCancel && (
+                <Button variant="danger" size="sm" disabled={actionLoading} onClick={handleCancel}>Cancel</Button>
+              )}
+              {canRerun && (
+                <Button size="sm" disabled={actionLoading} onClick={handleRerun}>Rerun</Button>
+              )}
             </div>
+          </div>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-x-6 gap-y-2 text-sm">
+            {[
+              ["Repository", repoName],
+              ["Branch", job.branch ?? "—"],
+              ["Base Ref", job.baseRef],
+              ["Strategy", job.strategy],
+              ["Created", new Date(job.createdAt).toLocaleString()],
+              ["Updated", new Date(job.updatedAt).toLocaleString()],
+              ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
+            ].map(([label, value]) => (
+              <div key={label}>
+                <div className="text-[11px] text-text-dim uppercase tracking-wide">{label}</div>
+                <div className="text-text break-all">{value}</div>
+              </div>
+            ))}
+          </div>
+          {job.prUrl && (
+            <a
+              href={job.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-3 text-sm text-accent hover:underline"
+            >
+              View Pull Request →
+            </a>
           )}
-        </div>
+          <div className="mt-3 p-3 bg-bg rounded-md text-sm leading-relaxed whitespace-pre-wrap">{job.prompt}</div>
+        </CardContent>
+      </Card>
 
-        <div className="job-meta__prompt">{job.prompt}</div>
-      </div>
-
-      <div className="job-detail__tabs">
-        <button
-          className={`job-detail__tab ${activeTab === "live" ? "job-detail__tab--active" : ""}`}
-          onClick={() => setActiveTab("live")}
-        >
-          Live
-        </button>
-        <button
-          className={`job-detail__tab ${activeTab === "diff" ? "job-detail__tab--active" : ""}`}
-          onClick={() => setActiveTab("diff")}
-        >
-          Diff
-        </button>
-        <button
-          className={`job-detail__tab ${activeTab === "workspace" ? "job-detail__tab--active" : ""}`}
-          onClick={() => setActiveTab("workspace")}
-        >
-          Workspace
-        </button>
-        <button
-          className={`job-detail__tab ${activeTab === "artifacts" ? "job-detail__tab--active" : ""}`}
-          onClick={() => setActiveTab("artifacts")}
-        >
-          Artifacts
-        </button>
-      </div>
+      {/* Tabs */}
+      <Tabs
+        tabs={[
+          { id: "live", label: "Live" },
+          { id: "diff", label: "Diff" },
+          { id: "workspace", label: "Workspace" },
+          { id: "artifacts", label: "Artifacts" },
+        ]}
+        active={activeTab}
+        onChange={(id) => setActiveTab(id as DetailTab)}
+        className="mb-4"
+      />
 
       {activeTab === "live" && (
-        <div className="panels">
+        <div className="space-y-4">
           <ApprovalBanner jobId={jobId} />
-          <OperatorMessageInput jobId={jobId} />
-          <TranscriptPanel jobId={jobId} />
-          <LogsPanel jobId={jobId} />
+          {["running", "waiting_for_approval"].includes(job.state) && (
+            <OperatorMessageInput jobId={jobId} />
+          )}
+          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
+            <TranscriptPanel jobId={jobId} />
+            <LogsPanel jobId={jobId} />
+          </div>
           <ExecutionTimeline jobId={jobId} />
         </div>
       )}
+
       {activeTab === "diff" && (
-        <Suspense fallback={<div className="empty-state"><div className="empty-state__text">Loading…</div></div>}>
+        <Suspense fallback={<Spinner />}>
           <DiffViewer jobId={jobId} />
         </Suspense>
       )}
       {activeTab === "workspace" && (
-        <Suspense fallback={<div className="empty-state"><div className="empty-state__text">Loading…</div></div>}>
+        <Suspense fallback={<Spinner />}>
           <WorkspaceBrowser jobId={jobId} />
         </Suspense>
       )}
       {activeTab === "artifacts" && (
-        <Suspense fallback={<div className="empty-state"><div className="empty-state__text">Loading…</div></div>}>
+        <Suspense fallback={<Spinner />}>
           <ArtifactViewer jobId={jobId} />
         </Suspense>
       )}

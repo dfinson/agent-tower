@@ -1,98 +1,61 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useCallback, useState } from "react";
 import { useTowerStore, selectApprovals } from "../store";
-import type { ApprovalRequest } from "../store";
 import { resolveApproval } from "../api/client";
+import { Button } from "../ui/Button";
+import { toast } from "sonner";
 
-const AGING_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
-
-function isAging(requestedAt: string): boolean {
-  return Date.now() - new Date(requestedAt).getTime() > AGING_THRESHOLD_MS;
-}
-
-function AgingBadge({ requestedAt }: { requestedAt: string }): ReactNode {
-  const [aging, setAging] = useState(() => isAging(requestedAt));
-
-  useEffect(() => {
-    if (aging) return;
-    const remaining = AGING_THRESHOLD_MS - (Date.now() - new Date(requestedAt).getTime());
-    if (remaining <= 0) {
-      setAging(true);
-      return;
-    }
-    const timer = setTimeout(() => setAging(true), remaining);
-    return () => clearTimeout(timer);
-  }, [requestedAt, aging]);
-
-  if (!aging) return null;
-  return <span className="badge badge--warning">Aging</span>;
-}
-
-export function ApprovalBanner({ jobId }: { jobId: string }): ReactNode {
+export function ApprovalBanner({ jobId }: { jobId: string }) {
   const approvals = useTowerStore(selectApprovals);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [loading, setLoading] = useState<string | null>(null);
 
-  const pending = Object.values(approvals)
-    .filter(
-      (a: ApprovalRequest) =>
-        a.jobId === jobId && a.resolution === null,
-    )
-    .sort(
-      (a, b) =>
-        new Date(a.requestedAt).getTime() - new Date(b.requestedAt).getTime(),
-    );
-
-  const handleResolve = useCallback(
-    async (approvalId: string, resolution: "approved" | "rejected") => {
-      setActionLoading(approvalId);
-      try {
-        const updated = await resolveApproval(approvalId, resolution);
-        useTowerStore.setState((state) => ({
-          approvals: { ...state.approvals, [updated.id]: updated },
-        }));
-      } catch {
-        // ApiError already thrown
-      } finally {
-        setActionLoading(null);
-      }
-    },
-    [],
+  const pending = Object.values(approvals).filter(
+    (a) => a.jobId === jobId && !a.resolvedAt
   );
+
+  const handleResolve = useCallback(async (approvalId: string, resolution: "approved" | "rejected") => {
+    setLoading(approvalId);
+    try {
+      await resolveApproval(approvalId, resolution);
+      toast.success(`Approval ${resolution}`);
+    } catch (e) {
+      toast.error(`Failed to ${resolution === "approved" ? "approve" : "reject"}: ${e}`);
+    } finally {
+      setLoading(null);
+    }
+  }, []);
 
   if (pending.length === 0) return null;
 
   return (
-    <div className="approval-banner">
-      {pending.map((approval) => (
-        <div key={approval.id} className="approval-banner__item">
-          <div className="approval-banner__header">
-            <span className="approval-banner__title">
-              Approval Required
-            </span>
-            <AgingBadge requestedAt={approval.requestedAt} />
-          </div>
-          <p className="approval-banner__description">
-            {approval.description}
-          </p>
-          {approval.proposedAction && (
-            <pre className="approval-banner__action">
-              {approval.proposedAction}
-            </pre>
-          )}
-          <div className="approval-banner__buttons">
-            <button
-              className="btn btn--sm btn--success"
-              disabled={actionLoading === approval.id}
-              onClick={() => handleResolve(approval.id, "approved")}
-            >
-              Approve
-            </button>
-            <button
-              className="btn btn--sm btn--danger"
-              disabled={actionLoading === approval.id}
-              onClick={() => handleResolve(approval.id, "rejected")}
-            >
-              Reject
-            </button>
+    <div className="space-y-2 mb-4">
+      {pending.map((a) => (
+        <div key={a.id} className="bg-warning/10 border border-warning rounded-lg p-4">
+          <div className="flex justify-between items-start gap-4 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <div className="text-sm font-semibold text-yellow-400 mb-1">Approval Required</div>
+              <div className="text-sm text-text">{a.description}</div>
+              {a.proposedAction && (
+                <div className="text-xs text-text-muted mt-1 font-mono">{a.proposedAction}</div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={loading === a.id}
+                onClick={() => handleResolve(a.id, "approved")}
+              >
+                Approve
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={loading === a.id}
+                onClick={() => handleResolve(a.id, "rejected")}
+              >
+                Reject
+              </Button>
+            </div>
           </div>
         </div>
       ))}
