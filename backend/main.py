@@ -150,7 +150,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await engine.dispose()
 
 
-def create_app(*, dev: bool = False, tunnel_origin: str | None = None) -> FastAPI:
+def create_app(*, dev: bool = False, tunnel_origin: str | None = None, password: str | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(title="Tower", version="0.1.0", lifespan=_lifespan)
 
@@ -168,6 +168,20 @@ def create_app(*, dev: bool = False, tunnel_origin: str | None = None) -> FastAP
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+    # Password auth — enabled when password is provided (tunnel mode or explicit)
+    if password:
+        from backend.services.auth import auth_middleware, handle_login, set_password
+
+        set_password(password)
+
+        from starlette.routing import Route
+
+        app.routes.insert(0, Route("/api/auth/login", handle_login, methods=["POST"]))
+
+        @app.middleware("http")
+        async def _auth_gate(request: Any, call_next: Any) -> Any:
+            return await auth_middleware(request, call_next)
 
     app.include_router(health.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
@@ -247,11 +261,34 @@ def _build_frontend() -> bool:
 @click.option("--port", default=None, type=int, help="Bind port (default: from config or 8080)")
 @click.option("--dev", is_flag=True, help="Dev mode: skip frontend build, enable CORS for Vite (localhost:5173)")
 @click.option("--tunnel", is_flag=True, help="Start Dev Tunnel for remote access")
-def up(host: str | None, port: int | None, dev: bool, tunnel: bool) -> None:
+@click.option("--password", default=None, help="Set auth password (auto-generated if --tunnel without --password)")
+@click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --tunnel)")
+def up(host: str | None, port: int | None, dev: bool, tunnel: bool, password: str | None, no_password: bool) -> None:
     """Start the Tower server."""
     config = load_config()
     host = host or config.server.host
     port = port or config.server.port
+
+    # Password logic: auto-generate for tunnel, allow explicit, block unsafe combos
+    if tunnel and no_password:
+        click.secho("ERROR: --tunnel --no-password is not allowed. Remote access requires authentication.", fg="red")
+        raise SystemExit(1)
+
+    effective_password: str | None = password
+    if not no_password and tunnel and not password:
+        from backend.services.auth import generate_password
+
+        effective_password = generate_password()
+    if not no_password and password:
+        effective_password = password
+
+    # Also check env var
+    if not effective_password and not no_password:
+        import os
+
+        env_pw = os.environ.get("TOWER_PASSWORD")
+        if env_pw:
+            effective_password = env_pw
 
     # Build frontend (unless --dev, which uses Vite's hot-reload server separately)
     if not dev:
@@ -279,10 +316,10 @@ def up(host: str | None, port: int | None, dev: bool, tunnel: bool) -> None:
     if tunnel:
         tunnel_origin, tunnel_proc = _start_tunnel(port)
 
-    app = create_app(dev=dev, tunnel_origin=tunnel_origin)
+    app = create_app(dev=dev, tunnel_origin=tunnel_origin, password=effective_password)
 
     try:
-        _print_startup_banner(host, port, dev, tunnel_origin)
+        _print_startup_banner(host, port, dev, tunnel_origin, effective_password)
         uvicorn.run(app, host=host, port=port)
     finally:
         if tunnel_proc is not None:
@@ -300,7 +337,6 @@ def _start_tunnel(port: int) -> tuple[str | None, Any]:
                 "host",
                 "--port-numbers",
                 str(port),
-                "--allow-anonymous",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -330,7 +366,7 @@ def _start_tunnel(port: int) -> tuple[str | None, Any]:
         return None, None
 
 
-def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | None) -> None:
+def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | None, password: str | None = None) -> None:
     """Print a startup banner with server info."""
     try:
         from rich.console import Console
@@ -342,11 +378,15 @@ def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | Non
             lines.append("[bold]Mode:[/bold]   Development (CORS enabled)")
         if tunnel_url:
             lines.append(f"[bold]Tunnel:[/bold] {tunnel_url}")
+        if password:
+            lines.append(f"[bold]Password:[/bold] {password}")
         console.print(Panel("\n".join(lines), title="[bold cyan]Tower[/bold cyan]", border_style="cyan"))
     except ImportError:
         click.echo(f"Tower server: http://{host}:{port}")
         if tunnel_url:
             click.echo(f"Tunnel: {tunnel_url}")
+        if password:
+            click.echo(f"Password: {password}")
 
 
 @cli.command()
