@@ -133,6 +133,7 @@ class JobResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    pr_url: str | None = None
 
 
 class JobListResponse(CamelModel):

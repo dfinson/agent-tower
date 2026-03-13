@@ -38,6 +38,7 @@ class JobRepository(BaseRepository):
             created_at=row.created_at,  # type: ignore[arg-type]
             updated_at=row.updated_at,  # type: ignore[arg-type]
             completed_at=row.completed_at,  # type: ignore[arg-type]
+            pr_url=row.pr_url,  # type: ignore[arg-type]
         )
 
     async def create(self, job: Job) -> Job:
@@ -55,6 +56,7 @@ class JobRepository(BaseRepository):
             created_at=job.created_at,
             updated_at=job.updated_at,
             completed_at=job.completed_at,
+            pr_url=job.pr_url,
         )
         self._session.add(row)
         await self._session.flush()
@@ -108,4 +110,13 @@ class JobRepository(BaseRepository):
         row.updated_at = updated_at  # type: ignore[assignment]
         if completed_at is not None:
             row.completed_at = completed_at  # type: ignore[assignment]
+        await self._session.flush()
+
+    async def update_pr_url(self, job_id: str, pr_url: str) -> None:
+        """Store the PR URL on a job row."""
+        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
+        row = result.scalar_one_or_none()
+        if row is None:
+            return
+        row.pr_url = pr_url  # type: ignore[assignment]
         await self._session.flush()

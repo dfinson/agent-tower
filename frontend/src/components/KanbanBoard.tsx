@@ -1,50 +1,22 @@
-import { useMemo, useState, useCallback } from "react";
-import { useTowerStore, selectJobs } from "../store";
-import type { JobSummary } from "../store";
+import { useState, useCallback } from "react";
+import {
+  useTowerStore,
+  selectActiveJobs,
+  selectSignoffJobs,
+  selectFailedJobs,
+  selectHistoryJobs,
+} from "../store";
 import { KanbanColumn } from "./KanbanColumn";
 import { fetchJobs } from "../api/client";
-
-/** Spec §14.1: column → state mapping */
-const COLUMN_STATES: Record<string, string[]> = {
-  Active: ["queued", "running"],
-  "Sign-off": ["waiting_for_approval"],
-  Failed: ["failed"],
-  History: ["succeeded", "canceled"],
-};
-
-function filterByStates(
-  jobs: Record<string, JobSummary>,
-  states: string[],
-): JobSummary[] {
-  return Object.values(jobs)
-    .filter((j) => states.includes(j.state))
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
-}
+import { useShallow } from "zustand/react/shallow";
 
 export function KanbanBoard() {
-  const jobs = useTowerStore(selectJobs);
+  const activeJobs = useTowerStore(useShallow(selectActiveJobs));
+  const signoffJobs = useTowerStore(useShallow(selectSignoffJobs));
+  const failedJobs = useTowerStore(useShallow(selectFailedJobs));
+  const historyJobs = useTowerStore(useShallow(selectHistoryJobs));
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyHasMore, setHistoryHasMore] = useState(true);
-
-  const activeJobs = useMemo(
-    () => filterByStates(jobs, COLUMN_STATES.Active ?? []),
-    [jobs],
-  );
-  const signoffJobs = useMemo(
-    () => filterByStates(jobs, COLUMN_STATES["Sign-off"] ?? []),
-    [jobs],
-  );
-  const failedJobs = useMemo(
-    () => filterByStates(jobs, COLUMN_STATES.Failed ?? []),
-    [jobs],
-  );
-  const historyJobs = useMemo(
-    () => filterByStates(jobs, COLUMN_STATES.History ?? []),
-    [jobs],
-  );
 
   const loadMoreHistory = useCallback(async () => {
     try {

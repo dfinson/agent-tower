@@ -32,6 +32,7 @@ export interface JobSummary {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  prUrl: string | null;
 }
 
 export interface ApprovalRequest {
@@ -205,6 +206,21 @@ export const useTowerStore = create<TowerState>((set) => ({
           return state;
         }
 
+        case "job_succeeded": {
+          const jobId = payload.jobId as string;
+          const prUrl = (payload.prUrl as string | null) ?? null;
+          const existing = state.jobs[jobId];
+          if (existing && prUrl) {
+            return {
+              jobs: {
+                ...state.jobs,
+                [jobId]: { ...existing, prUrl },
+              },
+            };
+          }
+          return state;
+        }
+
         case "diff_update": {
           const jobId = payload.jobId as string;
           const changedFiles = (payload.changedFiles as DiffFileModel[]) ?? [];
@@ -233,3 +249,37 @@ export const selectJobTranscript = (jobId: string) => (state: TowerState) =>
   state.transcript[jobId] ?? [];
 export const selectJobDiffs = (jobId: string) => (state: TowerState) =>
   state.diffs[jobId] ?? [];
+
+// Per-column selectors — only recompute when jobs in that column change
+function sortByUpdatedDesc(jobs: JobSummary[]): JobSummary[] {
+  return jobs.sort(
+    (a, b) =>
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+}
+
+export const selectActiveJobs = (state: TowerState): JobSummary[] =>
+  sortByUpdatedDesc(
+    Object.values(state.jobs).filter(
+      (j) => j.state === "queued" || j.state === "running",
+    ),
+  );
+
+export const selectSignoffJobs = (state: TowerState): JobSummary[] =>
+  sortByUpdatedDesc(
+    Object.values(state.jobs).filter(
+      (j) => j.state === "waiting_for_approval",
+    ),
+  );
+
+export const selectFailedJobs = (state: TowerState): JobSummary[] =>
+  sortByUpdatedDesc(
+    Object.values(state.jobs).filter((j) => j.state === "failed"),
+  );
+
+export const selectHistoryJobs = (state: TowerState): JobSummary[] =>
+  sortByUpdatedDesc(
+    Object.values(state.jobs).filter(
+      (j) => j.state === "succeeded" || j.state === "canceled",
+    ),
+  );

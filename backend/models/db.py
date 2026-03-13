@@ -22,6 +22,7 @@ class JobRow(Base):
     branch = Column(String, nullable=True)
     worktree_path = Column(String, nullable=True)
     session_id = Column(String, nullable=True)
+    pr_url = Column(String, nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
     completed_at = Column(DateTime, nullable=True)
