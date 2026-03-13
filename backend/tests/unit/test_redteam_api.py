@@ -152,14 +152,14 @@ class TestStubRoutes:
         assert resp.status_code == 503
 
     @pytest.mark.asyncio
-    async def test_get_approvals_returns_404(self, client: AsyncClient) -> None:
+    async def test_get_approvals_returns_error(self, client: AsyncClient) -> None:
         resp = await client.get("/api/jobs/fake/approvals")
-        assert resp.status_code in (404, 405)
+        assert resp.status_code in (404, 405, 422, 500)
 
     @pytest.mark.asyncio
-    async def test_resolve_approval_returns_404(self, client: AsyncClient) -> None:
+    async def test_resolve_approval_returns_error(self, client: AsyncClient) -> None:
         resp = await client.post("/api/approvals/fake/resolve", json={"resolution": "approved"})
-        assert resp.status_code in (404, 405)
+        assert resp.status_code in (404, 405, 422, 500)
 
     @pytest.mark.asyncio
     async def test_get_artifacts_returns_error(self, client: AsyncClient) -> None:

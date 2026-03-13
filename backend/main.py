@@ -15,6 +15,7 @@ from backend.config import init_config, load_config
 from backend.persistence.database import create_engine, create_session_factory, run_migrations
 from backend.persistence.event_repo import EventRepository
 from backend.services.agent_adapter import CopilotAdapter
+from backend.services.approval_service import ApprovalService
 from backend.services.event_bus import EventBus
 from backend.services.runtime_service import RuntimeService
 from backend.services.sse_manager import SSEManager
@@ -54,12 +55,14 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Runtime service ---
     config = load_config()
     adapter = CopilotAdapter()
+    approval_service = ApprovalService(session_factory=session_factory)
 
     runtime_service = RuntimeService(
         session_factory=session_factory,
         event_bus=event_bus,
         adapter=adapter,
         config=config,
+        approval_service=approval_service,
     )
 
     # Recover orphaned jobs from a previous crash
@@ -69,6 +72,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.event_bus = event_bus
     app.state.sse_manager = sse_manager
     app.state.runtime_service = runtime_service
+    app.state.approval_service = approval_service
 
     # Session factory available for route handlers that need ad-hoc sessions
     app.state.session_factory = session_factory

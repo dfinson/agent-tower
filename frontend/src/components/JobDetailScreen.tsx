@@ -8,6 +8,8 @@ import { StateBadge } from "./StateBadge";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { LogsPanel } from "./LogsPanel";
 import { ExecutionTimeline } from "./ExecutionTimeline";
+import { ApprovalBanner } from "./ApprovalBanner";
+import { OperatorMessageInput } from "./OperatorMessageInput";
 
 const DiffViewer = lazy(() => import("./DiffViewer"));
 const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
@@ -210,6 +212,8 @@ export function JobDetailScreen() {
 
       {activeTab === "live" && (
         <div className="panels">
+          <ApprovalBanner jobId={jobId} />
+          <OperatorMessageInput jobId={jobId} />
           <TranscriptPanel jobId={jobId} />
           <LogsPanel jobId={jobId} />
           <ExecutionTimeline jobId={jobId} />

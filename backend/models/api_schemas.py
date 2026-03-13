@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003 — Pydantic resolves annotations at runtime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 
@@ -95,7 +95,7 @@ class CreateJobRequest(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=10_000)
 
 
 class ResolveApprovalRequest(BaseModel):

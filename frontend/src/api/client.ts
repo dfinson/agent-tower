@@ -9,6 +9,7 @@ import type {
   ArtifactListResponse,
   CreateJobRequest,
   CreateJobResponse,
+  ApprovalRequest,
   GlobalConfigResponse,
   HealthResponse,
   Job,
@@ -159,6 +160,34 @@ export function fetchWorkspaceFile(
 ): Promise<{ path: string; content: string }> {
   const qs = new URLSearchParams({ path });
   return request(`/jobs/${encodeURIComponent(jobId)}/workspace/file?${qs.toString()}`);
+}
+
+// --- Approvals ---
+
+export function fetchApprovals(jobId: string): Promise<ApprovalRequest[]> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/approvals`);
+}
+
+export function resolveApproval(
+  approvalId: string,
+  resolution: "approved" | "rejected",
+): Promise<ApprovalRequest> {
+  return request(`/approvals/${encodeURIComponent(approvalId)}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ resolution }),
+  });
+}
+
+// --- Operator Messages ---
+
+export function sendOperatorMessage(
+  jobId: string,
+  content: string,
+): Promise<{ seq: number; timestamp: string }> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
 }
 
 export { ApiError };
