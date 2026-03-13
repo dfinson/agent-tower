@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Annotated
 
@@ -18,12 +19,27 @@ from backend.models.api_schemas import (
     GlobalConfigResponse,
     RegisterRepoRequest,
     RegisterRepoResponse,
+    RepoDetailResponse,
     RepoListResponse,
     UpdateGlobalConfigRequest,
 )
 from backend.services.git_service import GitError, GitService
 
 router = APIRouter(tags=["settings"])
+
+
+def _strip_url_credentials(url: str) -> str:
+    """Remove embedded credentials from a git remote URL."""
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(url)
+    if parsed.username or parsed.password:
+        host = parsed.hostname or ""
+        if parsed.port:
+            host = f"{host}:{parsed.port}"
+        cleaned = parsed._replace(netloc=host)
+        return urlunparse(cleaned)
+    return url
 
 
 def _get_config() -> TowerConfig:
@@ -68,6 +84,33 @@ async def list_repos(
 ) -> RepoListResponse:
     """List registered repository paths."""
     return RepoListResponse(items=config.repos)
+
+
+@router.get("/settings/repos/{repo_path:path}", response_model=RepoDetailResponse)
+async def get_repo_detail(
+    repo_path: str,
+    config: Annotated[TowerConfig, Depends(_get_config)],
+    git: Annotated[GitService, Depends(_get_git_service)],
+) -> RepoDetailResponse:
+    """Get detailed config for a single registered repository."""
+    resolved = str(Path(repo_path).expanduser().resolve())
+    if resolved not in config.repos:
+        raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
+
+    origin_url: str | None = None
+    base_branch: str | None = None
+    with contextlib.suppress(GitError):
+        raw_url = await git.get_origin_url(resolved)
+        if raw_url:
+            origin_url = _strip_url_credentials(raw_url)
+    with contextlib.suppress(GitError):
+        base_branch = await git.get_default_branch(resolved)
+
+    return RepoDetailResponse(
+        path=resolved,
+        origin_url=origin_url,
+        base_branch=base_branch,
+    )
 
 
 @router.post("/settings/repos", response_model=RegisterRepoResponse, status_code=201)
