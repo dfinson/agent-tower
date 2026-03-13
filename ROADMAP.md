@@ -140,15 +140,15 @@ Work is broken into phases. Each phase produces a usable increment. Later phases
 
 > Graceful shutdown, restart recovery, retention, remote access.
 
-- [ ] Graceful shutdown (SIGTERM/SIGINT handler, cancel running jobs, close SSE)
-- [ ] Restart recovery (transition orphaned running/waiting jobs to failed)
-- [ ] Retention policy — artifact cleanup, worktree cleanup, daily background task
-- [ ] Settings API (`GET/PUT /api/settings/global`, `GET /api/settings/repos`, `GET /api/settings/repos/{repo_path}`)
-- [ ] Settings screen (global config editor, repo config list, cleanup action)
-- [ ] Dev Tunnel integration (`tower up --tunnel`)
-- [ ] Dynamic CORS for tunnel origin
-- [ ] Startup warning for `0.0.0.0` binding
-- [ ] `rich` terminal status display for `tower up`
+- [x] Graceful shutdown (SIGTERM/SIGINT handler, cancel running jobs, close SSE)
+- [x] Restart recovery (transition orphaned running/waiting jobs to failed)
+- [x] Retention policy — artifact cleanup, worktree cleanup, daily background task
+- [x] Settings API (`GET/PUT /api/settings/global`, `GET /api/settings/repos`, `GET /api/settings/repos/{repo_path}`)
+- [x] Settings screen (global config editor, repo config list, cleanup action)
+- [x] Dev Tunnel integration (`tower up --tunnel`)
+- [x] Dynamic CORS for tunnel origin
+- [x] Startup warning for `0.0.0.0` binding
+- [x] `rich` terminal status display for `tower up`
 
 ---
 
