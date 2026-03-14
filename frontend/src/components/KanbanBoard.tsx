@@ -41,7 +41,7 @@ export function KanbanBoard() {
   }, [historyCursor]);
 
   return (
-    <div className="grid grid-cols-4 gap-3 h-full max-md:grid-cols-2 max-sm:hidden">
+    <div className="grid grid-cols-4 gap-3 h-[calc(100vh-140px)] max-lg:grid-cols-2 max-sm:hidden">
       <KanbanColumn title="Active" jobs={activeJobs} />
       <KanbanColumn title="Sign-off" jobs={signoffJobs} />
       <KanbanColumn title="Failed" jobs={failedJobs} />

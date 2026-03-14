@@ -1,35 +1,38 @@
+/**
+ * Runtime logs panel — custom console-like output viewer.
+ *
+ * Monospace, dark console background, auto-scrolling, level filtering.
+ * Mantine used for shell. Content rendering is product-specific.
+ */
 import { useState, useRef, useEffect } from "react";
+import { Paper, Group, Text, ScrollArea, Badge, UnstyledButton } from "@mantine/core";
 import { useTowerStore, selectJobLogs } from "../store";
-import { Card, CardHeader, CardTitle } from "../ui/Card";
-import { EmptyState } from "../ui/Feedback";
-import { cn } from "../ui/cn";
 
 const LEVELS = ["debug", "info", "warn", "error"] as const;
-
-const levelColor: Record<string, string> = {
-  debug: "text-text-dim",
-  info: "text-accent",
-  warn: "text-warning",
-  error: "text-error",
+const LEVEL_COLORS: Record<string, string> = {
+  debug: "gray",
+  info: "blue",
+  warn: "yellow",
+  error: "red",
 };
 
 export function LogsPanel({ jobId }: { jobId: string }) {
   const allLogs = useTowerStore(selectJobLogs(jobId));
   const [filter, setFilter] = useState<Set<string>>(new Set(LEVELS));
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
   const logs = allLogs.filter((l) => filter.has(l.level));
 
   useEffect(() => {
-    if (stickRef.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (stickRef.current && viewportRef.current) {
+      viewportRef.current.scrollTo({ top: viewportRef.current.scrollHeight });
     }
   }, [logs.length]);
 
-  const handleScroll = () => {
-    const el = scrollRef.current;
-    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  const handleScroll = (pos: { x: number; y: number }) => {
+    const el = viewportRef.current;
+    if (el) stickRef.current = el.scrollHeight - pos.y - el.clientHeight < 40;
   };
 
   const toggleLevel = (level: string) => {
@@ -42,43 +45,51 @@ export function LogsPanel({ jobId }: { jobId: string }) {
   };
 
   return (
-    <Card className="flex flex-col max-h-[500px]">
-      <CardHeader>
-        <CardTitle>Logs</CardTitle>
-        <div className="flex gap-1">
+    <Paper className="flex flex-col h-full overflow-hidden" radius="lg" p={0}>
+      <Group
+        justify="space-between"
+        className="px-4 py-2.5 border-b border-[var(--mantine-color-dark-4)] shrink-0"
+      >
+        <Text size="sm" fw={600} c="dimmed">Logs</Text>
+        <Group gap={4}>
           {LEVELS.map((level) => (
-            <button
-              key={level}
-              onClick={() => toggleLevel(level)}
-              className={cn(
-                "px-2 py-0.5 rounded text-[11px] font-medium uppercase cursor-pointer transition-colors",
-                filter.has(level)
-                  ? cn("border border-border bg-surface-hover", levelColor[level])
-                  : "text-text-dim border border-transparent"
-              )}
-            >
-              {level}
-            </button>
+            <UnstyledButton key={level} onClick={() => toggleLevel(level)}>
+              <Badge
+                variant={filter.has(level) ? "light" : "outline"}
+                color={LEVEL_COLORS[level]}
+                size="xs"
+                className="cursor-pointer"
+              >
+                {level}
+              </Badge>
+            </UnstyledButton>
           ))}
-        </div>
-      </CardHeader>
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0 font-mono text-xs">
+        </Group>
+      </Group>
+
+      <ScrollArea
+        className="flex-1 min-h-0 bg-[#0d1117]"
+        viewportRef={viewportRef}
+        onScrollPositionChange={handleScroll}
+      >
         {logs.length === 0 ? (
-          <EmptyState text="No log entries" />
+          <Text size="sm" c="dimmed" ta="center" py="xl">No log entries</Text>
         ) : (
-          logs.map((log, i) => (
-            <div key={i} className="flex gap-2 px-4 py-0.5 hover:bg-surface-hover leading-relaxed">
-              <span className="text-text-dim whitespace-nowrap shrink-0">
-                {new Date(log.timestamp).toLocaleTimeString()}
-              </span>
-              <span className={cn("w-10 shrink-0 font-semibold uppercase", levelColor[log.level])}>
-                {log.level}
-              </span>
-              <span className="whitespace-pre-wrap break-all">{log.message}</span>
-            </div>
-          ))
+          <div className="p-2 font-mono text-xs leading-relaxed">
+            {logs.map((log, i) => (
+              <div key={i} className="flex gap-2 px-2 py-px hover:bg-white/5 rounded">
+                <span className="text-[var(--mantine-color-dimmed)] whitespace-nowrap shrink-0">
+                  {new Date(log.timestamp).toLocaleTimeString()}
+                </span>
+                <span className={`w-10 shrink-0 font-semibold uppercase text-[var(--mantine-color-${LEVEL_COLORS[log.level]}-5)]`}>
+                  {log.level}
+                </span>
+                <span className="whitespace-pre-wrap break-all">{log.message}</span>
+              </div>
+            ))}
+          </div>
         )}
-      </div>
-    </Card>
+      </ScrollArea>
+    </Paper>
   );
 }

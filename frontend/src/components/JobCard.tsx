@@ -1,7 +1,9 @@
 import { memo } from "react";
 import { useNavigate } from "react-router-dom";
+import { Card, Group, Text, Stack } from "@mantine/core";
+import { GitBranch } from "lucide-react";
 import type { JobSummary } from "../store";
-import { Badge } from "../ui/Badge";
+import { StateBadge } from "./StateBadge";
 
 function elapsed(createdAt: string): string {
   const ms = Date.now() - new Date(createdAt).getTime();
@@ -18,20 +20,35 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   const repoName = job.repo.split("/").pop() ?? job.repo;
 
   return (
-    <button
-      className="w-full text-left bg-bg border border-border rounded-md p-3 mb-2 last:mb-0 cursor-pointer transition-colors hover:border-accent group"
+    <Card
+      className="cursor-pointer transition-all hover:border-[var(--mantine-color-blue-7)] hover:shadow-md"
+      padding="sm"
       onClick={() => navigate(`/jobs/${job.id}`)}
     >
-      <div className="flex justify-between items-center mb-1.5">
-        <span className="font-semibold text-[13px] text-accent">{job.id.slice(0, 8)}</span>
-        <Badge state={job.state} />
-      </div>
-      <div className="text-xs text-text-muted truncate mb-1" title={job.repo}>{repoName}</div>
-      <div className="text-xs text-text line-clamp-2 leading-snug">{job.prompt}</div>
-      <div className="flex justify-between items-center mt-2 text-[11px] text-text-dim">
-        <span>{elapsed(job.createdAt)}</span>
-        <span>{job.strategy}</span>
-      </div>
-    </button>
+      <Stack gap={6}>
+        <Group justify="space-between" wrap="nowrap">
+          <Text size="sm" fw={600} c="blue" truncate>
+            {job.id}
+          </Text>
+          <StateBadge state={job.state} />
+        </Group>
+
+        <Group gap={4} wrap="nowrap">
+          <GitBranch size={12} className="text-[var(--mantine-color-dimmed)] shrink-0" />
+          <Text size="xs" c="dimmed" truncate title={job.repo}>
+            {repoName}
+          </Text>
+        </Group>
+
+        <Text size="xs" lineClamp={2} className="leading-snug">
+          {job.prompt}
+        </Text>
+
+        <Group justify="space-between" mt={2}>
+          <Text size="xs" c="dimmed">{elapsed(job.createdAt)}</Text>
+          <Text size="xs" c="dimmed">{job.strategy}</Text>
+        </Group>
+      </Stack>
+    </Card>
   );
 });

@@ -1,58 +1,146 @@
-import { useState, useRef, useCallback } from "react";
+/**
+ * Voice recorder with WaveSurfer.js waveform visualization.
+ *
+ * Uses native browser APIs (getUserMedia + MediaRecorder) for recording.
+ * WaveSurfer.js drives the live waveform from the browser audio stream.
+ * Audio is recorded locally and uploaded as a single Blob after stop.
+ */
+import { useState, useRef, useCallback, useEffect } from "react";
+import { ActionIcon, Paper, Text, Group, Loader } from "@mantine/core";
+import { Mic, Square, Loader2 } from "lucide-react";
+import WaveSurfer from "wavesurfer.js";
+import RecordPlugin from "wavesurfer.js/dist/plugins/record.esm.js";
 import { transcribeAudio } from "../api/client";
-import { Button } from "../ui/Button";
-import { toast } from "sonner";
+import { notifications } from "@mantine/notifications";
 
-interface VoiceButtonProps {
+type RecordingState = "idle" | "recording" | "uploading" | "transcribing";
+
+interface VoiceRecorderProps {
   onTranscript: (text: string) => void;
   maxSizeMb?: number;
 }
 
-export function VoiceButton({ onTranscript, maxSizeMb = 10 }: VoiceButtonProps) {
-  const [recording, setRecording] = useState(false);
-  const mediaRef = useRef<MediaRecorder | null>(null);
+export function VoiceRecorder({ onTranscript, maxSizeMb = 10 }: VoiceRecorderProps) {
+  const [state, setState] = useState<RecordingState>("idle");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WaveSurfer | null>(null);
+  const recordRef = useRef<ReturnType<typeof RecordPlugin.create> | null>(null);
 
-  const toggle = useCallback(async () => {
-    if (recording) {
-      mediaRef.current?.stop();
-      setRecording(false);
+  // Initialize WaveSurfer on mount
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const record = RecordPlugin.create({
+      renderRecordedAudio: false,
+      scrollingWaveform: true,
+      scrollingWaveformWindow: 4,
+    });
+
+    const ws = WaveSurfer.create({
+      container: containerRef.current,
+      waveColor: "#5180c6",
+      progressColor: "#7196cf",
+      height: 32,
+      barWidth: 2,
+      barGap: 1,
+      barRadius: 2,
+      plugins: [record],
+    });
+
+    wsRef.current = ws;
+    recordRef.current = record;
+
+    // Handle recording completion
+    record.on("record-end", async (blob: Blob) => {
+      if (blob.size > maxSizeMb * 1024 * 1024) {
+        notifications.show({ color: "red", message: `Audio too large (max ${maxSizeMb} MB)` });
+        setState("idle");
+        return;
+      }
+
+      setState("transcribing");
+      try {
+        const text = await transcribeAudio(blob);
+        if (text) {
+          onTranscript(text);
+          notifications.show({ color: "green", message: "Transcribed!" });
+        }
+      } catch {
+        notifications.show({ color: "red", message: "Transcription failed" });
+      } finally {
+        setState("idle");
+      }
+    });
+
+    return () => {
+      record.destroy();
+      ws.destroy();
+    };
+  }, [maxSizeMb, onTranscript]);
+
+  const handleToggle = useCallback(async () => {
+    const record = recordRef.current;
+    if (!record) return;
+
+    if (state === "recording") {
+      record.stopRecording();
+      setState("uploading");
       return;
     }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => chunks.push(e.data);
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        if (blob.size > maxSizeMb * 1024 * 1024) {
-          toast.error(`Audio too large (max ${maxSizeMb} MB)`);
-          return;
-        }
-        try {
-          const text = await transcribeAudio(blob);
-          if (text) onTranscript(text);
-        } catch {
-          toast.error("Transcription failed");
-        }
-      };
-      recorder.start();
-      mediaRef.current = recorder;
-      setRecording(true);
+      await record.startRecording();
+      setState("recording");
     } catch {
-      toast.error("Microphone access denied");
+      notifications.show({ color: "red", message: "Microphone access denied" });
     }
-  }, [recording, onTranscript, maxSizeMb]);
+  }, [state]);
 
   return (
-    <Button
-      variant={recording ? "danger" : "ghost"}
-      size="sm"
-      onClick={toggle}
-      title={recording ? "Stop recording" : "Voice input"}
-    >
-      {recording ? "⏹ Stop" : "🎤"}
-    </Button>
+    <Group gap="xs" align="center">
+      {state === "recording" && (
+        <Paper
+          className="flex-1 overflow-hidden rounded-full"
+          bg="dark.7"
+          px="sm"
+          py={4}
+        >
+          <div ref={containerRef} className="w-full" />
+        </Paper>
+      )}
+
+      {state === "transcribing" && (
+        <Group gap="xs">
+          <Loader size="xs" />
+          <Text size="xs" c="dimmed">Transcribing…</Text>
+        </Group>
+      )}
+
+      <ActionIcon
+        variant={state === "recording" ? "filled" : "subtle"}
+        color={state === "recording" ? "red" : "gray"}
+        size="lg"
+        radius="xl"
+        onClick={handleToggle}
+        disabled={state === "uploading" || state === "transcribing"}
+        title={state === "recording" ? "Stop recording" : "Voice input"}
+      >
+        {state === "recording" ? (
+          <Square size={14} />
+        ) : state === "uploading" || state === "transcribing" ? (
+          <Loader2 size={16} className="animate-spin" />
+        ) : (
+          <Mic size={16} />
+        )}
+      </ActionIcon>
+
+      {/* Hidden container for waveform when not recording */}
+      {state !== "recording" && (
+        <div ref={containerRef} className="hidden" />
+      )}
+    </Group>
   );
 }
+
+// Backward compatibility alias
+export { VoiceRecorder as VoiceButton };

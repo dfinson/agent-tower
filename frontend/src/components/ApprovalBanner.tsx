@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
+import { Alert, Button, Group, Text, Code } from "@mantine/core";
+import { ShieldQuestion } from "lucide-react";
 import { useTowerStore, selectApprovals } from "../store";
 import { resolveApproval } from "../api/client";
-import { Button } from "../ui/Button";
-import { toast } from "sonner";
+import { notifications } from "@mantine/notifications";
 
 export function ApprovalBanner({ jobId }: { jobId: string }) {
   const approvals = useTowerStore(selectApprovals);
@@ -12,52 +13,49 @@ export function ApprovalBanner({ jobId }: { jobId: string }) {
     (a) => a.jobId === jobId && !a.resolvedAt
   );
 
-  const handleResolve = useCallback(async (approvalId: string, resolution: "approved" | "rejected") => {
-    setLoading(approvalId);
-    try {
-      await resolveApproval(approvalId, resolution);
-      toast.success(`Approval ${resolution}`);
-    } catch (e) {
-      toast.error(`Failed to ${resolution === "approved" ? "approve" : "reject"}: ${e}`);
-    } finally {
-      setLoading(null);
-    }
-  }, []);
+  const handleResolve = useCallback(
+    async (approvalId: string, resolution: "approved" | "rejected") => {
+      setLoading(approvalId);
+      try {
+        await resolveApproval(approvalId, resolution);
+        notifications.show({ color: "green", message: `Approval ${resolution}` });
+      } catch (e) {
+        notifications.show({ color: "red", title: "Failed", message: String(e) });
+      } finally {
+        setLoading(null);
+      }
+    },
+    []
+  );
 
   if (pending.length === 0) return null;
 
   return (
-    <div className="space-y-2 mb-4">
+    <div className="space-y-2">
       {pending.map((a) => (
-        <div key={a.id} className="bg-warning/10 border border-warning rounded-lg p-4">
-          <div className="flex justify-between items-start gap-4 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
-              <div className="text-sm font-semibold text-yellow-400 mb-1">Approval Required</div>
-              <div className="text-sm text-text">{a.description}</div>
-              {a.proposedAction && (
-                <div className="text-xs text-text-muted mt-1 font-mono">{a.proposedAction}</div>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={loading === a.id}
-                onClick={() => handleResolve(a.id, "approved")}
-              >
-                Approve
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                disabled={loading === a.id}
-                onClick={() => handleResolve(a.id, "rejected")}
-              >
-                Reject
-              </Button>
-            </div>
-          </div>
-        </div>
+        <Alert key={a.id} color="orange" icon={<ShieldQuestion size={18} />} title="Approval Required" radius="lg">
+          <Text size="sm" mb="xs">{a.description}</Text>
+          {a.proposedAction && <Code block mb="sm">{a.proposedAction}</Code>}
+          <Group gap="xs">
+            <Button
+              size="xs"
+              color="green"
+              loading={loading === a.id}
+              onClick={() => handleResolve(a.id, "approved")}
+            >
+              Approve
+            </Button>
+            <Button
+              size="xs"
+              color="red"
+              variant="outline"
+              loading={loading === a.id}
+              onClick={() => handleResolve(a.id, "rejected")}
+            >
+              Reject
+            </Button>
+          </Group>
+        </Alert>
       ))}
     </div>
   );

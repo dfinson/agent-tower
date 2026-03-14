@@ -1,9 +1,7 @@
 import { memo } from "react";
+import { Paper, Group, Text, Badge, Stack, Button } from "@mantine/core";
 import type { JobSummary } from "../store";
 import { JobCard } from "./JobCard";
-import { Card, CardHeader, CardTitle, CardCount } from "../ui/Card";
-import { Button } from "../ui/Button";
-import { EmptyState } from "../ui/Feedback";
 
 interface KanbanColumnProps {
   title: string;
@@ -12,25 +10,40 @@ interface KanbanColumnProps {
   hasMore?: boolean;
 }
 
-export const KanbanColumn = memo(function KanbanColumn({ title, jobs, onLoadMore, hasMore }: KanbanColumnProps) {
+export const KanbanColumn = memo(function KanbanColumn({
+  title,
+  jobs,
+  onLoadMore,
+  hasMore,
+}: KanbanColumnProps) {
   return (
-    <Card className="flex flex-col overflow-hidden">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardCount count={jobs.length} />
-      </CardHeader>
-      <div className="flex-1 overflow-y-auto p-2">
+    <Paper className="flex flex-col overflow-hidden h-full" radius="lg" p={0}>
+      <Group
+        justify="space-between"
+        className="px-4 py-3 border-b border-[var(--mantine-color-dark-4)]"
+      >
+        <Text size="sm" fw={600} c="dimmed">
+          {title}
+        </Text>
+        <Badge variant="default" size="sm" radius="xl">
+          {jobs.length}
+        </Badge>
+      </Group>
+
+      <Stack gap="xs" className="flex-1 overflow-y-auto p-2">
         {jobs.length === 0 ? (
-          <EmptyState text="No jobs" />
+          <Text size="sm" c="dimmed" ta="center" py="xl">
+            No jobs
+          </Text>
         ) : (
           jobs.map((job) => <JobCard key={job.id} job={job} />)
         )}
         {hasMore && onLoadMore && (
-          <Button size="sm" className="w-full mt-2" onClick={onLoadMore}>
+          <Button variant="subtle" size="xs" fullWidth onClick={onLoadMore}>
             Load more
           </Button>
         )}
-      </div>
-    </Card>
+      </Stack>
+    </Paper>
   );
 });
