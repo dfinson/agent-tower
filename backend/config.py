@@ -149,46 +149,55 @@ def load_config(path: Path | None = None) -> TowerConfig:
 
 
 def save_config(config: TowerConfig, path: Path | None = None) -> None:
-    """Persist the current TowerConfig back to the YAML config file."""
+    """Persist the current TowerConfig back to the YAML config file.
+
+    Non-destructive: loads the existing file first and merges changes in,
+    preserving any keys or repos that might exist.
+    """
     if path is None:
         path = DEFAULT_CONFIG_PATH
 
-    raw: dict[str, Any] = {
-        "server": {"host": config.server.host, "port": config.server.port},
-        "runtime": {
-            "max_concurrent_jobs": config.runtime.max_concurrent_jobs,
-            "worktrees_dirname": config.runtime.worktrees_dirname,
-        },
-        "voice": {
-            "enabled": config.voice.enabled,
-            "model": config.voice.model,
-            "max_audio_size_mb": config.voice.max_audio_size_mb,
-        },
-        "retention": {
-            "artifact_retention_days": config.retention.artifact_retention_days,
-            "max_artifact_size_mb": config.retention.max_artifact_size_mb,
-            "cleanup_on_startup": config.retention.cleanup_on_startup,
-        },
-        "logging": {
-            "level": config.logging.level,
-            "file": config.logging.file,
-            "max_file_size_mb": config.logging.max_file_size_mb,
-            "backup_count": config.logging.backup_count,
-        },
-        "rate_limits": {
-            "max_sse_connections": config.rate_limits.max_sse_connections,
-        },
-        "mcp_server": {
-            "enabled": config.mcp_server.enabled,
-            "path": config.mcp_server.path,
-        },
-        "repos_base_dir": config.repos_base_dir,
-        "repos": config.repos,
+    # Load existing config to preserve unknown keys
+    existing: dict[str, Any] = {}
+    if path.exists():
+        with open(path) as f:
+            existing = yaml.safe_load(f) or {}
+
+    # Merge our known sections — existing keys not in our model are preserved
+    existing["server"] = {"host": config.server.host, "port": config.server.port}
+    existing["runtime"] = {
+        "max_concurrent_jobs": config.runtime.max_concurrent_jobs,
+        "worktrees_dirname": config.runtime.worktrees_dirname,
     }
+    existing["voice"] = {
+        "enabled": config.voice.enabled,
+        "model": config.voice.model,
+        "max_audio_size_mb": config.voice.max_audio_size_mb,
+    }
+    existing["retention"] = {
+        "artifact_retention_days": config.retention.artifact_retention_days,
+        "max_artifact_size_mb": config.retention.max_artifact_size_mb,
+        "cleanup_on_startup": config.retention.cleanup_on_startup,
+    }
+    existing["logging"] = {
+        "level": config.logging.level,
+        "file": config.logging.file,
+        "max_file_size_mb": config.logging.max_file_size_mb,
+        "backup_count": config.logging.backup_count,
+    }
+    existing["rate_limits"] = {
+        "max_sse_connections": config.rate_limits.max_sse_connections,
+    }
+    existing["mcp_server"] = {
+        "enabled": config.mcp_server.enabled,
+        "path": config.mcp_server.path,
+    }
+    existing["repos_base_dir"] = config.repos_base_dir
+    existing["repos"] = config.repos
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+        yaml.dump(existing, f, default_flow_style=False, sort_keys=False)
 
 
 def register_repo(config: TowerConfig, repo_path: str, config_path: Path | None = None) -> str:
@@ -223,9 +232,54 @@ def unregister_repo(config: TowerConfig, repo_path: str, config_path: Path | Non
 
 
 def init_config(path: Path | None = None) -> Path:
-    """Create the default config file. Returns the path written."""
+    """Create the default config file if it doesn't already exist.
+
+    Non-destructive: never overwrites an existing config.
+    """
     if path is None:
         path = DEFAULT_CONFIG_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(DEFAULT_CONFIG_YAML)
+    if not path.exists():
+        path.write_text(DEFAULT_CONFIG_YAML)
     return path
+
+
+def merge_config_yaml(new_yaml: str, path: Path | None = None) -> str:
+    """Merge incoming YAML into the existing config file.
+
+    Non-destructive: incoming values override existing ones at the key level,
+    but keys not present in the incoming YAML are preserved (especially repos).
+    Returns the resulting merged YAML string.
+    """
+    if path is None:
+        path = DEFAULT_CONFIG_PATH
+
+    # Parse the incoming YAML
+    incoming = yaml.safe_load(new_yaml) or {}
+    if not isinstance(incoming, dict):
+        return new_yaml  # Not a dict — can't merge, just return as-is
+
+    # Load existing
+    existing: dict[str, Any] = {}
+    if path.exists():
+        with open(path) as f:
+            existing = yaml.safe_load(f) or {}
+
+    # Deep merge: incoming overrides existing, but missing keys in incoming are preserved
+    def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        result = dict(base)
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = _deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    merged = _deep_merge(existing, incoming)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        yaml.dump(merged, f, default_flow_style=False, sort_keys=False)
+
+    # Return the written content
+    return yaml.dump(merged, default_flow_style=False, sort_keys=False)

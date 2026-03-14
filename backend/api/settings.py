@@ -62,20 +62,23 @@ async def get_global_config() -> GlobalConfigResponse:
 
 @router.put("/settings/global", response_model=GlobalConfigResponse)
 async def update_global_config(body: UpdateGlobalConfigRequest) -> GlobalConfigResponse:
-    """Update global config from YAML string."""
+    """Update global config from YAML string.
+
+    Non-destructive: incoming YAML is merged into the existing config.
+    Keys not present in the incoming YAML are preserved.
+    """
     import yaml
 
-    from backend.config import DEFAULT_CONFIG_PATH
+    from backend.config import merge_config_yaml
 
-    # Validate YAML
+    # Validate YAML syntax
     try:
         yaml.safe_load(body.config_yaml)
     except yaml.YAMLError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid YAML: {exc}") from exc
 
-    DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DEFAULT_CONFIG_PATH.write_text(body.config_yaml)
-    return GlobalConfigResponse(config_yaml=body.config_yaml)
+    result_yaml = merge_config_yaml(body.config_yaml)
+    return GlobalConfigResponse(config_yaml=result_yaml)
 
 
 @router.get("/settings/repos", response_model=RepoListResponse)
