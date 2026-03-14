@@ -99,11 +99,13 @@ function ConnectionStatus() {
 /* App                                                                 */
 /* ------------------------------------------------------------------ */
 
+const SHELL_HEADER = { height: 48 };
+
 export function App() {
   useSSE();
 
   return (
-    <AppShell header={{ height: 48 }} padding="md">
+    <AppShell header={SHELL_HEADER} padding="md">
       <AppShell.Header className="flex items-center justify-between px-4 border-b border-[var(--mantine-color-dark-4)]">
         <Group gap="xs">
           <Text fw={700} size="md" className="tracking-tight">
