@@ -105,14 +105,13 @@ class CopilotAdapter(AgentAdapterInterface):
             data = sdk_event.data
 
             # --- Copilot SDK → standard telemetry contract ---
+            # Compare against event type string values to avoid importing
+            # SessionEventType (which mypy flags as not re-exported).
             job_id = self._session_to_job.get(session_id)
             if job_id and data:
                 from backend.services.telemetry import collector as tel
 
-                event_type = sdk_event.type
-                from copilot.session import SessionEventType as SdkEventType  # noqa: N814
-
-                if event_type == SdkEventType.ASSISTANT_USAGE:
+                if kind_str == "assistant_usage":
                     tel.record_llm_usage(
                         job_id,
                         model=data.model or "",
@@ -123,12 +122,12 @@ class CopilotAdapter(AgentAdapterInterface):
                         cost=float(data.cost or 0),
                         duration_ms=float(data.duration or 0),
                     )
-                elif event_type == SdkEventType.TOOL_EXECUTION_START:
+                elif kind_str == "tool_execution_start":
                     tool_id = data.tool_call_id or ""
                     import time as _time
 
                     self._tool_start_times[tool_id] = _time.monotonic()
-                elif event_type == SdkEventType.TOOL_EXECUTION_COMPLETE:
+                elif kind_str == "tool_execution_complete":
                     tool_id = data.tool_call_id or ""
                     import time as _time
 
@@ -140,12 +139,12 @@ class CopilotAdapter(AgentAdapterInterface):
                         duration_ms=dur,
                         success=bool(data.success) if data.success is not None else True,
                     )
-                elif event_type == SdkEventType.SESSION_CONTEXT_CHANGED:
+                elif kind_str == "session_context_changed":
                     tel.record_context_change(
                         job_id,
                         current_tokens=int(data.current_tokens or 0),
                     )
-                elif event_type == SdkEventType.SESSION_COMPACTION_COMPLETE:
+                elif kind_str == "session_compaction_complete":
                     tel.record_compaction(
                         job_id,
                         pre_tokens=int(data.pre_compaction_tokens or 0),
@@ -156,20 +155,20 @@ class CopilotAdapter(AgentAdapterInterface):
                             job_id,
                             current_tokens=int(data.post_compaction_tokens),
                         )
-                elif event_type == SdkEventType.SESSION_TRUNCATION:
+                elif kind_str == "session_truncation":
                     if data.token_limit:
                         tel.record_context_change(
                             job_id,
                             window_size=int(data.token_limit),
                         )
-                elif event_type == SdkEventType.SESSION_MODEL_CHANGE:
+                elif kind_str == "session_model_change":
                     if data.new_model:
                         t = tel.get(job_id)
                         if t:
                             t.model = data.new_model
-                elif event_type == SdkEventType.ASSISTANT_MESSAGE:
+                elif kind_str == "assistant_message":
                     tel.record_message(job_id, role="agent")
-                elif event_type == SdkEventType.USER_MESSAGE:
+                elif kind_str == "user_message":
                     tel.record_message(job_id, role="operator")
 
             # --- Bridge to SessionEvent queue ---
