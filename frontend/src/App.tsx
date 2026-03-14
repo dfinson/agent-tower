@@ -42,9 +42,14 @@ export function App() {
     <div className="flex flex-col h-full">
       <Toaster theme="dark" position="top-right" richColors closeButton />
 
-      {connectionStatus === "disconnected" && (
-        <div className="bg-error text-white text-center py-1.5 text-sm flex items-center justify-center gap-2">
-          Connection lost — events may be stale
+      {connectionStatus !== "connected" && (
+        <div className={cn(
+          "text-white text-center py-1.5 text-sm flex items-center justify-center gap-2",
+          connectionStatus === "disconnected" ? "bg-error" : "bg-warning/80"
+        )}>
+          {connectionStatus === "disconnected"
+            ? "Connection lost — events may be stale"
+            : "Connecting…"}
         </div>
       )}
 

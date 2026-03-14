@@ -89,7 +89,7 @@ export const useTowerStore = create<TowerState>((set) => ({
   logs: {},
   transcript: {},
   diffs: {},
-  connectionStatus: "disconnected",
+  connectionStatus: "reconnecting",
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
 
