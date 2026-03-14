@@ -88,6 +88,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     voice_service: VoiceService | None = None
     if config.voice.enabled:
         voice_service = VoiceService(model_name=config.voice.model)
+        # Pre-load the whisper model at startup so the first request is fast
+        log.info("voice_model_preloading", model=config.voice.model)
+        await asyncio.to_thread(voice_service._ensure_model)  # noqa: SLF001
     app.state.voice_service = voice_service
     app.state.voice_max_bytes = config.voice.max_audio_size_mb * 1024 * 1024
 

@@ -62,18 +62,21 @@ async def stream_events(
                 except (ValueError, TypeError):
                     pass  # invalid Last-Event-ID, skip replay
 
-            # Send immediate keepalive so tunnel proxies don't timeout
-            # before the first real event arrives
-            yield ": keepalive\n\n"
+            # Send immediate heartbeat so the connection is established
+            # and proxies see data flowing immediately.
+            yield "event: session_heartbeat\ndata: {}\n\n"
 
             while not conn.closed:
                 try:
                     data = await asyncio.wait_for(conn.queue.get(), timeout=5.0)
                     yield data
                 except TimeoutError:
-                    # Send SSE keep-alive comment frequently to prevent
-                    # tunnel proxies from killing the connection
-                    yield ": keepalive\n\n"
+                    # Send a real SSE event as heartbeat — SSE comments
+                    # (: keepalive) are invisible to HTTP/2 proxies and
+                    # don't prevent idle stream timeouts.
+                    yield "event: session_heartbeat\ndata: {}\n\n"
+                except (asyncio.CancelledError, GeneratorExit):
+                    break
         finally:
             sse_manager.unregister(conn)
 
@@ -81,8 +84,9 @@ async def stream_events(
         event_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked",
         },
     )
