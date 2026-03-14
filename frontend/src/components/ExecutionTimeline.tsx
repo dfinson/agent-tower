@@ -1,8 +1,6 @@
 import { useMemo } from "react";
+import { Paper, Group, Text, ScrollArea } from "@mantine/core";
 import { useTowerStore, selectJobLogs } from "../store";
-import { Card, CardHeader, CardTitle } from "../ui/Card";
-import { EmptyState } from "../ui/Feedback";
-import { cn } from "../ui/cn";
 
 function isTimelineEvent(msg: string, level: string): boolean {
   if (level === "error") return true;
@@ -12,13 +10,13 @@ function isTimelineEvent(msg: string, level: string): boolean {
   );
 }
 
-function dotVariant(level: string, msg: string): string {
-  if (level === "error") return "bg-error";
+function dotColor(level: string, msg: string): string {
+  if (level === "error") return "bg-red-500";
   const lower = msg.toLowerCase();
-  if (lower.includes("succeeded") || lower.includes("completed")) return "bg-success";
-  if (lower.includes("running") || lower.includes("started")) return "bg-accent";
-  if (lower.includes("failed") || lower.includes("canceled")) return "bg-error";
-  return "bg-border";
+  if (lower.includes("succeeded") || lower.includes("completed")) return "bg-green-500";
+  if (lower.includes("running") || lower.includes("started")) return "bg-blue-500";
+  if (lower.includes("failed") || lower.includes("canceled")) return "bg-red-500";
+  return "bg-[var(--mantine-color-dark-3)]";
 }
 
 export function ExecutionTimeline({ jobId }: { jobId: string }) {
@@ -29,25 +27,27 @@ export function ExecutionTimeline({ jobId }: { jobId: string }) {
   );
 
   return (
-    <Card className="flex flex-col max-h-[500px]">
-      <CardHeader>
-        <CardTitle>Timeline</CardTitle>
-      </CardHeader>
-      <div className="flex-1 overflow-y-auto min-h-0 p-4">
+    <Paper className="flex flex-col overflow-hidden" radius="lg" p={0}>
+      <Group className="px-4 py-2.5 border-b border-[var(--mantine-color-dark-4)]">
+        <Text size="sm" fw={600} c="dimmed">Timeline</Text>
+      </Group>
+      <ScrollArea className="max-h-[300px]">
         {events.length === 0 ? (
-          <EmptyState text="No timeline events yet" />
+          <Text size="sm" c="dimmed" ta="center" py="xl">No timeline events yet</Text>
         ) : (
-          events.map((e, i) => (
-            <div key={i} className="flex items-start gap-2 py-1 text-xs">
-              <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", dotVariant(e.level, e.message))} />
-              <span className="text-text-dim font-mono shrink-0">
-                {new Date(e.timestamp).toLocaleTimeString()}
-              </span>
-              <span className="text-text-muted">{e.message}</span>
-            </div>
-          ))
+          <div className="p-4 space-y-1">
+            {events.map((e, i) => (
+              <div key={i} className="flex items-start gap-3 py-1 text-xs">
+                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${dotColor(e.level, e.message)}`} />
+                <span className="text-[var(--mantine-color-dimmed)] font-mono shrink-0">
+                  {new Date(e.timestamp).toLocaleTimeString()}
+                </span>
+                <span className="text-[var(--mantine-color-dark-1)]">{e.message}</span>
+              </div>
+            ))}
+          </div>
         )}
-      </div>
-    </Card>
+      </ScrollArea>
+    </Paper>
   );
 }

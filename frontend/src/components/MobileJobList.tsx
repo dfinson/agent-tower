@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
+import { SegmentedControl, Stack, Text } from "@mantine/core";
 import { useTowerStore, selectJobs, selectApprovals } from "../store";
 import type { JobSummary } from "../store";
 import { JobCard } from "./JobCard";
-import { Tabs } from "../ui/Tabs";
-import { EmptyState } from "../ui/Feedback";
 
 const TAB_STATES: Record<string, string[]> = {
   Active: ["queued", "running"],
@@ -19,34 +18,37 @@ function filterAndSort(jobs: Record<string, JobSummary>, states: string[]): JobS
 }
 
 export function MobileJobList() {
-  const [activeTab, setActiveTab] = useState("Active");
+  const [tab, setTab] = useState("Active");
   const jobs = useTowerStore(selectJobs);
   const approvals = useTowerStore(selectApprovals);
   const pendingCount = Object.values(approvals).filter((a) => !a.resolvedAt).length;
 
-  const filteredJobs = useMemo(
-    () => filterAndSort(jobs, TAB_STATES[activeTab] ?? []),
-    [jobs, activeTab]
-  );
+  const filtered = useMemo(() => filterAndSort(jobs, TAB_STATES[tab] ?? []), [jobs, tab]);
 
   return (
     <div className="sm:hidden">
-      <Tabs
-        tabs={[
-          { id: "Active", label: "Active" },
-          { id: "Sign-off", label: "Sign-off", badge: pendingCount },
-          { id: "Failed", label: "Failed" },
-          { id: "History", label: "History" },
+      <SegmentedControl
+        value={tab}
+        onChange={setTab}
+        data={[
+          { value: "Active", label: "Active" },
+          { value: "Sign-off", label: pendingCount > 0 ? `Sign-off (${pendingCount})` : "Sign-off" },
+          { value: "Failed", label: "Failed" },
+          { value: "History", label: "History" },
         ]}
-        active={activeTab}
-        onChange={setActiveTab}
-        className="mb-3"
+        fullWidth
+        size="xs"
+        mb="md"
       />
-      {filteredJobs.length === 0 ? (
-        <EmptyState text={`No ${activeTab.toLowerCase()} jobs`} />
-      ) : (
-        filteredJobs.map((job) => <JobCard key={job.id} job={job} />)
-      )}
+      <Stack gap="xs">
+        {filtered.length === 0 ? (
+          <Text size="sm" c="dimmed" ta="center" py="xl">
+            No {tab.toLowerCase()} jobs
+          </Text>
+        ) : (
+          filtered.map((job) => <JobCard key={job.id} job={job} />)
+        )}
+      </Stack>
     </div>
   );
 }

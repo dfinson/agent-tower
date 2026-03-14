@@ -1,32 +1,40 @@
-import { Routes, Route, NavLink } from "react-router-dom";
 import { Component, type ReactNode } from "react";
-import { Toaster } from "sonner";
+import { Routes, Route, NavLink } from "react-router-dom";
+import { AppShell, Group, Badge, UnstyledButton, Text } from "@mantine/core";
+import { type LucideIcon, LayoutDashboard, Plus, Settings } from "lucide-react";
 import { useSSE } from "./hooks/useSSE";
 import { useTowerStore, selectConnectionStatus } from "./store";
 import { DashboardScreen } from "./components/DashboardScreen";
 import { JobDetailScreen } from "./components/JobDetailScreen";
 import { JobCreationScreen } from "./components/JobCreationScreen";
-import { RepositoryDetailView } from "./components/RepositoryDetailView";
 import { SettingsScreen } from "./components/SettingsScreen";
-import { cn } from "./ui/cn";
 
-class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+/* ------------------------------------------------------------------ */
+/* Error boundary                                                      */
+/* ------------------------------------------------------------------ */
+
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
   state = { error: null as Error | null };
-  static getDerivedStateFromError(error: Error) { return { error }; }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
   render() {
     if (this.state.error) {
       return (
-        <div className="p-8">
-          <h2 className="text-error text-lg font-semibold mb-3">Something went wrong</h2>
-          <pre className="text-sm text-text-muted whitespace-pre-wrap bg-surface rounded-lg p-4 border border-border overflow-auto">
+        <div className="p-8 max-w-2xl mx-auto">
+          <Text size="lg" fw={600} c="red" mb="sm">Something went wrong</Text>
+          <pre className="text-xs text-[var(--mantine-color-dimmed)] whitespace-pre-wrap bg-[var(--mantine-color-dark-7)] rounded-lg p-4 border border-[var(--mantine-color-dark-4)] overflow-auto">
             {this.state.error.message}{"\n"}{this.state.error.stack}
           </pre>
-          <button
+          <UnstyledButton
             onClick={() => this.setState({ error: null })}
-            className="mt-4 px-4 py-2 bg-success text-white rounded-md text-sm font-medium hover:bg-success/90 cursor-pointer"
+            className="mt-4 px-4 py-2 bg-[var(--mantine-color-blue-7)] text-white rounded-md text-sm font-medium hover:bg-[var(--mantine-color-blue-6)]"
           >
             Try again
-          </button>
+          </UnstyledButton>
         </div>
       );
     }
@@ -34,74 +42,94 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Nav link component                                                  */
+/* ------------------------------------------------------------------ */
+
+function NavItem({
+  to,
+  icon: Icon,
+  label,
+  end,
+}: {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+  end?: boolean;
+}) {
+  return (
+    <NavLink to={to} end={end}>
+      {({ isActive }) => (
+        <UnstyledButton
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            isActive
+              ? "bg-[var(--mantine-color-dark-5)] text-white"
+              : "text-[var(--mantine-color-dimmed)] hover:text-white hover:bg-[var(--mantine-color-dark-6)]"
+          }`}
+        >
+          <Icon size={16} />
+          <span className="hidden sm:inline">{label}</span>
+        </UnstyledButton>
+      )}
+    </NavLink>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Connection status indicator                                         */
+/* ------------------------------------------------------------------ */
+
+function ConnectionStatus() {
+  const status = useTowerStore(selectConnectionStatus);
+  const color =
+    status === "connected" ? "green" : status === "reconnecting" ? "yellow" : "red";
+  return (
+    <Badge
+      variant="dot"
+      color={color}
+      size="sm"
+      className="cursor-default select-none"
+    >
+      {status === "reconnecting" ? "connecting" : status}
+    </Badge>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* App                                                                 */
+/* ------------------------------------------------------------------ */
+
 export function App() {
-  const connectionStatus = useTowerStore(selectConnectionStatus);
   useSSE();
 
   return (
-    <div className="flex flex-col h-full">
-      <Toaster theme="dark" position="top-right" richColors closeButton />
+    <AppShell header={{ height: 48 }} padding="md">
+      <AppShell.Header className="flex items-center justify-between px-4 border-b border-[var(--mantine-color-dark-4)]">
+        <Group gap="xs">
+          <Text fw={700} size="md" className="tracking-tight">
+            Tower
+          </Text>
+        </Group>
 
-      {connectionStatus !== "connected" && (
-        <div className={cn(
-          "text-white text-center py-1.5 text-sm flex items-center justify-center gap-2",
-          connectionStatus === "disconnected" ? "bg-error" : "bg-warning/80"
-        )}>
-          {connectionStatus === "disconnected"
-            ? "Connection lost — events may be stale"
-            : "Connecting…"}
-        </div>
-      )}
+        <Group gap={4}>
+          <NavItem to="/" icon={LayoutDashboard} label="Dashboard" end />
+          <NavItem to="/jobs/new" icon={Plus} label="New Job" />
+          <NavItem to="/settings" icon={Settings} label="Settings" />
+        </Group>
 
-      <header className="flex items-center justify-between px-4 h-12 border-b border-border bg-surface shrink-0">
-        <div className="font-semibold text-base">Tower</div>
-        <nav className="flex items-center gap-1">
-          {[
-            { to: "/", label: "Dashboard", end: true },
-            { to: "/jobs/new", label: "New Job" },
-            { to: "/settings", label: "Settings" },
-          ].map(({ to, label, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn(
-                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-surface-hover text-text"
-                    : "text-text-muted hover:text-text hover:bg-surface-hover"
-                )
-              }
-            >
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="flex items-center gap-2 text-xs text-text-muted">
-          <span
-            className={cn(
-              "w-2 h-2 rounded-full",
-              connectionStatus === "connected" && "bg-success",
-              connectionStatus === "reconnecting" && "bg-warning animate-pulse",
-              connectionStatus === "disconnected" && "bg-error"
-            )}
-          />
-          {connectionStatus}
-        </div>
-      </header>
+        <ConnectionStatus />
+      </AppShell.Header>
 
-      <main className="flex-1 overflow-y-auto p-4">
+      <AppShell.Main>
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<DashboardScreen />} />
             <Route path="/jobs/new" element={<JobCreationScreen />} />
             <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
-            <Route path="/repos/:repoPath" element={<RepositoryDetailView />} />
             <Route path="/settings" element={<SettingsScreen />} />
           </Routes>
         </ErrorBoundary>
-      </main>
-    </div>
+      </AppShell.Main>
+    </AppShell>
   );
 }

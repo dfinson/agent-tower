@@ -1,26 +1,25 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import {
+  Paper, Group, Text, Button, Tabs, Anchor, Loader, Stack,
+} from "@mantine/core";
+import {
+  ArrowLeft, RotateCcw, XCircle, ExternalLink,
+} from "lucide-react";
+import { notifications } from "@mantine/notifications";
 import { useTowerStore, selectJobs } from "../store";
 import type { JobSummary } from "../store";
 import { fetchJob, cancelJob, rerunJob } from "../api/client";
 import { useSSE } from "../hooks/useSSE";
-import { Badge } from "../ui/Badge";
-import { Button } from "../ui/Button";
-import { Card, CardContent } from "../ui/Card";
-import { Tabs } from "../ui/Tabs";
-import { Spinner, EmptyState } from "../ui/Feedback";
+import { StateBadge } from "./StateBadge";
 import { TranscriptPanel } from "./TranscriptPanel";
 import { LogsPanel } from "./LogsPanel";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { ApprovalBanner } from "./ApprovalBanner";
-import { OperatorMessageInput } from "./OperatorMessageInput";
-import { toast } from "sonner";
 
 const DiffViewer = lazy(() => import("./DiffViewer"));
 const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
 const ArtifactViewer = lazy(() => import("./ArtifactViewer"));
-
-type DetailTab = "live" | "diff" | "workspace" | "artifacts";
 
 export function JobDetailScreen() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -29,7 +28,7 @@ export function JobDetailScreen() {
   const job: JobSummary | undefined = jobId ? jobs[jobId] : undefined;
   const [loading, setLoading] = useState(!job);
   const [actionLoading, setActionLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<DetailTab>("live");
+  const [tab, setTab] = useState<string | null>("live");
 
   useSSE(jobId);
 
@@ -49,8 +48,8 @@ export function JobDetailScreen() {
     try {
       const updated = await cancelJob(jobId);
       useTowerStore.setState((s) => ({ jobs: { ...s.jobs, [updated.id]: updated } }));
-      toast.success("Job canceled");
-    } catch (e) { toast.error(`Cancel failed: ${e}`); }
+      notifications.show({ color: "green", message: "Job canceled" });
+    } catch (e) { notifications.show({ color: "red", message: String(e) }); }
     finally { setActionLoading(false); }
   }, [jobId]);
 
@@ -59,116 +58,150 @@ export function JobDetailScreen() {
     setActionLoading(true);
     try {
       const result = await rerunJob(jobId);
-      toast.success(`Rerun created: ${result.id}`);
+      notifications.show({ color: "green", message: `Rerun: ${result.id}` });
       navigate(`/jobs/${result.id}`);
-    } catch (e) { toast.error(`Rerun failed: ${e}`); }
+    } catch (e) { notifications.show({ color: "red", message: String(e) }); }
     finally { setActionLoading(false); }
   }, [jobId, navigate]);
 
   if (!jobId) return null;
-  if (loading) return <Spinner />;
-  if (!job) return (
-    <div>
-      <Button variant="ghost" size="sm" onClick={() => navigate("/")}>← Back</Button>
-      <EmptyState text="Job not found" className="mt-8" />
-    </div>
-  );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader size="lg" />
+      </div>
+    );
+  }
+
+  if (!job) {
+    return (
+      <Stack align="center" py="xl" gap="md">
+        <Text size="lg" c="dimmed">Job not found</Text>
+        <Button variant="subtle" leftSection={<ArrowLeft size={16} />} onClick={() => navigate("/")}>
+          Back to Dashboard
+        </Button>
+      </Stack>
+    );
+  }
 
   const repoName = job.repo.split("/").pop() ?? job.repo;
   const canCancel = ["queued", "running", "waiting_for_approval"].includes(job.state);
   const canRerun = ["succeeded", "failed", "canceled"].includes(job.state);
+  const isInteractive = ["running", "waiting_for_approval"].includes(job.state);
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4">
-        ← Back to Dashboard
+    <div className="max-w-6xl mx-auto">
+      {/* Back button */}
+      <Button
+        variant="subtle"
+        size="xs"
+        leftSection={<ArrowLeft size={14} />}
+        onClick={() => navigate("/")}
+        mb="md"
+      >
+        Dashboard
       </Button>
 
-      {/* Metadata */}
-      <Card className="mb-4">
-        <CardContent>
-          <div className="flex justify-between items-start flex-wrap gap-2 mb-3">
-            <div className="flex items-center gap-2 text-lg font-semibold">
-              {job.id} <Badge state={job.state} />
+      {/* Job header */}
+      <Paper radius="lg" p="md" mb="md">
+        <Group justify="space-between" wrap="wrap" mb="sm">
+          <Group gap="sm">
+            <Text size="lg" fw={700}>{job.id}</Text>
+            <StateBadge state={job.state} />
+          </Group>
+          <Group gap="xs">
+            {canCancel && (
+              <Button
+                size="xs"
+                color="red"
+                variant="light"
+                leftSection={<XCircle size={14} />}
+                loading={actionLoading}
+                onClick={handleCancel}
+              >
+                Cancel
+              </Button>
+            )}
+            {canRerun && (
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<RotateCcw size={14} />}
+                loading={actionLoading}
+                onClick={handleRerun}
+              >
+                Rerun
+              </Button>
+            )}
+          </Group>
+        </Group>
+
+        {/* Metadata grid */}
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-6 gap-y-2 text-sm mb-3">
+          {[
+            ["Repo", repoName],
+            ["Branch", job.branch ?? "—"],
+            ["Base", job.baseRef],
+            ["Strategy", job.strategy],
+            ["Created", new Date(job.createdAt).toLocaleString()],
+            ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
+          ].map(([label, value]) => (
+            <div key={label}>
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>{label}</Text>
+              <Text size="sm" className="break-all">{value}</Text>
             </div>
-            <div className="flex gap-2">
-              {canCancel && (
-                <Button variant="danger" size="sm" disabled={actionLoading} onClick={handleCancel}>Cancel</Button>
-              )}
-              {canRerun && (
-                <Button size="sm" disabled={actionLoading} onClick={handleRerun}>Rerun</Button>
-              )}
-            </div>
-          </div>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-x-6 gap-y-2 text-sm">
-            {[
-              ["Repository", repoName],
-              ["Branch", job.branch ?? "—"],
-              ["Base Ref", job.baseRef],
-              ["Strategy", job.strategy],
-              ["Created", new Date(job.createdAt).toLocaleString()],
-              ["Updated", new Date(job.updatedAt).toLocaleString()],
-              ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
-            ].map(([label, value]) => (
-              <div key={label}>
-                <div className="text-[11px] text-text-dim uppercase tracking-wide">{label}</div>
-                <div className="text-text break-all">{value}</div>
-              </div>
-            ))}
-          </div>
-          {job.prUrl && (
-            <a
-              href={job.prUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-3 text-sm text-accent hover:underline"
-            >
-              View Pull Request →
-            </a>
-          )}
-          <div className="mt-3 p-3 bg-bg rounded-md text-sm leading-relaxed whitespace-pre-wrap">{job.prompt}</div>
-        </CardContent>
-      </Card>
+          ))}
+        </div>
+
+        {job.prUrl && (
+          <Anchor href={job.prUrl} target="_blank" size="sm">
+            <Group gap={4}><ExternalLink size={14} /> View Pull Request</Group>
+          </Anchor>
+        )}
+
+        {/* Prompt */}
+        <Paper bg="dark.8" p="sm" radius="md" mt="sm">
+          <Text size="sm" className="whitespace-pre-wrap leading-relaxed">{job.prompt}</Text>
+        </Paper>
+      </Paper>
 
       {/* Tabs */}
-      <Tabs
-        tabs={[
-          { id: "live", label: "Live" },
-          { id: "diff", label: "Diff" },
-          { id: "workspace", label: "Workspace" },
-          { id: "artifacts", label: "Artifacts" },
-        ]}
-        active={activeTab}
-        onChange={(id) => setActiveTab(id as DetailTab)}
-        className="mb-4"
-      />
+      <Tabs value={tab} onChange={setTab} mb="md">
+        <Tabs.List>
+          <Tabs.Tab value="live">Live</Tabs.Tab>
+          <Tabs.Tab value="diff">Diff</Tabs.Tab>
+          <Tabs.Tab value="workspace">Workspace</Tabs.Tab>
+          <Tabs.Tab value="artifacts">Artifacts</Tabs.Tab>
+        </Tabs.List>
+      </Tabs>
 
-      {activeTab === "live" && (
-        <div className="space-y-4">
+      {/* Tab content */}
+      {tab === "live" && (
+        <Stack gap="md">
           <ApprovalBanner jobId={jobId} />
-          {["running", "waiting_for_approval"].includes(job.state) && (
-            <OperatorMessageInput jobId={jobId} />
-          )}
-          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-            <TranscriptPanel jobId={jobId} />
+          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1" style={{ minHeight: 400 }}>
+            <TranscriptPanel jobId={jobId} interactive={isInteractive} />
             <LogsPanel jobId={jobId} />
           </div>
           <ExecutionTimeline jobId={jobId} />
-        </div>
+        </Stack>
       )}
 
-      {activeTab === "diff" && (
-        <Suspense fallback={<Spinner />}>
+      {tab === "diff" && (
+        <Suspense fallback={<div className="flex justify-center py-10"><Loader /></div>}>
           <DiffViewer jobId={jobId} />
         </Suspense>
       )}
-      {activeTab === "workspace" && (
-        <Suspense fallback={<Spinner />}>
+
+      {tab === "workspace" && (
+        <Suspense fallback={<div className="flex justify-center py-10"><Loader /></div>}>
           <WorkspaceBrowser jobId={jobId} />
         </Suspense>
       )}
-      {activeTab === "artifacts" && (
-        <Suspense fallback={<Spinner />}>
+
+      {tab === "artifacts" && (
+        <Suspense fallback={<div className="flex justify-center py-10"><Loader /></div>}>
           <ArtifactViewer jobId={jobId} />
         </Suspense>
       )}
