@@ -1,21 +1,22 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  Paper, Title, TextInput, Textarea, Button, Group, Stack, Text, Loader, ActionIcon,
+  Paper, Title, Textarea, Button, Group, Stack, Text, Loader, ActionIcon,
 } from "@mantine/core";
 import { Trash2, Plus, Wrench } from "lucide-react";
 import { notifications } from "@mantine/notifications";
 import {
   fetchGlobalConfig, updateGlobalConfig,
-  fetchRepos, registerRepo, unregisterRepo,
+  fetchRepos, unregisterRepo,
   cleanupWorktrees,
 } from "../api/client";
+import { AddRepoModal } from "./AddRepoModal";
 
 export function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [repos, setRepos] = useState<string[]>([]);
   const [configYaml, setConfigYaml] = useState("");
   const [savedYaml, setSavedYaml] = useState("");
-  const [newRepo, setNewRepo] = useState("");
+  const [addRepoOpen, setAddRepoOpen] = useState(false);
 
   useEffect(() => {
     Promise.all([fetchGlobalConfig(), fetchRepos()])
@@ -38,18 +39,9 @@ export function SettingsScreen() {
     }
   }, [configYaml]);
 
-  const handleAddRepo = useCallback(async () => {
-    if (!newRepo.trim()) return;
-    try {
-      await registerRepo(newRepo.trim());
-      setNewRepo("");
-      const res = await fetchRepos();
-      setRepos(res.items);
-      notifications.show({ color: "green", message: "Repository added" });
-    } catch (e) {
-      notifications.show({ color: "red", message: String(e) });
-    }
-  }, [newRepo]);
+  const handleRepoAdded = useCallback((path: string) => {
+    setRepos((prev) => (prev.includes(path) ? prev : [...prev, path]));
+  }, []);
 
   const handleRemoveRepo = useCallback(async (path: string) => {
     try {
@@ -85,28 +77,24 @@ export function SettingsScreen() {
       <Stack gap="lg">
         {/* Repositories */}
         <Paper radius="lg" p="lg">
-          <Text size="sm" fw={600} mb="md">
-            Repositories ({repos.length})
-          </Text>
-
-          <Group gap="xs" mb="md">
-            <TextInput
-              placeholder="Local path or git URL"
-              value={newRepo}
-              onChange={(e) => setNewRepo(e.currentTarget.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddRepo()}
-              className="flex-1"
-              size="sm"
-            />
+          <Group justify="space-between" mb="md">
+            <Text size="sm" fw={600}>
+              Repositories ({repos.length})
+            </Text>
             <Button
-              size="sm"
+              size="xs"
               leftSection={<Plus size={14} />}
-              disabled={!newRepo.trim()}
-              onClick={handleAddRepo}
+              onClick={() => setAddRepoOpen(true)}
             >
-              Add
+              Add Repository
             </Button>
           </Group>
+
+          <AddRepoModal
+            opened={addRepoOpen}
+            onClose={() => setAddRepoOpen(false)}
+            onAdded={handleRepoAdded}
+          />
 
           {repos.length === 0 ? (
             <Text size="sm" c="dimmed" ta="center" py="md">

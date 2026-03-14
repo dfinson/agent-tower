@@ -178,3 +178,32 @@ async def rerun_job(
         worktree_path=job.worktree_path,
         created_at=job.created_at,
     )
+
+
+@router.get("/models")
+async def list_models() -> list[dict[str, object]]:
+    """List available models from the Copilot SDK."""
+    try:
+        from copilot import CopilotClient
+
+        client = CopilotClient()
+        await client.start()
+        models = await client.list_models()
+        await client.stop()
+        return [m.to_dict() for m in models]
+    except Exception as exc:
+        import structlog
+
+        structlog.get_logger().warning("list_models_failed", error=str(exc))
+        return []
+
+
+@router.get("/jobs/{job_id}/telemetry")
+async def get_job_telemetry(job_id: str) -> dict[str, object]:
+    """Get telemetry data for a job run."""
+    from backend.services.telemetry import collector
+
+    tel = collector.get(job_id)
+    if tel is None:
+        return {"jobId": job_id, "available": False}
+    return {**tel.to_dict(), "available": True}

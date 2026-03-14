@@ -1,19 +1,24 @@
 /**
  * Voice recorder with WaveSurfer.js waveform visualization.
  *
- * Uses native browser APIs (getUserMedia + MediaRecorder) for recording.
- * WaveSurfer.js drives the live waveform from the browser audio stream.
- * Audio is recorded locally and uploaded as a single Blob after stop.
+ * Architecture:
+ * - getUserMedia → MediaRecorder for recording (browser native)
+ * - WaveSurfer.js RecordPlugin for live waveform display
+ * - On stop: Blob uploaded to backend for transcription
+ * - Result inserted into the parent's text field via onTranscript callback
+ *
+ * The waveform container is always mounted (but visually hidden when idle)
+ * so WaveSurfer can initialize its canvas before recording starts.
  */
 import { useState, useRef, useCallback, useEffect } from "react";
-import { ActionIcon, Paper, Text, Group, Loader } from "@mantine/core";
-import { Mic, Square, Loader2 } from "lucide-react";
+import { ActionIcon, Loader, Tooltip } from "@mantine/core";
+import { Mic, Square } from "lucide-react";
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.esm.js";
 import { transcribeAudio } from "../api/client";
 import { notifications } from "@mantine/notifications";
 
-type RecordingState = "idle" | "recording" | "uploading" | "transcribing";
+type RecordingState = "idle" | "recording" | "transcribing";
 
 interface VoiceRecorderProps {
   onTranscript: (text: string) => void;
@@ -23,47 +28,44 @@ interface VoiceRecorderProps {
 export function VoiceRecorder({ onTranscript, maxSizeMb = 10 }: VoiceRecorderProps) {
   const [state, setState] = useState<RecordingState>("idle");
   const containerRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WaveSurfer | null>(null);
   const recordRef = useRef<ReturnType<typeof RecordPlugin.create> | null>(null);
+  const wsRef = useRef<WaveSurfer | null>(null);
+  const initedRef = useRef(false);
 
-  // Initialize WaveSurfer on mount
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // Lazy-init WaveSurfer on first record attempt (container must be mounted)
+  const ensureInit = useCallback(() => {
+    if (initedRef.current || !containerRef.current) return;
+    initedRef.current = true;
 
     const record = RecordPlugin.create({
       renderRecordedAudio: false,
       scrollingWaveform: true,
-      scrollingWaveformWindow: 4,
+      scrollingWaveformWindow: 3,
     });
 
     const ws = WaveSurfer.create({
       container: containerRef.current,
       waveColor: "#5180c6",
       progressColor: "#7196cf",
-      height: 32,
+      height: 24,
       barWidth: 2,
       barGap: 1,
       barRadius: 2,
       plugins: [record],
     });
 
-    wsRef.current = ws;
-    recordRef.current = record;
-
-    // Handle recording completion
     record.on("record-end", async (blob: Blob) => {
       if (blob.size > maxSizeMb * 1024 * 1024) {
         notifications.show({ color: "red", message: `Audio too large (max ${maxSizeMb} MB)` });
         setState("idle");
         return;
       }
-
       setState("transcribing");
       try {
         const text = await transcribeAudio(blob);
         if (text) {
           onTranscript(text);
-          notifications.show({ color: "green", message: "Transcribed!" });
+          notifications.show({ color: "green", message: "Transcribed" });
         }
       } catch {
         notifications.show({ color: "red", message: "Transcription failed" });
@@ -72,19 +74,25 @@ export function VoiceRecorder({ onTranscript, maxSizeMb = 10 }: VoiceRecorderPro
       }
     });
 
-    return () => {
-      record.destroy();
-      ws.destroy();
-    };
+    wsRef.current = ws;
+    recordRef.current = record;
   }, [maxSizeMb, onTranscript]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      recordRef.current?.destroy();
+      wsRef.current?.destroy();
+    };
+  }, []);
+
   const handleToggle = useCallback(async () => {
+    ensureInit();
     const record = recordRef.current;
     if (!record) return;
 
     if (state === "recording") {
       record.stopRecording();
-      setState("uploading");
       return;
     }
 
@@ -94,53 +102,35 @@ export function VoiceRecorder({ onTranscript, maxSizeMb = 10 }: VoiceRecorderPro
     } catch {
       notifications.show({ color: "red", message: "Microphone access denied" });
     }
-  }, [state]);
+  }, [state, ensureInit]);
 
   return (
-    <Group gap="xs" align="center">
-      {state === "recording" && (
-        <Paper
-          className="flex-1 overflow-hidden rounded-full"
-          bg="dark.7"
-          px="sm"
-          py={4}
-        >
-          <div ref={containerRef} className="w-full" />
-        </Paper>
-      )}
+    <div className="flex items-center gap-1">
+      {/* Waveform container — always mounted, visible only during recording */}
+      <div
+        ref={containerRef}
+        className={`overflow-hidden rounded-full transition-all ${
+          state === "recording"
+            ? "w-24 h-6 bg-[var(--mantine-color-dark-7)] px-1"
+            : "w-0 h-0"
+        }`}
+      />
 
-      {state === "transcribing" && (
-        <Group gap="xs">
-          <Loader size="xs" />
-          <Text size="xs" c="dimmed">Transcribing…</Text>
-        </Group>
+      {state === "transcribing" ? (
+        <Loader size={16} />
+      ) : (
+        <Tooltip label={state === "recording" ? "Stop" : "Voice input"} withArrow>
+          <ActionIcon
+            variant={state === "recording" ? "filled" : "subtle"}
+            color={state === "recording" ? "red" : "gray"}
+            size="sm"
+            radius="xl"
+            onClick={handleToggle}
+          >
+            {state === "recording" ? <Square size={12} /> : <Mic size={14} />}
+          </ActionIcon>
+        </Tooltip>
       )}
-
-      <ActionIcon
-        variant={state === "recording" ? "filled" : "subtle"}
-        color={state === "recording" ? "red" : "gray"}
-        size="lg"
-        radius="xl"
-        onClick={handleToggle}
-        disabled={state === "uploading" || state === "transcribing"}
-        title={state === "recording" ? "Stop recording" : "Voice input"}
-      >
-        {state === "recording" ? (
-          <Square size={14} />
-        ) : state === "uploading" || state === "transcribing" ? (
-          <Loader2 size={16} className="animate-spin" />
-        ) : (
-          <Mic size={16} />
-        )}
-      </ActionIcon>
-
-      {/* Hidden container for waveform when not recording */}
-      {state !== "recording" && (
-        <div ref={containerRef} className="hidden" />
-      )}
-    </Group>
+    </div>
   );
 }
-
-// Backward compatibility alias
-export { VoiceRecorder as VoiceButton };

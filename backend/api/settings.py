@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -175,3 +175,47 @@ async def cleanup_worktrees(
         except GitError:
             structlog.get_logger().warning("cleanup_worktrees_failed", repo=repo)
     return {"removed": total}
+
+
+@router.get("/settings/browse")
+async def browse_directories(
+    path: str = "~",
+) -> dict[str, Any]:
+    """List directories at a given path for the repo browser.
+
+    Returns subdirectories and indicates which are git repos.
+    """
+    try:
+        base = Path(path).expanduser().resolve()
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid path") from exc
+
+    if not base.is_dir():
+        raise HTTPException(status_code=404, detail="Directory not found")
+
+    # Security: don't traverse above user's home
+    home = Path.home().resolve()
+    if not str(base).startswith(str(home)) and base != home:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    entries: list[dict[str, str]] = []
+    try:
+        for item in sorted(base.iterdir(), key=lambda p: p.name.lower()):
+            if item.name.startswith(".") or not item.is_dir():
+                continue
+            is_git = (item / ".git").is_dir()
+            entries.append(
+                {
+                    "name": item.name,
+                    "path": str(item),
+                    "isGitRepo": str(is_git).lower(),
+                }
+            )
+    except PermissionError:
+        pass
+
+    return {
+        "current": str(base),
+        "parent": str(base.parent) if base != home else None,
+        "items": entries,
+    }

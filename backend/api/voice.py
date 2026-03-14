@@ -31,9 +31,11 @@ async def transcribe(request: Request, audio: UploadFile) -> TranscribeResponse:
     if voice_service is None:
         raise HTTPException(status_code=501, detail="Voice transcription is disabled")
 
-    # Validate content type
-    if audio.content_type and audio.content_type not in ALLOWED_AUDIO_TYPES:
-        raise HTTPException(status_code=415, detail="Unsupported audio format")
+    # Validate content type (allow codec params like audio/webm;codecs=opus)
+    if audio.content_type:
+        base_type = audio.content_type.split(";")[0].strip()
+        if base_type not in ALLOWED_AUDIO_TYPES:
+            raise HTTPException(status_code=415, detail=f"Unsupported audio format: {audio.content_type}")
 
     # Stream-read with early abort on size limit
     max_bytes: int = request.app.state.voice_max_bytes

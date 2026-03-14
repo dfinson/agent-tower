@@ -52,11 +52,18 @@ class CopilotAdapter(AgentAdapterInterface):
     def __init__(self) -> None:
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
         self._sessions: dict[str, CopilotSession] = {}
+        self._session_to_job: dict[str, str] = {}  # session_id → job_id for telemetry
+        self._tool_start_times: dict[str, float] = {}  # tool_call_id → start monotonic
+
+    def set_job_id(self, session_id: str, job_id: str) -> None:
+        """Associate a session with a job for telemetry routing."""
+        self._session_to_job[session_id] = job_id
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove session and queue references for a completed/aborted session."""
         self._sessions.pop(session_id, None)
         self._queues.pop(session_id, None)
+        self._session_to_job.pop(session_id, None)
 
     async def create_session(self, config: SessionConfig) -> str:
         from copilot import CopilotClient, PermissionRequest, PermissionRequestResult
@@ -91,9 +98,81 @@ class CopilotAdapter(AgentAdapterInterface):
         self._sessions[session_id] = session
 
         # Register SDK callback that bridges into the async queue
+        # and extracts telemetry from Copilot-specific event types.
         def _on_event(sdk_event: SdkSessionEvent) -> None:
             kind_str = sdk_event.type.value if sdk_event.type else "log"
             payload = sdk_event.data.to_dict() if sdk_event.data else {}
+            data = sdk_event.data
+
+            # --- Copilot SDK → standard telemetry contract ---
+            job_id = self._session_to_job.get(session_id)
+            if job_id and data:
+                from backend.services.telemetry import collector as tel
+
+                event_type = sdk_event.type
+                from copilot.session import SessionEventType as SdkEventType  # noqa: N814
+
+                if event_type == SdkEventType.ASSISTANT_USAGE:
+                    tel.record_llm_usage(
+                        job_id,
+                        model=data.model or "",
+                        input_tokens=int(data.input_tokens or 0),
+                        output_tokens=int(data.output_tokens or 0),
+                        cache_read_tokens=int(data.cache_read_tokens or 0),
+                        cache_write_tokens=int(data.cache_write_tokens or 0),
+                        cost=float(data.cost or 0),
+                        duration_ms=float(data.duration or 0),
+                    )
+                elif event_type == SdkEventType.TOOL_EXECUTION_START:
+                    tool_id = data.tool_call_id or ""
+                    import time as _time
+
+                    self._tool_start_times[tool_id] = _time.monotonic()
+                elif event_type == SdkEventType.TOOL_EXECUTION_COMPLETE:
+                    tool_id = data.tool_call_id or ""
+                    import time as _time
+
+                    start = self._tool_start_times.pop(tool_id, _time.monotonic())
+                    dur = (_time.monotonic() - start) * 1000
+                    tel.record_tool_call(
+                        job_id,
+                        tool_name=data.tool_name or data.mcp_tool_name or "unknown",
+                        duration_ms=dur,
+                        success=bool(data.success) if data.success is not None else True,
+                    )
+                elif event_type == SdkEventType.SESSION_CONTEXT_CHANGED:
+                    tel.record_context_change(
+                        job_id,
+                        current_tokens=int(data.current_tokens or 0),
+                    )
+                elif event_type == SdkEventType.SESSION_COMPACTION_COMPLETE:
+                    tel.record_compaction(
+                        job_id,
+                        pre_tokens=int(data.pre_compaction_tokens or 0),
+                        post_tokens=int(data.post_compaction_tokens or 0),
+                    )
+                    if data.post_compaction_tokens:
+                        tel.record_context_change(
+                            job_id,
+                            current_tokens=int(data.post_compaction_tokens),
+                        )
+                elif event_type == SdkEventType.SESSION_TRUNCATION:
+                    if data.token_limit:
+                        tel.record_context_change(
+                            job_id,
+                            window_size=int(data.token_limit),
+                        )
+                elif event_type == SdkEventType.SESSION_MODEL_CHANGE:
+                    if data.new_model:
+                        t = tel.get(job_id)
+                        if t:
+                            t.model = data.new_model
+                elif event_type == SdkEventType.ASSISTANT_MESSAGE:
+                    tel.record_message(job_id, role="agent")
+                elif event_type == SdkEventType.USER_MESSAGE:
+                    tel.record_message(job_id, role="operator")
+
+            # --- Bridge to SessionEvent queue ---
             try:
                 kind = SessionEventKind(kind_str)
             except ValueError:

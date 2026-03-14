@@ -94,6 +94,38 @@ export function rerunJob(jobId: string): Promise<CreateJobResponse> {
   });
 }
 
+export function fetchModels(): Promise<{ id?: string; name?: string; [key: string]: unknown }[]> {
+  return request("/models");
+}
+
+export function fetchJobTelemetry(jobId: string): Promise<{
+  available: boolean;
+  jobId: string;
+  model?: string;
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalCost?: number;
+  contextWindowSize?: number;
+  currentContextTokens?: number;
+  contextUtilization?: number;
+  compactions?: number;
+  tokensCompacted?: number;
+  toolCallCount?: number;
+  totalToolDurationMs?: number;
+  toolCalls?: { name: string; durationMs: number; success: boolean }[];
+  llmCallCount?: number;
+  totalLlmDurationMs?: number;
+  approvalCount?: number;
+  agentMessages?: number;
+  operatorMessages?: number;
+}> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/telemetry`);
+}
+
 // --- Repos ---
 
 export function fetchRepos(): Promise<RepoListResponse> {
@@ -120,6 +152,15 @@ export function unregisterRepo(repoPath: string): Promise<void> {
   return request(`/settings/repos/${encodeURIComponent(repoPath)}`, {
     method: "DELETE",
   });
+}
+
+export function browseDirectories(path?: string): Promise<{
+  current: string;
+  parent: string | null;
+  items: { name: string; path: string; isGitRepo: string }[];
+}> {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : "";
+  return request(`/settings/browse${qs}`);
 }
 
 // --- Settings ---
