@@ -532,16 +532,15 @@ def _register_config_tools(mcp: FastMCP) -> None:
     async def tower_settings_update(config_yaml: str) -> dict[str, Any]:
         import yaml
 
-        from backend.config import DEFAULT_CONFIG_PATH
+        from backend.config import merge_config_yaml
 
         try:
             yaml.safe_load(config_yaml)
         except yaml.YAMLError as exc:
             return {"error": f"Invalid YAML: {exc}"}
 
-        DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        DEFAULT_CONFIG_PATH.write_text(config_yaml)
-        return GlobalConfigResponse(config_yaml=config_yaml).model_dump(mode="json")
+        result_yaml = merge_config_yaml(config_yaml)
+        return GlobalConfigResponse(config_yaml=result_yaml).model_dump(mode="json")
 
     @mcp.tool(name="tower_repo_list", description="List registered repositories")
     async def tower_repo_list() -> dict[str, Any]:

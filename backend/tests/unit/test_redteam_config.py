@@ -318,10 +318,9 @@ class TestInitConfig:
         assert isinstance(data, dict)
         assert "server" in data
 
-    def test_init_overwrites_when_called_directly(self, tmp_path: Path) -> None:
-        """init_config itself always writes — overwrite guard is in CLI."""
+    def test_init_preserves_existing_config(self, tmp_path: Path) -> None:
+        """init_config never overwrites an existing config file."""
         target = tmp_path / "config.yaml"
         target.write_text("custom: true\n")
         init_config(target)
-        assert "custom" not in target.read_text()
-        assert "server:" in target.read_text()
+        assert "custom" in target.read_text()  # preserved
