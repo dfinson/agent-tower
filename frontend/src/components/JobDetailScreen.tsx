@@ -16,6 +16,7 @@ import { TranscriptPanel } from "./TranscriptPanel";
 import { LogsPanel } from "./LogsPanel";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { ApprovalBanner } from "./ApprovalBanner";
+import { TelemetryPanel } from "./TelemetryPanel";
 
 const DiffViewer = lazy(() => import("./DiffViewer"));
 const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
@@ -185,6 +186,7 @@ export function JobDetailScreen() {
             <LogsPanel jobId={jobId} />
           </div>
           <ExecutionTimeline jobId={jobId} />
+          <TelemetryPanel jobId={jobId} />
         </Stack>
       )}
 

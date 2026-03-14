@@ -330,47 +330,120 @@ def up(host: str | None, port: int | None, dev: bool, tunnel: bool, password: st
 
 
 def _start_tunnel(port: int) -> tuple[str | None, Any]:
-    """Start a devtunnel and return (origin_url, process)."""
+    """Start a devtunnel with a stable, reusable tunnel name.
+
+    Naming convention: {username}-tower
+    The tunnel is created once and reused on subsequent runs.
+    If the name is taken, random padding is appended.
+    """
+    import json
+    import secrets
     import subprocess
 
+    def _run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(args, capture_output=True, text=True, timeout=30, **kwargs)
+
     try:
+        # Get logged-in username
+        user_result = _run(["devtunnel", "user", "show"])
+        username = "tower"
+        for line in user_result.stdout.splitlines():
+            if "Logged in as" in line:
+                # "Logged in as dfinson using GitHub."
+                parts = line.split()
+                idx = parts.index("as") + 1 if "as" in parts else -1
+                if idx > 0 and idx < len(parts):
+                    username = parts[idx]
+                break
+
+        tunnel_name = f"{username}-tower"
+
+        # Check if tunnel already exists
+        list_result = _run(["devtunnel", "list", "--json"])
+        existing_tunnels = []
+        try:
+            data = json.loads(list_result.stdout)
+            existing_tunnels = [t.get("tunnelId", "").split(".")[0] for t in data.get("tunnels", [])]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+        if tunnel_name not in existing_tunnels:
+            # Create the tunnel
+            create_result = _run(
+                [
+                    "devtunnel",
+                    "create",
+                    tunnel_name,
+                    "--allow-anonymous",
+                    "--expiration",
+                    "30d",
+                ]
+            )
+            if create_result.returncode != 0:
+                # Name might be taken by another user — add random padding
+                tunnel_name = f"{username}-tower-{secrets.token_hex(2)}"
+                _run(
+                    [
+                        "devtunnel",
+                        "create",
+                        tunnel_name,
+                        "--allow-anonymous",
+                        "--expiration",
+                        "30d",
+                    ]
+                )
+
+            # Add port
+            _run(
+                [
+                    "devtunnel",
+                    "port",
+                    "create",
+                    tunnel_name,
+                    "-p",
+                    str(port),
+                    "--protocol",
+                    "http",
+                ]
+            )
+            log.info("tunnel_created", name=tunnel_name)
+        else:
+            log.info("tunnel_reused", name=tunnel_name)
+
+        # Host the tunnel
         proc = subprocess.Popen(
-            [
-                "devtunnel",
-                "host",
-                "--port-numbers",
-                str(port),
-                "--allow-anonymous",
-                "--protocol",
-                "http",
-            ],
+            ["devtunnel", "host", tunnel_name],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
-        # Read output lines looking for the tunnel URL.
-        # devtunnel prints two URLs: "https://ID.euw.devtunnels.ms:PORT" and
-        # "https://ID-PORT.euw.devtunnels.ms". We want the second form
-        # (port embedded in subdomain) since it works on standard HTTPS port 443.
+
+        # Read output to find the URL
         import re
 
         tunnel_url: str | None = None
         if proc.stdout:
             for line in proc.stdout:
-                # Prefer the port-in-subdomain URL (e.g. https://abc-8080.euw.devtunnels.ms)
-                match = re.search(rf"(https://\S+-{port}\.(?:euw|use|usw|ase|jpe)\.devtunnels\.ms)", line)
+                # Look for the port-in-subdomain URL
+                match = re.search(
+                    rf"(https://\S+-{port}\.\S+\.devtunnels\.ms)",
+                    line,
+                )
                 if match:
                     tunnel_url = match.group(1).rstrip("/,")
                     break
-                # Fallback: any devtunnels URL
+                # Fallback
                 fallback = re.search(r"(https://\S+\.devtunnels\.ms\S*)", line)
                 if fallback:
                     tunnel_url = fallback.group(1).rstrip("/,: ")
-                    # Keep reading in case the port-subdomain URL comes next
+
         if tunnel_url:
-            log.info("tunnel_started", url=tunnel_url)
+            log.info("tunnel_started", url=tunnel_url, name=tunnel_name)
         else:
-            log.warning("tunnel_url_not_detected")
+            # Construct URL from convention
+            tunnel_url = f"https://{tunnel_name}-{port}.devtunnels.ms"
+            log.info("tunnel_url_constructed", url=tunnel_url)
+
         return tunnel_url, proc
     except FileNotFoundError:
         click.secho(
@@ -378,6 +451,9 @@ def _start_tunnel(port: int) -> tuple[str | None, Any]:
             fg="red",
             err=True,
         )
+        return None, None
+    except subprocess.TimeoutExpired:
+        log.warning("tunnel_setup_timeout")
         return None, None
 
 

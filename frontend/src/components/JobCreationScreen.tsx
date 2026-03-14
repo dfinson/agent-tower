@@ -4,10 +4,11 @@ import {
   Paper, Title, Select, Textarea, TextInput, Button, Group, Stack, Text, Divider,
   Collapse, UnstyledButton,
 } from "@mantine/core";
-import { ChevronDown, ChevronRight, Rocket } from "lucide-react";
+import { ChevronDown, ChevronRight, Rocket, Plus } from "lucide-react";
 import { notifications } from "@mantine/notifications";
-import { createJob, fetchRepos } from "../api/client";
+import { createJob, fetchRepos, fetchModels } from "../api/client";
 import { VoiceRecorder } from "./VoiceButton";
+import { AddRepoModal } from "./AddRepoModal";
 
 export function JobCreationScreen() {
   const navigate = useNavigate();
@@ -16,8 +17,11 @@ export function JobCreationScreen() {
   const [prompt, setPrompt] = useState("");
   const [baseRef, setBaseRef] = useState("");
   const [branch, setBranch] = useState("");
+  const [model, setModel] = useState<string | null>(null);
+  const [models, setModels] = useState<{ value: string; label: string }[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [addRepoOpen, setAddRepoOpen] = useState(false);
 
   useEffect(() => {
     fetchRepos()
@@ -30,6 +34,16 @@ export function JobCreationScreen() {
         setRepo((prev) => prev ?? items[0]?.value ?? null);
       })
       .catch(() => notifications.show({ color: "red", message: "Failed to load repos" }));
+    fetchModels()
+      .then((m) => {
+        setModels(
+          m.map((x) => ({
+            value: String(x.id ?? x.name ?? ""),
+            label: String(x.name ?? x.id ?? "unknown"),
+          })).filter((x) => x.value)
+        );
+      })
+      .catch(() => {});
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -57,33 +71,58 @@ export function JobCreationScreen() {
 
       <Paper radius="lg" p="lg">
         <Stack gap="md">
-          <Select
-            label="Repository"
-            placeholder="Select a repository…"
-            data={repos}
-            value={repo}
-            onChange={setRepo}
-            searchable
-            size="sm"
+          <Group gap="xs" align="flex-end">
+            <Select
+              label="Repository"
+              placeholder="Select a repository…"
+              data={repos}
+              value={repo}
+              onChange={setRepo}
+              searchable
+              size="sm"
+              className="flex-1"
+            />
+            <Button
+              size="sm"
+              variant="light"
+              leftSection={<Plus size={14} />}
+              onClick={() => setAddRepoOpen(true)}
+              className="mb-px"
+            >
+              Add
+            </Button>
+          </Group>
+
+          <AddRepoModal
+            opened={addRepoOpen}
+            onClose={() => setAddRepoOpen(false)}
+            onAdded={(path) => {
+              const label = path.split("/").pop() ?? path;
+              setRepos((prev) => {
+                if (prev.some((r) => r.value === path)) return prev;
+                return [...prev, { value: path, label }];
+              });
+              setRepo(path);
+            }}
           />
 
-          <div>
-            <Group justify="space-between" mb={6}>
-              <Text size="sm" fw={500}>Prompt</Text>
+          <Textarea
+            label="Prompt"
+            value={prompt}
+            onChange={(e) => setPrompt(e.currentTarget.value)}
+            placeholder="Describe the task for the agent…"
+            minRows={4}
+            autosize
+            maxRows={12}
+            size="sm"
+            rightSection={
               <VoiceRecorder
                 onTranscript={(t) => setPrompt((p) => (p ? p + " " : "") + t)}
               />
-            </Group>
-            <Textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.currentTarget.value)}
-              placeholder="Describe the task for the agent…"
-              minRows={4}
-              autosize
-              maxRows={12}
-              size="sm"
-            />
-          </div>
+            }
+            rightSectionWidth={140}
+            styles={{ section: { alignItems: "flex-start", paddingTop: 8 } }}
+          />
 
           <Divider />
 
@@ -96,6 +135,18 @@ export function JobCreationScreen() {
 
           <Collapse in={showAdvanced}>
             <Stack gap="sm">
+              {models.length > 0 && (
+                <Select
+                  label="Model"
+                  placeholder="Default (auto)"
+                  data={models}
+                  value={model}
+                  onChange={setModel}
+                  clearable
+                  searchable
+                  size="sm"
+                />
+              )}
               <TextInput
                 label="Base Reference"
                 placeholder="e.g., main"

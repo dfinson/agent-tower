@@ -241,7 +241,6 @@ class RuntimeService:
         config: SessionConfig,
     ) -> None:
         """Execute a job strategy, translate events, and handle completion."""
-        # Start heartbeat
         import time
 
         self._last_activity[job_id] = time.monotonic()
@@ -251,16 +250,25 @@ class RuntimeService:
         )
         self._heartbeat_tasks[job_id] = heartbeat_task
 
+        # Start telemetry tracking
+        from backend.services.telemetry import collector as tel
+
+        tel.start_job(job_id)
+
         session_id: str | None = None
         error_reason: str | None = None
         try:
             async for session_event in strategy.execute(config, self._adapter):
                 self._last_activity[job_id] = time.monotonic()
+
                 domain_event = self._translate_event(job_id, session_event)
                 if domain_event is not None:
                     if session_id is None and domain_event.payload.get("session_id"):
                         session_id = domain_event.payload["session_id"]
                         self._session_ids[job_id] = session_id
+                        # Wire telemetry: let the adapter know which job this session belongs to
+                        if hasattr(self._adapter, "set_job_id"):
+                            self._adapter.set_job_id(session_id, job_id)
                     if domain_event.kind == DomainEventKind.job_failed:
                         error_reason = domain_event.payload.get("message", "Agent error")
 
@@ -374,6 +382,7 @@ class RuntimeService:
             log.error("job_execution_failed", job_id=job_id, exc_info=True)
             await self._fail_job(job_id, "Execution error")
         finally:
+            tel.end_job(job_id)
             heartbeat_task.cancel()
             self._heartbeat_tasks.pop(job_id, None)
             self._tasks.pop(job_id, None)
