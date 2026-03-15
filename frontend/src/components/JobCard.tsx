@@ -21,22 +21,22 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
 
   return (
     <button
-      className="w-full text-left rounded-lg border border-[var(--mantine-color-dark-4)] bg-[var(--mantine-color-dark-7)] p-3 cursor-pointer transition-colors hover:border-blue-600 hover:shadow-md"
+      className="w-full text-left rounded-lg border border-border bg-background p-3 cursor-pointer transition-colors hover:border-primary/60 hover:bg-accent"
       onClick={() => navigate(`/jobs/${job.id}`)}
     >
       <div className="flex justify-between items-center mb-1.5">
-        <span className="text-sm font-semibold text-blue-400 truncate">{job.id}</span>
+        <span className="text-sm font-semibold text-primary truncate">{job.id}</span>
         <StateBadge state={job.state} />
       </div>
 
       <div className="flex items-center gap-1 mb-1">
-        <GitBranch size={12} className="text-gray-500 shrink-0" />
-        <span className="text-xs text-gray-400 truncate" title={job.repo}>{repoName}</span>
+        <GitBranch size={12} className="text-muted-foreground shrink-0" />
+        <span className="text-xs text-muted-foreground truncate" title={job.repo}>{repoName}</span>
       </div>
 
-      <p className="text-xs leading-snug line-clamp-2 text-gray-300 mb-2">{job.prompt}</p>
+      <p className="text-xs leading-snug line-clamp-2 text-foreground/70 mb-2">{job.prompt}</p>
 
-      <div className="flex justify-between text-[11px] text-gray-500">
+      <div className="flex justify-between text-[11px] text-muted-foreground">
         <span>{elapsed(job.createdAt)}</span>
         <span>{job.strategy}</span>
       </div>

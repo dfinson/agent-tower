@@ -1,14 +1,9 @@
-/**
- * WorkspaceBrowser — custom file tree + Monaco code viewer.
- *
- * Simple custom tree per spec — no complex external tree library.
- * Supports expand/collapse, file selection, Monaco preview.
- */
 import { useState, useEffect, useCallback } from "react";
-import { Paper, Group, Text, UnstyledButton, Loader, ScrollArea } from "@mantine/core";
 import { Folder, FolderOpen, FileCode, ChevronRight, ChevronDown } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import { fetchWorkspaceFiles, fetchWorkspaceFile } from "../api/client";
+import { Spinner } from "./ui/spinner";
+import { cn } from "../lib/utils";
 
 interface TreeEntry {
   path: string;
@@ -41,21 +36,20 @@ function TreeNode({ entry, depth, selected, onSelect, jobId }: TreeNodeProps) {
       try {
         const res = await fetchWorkspaceFiles(jobId, { path: entry.path });
         setChildren(res.items);
-      } catch { /* */ }
-      finally { setLoading(false); }
+      } catch { /* */ } finally { setLoading(false); }
     }
     setExpanded(!expanded);
   }, [isDir, expanded, children.length, entry.path, jobId, onSelect]);
 
   return (
     <>
-      <UnstyledButton
+      <button
+        type="button"
         onClick={handleToggle}
-        className={`flex items-center gap-1.5 py-1 px-2 rounded text-sm w-full transition-colors ${
-          selected === entry.path
-            ? "bg-[var(--mantine-color-dark-5)]"
-            : "hover:bg-[var(--mantine-color-dark-6)]"
-        }`}
+        className={cn(
+          "flex items-center gap-1.5 py-1 px-2 rounded text-sm w-full transition-colors text-left",
+          selected === entry.path ? "bg-accent" : "hover:bg-accent/50",
+        )}
         style={{ paddingLeft: depth * 16 + 8 }}
       >
         {isDir ? (
@@ -64,13 +58,15 @@ function TreeNode({ entry, depth, selected, onSelect, jobId }: TreeNodeProps) {
           <span className="w-3.5" />
         )}
         {isDir ? (
-          expanded ? <FolderOpen size={14} className="text-yellow-500 shrink-0" /> : <Folder size={14} className="text-yellow-500 shrink-0" />
+          expanded
+            ? <FolderOpen size={14} className="text-yellow-500 shrink-0" />
+            : <Folder size={14} className="text-yellow-500 shrink-0" />
         ) : (
-          <FileCode size={14} className="text-[var(--mantine-color-dimmed)] shrink-0" />
+          <FileCode size={14} className="text-muted-foreground shrink-0" />
         )}
-        <Text size="xs" truncate>{name}</Text>
-        {loading && <Loader size={10} />}
-      </UnstyledButton>
+        <span className="text-xs truncate">{name}</span>
+        {loading && <Spinner size="sm" className="ml-auto" />}
+      </button>
       {expanded && children.map((c) => (
         <TreeNode key={c.path} entry={c} depth={depth + 1} selected={selected} onSelect={onSelect} jobId={jobId} />
       ))}
@@ -118,26 +114,24 @@ export default function WorkspaceBrowser({ jobId }: Props) {
     }
   }, [jobId]);
 
-  if (loading) return <div className="flex justify-center py-10"><Loader /></div>;
+  if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
 
   return (
     <div className="flex gap-3 h-[500px]">
-      <Paper radius="lg" p={0} className="w-64 shrink-0 flex flex-col overflow-hidden">
-        <Group className="px-3 py-2.5 border-b border-[var(--mantine-color-dark-4)]">
-          <Text size="xs" fw={600} c="dimmed">Files</Text>
-        </Group>
-        <ScrollArea className="flex-1">
-          <div className="py-1">
-            {entries.map((e) => (
-              <TreeNode key={e.path} entry={e} depth={0} selected={selected} onSelect={handleSelect} jobId={jobId} />
-            ))}
-          </div>
-        </ScrollArea>
-      </Paper>
+      <div className="w-64 shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card">
+        <div className="px-3 py-2.5 border-b border-border">
+          <span className="text-xs font-semibold text-muted-foreground">Files</span>
+        </div>
+        <div className="flex-1 overflow-y-auto py-1">
+          {entries.map((e) => (
+            <TreeNode key={e.path} entry={e} depth={0} selected={selected} onSelect={handleSelect} jobId={jobId} />
+          ))}
+        </div>
+      </div>
 
-      <Paper radius="lg" p={0} className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden rounded-lg border border-border bg-card">
         {fileLoading ? (
-          <div className="flex items-center justify-center h-full"><Loader /></div>
+          <div className="flex items-center justify-center h-full"><Spinner /></div>
         ) : selected && fileContent != null ? (
           <Editor
             value={fileContent}
@@ -146,9 +140,9 @@ export default function WorkspaceBrowser({ jobId }: Props) {
             options={{ readOnly: true, minimap: { enabled: false }, scrollBeyondLastLine: false, fontSize: 13 }}
           />
         ) : (
-          <Text size="sm" c="dimmed" ta="center" py="xl">Select a file to preview</Text>
+          <p className="text-sm text-muted-foreground text-center py-8">Select a file to preview</p>
         )}
-      </Paper>
+      </div>
     </div>
   );
 }

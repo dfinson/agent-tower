@@ -1,14 +1,9 @@
-/**
- * DiffViewer — Monaco-based diff viewing per spec.
- *
- * Uses Monaco DiffEditor for the primary diff experience.
- * File list sidebar shows changed files with status indicators.
- */
 import { useState, useEffect } from "react";
-import { Paper, Group, Text, Stack, UnstyledButton, Badge, Loader } from "@mantine/core";
 import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { useTowerStore } from "../store";
+import { Spinner } from "./ui/spinner";
+import { cn } from "../lib/utils";
 
 interface DiffViewerProps {
   jobId: string;
@@ -21,11 +16,18 @@ const STATUS_ICON: Record<string, LucideIcon> = {
   renamed: FileEdit,
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  added: "green",
-  deleted: "red",
-  modified: "blue",
-  renamed: "yellow",
+const STATUS_BADGE: Record<string, string> = {
+  added: "text-green-400 border-green-800",
+  deleted: "text-red-400 border-red-800",
+  modified: "text-blue-400 border-blue-800",
+  renamed: "text-yellow-400 border-yellow-800",
+};
+
+const STATUS_ICON_CLASS: Record<string, string> = {
+  added: "text-green-400",
+  deleted: "text-red-400",
+  modified: "text-blue-400",
+  renamed: "text-yellow-400",
 };
 
 function guessLanguage(path: string): string {
@@ -50,21 +52,19 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
 
   const selectedFile = diffs[selectedIdx];
 
-  // Build modified content from hunks
   useEffect(() => {
     if (!selectedFile) return;
     setLoading(true);
 
-    // Build content from hunks for the diff display
     const additions = selectedFile.hunks
       ?.flatMap((h: { lines?: { type: string; content: string }[] }) =>
-        (h.lines ?? []).filter((l: { type: string }) => l.type !== "deletion").map((l: { content: string }) => l.content)
+        (h.lines ?? []).filter((l: { type: string }) => l.type !== "deletion").map((l: { content: string }) => l.content),
       )
       .join("\n") ?? "";
 
     const deletions = selectedFile.hunks
       ?.flatMap((h: { lines?: { type: string; content: string }[] }) =>
-        (h.lines ?? []).filter((l: { type: string }) => l.type !== "addition").map((l: { content: string }) => l.content)
+        (h.lines ?? []).filter((l: { type: string }) => l.type !== "addition").map((l: { content: string }) => l.content),
       )
       .join("\n") ?? "";
 
@@ -78,52 +78,52 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
 
   if (diffs.length === 0) {
     return (
-      <Paper radius="lg" p="xl">
-        <Text size="sm" c="dimmed" ta="center">No changes detected</Text>
-      </Paper>
+      <div className="rounded-lg border border-border bg-card p-8 text-center">
+        <p className="text-sm text-muted-foreground">No changes detected</p>
+      </div>
     );
   }
 
   return (
     <div className="flex gap-3 h-[500px]">
       {/* File list sidebar */}
-      <Paper radius="lg" p={0} className="w-64 shrink-0 flex flex-col overflow-hidden">
-        <Group justify="space-between" className="px-3 py-2.5 border-b border-[var(--mantine-color-dark-4)]">
-          <Text size="xs" fw={600} c="dimmed">{diffs.length} files</Text>
-          <Group gap={4}>
-            <Text size="xs" c="green">+{totalAdditions}</Text>
-            <Text size="xs" c="red">-{totalDeletions}</Text>
-          </Group>
-        </Group>
-        <Stack gap={0} className="flex-1 overflow-y-auto">
+      <div className="w-64 shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
+          <span className="text-xs font-semibold text-muted-foreground">{diffs.length} files</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-green-400">+{totalAdditions}</span>
+            <span className="text-xs text-red-400">-{totalDeletions}</span>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
           {diffs.map((file, i) => {
             const Icon = STATUS_ICON[file.status] ?? FileCode;
             return (
-              <UnstyledButton
+              <button
                 key={i}
+                type="button"
                 onClick={() => setSelectedIdx(i)}
-                className={`flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
-                  i === selectedIdx
-                    ? "bg-[var(--mantine-color-dark-5)]"
-                    : "hover:bg-[var(--mantine-color-dark-6)]"
-                }`}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2 text-sm transition-colors w-full text-left",
+                  i === selectedIdx ? "bg-accent" : "hover:bg-accent/50",
+                )}
               >
-                <Icon size={14} className={`text-[var(--mantine-color-${STATUS_COLOR[file.status]}-5)] shrink-0`} />
-                <Text size="xs" truncate className="flex-1">{file.path}</Text>
-                <Badge size="xs" variant="light" color={STATUS_COLOR[file.status]}>
+                <Icon size={14} className={cn("shrink-0", STATUS_ICON_CLASS[file.status])} />
+                <span className="text-xs truncate flex-1 text-foreground">{file.path}</span>
+                <span className={cn("text-xs border rounded px-1", STATUS_BADGE[file.status])}>
                   +{file.additions} -{file.deletions}
-                </Badge>
-              </UnstyledButton>
+                </span>
+              </button>
             );
           })}
-        </Stack>
-      </Paper>
+        </div>
+      </div>
 
       {/* Monaco Diff Editor */}
-      <Paper radius="lg" p={0} className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden rounded-lg border border-border bg-card">
         {loading ? (
           <div className="flex items-center justify-center h-full">
-            <Loader />
+            <Spinner />
           </div>
         ) : selectedFile ? (
           <DiffEditor
@@ -140,7 +140,7 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
             }}
           />
         ) : null}
-      </Paper>
+      </div>
     </div>
   );
 }

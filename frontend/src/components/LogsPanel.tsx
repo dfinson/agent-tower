@@ -1,19 +1,21 @@
-/**
- * Runtime logs panel — custom console-like output viewer.
- *
- * Monospace, dark console background, auto-scrolling, level filtering.
- * Mantine used for shell. Content rendering is product-specific.
- */
 import { useState, useRef, useEffect } from "react";
-import { Paper, Group, Text, ScrollArea, Badge, UnstyledButton } from "@mantine/core";
 import { useTowerStore, selectJobLogs } from "../store";
+import { cn } from "../lib/utils";
 
 const LEVELS = ["debug", "info", "warn", "error"] as const;
-const LEVEL_COLORS: Record<string, string> = {
-  debug: "gray",
-  info: "blue",
-  warn: "yellow",
-  error: "red",
+
+const LEVEL_CLASSES: Record<string, string> = {
+  debug: "text-muted-foreground",
+  info: "text-blue-400",
+  warn: "text-yellow-400",
+  error: "text-red-400",
+};
+
+const LEVEL_DOT: Record<string, string> = {
+  debug: "bg-muted-foreground",
+  info: "bg-blue-400",
+  warn: "bg-yellow-400",
+  error: "bg-red-400",
 };
 
 export function LogsPanel({ jobId }: { jobId: string }) {
@@ -30,9 +32,9 @@ export function LogsPanel({ jobId }: { jobId: string }) {
     }
   }, [logs.length]);
 
-  const handleScroll = (pos: { x: number; y: number }) => {
-    const el = viewportRef.current;
-    if (el) stickRef.current = el.scrollHeight - pos.y - el.clientHeight < 40;
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   };
 
   const toggleLevel = (level: string) => {
@@ -45,51 +47,52 @@ export function LogsPanel({ jobId }: { jobId: string }) {
   };
 
   return (
-    <Paper className="flex flex-col h-full overflow-hidden" radius="lg" p={0}>
-      <Group
-        justify="space-between"
-        className="px-4 py-2.5 border-b border-[var(--mantine-color-dark-4)] shrink-0"
-      >
-        <Text size="sm" fw={600} c="dimmed">Logs</Text>
-        <Group gap={4}>
+    <div className="flex flex-col h-full overflow-hidden rounded-lg border border-border bg-card">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
+        <span className="text-sm font-semibold text-muted-foreground">Logs</span>
+        <div className="flex items-center gap-1">
           {LEVELS.map((level) => (
-            <UnstyledButton key={level} onClick={() => toggleLevel(level)}>
-              <Badge
-                variant={filter.has(level) ? "light" : "outline"}
-                color={LEVEL_COLORS[level]}
-                size="xs"
-                className="cursor-pointer"
-              >
-                {level}
-              </Badge>
-            </UnstyledButton>
+            <button
+              key={level}
+              type="button"
+              onClick={() => toggleLevel(level)}
+              className={cn(
+                "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-colors",
+                filter.has(level)
+                  ? "border-transparent bg-muted text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span className={cn("w-1.5 h-1.5 rounded-full", LEVEL_DOT[level])} />
+              {level}
+            </button>
           ))}
-        </Group>
-      </Group>
+        </div>
+      </div>
 
-      <ScrollArea
-        className="flex-1 min-h-0 bg-[#0d1117]"
-        viewportRef={viewportRef}
-        onScrollPositionChange={handleScroll}
+      <div
+        ref={viewportRef}
+        className="flex-1 min-h-0 overflow-y-auto font-mono"
+        onScroll={handleScroll}
       >
         {logs.length === 0 ? (
-          <Text size="sm" c="dimmed" ta="center" py="xl">No log entries</Text>
+          <p className="text-sm text-muted-foreground text-center py-8">No logs</p>
         ) : (
-          <div className="p-2 font-mono text-xs leading-relaxed">
-            {logs.map((log, i) => (
-              <div key={i} className="flex gap-2 px-2 py-px hover:bg-white/5 rounded">
-                <span className="text-[var(--mantine-color-dimmed)] whitespace-nowrap shrink-0">
-                  {new Date(log.timestamp).toLocaleTimeString()}
+          <div className="p-2 space-y-px">
+            {logs.map((l, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs py-0.5 hover:bg-accent/30 px-1 rounded">
+                <span className="text-muted-foreground shrink-0 tabular-nums">
+                  {new Date(l.timestamp).toLocaleTimeString()}
                 </span>
-                <span className={`w-10 shrink-0 font-semibold uppercase text-[var(--mantine-color-${LEVEL_COLORS[log.level]}-5)]`}>
-                  {log.level}
+                <span className={cn("uppercase font-semibold w-10 shrink-0", LEVEL_CLASSES[l.level])}>
+                  {l.level}
                 </span>
-                <span className="whitespace-pre-wrap break-all">{log.message}</span>
+                <span className="text-foreground/80 break-words min-w-0">{l.message}</span>
               </div>
             ))}
           </div>
         )}
-      </ScrollArea>
-    </Paper>
+      </div>
+    </div>
   );
 }

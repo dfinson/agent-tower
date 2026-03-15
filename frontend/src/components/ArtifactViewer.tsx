@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Paper, Table, Text, Badge, Anchor, Group, Loader } from "@mantine/core";
 import { type LucideIcon, Download, FileText, FileCode } from "lucide-react";
 import { fetchArtifacts, downloadArtifactUrl } from "../api/client";
+import { Badge } from "./ui/badge";
+import { Spinner } from "./ui/spinner";
 
 interface Artifact {
   id: string;
@@ -38,58 +39,59 @@ export default function ArtifactViewer({ jobId }: Props) {
       .finally(() => setLoading(false));
   }, [jobId]);
 
-  if (loading) return <div className="flex justify-center py-10"><Loader /></div>;
+  if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
 
   if (artifacts.length === 0) {
     return (
-      <Paper radius="lg" p="xl">
-        <Text size="sm" c="dimmed" ta="center">No artifacts available</Text>
-      </Paper>
+      <div className="rounded-lg border border-border bg-card p-8 text-center">
+        <p className="text-sm text-muted-foreground">No artifacts available</p>
+      </div>
     );
   }
 
   return (
-    <Paper radius="lg" p={0} className="overflow-hidden">
-      <Table striped highlightOnHover>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Name</Table.Th>
-            <Table.Th>Type</Table.Th>
-            <Table.Th>Size</Table.Th>
-            <Table.Th>Created</Table.Th>
-            <Table.Th />
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Name</th>
+            <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Type</th>
+            <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Size</th>
+            <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">Created</th>
+            <th className="px-4 py-2.5 text-right text-xs font-semibold text-muted-foreground" />
+          </tr>
+        </thead>
+        <tbody>
           {artifacts.map((a) => {
             const Icon = TYPE_ICON[a.type] ?? FileText;
             return (
-              <Table.Tr key={a.id}>
-                <Table.Td>
-                  <Group gap="xs">
-                    <Icon size={14} />
-                    <Text size="sm">{a.name}</Text>
-                  </Group>
-                </Table.Td>
-                <Table.Td>
-                  <Badge variant="light" size="sm">{a.type}</Badge>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed">{formatSize(a.sizeBytes)}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed">{new Date(a.createdAt).toLocaleString()}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Anchor href={downloadArtifactUrl(a.id)} target="_blank" size="sm">
+              <tr key={a.id} className="border-b border-border/50 hover:bg-accent/30">
+                <td className="px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Icon size={14} className="text-muted-foreground shrink-0" />
+                    <span>{a.name}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-2.5">
+                  <Badge variant="secondary">{a.type}</Badge>
+                </td>
+                <td className="px-4 py-2.5 text-muted-foreground">{formatSize(a.sizeBytes)}</td>
+                <td className="px-4 py-2.5 text-muted-foreground text-xs">{new Date(a.createdAt).toLocaleString()}</td>
+                <td className="px-4 py-2.5 text-right">
+                  <a
+                    href={downloadArtifactUrl(a.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
                     <Download size={14} />
-                  </Anchor>
-                </Table.Td>
-              </Table.Tr>
+                  </a>
+                </td>
+              </tr>
             );
           })}
-        </Table.Tbody>
-      </Table>
-    </Paper>
+        </tbody>
+      </table>
+    </div>
   );
 }

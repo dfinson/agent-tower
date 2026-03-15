@@ -1,16 +1,11 @@
-/**
- * Agent conversation / transcript panel.
- *
- * Custom component per spec — message list layout is product-specific.
- * Mantine used for shell (Paper, ScrollArea, TextInput, Button).
- */
 import { useRef, useEffect, useState, useCallback } from "react";
-import { Paper, Text, Group, TextInput, ActionIcon, ScrollArea } from "@mantine/core";
 import { Send, Bot, User } from "lucide-react";
+import { toast } from "sonner";
 import { useTowerStore, selectJobTranscript } from "../store";
 import { sendOperatorMessage } from "../api/client";
-import { notifications } from "@mantine/notifications";
 import { MicButton } from "./VoiceButton";
+import { Input } from "./ui/input";
+import { Button } from "./ui/button";
 
 export function TranscriptPanel({ jobId, interactive }: { jobId: string; interactive?: boolean }) {
   const entries = useTowerStore(selectJobTranscript(jobId));
@@ -25,9 +20,9 @@ export function TranscriptPanel({ jobId, interactive }: { jobId: string; interac
     }
   }, [entries.length]);
 
-  const handleScroll = (pos: { x: number; y: number }) => {
-    const el = viewportRef.current;
-    if (el) stickRef.current = el.scrollHeight - pos.y - el.clientHeight < 40;
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   };
 
   const handleSend = useCallback(async () => {
@@ -37,92 +32,79 @@ export function TranscriptPanel({ jobId, interactive }: { jobId: string; interac
       await sendOperatorMessage(jobId, msg.trim());
       setMsg("");
     } catch (e) {
-      notifications.show({ color: "red", title: "Send failed", message: String(e) });
+      toast.error(String(e));
     } finally {
       setSending(false);
     }
   }, [jobId, msg]);
 
   return (
-    <Paper className="flex flex-col h-full overflow-hidden" radius="lg" p={0}>
-      <Group
-        justify="space-between"
-        className="px-4 py-2.5 border-b border-[var(--mantine-color-dark-4)] shrink-0"
-      >
-        <Text size="sm" fw={600} c="dimmed">Transcript</Text>
-        <Text size="xs" c="dimmed">{entries.length} messages</Text>
-      </Group>
+    <div className="flex flex-col h-full overflow-hidden rounded-lg border border-border bg-card">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
+        <span className="text-sm font-semibold text-muted-foreground">Transcript</span>
+        <span className="text-xs text-muted-foreground">{entries.length} messages</span>
+      </div>
 
-      <ScrollArea
-        className="flex-1 min-h-0"
-        viewportRef={viewportRef}
-        onScrollPositionChange={handleScroll}
+      <div
+        ref={viewportRef}
+        className="flex-1 min-h-0 overflow-y-auto"
+        onScroll={handleScroll}
       >
         {entries.length === 0 ? (
-          <Text size="sm" c="dimmed" ta="center" py="xl">No messages yet</Text>
+          <p className="text-sm text-muted-foreground text-center py-8">No messages yet</p>
         ) : (
           <div className="p-3 space-y-2">
             {entries.map((e, i) => {
               const isAgent = e.role === "agent";
               return (
-                <div
-                  key={i}
-                  className={`flex gap-2 ${isAgent ? "" : "flex-row-reverse"}`}
-                >
+                <div key={i} className={`flex gap-2 ${isAgent ? "" : "flex-row-reverse"}`}>
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-1 ${
                     isAgent ? "bg-blue-900/50" : "bg-green-900/50"
                   }`}>
                     {isAgent ? <Bot size={14} /> : <User size={14} />}
                   </div>
-                  <div
-                    className={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
-                      isAgent
-                        ? "bg-[var(--mantine-color-dark-6)] rounded-tl-sm"
-                        : "bg-blue-900/30 rounded-tr-sm"
-                    }`}
-                  >
+                  <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                    isAgent ? "bg-muted rounded-tl-sm" : "bg-blue-900/30 rounded-tr-sm"
+                  }`}>
                     <div className="whitespace-pre-wrap">{e.content}</div>
-                    <Text size="xs" c="dimmed" mt={4}>
+                    <span className="text-xs text-muted-foreground mt-1 block">
                       {new Date(e.timestamp).toLocaleTimeString()}
-                    </Text>
+                    </span>
                   </div>
                 </div>
               );
             })}
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {interactive && (
-        <div className="p-2 border-t border-[var(--mantine-color-dark-4)] shrink-0">
-          <Group gap="xs">
-            <TextInput
-              placeholder="Send instruction to agent…"
-              value={msg}
-              onChange={(e) => setMsg(e.currentTarget.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              disabled={sending}
-              className="flex-1"
-              size="sm"
-              rightSection={
-                <MicButton
-                  onTranscript={(t: string) => setMsg((prev) => (prev ? prev + " " : "") + t)}
-                />
-              }
-              rightSectionWidth={40}
-            />
-            <ActionIcon
-              variant="filled"
-              size="lg"
+        <div className="p-2 border-t border-border shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Input
+                placeholder="Send instruction to agent…"
+                value={msg}
+                onChange={(e) => setMsg(e.currentTarget.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+                disabled={sending}
+                className="pr-8"
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                <MicButton onTranscript={(t) => setMsg((prev) => (prev ? prev + " " : "") + t)} />
+              </div>
+            </div>
+            <Button
+              size="icon"
               onClick={handleSend}
               disabled={sending || !msg.trim()}
               loading={sending}
             >
               <Send size={16} />
-            </ActionIcon>
-          </Group>
+            </Button>
+          </div>
         </div>
       )}
-    </Paper>
+    </div>
   );
 }

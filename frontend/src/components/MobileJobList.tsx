@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { SegmentedControl, Stack, Text } from "@mantine/core";
 import { useTowerStore, selectJobs, selectApprovals } from "../store";
 import type { JobSummary } from "../store";
 import { JobCard } from "./JobCard";
+import { cn } from "../lib/utils";
 
 const TAB_STATES: Record<string, string[]> = {
   Active: ["queued", "running"],
@@ -11,6 +11,8 @@ const TAB_STATES: Record<string, string[]> = {
   History: ["succeeded", "canceled"],
 };
 
+const TABS = ["Active", "Sign-off", "Failed", "History"] as const;
+
 function filterAndSort(jobs: Record<string, JobSummary>, states: string[]): JobSummary[] {
   return Object.values(jobs)
     .filter((j) => states.includes(j.state))
@@ -18,7 +20,7 @@ function filterAndSort(jobs: Record<string, JobSummary>, states: string[]): JobS
 }
 
 export function MobileJobList() {
-  const [tab, setTab] = useState("Active");
+  const [tab, setTab] = useState<string>("Active");
   const jobs = useTowerStore(selectJobs);
   const approvals = useTowerStore(selectApprovals);
   const pendingCount = Object.values(approvals).filter((a) => !a.resolvedAt).length;
@@ -27,28 +29,34 @@ export function MobileJobList() {
 
   return (
     <div className="sm:hidden">
-      <SegmentedControl
-        value={tab}
-        onChange={setTab}
-        data={[
-          { value: "Active", label: "Active" },
-          { value: "Sign-off", label: pendingCount > 0 ? `Sign-off (${pendingCount})` : "Sign-off" },
-          { value: "Failed", label: "Failed" },
-          { value: "History", label: "History" },
-        ]}
-        fullWidth
-        size="xs"
-        mb="md"
-      />
-      <Stack gap="xs">
+      <div className="flex rounded-lg bg-muted p-1 mb-4 gap-0.5">
+        {TABS.map((t) => {
+          const label = t === "Sign-off" && pendingCount > 0 ? `Sign-off (${pendingCount})` : t;
+          return (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cn(
+                "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                tab === t
+                  ? "bg-background text-foreground shadow"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-col gap-2">
         {filtered.length === 0 ? (
-          <Text size="sm" c="dimmed" ta="center" py="xl">
+          <p className="text-sm text-muted-foreground text-center py-8">
             No {tab.toLowerCase()} jobs
-          </Text>
+          </p>
         ) : (
           filtered.map((job) => <JobCard key={job.id} job={job} />)
         )}
-      </Stack>
+      </div>
     </div>
   );
 }

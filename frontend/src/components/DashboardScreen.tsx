@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Group, Title, Button } from "@mantine/core";
 import { Plus } from "lucide-react";
 import { useTowerStore } from "../store";
 import { fetchJobs } from "../api/client";
 import { KanbanBoard } from "./KanbanBoard";
 import { MobileJobList } from "./MobileJobList";
+import { Button } from "./ui/button";
 
 export function DashboardScreen() {
   const navigate = useNavigate();
@@ -24,15 +24,13 @@ export function DashboardScreen() {
 
   return (
     <div>
-      <Group justify="space-between" mb="md">
-        <Title order={3}>Jobs</Title>
-        <Button
-          leftSection={<Plus size={16} />}
-          onClick={() => navigate("/jobs/new")}
-        >
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-foreground">Jobs</h3>
+        <Button size="sm" onClick={() => navigate("/jobs/new")}>
+          <Plus size={16} />
           New Job
         </Button>
-      </Group>
+      </div>
       <KanbanBoard />
       <MobileJobList />
     </div>

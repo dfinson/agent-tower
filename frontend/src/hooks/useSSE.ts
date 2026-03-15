@@ -54,7 +54,14 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
 
       es.onopen = () => {
         attemptRef.current = 0;
-        queueMicrotask(() => setConnectionStatus("connected"));
+        // Defer the Zustand update to a macrotask (setTimeout 0) rather than a
+        // microtask (queueMicrotask).  React 18's useSyncExternalStore schedules
+        // its own flush via queueMicrotask; if our Zustand set() fires in the
+        // same microtask checkpoint, concurrent flush callbacks can see stale
+        // snapshots and trigger the "Too many re-renders" (React #185) loop.
+        // A macrotask guarantees react's current render+commit fully complete
+        // before any store update is processed.
+        setTimeout(() => setConnectionStatus("connected"), 0);
       };
 
       // Handle named event types
@@ -76,10 +83,10 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
           }
           try {
             const data: unknown = JSON.parse(ev.data as string);
-            // Dispatch outside React's render phase to prevent #185.
-            // EventSource callbacks can fire during React's commit,
-            // causing setState-during-render loops.
-            queueMicrotask(() => dispatchSSEEvent(eventType, data));
+            // Defer to a macrotask so this Zustand set() never lands in the
+            // same microtask checkpoint as React's useSyncExternalStore flush.
+            // See comment on onopen above for the full explanation of #185.
+            setTimeout(() => dispatchSSEEvent(eventType, data), 0);
           } catch {
             // Ignore unparseable events
           }

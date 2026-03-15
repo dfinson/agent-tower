@@ -1,13 +1,36 @@
-/* CSS layer ordering: Tailwind base/utilities must not override Mantine */
-@layer theme, base, mantine, components, utilities;
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #root { height: 100%; }
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--mantine-color-dark-4); border-radius: 3px; }
-a { text-decoration: none; color: inherit; }
+@layer base {
+  :root {
+    --background: 220 20% 7%;
+    --foreground: 213 27% 90%;
+    --card: 215 22% 11%;
+    --card-foreground: 213 27% 90%;
+    --popover: 215 22% 14%;
+    --popover-foreground: 213 27% 90%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 215 18% 17%;
+    --secondary-foreground: 213 27% 90%;
+    --muted: 215 18% 17%;
+    --muted-foreground: 215 12% 57%;
+    --accent: 215 18% 22%;
+    --accent-foreground: 213 27% 90%;
+    --destructive: 0 63% 40%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 215 12% 21%;
+    --input: 215 12% 21%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; }
+  body { background-color: hsl(var(--background)); color: hsl(var(--foreground)); }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+  a { text-decoration: none; color: inherit; }
+}
