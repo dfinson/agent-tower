@@ -134,7 +134,7 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
         </div>
       </div>
 
-      {/* Recording mode — replaces textarea content */}
+      {/* Recording mode — waveform + stop button */}
       {state === "recording" && (
         <div
           className="rounded-lg border border-blue-600 p-4 flex flex-col items-center gap-3"
@@ -143,18 +143,7 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
             minHeight: 120,
           }}
         >
-          <div className="text-xs font-medium text-blue-400 uppercase tracking-wider">
-            Recording…
-          </div>
-
-          {/* Waveform — centered, full width */}
-          <div
-            ref={containerRef}
-            className="w-full"
-            style={{ minHeight: 40 }}
-          />
-
-          {/* Stop button — integrated with waveform */}
+          {/* Stop button — integrated above waveform */}
           <ActionIcon
             variant="filled"
             color="red"
@@ -168,10 +157,16 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
         </div>
       )}
 
-      {/* Hidden waveform container when not recording (for WaveSurfer init) */}
-      {state !== "recording" && (
-        <div ref={containerRef} style={{ width: 0, height: 0, overflow: "hidden" }} />
-      )}
+      {/* Single waveform container — always mounted, positioned based on state.
+          WaveSurfer needs a stable DOM element that doesn't unmount. */}
+      <div
+        ref={containerRef}
+        style={
+          state === "recording"
+            ? { marginTop: -60, marginBottom: 8, padding: "0 16px" }
+            : { width: 0, height: 0, overflow: "hidden", position: "absolute" }
+        }
+      />
     </div>
   );
 }
