@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { useTowerStore } from "../store";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 
@@ -45,6 +46,7 @@ function guessLanguage(path: string): string {
 
 export default function DiffViewer({ jobId }: DiffViewerProps) {
   const diffs = useTowerStore((s) => s.diffs[jobId] ?? []);
+  const isMobile = useIsMobile();
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [original, setOriginal] = useState("");
   const [modified, setModified] = useState("");
@@ -85,9 +87,9 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
   }
 
   return (
-    <div className="flex gap-3 h-[500px]">
-      {/* File list sidebar */}
-      <div className="w-64 shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card">
+    <div className="flex flex-col md:flex-row gap-3 h-[60vh] min-h-[300px] max-h-[600px]">
+      {/* File list sidebar — horizontal scroll strip on mobile, vertical sidebar on desktop */}
+      <div className="md:w-64 shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card max-md:max-h-[30%]">
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
           <span className="text-xs font-semibold text-muted-foreground">{diffs.length} files</span>
           <div className="flex items-center gap-2">
@@ -110,7 +112,7 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
               >
                 <Icon size={14} className={cn("shrink-0", STATUS_ICON_CLASS[file.status])} />
                 <span className="text-xs truncate flex-1 text-foreground">{file.path}</span>
-                <span className={cn("text-xs border rounded px-1", STATUS_BADGE[file.status])}>
+                <span className={cn("text-xs border rounded px-1 hidden sm:inline", STATUS_BADGE[file.status])}>
                   +{file.additions} -{file.deletions}
                 </span>
               </button>
@@ -119,8 +121,8 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
         </div>
       </div>
 
-      {/* Monaco Diff Editor */}
-      <div className="flex-1 overflow-hidden rounded-lg border border-border bg-card">
+      {/* Monaco Diff Editor — inline mode on mobile */}
+      <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <Spinner />
@@ -134,9 +136,9 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
             options={{
               readOnly: true,
               minimap: { enabled: false },
-              renderSideBySide: true,
+              renderSideBySide: !isMobile,
               scrollBeyondLastLine: false,
-              fontSize: 13,
+              fontSize: isMobile ? 12 : 13,
             }}
           />
         ) : null}

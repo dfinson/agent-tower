@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Folder, FolderOpen, FileCode, ChevronRight, ChevronDown } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import { fetchWorkspaceFiles, fetchWorkspaceFile } from "../api/client";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 
@@ -93,6 +94,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     fetchWorkspaceFiles(jobId)
@@ -117,8 +119,8 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
 
   return (
-    <div className="flex gap-3 h-[500px]">
-      <div className="w-64 shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card">
+    <div className="flex flex-col md:flex-row gap-3 h-[60vh] min-h-[300px] max-h-[600px]">
+      <div className="md:w-64 shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card max-md:max-h-[30%]">
         <div className="px-3 py-2.5 border-b border-border">
           <span className="text-xs font-semibold text-muted-foreground">Files</span>
         </div>
@@ -129,7 +131,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden rounded-lg border border-border bg-card">
+      <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card">
         {fileLoading ? (
           <div className="flex items-center justify-center h-full"><Spinner /></div>
         ) : selected && fileContent != null ? (
@@ -137,7 +139,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
             value={fileContent}
             language={guessLang(selected)}
             theme="vs-dark"
-            options={{ readOnly: true, minimap: { enabled: false }, scrollBeyondLastLine: false, fontSize: 13 }}
+            options={{ readOnly: true, minimap: { enabled: false }, scrollBeyondLastLine: false, fontSize: isMobile ? 12 : 13 }}
           />
         ) : (
           <p className="text-sm text-muted-foreground text-center py-8">Select a file to preview</p>

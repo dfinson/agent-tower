@@ -63,7 +63,7 @@ export function TranscriptPanel({ jobId, interactive }: { jobId: string; interac
                   }`}>
                     {isAgent ? <Bot size={14} /> : <User size={14} />}
                   </div>
-                  <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                  <div className={`max-w-[90%] sm:max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
                     isAgent ? "bg-muted rounded-tl-sm" : "bg-blue-900/30 rounded-tr-sm"
                   }`}>
                     <div className="whitespace-pre-wrap">{e.content}</div>

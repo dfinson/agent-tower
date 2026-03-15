@@ -70,7 +70,7 @@ export function JobCreationScreen() {
 
       <div className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-col gap-4">
-          <div className="flex items-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-2">
             <Combobox
               label="Repository"
               placeholder="Select a repository…"
