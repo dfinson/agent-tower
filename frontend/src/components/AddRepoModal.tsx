@@ -142,7 +142,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                 <span className="text-xs font-mono text-muted-foreground truncate flex-1">{browsePath}</span>
               </div>
 
-              <div className="h-[250px] overflow-y-auto rounded-md border border-border">
+              <div className="h-[min(250px,50vh)] overflow-y-auto rounded-md border border-border">
                 {browseLoading ? (
                   <div className="flex justify-center py-8">
                     <Spinner size="sm" />

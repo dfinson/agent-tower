@@ -160,7 +160,7 @@ export function JobDetailScreen() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="mb-4">
-        <TabsList>
+        <TabsList className="overflow-x-auto">
           <TabsTrigger value="live">Live</TabsTrigger>
           <TabsTrigger value="diff">Diff</TabsTrigger>
           <TabsTrigger value="workspace">Workspace</TabsTrigger>
@@ -171,7 +171,7 @@ export function JobDetailScreen() {
       {tab === "live" && (
         <div className="flex flex-col gap-4">
           <ApprovalBanner jobId={jobId} />
-          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1" style={{ minHeight: 400 }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ minHeight: 400 }}>
             <TranscriptPanel jobId={jobId} interactive={isInteractive} />
             <LogsPanel jobId={jobId} />
           </div>

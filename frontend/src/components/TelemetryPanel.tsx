@@ -80,7 +80,7 @@ export function TelemetryPanel({ jobId }: { jobId: string }) {
                   <Cpu size={14} className="text-blue-400" />
                   <span className="text-xs font-semibold text-muted-foreground">Token Usage</span>
                 </div>
-                <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
                   <div>
                     <p className="text-lg font-bold">{formatTokens(data.promptTokens ?? 0)}</p>
                     <p className="text-xs text-muted-foreground">Prompt</p>
@@ -111,7 +111,7 @@ export function TelemetryPanel({ jobId }: { jobId: string }) {
               </div>
 
               {/* Model & Duration */}
-              <div className="flex items-start gap-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
                 {data.model && (
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Model</p>
