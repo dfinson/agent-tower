@@ -39,6 +39,7 @@ class JobRepository(BaseRepository):
             updated_at=row.updated_at,  # type: ignore[arg-type]
             completed_at=row.completed_at,  # type: ignore[arg-type]
             pr_url=row.pr_url,  # type: ignore[arg-type]
+            merge_status=row.merge_status,  # type: ignore[arg-type]
         )
 
     async def create(self, job: Job) -> Job:
@@ -57,6 +58,7 @@ class JobRepository(BaseRepository):
             updated_at=job.updated_at,
             completed_at=job.completed_at,
             pr_url=job.pr_url,
+            merge_status=job.merge_status,
         )
         self._session.add(row)
         await self._session.flush()
@@ -119,4 +121,15 @@ class JobRepository(BaseRepository):
         if row is None:
             return
         row.pr_url = pr_url  # type: ignore[assignment]
+        await self._session.flush()
+
+    async def update_merge_status(self, job_id: str, merge_status: str, pr_url: str | None = None) -> None:
+        """Update the merge status (and optionally PR URL) on a job row."""
+        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
+        row = result.scalar_one_or_none()
+        if row is None:
+            return
+        row.merge_status = merge_status  # type: ignore[assignment]
+        if pr_url is not None:
+            row.pr_url = pr_url  # type: ignore[assignment]
         await self._session.flush()

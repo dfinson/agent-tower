@@ -102,6 +102,14 @@ class McpServerConfig:
 
 
 @dataclass
+class CompletionConfig:
+    strategy: str = "auto_merge"  # auto_merge | pr_only
+    auto_push: bool = True
+    cleanup_worktree: bool = True
+    delete_branch_after_merge: bool = True
+
+
+@dataclass
 class TowerConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -110,6 +118,7 @@ class TowerConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     rate_limits: RateLimitConfig = field(default_factory=RateLimitConfig)
     mcp_server: McpServerConfig = field(default_factory=McpServerConfig)
+    completion: CompletionConfig = field(default_factory=CompletionConfig)
     repos: list[str] = field(default_factory=list)
     repos_base_dir: str = "~/tower-repos"
 
@@ -143,6 +152,7 @@ def load_config(path: Path | None = None) -> TowerConfig:
         logging=_parse_section(raw, LoggingConfig, "logging"),
         rate_limits=_parse_section(raw, RateLimitConfig, "rate_limits"),
         mcp_server=_parse_section(raw, McpServerConfig, "mcp_server"),
+        completion=_parse_section(raw, CompletionConfig, "completion"),
         repos=[str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else [],
         repos_base_dir=raw.get("repos_base_dir", "~/tower-repos"),
     )
@@ -191,6 +201,12 @@ def save_config(config: TowerConfig, path: Path | None = None) -> None:
     existing["mcp_server"] = {
         "enabled": config.mcp_server.enabled,
         "path": config.mcp_server.path,
+    }
+    existing["completion"] = {
+        "strategy": config.completion.strategy,
+        "auto_push": config.completion.auto_push,
+        "cleanup_worktree": config.completion.cleanup_worktree,
+        "delete_branch_after_merge": config.completion.delete_branch_after_merge,
     }
     existing["repos_base_dir"] = config.repos_base_dir
     existing["repos"] = config.repos

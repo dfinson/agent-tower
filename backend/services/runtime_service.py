@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from backend.services.event_bus import EventBus
     from backend.services.execution_strategy import ExecutionStrategy
     from backend.services.job_service import JobService
+    from backend.services.merge_service import MergeService
 
 log = structlog.get_logger()
 
@@ -144,6 +145,7 @@ class RuntimeService:
         config: TowerConfig,
         approval_service: ApprovalService | None = None,
         diff_service: DiffService | None = None,
+        merge_service: MergeService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
@@ -151,6 +153,7 @@ class RuntimeService:
         self._config = config
         self._approval_service = approval_service
         self._diff_service = diff_service
+        self._merge_service = merge_service
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._strategies: dict[str, ExecutionStrategy] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
@@ -355,15 +358,35 @@ class RuntimeService:
                 await self._fail_job(job_id, error_reason)
                 return
 
-            # Final diff snapshot before PR creation
+            # Final diff snapshot before merge/PR
             if self._diff_service is not None and worktree_path and base_ref:
                 try:
                     await self._diff_service.finalize(job_id, worktree_path, base_ref)
                 except Exception:
                     log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
 
-            # Best-effort PR creation before transitioning to succeeded
-            pr_url = await self._try_create_pr(job_id)
+            # Merge-back or PR creation
+            merge_result = None
+            pr_url: str | None = None
+            if self._merge_service is not None and base_ref:
+                try:
+                    async with self._session_factory() as session:
+                        svc = self._make_job_service(session)
+                        full_job = await svc.get_job(job_id)
+                    if full_job is not None:
+                        merge_result = await self._merge_service.try_merge_back(
+                            job_id=job_id,
+                            repo_path=full_job.repo,
+                            worktree_path=full_job.worktree_path,
+                            branch=full_job.branch,
+                            base_ref=full_job.base_ref,
+                            prompt=full_job.prompt,
+                        )
+                        pr_url = merge_result.pr_url
+                except Exception:
+                    log.warning("merge_back_failed", job_id=job_id, exc_info=True)
+            else:
+                pr_url = await self._try_create_pr(job_id)
 
             # Strategy completed normally → succeeded
             async with self._session_factory() as session:
@@ -375,16 +398,28 @@ class RuntimeService:
                     job_repo = JobRepository(session)
                     await job_repo.update_pr_url(job_id, pr_url)
                 await session.commit()
+
+            payload: dict[str, str] = {}
+            if pr_url:
+                payload["pr_url"] = pr_url
+            if merge_result:
+                payload["merge_status"] = merge_result.status
+
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=_make_event_id(),
                     job_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.job_succeeded,
-                    payload={"pr_url": pr_url} if pr_url else {},
+                    payload=payload,
                 )
             )
-            log.info("job_succeeded", job_id=job_id, pr_url=pr_url)
+            log.info(
+                "job_succeeded",
+                job_id=job_id,
+                pr_url=pr_url,
+                merge_status=merge_result.status if merge_result else None,
+            )
         except asyncio.CancelledError:
             log.info("job_canceled_by_task", job_id=job_id)
             try:

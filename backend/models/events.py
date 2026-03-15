@@ -24,6 +24,8 @@ class DomainEventKind(StrEnum):
     job_canceled = "JobCanceled"
     job_state_changed = "JobStateChanged"
     session_heartbeat = "SessionHeartbeat"
+    merge_completed = "MergeCompleted"
+    merge_conflict = "MergeConflict"
 
 
 @dataclass
