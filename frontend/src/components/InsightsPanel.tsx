@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Cpu, Clock, Wrench, MessageSquare, Brain,
   AlertTriangle, ArrowDownUp, ChevronDown, ChevronRight,
+  Eye, Pencil, Terminal, Search,
 } from "lucide-react";
 import { fetchJobTelemetry } from "../api/client";
 import { Badge } from "./ui/badge";
@@ -75,76 +76,74 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
-function formatOffset(sec: number): string {
-  if (sec < 60) return `T+${Math.round(sec)}s`;
+function formatTimestamp(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.round(sec % 60);
-  return `T+${m}m${s ? `${s}s` : ""}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 // ---------------------------------------------------------------------------
-// Activity timeline — built from tool calls + LLM calls with offsetSec
+// Activity phases — group tool calls into meaningful activities
 // ---------------------------------------------------------------------------
 
-interface ActivityChunk {
-  offsetSec: number;
-  tools: { name: string; count: number; totalMs: number; fails: number }[];
-  llmCalls: { model: string; inputTokens: number; outputTokens: number; durationMs: number }[];
+type ActivityKind = "explore" | "edit" | "terminal" | "search" | "other";
+
+const TOOL_CATEGORIES: Record<string, ActivityKind> = {
+  read_file: "explore", list_dir: "explore", file_search: "explore",
+  replace_string_in_file: "edit", multi_replace_string_in_file: "edit",
+  create_file: "edit", edit_notebook_file: "edit",
+  grep_search: "search", semantic_search: "search",
+  run_in_terminal: "terminal", get_terminal_output: "terminal",
+};
+
+const ACTIVITY_META: Record<ActivityKind, { label: string; icon: typeof Wrench; color: string }> = {
+  explore: { label: "Read files", icon: Eye, color: "text-blue-400" },
+  edit:    { label: "Edited code", icon: Pencil, color: "text-green-400" },
+  terminal:{ label: "Ran commands", icon: Terminal, color: "text-orange-400" },
+  search:  { label: "Searched", icon: Search, color: "text-cyan-400" },
+  other:   { label: "Tools", icon: Wrench, color: "text-muted-foreground" },
+};
+
+interface ActivityPhase {
+  kind: ActivityKind;
+  count: number;
+  startSec: number;
+  endSec: number;
+  fails: number;
+  detail: string; // e.g. "12 files" or "3 edits"
 }
 
-function buildActivityChunks(data: TelemetryData): ActivityChunk[] {
-  // Merge tool calls and LLM calls into a single sorted stream by offsetSec
-  type Event = { type: "tool"; tc: ToolCall } | { type: "llm"; lc: LLMCall };
-  const events: Event[] = [
-    ...(data.toolCalls ?? []).map((tc) => ({ type: "tool" as const, tc })),
-    ...(data.llmCalls ?? []).map((lc) => ({ type: "llm" as const, lc })),
-  ];
-  events.sort((a, b) => {
-    const oa = a.type === "tool" ? (a.tc.offsetSec ?? 0) : (a.lc.offsetSec ?? 0);
-    const ob = b.type === "tool" ? (b.tc.offsetSec ?? 0) : (b.lc.offsetSec ?? 0);
-    return oa - ob;
-  });
+function buildPhases(data: TelemetryData): ActivityPhase[] {
+  const tools = (data.toolCalls ?? []).filter((t) => t.offsetSec != null);
+  if (tools.length === 0) return [];
 
-  if (events.length === 0) return [];
+  tools.sort((a, b) => (a.offsetSec ?? 0) - (b.offsetSec ?? 0));
 
-  // Group into chunks: events within 10s of each other form a chunk
-  const chunks: ActivityChunk[] = [];
-  let current: ActivityChunk | null = null;
-  let chunkEnd = 0;
+  const phases: ActivityPhase[] = [];
+  let cur: ActivityPhase | null = null;
 
-  for (const ev of events) {
-    const offset = ev.type === "tool" ? (ev.tc.offsetSec ?? 0) : (ev.lc.offsetSec ?? 0);
-    if (!current || offset > chunkEnd + 10) {
-      current = { offsetSec: offset, tools: [], llmCalls: [] };
-      chunks.push(current);
-    }
-    chunkEnd = offset;
+  for (const tc of tools) {
+    const kind = TOOL_CATEGORIES[tc.name] ?? "other";
+    const off = tc.offsetSec ?? 0;
 
-    if (ev.type === "tool") {
-      const existing = current.tools.find((t) => t.name === ev.tc.name);
-      if (existing) {
-        existing.count++;
-        existing.totalMs += ev.tc.durationMs;
-        if (!ev.tc.success) existing.fails++;
-      } else {
-        current.tools.push({
-          name: ev.tc.name,
-          count: 1,
-          totalMs: ev.tc.durationMs,
-          fails: ev.tc.success ? 0 : 1,
-        });
-      }
+    // Continue current phase if same kind and within 30s gap
+    if (cur && cur.kind === kind && off - cur.endSec < 30) {
+      cur.count++;
+      cur.endSec = off;
+      if (!tc.success) cur.fails++;
     } else {
-      current.llmCalls.push({
-        model: ev.lc.model,
-        inputTokens: ev.lc.inputTokens,
-        outputTokens: ev.lc.outputTokens,
-        durationMs: ev.lc.durationMs,
-      });
+      cur = { kind, count: 1, startSec: off, endSec: off, fails: tc.success ? 0 : 1, detail: "" };
+      phases.push(cur);
     }
   }
 
-  return chunks;
+  // Build detail strings
+  for (const p of phases) {
+    const noun = p.kind === "explore" ? "file" : p.kind === "edit" ? "edit" : p.kind === "terminal" ? "command" : p.kind === "search" ? "query" : "call";
+    p.detail = `${p.count} ${noun}${p.count !== 1 ? "s" : ""}`;
+  }
+
+  return phases;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,8 +214,8 @@ export function InsightsPanel({ jobId }: { jobId: string }) {
 
   const fails = (data?.toolCalls ?? []).filter((t) => !t.success).length;
 
-  const activityChunks = useMemo(
-    () => (data?.available ? buildActivityChunks(data) : []),
+  const phases = useMemo(
+    () => (data?.available ? buildPhases(data) : []),
     [data],
   );
 
@@ -343,43 +342,33 @@ export function InsightsPanel({ jobId }: { jobId: string }) {
                 </div>
               ) : null}
 
-              {/* Activity timeline */}
-              {activityChunks.length > 0 && (
+              {/* Activity phases */}
+              {phases.length > 0 && (
                 <div>
                   <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-2">
                     <Clock size={12} className="text-blue-400" /> Activity
                   </h4>
-                  <div className="relative pl-4 border-l-2 border-border space-y-3">
-                    {activityChunks.map((chunk, i) => (
-                      <div key={i} className="relative">
-                        <div className="absolute -left-[calc(1rem+5px)] top-1 w-2 h-2 rounded-full bg-blue-500" />
-                        <span className="text-[11px] font-mono text-muted-foreground tabular-nums">
-                          {formatOffset(chunk.offsetSec)}
-                        </span>
-                        <div className="flex flex-wrap gap-1.5 mt-1">
-                          {chunk.llmCalls.map((lc, j) => (
-                            <span key={`llm-${j}`} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono border border-violet-500/30 bg-violet-500/5 text-violet-400">
-                              <Brain size={10} />
-                              {formatTokens(lc.inputTokens + lc.outputTokens)} · {formatDuration(lc.durationMs)}
-                            </span>
-                          ))}
-                          {chunk.tools.map((t, j) => (
-                            <span
-                              key={`tool-${j}`}
-                              className={cn(
-                                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono border",
-                                t.fails > 0
-                                  ? "border-red-500/30 bg-red-500/5 text-red-400"
-                                  : "border-border bg-muted/30 text-foreground/70",
-                              )}
-                            >
-                              {t.name}{t.count > 1 ? ` ×${t.count}` : ""}
-                              <span className="text-muted-foreground">{formatDuration(t.totalMs)}</span>
-                            </span>
-                          ))}
+                  <div className="space-y-1">
+                    {phases.map((phase, i) => {
+                      const meta = ACTIVITY_META[phase.kind];
+                      const Icon = meta.icon;
+                      const durSec = Math.max(1, phase.endSec - phase.startSec);
+                      const timeStr = formatTimestamp(phase.startSec);
+                      return (
+                        <div key={i} className="flex items-center gap-2 py-1 text-xs">
+                          <span className="w-10 text-right text-muted-foreground tabular-nums shrink-0">{timeStr}</span>
+                          <Icon size={12} className={cn(meta.color, "shrink-0")} />
+                          <span className="font-medium">{meta.label}</span>
+                          <span className="text-muted-foreground">{phase.detail}</span>
+                          {phase.endSec > phase.startSec && (
+                            <span className="text-muted-foreground/60 text-[11px]">({formatDuration(durSec * 1000)})</span>
+                          )}
+                          {phase.fails > 0 && (
+                            <span className="text-red-400 text-[11px]">{phase.fails} failed</span>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

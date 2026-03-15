@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { AlertTriangle, CheckCircle2, ExternalLink, GitBranch, FolderOpen, Trash2 } from "lucide-react";
+import { useTowerStore } from "../store";
 import type { JobSummary } from "../store";
 import { archiveJob } from "../api/client";
 import { Button } from "./ui/button";
@@ -38,6 +39,13 @@ export function CompleteJobDialog({ job, open, onClose }: CompleteJobDialogProps
     setError(null);
     try {
       await archiveJob(job.id);
+      useTowerStore.setState((s) => {
+        const existing = s.jobs[job.id];
+        if (!existing) return s;
+        return {
+          jobs: { ...s.jobs, [job.id]: { ...existing, archivedAt: new Date().toISOString() } },
+        };
+      });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to archive job");
