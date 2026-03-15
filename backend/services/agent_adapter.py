@@ -10,13 +10,22 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.models.domain import SessionConfig, SessionEvent, SessionEventKind
+from backend.models.domain import (
+    PermissionMode,
+    SessionConfig,
+    SessionEvent,
+    SessionEventKind,
+)
+from backend.services.permission_policy import PolicyDecision, evaluate
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from copilot.generated.session_events import SessionEvent as SdkSessionEvent
     from copilot.session import CopilotSession
+
+    from backend.services.approval_service import ApprovalService
+    from backend.services.event_bus import EventBus
 
 log = structlog.get_logger()
 
@@ -49,11 +58,17 @@ class CopilotAdapter(AgentAdapterInterface):
     items onto an asyncio.Queue; stream_events() yields from the queue.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        approval_service: ApprovalService | None = None,
+        event_bus: EventBus | None = None,
+    ) -> None:
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
         self._sessions: dict[str, CopilotSession] = {}
         self._session_to_job: dict[str, str] = {}  # session_id → job_id for telemetry
         self._tool_start_times: dict[str, float] = {}  # tool_call_id → start monotonic
+        self._approval_service = approval_service
+        self._event_bus = event_bus
 
     def set_job_id(self, session_id: str, job_id: str) -> None:
         """Associate a session with a job for telemetry routing."""
@@ -73,21 +88,98 @@ class CopilotAdapter(AgentAdapterInterface):
         queue: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         self._queues[session_id] = queue
 
-        # Permission handler — bridge SDK permission requests into Tower's
-        # approval system by emitting approval_request SessionEvents.
-        def _on_permission(request: PermissionRequest, invocation: dict[str, str]) -> PermissionRequestResult:
+        permission_mode = config.permission_mode
+        workspace_path = config.workspace_path
+        protected_paths = config.protected_paths
+        approval_service = self._approval_service
+        event_bus = self._event_bus
+
+        # Permission handler — evaluates policy and either auto-approves
+        # or blocks until the operator responds via the approval UI.
+        async def _on_permission(request: PermissionRequest, invocation: dict[str, str]) -> PermissionRequestResult:
+            request_kind = request.kind.value if request.kind else "unknown"
+            description = f"{request.tool_name or request_kind}: {request.intention or request.subject or ''}"
+            proposed_action = request.full_command_text
+
+            # --- Permissive: approve everything ---
+            if permission_mode == PermissionMode.permissive:
+                log.debug("permission_auto_approved", mode="permissive", kind=request_kind)
+                return PermissionRequestResult(kind="approved")
+
+            # --- Supervised: ask for everything ---
+            if permission_mode == PermissionMode.supervised:
+                decision = PolicyDecision.ask
+            else:
+                # --- Auto: evaluate policy ---
+                # Collect all candidate paths from the request
+                candidate_paths: list[str] = []
+                if request.file_name:
+                    candidate_paths.append(request.file_name)
+                if request.path:
+                    candidate_paths.append(request.path)
+                if request.possible_paths:
+                    candidate_paths.extend(request.possible_paths)
+
+                decision = evaluate(
+                    kind=request_kind,
+                    workspace_path=workspace_path,
+                    protected_paths=protected_paths,
+                    possible_paths=candidate_paths or None,
+                    file_name=request.file_name,
+                    path=request.path,
+                    read_only=request.read_only,
+                )
+
+            if decision == PolicyDecision.approve:
+                log.debug("permission_auto_approved", mode=str(permission_mode), kind=request_kind)
+                return PermissionRequestResult(kind="approved")
+
+            # --- Decision is "ask" — route to operator via approval system ---
+            job_id = self._session_to_job.get(session_id)
+            if approval_service is None or event_bus is None or job_id is None:
+                # No approval infrastructure available — fall back to approve
+                log.warning(
+                    "permission_ask_no_infra",
+                    kind=request_kind,
+                    has_svc=approval_service is not None,
+                    has_bus=event_bus is not None,
+                    has_job=job_id is not None,
+                )
+                return PermissionRequestResult(kind="approved")
+
+            # Persist the approval request and create a Future
+            approval = await approval_service.create_request(
+                job_id=job_id,
+                description=description,
+                proposed_action=proposed_action,
+            )
+
+            # Emit approval_request event on the queue so RuntimeService
+            # can transition state and publish SSE to the frontend
             queue.put_nowait(
                 SessionEvent(
                     kind=SessionEventKind.approval_request,
                     payload={
-                        "description": f"{request.tool_name}: {request.intention or request.subject or ''}",
-                        "proposed_action": request.full_command_text,
+                        "description": description,
+                        "proposed_action": proposed_action,
+                        "approval_id": approval.id,
                     },
                 )
             )
-            # For now approve all — the RuntimeService handles the approval flow
-            # at a higher level via the approval_requested domain event.
-            return PermissionRequestResult(kind="approved")
+
+            log.info(
+                "permission_awaiting_operator",
+                approval_id=approval.id,
+                kind=request_kind,
+                description=description,
+            )
+
+            # Block the SDK until the operator responds
+            resolution = await approval_service.wait_for_resolution(approval.id)
+
+            if resolution == "approved":
+                return PermissionRequestResult(kind="approved")
+            return PermissionRequestResult(kind="denied-interactively-by-user")
 
         session = await client.create_session(
             {

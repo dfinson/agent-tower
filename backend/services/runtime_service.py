@@ -13,6 +13,7 @@ from backend.models.domain import (
     Job,
     JobState,
     MCPServerConfig,
+    PermissionMode,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
@@ -121,16 +122,57 @@ def _resolve_protected_paths(repo_path: str) -> list[str]:
         return []
 
 
-def _build_session_config(job: Job, config: TowerConfig) -> SessionConfig:
-    """Build a SessionConfig from a Job record and resolved config."""
+def _resolve_permission_mode(repo_path: str) -> str | None:
+    """Read permission_mode from .tower.yml if present (per-repo override)."""
+    from pathlib import Path
+
+    import yaml
+
+    tower_yml = Path(repo_path) / ".tower.yml"
+    if not tower_yml.exists():
+        return None
+    try:
+        with open(tower_yml) as f:
+            data = yaml.safe_load(f) or {}
+        mode = data.get("permission_mode")
+        if mode and str(mode) in ("permissive", "auto", "supervised"):
+            return str(mode)
+        return None
+    except Exception:
+        return None
+
+
+def _build_session_config(
+    job: Job,
+    config: TowerConfig,
+    permission_mode_override: str | None = None,
+) -> SessionConfig:
+    """Build a SessionConfig from a Job record and resolved config.
+
+    Permission mode priority: per-job override > .tower.yml > global config.
+    """
     workspace = job.worktree_path or job.repo
     mcp_servers = _discover_mcp_servers(job.repo, config)
     protected_paths = _resolve_protected_paths(job.repo)
+
+    # Resolve permission_mode with priority chain
+    if permission_mode_override:
+        mode_str = permission_mode_override
+    else:
+        repo_mode = _resolve_permission_mode(job.repo)
+        mode_str = repo_mode or config.runtime.permission_mode
+
+    try:
+        mode = PermissionMode(mode_str)
+    except ValueError:
+        mode = PermissionMode.auto
+
     return SessionConfig(
         workspace_path=workspace,
         prompt=job.prompt,
         mcp_servers=mcp_servers,
         protected_paths=protected_paths,
+        permission_mode=mode,
     )
 
 
@@ -159,6 +201,7 @@ class RuntimeService:
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_activity: dict[str, float] = {}
         self._session_ids: dict[str, str] = {}
+        self._permission_overrides: dict[str, str] = {}  # job_id → permission_mode
         self._dequeue_lock = asyncio.Lock()
         self._shutting_down = False
 
@@ -182,8 +225,10 @@ class RuntimeService:
     def max_concurrent(self) -> int:
         return self._config.runtime.max_concurrent_jobs
 
-    async def start_or_enqueue(self, job: Job) -> None:
+    async def start_or_enqueue(self, job: Job, permission_mode: str | None = None) -> None:
         """Start the job if capacity allows, otherwise keep it queued."""
+        if permission_mode:
+            self._permission_overrides[job.id] = permission_mode
         if self._shutting_down:
             log.warning("job_rejected_shutting_down", job_id=job.id)
             return
@@ -231,7 +276,11 @@ class RuntimeService:
                 await session.commit()
             await self._publish_state_event(job.id, job.state, JobState.running)
 
-        session_config = _build_session_config(job, self._config)
+        session_config = _build_session_config(
+            job,
+            self._config,
+            self._permission_overrides.pop(job.id, None),
+        )
 
         task = asyncio.create_task(
             self._run_job(job.id, strategy, session_config),
@@ -301,16 +350,13 @@ class RuntimeService:
                     if domain_event.kind == DomainEventKind.job_failed:
                         error_reason = domain_event.payload.get("message", "Agent error")
 
-                    # Handle approval requests: persist, transition, wait, resume
+                    # Handle approval requests: the adapter now blocks the
+                    # SDK directly.  RuntimeService just transitions state
+                    # and publishes the SSE event so the frontend can render
+                    # the approval banner.  The adapter's _on_permission
+                    # callback already created the Approval record and
+                    # injected approval_id into the payload.
                     if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
-                        approval = await self._approval_service.create_request(
-                            job_id=job_id,
-                            description=domain_event.payload.get("description", ""),
-                            proposed_action=domain_event.payload.get("proposed_action"),
-                        )
-                        # Inject approval_id into the event payload
-                        domain_event.payload["approval_id"] = approval.id
-
                         # Transition to waiting_for_approval
                         async with self._session_factory() as sess:
                             svc = self._make_job_service(sess)
@@ -319,8 +365,11 @@ class RuntimeService:
 
                         await self._event_bus.publish(domain_event)
 
-                        # Wait for operator resolution
-                        resolution = await self._approval_service.wait_for_resolution(approval.id)
+                        # Wait for operator resolution — the adapter is
+                        # also awaiting the same Future, so when it
+                        # resolves the SDK resumes automatically.
+                        approval_id = domain_event.payload.get("approval_id", "")
+                        resolution = await self._approval_service.wait_for_resolution(approval_id)
 
                         # Publish approval_resolved event
                         await self._event_bus.publish(
@@ -330,7 +379,7 @@ class RuntimeService:
                                 timestamp=datetime.now(UTC),
                                 kind=DomainEventKind.approval_resolved,
                                 payload={
-                                    "approval_id": approval.id,
+                                    "approval_id": approval_id,
                                     "resolution": resolution,
                                     "timestamp": datetime.now(UTC).isoformat(),
                                 },
