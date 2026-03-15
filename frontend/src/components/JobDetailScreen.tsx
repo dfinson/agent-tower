@@ -132,7 +132,7 @@ export function JobDetailScreen() {
 
   const repoName = job.repo.split("/").pop() ?? job.repo;
   const canCancel = ["queued", "running", "waiting_for_approval"].includes(job.state);
-  const canRerun = ["succeeded", "failed", "canceled"].includes(job.state);
+  const canRetry = job.state === "failed";
   const isRunning = job.state === "running";
 
   return (
@@ -169,10 +169,10 @@ export function JobDetailScreen() {
                 Cancel
               </Button>
             )}
-            {canRerun && (
+            {canRetry && (
               <Button size="sm" variant="outline" loading={actionLoading} onClick={handleRerun}>
                 <RotateCcw size={14} />
-                Rerun
+                Retry
               </Button>
             )}
           </div>
@@ -372,7 +372,7 @@ export function JobDetailScreen() {
         )}
       </div>
 
-      {completeOpen && job && (
+      {job && (
         <CompleteJobDialog job={job} open={completeOpen} onClose={() => setCompleteOpen(false)} />
       )}
 

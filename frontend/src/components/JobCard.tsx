@@ -89,6 +89,7 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   );
 
   return (
+    <>
     <button
       className="w-full text-left rounded-lg border border-border bg-background p-3 cursor-pointer transition-colors hover:border-primary/60 hover:bg-accent"
       onClick={() => navigate(`/jobs/${job.id}`)}
@@ -252,9 +253,8 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
         <span className="font-mono">{job.id}</span>
       </div>
 
-      {completeOpen && (
-        <CompleteJobDialog job={job} open={completeOpen} onClose={() => setCompleteOpen(false)} />
-      )}
     </button>
+    <CompleteJobDialog job={job} open={completeOpen} onClose={() => setCompleteOpen(false)} />
+    </>
   );
 });
