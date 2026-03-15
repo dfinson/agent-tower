@@ -54,7 +54,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
 
       es.onopen = () => {
         attemptRef.current = 0;
-        setConnectionStatus("connected");
+        queueMicrotask(() => setConnectionStatus("connected"));
       };
 
       // Handle named event types
@@ -76,7 +76,10 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
           }
           try {
             const data: unknown = JSON.parse(ev.data as string);
-            dispatchSSEEvent(eventType, data);
+            // Dispatch outside React's render phase to prevent #185.
+            // EventSource callbacks can fire during React's commit,
+            // causing setState-during-render loops.
+            queueMicrotask(() => dispatchSSEEvent(eventType, data));
           } catch {
             // Ignore unparseable events
           }
