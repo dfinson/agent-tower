@@ -1,27 +1,19 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import { MantineProvider } from "@mantine/core";
-import { Notifications } from "@mantine/notifications";
-
-// Mantine layered styles — must use .layer.css variant so CSS layers
-// don't conflict with Tailwind's preflight/base rules.
-import "@mantine/core/styles.layer.css";
-import "@mantine/notifications/styles.layer.css";
-
-import { theme } from "./theme";
+import { Toaster } from "sonner";
 import { App } from "./App";
-
-// Tailwind + our custom styles (processed by @tailwindcss/vite plugin)
+import { useTowerStore } from "./store";
 import "./index.css";
+
+// Expose the store for e2e test assertions.
+(window as unknown as Record<string, unknown>)["__tower__"] = { store: useTowerStore };
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme="dark">
-      <Notifications position="top-right" />
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </MantineProvider>
+    <BrowserRouter>
+      <App />
+      <Toaster position="top-right" theme="dark" richColors />
+    </BrowserRouter>
   </StrictMode>,
 );

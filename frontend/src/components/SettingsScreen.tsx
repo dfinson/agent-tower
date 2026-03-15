@@ -1,15 +1,15 @@
 import { useEffect, useState, useCallback } from "react";
-import {
-  Paper, Title, Textarea, Button, Group, Stack, Text, Loader, ActionIcon,
-} from "@mantine/core";
 import { Trash2, Plus, Wrench } from "lucide-react";
-import { notifications } from "@mantine/notifications";
+import { toast } from "sonner";
 import {
   fetchGlobalConfig, updateGlobalConfig,
   fetchRepos, unregisterRepo,
   cleanupWorktrees,
 } from "../api/client";
 import { AddRepoModal } from "./AddRepoModal";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
+import { Spinner } from "./ui/spinner";
 
 export function SettingsScreen() {
   const [loading, setLoading] = useState(true);
@@ -25,7 +25,7 @@ export function SettingsScreen() {
         setSavedYaml(configRes.config_yaml);
         setRepos(reposRes.items);
       })
-      .catch(() => notifications.show({ color: "red", message: "Failed to load settings" }))
+      .catch(() => toast.error("Failed to load settings"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -33,9 +33,9 @@ export function SettingsScreen() {
     try {
       const res = await updateGlobalConfig(configYaml);
       setSavedYaml(res.config_yaml);
-      notifications.show({ color: "green", message: "Config saved" });
+      toast.success("Config saved");
     } catch (e) {
-      notifications.show({ color: "red", message: String(e) });
+      toast.error(String(e));
     }
   }, [configYaml]);
 
@@ -47,128 +47,108 @@ export function SettingsScreen() {
     try {
       await unregisterRepo(path);
       setRepos((prev) => prev.filter((r) => r !== path));
-      notifications.show({ color: "green", message: "Repository removed" });
+      toast.success("Repository removed");
     } catch (e) {
-      notifications.show({ color: "red", message: String(e) });
+      toast.error(String(e));
     }
   }, []);
 
   const handleCleanup = useCallback(async () => {
     try {
       await cleanupWorktrees();
-      notifications.show({ color: "green", message: "Worktrees cleaned up" });
+      toast.success("Worktrees cleaned up");
     } catch (e) {
-      notifications.show({ color: "red", message: String(e) });
+      toast.error(String(e));
     }
   }, []);
 
   if (loading) {
     return (
       <div className="flex justify-center py-20">
-        <Loader size="lg" />
+        <Spinner size="lg" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <Title order={3} mb="lg">Settings</Title>
+    <div className="max-w-3xl mx-auto flex flex-col gap-5">
+      <h3 className="text-lg font-semibold">Settings</h3>
 
-      <Stack gap="lg">
-        {/* Repositories */}
-        <Paper radius="lg" p="lg">
-          <Group justify="space-between" mb="md">
-            <Text size="sm" fw={600}>
-              Repositories ({repos.length})
-            </Text>
-            <Button
-              size="xs"
-              leftSection={<Plus size={14} />}
-              onClick={() => setAddRepoOpen(true)}
-            >
-              Add Repository
-            </Button>
-          </Group>
-
-          <AddRepoModal
-            opened={addRepoOpen}
-            onClose={() => setAddRepoOpen(false)}
-            onAdded={handleRepoAdded}
-          />
-
-          {repos.length === 0 ? (
-            <Text size="sm" c="dimmed" ta="center" py="md">
-              No repositories registered
-            </Text>
-          ) : (
-            <Stack gap={4}>
-              {repos.map((r) => (
-                <Group
-                  key={r}
-                  justify="space-between"
-                  className="px-3 py-2 rounded-md hover:bg-[var(--mantine-color-dark-6)] group"
-                >
-                  <Text size="sm" ff="monospace" c="dimmed" truncate className="flex-1" title={r}>
-                    {r}
-                  </Text>
-                  <ActionIcon
-                    variant="subtle"
-                    color="red"
-                    size="sm"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => handleRemoveRepo(r)}
-                  >
-                    <Trash2 size={14} />
-                  </ActionIcon>
-                </Group>
-              ))}
-            </Stack>
-          )}
-        </Paper>
-
-        {/* Global Config */}
-        <Paper radius="lg" p="lg">
-          <Text size="sm" fw={600} mb="md">Global Configuration</Text>
-          <Textarea
-            value={configYaml}
-            onChange={(e) => setConfigYaml(e.currentTarget.value)}
-            styles={{ input: { fontFamily: "var(--mantine-font-family-monospace)", fontSize: 12 } }}
-            minRows={12}
-            autosize
-            maxRows={30}
-          />
-          <Group justify="flex-end" mt="sm" gap="xs">
-            <Button
-              variant="subtle"
-              size="xs"
-              disabled={configYaml === savedYaml}
-              onClick={() => setConfigYaml(savedYaml)}
-            >
-              Reset
-            </Button>
-            <Button
-              size="xs"
-              disabled={configYaml === savedYaml}
-              onClick={handleSaveConfig}
-            >
-              Save Config
-            </Button>
-          </Group>
-        </Paper>
-
-        {/* Maintenance */}
-        <Paper radius="lg" p="lg">
-          <Text size="sm" fw={600} mb="md">Maintenance</Text>
-          <Button
-            variant="light"
-            size="sm"
-            leftSection={<Wrench size={14} />}
-            onClick={handleCleanup}
-          >
-            Clean Up Worktrees
+      {/* Repositories */}
+      <div className="rounded-lg border border-border bg-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm font-semibold">Repositories ({repos.length})</span>
+          <Button size="sm" onClick={() => setAddRepoOpen(true)}>
+            <Plus size={14} />
+            Add Repository
           </Button>
-        </Paper>
-      </Stack>
+        </div>
+
+        <AddRepoModal
+          opened={addRepoOpen}
+          onClose={() => setAddRepoOpen(false)}
+          onAdded={handleRepoAdded}
+        />
+
+        {repos.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No repositories registered</p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {repos.map((r) => (
+              <div
+                key={r}
+                className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-accent group"
+              >
+                <span className="text-sm font-mono text-muted-foreground truncate flex-1" title={r}>{r}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveRepo(r)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-400/10"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Global Config */}
+      <div className="rounded-lg border border-border bg-card p-5">
+        <p className="text-sm font-semibold mb-3">Global Configuration</p>
+        <Textarea
+          value={configYaml}
+          onChange={(e) => setConfigYaml(e.currentTarget.value)}
+          className="font-mono text-xs"
+          rows={12}
+        />
+        <div className="flex justify-end gap-2 mt-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={configYaml === savedYaml}
+            onClick={() => setConfigYaml(savedYaml)}
+          >
+            Reset
+          </Button>
+          <Button
+            size="sm"
+            disabled={configYaml === savedYaml}
+            onClick={handleSaveConfig}
+          >
+            Save Config
+          </Button>
+        </div>
+      </div>
+
+      {/* Maintenance */}
+      <div className="rounded-lg border border-border bg-card p-5">
+        <p className="text-sm font-semibold mb-3">Maintenance</p>
+        <Button variant="outline" size="sm" onClick={handleCleanup}>
+          <Wrench size={14} />
+          Clean Up Worktrees
+        </Button>
+      </div>
     </div>
   );
 }

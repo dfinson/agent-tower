@@ -1,15 +1,9 @@
-/**
- * TelemetryPanel — collapsible telemetry display on job cards/detail.
- *
- * Shows: tokens, tool calls, context window, model, timings.
- * Loads telemetry lazily when expanded.
- */
 import { useState, useEffect } from "react";
-import {
-  Paper, Group, Text, Stack, Collapse, UnstyledButton, Badge, Progress, Loader,
-} from "@mantine/core";
 import { BarChart3, ChevronDown, ChevronRight, Cpu, Clock, Wrench, MessageSquare } from "lucide-react";
 import { fetchJobTelemetry } from "../api/client";
+import { Badge } from "./ui/badge";
+import { Progress } from "./ui/progress";
+import { Spinner } from "./ui/spinner";
 
 interface TelemetryData {
   available: boolean;
@@ -56,61 +50,60 @@ export function TelemetryPanel({ jobId }: { jobId: string }) {
   }, [expanded, data, jobId]);
 
   return (
-    <Paper radius="lg" p={0} className="overflow-hidden">
-      <UnstyledButton
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full px-4 py-2.5 flex items-center gap-2 hover:bg-[var(--mantine-color-dark-6)] transition-colors"
+        className="w-full px-4 py-2.5 flex items-center gap-2 hover:bg-accent transition-colors text-left"
       >
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <BarChart3 size={14} />
-        <Text size="sm" fw={600} c="dimmed">Telemetry</Text>
+        <span className="text-sm font-semibold text-muted-foreground">Telemetry</span>
         {data?.available && data.totalTokens ? (
-          <Badge size="xs" variant="light" ml="auto">
+          <Badge variant="secondary" className="ml-auto">
             {formatTokens(data.totalTokens)} tokens
           </Badge>
         ) : null}
-      </UnstyledButton>
+      </button>
 
-      <Collapse in={expanded}>
-        <div className="px-4 pb-4 border-t border-[var(--mantine-color-dark-4)]">
+      {expanded && (
+        <div className="px-4 pb-4 border-t border-border">
           {loading ? (
-            <div className="flex justify-center py-4"><Loader size="sm" /></div>
+            <div className="flex justify-center py-4"><Spinner size="sm" /></div>
           ) : !data?.available ? (
-            <Text size="sm" c="dimmed" py="sm">No telemetry data available</Text>
+            <p className="text-sm text-muted-foreground py-3">No telemetry data available</p>
           ) : (
-            <Stack gap="md" mt="sm">
+            <div className="flex flex-col gap-4 mt-3">
               {/* Token usage */}
               <div>
-                <Group gap="xs" mb={6}>
-                  <Cpu size={14} className="text-[var(--mantine-color-blue-5)]" />
-                  <Text size="xs" fw={600} c="dimmed">Token Usage</Text>
-                </Group>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Cpu size={14} className="text-blue-400" />
+                  <span className="text-xs font-semibold text-muted-foreground">Token Usage</span>
+                </div>
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div>
-                    <Text size="lg" fw={700}>{formatTokens(data.promptTokens ?? 0)}</Text>
-                    <Text size="xs" c="dimmed">Prompt</Text>
+                    <p className="text-lg font-bold">{formatTokens(data.promptTokens ?? 0)}</p>
+                    <p className="text-xs text-muted-foreground">Prompt</p>
                   </div>
                   <div>
-                    <Text size="lg" fw={700}>{formatTokens(data.completionTokens ?? 0)}</Text>
-                    <Text size="xs" c="dimmed">Completion</Text>
+                    <p className="text-lg font-bold">{formatTokens(data.completionTokens ?? 0)}</p>
+                    <p className="text-xs text-muted-foreground">Completion</p>
                   </div>
                   <div>
-                    <Text size="lg" fw={700}>{formatTokens(data.totalTokens ?? 0)}</Text>
-                    <Text size="xs" c="dimmed">Total</Text>
+                    <p className="text-lg font-bold">{formatTokens(data.totalTokens ?? 0)}</p>
+                    <p className="text-xs text-muted-foreground">Total</p>
                   </div>
                 </div>
                 {data.contextWindowSize ? (
                   <div className="mt-2">
-                    <Group justify="space-between" mb={4}>
-                      <Text size="xs" c="dimmed">Context window</Text>
-                      <Text size="xs" c="dimmed">
+                    <div className="flex justify-between mb-1">
+                      <span className="text-xs text-muted-foreground">Context window</span>
+                      <span className="text-xs text-muted-foreground">
                         {formatTokens(data.totalTokens ?? 0)} / {formatTokens(data.contextWindowSize)}
-                      </Text>
-                    </Group>
+                      </span>
+                    </div>
                     <Progress
                       value={Math.min(100, ((data.totalTokens ?? 0) / data.contextWindowSize) * 100)}
-                      size="sm"
-                      radius="xl"
                       color={((data.totalTokens ?? 0) / data.contextWindowSize) > 0.8 ? "red" : "blue"}
                     />
                   </div>
@@ -118,60 +111,60 @@ export function TelemetryPanel({ jobId }: { jobId: string }) {
               </div>
 
               {/* Model & Duration */}
-              <Group gap="lg">
+              <div className="flex items-start gap-6">
                 {data.model && (
                   <div>
-                    <Text size="xs" c="dimmed">Model</Text>
-                    <Badge variant="light" size="sm">{data.model}</Badge>
+                    <p className="text-xs text-muted-foreground mb-1">Model</p>
+                    <Badge variant="secondary">{data.model}</Badge>
                   </div>
                 )}
                 {data.durationMs ? (
                   <div>
-                    <Group gap={4}>
-                      <Clock size={12} className="text-[var(--mantine-color-dimmed)]" />
-                      <Text size="xs" c="dimmed">Duration</Text>
-                    </Group>
-                    <Text size="sm" fw={600}>{formatDuration(data.durationMs)}</Text>
+                    <div className="flex items-center gap-1 mb-1">
+                      <Clock size={12} className="text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Duration</span>
+                    </div>
+                    <p className="text-sm font-semibold">{formatDuration(data.durationMs)}</p>
                   </div>
                 ) : null}
                 <div>
-                  <Group gap={4}>
-                    <MessageSquare size={12} className="text-[var(--mantine-color-dimmed)]" />
-                    <Text size="xs" c="dimmed">Messages</Text>
-                  </Group>
-                  <Text size="sm">{data.agentMessages ?? 0} agent / {data.operatorMessages ?? 0} operator</Text>
+                  <div className="flex items-center gap-1 mb-1">
+                    <MessageSquare size={12} className="text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Messages</span>
+                  </div>
+                  <p className="text-sm">{data.agentMessages ?? 0} agent / {data.operatorMessages ?? 0} operator</p>
                 </div>
-              </Group>
+              </div>
 
               {/* Tool calls */}
               {(data.toolCallCount ?? 0) > 0 && (
                 <div>
-                  <Group gap="xs" mb={6}>
-                    <Wrench size={14} className="text-[var(--mantine-color-yellow-5)]" />
-                    <Text size="xs" fw={600} c="dimmed">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Wrench size={14} className="text-yellow-400" />
+                    <span className="text-xs font-semibold text-muted-foreground">
                       Tool Calls ({data.toolCallCount})
-                    </Text>
-                    <Text size="xs" c="dimmed" ml="auto">
+                    </span>
+                    <span className="text-xs text-muted-foreground ml-auto">
                       {formatDuration(data.totalToolDurationMs ?? 0)} total
-                    </Text>
-                  </Group>
-                  <Stack gap={2}>
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
                     {(data.toolCalls ?? []).slice(-10).map((tc, i) => (
-                      <Group key={i} justify="space-between" className="px-2 py-1 rounded text-xs bg-[var(--mantine-color-dark-7)]">
-                        <Group gap="xs">
+                      <div key={i} className="flex items-center justify-between px-2 py-1 rounded text-xs bg-background">
+                        <div className="flex items-center gap-2">
                           <div className={`w-1.5 h-1.5 rounded-full ${tc.success ? "bg-green-500" : "bg-red-500"}`} />
-                          <Text size="xs" ff="monospace">{tc.name}</Text>
-                        </Group>
-                        <Text size="xs" c="dimmed">{formatDuration(tc.durationMs)}</Text>
-                      </Group>
+                          <code className="font-mono">{tc.name}</code>
+                        </div>
+                        <span className="text-muted-foreground">{formatDuration(tc.durationMs)}</span>
+                      </div>
                     ))}
-                  </Stack>
+                  </div>
                 </div>
               )}
-            </Stack>
+            </div>
           )}
         </div>
-      </Collapse>
-    </Paper>
+      )}
+    </div>
   );
 }

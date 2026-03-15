@@ -1,17 +1,11 @@
-/**
- * VoiceRecorder — polished prompt input with voice recording.
- *
- * Idle: textarea with mic button anchored bottom-right.
- * Recording: waveform + stop button replace the textarea content.
- * Transcribing: loading spinner, then text inserted.
- */
 import { useState, useRef, useCallback, useEffect } from "react";
-import { ActionIcon, Loader, Textarea } from "@mantine/core";
 import { Mic, Square } from "lucide-react";
+import { toast } from "sonner";
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.esm.js";
 import { transcribeAudio } from "../api/client";
-import { notifications } from "@mantine/notifications";
+import { Textarea } from "./ui/textarea";
+import { Spinner } from "./ui/spinner";
 
 type RecordingState = "idle" | "recording" | "transcribing";
 
@@ -50,7 +44,7 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
 
     record.on("record-end", async (blob: Blob) => {
       if (blob.size > 10 * 1024 * 1024) {
-        notifications.show({ color: "red", message: "Audio too large (max 10 MB)" });
+        toast.error("Audio too large (max 10 MB)");
         setState("idle");
         return;
       }
@@ -59,10 +53,10 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
         const text = await transcribeAudio(blob);
         if (text) {
           onChange(value ? value + " " + text : text);
-          notifications.show({ color: "green", message: "Transcribed" });
+          toast.success("Transcribed");
         }
       } catch {
-        notifications.show({ color: "red", message: "Transcription failed" });
+        toast.error("Transcription failed");
       } finally {
         setState("idle");
       }
@@ -93,7 +87,7 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
       await record.startRecording();
       setState("recording");
     } catch {
-      notifications.show({ color: "red", message: "Microphone access denied" });
+      toast.error("Microphone access denied");
     }
   }, [state, ensureInit]);
 
@@ -101,35 +95,29 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
     <div className="relative">
       {/* Normal textarea — visible when NOT recording */}
       <div style={{ display: state === "recording" ? "none" : "block" }}>
-        <Textarea
-          label="Prompt"
-          value={value}
-          onChange={(e) => onChange(e.currentTarget.value)}
-          placeholder="Describe the task you want the agent to perform (e.g. Refactor the login flow to remove deprecated auth code)."
-          minRows={4}
-          autosize
-          maxRows={12}
-          size="sm"
-          styles={{
-            input: { paddingRight: 52 },
-          }}
-        />
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-foreground">Prompt</label>
+          <Textarea
+            value={value}
+            onChange={(e) => onChange(e.currentTarget.value)}
+            placeholder="Describe the task you want the agent to perform…"
+            rows={6}
+            className="pr-12"
+          />
+        </div>
 
-        {/* Mic button — anchored bottom-right of textarea */}
         <div className="absolute bottom-2 right-2" style={{ zIndex: 10 }}>
           {state === "transcribing" ? (
-            <Loader size={24} />
+            <Spinner size="sm" />
           ) : (
-            <ActionIcon
-              variant="light"
-              color="blue"
-              size="xl"
-              radius="xl"
+            <button
+              type="button"
               onClick={handleToggle}
               title="Voice input"
+              className="h-9 w-9 rounded-full bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30 transition-colors"
             >
-              <Mic size={22} />
-            </ActionIcon>
+              <Mic size={18} />
+            </button>
           )}
         </div>
       </div>
@@ -137,23 +125,17 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
       {/* Recording mode — waveform + stop button */}
       {state === "recording" && (
         <div
-          className="rounded-lg border border-blue-600 p-4 flex flex-col items-center gap-3"
-          style={{
-            background: "var(--mantine-color-dark-7)",
-            minHeight: 120,
-          }}
+          className="rounded-lg border border-blue-600 p-4 flex flex-col items-center gap-3 bg-card"
+          style={{ minHeight: 120 }}
         >
-          {/* Stop button — integrated above waveform */}
-          <ActionIcon
-            variant="filled"
-            color="red"
-            size="xl"
-            radius="xl"
+          <button
+            type="button"
             onClick={handleToggle}
             title="Stop recording"
+            className="h-9 w-9 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80 transition-colors"
           >
             <Square size={18} />
-          </ActionIcon>
+          </button>
         </div>
       )}
 
@@ -196,7 +178,7 @@ export function MicButton({ onTranscript }: { onTranscript: (text: string) => vo
           const text = await transcribeAudio(blob);
           if (text) onTranscript(text);
         } catch {
-          notifications.show({ color: "red", message: "Transcription failed" });
+          toast.error("Transcription failed");
         }
         setBusy(false);
       };
@@ -204,20 +186,22 @@ export function MicButton({ onTranscript }: { onTranscript: (text: string) => vo
       mediaRef.current = recorder;
       setBusy(true);
     } catch {
-      notifications.show({ color: "red", message: "Microphone access denied" });
+      toast.error("Microphone access denied");
     }
   }, [busy, onTranscript]);
 
   return (
-    <ActionIcon
-      variant={busy ? "filled" : "subtle"}
-      color={busy ? "red" : "gray"}
-      size="sm"
-      radius="xl"
+    <button
+      type="button"
       onClick={handleClick}
       title={busy ? "Stop" : "Voice input"}
+      className={`h-6 w-6 rounded-full flex items-center justify-center transition-colors ${
+        busy
+          ? "bg-destructive text-destructive-foreground hover:bg-destructive/80"
+          : "text-muted-foreground hover:text-foreground hover:bg-accent"
+      }`}
     >
       {busy ? <Square size={12} /> : <Mic size={14} />}
-    </ActionIcon>
+    </button>
   );
 }

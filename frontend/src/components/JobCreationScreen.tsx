@@ -1,14 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Paper, Title, Select, TextInput, Button, Group, Stack, Text, Divider,
-  Collapse, UnstyledButton,
-} from "@mantine/core";
 import { ChevronDown, ChevronRight, Rocket, Plus } from "lucide-react";
-import { notifications } from "@mantine/notifications";
+import { toast } from "sonner";
 import { createJob, fetchRepos, fetchModels } from "../api/client";
 import { PromptWithVoice } from "./VoiceButton";
 import { AddRepoModal } from "./AddRepoModal";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Combobox } from "./ui/combobox";
 
 export function JobCreationScreen() {
   const navigate = useNavigate();
@@ -26,21 +26,20 @@ export function JobCreationScreen() {
   useEffect(() => {
     fetchRepos()
       .then((r) => {
-        const items = r.items.map((p) => ({
-          value: p,
-          label: p.split("/").pop() ?? p,
-        }));
+        const items = r.items.map((p) => ({ value: p, label: p.split("/").pop() ?? p }));
         setRepos(items);
         setRepo((prev) => prev ?? items[0]?.value ?? null);
       })
-      .catch(() => notifications.show({ color: "red", message: "Failed to load repos" }));
+      .catch(() => toast.error("Failed to load repos"));
     fetchModels()
       .then((m) => {
         setModels(
-          m.map((x) => ({
-            value: String(x.id ?? x.name ?? ""),
-            label: String(x.name ?? x.id ?? "unknown"),
-          })).filter((x) => x.value)
+          m
+            .map((x) => ({
+              value: String(x.id ?? x.name ?? ""),
+              label: String(x.name ?? x.id ?? "unknown"),
+            }))
+            .filter((x) => x.value),
         );
       })
       .catch(() => {});
@@ -56,10 +55,10 @@ export function JobCreationScreen() {
         base_ref: baseRef || undefined,
         branch: branch || undefined,
       });
-      notifications.show({ color: "green", message: `Job ${result.id} created` });
+      toast.success(`Job ${result.id} created`);
       navigate(`/jobs/${result.id}`);
     } catch (e) {
-      notifications.show({ color: "red", title: "Failed", message: String(e) });
+      toast.error(String(e));
     } finally {
       setSubmitting(false);
     }
@@ -67,31 +66,29 @@ export function JobCreationScreen() {
 
   return (
     <div className="max-w-xl mx-auto">
-      <Title order={3} mb="lg">New Job</Title>
+      <h3 className="text-lg font-semibold text-foreground mb-4">New Job</h3>
 
-      <Paper radius="lg" p="lg">
-        <Stack gap="md">
-          <Group gap="xs" align="flex-end">
-            <Select
+      <div className="rounded-lg border border-border bg-card p-5">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-end gap-2">
+            <Combobox
               label="Repository"
               placeholder="Select a repository…"
-              data={repos}
+              items={repos}
               value={repo}
               onChange={setRepo}
-              searchable
-              size="sm"
               className="flex-1"
             />
             <Button
               size="sm"
-              variant="light"
-              leftSection={<Plus size={14} />}
+              variant="outline"
               onClick={() => setAddRepoOpen(true)}
-              className="mb-px"
+              className="mb-px shrink-0"
             >
+              <Plus size={14} />
               Add
             </Button>
-          </Group>
+          </div>
 
           <AddRepoModal
             opened={addRepoOpen}
@@ -108,61 +105,63 @@ export function JobCreationScreen() {
 
           <PromptWithVoice value={prompt} onChange={setPrompt} />
 
-          <Divider />
+          <hr className="border-border" />
 
-          <UnstyledButton onClick={() => setShowAdvanced(!showAdvanced)}>
-            <Group gap={4}>
-              {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              <Text size="xs" c="dimmed">Advanced options</Text>
-            </Group>
-          </UnstyledButton>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
+          >
+            {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Advanced options
+          </button>
 
-          <Collapse in={showAdvanced}>
-            <Stack gap="sm">
+          {showAdvanced && (
+            <div className="flex flex-col gap-3">
               {models.length > 0 && (
-                <Select
+                <Combobox
                   label="Model"
                   placeholder="Default (auto)"
-                  data={models}
+                  items={models}
                   value={model}
                   onChange={setModel}
                   clearable
-                  searchable
-                  size="sm"
                 />
               )}
-              <TextInput
-                label="Base Reference"
-                placeholder="e.g., main"
-                value={baseRef}
-                onChange={(e) => setBaseRef(e.currentTarget.value)}
-                size="sm"
-              />
-              <TextInput
-                label="Branch Name"
-                placeholder="Auto-generated if empty"
-                value={branch}
-                onChange={(e) => setBranch(e.currentTarget.value)}
-                size="sm"
-              />
-            </Stack>
-          </Collapse>
+              <div className="flex flex-col gap-1.5">
+                <Label>Base Reference</Label>
+                <Input
+                  placeholder="e.g., main"
+                  value={baseRef}
+                  onChange={(e) => setBaseRef(e.currentTarget.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Branch Name</Label>
+                <Input
+                  placeholder="Auto-generated if empty"
+                  value={branch}
+                  onChange={(e) => setBranch(e.currentTarget.value)}
+                />
+              </div>
+            </div>
+          )}
 
-          <Group justify="flex-end" mt="sm">
-            <Button variant="subtle" onClick={() => navigate("/")}>
+          <div className="flex justify-end gap-2 mt-1">
+            <Button variant="ghost" onClick={() => navigate("/")}>
               Cancel
             </Button>
             <Button
-              leftSection={<Rocket size={16} />}
               disabled={!repo || !prompt.trim()}
               loading={submitting}
               onClick={handleSubmit}
             >
+              <Rocket size={16} />
               Create Job
             </Button>
-          </Group>
-        </Stack>
-      </Paper>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import { Component, type ReactNode, useState } from "react";
 import { Routes, Route, NavLink, Link } from "react-router-dom";
-import { Group, Badge, UnstyledButton, Text, Drawer, Stack } from "@mantine/core";
 import { type LucideIcon, LayoutDashboard, Plus, Settings, Menu } from "lucide-react";
 import { useSSE } from "./hooks/useSSE";
 import { useTowerStore, selectConnectionStatus } from "./store";
@@ -8,6 +7,8 @@ import { DashboardScreen } from "./components/DashboardScreen";
 import { JobDetailScreen } from "./components/JobDetailScreen";
 import { JobCreationScreen } from "./components/JobCreationScreen";
 import { SettingsScreen } from "./components/SettingsScreen";
+import { DotBadge } from "./components/ui/badge";
+import { Sheet } from "./components/ui/sheet";
 
 /* ------------------------------------------------------------------ */
 /* Error boundary                                                      */
@@ -25,16 +26,16 @@ class ErrorBoundary extends Component<
     if (this.state.error) {
       return (
         <div className="p-8 max-w-2xl mx-auto">
-          <Text size="lg" fw={600} c="red" mb="sm">Something went wrong</Text>
-          <pre className="text-xs text-[var(--mantine-color-dimmed)] whitespace-pre-wrap bg-[var(--mantine-color-dark-7)] rounded-lg p-4 border border-[var(--mantine-color-dark-4)] overflow-auto">
+          <p className="text-lg font-semibold text-red-400 mb-2">Something went wrong</p>
+          <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-card rounded-lg p-4 border border-border overflow-auto">
             {this.state.error.message}{"\n"}{this.state.error.stack}
           </pre>
-          <UnstyledButton
+          <button
             onClick={() => this.setState({ error: null })}
-            className="mt-4 px-4 py-2 bg-[var(--mantine-color-blue-7)] text-white rounded-md text-sm font-medium hover:bg-[var(--mantine-color-blue-6)]"
+            className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
           >
             Try again
-          </UnstyledButton>
+          </button>
         </div>
       );
     }
@@ -43,7 +44,7 @@ class ErrorBoundary extends Component<
 }
 
 /* ------------------------------------------------------------------ */
-/* Nav link component                                                  */
+/* Nav item                                                            */
 /* ------------------------------------------------------------------ */
 
 function NavItem({
@@ -64,8 +65,8 @@ function NavItem({
       className={({ isActive }) =>
         `flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors no-underline ${
           isActive
-            ? "bg-[var(--mantine-color-dark-5)] text-white"
-            : "text-[var(--mantine-color-dimmed)] hover:text-white hover:bg-[var(--mantine-color-dark-6)]"
+            ? "bg-accent text-foreground"
+            : "text-muted-foreground hover:text-foreground hover:bg-accent"
         }`
       }
     >
@@ -76,22 +77,16 @@ function NavItem({
 }
 
 /* ------------------------------------------------------------------ */
-/* Connection status indicator                                         */
+/* Connection status                                                   */
 /* ------------------------------------------------------------------ */
 
 function ConnectionStatus() {
   const status = useTowerStore(selectConnectionStatus);
-  const color =
-    status === "connected" ? "green" : status === "reconnecting" ? "yellow" : "red";
+  const color = status === "connected" ? "green" : status === "reconnecting" ? "yellow" : "red";
   return (
-    <Badge
-      variant="dot"
-      color={color}
-      size="sm"
-      className="cursor-default select-none"
-    >
+    <DotBadge color={color}>
       {status === "reconnecting" ? "connecting" : status}
-    </Badge>
+    </DotBadge>
   );
 }
 
@@ -105,42 +100,32 @@ export function App() {
 
   return (
     <div className="flex flex-col h-screen">
-      <header className="flex items-center justify-between px-4 h-12 shrink-0 border-b border-[var(--mantine-color-dark-4)] bg-[var(--mantine-color-dark-7)]">
+      <header className="flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card">
         <Link to="/" className="no-underline">
-          <Text fw={700} size="md" c="white" className="tracking-tight cursor-pointer hover:opacity-80">
+          <span className="font-bold text-sm text-foreground tracking-tight cursor-pointer hover:opacity-80">
             Tower
-          </Text>
+          </span>
         </Link>
 
-        {/* Desktop nav */}
-        <Group gap="sm" className="hidden sm:flex">
+        <div className="hidden sm:flex items-center gap-1">
           <NavItem to="/" icon={LayoutDashboard} label="Dashboard" end />
           <NavItem to="/jobs/new" icon={Plus} label="New Job" />
           <NavItem to="/settings" icon={Settings} label="Settings" />
-        </Group>
+        </div>
 
-        <Group gap="sm">
+        <div className="flex items-center gap-2">
           <ConnectionStatus />
-          {/* Mobile hamburger */}
-          <UnstyledButton
-            className="sm:hidden p-1.5 rounded-md hover:bg-[var(--mantine-color-dark-6)]"
+          <button
+            className="sm:hidden p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             onClick={() => setMenuOpen(true)}
           >
-            <Menu size={20} className="text-[var(--mantine-color-dimmed)]" />
-          </UnstyledButton>
-        </Group>
+            <Menu size={20} />
+          </button>
+        </div>
       </header>
 
-      {/* Mobile drawer menu */}
-      <Drawer
-        opened={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        position="right"
-        size="xs"
-        title={<Text fw={700}>Tower</Text>}
-        withCloseButton
-      >
-        <Stack gap="xs">
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title="Tower">
+        <div className="flex flex-col gap-1">
           {[
             { to: "/", icon: LayoutDashboard, label: "Dashboard", end: true },
             { to: "/jobs/new", icon: Plus, label: "New Job" },
@@ -154,8 +139,8 @@ export function App() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium no-underline ${
                   isActive
-                    ? "bg-[var(--mantine-color-dark-5)] text-white"
-                    : "text-[var(--mantine-color-dimmed)] hover:text-white hover:bg-[var(--mantine-color-dark-6)]"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
                 }`
               }
             >
@@ -163,11 +148,11 @@ export function App() {
               {label}
             </NavLink>
           ))}
-          <div className="border-t border-[var(--mantine-color-dark-4)] mt-2 pt-2 px-3">
+          <div className="border-t border-border mt-2 pt-3 px-1">
             <ConnectionStatus />
           </div>
-        </Stack>
-      </Drawer>
+        </div>
+      </Sheet>
 
       <main className="flex-1 overflow-y-auto p-4">
         <ErrorBoundary>

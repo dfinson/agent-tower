@@ -1,12 +1,7 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  Paper, Group, Text, Button, Tabs, Anchor, Loader, Stack,
-} from "@mantine/core";
-import {
-  ArrowLeft, RotateCcw, XCircle, ExternalLink,
-} from "lucide-react";
-import { notifications } from "@mantine/notifications";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
 import { useTowerStore, selectJobs } from "../store";
 import type { JobSummary } from "../store";
 import { fetchJob, cancelJob, rerunJob } from "../api/client";
@@ -17,6 +12,9 @@ import { LogsPanel } from "./LogsPanel";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { ApprovalBanner } from "./ApprovalBanner";
 import { TelemetryPanel } from "./TelemetryPanel";
+import { Button } from "./ui/button";
+import { Spinner } from "./ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 
 const DiffViewer = lazy(() => import("./DiffViewer"));
 const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
@@ -29,7 +27,7 @@ export function JobDetailScreen() {
   const job: JobSummary | undefined = jobId ? jobs[jobId] : undefined;
   const [loading, setLoading] = useState(!job);
   const [actionLoading, setActionLoading] = useState(false);
-  const [tab, setTab] = useState<string | null>("live");
+  const [tab, setTab] = useState("live");
 
   useSSE(jobId);
 
@@ -49,8 +47,8 @@ export function JobDetailScreen() {
     try {
       const updated = await cancelJob(jobId);
       useTowerStore.setState((s) => ({ jobs: { ...s.jobs, [updated.id]: updated } }));
-      notifications.show({ color: "green", message: "Job canceled" });
-    } catch (e) { notifications.show({ color: "red", message: String(e) }); }
+      toast.success("Job canceled");
+    } catch (e) { toast.error(String(e)); }
     finally { setActionLoading(false); }
   }, [jobId]);
 
@@ -59,9 +57,9 @@ export function JobDetailScreen() {
     setActionLoading(true);
     try {
       const result = await rerunJob(jobId);
-      notifications.show({ color: "green", message: `Rerun: ${result.id}` });
+      toast.success(`Rerun: ${result.id}`);
       navigate(`/jobs/${result.id}`);
-    } catch (e) { notifications.show({ color: "red", message: String(e) }); }
+    } catch (e) { toast.error(String(e)); }
     finally { setActionLoading(false); }
   }, [jobId, navigate]);
 
@@ -70,19 +68,20 @@ export function JobDetailScreen() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader size="lg" />
+        <Spinner size="lg" />
       </div>
     );
   }
 
   if (!job) {
     return (
-      <Stack align="center" py="xl" gap="md">
-        <Text size="lg" c="dimmed">Job not found</Text>
-        <Button variant="subtle" leftSection={<ArrowLeft size={16} />} onClick={() => navigate("/")}>
+      <div className="flex flex-col items-center gap-3 py-16">
+        <p className="text-muted-foreground">Job not found</p>
+        <Button variant="ghost" onClick={() => navigate("/")}>
+          <ArrowLeft size={16} />
           Back to Dashboard
         </Button>
-      </Stack>
+      </div>
     );
   }
 
@@ -93,52 +92,40 @@ export function JobDetailScreen() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* Back button */}
-      <Button
-        variant="subtle"
-        size="xs"
-        leftSection={<ArrowLeft size={14} />}
-        onClick={() => navigate("/")}
-        mb="md"
-      >
+      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4">
+        <ArrowLeft size={14} />
         Dashboard
       </Button>
 
       {/* Job header */}
-      <Paper radius="lg" p="md" mb="md">
-        <Group justify="space-between" wrap="wrap" mb="sm">
-          <Group gap="sm">
-            <Text size="lg" fw={700}>{job.id}</Text>
+      <div className="rounded-lg border border-border bg-card p-4 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-bold text-foreground">{job.id}</span>
             <StateBadge state={job.state} />
-          </Group>
-          <Group gap="xs">
+          </div>
+          <div className="flex items-center gap-2">
             {canCancel && (
               <Button
-                size="xs"
-                color="red"
-                variant="light"
-                leftSection={<XCircle size={14} />}
+                size="sm"
+                variant="outline"
+                className="text-destructive border-destructive/40 hover:bg-destructive/10"
                 loading={actionLoading}
                 onClick={handleCancel}
               >
+                <XCircle size={14} />
                 Cancel
               </Button>
             )}
             {canRerun && (
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<RotateCcw size={14} />}
-                loading={actionLoading}
-                onClick={handleRerun}
-              >
+              <Button size="sm" variant="outline" loading={actionLoading} onClick={handleRerun}>
+                <RotateCcw size={14} />
                 Rerun
               </Button>
             )}
-          </Group>
-        </Group>
+          </div>
+        </div>
 
-        {/* Metadata grid */}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-6 gap-y-2 text-sm mb-3">
           {[
             ["Repo", repoName],
@@ -149,37 +136,40 @@ export function JobDetailScreen() {
             ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
           ].map(([label, value]) => (
             <div key={label}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>{label}</Text>
-              <Text size="sm" className="break-all">{value}</Text>
+              <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wide">{label}</p>
+              <p className="text-sm break-all">{value}</p>
             </div>
           ))}
         </div>
 
         {job.prUrl && (
-          <Anchor href={job.prUrl} target="_blank" size="sm">
-            <Group gap={4}><ExternalLink size={14} /> View Pull Request</Group>
-          </Anchor>
+          <a
+            href={job.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+          >
+            <ExternalLink size={14} />
+            View Pull Request
+          </a>
         )}
 
-        {/* Prompt */}
-        <Paper bg="dark.8" p="sm" radius="md" mt="sm">
-          <Text size="sm" className="whitespace-pre-wrap leading-relaxed">{job.prompt}</Text>
-        </Paper>
-      </Paper>
+        <div className="rounded-md border border-border bg-background p-3 mt-3">
+          <p className="text-sm whitespace-pre-wrap leading-relaxed text-foreground">{job.prompt}</p>
+        </div>
+      </div>
 
-      {/* Tabs */}
-      <Tabs value={tab} onChange={setTab} mb="md">
-        <Tabs.List>
-          <Tabs.Tab value="live">Live</Tabs.Tab>
-          <Tabs.Tab value="diff">Diff</Tabs.Tab>
-          <Tabs.Tab value="workspace">Workspace</Tabs.Tab>
-          <Tabs.Tab value="artifacts">Artifacts</Tabs.Tab>
-        </Tabs.List>
+      <Tabs value={tab} onValueChange={setTab} className="mb-4">
+        <TabsList>
+          <TabsTrigger value="live">Live</TabsTrigger>
+          <TabsTrigger value="diff">Diff</TabsTrigger>
+          <TabsTrigger value="workspace">Workspace</TabsTrigger>
+          <TabsTrigger value="artifacts">Artifacts</TabsTrigger>
+        </TabsList>
       </Tabs>
 
-      {/* Tab content */}
       {tab === "live" && (
-        <Stack gap="md">
+        <div className="flex flex-col gap-4">
           <ApprovalBanner jobId={jobId} />
           <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1" style={{ minHeight: 400 }}>
             <TranscriptPanel jobId={jobId} interactive={isInteractive} />
@@ -187,23 +177,23 @@ export function JobDetailScreen() {
           </div>
           <ExecutionTimeline jobId={jobId} />
           <TelemetryPanel jobId={jobId} />
-        </Stack>
+        </div>
       )}
 
       {tab === "diff" && (
-        <Suspense fallback={<div className="flex justify-center py-10"><Loader /></div>}>
+        <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
           <DiffViewer jobId={jobId} />
         </Suspense>
       )}
 
       {tab === "workspace" && (
-        <Suspense fallback={<div className="flex justify-center py-10"><Loader /></div>}>
+        <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
           <WorkspaceBrowser jobId={jobId} />
         </Suspense>
       )}
 
       {tab === "artifacts" && (
-        <Suspense fallback={<div className="flex justify-center py-10"><Loader /></div>}>
+        <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
           <ArtifactViewer jobId={jobId} />
         </Suspense>
       )}
