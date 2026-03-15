@@ -24,6 +24,7 @@ from backend.services.approval_service import ApprovalService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
+from backend.services.merge_service import MergeService
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
 from backend.services.sse_manager import SSEManager
@@ -71,6 +72,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     approval_service = ApprovalService(session_factory=session_factory)
     git_service = GitService(config)
     diff_service = DiffService(git_service=git_service, event_bus=event_bus)
+    merge_service = MergeService(
+        git_service=git_service,
+        event_bus=event_bus,
+        session_factory=session_factory,
+        config=config.completion,
+    )
 
     runtime_service = RuntimeService(
         session_factory=session_factory,
@@ -79,6 +86,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         config=config,
         approval_service=approval_service,
         diff_service=diff_service,
+        merge_service=merge_service,
     )
 
     # Recover orphaned jobs from a previous crash

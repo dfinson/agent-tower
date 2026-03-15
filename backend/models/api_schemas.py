@@ -149,6 +149,7 @@ class JobResponse(CamelModel):
     updated_at: datetime
     completed_at: datetime | None
     pr_url: str | None = None
+    merge_status: str | None = None
 
 
 class JobListResponse(CamelModel):
@@ -303,6 +304,24 @@ class DiffUpdatePayload(CamelModel):
 class SessionHeartbeatPayload(CamelModel):
     job_id: str
     session_id: str
+    timestamp: datetime
+
+
+class MergeCompletedPayload(CamelModel):
+    job_id: str
+    branch: str
+    base_ref: str
+    strategy: str  # ff_only | merge
+    timestamp: datetime
+
+
+class MergeConflictPayload(CamelModel):
+    job_id: str
+    branch: str
+    base_ref: str
+    conflict_files: list[str]
+    fallback: str  # pr_created | none
+    pr_url: str | None = None
     timestamp: datetime
 
 

@@ -27,6 +27,7 @@ class JobRow(Base):
     worktree_path = Column(String, nullable=True)
     session_id = Column(String, nullable=True)
     pr_url = Column(String, nullable=True)
+    merge_status = Column(String, nullable=True)
     created_at = Column(TZDateTime, nullable=False)
     updated_at = Column(TZDateTime, nullable=False)
     completed_at = Column(TZDateTime, nullable=True)

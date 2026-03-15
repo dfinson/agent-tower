@@ -116,6 +116,7 @@ class Job:
     updated_at: datetime
     completed_at: datetime | None = None
     pr_url: str | None = None
+    merge_status: str | None = None  # not_merged | merged | conflict | pr_created
 
 
 @dataclass

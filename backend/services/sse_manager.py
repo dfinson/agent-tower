@@ -16,6 +16,8 @@ from backend.models.api_schemas import (
     DiffUpdatePayload,
     JobStateChangedPayload,
     LogLinePayload,
+    MergeCompletedPayload,
+    MergeConflictPayload,
     SessionHeartbeatPayload,
     SnapshotPayload,
     TranscriptPayload,
@@ -43,6 +45,8 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.job_canceled: "job_state_changed",
     DomainEventKind.job_state_changed: "job_state_changed",
     DomainEventKind.session_heartbeat: "session_heartbeat",
+    DomainEventKind.merge_completed: "merge_completed",
+    DomainEventKind.merge_conflict: "merge_conflict",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -158,6 +162,26 @@ def _build_sse_data(event: DomainEvent, sse_type: str) -> str:
         return SessionHeartbeatPayload(
             job_id=event.job_id,
             session_id=event.payload.get("session_id", ""),
+            timestamp=event.payload.get("timestamp", event.timestamp),
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "merge_completed":
+        return MergeCompletedPayload(
+            job_id=event.job_id,
+            branch=event.payload.get("branch", ""),
+            base_ref=event.payload.get("base_ref", ""),
+            strategy=event.payload.get("strategy", ""),
+            timestamp=event.payload.get("timestamp", event.timestamp),
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "merge_conflict":
+        return MergeConflictPayload(
+            job_id=event.job_id,
+            branch=event.payload.get("branch", ""),
+            base_ref=event.payload.get("base_ref", ""),
+            conflict_files=event.payload.get("conflict_files", []),
+            fallback=event.payload.get("fallback", "none"),
+            pr_url=event.payload.get("pr_url"),
             timestamp=event.payload.get("timestamp", event.timestamp),
         ).model_dump_json(by_alias=True)
 

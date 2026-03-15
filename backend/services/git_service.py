@@ -58,6 +58,49 @@ class GitService:
         """Run `git diff <diff_spec>` and return raw output."""
         return await self._run_git("diff", diff_spec, cwd=cwd)
 
+    # ------------------------------------------------------------------
+    # Merge-back operations
+    # ------------------------------------------------------------------
+
+    async def checkout(self, branch: str, *, cwd: str | Path) -> None:
+        """Check out a branch in the given working directory."""
+        await self._run_git("checkout", branch, cwd=cwd)
+
+    async def merge_ff_only(self, branch: str, *, cwd: str | Path) -> None:
+        """Fast-forward merge only. Raises GitError if not possible."""
+        await self._run_git("merge", "--ff-only", branch, cwd=cwd)
+
+    async def merge(self, branch: str, *, cwd: str | Path, message: str | None = None) -> None:
+        """Merge a branch. Raises GitError on conflict."""
+        args = ["merge", "--no-edit", branch]
+        if message:
+            args = ["merge", "-m", message, branch]
+        await self._run_git(*args, cwd=cwd)
+
+    async def merge_abort(self, *, cwd: str | Path) -> None:
+        """Abort an in-progress merge."""
+        with contextlib.suppress(GitError):
+            await self._run_git("merge", "--abort", cwd=cwd)
+
+    async def push(self, branch: str, *, cwd: str | Path, force: bool = False) -> None:
+        """Push a branch to origin."""
+        args = ["push", "origin", branch]
+        if force:
+            args = ["push", "--force-with-lease", "origin", branch]
+        await self._run_git(*args, cwd=cwd)
+
+    async def get_conflict_files(self, *, cwd: str | Path) -> list[str]:
+        """Return list of unmerged (conflicting) file paths after a failed merge."""
+        try:
+            out = await self._run_git("diff", "--name-only", "--diff-filter=U", cwd=cwd)
+            return [f for f in out.splitlines() if f.strip()]
+        except GitError:
+            return []
+
+    async def get_current_branch(self, *, cwd: str | Path) -> str:
+        """Return the current branch name."""
+        return await self._run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd)
+
     async def validate_repo(self, repo_path: str) -> bool:
         """Check that a path is a valid git repository."""
         path = Path(repo_path).expanduser().resolve()
