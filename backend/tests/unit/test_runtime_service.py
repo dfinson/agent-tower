@@ -98,7 +98,7 @@ class FakeAgentAdapter(AgentAdapterInterface):
         self._aborted.add(session_id)
 
     async def complete(self, prompt: str) -> str:
-        return ""
+        return "{}"
 
 
 # ---------------------------------------------------------------------------
@@ -883,7 +883,7 @@ class ErrorAdapter(AgentAdapterInterface):
         pass
 
     async def complete(self, prompt: str) -> str:
-        return ""
+        return "{}"
 
 
 class TestErrorEventCausesFailure:

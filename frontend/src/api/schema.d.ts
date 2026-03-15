@@ -457,6 +457,7 @@ export interface components {
             /** Branch */
             branch?: string | null;
             strategy?: components["schemas"]["StrategyKind"] | null;
+            permission_mode?: components["schemas"]["PermissionMode"] | null;
         };
         /** CreateJobResponse */
         CreateJobResponse: {
@@ -603,6 +604,11 @@ export interface components {
              */
             timestamp: string;
         };
+        /**
+         * PermissionMode
+         * @enum {string}
+         */
+        PermissionMode: "auto" | "supervised" | "readonly";
         /**
          * StrategyKind
          * @enum {string}

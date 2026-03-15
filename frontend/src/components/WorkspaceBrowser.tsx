@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Folder, FolderOpen, FileCode, ChevronRight, ChevronDown } from "lucide-react";
 import Editor from "@monaco-editor/react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 import { fetchWorkspaceFiles, fetchWorkspaceFile } from "../api/client";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
@@ -86,6 +89,10 @@ function guessLang(path: string): string {
   return m[ext] ?? "plaintext";
 }
 
+function isMarkdown(path: string): boolean {
+  return path.split(".").pop()?.toLowerCase() === "md";
+}
+
 interface Props { jobId: string; }
 
 export default function WorkspaceBrowser({ jobId }: Props) {
@@ -95,6 +102,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
   const isMobile = useIsMobile();
+  const [mdMode, setMdMode] = useState<"preview" | "raw">("preview");
 
   useEffect(() => {
     fetchWorkspaceFiles(jobId)
@@ -105,6 +113,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
 
   const handleSelect = useCallback(async (path: string) => {
     setSelected(path);
+    setMdMode("preview");
     setFileLoading(true);
     try {
       const res = await fetchWorkspaceFile(jobId, path);
@@ -117,6 +126,8 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   }, [jobId]);
 
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
+
+  const showMdToggle = selected != null && isMarkdown(selected) && fileContent != null && !fileLoading;
 
   return (
     <div className="flex flex-col md:flex-row gap-3 h-[60vh] min-h-[300px] max-h-[600px]">
@@ -131,16 +142,50 @@ export default function WorkspaceBrowser({ jobId }: Props) {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+      <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card flex flex-col">
+        {showMdToggle && (
+          <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
+            <button
+              type="button"
+              onClick={() => setMdMode("preview")}
+              className={cn(
+                "px-2.5 py-0.5 rounded text-xs font-medium transition-colors",
+                mdMode === "preview" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              onClick={() => setMdMode("raw")}
+              className={cn(
+                "px-2.5 py-0.5 rounded text-xs font-medium transition-colors",
+                mdMode === "raw" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Raw
+            </button>
+          </div>
+        )}
+
+
         {fileLoading ? (
-          <div className="flex items-center justify-center h-full"><Spinner /></div>
+          <div className="flex items-center justify-center flex-1"><Spinner /></div>
         ) : selected && fileContent != null ? (
-          <Editor
-            value={fileContent}
-            language={guessLang(selected)}
-            theme="vs-dark"
-            options={{ readOnly: true, minimap: { enabled: false }, scrollBeyondLastLine: false, fontSize: isMobile ? 12 : 13 }}
-          />
+          showMdToggle && mdMode === "preview" ? (
+            <div className="flex-1 overflow-y-auto p-5 prose prose-sm prose-invert max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{fileContent}</ReactMarkdown>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-hidden">
+              <Editor
+                value={fileContent}
+                language={guessLang(selected)}
+                theme="vs-dark"
+                options={{ readOnly: true, minimap: { enabled: false }, scrollBeyondLastLine: false, fontSize: isMobile ? 12 : 13 }}
+              />
+            </div>
+          )
         ) : (
           <p className="text-sm text-muted-foreground text-center py-8">Select a file to preview</p>
         )}
