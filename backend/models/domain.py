@@ -71,6 +71,21 @@ def validate_state_transition(from_state: str | None, to_state: str) -> None:
         raise InvalidStateTransitionError(from_state, to_state)
 
 
+class PermissionMode(StrEnum):
+    """Controls how the agent adapter handles SDK permission requests.
+
+    permissive  — auto-approve everything, no operator prompts.
+    auto        — auto-approve reads/writes within workspace; ask for
+                  shell commands, URL fetches, writes outside workspace,
+                  and writes to protected paths.
+    supervised  — ask the operator for every permission request.
+    """
+
+    permissive = "permissive"
+    auto = "auto"
+    supervised = "supervised"
+
+
 class SessionEventKind(StrEnum):
     log = "log"
     transcript = "transcript"
@@ -92,6 +107,7 @@ class SessionConfig:
     prompt: str
     mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
     protected_paths: list[str] = field(default_factory=list)
+    permission_mode: PermissionMode = PermissionMode.auto
 
 
 @dataclass

@@ -51,6 +51,12 @@ class ApprovalResolution(StrEnum):
     rejected = "rejected"
 
 
+class PermissionMode(StrEnum):
+    permissive = "permissive"
+    auto = "auto"
+    supervised = "supervised"
+
+
 class ArtifactType(StrEnum):
     diff_snapshot = "diff_snapshot"
     agent_summary = "agent_summary"
@@ -107,6 +113,7 @@ class CreateJobRequest(BaseModel):
     base_ref: str | None = None
     branch: str | None = None
     strategy: StrategyKind | None = None
+    permission_mode: PermissionMode | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -145,6 +152,7 @@ class JobResponse(CamelModel):
     base_ref: str
     worktree_path: str | None
     branch: str | None
+    permission_mode: PermissionMode | None = None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
