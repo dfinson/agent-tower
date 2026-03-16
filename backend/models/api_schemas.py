@@ -133,7 +133,6 @@ class CreateJobRequest(BaseModel):
     strategy: StrategyKind | None = None
     permission_mode: PermissionMode | None = None
     model: str | None = None
-    completion_strategy: CompletionStrategy | None = None
 
 
 class SendMessageRequest(BaseModel):
