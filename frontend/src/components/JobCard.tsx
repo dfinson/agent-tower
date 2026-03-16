@@ -65,7 +65,7 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   const isCanceled = job.state === "canceled";
 
   const handleResolve = useCallback(
-    async (e: React.MouseEvent, action: "merge" | "create_pr" | "discard") => {
+    async (e: React.MouseEvent, action: "merge" | "smart_merge" | "create_pr" | "discard") => {
       e.stopPropagation();
       setLoading(action);
       setError(null);
@@ -177,6 +177,19 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
             >
               <GitMerge size={11} />
               {loading === "merge" ? "…" : "Merge"}
+            </Button>
+          )}
+          {job.resolution !== "conflict" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-[11px] px-2 gap-1"
+              disabled={loading !== null}
+              title="Cherry-pick commits onto the base branch"
+              onClick={(e) => handleResolve(e, "smart_merge")}
+            >
+              <GitMerge size={11} />
+              {loading === "smart_merge" ? "…" : "Smart"}
             </Button>
           )}
           <Button

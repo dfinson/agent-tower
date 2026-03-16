@@ -87,6 +87,15 @@ class GitService:
         with contextlib.suppress(GitError):
             await self._run_git("merge", "--abort", cwd=cwd)
 
+    async def cherry_pick(self, commit_range: str, *, cwd: str | Path) -> None:
+        """Cherry-pick a range of commits (e.g. 'base_ref..branch'). Raises GitError on conflict."""
+        await self._run_git("cherry-pick", "-x", "--allow-empty", commit_range, cwd=cwd)
+
+    async def cherry_pick_abort(self, *, cwd: str | Path) -> None:
+        """Abort an in-progress cherry-pick."""
+        with contextlib.suppress(GitError):
+            await self._run_git("cherry-pick", "--abort", cwd=cwd)
+
     async def push(self, branch: str, *, cwd: str | Path, force: bool = False) -> None:
         """Push a branch to origin."""
         args = ["push", "origin", branch]
