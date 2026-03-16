@@ -52,6 +52,24 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
   const [original, setOriginal] = useState("");
   const [modified, setModified] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const minSidebarWidth = 150;
+  const maxSidebarWidth = 400;
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMouseMove = (ev: MouseEvent) => {
+      setSidebarWidth(Math.min(maxSidebarWidth, Math.max(minSidebarWidth, startWidth + ev.clientX - startX)));
+    };
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  };
 
   // Fetch historical diff from API on mount (for completed jobs / page refresh)
   useEffect(() => {
@@ -101,9 +119,12 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
   }
 
   return (
-    <div className="flex flex-col md:flex-row gap-3 h-[60vh] min-h-[300px] max-h-[600px]">
+    <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[60vh] min-h-[300px] max-h-[600px]">
       {/* File list sidebar — horizontal scroll strip on mobile, vertical sidebar on desktop */}
-      <div className="md:w-64 shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card max-md:max-h-[30%]">
+      <div
+        className="shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card max-md:max-h-[30%]"
+        style={isMobile ? undefined : { width: sidebarWidth }}
+      >
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
           <span className="text-xs font-semibold text-muted-foreground">{diffs.length} files</span>
           <div className="flex items-center gap-2">
@@ -125,7 +146,9 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
                 )}
               >
                 <Icon size={14} className={cn("shrink-0", STATUS_ICON_CLASS[file.status])} />
-                <span className="text-xs truncate flex-1 text-foreground">{file.path}</span>
+                <span className="text-xs truncate flex-1 text-foreground" title={file.path}>
+                  {isMobile ? (file.path.split("/").pop() ?? file.path) : file.path}
+                </span>
                 <span className={cn("text-xs border rounded px-1 hidden sm:inline", STATUS_BADGE[file.status])}>
                   +{file.additions} -{file.deletions}
                 </span>
@@ -134,6 +157,14 @@ export default function DiffViewer({ jobId }: DiffViewerProps) {
           })}
         </div>
       </div>
+
+      {/* Resize handle — desktop only */}
+      {!isMobile && (
+        <div
+          className="hidden md:flex items-center justify-center w-1.5 shrink-0 cursor-col-resize rounded-full bg-border hover:bg-primary/60 transition-colors active:bg-primary"
+          onMouseDown={handleResizeStart}
+        />
+      )}
 
       {/* Monaco Diff Editor — inline mode on mobile */}
       <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card">
