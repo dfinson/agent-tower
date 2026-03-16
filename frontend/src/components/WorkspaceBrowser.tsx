@@ -21,9 +21,10 @@ interface TreeNodeProps {
   selected: string | null;
   onSelect: (path: string) => void;
   jobId: string;
+  isMobile: boolean;
 }
 
-function TreeNode({ entry, depth, selected, onSelect, jobId }: TreeNodeProps) {
+function TreeNode({ entry, depth, selected, onSelect, jobId, isMobile }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,6 +56,7 @@ function TreeNode({ entry, depth, selected, onSelect, jobId }: TreeNodeProps) {
           selected === entry.path ? "bg-accent" : "hover:bg-accent/50",
         )}
         style={{ paddingLeft: depth * 16 + 8 }}
+        title={entry.path}
       >
         {isDir ? (
           expanded ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />
@@ -68,11 +70,11 @@ function TreeNode({ entry, depth, selected, onSelect, jobId }: TreeNodeProps) {
         ) : (
           <FileCode size={14} className="text-muted-foreground shrink-0" />
         )}
-        <span className="text-xs truncate">{name}</span>
+        <span className={cn("text-xs", isMobile ? "break-all" : "truncate")}>{name}</span>
         {loading && <Spinner size="sm" className="ml-auto" />}
       </button>
       {expanded && children.map((c) => (
-        <TreeNode key={c.path} entry={c} depth={depth + 1} selected={selected} onSelect={onSelect} jobId={jobId} />
+        <TreeNode key={c.path} entry={c} depth={depth + 1} selected={selected} onSelect={onSelect} jobId={jobId} isMobile={isMobile} />
       ))}
     </>
   );
@@ -140,7 +142,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
       </div>
       <div className="flex-1 overflow-y-auto py-1">
         {entries.map((e) => (
-          <TreeNode key={e.path} entry={e} depth={0} selected={selected} onSelect={handleSelect} jobId={jobId} />
+          <TreeNode key={e.path} entry={e} depth={0} selected={selected} onSelect={handleSelect} jobId={jobId} isMobile={isMobile} />
         ))}
       </div>
     </div>
