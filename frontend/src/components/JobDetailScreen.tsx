@@ -119,7 +119,7 @@ export function JobDetailScreen() {
     finally { setActionLoading(false); }
   }, [jobId, navigate]);
 
-  const handleResolve = useCallback(async (action: "merge" | "create_pr" | "discard") => {
+  const handleResolve = useCallback(async (action: "merge" | "smart_merge" | "create_pr" | "discard") => {
     if (!jobId) return;
     setResolveLoading(action);
     try {

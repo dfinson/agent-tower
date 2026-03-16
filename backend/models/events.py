@@ -32,6 +32,7 @@ class DomainEventKind(StrEnum):
     job_title_updated = "JobTitleUpdated"
     progress_headline = "ProgressHeadline"
     model_downgraded = "ModelDowngraded"
+    tool_group_summary = "ToolGroupSummary"
 
 
 @dataclass

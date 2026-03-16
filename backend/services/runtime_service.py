@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import structlog
 
@@ -20,6 +20,19 @@ from backend.models.domain import (
 )
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.execution_strategy import STRATEGY_REGISTRY
+
+
+class _ToolCallEntry(TypedDict):
+    tool_name: str
+    tool_args: str
+    tool_intent: str
+    tool_title: str
+
+
+class _TurnToolBuffer(TypedDict):
+    turn_id: str
+    tool_calls: list[_ToolCallEntry]
+
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -219,6 +232,8 @@ class RuntimeService:
         self._headline_transcript: dict[str, list[str]] = {}
         # Contents to suppress when the SDK echoes them back (already published locally)
         self._echo_suppress: dict[str, set[str]] = {}
+        # Per-job state for detecting agent turn boundaries and triggering AI tool summaries
+        self._turn_tool_buffer: dict[str, _TurnToolBuffer] = {}
 
     def _make_job_service(self, session: AsyncSession) -> JobService:
         from backend.persistence.job_repo import JobRepository
@@ -512,6 +527,46 @@ class RuntimeService:
                             if len(buf) > 5:
                                 self._headline_transcript[job_id] = buf[-5:]
 
+                        # Track tool calls by turn to trigger AI summaries at turn boundaries
+                        if self._utility_session is not None and role == "tool_call":
+                            turn_id = str(domain_event.payload.get("turn_id") or "")
+                            tool_intent = str(domain_event.payload.get("tool_intent") or "")
+                            tool_title = str(domain_event.payload.get("tool_title") or "")
+                            tool_name = str(domain_event.payload.get("tool_name") or "tool")
+                            tool_args = str(domain_event.payload.get("tool_args") or "")
+                            state = self._turn_tool_buffer.get(job_id)
+
+                            # Flush previous turn if turn_id changed
+                            if state and state["turn_id"] != turn_id and state["tool_calls"]:
+                                asyncio.create_task(
+                                    self._summarize_tool_group(job_id, state["turn_id"], state["tool_calls"]),
+                                    name=f"tool-summary-{job_id}-{state['turn_id'][:8]}",
+                                )
+
+                            if not state or state["turn_id"] != turn_id:
+                                self._turn_tool_buffer[job_id] = {"turn_id": turn_id, "tool_calls": []}
+                                state = self._turn_tool_buffer[job_id]
+
+                            state["tool_calls"].append(
+                                {
+                                    "tool_name": tool_name,
+                                    "tool_args": tool_args[:100],
+                                    "tool_intent": tool_intent,
+                                    "tool_title": tool_title,
+                                }
+                            )
+
+                        # When an agent message closes a turn, flush the tool buffer for that turn
+                        if self._utility_session is not None and role == "agent":
+                            turn_id = str(domain_event.payload.get("turn_id") or "")
+                            state = self._turn_tool_buffer.get(job_id)
+                            if state and state["turn_id"] == turn_id and state["tool_calls"]:
+                                asyncio.create_task(
+                                    self._summarize_tool_group(job_id, state["turn_id"], state["tool_calls"]),
+                                    name=f"tool-summary-{job_id}-{state['turn_id'][:8]}",
+                                )
+                                self._turn_tool_buffer.pop(job_id, None)
+
                     await self._event_bus.publish(domain_event)
 
             if error_reason:
@@ -647,6 +702,7 @@ class RuntimeService:
             if headline_t is not None:
                 headline_t.cancel()
             self._headline_transcript.pop(job_id, None)
+            self._turn_tool_buffer.pop(job_id, None)
             self._tasks.pop(job_id, None)
             self._strategies.pop(job_id, None)
             self._last_activity.pop(job_id, None)
@@ -705,6 +761,43 @@ class RuntimeService:
                 )
         except asyncio.CancelledError:
             pass
+
+    async def _summarize_tool_group(self, job_id: str, turn_id: str, tool_calls: list[_ToolCallEntry]) -> None:
+        """Generate a short AI label for a tool group and publish it as an SSE event.
+
+        Only fires when no SDK intention string is available on all tool calls.
+        If every call has an SDK-provided intent, the UI uses that directly.
+        """
+        if all(tc.get("tool_intent") for tc in tool_calls):
+            return
+
+        lines = []
+        for tc in tool_calls:
+            args_snippet = tc["tool_args"].strip()[:80]
+            lines.append(f"{tc['tool_name']}: {args_snippet}" if args_snippet else tc["tool_name"])
+
+        prompt = (
+            "Given these tool calls from a coding agent turn, write a single VERY SHORT label "
+            'in the format "<tool>: <what it did>" — maximum 7 words total, lowercase, no period. '
+            "If multiple different tools appear, pick the most significant one. "
+            "Respond with ONLY the label.\n\n" + "\n".join(lines)
+        )
+
+        try:
+            raw = await self._utility_session.complete(prompt, timeout=10)  # type: ignore[union-attr]
+            summary = raw.strip().strip('"').strip(".")
+            if summary and len(summary) > 3:
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=_make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.tool_group_summary,
+                        payload={"turn_id": turn_id, "summary": summary},
+                    )
+                )
+        except Exception:
+            log.debug("tool_group_summary_failed", job_id=job_id, turn_id=turn_id, exc_info=True)
 
     async def _headline_loop(self, job_id: str) -> None:
         """Periodically generate a one-line progress headline from recent transcript."""

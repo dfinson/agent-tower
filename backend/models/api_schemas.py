@@ -329,6 +329,17 @@ class TranscriptPayload(CamelModel):
     tool_args: str | None = None  # role=tool_call: JSON-serialized arguments
     tool_result: str | None = None  # role=tool_call: text output from tool
     tool_success: bool | None = None  # role=tool_call: whether execution succeeded
+    tool_intent: str | None = None  # role=tool_call: SDK-provided intent string
+    tool_title: str | None = None  # role=tool_call: SDK-provided display title
+
+
+class ToolGroupSummaryPayload(CamelModel):
+    """AI-generated one-line summary for a tool group in an agent turn."""
+
+    job_id: str
+    turn_id: str
+    summary: str  # short label, e.g. "bash: ran test suite"
+    timestamp: datetime
 
 
 class DiffLineModel(CamelModel):

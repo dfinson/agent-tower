@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback, memo } from "react";
 import {
   Send, Bot, User, PauseCircle, ChevronDown, Brain, X,
   ShieldQuestion, CheckCircle2, XCircle as XCircleIcon,
-  ArrowDown,
+  ArrowDown, Wrench,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -349,6 +349,67 @@ function ToolChips({ calls }: { calls: TranscriptEntry[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Collapsible tool group section (wraps ToolChips with a summary header)
+// ---------------------------------------------------------------------------
+
+function truncateLabel(label: string, maxWords = 8): string {
+  const words = label.trim().split(/\s+/);
+  if (words.length <= maxWords) return label.trim();
+  return words.slice(0, maxWords).join(" ") + "…";
+}
+
+function deriveToolGroupLabel(calls: TranscriptEntry[]): string {
+  const withIntent = calls.find((c) => c.toolIntent);
+  if (withIntent?.toolIntent) return truncateLabel(withIntent.toolIntent);
+
+  const withTitle = calls.find((c) => c.toolTitle);
+  if (withTitle?.toolTitle) {
+    const suffix = calls.length > 1 ? ` ×${calls.length}` : "";
+    return truncateLabel(withTitle.toolTitle + suffix);
+  }
+
+  const withSummary = calls.find((c) => c.toolGroupSummary);
+  if (withSummary?.toolGroupSummary) return truncateLabel(withSummary.toolGroupSummary);
+
+  const uniqueNames = [...new Set(calls.map((c) => c.toolName ?? c.content))];
+  const primary = uniqueNames[0] ?? "tool";
+  const suffix = calls.length > 1 ? ` ×${calls.length}` : "";
+  return `${primary}${suffix}`;
+}
+
+function ToolGroupSection({ calls }: { calls: TranscriptEntry[] }) {
+  const [open, setOpen] = useState(false);
+  const anyFailed = calls.some((c) => c.toolSuccess === false);
+  const label = deriveToolGroupLabel(calls);
+
+  return (
+    <div className={cn(
+      "rounded-lg border overflow-hidden mb-1",
+      anyFailed ? "border-red-500/30 bg-red-500/5" : "border-border/50 bg-muted/30",
+    )}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted/50 transition-colors"
+      >
+        <Wrench size={11} className={cn("shrink-0", anyFailed ? "text-red-400" : "text-blue-400/70")} />
+        <span className={cn("font-medium truncate", anyFailed ? "text-red-400" : "text-muted-foreground")}>
+          {label}
+        </span>
+        <ChevronDown
+          size={11}
+          className={cn("ml-auto shrink-0 transition-transform text-muted-foreground", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div className="px-2 pb-2 pt-1.5 border-t border-border/50">
+          <ToolChips calls={calls} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Agent turn (reasoning + tool chips + message)
 // ---------------------------------------------------------------------------
 
@@ -362,7 +423,7 @@ function AgentTurn({ turn, isLast }: { turn: AgentTurnData; isLast?: boolean }) 
       </div>
       <div className="flex-1 min-w-0 space-y-0.5">
         {turn.reasoning && <ReasoningBlock entry={turn.reasoning} />}
-        {turn.toolCalls.length > 0 && <ToolChips calls={turn.toolCalls} />}
+        {turn.toolCalls.length > 0 && <ToolGroupSection calls={turn.toolCalls} />}
         {msg && (
           <div className="bg-muted rounded-xl rounded-tl-sm px-3 py-2 text-sm leading-relaxed">
             {msg.title && (
