@@ -4,7 +4,7 @@ import { useTowerStore, selectJobLogs } from "../store";
 function isTimelineEvent(msg: string, level: string): boolean {
   if (level === "error") return true;
   const lower = msg.toLowerCase();
-  return ["state", "started", "completed", "created", "failed", "succeeded", "canceled", "approval"].some(
+  return ["state", "started", "completed", "created", "failed", "succeeded", "canceled", "approval", "progress:", "merged"].some(
     (kw) => lower.includes(kw),
   );
 }
@@ -13,7 +13,7 @@ function dotColor(level: string, msg: string): string {
   if (level === "error") return "bg-red-500";
   const lower = msg.toLowerCase();
   if (lower.includes("succeeded") || lower.includes("completed")) return "bg-green-500";
-  if (lower.includes("running") || lower.includes("started")) return "bg-blue-500";
+  if (lower.includes("running") || lower.includes("started") || lower.includes("progress:")) return "bg-blue-500";
   if (lower.includes("failed") || lower.includes("canceled")) return "bg-red-500";
   return "bg-border";
 }
