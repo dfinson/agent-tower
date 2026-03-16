@@ -218,7 +218,8 @@ class CopilotAdapter(AgentAdapterInterface):
                 "content": (
                     "You are running inside Tower, a headless non-interactive orchestration "
                     "framework. There is no human at a terminal. Do not enter plan mode or "
-                    "pause to present a plan for review. Proceed directly with task execution."
+                    "pause to present a plan for review. Proceed directly with task execution. "
+                    "Before making tool calls, call report_intent first to declare your current intent."
                 ),
             },
         )
