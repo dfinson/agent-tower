@@ -220,6 +220,20 @@ export function JobDetailScreen() {
                     Merge
                   </Button>
                 )}
+                {job.resolution !== "conflict" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    loading={resolveLoading === "smart_merge"}
+                    disabled={resolveLoading !== null}
+                    onClick={() => handleResolve("smart_merge")}
+                    title="Cherry-pick commits onto the base branch for a clean linear history"
+                  >
+                    <GitMerge size={14} />
+                    Smart Merge
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"

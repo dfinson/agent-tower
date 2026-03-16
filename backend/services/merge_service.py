@@ -343,7 +343,7 @@ class MergeService:
     ) -> MergeResult:
         """Operator-initiated job resolution.
 
-        action: "merge" | "create_pr" | "discard"
+        action: "merge" | "smart_merge" | "create_pr" | "discard"
         """
         if action == "discard":
             return await self._discard(job_id, repo_path, worktree_path, branch)
@@ -362,6 +362,9 @@ class MergeService:
 
         if action == "merge":
             return await self._operator_merge(job_id, repo_path, worktree_path, branch, base_ref, prompt)
+
+        if action == "smart_merge":
+            return await self._operator_smart_merge(job_id, repo_path, worktree_path, branch, base_ref)
 
         return MergeResult(status="error", error=f"Unknown action: {action}")
 
@@ -432,6 +435,57 @@ class MergeService:
             pr_url=None,
         )
         return MergeResult(status="conflict", conflict_files=conflict_files)
+
+    async def _operator_smart_merge(
+        self,
+        job_id: str,
+        repo_path: str,
+        worktree_path: str | None,
+        branch: str,
+        base_ref: str,
+    ) -> MergeResult:
+        """Cherry-pick the job branch's commits onto base_ref (no merge commit).
+
+        Strategy:
+        1. Checkout base_ref in the main worktree.
+        2. Cherry-pick the range base_ref..branch onto HEAD.
+        3. On success: cleanup worktree/branch → merged.
+        4. On conflict: abort, collect conflict files → conflict (no PR fallback).
+        """
+        from backend.services.git_service import GitError
+
+        try:
+            await self._git.checkout(base_ref, cwd=repo_path)
+        except GitError:
+            log.warning("smart_merge_checkout_failed", job_id=job_id, base_ref=base_ref)
+            return MergeResult(status="error", error=f"Failed to checkout {base_ref}")
+
+        commit_range = f"{base_ref}..{branch}"
+        try:
+            await self._git.cherry_pick(commit_range, cwd=repo_path)
+        except GitError:
+            log.info("smart_merge_conflict_detected", job_id=job_id, branch=branch)
+            await self._git.cherry_pick_abort(cwd=repo_path)
+            conflict_files = await self._git.get_conflict_files(cwd=repo_path)
+            try:
+                await self._git.checkout(base_ref, cwd=repo_path)
+            except Exception:
+                log.warning("smart_merge_checkout_base_failed", job_id=job_id, exc_info=True)
+            await self._publish_merge_conflict(
+                job_id,
+                branch,
+                base_ref,
+                conflict_files,
+                fallback="none",
+                pr_url=None,
+            )
+            return MergeResult(status="conflict", conflict_files=conflict_files)
+
+        log.info("smart_merge_succeeded", job_id=job_id, branch=branch, base_ref=base_ref)
+        await self._publish_merge_completed(job_id, branch, base_ref, "cherry_pick")
+        await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
+        await self._update_merge_status(job_id, "merged")
+        return MergeResult(status="merged", strategy="cherry_pick")
 
     async def _discard(
         self,
