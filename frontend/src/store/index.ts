@@ -353,18 +353,17 @@ export const useTowerStore = create<TowerState>((set, get) => ({
 
         case "session_resumed": {
           const jobId = payload.jobId as string;
-          const sessionNumber = payload.sessionNumber as number;
           const timestamp = payload.timestamp as string;
           const divider: TranscriptEntry = {
             jobId,
             seq: -99,
             timestamp,
             role: "divider",
-            content: `Session ${sessionNumber}`,
+            content: "Session",
           };
           const existing = state.transcript[jobId] ?? [];
           // Deduplicate: two SSE connections may deliver the same event
-          if (existing.some((e) => e.role === "divider" && e.content === divider.content && e.timestamp === divider.timestamp)) {
+          if (existing.some((e) => e.role === "divider" && e.timestamp === divider.timestamp)) {
             return { jobs: state.jobs[jobId] ? { ...state.jobs, [jobId]: { ...state.jobs[jobId], state: "running" } } : state.jobs };
           }
           return {
