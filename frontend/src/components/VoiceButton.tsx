@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, type RefObject } from "react";
 import { Mic, Square } from "lucide-react";
 import { toast } from "sonner";
 import WaveSurfer from "wavesurfer.js";
@@ -156,55 +156,116 @@ export function PromptWithVoice({ value, onChange }: PromptWithVoiceProps) {
   );
 }
 
+interface MicButtonProps {
+  onTranscript: (text: string) => void;
+  /** Called when recording state changes — lets the parent show waveform / transcribing UI. */
+  onStateChange?: (state: RecordingState) => void;
+  /** A stable ref to the DOM element where WaveSurfer should render its waveform. */
+  waveformContainerRef?: RefObject<HTMLDivElement>;
+}
+
 /**
- * Simple inline mic button for text inputs (e.g. transcript panel).
- * Records, transcribes, calls onTranscript with the text.
+ * Inline mic button for text inputs (e.g. transcript panel).
+ * Records with WaveSurfer waveform visualization, then transcribes via the API.
+ * Calls onTranscript with the result and onStateChange to let the parent show
+ * the waveform strip and transcribing indicator.
  */
-export function MicButton({ onTranscript }: { onTranscript: (text: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  const mediaRef = useRef<MediaRecorder | null>(null);
+export function MicButton({ onTranscript, onStateChange, waveformContainerRef }: MicButtonProps) {
+  const [state, setState] = useState<RecordingState>("idle");
+  const recordRef = useRef<ReturnType<typeof RecordPlugin.create> | null>(null);
+  const wsRef = useRef<WaveSurfer | null>(null);
+  const initedRef = useRef(false);
+
+  const updateState = useCallback((s: RecordingState) => {
+    setState(s);
+    onStateChange?.(s);
+  }, [onStateChange]);
+
+  // Initialise WaveSurfer once — requires the waveform container to be mounted.
+  const ensureInit = useCallback(() => {
+    if (initedRef.current) return;
+    const container = waveformContainerRef?.current;
+    if (!container) return;
+    initedRef.current = true;
+
+    const record = RecordPlugin.create({
+      renderRecordedAudio: false,
+      scrollingWaveform: true,
+      scrollingWaveformWindow: 4,
+    });
+
+    const ws = WaveSurfer.create({
+      container,
+      waveColor: "#5180c6",
+      progressColor: "#7196cf",
+      height: 32,
+      barWidth: 2,
+      barGap: 2,
+      barRadius: 2,
+      plugins: [record],
+    });
+
+    record.on("record-end", async (blob: Blob) => {
+      if (blob.size > 10 * 1024 * 1024) {
+        toast.error("Audio too large (max 10 MB)");
+        updateState("idle");
+        return;
+      }
+      updateState("transcribing");
+      try {
+        const text = await transcribeAudio(blob);
+        if (text) onTranscript(text);
+      } catch {
+        toast.error("Transcription failed");
+      } finally {
+        updateState("idle");
+      }
+    });
+
+    wsRef.current = ws;
+    recordRef.current = record;
+  }, [waveformContainerRef, onTranscript, updateState]);
+
+  useEffect(() => {
+    return () => {
+      recordRef.current?.destroy();
+      wsRef.current?.destroy();
+    };
+  }, []);
 
   const handleClick = useCallback(async () => {
-    if (busy) {
-      mediaRef.current?.stop();
+    if (state === "recording") {
+      recordRef.current?.stopRecording();
+      return;
+    }
+    if (state === "transcribing") return;
+
+    ensureInit();
+    if (!recordRef.current) {
+      toast.error("Audio not ready, please try again");
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => chunks.push(e.data);
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        try {
-          const text = await transcribeAudio(blob);
-          if (text) onTranscript(text);
-        } catch {
-          toast.error("Transcription failed");
-        }
-        setBusy(false);
-      };
-      recorder.start();
-      mediaRef.current = recorder;
-      setBusy(true);
+      await recordRef.current.startRecording();
+      updateState("recording");
     } catch {
       toast.error("Microphone access denied");
     }
-  }, [busy, onTranscript]);
+  }, [state, ensureInit, updateState]);
 
   return (
     <button
       type="button"
       onClick={handleClick}
-      title={busy ? "Stop" : "Voice input"}
+      disabled={state === "transcribing"}
+      title={state === "recording" ? "Stop recording" : "Voice input"}
       className={`h-6 w-6 rounded-full flex items-center justify-center transition-colors ${
-        busy
+        state === "recording"
           ? "bg-destructive text-destructive-foreground hover:bg-destructive/80"
           : "text-muted-foreground hover:text-foreground hover:bg-accent"
       }`}
     >
-      {busy ? <Square size={12} /> : <Mic size={14} />}
+      {state === "recording" ? <Square size={12} /> : <Mic size={14} />}
     </button>
   );
 }
