@@ -210,6 +210,17 @@ class CopilotAdapter(AgentAdapterInterface):
         session_opts = SdkSessionConfig(
             working_directory=config.workspace_path,
             on_permission_request=_on_permission,
+            # Tower is a headless orchestrator — there is no interactive terminal.
+            # Appending this instruction prevents the agent from entering plan mode
+            # (which requires Shift+Tab to exit and has no equivalent in a web UI).
+            system_message={
+                "mode": "append",
+                "content": (
+                    "You are running inside Tower, a headless non-interactive orchestration "
+                    "framework. There is no human at a terminal. Do not enter plan mode or "
+                    "pause to present a plan for review. Proceed directly with task execution."
+                ),
+            },
         )
         requested_model = config.model or ""
         if config.model:
