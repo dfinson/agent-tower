@@ -58,6 +58,8 @@ class JobTelemetry:
     model: str = ""
     start_time: float = 0.0
     end_time: float = 0.0
+    # Duration accumulated from previous sessions (carries over on resume)
+    accumulated_duration_ms: float = 0.0
 
     # Token totals (accumulated across all LLM calls)
     input_tokens: int = 0
@@ -94,9 +96,9 @@ class JobTelemetry:
     @property
     def duration_ms(self) -> float:
         if not self.start_time:
-            return 0.0
+            return self.accumulated_duration_ms
         end = self.end_time if self.end_time else time.monotonic()
-        return (end - self.start_time) * 1000
+        return self.accumulated_duration_ms + (end - self.start_time) * 1000
 
     @property
     def context_utilization(self) -> float:
@@ -168,11 +170,43 @@ class TelemetryCollector:
         self._jobs: dict[str, JobTelemetry] = {}
 
     def start_job(self, job_id: str, model: str = "") -> None:
-        self._jobs[job_id] = JobTelemetry(
-            job_id=job_id,
-            model=model,
-            start_time=time.monotonic(),
-        )
+        existing = self._jobs.get(job_id)
+        if existing:
+            # Session resumption: carry over all accumulated metrics; only reset the
+            # monotonic clock (so wall-clock time is additive, not restarted).
+            self._jobs[job_id] = JobTelemetry(
+                job_id=job_id,
+                model=model or existing.model,
+                start_time=time.monotonic(),
+                end_time=0.0,
+                accumulated_duration_ms=existing.duration_ms,
+                input_tokens=existing.input_tokens,
+                output_tokens=existing.output_tokens,
+                total_tokens=existing.total_tokens,
+                cache_read_tokens=existing.cache_read_tokens,
+                cache_write_tokens=existing.cache_write_tokens,
+                total_cost=existing.total_cost,
+                # context_window_size / current_context_tokens reflect live state;
+                # let the new session overwrite them via record_context_snapshot.
+                compactions=existing.compactions,
+                tokens_compacted=existing.tokens_compacted,
+                tool_calls=existing.tool_calls,
+                tool_call_count=existing.tool_call_count,
+                total_tool_duration_ms=existing.total_tool_duration_ms,
+                llm_calls=existing.llm_calls,
+                llm_call_count=existing.llm_call_count,
+                total_llm_duration_ms=existing.total_llm_duration_ms,
+                approval_count=existing.approval_count,
+                total_approval_wait_ms=existing.total_approval_wait_ms,
+                agent_messages=existing.agent_messages,
+                operator_messages=existing.operator_messages,
+            )
+        else:
+            self._jobs[job_id] = JobTelemetry(
+                job_id=job_id,
+                model=model,
+                start_time=time.monotonic(),
+            )
 
     def end_job(self, job_id: str) -> None:
         tel = self._jobs.get(job_id)
