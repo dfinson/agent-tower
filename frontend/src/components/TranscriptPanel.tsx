@@ -377,10 +377,23 @@ function deriveToolGroupLabel(calls: TranscriptEntry[]): string {
   return `${primary}${suffix}`;
 }
 
+/** Extract the intent string from a leading report_intent tool call, if present. */
+function extractReportIntent(calls: TranscriptEntry[]): string | null {
+  const first = calls[0];
+  if (first?.toolName !== "report_intent" || !first.toolArgs) return null;
+  try {
+    const args = JSON.parse(first.toolArgs) as Record<string, unknown>;
+    return typeof args.intent === "string" ? args.intent : null;
+  } catch {
+    return null;
+  }
+}
+
 function ToolGroupSection({ calls }: { calls: TranscriptEntry[] }) {
   const [open, setOpen] = useState(false);
   const anyFailed = calls.some((c) => c.toolSuccess === false);
-  const label = deriveToolGroupLabel(calls);
+  const intentLabel = extractReportIntent(calls);
+  const label = intentLabel ?? deriveToolGroupLabel(calls);
 
   return (
     <div className={cn(
@@ -423,7 +436,11 @@ function AgentTurn({ turn, isLast }: { turn: AgentTurnData; isLast?: boolean }) 
       </div>
       <div className="flex-1 min-w-0 space-y-0.5">
         {turn.reasoning && <ReasoningBlock entry={turn.reasoning} />}
-        {turn.toolCalls.length > 0 && <ToolGroupSection calls={turn.toolCalls} />}
+        {turn.toolCalls.length > 0 && (
+          extractReportIntent(turn.toolCalls) !== null
+            ? <ToolGroupSection calls={turn.toolCalls} />
+            : <ToolChips calls={turn.toolCalls} />
+        )}
         {msg && (
           <div className="bg-muted rounded-xl rounded-tl-sm px-3 py-2 text-sm leading-relaxed">
             {msg.title && (
