@@ -80,6 +80,7 @@ class UtilitySessionService:
         self._round_robin = 0
         self._started = False
         self._pending: int = 0
+        self._active_jobs: int = 0
         self._housekeeping_task: asyncio.Task[None] | None = None
 
     @property
@@ -155,15 +156,51 @@ class UtilitySessionService:
         log.info("utility_session_pool_shutdown")
 
     # ------------------------------------------------------------------
+    # Job-aware proactive scaling
+    # ------------------------------------------------------------------
+
+    async def notify_job_started(self) -> None:
+        """Signal that a new job is running — proactively scale the pool."""
+        self._active_jobs += 1
+        await self._scale_to_target()
+
+    async def notify_job_ended(self) -> None:
+        """Signal that a job finished — pool will shrink via idle housekeeping."""
+        self._active_jobs = max(0, self._active_jobs - 1)
+
+    async def _scale_to_target(self) -> None:
+        """Scale pool up to match active job count (capped at max_pool)."""
+        target = min(max(_MIN_POOL, self._active_jobs), max(_MIN_POOL, self._max_pool_fn()))
+        if len(self._sessions) >= target:
+            return
+        async with self._lock:
+            while len(self._sessions) < target:
+                new_index = len(self._sessions)
+                ws = _WarmSession(model=self._model, index=new_index)
+                try:
+                    await ws.connect()
+                    self._sessions.append(ws)
+                    log.info(
+                        "utility_pool_scaled_up",
+                        new_size=len(self._sessions),
+                        target=target,
+                        active_jobs=self._active_jobs,
+                    )
+                except Exception:
+                    log.warning("utility_pool_scale_up_failed", index=new_index, exc_info=True)
+                    break
+
+    # ------------------------------------------------------------------
     # Autoscaling internals
     # ------------------------------------------------------------------
 
     async def _maybe_scale_up(self) -> None:
         """Spawn a new session if the queue is deeper than current capacity."""
         max_pool = max(_MIN_POOL, self._max_pool_fn())
-        if self._pending > len(self._sessions) and len(self._sessions) < max_pool:
+        target = max(self._pending, self._active_jobs)
+        if target > len(self._sessions) and len(self._sessions) < max_pool:
             async with self._lock:
-                if self._pending > len(self._sessions) and len(self._sessions) < max_pool:
+                if target > len(self._sessions) and len(self._sessions) < max_pool:
                     new_index = len(self._sessions)
                     ws = _WarmSession(model=self._model, index=new_index)
                     try:
@@ -173,6 +210,7 @@ class UtilitySessionService:
                             "utility_pool_scaled_up",
                             new_size=len(self._sessions),
                             pending=self._pending,
+                            active_jobs=self._active_jobs,
                             max_pool=max_pool,
                         )
                     except Exception:
@@ -191,16 +229,16 @@ class UtilitySessionService:
         """Close sessions that have been idle longer than SCALE_DOWN_IDLE_S."""
         now = time.monotonic()
         to_close: list[_WarmSession] = []
+        floor = max(_MIN_POOL, self._active_jobs)
         async with self._lock:
-            if len(self._sessions) <= _MIN_POOL:
+            if len(self._sessions) <= floor:
                 return
             survivors: list[_WarmSession] = []
             for ws in self._sessions:
                 if (
                     ws.index != 0
                     and (now - ws.last_used_at) > _SCALE_DOWN_IDLE_S
-                    and len(survivors) + len([s for s in self._sessions if s not in to_close and s is not ws])
-                    >= _MIN_POOL
+                    and (len(survivors) + len(self._sessions) - len(to_close) - 1) >= floor
                 ):
                     to_close.append(ws)
                 else:

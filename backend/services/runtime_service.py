@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from backend.services.merge_service import MergeService
     from backend.services.platform_adapter import PlatformRegistry
     from backend.services.summarization_service import SummarizationService
+    from backend.services.utility_session import UtilitySessionService
 
 log = structlog.get_logger()
 
@@ -207,7 +208,7 @@ class RuntimeService:
         merge_service: MergeService | None = None,
         summarization_service: SummarizationService | None = None,
         platform_registry: PlatformRegistry | None = None,
-        utility_session: object | None = None,
+        utility_session: UtilitySessionService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
@@ -230,6 +231,10 @@ class RuntimeService:
         self._shutting_down = False
         # Transcript buffer for headline generation (last N agent turns per job)
         self._headline_transcript: dict[str, list[str]] = {}
+        # Last snapshot used for headline generation (fallback when buffer is empty)
+        self._headline_last_snapshot: dict[str, list[str]] = {}
+        # Last generated headline per job (avoid exact repeats)
+        self._headline_last_text: dict[str, str] = {}
         # Contents to suppress when the SDK echoes them back (already published locally)
         self._echo_suppress: dict[str, set[str]] = {}
         # Per-job state for detecting agent turn boundaries and triggering AI tool summaries
@@ -357,11 +362,15 @@ class RuntimeService:
         # Start progress headline generation (periodically summarises what the agent is doing)
         if self._utility_session is not None:
             self._headline_transcript[job_id] = []
+            self._headline_last_snapshot[job_id] = []
+            self._headline_last_text[job_id] = ""
             headline_task = asyncio.create_task(
                 self._headline_loop(job_id),
                 name=f"headline-{job_id}",
             )
             self._headline_tasks[job_id] = headline_task
+            # Proactively scale the utility pool to match running jobs
+            await self._utility_session.notify_job_started()
 
         # Start telemetry tracking
         from backend.services.telemetry import collector as tel
@@ -702,12 +711,16 @@ class RuntimeService:
             if headline_t is not None:
                 headline_t.cancel()
             self._headline_transcript.pop(job_id, None)
+            self._headline_last_snapshot.pop(job_id, None)
+            self._headline_last_text.pop(job_id, None)
             self._turn_tool_buffer.pop(job_id, None)
             self._tasks.pop(job_id, None)
             self._strategies.pop(job_id, None)
             self._last_activity.pop(job_id, None)
             self._session_ids.pop(job_id, None)
             self._echo_suppress.pop(job_id, None)
+            if self._utility_session is not None:
+                await self._utility_session.notify_job_ended()
             if self._approval_service is not None:
                 self._approval_service.cleanup_job(job_id)
             if self._diff_service is not None:
@@ -796,6 +809,20 @@ class RuntimeService:
                         payload={"turn_id": turn_id, "summary": summary},
                     )
                 )
+                # Also emit as a log line so it appears in the ExecutionTimeline
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=_make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.log_line_emitted,
+                        payload={
+                            "level": "info",
+                            "message": f"Completed: {summary}",
+                            "context": {"source": "tool_summary"},
+                        },
+                    )
+                )
         except Exception:
             log.debug("tool_group_summary_failed", job_id=job_id, turn_id=turn_id, exc_info=True)
 
@@ -807,24 +834,37 @@ class RuntimeService:
             "is currently doing. Use present continuous tense. No period at the end. "
             "Respond with ONLY the headline, nothing else.\n\nMessages:\n"
         )
+        initial_delay_s = 8
+        interval_s = 15
         try:
+            await asyncio.sleep(initial_delay_s)
+            first = True
             while True:
-                await asyncio.sleep(45)  # generate every ~45 seconds
-
                 buf = self._headline_transcript.get(job_id)
-                if not buf:
-                    continue
 
-                # Snapshot and clear buffer
-                recent = list(buf)
-                buf.clear()
+                if buf:
+                    # Fresh messages available — snapshot them
+                    recent = list(buf)
+                    buf.clear()
+                    self._headline_last_snapshot[job_id] = recent
+                else:
+                    # No new messages — reuse last snapshot as fallback
+                    recent = self._headline_last_snapshot.get(job_id, [])
+
+                if not recent:
+                    if not first:
+                        await asyncio.sleep(interval_s)
+                    first = False
+                    continue
 
                 prompt = headline_prompt + "\n---\n".join(msg[:300] for msg in recent)
 
                 try:
                     headline = await self._utility_session.complete(prompt, timeout=10)  # type: ignore[union-attr]
                     headline = headline.strip().strip('"').strip(".")
-                    if headline and len(headline) > 3:
+                    last = self._headline_last_text.get(job_id, "")
+                    if headline and len(headline) > 3 and headline != last:
+                        self._headline_last_text[job_id] = headline
                         await self._event_bus.publish(
                             DomainEvent(
                                 event_id=_make_event_id(),
@@ -834,8 +874,25 @@ class RuntimeService:
                                 payload={"headline": headline},
                             )
                         )
+                        # Also emit as a log line so it appears in the ExecutionTimeline
+                        await self._event_bus.publish(
+                            DomainEvent(
+                                event_id=_make_event_id(),
+                                job_id=job_id,
+                                timestamp=datetime.now(UTC),
+                                kind=DomainEventKind.log_line_emitted,
+                                payload={
+                                    "level": "info",
+                                    "message": f"Progress: {headline}",
+                                    "context": {"source": "headline"},
+                                },
+                            )
+                        )
                 except Exception:
                     log.debug("headline_generation_failed", job_id=job_id, exc_info=True)
+
+                await asyncio.sleep(interval_s)
+                first = False
         except asyncio.CancelledError:
             pass
 
@@ -954,7 +1011,7 @@ class RuntimeService:
                 job = await job_repo.get(job_id)
             if job is None:
                 return
-            # Skip if already summarized (e.g. rapid retry)
+            # Skip if this specific session was already summarized (e.g. rapid retry)
             from backend.persistence.artifact_repo import ArtifactRepository
             from backend.services.artifact_service import ArtifactService
 
@@ -962,7 +1019,13 @@ class RuntimeService:
                 artifact_svc = ArtifactService(ArtifactRepository(session))
                 existing = await artifact_svc.get_latest_session_summary(job_id)
                 if existing is not None:
-                    return
+                    # Check if the existing summary is for the current session
+                    import re
+
+                    m = re.search(r"session-(\d+)-summary", existing.name)
+                    existing_session = int(m.group(1)) if m else 0
+                    if existing_session >= job.session_count:
+                        return  # already summarized this session
             await self._summarization_service.summarize_and_store(job_id, job.session_count, job.prompt)
         except Exception:
             log.warning("summarize_session_background_failed", job_id=job_id, exc_info=True)
