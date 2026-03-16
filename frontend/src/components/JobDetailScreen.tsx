@@ -124,7 +124,7 @@ export function JobDetailScreen() {
     setResolveLoading(action);
     try {
       await resolveJob(jobId, action);
-      toast.success(action === "merge" ? "Merged" : action === "create_pr" ? "PR created" : "Discarded");
+      toast.success(action === "merge" || action === "smart_merge" ? "Merged" : action === "create_pr" ? "PR created" : "Discarded");
     } catch (e) { toast.error(String(e)); }
     finally { setResolveLoading(null); }
   }, [jobId]);
@@ -212,26 +212,13 @@ export function JobDetailScreen() {
                     size="sm"
                     variant="outline"
                     className="gap-1"
-                    loading={resolveLoading === "merge"}
-                    disabled={resolveLoading !== null}
-                    onClick={() => handleResolve("merge")}
-                  >
-                    <GitMerge size={14} />
-                    Merge
-                  </Button>
-                )}
-                {job.resolution !== "conflict" && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1"
                     loading={resolveLoading === "smart_merge"}
                     disabled={resolveLoading !== null}
                     onClick={() => handleResolve("smart_merge")}
-                    title="Cherry-pick commits onto the base branch for a clean linear history"
+                    title="Cherry-pick changes onto the base branch, resolving conflicts intelligently"
                   >
                     <GitMerge size={14} />
-                    Smart Merge
+                    Auto Merge
                   </Button>
                 )}
                 <Button
@@ -361,27 +348,39 @@ export function JobDetailScreen() {
         )}
 
         {/* Success banner */}
-        {job.state === "succeeded" && (
-          <div className="mt-3 rounded-md border border-green-500/30 bg-green-500/10 p-3">
-            <div className="flex items-start gap-2">
-              <CheckCircle2 size={16} className="text-green-500 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-green-500">Job succeeded</p>
-                <p className="text-sm text-green-400 mt-0.5">
-                  {job.resolution === "merged" && "Changes merged into base branch."}
-                  {job.resolution === "pr_created" && "Pull request created."}
-                  {job.resolution === "discarded" && (hasChanges ? "Changes discarded." : "Completed — no changes to merge.")}
-                  {job.resolution === "conflict" && "Merge conflict — changes pushed to branch for manual resolution."}
-                  {(job.resolution === "unresolved" || !job.resolution) && (
-                    hasChanges
-                      ? "Awaiting resolution — merge, create PR, or discard."
-                      : "Completed with no changes to merge."
-                  )}
-                </p>
+        {job.state === "succeeded" && (() => {
+          const isConflict = job.resolution === "conflict";
+          const isSignOff = job.resolution === "unresolved" || !job.resolution;
+          return (
+            <div className={`mt-3 rounded-md border p-3 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
+              <div className="flex items-start gap-2">
+                {isConflict ? (
+                  <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                ) : isSignOff ? (
+                  <GitMerge size={16} className="text-blue-500 shrink-0 mt-0.5" />
+                ) : (
+                  <CheckCircle2 size={16} className="text-green-500 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <p className={`text-sm font-medium ${isConflict ? "text-amber-500" : isSignOff ? "text-blue-500" : "text-green-500"}`}>
+                    {isConflict ? "Merge conflict — user input required" : isSignOff ? "Sign off required" : "Job succeeded"}
+                  </p>
+                  <p className={`text-sm mt-0.5 ${isConflict ? "text-amber-400" : isSignOff ? "text-blue-400" : "text-green-400"}`}>
+                    {job.resolution === "merged" && "Changes merged into base branch."}
+                    {job.resolution === "pr_created" && "Pull request created."}
+                    {job.resolution === "discarded" && (hasChanges ? "Changes discarded." : "Completed — no changes to merge.")}
+                    {isConflict && "Changes could not be resolved automatically. Create a PR to resolve conflicts manually, or discard."}
+                    {isSignOff && (
+                      hasChanges
+                        ? "Choose how to handle the changes: auto merge onto the main worktree, create a PR, or discard."
+                        : "Completed with no changes to merge."
+                    )}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Canceled banner */}
         {job.state === "canceled" && (
