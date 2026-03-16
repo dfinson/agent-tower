@@ -574,59 +574,16 @@ class RuntimeService:
                 await self._fail_job(job_id, error_reason)
                 return
 
-            # Final diff snapshot before merge/PR
+            # Final diff snapshot before resolution
             if self._diff_service is not None and worktree_path and base_ref:
                 try:
                     await self._diff_service.finalize(job_id, worktree_path, base_ref)
                 except Exception:
                     log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
 
-            # Determine completion strategy
-            merge_result = None
-            pr_url: str | None = None
-            final_resolution: str | None = None
-
-            # Get the full job to read completion_strategy
-            async with self._session_factory() as session:
-                svc = self._make_job_service(session)
-                full_job = await svc.get_job(job_id)
-
-            if full_job is not None:
-                # Use per-job strategy or fall back to config default
-                comp_strategy = full_job.completion_strategy
-                if comp_strategy is None and self._merge_service is not None:
-                    comp_strategy = self._merge_service._config.strategy  # noqa: SLF001
-
-                if comp_strategy == "manual":
-                    # Leave for operator to resolve
-                    final_resolution = "unresolved"
-                    log.info("job_manual_resolution", job_id=job_id)
-                elif self._merge_service is not None and base_ref:
-                    try:
-                        merge_result = await self._merge_service.try_merge_back(
-                            job_id=job_id,
-                            repo_path=full_job.repo,
-                            worktree_path=full_job.worktree_path,
-                            branch=full_job.branch,
-                            base_ref=full_job.base_ref,
-                            prompt=full_job.prompt,
-                        )
-                        pr_url = merge_result.pr_url
-                        # Map merge result to resolution
-                        if merge_result.status == "merged":
-                            final_resolution = "merged"
-                        elif merge_result.status == "pr_created":
-                            final_resolution = "pr_created"
-                        elif merge_result.status == "conflict":
-                            final_resolution = "conflict"
-                        else:
-                            final_resolution = "unresolved"
-                    except Exception:
-                        log.warning("merge_back_failed", job_id=job_id, exc_info=True)
-                        final_resolution = "unresolved"
-                else:
-                    pr_url = await self._try_create_pr(job_id)
-                    final_resolution = "pr_created" if pr_url else "unresolved"
+            # Always go to sign-off: leave resolution to operator
+            final_resolution: str = "unresolved"
+            log.info("job_awaiting_sign_off", job_id=job_id)
 
             # Strategy completed normally → succeeded
             async with self._session_factory() as session:
@@ -635,19 +592,8 @@ class RuntimeService:
                 from backend.persistence.job_repo import JobRepository
 
                 job_repo = JobRepository(session)
-                if pr_url:
-                    await job_repo.update_pr_url(job_id, pr_url)
-                if final_resolution:
-                    await job_repo.update_resolution(job_id, final_resolution, pr_url=pr_url)
+                await job_repo.update_resolution(job_id, final_resolution, pr_url=None)
                 await session.commit()
-
-            payload: dict[str, str] = {}
-            if pr_url:
-                payload["pr_url"] = pr_url
-            if merge_result:
-                payload["merge_status"] = merge_result.status
-            if final_resolution:
-                payload["resolution"] = final_resolution
 
             await self._event_bus.publish(
                 DomainEvent(
@@ -655,14 +601,12 @@ class RuntimeService:
                     job_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.job_succeeded,
-                    payload=payload,
+                    payload={"resolution": final_resolution},
                 )
             )
             log.info(
                 "job_succeeded",
                 job_id=job_id,
-                pr_url=pr_url,
-                merge_status=merge_result.status if merge_result else None,
                 resolution=final_resolution,
             )
         except asyncio.CancelledError:
