@@ -13,6 +13,7 @@ import { sendOperatorMessage, resumeJob, pauseJob, resolveApproval } from "../ap
 import { MicButton } from "./VoiceButton";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
+import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -495,10 +496,12 @@ export function TranscriptPanel({
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const waveformContainerRef = useRef<HTMLDivElement>(null);
   const [msg, setMsg] = useState("");
   const [sending, setSending] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [micState, setMicState] = useState<"idle" | "recording" | "transcribing">("idle");
 
   const agentMessageCount = rawEntries.filter((e) => e.role === "agent").length;
 
@@ -648,7 +651,23 @@ export function TranscriptPanel({
 
       {/* Input */}
       {interactive && (
-        <div className="p-2 border-t border-border shrink-0">
+        <div className="p-2 border-t border-border shrink-0 flex flex-col gap-1.5">
+          {/* Waveform strip — always mounted for WaveSurfer stability, shown only during recording */}
+          <div className={cn(
+            "rounded border border-blue-600/50 bg-card px-3 py-1",
+            micState === "recording" ? "block" : "hidden",
+          )}>
+            <div ref={waveformContainerRef} />
+          </div>
+
+          {/* Transcribing indicator */}
+          {micState === "transcribing" && (
+            <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
+              <Spinner size="sm" />
+              <span>Transcribing…</span>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Input
@@ -656,17 +675,21 @@ export function TranscriptPanel({
                 value={msg}
                 onChange={(e) => setMsg(e.currentTarget.value)}
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                disabled={sending}
+                disabled={sending || micState !== "idle"}
                 className="pr-8"
               />
               <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                <MicButton onTranscript={(t) => setMsg((prev) => (prev ? prev + " " : "") + t)} />
+                <MicButton
+                  onTranscript={(t) => setMsg((prev) => (prev ? prev + " " : "") + t)}
+                  onStateChange={setMicState}
+                  waveformContainerRef={waveformContainerRef}
+                />
               </div>
             </div>
             <Button
               size="icon"
               onClick={handleSend}
-              disabled={sending || !msg.trim()}
+              disabled={sending || !msg.trim() || micState !== "idle"}
               loading={sending}
             >
               <Send size={16} />
