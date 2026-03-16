@@ -319,10 +319,15 @@ class CopilotAdapter(AgentAdapterInterface):
                         if data.mcp_server_name and data.mcp_tool_name
                         else t_name
                     )
+                    # Capture human-readable intent/title fields from the SDK if present
+                    tool_intent: str = getattr(data, "intention", None) or ""
+                    tool_title: str = getattr(data, "tool_title", None) or ""
                     self._tool_call_buffer[tool_id] = {
                         "tool_name": t_name_display,
                         "tool_args": args_str or "",
                         "turn_id": str(data.turn_id) if hasattr(data, "turn_id") and data.turn_id else "",
+                        "tool_intent": tool_intent,
+                        "tool_title": tool_title,
                     }
                 elif kind_str == "tool.execution_complete":
                     tool_id = data.tool_call_id or ""
@@ -496,6 +501,8 @@ class CopilotAdapter(AgentAdapterInterface):
                             "tool_result": result_text,
                             "tool_success": bool(data.success) if data and data.success is not None else True,
                             "turn_id": buffered.get("turn_id") or (data.turn_id if data else None),
+                            "tool_intent": buffered.get("tool_intent"),
+                            "tool_title": buffered.get("tool_title"),
                         }
                 else:
                     event_payload = payload if isinstance(payload, dict) else {}

@@ -29,6 +29,7 @@ from backend.models.api_schemas import (
     SessionHeartbeatPayload,
     SessionResumedPayload,
     SnapshotPayload,
+    ToolGroupSummaryPayload,
     TranscriptPayload,
 )
 from backend.models.events import DomainEvent, DomainEventKind
@@ -63,6 +64,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.job_title_updated: "job_title_updated",
     DomainEventKind.progress_headline: "progress_headline",
     DomainEventKind.model_downgraded: "model_downgraded",
+    DomainEventKind.tool_group_summary: "tool_group_summary",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -268,6 +270,14 @@ def _build_sse_data(event: DomainEvent, sse_type: str) -> str:
             job_id=event.job_id,
             requested_model=event.payload.get("requested_model", ""),
             actual_model=event.payload.get("actual_model", ""),
+            timestamp=event.timestamp,
+        ).model_dump_json(by_alias=True)
+
+    if sse_type == "tool_group_summary":
+        return ToolGroupSummaryPayload(
+            job_id=event.job_id,
+            turn_id=event.payload.get("turn_id", ""),
+            summary=event.payload.get("summary", ""),
             timestamp=event.timestamp,
         ).model_dump_json(by_alias=True)
 

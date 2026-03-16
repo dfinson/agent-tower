@@ -79,6 +79,10 @@ export interface TranscriptEntry {
   toolArgs?: string;     // tool_call: JSON-serialised arguments
   toolResult?: string;   // tool_call: text output
   toolSuccess?: boolean; // tool_call: success flag
+  toolIntent?: string;   // tool_call: SDK-provided intent string (deterministic label)
+  toolTitle?: string;    // tool_call: SDK-provided display title
+  // AI-generated group summary — patched in asynchronously via tool_group_summary SSE
+  toolGroupSummary?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +195,8 @@ export const useTowerStore = create<TowerState>((set, get) => ({
             toolArgs: payload.toolArgs as string | undefined,
             toolResult: payload.toolResult as string | undefined,
             toolSuccess: payload.toolSuccess as boolean | undefined,
+            toolIntent: payload.toolIntent as string | undefined,
+            toolTitle: payload.toolTitle as string | undefined,
           };
           const existing = state.transcript[jobId] ?? [];
           // Deduplicate: two SSE connections (global + job-scoped) may deliver
@@ -393,6 +399,24 @@ export const useTowerStore = create<TowerState>((set, get) => ({
             };
           }
           return null;
+        }
+
+        case "tool_group_summary": {
+          const jobId = payload.jobId as string;
+          const turnId = payload.turnId as string;
+          const summary = payload.summary as string;
+          const entries = state.transcript[jobId];
+          if (!entries) return null;
+          let changed = false;
+          const patched = entries.map((e) => {
+            if (e.role === "tool_call" && e.turnId === turnId && !e.toolGroupSummary) {
+              changed = true;
+              return { ...e, toolGroupSummary: summary };
+            }
+            return e;
+          });
+          if (!changed) return null;
+          return { transcript: { ...state.transcript, [jobId]: patched } };
         }
 
         case "progress_headline": {

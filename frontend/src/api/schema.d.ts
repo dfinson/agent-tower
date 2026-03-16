@@ -1022,6 +1022,10 @@ export interface components {
             toolResult?: string | null;
             /** Toolsuccess */
             toolSuccess?: boolean | null;
+            /** Toolintent */
+            toolIntent?: string | null;
+            /** Tooltitle */
+            toolTitle?: string | null;
         };
         /**
          * TranscriptRole
