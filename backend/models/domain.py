@@ -88,18 +88,16 @@ def validate_state_transition(from_state: str | None, to_state: str) -> None:
 class PermissionMode(StrEnum):
     """Controls how the agent adapter handles SDK permission requests.
 
-    permissive  — auto-approve everything, no operator prompts.
-    auto        — auto-approve reads/writes within workspace; ask for
-                  shell commands, URL fetches, writes outside workspace,
-                  and writes to protected paths.
-    supervised  — ask the operator for every permission request.
-    readonly    — deny any mutation (write/shell/url), approve reads.
+    auto              — Everything auto-approved within worktree. No prompts.
+    read_only         — Allow reads + grep/find. Block all writes/mutations.
+    approval_required — Always allow read_file. Require approval for
+                        shell commands (except grep/find), URL fetches,
+                        and any write operations.
     """
 
-    permissive = "permissive"
     auto = "auto"
-    supervised = "supervised"
-    readonly = "readonly"
+    read_only = "read_only"
+    approval_required = "approval_required"
 
 
 class SessionEventKind(StrEnum):
@@ -146,7 +144,6 @@ class Job:
     repo: str
     prompt: str
     state: str
-    strategy: str
     base_ref: str
     branch: str | None
     worktree_path: str | None
@@ -158,8 +155,8 @@ class Job:
     merge_status: str | None = None  # not_merged | merged | conflict | pr_created
     resolution: str | None = None  # unresolved | merged | pr_created | discarded | conflict
     archived_at: datetime | None = None
-    completion_strategy: str | None = None  # auto_merge | pr_only | manual
     title: str | None = None
+    worktree_name: str | None = None
     permission_mode: str = "auto"
     session_count: int = 1
     sdk_session_id: str | None = None
