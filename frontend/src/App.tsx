@@ -1,6 +1,6 @@
-import { Component, type ReactNode } from "react";
+import { Component, type ReactNode, useEffect, useCallback } from "react";
 import { Routes, Route, Link } from "react-router-dom";
-import { Settings, History } from "lucide-react";
+import { Settings, History, TerminalSquare } from "lucide-react";
 import { useSSE } from "./hooks/useSSE";
 import { useStore, selectConnectionStatus } from "./store";
 import { DashboardScreen } from "./components/DashboardScreen";
@@ -8,6 +8,7 @@ import { JobDetailScreen } from "./components/JobDetailScreen";
 import { JobCreationScreen } from "./components/JobCreationScreen";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { HistoryScreen } from "./components/HistoryScreen";
+import { TerminalDrawer } from "./components/TerminalDrawer";
 import { DotBadge } from "./components/ui/badge";
 
 /* ------------------------------------------------------------------ */
@@ -63,6 +64,24 @@ function ConnectionStatus() {
 
 export function App() {
   useSSE();
+  const toggleTerminalDrawer = useStore((s) => s.toggleTerminalDrawer);
+  const terminalDrawerOpen = useStore((s) => s.terminalDrawerOpen);
+  const sessionCount = useStore((s) => Object.keys(s.terminalSessions).length);
+
+  // Ctrl+` keyboard shortcut to toggle the terminal drawer
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "`") {
+        e.preventDefault();
+        toggleTerminalDrawer();
+      }
+    },
+    [toggleTerminalDrawer],
+  );
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   return (
     <div className="flex flex-col h-screen">
@@ -76,6 +95,17 @@ export function App() {
 
         <div className="flex items-center gap-3 opacity-[0.78]">
           <ConnectionStatus />
+          <button
+            onClick={toggleTerminalDrawer}
+            className={`p-1.5 rounded-md transition-colors ${
+              terminalDrawerOpen
+                ? "text-foreground bg-accent"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            }`}
+            title={`Terminal (Ctrl+\`)${sessionCount > 0 ? ` — ${sessionCount} session${sessionCount > 1 ? "s" : ""}` : ""}`}
+          >
+            <TerminalSquare size={16} />
+          </button>
           <Link
             to="/history"
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors no-underline"
@@ -92,7 +122,7 @@ export function App() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4">
+      <main className={`flex-1 overflow-y-auto p-4 ${terminalDrawerOpen ? "min-h-0" : ""}`}>
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<DashboardScreen />} />
@@ -103,6 +133,8 @@ export function App() {
           </Routes>
         </ErrorBoundary>
       </main>
+
+      <TerminalDrawer />
     </div>
   );
 }

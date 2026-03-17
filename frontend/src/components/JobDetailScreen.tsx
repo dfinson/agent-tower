@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, GitBranch, BookOpen } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, GitBranch, BookOpen, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -19,6 +19,9 @@ const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazy(() => import("./DiffViewer"));
 const ArtifactViewer = lazy(() => import("./ArtifactViewer"));
 
+import { TerminalPanel } from "./TerminalPanel";
+import { useStore as useTerminalStore } from "../store";
+
 export function JobDetailScreen() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
@@ -32,6 +35,43 @@ export function JobDetailScreen() {
   const [hasArtifacts, setHasArtifacts] = useState(false);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
+  const hasWorktree = !!job?.worktreePath;
+
+  // Job-scoped terminal session
+  const [jobTerminalSessionId, setJobTerminalSessionId] = useState<string | null>(null);
+  const addTerminalSession = useTerminalStore((s) => s.addTerminalSession);
+  const terminalSessions = useTerminalStore((s) => s.terminalSessions);
+
+  const handleOpenJobTerminal = useCallback(async () => {
+    if (!job?.worktreePath || !jobId) return;
+
+    // Check if there's already a terminal session for this job
+    const existing = Object.values(terminalSessions).find((s) => s.jobId === jobId);
+    if (existing) {
+      setJobTerminalSessionId(existing.id);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/terminal/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: job.worktreePath, jobId }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const session = {
+        id: data.id,
+        label: job.branch || jobId,
+        cwd: job.worktreePath,
+        jobId,
+      };
+      addTerminalSession(session);
+      setJobTerminalSessionId(data.id);
+    } catch (e) {
+      console.error("[terminal] Failed to create job terminal:", e);
+    }
+  }, [job?.worktreePath, job?.branch, jobId, terminalSessions, addTerminalSession]);
 
   // Open a job-scoped SSE connection for full event streaming (no suppression
   // even when >20 active jobs). Closed automatically when navigating away.
@@ -433,11 +473,15 @@ export function JobDetailScreen() {
         <CompleteJobDialog job={job} open onClose={() => setCompleteOpen(false)} onArchived={() => navigate("/")} />
       )}
 
-      <Tabs value={tab} onValueChange={setTab} className="mb-4">
+      <Tabs value={tab} onValueChange={(v) => {
+        setTab(v);
+        if (v === "terminal" && !jobTerminalSessionId) handleOpenJobTerminal();
+      }} className="mb-4">
         <TabsList className="overflow-x-auto">
           <TabsTrigger value="live">Live</TabsTrigger>
           <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
           <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
+          {hasWorktree && <TabsTrigger value="terminal"><TerminalSquare size={13} className="mr-1.5" />Terminal</TabsTrigger>}
           {hasArtifacts && <TabsTrigger value="artifacts">Artifacts</TabsTrigger>}
         </TabsList>
       </Tabs>
@@ -468,6 +512,19 @@ export function JobDetailScreen() {
         <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
           <ArtifactViewer jobId={jobId} />
         </Suspense>
+      )}
+
+      {tab === "terminal" && hasWorktree && (
+        <div className="h-[32rem] rounded-lg overflow-hidden border border-border">
+          {jobTerminalSessionId ? (
+            <TerminalPanel sessionId={jobTerminalSessionId} />
+          ) : (
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+              <Spinner />
+              <span className="ml-2">Starting terminal…</span>
+            </div>
+          )}
+        </div>
       )}
 
     </div>

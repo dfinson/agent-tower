@@ -111,6 +111,14 @@ export function enrichJob(job: JobSummary): JobSummary {
 // Store shape
 // ---------------------------------------------------------------------------
 
+/** Terminal session metadata tracked in the store. */
+export interface TerminalSession {
+  id: string;
+  label: string;
+  cwd?: string;
+  jobId?: string | null;
+}
+
 interface AppState {
   // Data slices
   jobs: Record<string, JobSummary>;
@@ -120,6 +128,12 @@ interface AppState {
   diffs: Record<string, DiffFileModel[]>; // keyed by jobId
   timelines: Record<string, TimelineEntry[]>; // keyed by jobId
 
+  // Terminal state
+  terminalDrawerOpen: boolean;
+  terminalDrawerHeight: number;
+  terminalSessions: Record<string, TerminalSession>;
+  activeTerminalTab: string | null;
+
   // UI state
   connectionStatus: ConnectionStatus;
 
@@ -127,6 +141,14 @@ interface AppState {
   setConnectionStatus: (status: ConnectionStatus) => void;
   dispatchSSEEvent: (eventType: string, data: unknown) => void;
   applySnapshot: (jobs: JobSummary[], approvals: ApprovalRequest[]) => void;
+
+  // Terminal actions
+  toggleTerminalDrawer: () => void;
+  setTerminalDrawerHeight: (height: number) => void;
+  setActiveTerminalTab: (id: string) => void;
+  addTerminalSession: (session: TerminalSession) => void;
+  removeTerminalSession: (id: string) => void;
+  createTerminalSession: (opts?: { cwd?: string; jobId?: string; label?: string }) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -137,6 +159,12 @@ export const useStore = create<AppState>((set, get) => ({
   diffs: {},
   timelines: {},
   connectionStatus: "reconnecting",
+
+  // Terminal state
+  terminalDrawerOpen: false,
+  terminalDrawerHeight: 300,
+  terminalSessions: {},
+  activeTerminalTab: null,
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
 
@@ -506,6 +534,73 @@ export const useStore = create<AppState>((set, get) => ({
     // Only call set() if the handler returned an actual update
     if (update !== null) {
       set(update);
+    }
+  },
+
+  // ------------------------------------------------------------------
+  // Terminal actions
+  // ------------------------------------------------------------------
+
+  toggleTerminalDrawer: () =>
+    set((s) => ({ terminalDrawerOpen: !s.terminalDrawerOpen })),
+
+  setTerminalDrawerHeight: (height) => set({ terminalDrawerHeight: height }),
+
+  setActiveTerminalTab: (id) => set({ activeTerminalTab: id }),
+
+  addTerminalSession: (session) =>
+    set((s) => ({
+      terminalSessions: { ...s.terminalSessions, [session.id]: session },
+      activeTerminalTab: session.id,
+      terminalDrawerOpen: true,
+    })),
+
+  removeTerminalSession: (id) =>
+    set((s) => {
+      const { [id]: _removed, ...rest } = s.terminalSessions;
+      // Delete the session on the backend (fire-and-forget)
+      fetch(`/api/terminal/sessions/${id}`, { method: "DELETE" }).catch(() => {});
+      const remaining = Object.keys(rest);
+      return {
+        terminalSessions: rest,
+        activeTerminalTab:
+          s.activeTerminalTab === id
+            ? remaining.length > 0
+              ? remaining[remaining.length - 1]
+              : null
+            : s.activeTerminalTab,
+      };
+    }),
+
+  createTerminalSession: async (opts) => {
+    try {
+      const res = await fetch("/api/terminal/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd: opts?.cwd ?? null,
+          jobId: opts?.jobId ?? null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[terminal] Failed to create session:", err);
+        return;
+      }
+      const data = await res.json();
+      const session: TerminalSession = {
+        id: data.id,
+        label: opts?.label || data.cwd?.split("/").pop() || "Terminal",
+        cwd: data.cwd,
+        jobId: data.jobId ?? opts?.jobId,
+      };
+      set((s) => ({
+        terminalSessions: { ...s.terminalSessions, [session.id]: session },
+        activeTerminalTab: session.id,
+        terminalDrawerOpen: true,
+      }));
+    } catch (e) {
+      console.error("[terminal] Error creating session:", e);
     }
   },
 }));
