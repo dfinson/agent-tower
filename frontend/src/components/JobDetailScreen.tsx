@@ -185,7 +185,7 @@ export function JobDetailScreen() {
     finally { setActionLoading(false); }
   }, [jobId, navigate]);
 
-  const handleResolve = useCallback(async (action: "merge" | "smart_merge" | "create_pr" | "discard") => {
+  const handleResolve = useCallback(async (action: "merge" | "smart_merge" | "create_pr" | "discard" | "agent_merge") => {
     if (!jobId) return;
     setResolveLoading(action);
     try {
@@ -195,6 +195,8 @@ export function JobDetailScreen() {
           description: res.prUrl,
           action: { label: "Open", onClick: () => window.open(res.prUrl!, "_blank") },
         });
+      } else if (action === "agent_merge") {
+        toast.success("Resolving with agent…");
       } else {
         toast.success(action === "merge" || action === "smart_merge" ? "Merged" : action === "create_pr" ? "PR created" : "Discarded");
       }
@@ -289,6 +291,20 @@ export function JobDetailScreen() {
                   >
                     <GitMerge size={14} />
                     Merge
+                  </Button>
+                )}
+                {job.resolution === "conflict" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    loading={resolveLoading === "agent_merge"}
+                    disabled={resolveLoading !== null}
+                    onClick={() => handleResolve("agent_merge")}
+                    title="Ask the agent to resolve the merge conflict"
+                  >
+                    <GitMerge size={14} />
+                    Resolve with Agent
                   </Button>
                 )}
                 <Button
@@ -443,7 +459,7 @@ export function JobDetailScreen() {
                     {job.resolution === "merged" && "Changes merged into base branch."}
                     {job.resolution === "pr_created" && "Pull request created."}
                     {job.resolution === "discarded" && (hasChanges ? "Changes discarded." : "Completed — no changes to merge.")}
-                    {isConflict && "Changes could not be resolved automatically. Create a PR to resolve conflicts manually, or discard."}
+                    {isConflict && "Merge conflict detected. Resolve with the agent, create a PR to fix manually, or discard."}
                     {isSignOff && (
                       hasChanges
                         ? "Choose how to handle the changes: auto merge onto the main worktree, create a PR, or discard."

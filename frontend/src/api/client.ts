@@ -313,7 +313,7 @@ export function resumeJob(
 
 export function resolveJob(
   jobId: string,
-  action: "merge" | "smart_merge" | "create_pr" | "discard",
+  action: "merge" | "smart_merge" | "create_pr" | "discard" | "agent_merge",
 ): Promise<{ resolution: string; prUrl?: string | null; conflictFiles?: string[] | null }> {
   return request(`/jobs/${encodeURIComponent(jobId)}/resolve`, {
     method: "POST",
