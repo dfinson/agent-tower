@@ -86,7 +86,6 @@ def _job_to_response(job: Any) -> dict[str, Any]:
         repo=job.repo,
         prompt=job.prompt,
         state=job.state,
-        strategy=job.strategy,
         base_ref=job.base_ref,
         worktree_path=job.worktree_path,
         branch=job.branch,
@@ -147,13 +146,12 @@ def create_mcp_server(
 
 
 def _register_job_tools(mcp: FastMCP) -> None:
-    @mcp.tool(name="cpl_job_create", description="Create a new coding job (repo, prompt, strategy, options)")
+    @mcp.tool(name="cpl_job_create", description="Create a new coding job (repo, prompt, options)")
     async def cpl_job_create(
         repo: str,
         prompt: str,
         base_ref: str | None = None,
         branch: str | None = None,
-        strategy: str = "single_agent",
     ) -> dict[str, Any]:
         sf = _get_session_factory()
         config = load_config()
@@ -169,7 +167,6 @@ def _register_job_tools(mcp: FastMCP) -> None:
                     prompt=prompt,
                     base_ref=base_ref,
                     branch=branch,
-                    strategy=strategy,
                 )
             except RepoNotAllowedError as exc:
                 return {"error": str(exc)}
@@ -217,7 +214,6 @@ def _register_job_tools(mcp: FastMCP) -> None:
                     repo=j.repo,
                     prompt=j.prompt,
                     state=j.state,
-                    strategy=j.strategy,
                     base_ref=j.base_ref,
                     worktree_path=j.worktree_path,
                     branch=j.branch,
