@@ -55,7 +55,7 @@ CodePlane turns autonomous coding agents into something observable, controllable
 | Live monitoring | Watch agent reasoning, logs, and code changes as they happen |
 | Approval gating | Intercept and approve or reject risky actions before they execute |
 | Operator intervention | Send messages, cancel, or rerun jobs at any time |
-| Workspace isolation | Jobs use the main worktree; secondary worktrees for concurrency |
+| Workspace isolation | Every job gets its own isolated worktree under `.codeplane-worktrees/` |
 | Remote access | Dev Tunnel exposes the UI over HTTPS for phone/remote control |
 | Voice input | Speak prompts and operator instructions into the browser |
 | Artifact inspection | Browse files, diffs, and produced outputs from every job |
@@ -313,7 +313,6 @@ backend/
 ├── services/
 │   ├── job_service.py         # Job lifecycle orchestration
 │   ├── runtime_service.py     # Long-running job execution manager
-│   ├── execution_strategy.py  # ExecutionStrategy interface + SingleAgentExecutor
 │   ├── git_service.py         # Git worktree and branch operations
 │   ├── agent_adapter.py       # Agent adapter (interface + Copilot impl)
 │   ├── event_bus.py           # Internal event bus
@@ -321,6 +320,15 @@ backend/
 │   ├── approval_service.py    # Approval request persistence and routing
 │   ├── artifact_service.py    # Artifact storage and retrieval
 │   ├── diff_service.py        # Diff generation and parsing
+│   ├── merge_service.py       # Merge-back, PR creation, and conflict handling
+│   ├── permission_policy.py   # Permission mode evaluation for SDK requests
+│   ├── platform_adapter.py    # Per-platform integration (GitHub, etc.)
+│   ├── retention_service.py   # Artifact and worktree retention cleanup
+│   ├── setup_service.py       # Interactive dependency setup
+│   ├── summarization_service.py # Post-session LLM summarization
+│   ├── telemetry.py           # Observability and telemetry
+│   ├── utility_session.py     # Utility LLM sessions (naming, summaries)
+│   ├── auth.py                # Authentication helpers
 │   └── voice_service.py       # faster-whisper transcription
 ├── models/
 │   ├── db.py                  # SQLAlchemy models
@@ -328,10 +336,12 @@ backend/
 │   ├── events.py              # Canonical event types
 │   └── api_schemas.py         # Pydantic request/response schemas
 ├── persistence/
+│   ├── database.py            # Database engine and session management
 │   ├── repository.py          # Base repository pattern
 │   ├── job_repo.py            # Job persistence
 │   ├── event_repo.py          # Event persistence
-│   └── artifact_repo.py       # Artifact metadata persistence
+│   ├── artifact_repo.py       # Artifact metadata persistence
+│   └── approval_repo.py       # Approval request persistence
 └── tests/
     ├── unit/
     └── integration/
@@ -362,7 +372,7 @@ class SessionConfig:
     prompt: str
     mcp_servers: dict[str, MCPServerConfig]  # discovered from repo config files
     protected_paths: list[str]               # from per-repo config; used by permission policy
-    permission_mode: PermissionMode = "auto" # permissive | auto | supervised
+    permission_mode: PermissionMode = "auto" # auto | read_only | approval_required
 
 @dataclass
 class MCPServerConfig:
@@ -454,35 +464,42 @@ class CamelModel(BaseModel):
 
 # --- Jobs ---
 
-class StrategyKind(str, Enum):
-    single_agent = "single_agent"
-
 class CreateJobRequest(BaseModel):    # Request models use snake_case (Python convention)
     repo: str
     prompt: str
     base_ref: str | None = None
     branch: str | None = None            # default: agent decides based on prompt
-    strategy: StrategyKind | None = None  # default: single_agent
+    permission_mode: PermissionMode | None = None  # auto | read_only | approval_required
+    model: str | None = None              # LLM model override
 
 class CreateJobResponse(CamelModel):
     id: str
     state: str
-    branch: str
-    worktree_path: str
+    title: str | None = None
+    branch: str | None = None
+    worktree_path: str | None = None
     created_at: datetime
 
 class JobResponse(CamelModel):
     id: str
     repo: str
     prompt: str
+    title: str | None = None
     state: str
-    strategy: StrategyKind
     base_ref: str
     worktree_path: str | None
     branch: str | None
+    permission_mode: PermissionMode | None = None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    pr_url: str | None = None
+    merge_status: str | None = None
+    resolution: str | None = None
+    archived_at: datetime | None = None
+    failure_reason: str | None = None
+    model: str | None = None
+    worktree_name: str | None = None
 
 class JobListResponse(CamelModel):
     items: list[JobResponse]
@@ -559,11 +576,26 @@ class WorkspaceListResponse(CamelModel):
 
 # --- Settings ---
 
-class GlobalConfigResponse(BaseModel):
-    config_yaml: str                  # Raw YAML content
+class UpdateSettingsRequest(BaseModel):
+    \"\"\"Structured settings update — only include fields to change.\"\"\"
+    max_concurrent_jobs: int | None = Field(None, ge=1, le=10)
+    permission_mode: PermissionMode | None = None
+    auto_push: bool | None = None
+    cleanup_worktree: bool | None = None
+    delete_branch_after_merge: bool | None = None
+    artifact_retention_days: int | None = Field(None, ge=1, le=365)
+    max_artifact_size_mb: int | None = Field(None, ge=1, le=10_000)
+    auto_archive_days: int | None = Field(None, ge=1, le=365)
 
-class UpdateGlobalConfigRequest(BaseModel):
-    config_yaml: str                  # Raw YAML content (validated on apply)
+class SettingsResponse(CamelModel):
+    max_concurrent_jobs: int
+    permission_mode: str
+    auto_push: bool
+    cleanup_worktree: bool
+    delete_branch_after_merge: bool
+    artifact_retention_days: int
+    max_artifact_size_mb: int
+    auto_archive_days: int
 
 
 # --- Voice ---
@@ -613,6 +645,9 @@ class LogLinePayload(CamelModel):
 class TranscriptRole(str, Enum):
     agent = "agent"
     operator = "operator"
+    tool_call = "tool_call"
+    reasoning = "reasoning"
+    divider = "divider"
 
 class TranscriptPayload(CamelModel):
     job_id: str
@@ -722,6 +757,15 @@ data: {json_payload}
 | `snapshot` | `{ jobs: JobResponse[], pending_approvals: ApprovalResponse[] }` |
 | `job_resolved` | `{ jobId, resolution, prUrl?, conflictFiles? }` |
 | `job_archived` | `{ jobId }` |
+| `merge_completed` | `{ jobId, branch, baseRef, strategy }` |
+| `merge_conflict` | `{ jobId, branch, baseRef, conflictFiles, fallback }` |
+| `session_resumed` | `{ jobId, sessionNumber }` |
+| `job_title_updated` | `{ jobId, title?, branch? }` |
+| `progress_headline` | `{ jobId, headline }` |
+| `model_downgraded` | `{ jobId, requestedModel, actualModel }` |
+| `tool_group_summary` | `{ jobId, turnId, summary }` |
+| `job_succeeded` | `{ jobId, prUrl?, mergeStatus?, resolution? }` |
+| `job_failed` | `{ jobId, reason }` |
 
 ### 5.3.1 Domain Event to SSE Event Mapping
 
@@ -737,10 +781,20 @@ The `SSEManager` translates internal domain events into SSE events as follows:
 | `DiffUpdated` | `diff_update` | 1:1 mapping |
 | `ApprovalRequested` | `approval_requested` + `job_state_changed` | Two SSE events emitted |
 | `ApprovalResolved` | `approval_resolved` + `job_state_changed` | Two SSE events emitted |
-| `JobSucceeded` | `job_state_changed` | `new_state: succeeded` |
-| `JobFailed` | `job_state_changed` | `new_state: failed` |
+| `JobSucceeded` | `job_succeeded` + `job_state_changed` | Two SSE events emitted |
+| `JobFailed` | `job_failed` + `job_state_changed` | Two SSE events emitted |
 | `JobCanceled` | `job_state_changed` | `new_state: canceled` |
+| `JobStateChanged` | `job_state_changed` | 1:1 mapping |
 | `SessionHeartbeat` | `session_heartbeat` | 1:1 mapping |
+| `MergeCompleted` | `merge_completed` | 1:1 mapping |
+| `MergeConflict` | `merge_conflict` | 1:1 mapping |
+| `SessionResumed` | `session_resumed` | 1:1 mapping |
+| `JobResolved` | `job_resolved` | 1:1 mapping |
+| `JobArchived` | `job_archived` | 1:1 mapping |
+| `JobTitleUpdated` | `job_title_updated` | 1:1 mapping |
+| `ProgressHeadline` | `progress_headline` | 1:1 mapping |
+| `ModelDowngraded` | `model_downgraded` | 1:1 mapping |
+| `ToolGroupSummary` | `tool_group_summary` | 1:1 mapping |
 
 ### 5.4 Reconnection and Replay
 
@@ -809,21 +863,20 @@ When a job is created:
 2. `GitService` creates the worktree and branch
 3. `JobService` persists a `JobCreated` event and a `WorkspacePrepared` event
 4. `RuntimeService` is asked to run the job
-5. `RuntimeService` resolves the execution strategy (see Section 24) and creates an asyncio task
-6. The task calls `strategy.execute(config, adapter)` and consumes yielded events
+5. `RuntimeService` is asked to run the job and creates an asyncio task
+6. The task starts the agent session and consumes yielded events
 7. Each event is translated into a domain event and published to the event bus
-8. When the strategy completes, the job transitions to `succeeded`, `failed`, or `canceled`
+8. When the session completes, the job transitions to `succeeded`, `failed`, or `canceled`
 
 ### 6.2 Runtime Service
 
 The `RuntimeService` manages all active job tasks.
 
 - Tracks running asyncio tasks by `job_id`
-- Resolves the execution strategy for each job (see Section 24)
 - Enforces `max_concurrent_jobs` from global config
 - Enqueues jobs if at capacity (state: `queued`)
 - Starts queued jobs when capacity opens
-- Provides a `cancel(job_id)` method that cancels the asyncio task and delegates to `strategy.abort()`
+- Provides a `cancel(job_id)` method that cancels the asyncio task and calls `adapter.abort_session()`
 
 ### 6.3 Operator Message Injection
 
@@ -951,39 +1004,37 @@ cpl = "backend.main:cli"
 
 ### 8.1 Worktree Creation
 
-When a job starts, `GitService` decides whether to use the main worktree or create a secondary one:
+Every job gets its own isolated worktree. The main worktree (repo root) is never used for job execution.
+
+When a job starts:
 
 1. Backend resolves the repository root from the config
-2. Check if any other job targeting the same repo is currently in an active state (`queued`, `running`, `paused`)
-3. **No active jobs on this repo** — use the main worktree:
-   - `worktree_path` is set to the repository root itself
-   - A new branch is created from `base_branch` and checked out in the main worktree
-4. **Another active job already occupies this repo** — create a secondary worktree:
-   - A worktree directory is created at:
-     ```
-     {repo_root}/{worktrees_dirname}/{job_id}/
-     ```
-     Default `worktrees_dirname`: `.cpl-worktrees`
-   - A new branch is created from `base_branch` and checked out in the secondary worktree
-5. A branch is created from `base_branch`:
+2. `JobService` generates a `worktree_name` using the utility LLM (kebab-case, 3-30 chars, e.g. `fix-null-pointer`). If naming fails, a deterministic fallback `task-{sha256(prompt)[:8]}` is used
+3. `GitService.create_worktree()` creates a worktree directory at:
+   ```
+   {repo_root}/{worktrees_dirname}/{worktree_name}/
+   ```
+   Default `worktrees_dirname`: `.codeplane-worktrees`
+4. A branch is created from `base_ref`:
    - If `branch` was provided in the job creation request, that name is used as-is
-   - Otherwise, the agent decides the branch name as a preflight step based on the prompt (e.g. `fix/null-pointer-in-user-service`, `feat/add-pagination-to-orders-api`)
+   - Otherwise, the LLM-generated branch name is used
+5. Before creation, stale worktree registrations are cleaned up (`git worktree prune`, force-remove if directory exists, delete stale branch)
 
 #### Worktree Creation Failure
 
-If `git worktree add` fails (e.g., disk full, permissions error, corrupt repo state), `GitService.create_worktree()` catches the exception and transitions the job to `failed` with a descriptive error message including the git stderr output. The operator can resolve the underlying issue (free disk space, fix permissions, etc.) and rerun the job.
+If `git worktree add` fails (e.g., disk full, permissions error, corrupt repo state), `GitService.create_worktree()` raises `GitError` which `JobService` catches. The job is persisted in `failed` state with a descriptive error message including git stderr output. The operator can resolve the underlying issue and rerun the job.
 
-Example — single job uses the main worktree:
-
-```
-/repos/service-a/                          ← job-104 works here
-```
-
-Example — second concurrent job gets a secondary worktree:
+Example — single job:
 
 ```
-/repos/service-a/                          ← job-104 (main worktree)
-/repos/service-a/.cpl-worktrees/job-105/  ← job-105 (secondary)
+/repos/service-a/.codeplane-worktrees/fix-null-pointer/   ← job-104 works here
+```
+
+Example — two concurrent jobs on the same repo:
+
+```
+/repos/service-a/.codeplane-worktrees/fix-null-pointer/   ← job-104
+/repos/service-a/.codeplane-worktrees/add-pagination/     ← job-105
 ```
 
 ### 8.2 Branch Naming
@@ -1002,15 +1053,14 @@ chore/upgrade-react-to-19
 
 On job completion (success, failure, or cancel):
 
-- **Main worktree jobs**: the branch is left in place but the main worktree is considered available for the next job. No directory is deleted
-- **Secondary worktree jobs**: the worktree directory is retained for artifact inspection and diff browsing
-- Secondary worktrees are not automatically deleted; operators must explicitly clean them up via a settings action
-- A background cleanup command may be scheduled via settings: `POST /api/settings/cleanup-worktrees`
+- Worktree directories are retained for artifact inspection and diff browsing
+- Worktrees are not automatically deleted; cleanup depends on the completion config (`completion.cleanup_worktree`)
+- A batch cleanup command is available via: `POST /api/settings/cleanup-worktrees`
 
-Jobs have a `completion_strategy` that controls what happens after success:
+Jobs have a `completion.strategy` config that controls what happens after success:
 
-- **`manual`** (default): the job is left as `unresolved` for operator decision via the Review column
-- **`auto_merge`**: the existing escalation runs automatically — fast-forward merge is attempted first, then a regular merge, and if both fail a PR is created as a fallback
+- **`manual`**: the job is left as `unresolved` for operator decision via the Review column
+- **`auto_merge`** (default): the existing escalation runs automatically — fast-forward merge is attempted first, then a regular merge, and if both fail a PR is created as a fallback
 - **`pr_only`**: a PR is always created immediately upon success
 
 ### 8.4 Protected Paths
@@ -1021,17 +1071,17 @@ If a per-repository config defines `protected_paths`, the adapter translates the
 
 Multiple jobs may target the same repository concurrently.
 
-The first active job on a repo uses the main worktree directly. Any additional concurrent jobs on the same repo are each assigned their own secondary worktree, providing full isolation. When the main-worktree job completes, the next queued job for the same repo may use the main worktree if no other job currently occupies it.
+Every job gets its own worktree under `.codeplane-worktrees/`, providing full isolation regardless of concurrency. No job ever uses the main worktree.
 
-Isolation between concurrent jobs is guaranteed by Git worktrees: each secondary job works in its own worktree and cannot interfere with another job's files. The main branch of the repository is never written to.
+Isolation between concurrent jobs is guaranteed by Git worktrees: each job works in its own worktree directory with its own branch and cannot interfere with another job's files. The main branch of the repository is never written to directly.
 
 ### 8.6 Repository Safety Enforcement
 
 To prevent the agent from accidentally modifying unrelated files:
 
-1. The `GitService` configures the worktree (main or secondary) before the agent session starts
+1. `GitService` creates the worktree before the agent session starts
 2. The adapter sets `workspace_path` in the SDK's session config, which scopes agent operations to the worktree. The SDK's own subprocess inherits this scoping
-3. Any shell command that modifies files outside the worktree path triggers an approval request via the SDK's permission system
+3. The permission policy evaluates file operations against the worktree boundary (see §18)
 4. Pushing to remote and creating PRs are allowed — these are useful agent capabilities. Push protection is not enforced at the git config level
 
 ### 8.7 Pull Request Creation After Successful Job
@@ -1053,7 +1103,7 @@ Completed branches are **not** auto-deleted after merge. The branch remains on d
 
 ### 8.8 Job Resolution
 
-When a job succeeds with `completion_strategy = "manual"` (the default), it enters
+When a job succeeds with `completion.strategy = "manual"`, it enters
 the Review column with `resolution = "unresolved"`. The operator resolves it via:
 
     POST /api/jobs/{id}/resolve
@@ -1098,7 +1148,7 @@ On success the path is appended to the `repos` list in the global config and per
 
 The operator provides a remote URL (HTTPS or SSH) — for example `https://github.com/org/repo.git`. The backend:
 
-1. Resolves a local clone directory under a configurable `repos_base_dir` (default: `~/codeplane-repos`). The directory name is derived from the URL (e.g. `org/repo`)
+1. Resolves a local clone directory from the `clone_to` field in the request (or derives one from the URL)
 2. Runs `git clone <url> <target_dir>` via subprocess
 3. Authentication relies entirely on the machine's existing Git credential configuration (SSH keys, credential helpers, `.netrc`, etc.). CodePlane never stores or prompts for credentials
 4. On success the cloned path is appended to the global config `repos` list
@@ -1113,15 +1163,12 @@ Operators can remove a repository from the `repos` list. This only removes the c
 Registered repositories are stored in the global config:
 
 ```yaml
-repos_base_dir: ~/codeplane-repos    # clone target for remote repos
-
 repos:
   - /repos/service-a             # local path
   - /repos/service-b
-  - ~/codeplane-repos/org/repo        # previously cloned from remote
 ```
 
-Glob patterns remain supported for static discovery, but explicitly registered repos always appear in the allowlist regardless of glob expansion.
+For remote repositories, the clone target is specified per-request via the `clone_to` field in the register API, not as a global config setting.
 
 ---
 
@@ -1199,12 +1246,7 @@ Default model: `base.en`
 
 ### 9.7 Configuration
 
-```yaml
-voice:
-  enabled: true
-  model: base.en     # or tiny.en
-  max_audio_size_mb: 10
-```
+Voice is always enabled with hardcoded defaults. The `max_audio_size_mb` is fixed at 10 MB. These values are not user-configurable.
 
 ### 9.8 Backend Endpoint
 
@@ -1262,56 +1304,7 @@ Configuration exists at three layers:
 File: `~/.codeplane/config.yaml`
 
 ```yaml
-server:
-  host: 127.0.0.1
-  port: 8080
-
-auth:
-  enabled: true
-  tunnel_identity: true            # Require Microsoft/GitHub identity via Dev Tunnel
-
-runtime:
-  max_concurrent_jobs: 2
-  worktrees_dirname: .cpl-worktrees
-
-voice:
-  enabled: true
-  model: base.en
-  max_audio_size_mb: 10
-
-retention:
-  artifact_retention_days: 30        # Auto-delete artifacts older than this
-  max_artifact_size_mb: 100          # Maximum size per artifact file
-  cleanup_on_startup: false          # Run retention cleanup on startup
-
-logging:
-  level: info                        # debug, info, warn, error
-  file: ~/.codeplane/logs/server.log
-  max_file_size_mb: 50
-  backup_count: 3                    # Number of rotated log files to keep
-
-rate_limits:
-  max_sse_connections: 5             # Maximum concurrent SSE connections
-
-repos_base_dir: ~/codeplane-repos    # target directory for cloned remote repos
-
-repos:
-  - /repos/service-a
-  - /repos/service-b
-  - /repos/microservices/*
-  - ~/projects/**
-
-tools:
-  mcp:
-    github:
-      command: npx
-      args: ["-y", "@modelcontextprotocol/server-github"]
-    postgres:
-      command: uvx
-      args: ["mcp-postgres"]
-      env:
-        DATABASE_URL: "${DATABASE_URL}"
-```
+server:\n  host: 127.0.0.1\n  port: 8080\n\nruntime:\n  max_concurrent_jobs: 2\n  worktrees_dirname: .codeplane-worktrees\n  permission_mode: auto             # auto | read_only | approval_required\n  utility_model: gpt-4o-mini        # cheap/fast model for naming, summaries\n\nretention:\n  artifact_retention_days: 30\n  max_artifact_size_mb: 100\n  cleanup_on_startup: false\n  auto_archive_days: 7\n\ncompletion:\n  strategy: auto_merge              # auto_merge | pr_only | manual\n  auto_push: true                   # push branch to remote on success\n  cleanup_worktree: true            # remove worktree after resolution\n  delete_branch_after_merge: true   # delete branch after merge\n\nlogging:\n  level: info\n  file: ~/.codeplane/logs/server.log\n  max_file_size_mb: 50\n  backup_count: 3\n\nrate_limits:\n  max_sse_connections: 5\n\nplatforms:                          # per-platform auth and repo binding\n  github:\n    auth: cli                       # cli | token\n    repos:\n      - /repos/service-a\n\nrepos:\n  - /repos/service-a\n  - /repos/service-b\n\ntools:\n  mcp:\n    github:\n      command: npx\n      args: [\"-y\", \"@modelcontextprotocol/server-github\"]\n    postgres:\n      command: uvx\n      args: [\"mcp-postgres\"]\n      env:\n        DATABASE_URL: \"${DATABASE_URL}\"\n```
 
 Entries support glob patterns via Python's `glob.glob`. Each pattern is expanded at startup and re-expanded when the config is reloaded. Only directories that are valid git repositories (contain `.git`) are included after expansion.
 
@@ -1417,7 +1410,17 @@ class DomainEventKind(str, Enum):
     job_succeeded = "JobSucceeded"
     job_failed = "JobFailed"
     job_canceled = "JobCanceled"
+    job_state_changed = "JobStateChanged"
     session_heartbeat = "SessionHeartbeat"
+    merge_completed = "MergeCompleted"
+    merge_conflict = "MergeConflict"
+    session_resumed = "SessionResumed"
+    job_resolved = "JobResolved"
+    job_archived = "JobArchived"
+    job_title_updated = "JobTitleUpdated"
+    progress_headline = "ProgressHeadline"
+    model_downgraded = "ModelDowngraded"
+    tool_group_summary = "ToolGroupSummary"
 
 @dataclass
 class DomainEvent:
@@ -1440,10 +1443,20 @@ class DomainEvent:
 | `DiffUpdated` | File changes detected in worktree | `changed_files` (list of DiffFile) |
 | `ApprovalRequested` | SDK permission request intercepted | `approval_id`, `description`, `proposed_action` |
 | `ApprovalResolved` | Operator approves or rejects | `approval_id`, `resolution` |
-| `JobSucceeded` | Session completed successfully | `summary` |
-| `JobFailed` | Session terminated with error | `error`, `traceback` |
+| `JobSucceeded` | Session completed successfully | `pr_url`, `merge_status`, `resolution` |
+| `JobFailed` | Session terminated with error | `reason` |
 | `JobCanceled` | Operator canceled the job | `reason` |
+| `JobStateChanged` | Job transitions between states | `previous_state`, `new_state` |
 | `SessionHeartbeat` | Periodic heartbeat from running session | `session_id` |
+| `MergeCompleted` | Merge-back succeeded | `branch`, `base_ref`, `strategy` |
+| `MergeConflict` | Merge-back hit conflicts | `branch`, `conflict_files`, `fallback` |
+| `SessionResumed` | Agent session resumed after failure | `session_number` |
+| `JobResolved` | Operator resolved a succeeded job | `resolution`, `pr_url`, `conflict_files` |
+| `JobArchived` | Job moved to archive | _(none)_ |
+| `JobTitleUpdated` | LLM generated or updated job title | `title`, `branch` |
+| `ProgressHeadline` | Agent progress summary | `headline` |
+| `ModelDowngraded` | Requested model unavailable, fallback used | `requested_model`, `actual_model` |
+| `ToolGroupSummary` | AI-generated summary for tool group | `turn_id`, `summary` |
 
 ### 11.2 Event Consumers
 
@@ -1507,7 +1520,7 @@ After reaching `succeeded`, the job enters a resolution lifecycle managed by `PO
 
 ### 12.3 Rerun
 
-Rerunning a job creates a new job record. The original job is not mutated. The new job copies the original's `repo`, `prompt`, `base_ref`, and `strategy`.
+Rerunning a job creates a new job record. The original job is not mutated. The new job copies the original's `repo`, `prompt`, and `base_ref`.
 
 ---
 
@@ -1642,11 +1655,21 @@ CREATE TABLE jobs (
     repo TEXT NOT NULL,
     prompt TEXT NOT NULL,
     state TEXT NOT NULL,
-    strategy TEXT NOT NULL DEFAULT 'single_agent',
     base_ref TEXT NOT NULL,
     branch TEXT,
     worktree_path TEXT,
     session_id TEXT,
+    pr_url TEXT,
+    merge_status TEXT,
+    resolution TEXT,
+    archived_at TEXT,
+    title TEXT,
+    worktree_name TEXT,
+    permission_mode TEXT NOT NULL DEFAULT 'auto',
+    session_count INTEGER NOT NULL DEFAULT 1,
+    sdk_session_id TEXT,
+    model TEXT,
+    failure_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     completed_at TEXT
@@ -1777,7 +1800,7 @@ Retention cleanup removes:
 1. Artifact files from `~/.codeplane/artifacts/{job_id}/`
 2. Artifact metadata from the `artifacts` table
 3. Diff snapshots from the `diff_snapshots` table
-4. Secondary worktree directories for jobs in terminal states older than the retention period
+4. Worktree directories for jobs in terminal states older than the retention period
 
 Job records and events are never deleted. They serve as an audit log.
 ```
@@ -1931,9 +1954,9 @@ POST /api/approvals/{approval_id}/resolve
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/settings/global` | Get current global config |
-| `PUT` | `/api/settings/global` | Update global config |
-| `GET` | `/api/settings/repos` | List repo configs |
+| `GET` | `/api/settings` | Get current settings |
+| `PUT` | `/api/settings` | Update settings (structured, partial) |
+| `GET` | `/api/settings/repos` | List registered repos |
 | `GET` | `/api/settings/repos/{repo_path}` | Get detailed repo config with resolved MCP servers |
 | `POST` | `/api/settings/repos` | Register a repository (local path or remote URL) |
 | `DELETE` | `/api/settings/repos/{repo_path}` | Remove a repository from the allowlist |
@@ -1952,7 +1975,7 @@ Request body:
 `source` is either an absolute local path or a remote Git URL (HTTPS/SSH). The backend auto-detects the type:
 
 - **Local path** (starts with `/` or `~`): validated as an existing Git repository
-- **Remote URL** (contains `://` or matches `git@`): cloned to `repos_base_dir` via `git clone` subprocess
+- **Remote URL** (contains `://` or matches `git@`): cloned to the target specified by `clone_to` (or derived from URL) via `git clone` subprocess
 
 Response (`201 Created`):
 
@@ -2063,26 +2086,52 @@ Approval gates intercept risky operations before they execute. This ensures the 
 
 ### 18.2 Permission Modes
 
-CodePlane supports three permission modes that control how the SDK's permission requests are handled. Inspired by VS Code Agent Chat and Claude Code, these modes allow operators to balance safety with productivity.
+CodePlane supports three permission modes that control how the SDK's permission requests are handled.
 
 | Mode | Behavior |
 |------|----------|
-| `permissive` | Auto-approve **all** operations. No approval popups. Suitable for trusted agents on low-risk repos. |
-| `auto` (default) | Smart auto-approval: approve reads and writes **within the workspace**, ask for shell commands, URL fetches, writes **outside** the workspace, writes to `protected_paths`, MCP tool calls with side effects, and custom tools. |
-| `supervised` | Ask the operator for **every** permission request. Maximum control. |
+| `auto` (default) | Full trust: auto-approve **all** operations including reads, writes, shells, MCP tools, and URL fetches. The agent operates without any approval interruptions. |
+| `read_only` | Allow reads within the worktree and read-only shell commands (grep, find, ls, cat, etc.). Deny all writes, URL fetches, and mutating operations. |
+| `approval_required` | Auto-approve reads and read-only shell commands. Require operator approval for all writes, non-read-only shells, URL fetches, mutating MCP tools, and custom tools. |
 
 #### Auto Mode Rules
 
-| Request Kind | Within Workspace | Outside Workspace | Protected Path |
-|-------------|------------------|--------------------|----------------|
-| `read` | ✅ approve | ❓ ask | ✅ approve |
-| `write` | ✅ approve | ❓ ask | ❓ ask |
-| `shell` | ❓ ask | ❓ ask | ❓ ask |
-| `url` | ❓ ask | ❓ ask | ❓ ask |
-| `mcp` (read-only) | ✅ approve | ✅ approve | ✅ approve |
-| `mcp` (mutating) | ❓ ask | ❓ ask | ❓ ask |
-| `custom-tool` | ❓ ask | ❓ ask | ❓ ask |
-| `memory` | ✅ approve | ✅ approve | ✅ approve |
+| Request Kind | Decision |
+|-------------|----------|
+| `read` | ✅ approve |
+| `write` (within workspace) | ✅ approve |
+| `write` (outside workspace) | ✅ approve |
+| `shell` | ✅ approve |
+| `url` | ✅ approve |
+| `mcp` | ✅ approve |
+| `memory` | ✅ approve |
+
+#### Read-Only Mode Rules
+
+| Request Kind | Within Workspace | Outside Workspace |
+|-------------|------------------|-------------------|
+| `read` | ✅ approve | ❌ deny |
+| `write` | ❌ deny | ❌ deny |
+| `shell` (grep/find/ls/cat…) | ✅ approve | ✅ approve |
+| `shell` (other) | ❌ deny | ❌ deny |
+| `url` | ❌ deny | ❌ deny |
+| `mcp` (read-only) | ✅ approve | ✅ approve |
+| `mcp` (mutating) | ❌ deny | ❌ deny |
+| `memory` | ✅ approve | ✅ approve |
+
+#### Approval Required Mode Rules
+
+| Request Kind | Decision |
+|-------------|----------|
+| `read` | ✅ approve |
+| `write` | ❓ ask |
+| `shell` (grep/find/ls/cat…) | ✅ approve |
+| `shell` (other) | ❓ ask |
+| `url` | ❓ ask |
+| `mcp` (read-only) | ✅ approve |
+| `mcp` (mutating) | ❓ ask |
+| `custom-tool` | ❓ ask |
+| `memory` | ✅ approve |
 
 #### Configuration
 
@@ -2112,16 +2161,17 @@ runtime:
 
 ### 18.3 Delegation to the Agent Runtime
 
-The underlying agent SDK (Copilot SDK, Claude Code, etc.) decides **which** actions surface a permission request. CodePlane's permission policy then evaluates the request against the active mode to decide whether to auto-approve or route to the operator.
+The underlying agent SDK (Copilot SDK, Claude Code, etc.) decides **which** actions surface a permission request. CodePlane's permission policy then evaluates the request against the active mode to decide whether to auto-approve, deny, or route to the operator.
 
 CodePlane's role is to:
 
 1. **Evaluate** the SDK's permission request against the active permission mode
-2. **Auto-approve** requests that the policy allows (the SDK is never blocked)
-3. **Route** remaining requests to the operator via the UI (the SDK blocks until resolved)
-4. **Relay** the operator's decision back to the SDK
-5. **Persist** approval requests and resolutions for auditability
-6. **Feed repo-level config** (like `protected_paths`) into the policy at session creation time
+2. **Auto-approve** requests that the policy allows (the SDK proceeds immediately)
+3. **Deny** requests that the policy blocks (in `read_only` mode)
+4. **Route** remaining requests to the operator via the UI (in `approval_required` mode; the SDK blocks until resolved)
+5. **Relay** the operator's decision back to the SDK
+6. **Persist** approval requests and resolutions for auditability
+7. **Feed repo-level config** (like `protected_paths`) into the policy at session creation time
 
 #### How `protected_paths` Maps to Policy
 
@@ -2145,11 +2195,12 @@ The adapter normalizes whichever fields the SDK provides into this common shape.
 
 1. SDK raises a permission request (e.g., Copilot SDK calls `on_permission_request`)
 2. Adapter evaluates the permission policy:
-   - **`permissive` mode:** returns `approved` immediately — SDK proceeds, no event emitted
-   - **`auto` mode:** evaluates request kind + paths against workspace + protected_paths rules
-   - **`supervised` mode:** always routes to operator
+   - **`auto` mode:** returns `approved` immediately for all operations — SDK proceeds, no event emitted
+   - **`read_only` mode:** evaluates request kind; denies writes, non-read-only shells, URL fetches, and mutating MCP calls
+   - **`approval_required` mode:** evaluates request kind; auto-approves reads and read-only shells, routes everything else to operator
 3. If auto-approved: SDK proceeds immediately, no operator interaction
-4. If operator approval required:
+4. If denied (read_only mode): SDK is told the action is denied, no operator interaction
+5. If operator approval required (approval_required mode):
    a. `ApprovalService` persists the request
    b. `approval_request` event emitted
    c. Job transitions to `waiting_for_approval`
@@ -2631,91 +2682,33 @@ React UI -> React UI: Insert text into prompt/message input
 
 ## 24. Execution Strategy Model
 
-Jobs do not directly invoke an agent. Instead, each job delegates to an **execution strategy** that defines how the task is carried out. This abstraction allows the system to support different execution approaches without changing the job lifecycle, state machine, or event model.
+Jobs delegate execution to the `RuntimeService`, which manages the agent session lifecycle. The execution model uses a single-agent approach: one job maps to one agent session.
 
-### 24.1 Interface
+### 24.1 Single-Agent Execution
 
-```python
-from abc import ABC, abstractmethod
-from typing import AsyncIterator
+Each job runs as a single agent session:
 
-class ExecutionStrategy(ABC):
-    """Defines how a job's task is executed within its worktree."""
+1. `RuntimeService` constructs a `SessionConfig` from the job record and resolved config
+2. Calls `adapter.create_session(config)` to start the agent
+3. Consumes `adapter.stream_events(session_id)` and translates each `SessionEvent` into a domain event
+4. Publishes domain events to the event bus
+5. When the session completes, the job transitions to `succeeded`, `failed`, or `canceled`
 
-    @abstractmethod
-    async def execute(
-        self,
-        config: SessionConfig,
-        adapter: AgentAdapterInterface,
-    ) -> AsyncIterator[SessionEvent]:
-        """Run the strategy and yield session events as they occur."""
+Operator messages are forwarded via `adapter.send_message()`. Cancellation calls `adapter.abort_session()`.
 
-    @abstractmethod
-    async def send_message(self, message: str) -> None:
-        """Inject an operator message into the running execution."""
+### 24.2 How the RuntimeService Manages Jobs
 
-    @abstractmethod
-    async def abort(self) -> None:
-        """Abort the running execution."""
-```
+The `RuntimeService`:
 
-### 24.2 Default Strategy: SingleAgentExecutor
+1. Tracks running asyncio tasks by `job_id`
+2. Enforces `max_concurrent_jobs` from global config
+3. Enqueues jobs if at capacity (state: `queued`)
+4. Starts queued jobs when capacity opens
+5. Provides a `cancel(job_id)` method that cancels the asyncio task and calls `adapter.abort_session()`
 
-The default (and only v1) strategy is `SingleAgentExecutor`. It maps 1:1 to a single agent session:
+### 24.3 Future Strategy Examples
 
-```python
-class SingleAgentExecutor(ExecutionStrategy):
-    """Executes a job using a single agent session."""
-
-    async def execute(
-        self,
-        config: SessionConfig,
-        adapter: AgentAdapterInterface,
-    ) -> AsyncIterator[SessionEvent]:
-        self._session_id = await adapter.create_session(config)
-        async for event in adapter.stream_events(self._session_id):
-            yield event
-
-    async def send_message(self, message: str) -> None:
-        await self._adapter.send_message(self._session_id, message)
-
-    async def abort(self) -> None:
-        await self._adapter.abort_session(self._session_id)
-```
-
-### 24.3 Strategy Selection
-
-The execution strategy is resolved during job creation:
-
-1. Per-job override: `strategy` field in the job creation request (optional)
-2. Per-repo config: `agent.strategy` in `.codeplane.yml` (optional)
-3. Default: `single_agent`
-
-The `RuntimeService` resolves the strategy name to a concrete class via a registry:
-
-```python
-STRATEGY_REGISTRY: dict[StrategyKind, type[ExecutionStrategy]] = {
-    StrategyKind.single_agent: SingleAgentExecutor,
-}
-```
-
-New strategies can be registered by adding entries to this dict. No other code needs to change.
-
-### 24.4 How the RuntimeService Uses Strategies
-
-The `RuntimeService` does not know or care what happens inside a strategy. It:
-
-1. Resolves the strategy class from the registry
-2. Instantiates it
-3. Calls `strategy.execute(config, adapter)` and consumes the yielded events
-4. Translates each `SessionEvent` into a domain event and publishes it to the event bus
-5. Delegates `send_message()` and `abort()` calls to the strategy instance
-
-This means the job state machine, event bus, SSE streaming, persistence, and all UI components remain completely unaware of which strategy is running.
-
-### 24.5 Future Strategy Examples
-
-The following strategies are **not implemented in v1** but the abstraction is designed to support them:
+The following strategies are **not implemented** but the architecture is designed to support them:
 
 | Strategy | Description |
 |---|---|
@@ -2723,35 +2716,6 @@ The following strategies are **not implemented in v1** but the abstraction is de
 | `executor_reviewer` | An executor agent produces changes, then a reviewer agent validates them |
 | `parallel_executors` | Multiple executor agents work on independent subtasks concurrently |
 | `human_in_the_loop` | The agent pauses after each step for operator review before continuing |
-
-Each of these would implement the same `ExecutionStrategy` interface and yield the same `SessionEvent` stream, making them drop-in replacements.
-
-### 24.6 Impact on Data Model
-
-The `jobs` table gains a `strategy` column:
-
-```sql
-ALTER TABLE jobs ADD COLUMN strategy TEXT NOT NULL DEFAULT 'single_agent';
-```
-
-The `CreateJobRequest` Pydantic model gains an optional field:
-
-```python
-class CreateJobRequest(BaseModel):
-    repo: str
-    prompt: str
-    base_ref: str | None = None
-    strategy: StrategyKind | None = None  # default: single_agent
-```
-
-The TypeScript `Job` interface gains a matching field:
-
-```typescript
-interface Job {
-  // ... existing fields ...
-  strategy: StrategyKind;  // "single_agent" in v1
-}
-```
 
 ---
 
@@ -2831,13 +2795,13 @@ Running in-process avoids a separate deployment unit and shares the service laye
 
 ### 26.3 Tool Surface
 
-Every REST API capability is exposed as an MCP tool. Tool names follow `tower_<resource>_<action>` convention.
+Every REST API capability is exposed as an MCP tool. Tool names follow `cpl_<resource>_<action>` convention.
 
 #### Job Management
 
 | Tool | Description | Maps to |
 |---|---|---|
-| `cpl_job_create` | Create a new job (repo, prompt, strategy, options) | `POST /api/jobs` |
+| `cpl_job_create` | Create a new job (repo, prompt, options) | `POST /api/jobs` |
 | `cpl_job_list` | List jobs with optional status filter and pagination | `GET /api/jobs` |
 | `cpl_job_get` | Get full detail for a single job | `GET /api/jobs/{job_id}` |
 | `cpl_job_cancel` | Cancel a running or queued job | `POST /api/jobs/{job_id}/cancel` |
@@ -2906,14 +2870,7 @@ Notifications are sourced from the internal event bus — the same events that d
 
 ### 26.6 Configuration
 
-```yaml
-# ~/.codeplane/config.yaml
-mcp_server:
-  enabled: true          # default: true
-  path: /mcp             # mount path, default: /mcp
-```
-
-The MCP server is enabled by default. Disabling it removes the `/mcp` route entirely.
+The MCP server is always enabled and mounted at `/mcp`. These are hardcoded constants, not user-configurable.
 
 ---
 
