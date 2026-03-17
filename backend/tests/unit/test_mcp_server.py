@@ -85,7 +85,7 @@ class TestMCPServerCreation:
 
 class TestJobTools:
     @pytest.mark.asyncio
-    async def test_cpl_health(self, mcp_server, mock_session_factory) -> None:
+    async def test_codeplane_health(self, mcp_server, mock_session_factory) -> None:
         """Test the health tool returns structured data."""
 
         # The health tool creates its own JobService, so we need to mock it
@@ -97,29 +97,29 @@ class TestJobTools:
 
             # Call the tool directly via the registered function
             tools = mcp_server._tool_manager._tools
-            health_fn = tools.get("cpl_health")
+            health_fn = tools.get("codeplane_health")
             if health_fn:
-                result = await health_fn.fn()
+                result = await health_fn.fn(action="check")
                 assert result["status"] == "healthy"
                 assert result["active_jobs"] == 2
                 assert result["queued_jobs"] == 1
 
     @pytest.mark.asyncio
-    async def test_cpl_job_list(self, mcp_server) -> None:
+    async def test_codeplane_job_list(self, mcp_server) -> None:
         with patch("backend.mcp.server.JobService") as mock_job_svc:
             mock_svc = AsyncMock()
             mock_svc.list_jobs = AsyncMock(return_value=([_make_job()], None, False))
             mock_job_svc.return_value = mock_svc
 
             tools = mcp_server._tool_manager._tools
-            list_fn = tools.get("cpl_job_list")
-            if list_fn:
-                result = await list_fn.fn()
+            job_fn = tools.get("codeplane_job")
+            if job_fn:
+                result = await job_fn.fn(action="list")
                 assert len(result["items"]) == 1
                 assert result["has_more"] is False
 
     @pytest.mark.asyncio
-    async def test_cpl_job_get_not_found(self, mcp_server) -> None:
+    async def test_codeplane_job_get_not_found(self, mcp_server) -> None:
         from backend.services.job_service import JobNotFoundError
 
         with patch("backend.mcp.server.JobService") as mock_job_svc:
@@ -128,24 +128,24 @@ class TestJobTools:
             mock_job_svc.return_value = mock_svc
 
             tools = mcp_server._tool_manager._tools
-            get_fn = tools.get("cpl_job_get")
-            if get_fn:
-                result = await get_fn.fn(job_id="nonexistent")
+            job_fn = tools.get("codeplane_job")
+            if job_fn:
+                result = await job_fn.fn(action="get", job_id="nonexistent")
                 assert "error" in result
 
 
 class TestConfigTools:
     @pytest.mark.asyncio
-    async def test_cpl_repo_list(self, mcp_server) -> None:
+    async def test_codeplane_repo_list(self, mcp_server) -> None:
         with patch("backend.mcp.server.load_config") as mock_config:
             cfg = MagicMock()
             cfg.repos = ["/test/repo"]
             mock_config.return_value = cfg
 
             tools = mcp_server._tool_manager._tools
-            list_fn = tools.get("cpl_repo_list")
-            if list_fn:
-                result = await list_fn.fn()
+            repo_fn = tools.get("codeplane_repo")
+            if repo_fn:
+                result = await repo_fn.fn(action="list")
                 assert result["items"] == ["/test/repo"]
 
     @pytest.mark.asyncio

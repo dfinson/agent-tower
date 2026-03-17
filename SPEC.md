@@ -2795,52 +2795,39 @@ Running in-process avoids a separate deployment unit and shares the service laye
 
 ### 26.3 Tool Surface
 
-Every REST API capability is exposed as an MCP tool. Tool names follow `cpl_<resource>_<action>` convention.
+Every REST API capability is exposed as an MCP tool. Related operations are collapsed into a single tool with an `action` parameter, keeping the tool count low for LLM clients. Tool names use the `codeplane_` prefix. Each tool carries an `annotations.title` for human-readable display.
 
 #### Job Management
 
-| Tool | Description | Maps to |
-|---|---|---|
-| `cpl_job_create` | Create a new job (repo, prompt, options) | `POST /api/jobs` |
-| `cpl_job_list` | List jobs with optional status filter and pagination | `GET /api/jobs` |
-| `cpl_job_get` | Get full detail for a single job | `GET /api/jobs/{job_id}` |
-| `cpl_job_cancel` | Cancel a running or queued job | `POST /api/jobs/{job_id}/cancel` |
-| `cpl_job_rerun` | Rerun a job with the same configuration | `POST /api/jobs/{job_id}/rerun` |
-| `cpl_job_message` | Send an operator message to a running job | `POST /api/jobs/{job_id}/messages` |
+| Tool | Title | Actions | Maps to |
+|---|---|---|---|
+| `codeplane_job` | Manage Coding Jobs | create, list, get, cancel, rerun, message | `POST/GET /api/jobs`, `POST /api/jobs/{id}/cancel`, etc. |
 
 #### Approvals
 
-| Tool | Description | Maps to |
-|---|---|---|
-| `cpl_approval_list` | List pending/resolved approvals for a job | `GET /api/jobs/{job_id}/approvals` |
-| `cpl_approval_resolve` | Approve or reject a pending approval | `POST /api/approvals/{approval_id}/resolve` |
+| Tool | Title | Actions | Maps to |
+|---|---|---|---|
+| `codeplane_approval` | Manage Approvals | list, resolve | `GET /api/jobs/{id}/approvals`, `POST /api/approvals/{id}/resolve` |
 
 #### Workspace & Artifacts
 
-| Tool | Description | Maps to |
-|---|---|---|
-| `cpl_workspace_list` | List files in a job's worktree | `GET /api/jobs/{job_id}/workspace` |
-| `cpl_workspace_read` | Read a file from a job's worktree | `GET /api/jobs/{job_id}/workspace/file` |
-| `cpl_artifact_list` | List artifacts produced by a job | `GET /api/jobs/{job_id}/artifacts` |
-| `cpl_artifact_get` | Download an artifact | `GET /api/artifacts/{artifact_id}` |
+| Tool | Title | Actions | Maps to |
+|---|---|---|---|
+| `codeplane_workspace` | Browse Job Worktree | list, read | `GET /api/jobs/{id}/workspace`, `GET /api/jobs/{id}/workspace/file` |
+| `codeplane_artifact` | Access Job Artifacts | list, get | `GET /api/jobs/{id}/artifacts`, `GET /api/artifacts/{id}` |
 
 #### Configuration
 
-| Tool | Description | Maps to |
-|---|---|---|
-| `cpl_settings_get` | Get global configuration | `GET /api/settings/global` |
-| `cpl_settings_update` | Update global configuration | `PUT /api/settings/global` |
-| `cpl_repo_list` | List registered repositories | `GET /api/settings/repos` |
-| `cpl_repo_get` | Get repo config with resolved MCP servers | `GET /api/settings/repos/{repo_path}` |
-| `cpl_repo_register` | Register a repository (path or URL) | `POST /api/settings/repos` |
-| `cpl_repo_remove` | Remove a repository from the allowlist | `DELETE /api/settings/repos/{repo_path}` |
+| Tool | Title | Actions | Maps to |
+|---|---|---|---|
+| `codeplane_settings` | Global Settings | get, update | `GET/PUT /api/settings/global` |
+| `codeplane_repo` | Manage Repositories | list, get, register, remove | `GET/POST/DELETE /api/settings/repos` |
 
 #### Observability
 
-| Tool | Description | Maps to |
-|---|---|---|
-| `cpl_health` | Service health check | `GET /api/health` |
-| `cpl_cleanup_worktrees` | Clean up worktrees for completed jobs | `POST /api/settings/cleanup-worktrees` |
+| Tool | Title | Actions | Maps to |
+|---|---|---|---|
+| `codeplane_health` | Health & Maintenance | check, cleanup | `GET /api/health`, `POST /api/settings/cleanup-worktrees` |
 
 ---
 
