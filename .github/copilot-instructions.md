@@ -35,6 +35,5 @@ CodePlane is a control plane for running and supervising coding agents. It has a
 ### General
 
 - Read `SPEC.md` for detailed requirements before implementing any feature.
-- Read `ROADMAP.md` to understand the implementation phasing.
 - Keep changes minimal and focused — don't refactor surrounding code or add speculative features.
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`.

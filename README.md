@@ -64,7 +64,7 @@ npm run dev
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
-See [ROADMAP.md](ROADMAP.md) for the implementation plan.
+See [SPEC.md](SPEC.md) for the full product specification.
 
 See [SPEC.md](SPEC.md) for the full product specification.
 
