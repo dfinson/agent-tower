@@ -13,9 +13,9 @@ import { Label } from "./ui/label";
 import { Spinner } from "./ui/spinner";
 
 const PERMISSION_MODES = [
-  { value: "auto", label: "Auto" },
-  { value: "approval_required", label: "Approval Required" },
-  { value: "read_only", label: "Read-only" },
+  { value: "auto", label: "Full Auto" },
+  { value: "approval_required", label: "Review & Approve" },
+  { value: "read_only", label: "Observe Only" },
 ];
 
 function SelectField({ label, value, options, onChange, description }: {

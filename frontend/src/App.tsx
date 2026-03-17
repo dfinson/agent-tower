@@ -66,28 +66,28 @@ export function App() {
 
   return (
     <div className="flex flex-col h-screen">
-      <header className="flex items-center justify-between px-5 h-14 shrink-0 border-b border-border bg-card">
-        <Link to="/" className="no-underline flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-          <img src="/logo-192.png" alt="" className="h-10 w-10" />
-          <span className="font-bold text-lg text-foreground tracking-tight">
+      <header className="flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card">
+        <Link to="/" className="no-underline flex items-center gap-3.5 hover:opacity-80 transition-opacity">
+          <img src="/mark.png" alt="" className="h-8 w-8 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
+          <span className="font-semibold text-white/95 tracking-tight leading-none">
             CodePlane
           </span>
         </Link>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 opacity-[0.78]">
           <ConnectionStatus />
           <Link
             to="/history"
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors no-underline"
             title="Job History"
           >
-            <History size={18} />
+            <History size={16} />
           </Link>
           <Link
             to="/settings"
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors no-underline"
           >
-            <Settings size={18} />
+            <Settings size={16} />
           </Link>
         </div>
       </header>
