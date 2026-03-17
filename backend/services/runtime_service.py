@@ -728,14 +728,6 @@ class RuntimeService:
 
     async def _headline_loop(self, job_id: str) -> None:
         """Periodically generate a 3-5 word progress headline from recent activity."""
-        headline_prompt = (
-            "Given the agent's recent messages and tool intents from a coding session, "
-            "write a 3-5 word label describing what the agent is currently doing. "
-            "Also provide the past tense version.\n"
-            'Respond as JSON only: {"present": "...", "past": "..."}\n'
-            'No articles. No period. Example: {"present": "Fixing auth middleware", '
-            '"past": "Fixed auth middleware"}\n\nMessages:\n'
-        )
         initial_delay_s = 8
         interval_s = 15
         try:
@@ -772,12 +764,34 @@ class RuntimeService:
                 if recent_intents:
                     parts.append("Tool intents: " + ", ".join(recent_intents))
 
-                prompt = headline_prompt + "\n---\n".join(parts)
+                last_headline = self._headline_last_text.get(job_id, "")
+                previous_context = (
+                    f'The current timeline entry (already shown) is: "{last_headline}"\n\n'
+                    if last_headline
+                    else ""
+                )
+
+                prompt = (
+                    "You are summarising a coding agent's activity for a progress timeline. "
+                    "Each timeline entry is shown in present tense while active, then flipped to "
+                    "past tense when superseded — so never repeat the same activity.\n\n"
+                    + previous_context
+                    + "Recent agent activity:\n"
+                    + "\n---\n".join(parts)
+                    + "\n\nDecide whether the agent has moved on to a meaningfully different "
+                    "task or phase since the current entry. Minor continuation of the same work "
+                    "(e.g. still editing the same file, still running the same kind of search) "
+                    "does NOT warrant a new entry — return defer instead.\n\n"
+                    "If a new entry IS warranted, write a concise 3-5 word label (no articles, "
+                    "no period) describing what the agent is doing NOW, plus its past-tense form.\n\n"
+                    "Respond with JSON only — one of:\n"
+                    '  {"defer": true}\n'
+                    '  {"present": "Refactoring auth service", "past": "Refactored auth service"}'
+                )
 
                 try:
                     raw = await self._utility_session.complete(prompt, timeout=10)  # type: ignore[union-attr]
                     raw = raw.strip()
-                    # Parse JSON response
                     import json as _json
                     import re as _re
 
@@ -789,27 +803,29 @@ class RuntimeService:
 
                     try:
                         parsed = _json.loads(raw)
+                    except (ValueError, AttributeError):
+                        parsed = {}
+
+                    if parsed.get("defer"):
+                        log.debug("headline_deferred", job_id=job_id)
+                    else:
                         headline = str(parsed.get("present", "")).strip().strip('"').strip(".")
                         headline_past = str(parsed.get("past", "")).strip().strip('"').strip(".")
-                    except (ValueError, AttributeError):
-                        headline = raw.strip().strip('"').strip(".")
-                        headline_past = headline
 
-                    last = self._headline_last_text.get(job_id, "")
-                    if headline and len(headline) > 3 and headline != last:
-                        self._headline_last_text[job_id] = headline
-                        await self._event_bus.publish(
-                            DomainEvent(
-                                event_id=_make_event_id(),
-                                job_id=job_id,
-                                timestamp=datetime.now(UTC),
-                                kind=DomainEventKind.progress_headline,
-                                payload={
-                                    "headline": headline,
-                                    "headline_past": headline_past,
-                                },
+                        if headline and len(headline) > 3 and headline != last_headline:
+                            self._headline_last_text[job_id] = headline
+                            await self._event_bus.publish(
+                                DomainEvent(
+                                    event_id=_make_event_id(),
+                                    job_id=job_id,
+                                    timestamp=datetime.now(UTC),
+                                    kind=DomainEventKind.progress_headline,
+                                    payload={
+                                        "headline": headline,
+                                        "headline_past": headline_past,
+                                    },
+                                )
                             )
-                        )
                 except Exception:
                     log.debug("headline_generation_failed", job_id=job_id, exc_info=True)
 
