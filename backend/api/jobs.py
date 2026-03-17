@@ -305,7 +305,8 @@ async def resume_job(
 @router.get("/models")
 async def list_models(request: Request) -> list[dict[str, object]]:
     """Return the model list cached at server startup."""
-    return request.app.state.cached_models
+    models: list[dict[str, object]] = request.app.state.cached_models
+    return models
 
 
 @router.get("/jobs/{job_id}/logs", response_model=list[LogLinePayload])

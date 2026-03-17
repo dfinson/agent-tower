@@ -500,7 +500,6 @@ class SSEManager:
                     merge_status=j.merge_status,
                     resolution=j.resolution,
                     archived_at=j.archived_at,
-                    completion_strategy=j.completion_strategy,
                     failure_reason=j.failure_reason,
                     model=j.model,
                 )
