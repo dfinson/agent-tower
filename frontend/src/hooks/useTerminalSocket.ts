@@ -9,7 +9,10 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 
-const WS_BASE = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
+function getWsBase(): string {
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}`;
+}
 
 interface UseTerminalSocketOptions {
   /** The xterm.js Terminal instance to bridge. */
@@ -29,7 +32,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSo
   const connect = useCallback(() => {
     if (!terminal || !sessionIdRef.current) return;
 
-    const ws = new WebSocket(`${WS_BASE}/api/terminal/ws`);
+    const ws = new WebSocket(`${getWsBase()}/api/terminal/ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {
