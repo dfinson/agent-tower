@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 from pathlib import PurePosixPath
-from typing import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _truncate(s: str, max_len: int = 60) -> str:

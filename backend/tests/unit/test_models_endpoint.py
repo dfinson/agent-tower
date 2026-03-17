@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette.routing import Route
-from starlette.testclient import TestClient
 
 from backend.api.jobs import router as jobs_router
-from fastapi import FastAPI
 
 
 def _make_app(cached_models: list) -> FastAPI:

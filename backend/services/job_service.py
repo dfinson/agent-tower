@@ -135,6 +135,7 @@ class JobService:
         # Fallback worktree_name if naming didn't produce one
         if worktree_name is None:
             import hashlib
+
             h = hashlib.sha256(prompt.encode()).hexdigest()[:8]
             worktree_name = f"task-{h}"
 
