@@ -463,7 +463,7 @@ async def resolve_job(
     session: Annotated[AsyncSession, Depends(_get_session)],
     request: Request,
 ) -> ResolveJobResponse:
-    """Resolve a succeeded job: merge, create PR, or discard."""
+    """Resolve a succeeded job: merge, create PR, discard, or resolve with agent."""
     svc = _make_job_service(session)
     try:
         job = await svc.resolve_job(job_id, body.action)
@@ -471,6 +471,44 @@ async def resolve_job(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except StateConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # agent_merge: hand the conflict back to the agent to resolve, then re-run
+    if body.action == "agent_merge":
+        if job.resolution != "conflict":
+            raise HTTPException(status_code=409, detail="agent_merge is only valid when resolution is 'conflict'")
+
+        runtime_service = getattr(request.app.state, "runtime_service", None)
+        if runtime_service is None:
+            raise HTTPException(status_code=503, detail="Runtime service not configured")
+
+        # Retrieve conflict files from the latest merge_conflict event
+        event_repo = EventRepository(session)
+        conflict_events = await event_repo.list_by_job(
+            job_id, kinds=[DomainEventKind.merge_conflict]
+        )
+        conflict_files: list[str] = []
+        if conflict_events:
+            conflict_files = conflict_events[-1].payload.get("conflict_files", [])
+
+        files_detail = (
+            f"\nThe following files have conflicts:\n"
+            + "\n".join(f"  - {f}" for f in conflict_files)
+            if conflict_files
+            else ""
+        )
+        conflict_prompt = (
+            f"A merge conflict was detected when attempting to merge branch '{job.branch}' "
+            f"into '{job.base_ref}'.{files_detail}\n\n"
+            "Please resolve the merge conflicts:\n"
+            "1. Run `git merge <base_ref>` in the worktree to reproduce the conflict markers\n"
+            "2. Edit the conflicting files to resolve all conflicts, preserving the functional "
+            "intent of both sides without compromising either set of changes\n"
+            "3. Stage and commit the resolved files\n"
+            "Do not make any other modifications beyond resolving the merge conflicts."
+        )
+
+        await runtime_service.resume_job(job_id, conflict_prompt)
+        return ResolveJobResponse(resolution="agent_merge")
 
     merge_service: MergeService | None = getattr(request.app.state, "merge_service", None)
     if merge_service is None:

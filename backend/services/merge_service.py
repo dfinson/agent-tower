@@ -260,7 +260,7 @@ class MergeService:
             await self._update_merge_status(job_id, "merged")
             return MergeResult(status="merged", strategy="merge")
 
-        # Merge failed — abort, collect conflict info, fall back to PR
+        # Merge failed — abort, report conflict, leave resolution to operator
         await self._git.merge_abort(cwd=repo_path)
         conflict_files = await self._get_conflict_file_list(repo_path, branch, base_ref)
 
@@ -269,27 +269,17 @@ class MergeService:
         except Exception:
             log.warning("checkout_base_ref_failed", job_id=job_id, exc_info=True)
 
-        log.info("merge_falling_back_to_pr", job_id=job_id, conflict_files=conflict_files)
-        pr_result = await self._create_pr(job_id, repo_path, worktree_path, branch, base_ref, prompt)
+        log.info("merge_conflict_detected", job_id=job_id, conflict_files=conflict_files)
 
         await self._publish_merge_conflict(
             job_id,
             branch,
             base_ref,
             conflict_files,
-            fallback="pr_created" if pr_result.pr_url else "none",
-            pr_url=pr_result.pr_url,
+            fallback="none",
         )
-        await self._update_merge_status(
-            job_id,
-            "conflict",
-            pr_url=pr_result.pr_url,
-        )
-        return MergeResult(
-            status="conflict",
-            conflict_files=conflict_files,
-            pr_url=pr_result.pr_url,
-        )
+        await self._update_merge_status(job_id, "conflict")
+        return MergeResult(status="conflict", conflict_files=conflict_files)
 
     async def _get_conflict_file_list(self, repo_path: str, branch: str, base_ref: str) -> list[str]:
         """Attempt a merge to discover conflicting files, then abort."""
@@ -423,7 +413,7 @@ class MergeService:
         base_ref: str,
         conflict_files: list[str],
         fallback: str,
-        pr_url: str | None,
+        pr_url: str | None = None,
     ) -> None:
         await self._event_bus.publish(
             DomainEvent(

@@ -420,7 +420,7 @@ class PlatformStatusListResponse(CamelModel):
 
 
 class ResolveJobRequest(BaseModel):
-    action: str  # merge | create_pr | discard
+    action: str  # merge | smart_merge | create_pr | discard | agent_merge
 
 
 class ResolveJobResponse(CamelModel):
