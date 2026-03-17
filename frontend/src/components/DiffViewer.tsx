@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
@@ -8,6 +8,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
+import { MicButton } from "./VoiceButton";
 import type { DiffFileModel, DiffHunkModel } from "../api/types";
 
 interface DiffViewerProps {
@@ -109,6 +110,10 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt }: 
   const [askSending, setAskSending] = useState(false);
   const { canAsk, reason: disabledReason } = computeAskState(jobState, resolution, archivedAt);
   const isTerminal = ["succeeded", "failed", "canceled"].includes(jobState ?? "");
+
+  // Voice input state
+  const waveformContainerRef = useRef<HTMLDivElement>(null);
+  const [micState, setMicState] = useState<"idle" | "recording" | "transcribing">("idle");
 
   // Fetch historical diff from API on mount (for completed jobs / page refresh)
   useEffect(() => {
@@ -223,13 +228,19 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt }: 
                 >
                   {/* Checkbox — visible when ask is active, disabled placeholder when not */}
                   {canAsk ? (
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleFile(i)}
-                      className="shrink-0 accent-primary w-3.5 h-3.5 cursor-pointer"
+                    <button
+                      type="button"
+                      onClick={() => toggleFile(i)}
+                      className={cn(
+                        "shrink-0 w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center transition-colors cursor-pointer",
+                        checked
+                          ? "bg-primary border-primary text-primary-foreground"
+                          : "border-muted-foreground/40 hover:border-muted-foreground",
+                      )}
                       title="Select to ask about this file's changes"
-                    />
+                    >
+                      {checked && <Check size={10} strokeWidth={3} />}
+                    </button>
                   ) : (
                     <span className="shrink-0 w-3.5" />
                   )}
@@ -290,40 +301,70 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt }: 
 
       {/* Ask-about-diff bar */}
       {canAsk && checkedFiles.size > 0 && (
-        <div className="flex items-end gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 animate-in slide-in-from-bottom-2 duration-200">
-          <MessageSquare size={16} className="text-primary shrink-0 mb-1" />
-          <span className="text-xs text-muted-foreground shrink-0 mb-1">
-            {checkedFiles.size} file{checkedFiles.size > 1 ? "s" : ""} selected
-          </span>
-          <textarea
-            placeholder="Ask about these changes…"
-            value={askMsg}
-            onChange={(e) => {
-              setAskMsg(e.currentTarget.value);
-              e.currentTarget.style.height = "auto";
-              e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 160) + "px";
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !isMobile && !e.shiftKey) {
-                e.preventDefault();
-                handleAskSend();
-              }
-            }}
-            disabled={askSending}
-            rows={1}
-            className="flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none overflow-y-auto"
-            style={{ maxHeight: 160 }}
-          />
-          <Button
-            size="sm"
-            onClick={handleAskSend}
-            disabled={askSending || !askMsg.trim()}
-            loading={askSending}
-            className="h-8 gap-1 shrink-0"
-          >
-            <Send size={14} />
-            Ask
-          </Button>
+        <div className="flex flex-col gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 animate-in slide-in-from-bottom-2 duration-200">
+          <div className="flex items-center gap-2">
+            <MessageSquare size={16} className="text-primary shrink-0" />
+            <span className="text-xs text-muted-foreground">
+              {checkedFiles.size} file{checkedFiles.size > 1 ? "s" : ""} selected
+            </span>
+          </div>
+
+          {/* Waveform strip — always mounted for WaveSurfer stability, shown only during recording */}
+          <div className={cn(
+            "rounded border border-blue-600/50 bg-card px-3 py-1",
+            micState === "recording" ? "block" : "hidden",
+          )}>
+            <div ref={waveformContainerRef} />
+          </div>
+
+          {/* Transcribing indicator */}
+          {micState === "transcribing" && (
+            <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
+              <Spinner size="sm" />
+              <span>Transcribing…</span>
+            </div>
+          )}
+
+          <div className="flex items-end gap-2">
+            <div className="relative flex-1">
+              <textarea
+                placeholder="Ask about these changes…"
+                value={askMsg}
+                onChange={(e) => {
+                  setAskMsg(e.currentTarget.value);
+                  e.currentTarget.style.height = "auto";
+                  e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 160) + "px";
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isMobile && !e.shiftKey) {
+                    e.preventDefault();
+                    handleAskSend();
+                  }
+                }}
+                disabled={askSending || micState !== "idle"}
+                rows={1}
+                className="flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none pr-8 overflow-y-auto"
+                style={{ maxHeight: 160 }}
+              />
+              <div className="absolute right-2 bottom-1.5">
+                <MicButton
+                  onTranscript={(t) => setAskMsg((prev) => (prev ? prev + " " : "") + t)}
+                  onStateChange={setMicState}
+                  waveformContainerRef={waveformContainerRef}
+                />
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={handleAskSend}
+              disabled={askSending || !askMsg.trim() || micState !== "idle"}
+              loading={askSending}
+              className="h-8 gap-1 shrink-0"
+            >
+              <Send size={14} />
+              Ask
+            </Button>
+          </div>
         </div>
       )}
 
