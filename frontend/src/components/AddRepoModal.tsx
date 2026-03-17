@@ -26,6 +26,12 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
   const [browseParent, setBrowseParent] = useState<string | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
+  const [cloneBrowseOpen, setCloneBrowseOpen] = useState(false);
+  const [cloneBrowsePath, setCloneBrowsePath] = useState("~");
+  const [cloneBrowseEntries, setCloneBrowseEntries] = useState<{ name: string; path: string; isGitRepo: string }[]>([]);
+  const [cloneBrowseParent, setCloneBrowseParent] = useState<string | null>(null);
+  const [cloneBrowseLoading, setCloneBrowseLoading] = useState(false);
+
   const handleAdd = useCallback(
     async (source: string, cloneTarget?: string) => {
       if (!source.trim()) return;
@@ -57,6 +63,20 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
       toast.error("Failed to browse directory");
     } finally {
       setBrowseLoading(false);
+    }
+  }, []);
+
+  const loadCloneDirectory = useCallback(async (path: string) => {
+    setCloneBrowseLoading(true);
+    try {
+      const result = await browseDirectories(path);
+      setCloneBrowsePath(result.current);
+      setCloneBrowseParent(result.parent);
+      setCloneBrowseEntries(result.items);
+    } catch {
+      toast.error("Failed to browse directory");
+    } finally {
+      setCloneBrowseLoading(false);
     }
   }, []);
 
@@ -120,11 +140,72 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Clone to</Label>
-                  <Input
-                    placeholder="/home/user/projects/repo"
-                    value={cloneTo}
-                    onChange={(e) => setCloneTo(e.currentTarget.value)}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      className="flex-1"
+                      placeholder="/home/user/projects/repo"
+                      value={cloneTo}
+                      onChange={(e) => setCloneTo(e.currentTarget.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => { setCloneBrowseOpen(!cloneBrowseOpen); if (!cloneBrowseOpen) loadCloneDirectory(cloneTo || "~"); }}
+                    >
+                      <Folder size={14} />
+                      Browse
+                    </Button>
+                  </div>
+                  {cloneBrowseOpen && (
+                    <div className="rounded-md border border-border bg-background mt-1">
+                      <div className="px-3 py-2 flex items-center gap-2 border-b border-border">
+                        {cloneBrowseParent && (
+                          <button
+                            type="button"
+                            onClick={() => loadCloneDirectory(cloneBrowseParent)}
+                            className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                          >
+                            <ArrowUp size={14} />
+                          </button>
+                        )}
+                        <span className="text-xs font-mono text-muted-foreground truncate flex-1">{cloneBrowsePath}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs h-6"
+                          onClick={() => { setCloneTo(cloneBrowsePath); setCloneBrowseOpen(false); }}
+                        >
+                          Select this folder
+                        </Button>
+                      </div>
+                      <div className="h-[min(180px,30vh)] overflow-y-auto">
+                        {cloneBrowseLoading ? (
+                          <div className="flex justify-center py-6">
+                            <Spinner size="sm" />
+                          </div>
+                        ) : cloneBrowseEntries.length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-4">No subdirectories</p>
+                        ) : (
+                          <div className="p-1 flex flex-col gap-px">
+                            {cloneBrowseEntries.map((entry) => (
+                              <button
+                                key={entry.path}
+                                type="button"
+                                className="flex w-full items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-left"
+                                onClick={() => loadCloneDirectory(entry.path)}
+                              >
+                                <FolderOpen size={14} className="text-yellow-500 shrink-0" />
+                                <span className="text-sm">{entry.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Local directory where the repository will be cloned
                   </p>

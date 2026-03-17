@@ -25,6 +25,42 @@ CodePlane is a control plane for running and supervising coding agents.
 
 Launch automated coding tasks against real repositories, watch everything the agent does in real time, and intervene when needed. CodePlane gives you visibility into execution progress, code changes, logs, artifacts, and agent reasoning so work can be reviewed and controlled as it happens.
 
+<!-- SCREENSHOT: Desktop hero — job in "running" state
+     Capture: Full browser window (1280×800) showing the main dashboard with
+     an active job. The transcript panel should show a mix of tool calls and
+     assistant messages, a visible progress headline, and ideally an approval
+     prompt waiting for operator input. Crop browser chrome.
+     Save as: docs/images/screenshot-desktop-running.png
+     Then uncomment the img tag below.
+-->
+<!-- <p align="center"><img src="docs/images/screenshot-desktop-running.png" alt="CodePlane — desktop UI with a running job" width="800" /></p> -->
+
+<!-- SCREENSHOT: Mobile — job list
+     Capture: Use Chrome DevTools device toolbar (iPhone 14 Pro, 393×852).
+     Navigate to the job list with 2-3 jobs in different states (running,
+     completed, failed). Take a full-page screenshot.
+     Save as: docs/images/screenshot-mobile-joblist.png
+     Then uncomment the img tag below.
+-->
+
+<!-- SCREENSHOT: Desktop — diff view
+     Capture: Full browser window showing a completed job's diff tab in the
+     Monaco editor. Pick a job with meaningful multi-file changes so the
+     file list sidebar and diff content are both visible.
+     Save as: docs/images/screenshot-desktop-diff.png
+     Then uncomment the img tag below.
+-->
+
+<!-- When screenshots are ready, replace the commented img tags above with:
+<p align="center">
+  <img src="docs/images/screenshot-desktop-running.png" alt="Desktop — running job" width="800" />
+</p>
+<p align="center">
+  <img src="docs/images/screenshot-mobile-joblist.png" alt="Mobile — job list" width="300" />
+  <img src="docs/images/screenshot-desktop-diff.png" alt="Desktop — diff view" width="500" />
+</p>
+-->
+
 ## Features
 
 - **Job orchestration** — Launch coding tasks against local repositories

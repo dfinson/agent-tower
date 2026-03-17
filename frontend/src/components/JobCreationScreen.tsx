@@ -114,9 +114,9 @@ export function JobCreationScreen() {
             <div className="flex gap-2">
               {(
                 [
-                  { value: "auto", label: "Auto", title: "Approve all operations within the worktree silently" },
-                  { value: "approval_required", label: "Supervised", title: "Require approval for writes, shell commands, and URL fetches" },
-                  { value: "read_only", label: "Read-only", title: "Deny all writes and mutations" },
+                  { value: "auto", label: "Full Auto", title: "Approve all operations within the worktree silently" },
+                  { value: "approval_required", label: "Review & Approve", title: "Require approval for writes, shell commands, and URL fetches" },
+                  { value: "read_only", label: "Observe Only", title: "Deny all writes and mutations" },
                 ] as { value: PermissionMode; label: string; title: string }[]
               ).map(({ value, label, title }) => (
                 <button
