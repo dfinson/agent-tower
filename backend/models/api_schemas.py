@@ -146,7 +146,7 @@ class ResolveApprovalRequest(BaseModel):
     resolution: ApprovalResolution
 
 
-class UpdateSettingsRequest(BaseModel):
+class UpdateSettingsRequest(CamelModel):
     """Structured settings update — only include fields to change."""
 
     max_concurrent_jobs: int | None = Field(None, ge=1, le=10)
