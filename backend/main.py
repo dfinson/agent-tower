@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import approvals, artifacts, events, health, jobs, settings, voice, workspace
+from backend.api import approvals, artifacts, events, health, jobs, settings, terminal, voice, workspace
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, init_config, load_config
 from backend.persistence.database import create_engine, create_session_factory, run_migrations
 from backend.persistence.event_repo import EventRepository
@@ -204,6 +204,21 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.utility_session = utility_session
     app.state.session_factory = session_factory
 
+    # --- Terminal service ---
+    from backend.services.terminal_service import TerminalService
+
+    terminal_service: TerminalService | None = None
+    if config.terminal.enabled:
+        terminal_service = TerminalService(
+            max_sessions=config.terminal.max_sessions,
+            default_shell=config.terminal.default_shell,
+            scrollback_size_kb=config.terminal.scrollback_size_kb,
+        )
+        terminal.set_terminal_service(terminal_service)
+        terminal.set_utility_session(utility_session)
+        app.state.terminal_service = terminal_service
+        log.info("terminal_service_enabled", max_sessions=config.terminal.max_sessions)
+
     # --- Model list cache ---
     # Fetch once at startup so the job-creation form renders instantly.
     # The SDK is not hot-swapped at runtime, so a one-time cache is correct.
@@ -280,6 +295,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
     await mcp_cleanup.__aexit__(None, None, None)
     retention_task.cancel()
+    if terminal_service is not None:
+        await terminal_service.shutdown()
     await utility_session.shutdown()
     await runtime_service.shutdown()
     await sse_manager.close_all()
@@ -339,6 +356,8 @@ def create_app(*, dev: bool = False, tunnel_origin: str | None = None, password:
     app.include_router(workspace.router, prefix="/api")
     app.include_router(voice.router, prefix="/api")
     app.include_router(settings.router, prefix="/api")
+    # Terminal router has its own /api/terminal prefix
+    app.include_router(terminal.router)
 
     # Serve frontend static files (SPA fallback for client-side routing)
     # Uses exception handler instead of middleware to avoid wrapping
