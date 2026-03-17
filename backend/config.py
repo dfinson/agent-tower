@@ -35,7 +35,7 @@ server:
 
 runtime:
   max_concurrent_jobs: 2
-  worktrees_dirname: .cpl-worktrees
+  worktrees_dirname: .codeplane-worktrees
 
 retention:
   artifact_retention_days: 30
@@ -61,8 +61,8 @@ class ServerConfig:
 @dataclass
 class RuntimeConfig:
     max_concurrent_jobs: int = 2
-    worktrees_dirname: str = ".cpl-worktrees"
-    permission_mode: str = "permissive"  # permissive | auto | supervised
+    worktrees_dirname: str = ".codeplane-worktrees"
+    permission_mode: str = "auto"  # auto | read_only | approval_required
     utility_model: str = "gpt-4o-mini"  # cheap/fast model for naming, summaries, etc.
 
 

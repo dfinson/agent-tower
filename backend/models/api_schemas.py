@@ -33,10 +33,6 @@ class CamelModel(BaseModel):
 # --- Enums ---
 
 
-class StrategyKind(StrEnum):
-    single_agent = "single_agent"
-
-
 class CompletionStrategy(StrEnum):
     auto_merge = "auto_merge"
     pr_only = "pr_only"
@@ -52,10 +48,9 @@ class ResolutionStatus(StrEnum):
 
 
 class PermissionMode(StrEnum):
-    permissive = "permissive"
     auto = "auto"
-    supervised = "supervised"
-    readonly = "readonly"
+    read_only = "read_only"
+    approval_required = "approval_required"
 
 
 class JobState(StrEnum):
@@ -130,7 +125,6 @@ class CreateJobRequest(BaseModel):
     prompt: str
     base_ref: str | None = None
     branch: str | None = None
-    strategy: StrategyKind | None = None
     permission_mode: PermissionMode | None = None
     model: str | None = None
 
@@ -156,7 +150,6 @@ class UpdateSettingsRequest(BaseModel):
 
     max_concurrent_jobs: int | None = Field(None, ge=1, le=10)
     permission_mode: PermissionMode | None = None
-    completion_strategy: CompletionStrategy | None = None
     auto_push: bool | None = None
     cleanup_worktree: bool | None = None
     delete_branch_after_merge: bool | None = None
@@ -168,7 +161,6 @@ class UpdateSettingsRequest(BaseModel):
 class SettingsResponse(CamelModel):
     max_concurrent_jobs: int
     permission_mode: str
-    completion_strategy: str
     auto_push: bool
     cleanup_worktree: bool
     delete_branch_after_merge: bool
@@ -200,7 +192,6 @@ class JobResponse(CamelModel):
     prompt: str
     title: str | None = None
     state: str
-    strategy: StrategyKind
     base_ref: str
     worktree_path: str | None
     branch: str | None
@@ -212,9 +203,9 @@ class JobResponse(CamelModel):
     merge_status: str | None = None
     resolution: str | None = None
     archived_at: datetime | None = None
-    completion_strategy: str | None = None
     failure_reason: str | None = None
     model: str | None = None
+    worktree_name: str | None = None
 
 
 class JobListResponse(CamelModel):
