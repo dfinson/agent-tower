@@ -222,10 +222,10 @@ export function JobDetailScreen() {
                     loading={resolveLoading === "smart_merge"}
                     disabled={resolveLoading !== null}
                     onClick={() => handleResolve("smart_merge")}
-                    title="Cherry-pick changes onto the base branch, resolving conflicts intelligently"
+                    title="Ask the agent to merge changes onto the base branch"
                   >
                     <GitMerge size={14} />
-                    Auto Merge
+                    Merge
                   </Button>
                 )}
                 <Button
