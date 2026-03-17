@@ -16,6 +16,6 @@ labels: enhancement
 
 <!-- Other approaches you thought about -->
 
-## Spec Reference
+## Spec Reference if relevant
 
 <!-- Link to relevant SPEC.md section(s) or ROADMAP.md phase, if any -->
