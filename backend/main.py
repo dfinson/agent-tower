@@ -21,7 +21,7 @@ from backend.api import approvals, artifacts, events, health, jobs, settings, te
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, init_config, load_config
 from backend.persistence.database import create_engine, create_session_factory, run_migrations
 from backend.persistence.event_repo import EventRepository
-from backend.services.agent_adapter import CopilotAdapter
+from backend.services.adapter_registry import AdapterRegistry
 from backend.services.approval_service import ApprovalService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
@@ -148,7 +148,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Runtime service ---
     config = load_config()
     approval_service = ApprovalService(session_factory=session_factory)
-    adapter = CopilotAdapter(
+    adapter_registry = AdapterRegistry(
         approval_service=approval_service,
         event_bus=event_bus,
     )
@@ -180,7 +180,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     runtime_service = RuntimeService(
         session_factory=session_factory,
         event_bus=event_bus,
-        adapter=adapter,
+        adapter_registry=adapter_registry,
         config=config,
         approval_service=approval_service,
         diff_service=diff_service,
@@ -200,7 +200,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.merge_service = merge_service
     app.state.platform_registry = platform_registry
     app.state.approval_service = approval_service
-    app.state.agent_adapter = adapter
+    app.state.adapter_registry = adapter_registry
     app.state.utility_session = utility_session
     app.state.session_factory = session_factory
 

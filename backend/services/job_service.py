@@ -17,6 +17,7 @@ from backend.models.domain import (
     JobState,
     validate_state_transition,
 )
+from backend.services.agent_adapter import SDKModelMismatchError, validate_sdk_model
 
 if TYPE_CHECKING:
     from backend.config import CPLConfig
@@ -84,6 +85,7 @@ class JobService:
         branch: str | None = None,
         permission_mode: str = "auto",
         model: str | None = None,
+        sdk: str | None = None,
     ) -> Job:
         """Create a new job, set up workspace, and persist it.
 
@@ -96,6 +98,11 @@ class JobService:
         Raises RepoNotAllowedError if the repo is not in the allowlist.
         """
         resolved_repo = self.validate_repo(repo)
+
+        resolved_sdk = sdk or self._config.runtime.default_sdk
+
+        # Validate SDK-model compatibility upfront
+        validate_sdk_model(resolved_sdk, model)
 
         # Determine base_ref
         if base_ref is None:
@@ -201,6 +208,7 @@ class JobService:
                 worktree_name=worktree_name,
                 permission_mode=permission_mode,
                 model=model,
+                sdk=resolved_sdk,
                 failure_reason=f"Worktree creation failed: {exc}",
             )
             await self._job_repo.create(job)
@@ -224,6 +232,7 @@ class JobService:
             worktree_name=worktree_name,
             permission_mode=permission_mode,
             model=model,
+            sdk=resolved_sdk,
         )
         await self._job_repo.create(job)
         log.info("job_created", job_id=job_id, title=title, repo=resolved_repo, state=initial_state)
@@ -306,6 +315,7 @@ class JobService:
             base_ref=original.base_ref,
             permission_mode=original.permission_mode,
             model=original.model,
+            sdk=original.sdk,
         )
 
     async def continue_job(self, job_id: str, instruction: str) -> Job:
@@ -317,6 +327,7 @@ class JobService:
             base_ref=original.base_ref,
             permission_mode=original.permission_mode,
             model=original.model,
+            sdk=original.sdk,
         )
 
     async def count_active_jobs(self) -> int:
