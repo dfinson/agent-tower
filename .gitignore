@@ -43,6 +43,10 @@ dmypy.json
 *.db-journal
 *.log
 
+# Managed worktrees
+.codeplane-worktrees/
+.cpl-worktrees/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
