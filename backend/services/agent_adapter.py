@@ -17,7 +17,12 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.permission_policy import PolicyDecision, evaluate
+from backend.services.permission_policy import (
+    PolicyDecision,
+    evaluate_approval_required,
+    evaluate_auto,
+    evaluate_read_only,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -105,11 +110,6 @@ class CopilotAdapter(AgentAdapterInterface):
             mode = config.permission_mode
             sid = invocation.get("session_id", "")
 
-            # --- permissive: approve everything ---
-            if mode == PermissionMode.permissive:
-                log.debug("permission_auto_approved", mode="permissive", kind=kind_val)
-                return _Result(kind="approved")
-
             # --- Check if operator has trusted this job session ---
             approval_service = self._approval_service
             job_id = self._session_to_job.get(sid)
@@ -117,14 +117,7 @@ class CopilotAdapter(AgentAdapterInterface):
                 log.debug("permission_auto_approved", mode="trusted", kind=kind_val)
                 return _Result(kind="approved")
 
-            # --- readonly: deny any mutation ---
-            if mode == PermissionMode.readonly:
-                if kind_val in ("write", "shell", "url"):
-                    log.info("permission_denied_readonly", kind=kind_val)
-                    return _Result(kind="denied-interactively-by-user")
-                return _Result(kind="approved")
-
-            # --- auto: evaluate policy ---
+            # --- AUTO: approve everything (full execution permission) ---
             if mode == PermissionMode.auto:
                 candidate_paths: list[str] = []
                 if request.file_name:
@@ -134,23 +127,50 @@ class CopilotAdapter(AgentAdapterInterface):
                 if request.possible_paths:
                     candidate_paths.extend(request.possible_paths)
 
-                decision = evaluate(
+                decision = evaluate_auto(
                     kind=kind_val,
                     workspace_path=config.workspace_path,
-                    protected_paths=config.protected_paths,
                     possible_paths=candidate_paths or None,
                     file_name=request.file_name,
                     path=request.path,
-                    read_only=request.read_only,
-                    full_command_text=request.full_command_text,
-                    url=getattr(request, "url", None),
                 )
-
                 if decision == PolicyDecision.approve:
                     log.debug("permission_auto_approved", mode="auto", kind=kind_val)
                     return _Result(kind="approved")
 
-            # --- supervised OR auto-policy-ask: route to operator ---
+            # --- READ_ONLY: deny mutations ---
+            if mode == PermissionMode.read_only:
+                decision = evaluate_read_only(
+                    kind=kind_val,
+                    workspace_path=config.workspace_path,
+                    full_command_text=request.full_command_text,
+                    file_name=request.file_name,
+                    path=request.path,
+                    read_only=request.read_only,
+                )
+                if decision == PolicyDecision.approve:
+                    log.debug("permission_auto_approved", mode="read_only", kind=kind_val)
+                    return _Result(kind="approved")
+                if decision == PolicyDecision.deny:
+                    log.info("permission_denied_readonly", kind=kind_val)
+                    return _Result(kind="denied-interactively-by-user")
+                # ask → fall through (shouldn't happen in read_only, but safe)
+
+            # --- APPROVAL_REQUIRED: check policy ---
+            if mode == PermissionMode.approval_required:
+                decision = evaluate_approval_required(
+                    kind=kind_val,
+                    workspace_path=config.workspace_path,
+                    full_command_text=request.full_command_text,
+                    file_name=request.file_name,
+                    path=request.path,
+                    read_only=request.read_only,
+                )
+                if decision == PolicyDecision.approve:
+                    log.debug("permission_auto_approved", mode="approval_required", kind=kind_val)
+                    return _Result(kind="approved")
+
+            # --- Route to operator for approval ---
             # Build human-readable description
             if kind_val == "write":
                 description = f"Write file: {request.file_name or request.intention or ''}"
@@ -590,9 +610,11 @@ class CopilotAdapter(AgentAdapterInterface):
             return _Result(kind="approved")
 
         try:
+            import tempfile
+
             session = await client.create_session(
                 SdkSessionConfig(
-                    working_directory="/tmp",
+                    working_directory=tempfile.gettempdir(),
                     on_permission_request=_noop_permission,
                 )
             )

@@ -1,8 +1,13 @@
 """Permission policy evaluation for SDK permission requests.
 
-Evaluates whether a given SDK permission request should be auto-approved,
-forwarded to the operator, or denied based on the active PermissionMode
-and workspace context.
+Evaluates tool-call permission decisions based on the active PermissionMode.
+
+Modes
+-----
+AUTO             — approve everything within the current worktree.
+READ_ONLY        — approve reads and grep/find; deny everything else.
+APPROVAL_REQUIRED — approve read_file; require approval for shells
+                    (except grep/find), URL fetches, and writes.
 """
 
 from __future__ import annotations
@@ -21,39 +26,27 @@ class PolicyDecision(StrEnum):
 
     approve = "approve"
     ask = "ask"
+    deny = "deny"
 
 
-# Shell command patterns that always require operator approval, even in auto mode.
-# Matches against the full command text (case-insensitive).
-_DANGEROUS_SHELL_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(p, re.IGNORECASE)
-    for p in [
-        r"\brm\s+.*-[^\s]*r",  # rm -r, rm -rf, rm -Rf, etc.
-        r"\bsudo\b",
-        r"\bchmod\b",
-        r"\bchown\b",
-        r"\bmkfs\b",
-        r"\bdd\b\s+",
-        r"\bcurl\b",
-        r"\bwget\b",
-        r"\bssh\b",
-        r"\bscp\b",
-        r"\brsync\b",
-        r"\bdocker\b",
-        r"\bkubectl\b",
-        r"\bhelm\b",
-        r"\bterraform\b",
-        r"\bpulumi\b",
-        r"\baws\b",
-        r"\baz\b\s",
-        r"\bgcloud\b",
-        r"\bgit\s+push\b",
-        r"\bgit\s+remote\b",
-        r"\bnpm\s+publish\b",
-        r"\byarn\s+publish\b",
-        r"\bpip\s+install\b(?!.*-e\s)",  # pip install (but allow editable installs)
-    ]
-]
+# Read-only shell commands that are always safe.
+# Covers Unix (grep, ls, cat …), Windows cmd (dir, findstr, where …),
+# and PowerShell cmdlets (Get-ChildItem, Select-String …).
+_READONLY_SHELL_RE = re.compile(
+    r"^\s*("
+    # Unix
+    r"grep|egrep|fgrep|rg|find|ls|cat|head|tail|wc|sort|diff|file|stat|du|tree"
+    r"|echo|pwd|which|type|printenv|env|more|less"
+    # Windows cmd builtins
+    r"|dir|findstr|where|fc|more"
+    # PowerShell cmdlets & common aliases
+    r"|Get-ChildItem|Get-Content|Get-Item|Get-ItemProperty|Get-Location"
+    r"|Select-String|Measure-Object|Compare-Object|Test-Path|Resolve-Path"
+    r"|Write-Output|Out-Host|Format-List|Format-Table"
+    r"|gci|gc|gi|sls|measure|compare"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def _is_path_within_workspace(path: str, workspace: str) -> bool:
@@ -66,92 +59,136 @@ def _is_path_within_workspace(path: str, workspace: str) -> bool:
         return False
 
 
-def _hits_protected_path(path: str, workspace: str, protected: list[str]) -> bool:
-    """Return True if *path* matches any entry in the protected-paths list."""
-    if not protected:
-        return False
-    try:
-        rel = os.path.relpath(os.path.realpath(path), os.path.realpath(workspace))
-    except (TypeError, ValueError):
-        return False
-    for pp in protected:
-        pp_stripped = pp.rstrip("/")
-        if rel == pp_stripped or rel.startswith(pp_stripped + "/"):
-            return True
-    return False
-
-
-def evaluate(
+def evaluate_auto(
     *,
     kind: str,
     workspace_path: str,
-    protected_paths: list[str],
     possible_paths: list[str] | None = None,
     file_name: str | None = None,
     path: str | None = None,
-    read_only: bool | None = None,
-    full_command_text: str | None = None,
-    url: str | None = None,
 ) -> PolicyDecision:
-    """Evaluate a permission request under ``auto`` mode.
+    """AUTO mode: approve everything that touches the current worktree."""
 
-    ``permissive`` and ``supervised`` modes are short-circuited by the
-    caller before reaching this function.
-    """
+    # All reads — approve
+    if kind in ("read", "memory"):
+        return PolicyDecision.approve
 
-    # --- Memory operations are always safe ---
+    # Writes/shells within workspace — approve
+    target = file_name or path
+    if target and _is_path_within_workspace(target, workspace_path):
+        return PolicyDecision.approve
+
+    # Check possible_paths
+    if possible_paths:
+        if all(_is_path_within_workspace(p, workspace_path) for p in possible_paths):
+            return PolicyDecision.approve
+
+    # Shell commands — approve (agent has full execution permission)
+    if kind == "shell":
+        return PolicyDecision.approve
+
+    # MCP tools — approve
+    if kind == "mcp":
+        return PolicyDecision.approve
+
+    # URL fetches — approve
+    if kind == "url":
+        return PolicyDecision.approve
+
+    # Writes with no path info — approve (trust the agent)
+    if kind == "write":
+        return PolicyDecision.approve
+
+    # Unknown — approve (AUTO = full trust)
+    return PolicyDecision.approve
+
+
+def evaluate_read_only(
+    *,
+    kind: str,
+    workspace_path: str,
+    full_command_text: str | None = None,
+    file_name: str | None = None,
+    path: str | None = None,
+    read_only: bool | None = None,
+) -> PolicyDecision:
+    """READ_ONLY mode: allow reads within worktree + grep/find. Block everything else."""
+
+    # Memory — approve
     if kind == "memory":
         return PolicyDecision.approve
 
-    # --- Reads within the workspace are safe ---
+    # Reads within workspace — approve
     if kind == "read":
-        target = path or file_name
-        if target and _is_path_within_workspace(target, workspace_path):
-            return PolicyDecision.approve
-        # If no path info, approve reads (conservative toward usability)
-        if target is None:
-            return PolicyDecision.approve
-        # Read outside workspace → ask
-        return PolicyDecision.ask
-
-    # --- Writes within workspace (unless protected) are safe ---
-    if kind == "write":
         target = file_name or path
-        if target:
-            if not _is_path_within_workspace(target, workspace_path):
-                return PolicyDecision.ask
-            if _hits_protected_path(target, workspace_path, protected_paths):
-                return PolicyDecision.ask
+        if target is None or _is_path_within_workspace(target, workspace_path):
             return PolicyDecision.approve
-        # No path info for a write → ask to be safe
-        return PolicyDecision.ask
+        return PolicyDecision.deny
 
-    # --- Shell: approve unless command matches a dangerous pattern ---
+    # Shell: only grep/find allowed
     if kind == "shell":
         cmd = full_command_text or ""
-        for pattern in _DANGEROUS_SHELL_PATTERNS:
-            if pattern.search(cmd):
-                log.debug("shell_blocked_by_pattern", pattern=pattern.pattern, cmd=cmd[:120])
-                return PolicyDecision.ask
+        if _READONLY_SHELL_RE.match(cmd):
+            return PolicyDecision.approve
+        return PolicyDecision.deny
+
+    # MCP: only read-only tools
+    if kind == "mcp":
+        if read_only:
+            return PolicyDecision.approve
+        return PolicyDecision.deny
+
+    # Writes, URL fetches — deny
+    if kind in ("write", "url", "custom-tool"):
+        return PolicyDecision.deny
+
+    return PolicyDecision.deny
+
+
+def evaluate_approval_required(
+    *,
+    kind: str,
+    workspace_path: str,
+    full_command_text: str | None = None,
+    file_name: str | None = None,
+    path: str | None = None,
+    read_only: bool | None = None,
+) -> PolicyDecision:
+    """APPROVAL_REQUIRED mode: always allow read_file. Require approval for the rest."""
+
+    # Memory — approve
+    if kind == "memory":
         return PolicyDecision.approve
 
-    # --- URL fetches: approve localhost, ask for external ---
-    if kind == "url":
-        u = (url or "").lower()
-        if u.startswith("http://localhost") or u.startswith("http://127.0.0.1") or u.startswith("http://[::1]"):
+    # Reads — always approve
+    if kind == "read":
+        return PolicyDecision.approve
+
+    # Shell: grep/find auto-approve, everything else needs approval
+    if kind == "shell":
+        cmd = full_command_text or ""
+        if _READONLY_SHELL_RE.match(cmd):
             return PolicyDecision.approve
         return PolicyDecision.ask
 
-    # --- MCP tools: approve if read-only, otherwise ask ---
+    # Writes — need approval
+    if kind == "write":
+        return PolicyDecision.ask
+
+    # URL fetches — need approval
+    if kind == "url":
+        return PolicyDecision.ask
+
+    # MCP: read-only auto-approve, mutations need approval
     if kind == "mcp":
         if read_only:
             return PolicyDecision.approve
         return PolicyDecision.ask
 
-    # --- Custom tools: ask ---
+    # Custom tools — need approval
     if kind == "custom-tool":
         return PolicyDecision.ask
 
-    # --- Unknown kind → ask ---
+    # Unknown — ask
     log.warning("unknown_permission_kind", kind=kind)
     return PolicyDecision.ask

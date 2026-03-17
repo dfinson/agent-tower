@@ -82,11 +82,14 @@ class JobService:
         prompt: str,
         base_ref: str | None = None,
         branch: str | None = None,
-        strategy: str = "single_agent",
-        permission_mode: str = "permissive",
+        permission_mode: str = "auto",
         model: str | None = None,
     ) -> Job:
         """Create a new job, set up workspace, and persist it.
+
+        Naming is blocking: the LLM generates title, branch, and worktree name
+        before the worktree is created. If naming fails, deterministic fallbacks
+        are used.
 
         Returns the created Job domain object.
         Raises RepoNotAllowedError if the repo is not in the allowlist.
@@ -102,37 +105,55 @@ class JobService:
         # Generate job ID atomically via the database
         job_id = await self._job_repo.next_id()
 
-        # Pre-work: generate intelligent title and branch name from the prompt
+        # Blocking naming: generate title, branch, worktree_name via LLM
         title: str | None = None
-        if self._naming is not None and branch is None:
+        worktree_name: str | None = None
+
+        if self._naming is not None:
             try:
-                title, generated_branch = await self._naming.generate(prompt)
-                if generated_branch:
+                # Gather existing branches and worktrees for conflict detection
+                existing_branches = await self._git.list_branches(resolved_repo)
+                existing_worktrees = await self._git.list_worktree_names(resolved_repo)
+
+                title, generated_branch, worktree_name = await self._naming.generate(
+                    prompt,
+                    existing_branches=existing_branches,
+                    existing_worktrees=existing_worktrees,
+                )
+                if branch is None and generated_branch:
                     branch = generated_branch
-                log.info("naming_preflight_complete", job_id=job_id, title=title, branch=branch)
+                log.info(
+                    "naming_preflight_complete",
+                    job_id=job_id,
+                    title=title,
+                    branch=branch,
+                    worktree_name=worktree_name,
+                )
             except Exception:
                 log.warning("naming_preflight_failed", job_id=job_id, exc_info=True)
 
-        # Always use a secondary worktree so every job is fully isolated.
-        # Reusing the main worktree caused diff leakage: stale untracked
-        # files and race-condition branch switching contaminated diffs.
+        # Fallback worktree_name if naming didn't produce one
+        if worktree_name is None:
+            import hashlib
+            h = hashlib.sha256(prompt.encode()).hexdigest()[:8]
+            worktree_name = f"task-{h}"
+
+        # Create worktree using worktree_name as the directory name
         from backend.services.git_service import GitError
 
         try:
             worktree_path, branch_name = await self._git.create_worktree(
                 repo_path=resolved_repo,
-                job_id=job_id,
+                job_id=worktree_name,  # Use worktree_name as directory name
                 base_ref=base_ref,
                 branch=branch,
             )
         except GitError as exc:
-            # Worktree creation failed — create the job in failed state
             job = Job(
                 id=job_id,
                 repo=resolved_repo,
                 prompt=prompt,
                 state=JobState.failed,
-                strategy=strategy,
                 base_ref=base_ref,
                 branch=None,
                 worktree_path=None,
@@ -141,6 +162,7 @@ class JobService:
                 updated_at=now,
                 completed_at=now,
                 title=title,
+                worktree_name=worktree_name,
                 permission_mode=permission_mode,
                 model=model,
                 failure_reason=f"Worktree creation failed: {exc}",
@@ -149,8 +171,6 @@ class JobService:
             log.error("job_worktree_failed", job_id=job_id, error=str(exc))
             return job
 
-        # Job starts as queued; RuntimeService.start_or_enqueue() transitions
-        # to running immediately when capacity allows, or keeps it queued.
         initial_state = JobState.queued
 
         job = Job(
@@ -158,7 +178,6 @@ class JobService:
             repo=resolved_repo,
             prompt=prompt,
             state=initial_state,
-            strategy=strategy,
             base_ref=base_ref,
             branch=branch_name,
             worktree_path=worktree_path,
@@ -166,6 +185,7 @@ class JobService:
             created_at=now,
             updated_at=now,
             title=title,
+            worktree_name=worktree_name,
             permission_mode=permission_mode,
             model=model,
         )
@@ -248,7 +268,6 @@ class JobService:
             repo=original.repo,
             prompt=original.prompt,
             base_ref=original.base_ref,
-            strategy=original.strategy,
             permission_mode=original.permission_mode,
             model=original.model,
         )
@@ -260,7 +279,6 @@ class JobService:
             repo=original.repo,
             prompt=instruction,
             base_ref=original.base_ref,
-            strategy=original.strategy,
             permission_mode=original.permission_mode,
             model=original.model,
         )
