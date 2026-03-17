@@ -79,9 +79,8 @@ def evaluate_auto(
         return PolicyDecision.approve
 
     # Check possible_paths
-    if possible_paths:
-        if all(_is_path_within_workspace(p, workspace_path) for p in possible_paths):
-            return PolicyDecision.approve
+    if possible_paths and all(_is_path_within_workspace(p, workspace_path) for p in possible_paths):
+        return PolicyDecision.approve
 
     # Shell commands — approve (agent has full execution permission)
     if kind == "shell":

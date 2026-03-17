@@ -910,7 +910,7 @@ export interface components {
          * PermissionMode
          * @enum {string}
          */
-        PermissionMode: "permissive" | "auto" | "supervised" | "readonly";
+        PermissionMode: "auto" | "read_only" | "approval_required";
         /** RegisterRepoRequest */
         RegisterRepoRequest: {
             /** Source */

@@ -358,12 +358,7 @@ async def get_job_diff(
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
     # For active jobs with a worktree, calculate a fresh diff
-    diff_service = getattr(request.app.state, "runtime_service", None)
-    if (
-        job.state in ("running", "waiting_for_approval")
-        and job.worktree_path
-        and job.worktree_path != job.repo
-    ):
+    if job.state in ("running", "waiting_for_approval") and job.worktree_path and job.worktree_path != job.repo:
         from backend.services.diff_service import DiffService
         from backend.services.git_service import GitService
 

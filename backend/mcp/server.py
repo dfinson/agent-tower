@@ -192,7 +192,10 @@ def _register_job_tool(mcp: FastMCP) -> None:
                 )
                 try:
                     job = await svc.create_job(
-                        repo=repo, prompt=prompt, base_ref=base_ref, branch=branch,
+                        repo=repo,
+                        prompt=prompt,
+                        base_ref=base_ref,
+                        branch=branch,
                     )
                 except RepoNotAllowedError as exc:
                     return {"error": str(exc)}
@@ -201,8 +204,11 @@ def _register_job_tool(mcp: FastMCP) -> None:
                 await runtime.start_or_enqueue(job)
                 job = await svc.get_job(job.id)
             return CreateJobResponse(
-                id=job.id, state=job.state, branch=job.branch,
-                worktree_path=job.worktree_path, created_at=job.created_at,
+                id=job.id,
+                state=job.state,
+                branch=job.branch,
+                worktree_path=job.worktree_path,
+                created_at=job.created_at,
             ).model_dump(mode="json")
 
         if action == "list":
@@ -213,20 +219,29 @@ def _register_job_tool(mcp: FastMCP) -> None:
                     config=config,
                 )
                 jobs, next_cursor, has_more = await svc.list_jobs(
-                    state=state, limit=min(max(limit, 1), 100), cursor=cursor,
+                    state=state,
+                    limit=min(max(limit, 1), 100),
+                    cursor=cursor,
                 )
             return JobListResponse(
                 items=[
                     JobResponse(
-                        id=j.id, repo=j.repo, prompt=j.prompt, state=j.state,
-                        base_ref=j.base_ref, worktree_path=j.worktree_path,
-                        branch=j.branch, created_at=j.created_at,
-                        updated_at=j.updated_at, completed_at=j.completed_at,
+                        id=j.id,
+                        repo=j.repo,
+                        prompt=j.prompt,
+                        state=j.state,
+                        base_ref=j.base_ref,
+                        worktree_path=j.worktree_path,
+                        branch=j.branch,
+                        created_at=j.created_at,
+                        updated_at=j.updated_at,
+                        completed_at=j.completed_at,
                         pr_url=j.pr_url,
                     )
                     for j in jobs
                 ],
-                cursor=next_cursor, has_more=has_more,
+                cursor=next_cursor,
+                has_more=has_more,
             ).model_dump(mode="json")
 
         if action == "get":
@@ -276,8 +291,11 @@ def _register_job_tool(mcp: FastMCP) -> None:
                     return {"error": str(exc)}
                 await session.commit()
             return CreateJobResponse(
-                id=job.id, state=job.state, branch=job.branch,
-                worktree_path=job.worktree_path, created_at=job.created_at,
+                id=job.id,
+                state=job.state,
+                branch=job.branch,
+                worktree_path=job.worktree_path,
+                created_at=job.created_at,
             ).model_dump(mode="json")
 
         if action == "message":
@@ -290,8 +308,10 @@ def _register_job_tool(mcp: FastMCP) -> None:
             if not sent:
                 return {"error": "Job is not currently running"}
             from datetime import UTC, datetime
+
             return SendMessageResponse(
-                seq=0, timestamp=datetime.now(UTC),
+                seq=0,
+                timestamp=datetime.now(UTC),
             ).model_dump(mode="json")
 
         return {"error": f"Unknown action: {action}. Use: create, list, get, cancel, rerun, message"}
@@ -328,9 +348,13 @@ def _register_approval_tool(mcp: FastMCP) -> None:
             approvals = await svc.list_for_job(job_id)
             return [
                 ApprovalResponse(
-                    id=a.id, job_id=a.job_id, description=a.description,
-                    proposed_action=a.proposed_action, requested_at=a.requested_at,
-                    resolved_at=a.resolved_at, resolution=a.resolution,
+                    id=a.id,
+                    job_id=a.job_id,
+                    description=a.description,
+                    proposed_action=a.proposed_action,
+                    requested_at=a.requested_at,
+                    resolved_at=a.resolved_at,
+                    resolution=a.resolution,
                 ).model_dump(mode="json")
                 for a in approvals
             ]
@@ -344,6 +368,7 @@ def _register_approval_tool(mcp: FastMCP) -> None:
                 ApprovalAlreadyResolvedError,
                 ApprovalNotFoundError,
             )
+
             try:
                 a = await svc.resolve(approval_id, resolution)
             except ApprovalNotFoundError as exc:
@@ -351,9 +376,13 @@ def _register_approval_tool(mcp: FastMCP) -> None:
             except ApprovalAlreadyResolvedError as exc:
                 return {"error": str(exc)}
             return ApprovalResponse(
-                id=a.id, job_id=a.job_id, description=a.description,
-                proposed_action=a.proposed_action, requested_at=a.requested_at,
-                resolved_at=a.resolved_at, resolution=a.resolution,
+                id=a.id,
+                job_id=a.job_id,
+                description=a.description,
+                proposed_action=a.proposed_action,
+                requested_at=a.requested_at,
+                resolved_at=a.resolved_at,
+                resolution=a.resolution,
             ).model_dump(mode="json")
 
         return {"error": f"Unknown action: {action}. Use: list, resolve"}
@@ -441,7 +470,9 @@ def _register_workspace_tool(mcp: FastMCP) -> None:
             has_more = len(entries) == clamped_limit
             next_cursor = entries[-1].path if has_more else None
             return WorkspaceListResponse(
-                items=entries, cursor=next_cursor, has_more=has_more,
+                items=entries,
+                cursor=next_cursor,
+                has_more=has_more,
             ).model_dump(mode="json")
 
         if action == "read":
@@ -475,10 +506,7 @@ def _register_artifact_tool(mcp: FastMCP) -> None:
         title="Access Job Artifacts",
         annotations=ToolAnnotations(title="Access Job Artifacts", readOnlyHint=True),
         description=(
-            "Access job artifacts. Actions: list, get."
-            "\n\n"
-            "- list: job_id (required)"
-            "\n- get: artifact_id (required)"
+            "Access job artifacts. Actions: list, get.\n\n- list: job_id (required)\n- get: artifact_id (required)"
         ),
     )
     async def codeplane_artifact(
@@ -498,9 +526,14 @@ def _register_artifact_tool(mcp: FastMCP) -> None:
             return {
                 "items": [
                     ArtifactResponse(
-                        id=a.id, job_id=a.job_id, name=a.name, type=a.type,
-                        mime_type=a.mime_type, size_bytes=a.size_bytes,
-                        phase=a.phase, created_at=a.created_at,
+                        id=a.id,
+                        job_id=a.job_id,
+                        name=a.name,
+                        type=a.type,
+                        mime_type=a.mime_type,
+                        size_bytes=a.size_bytes,
+                        phase=a.phase,
+                        created_at=a.created_at,
                     ).model_dump(mode="json")
                     for a in artifacts
                 ]
@@ -516,9 +549,13 @@ def _register_artifact_tool(mcp: FastMCP) -> None:
             if artifact is None:
                 return {"error": "Artifact not found"}
             return ArtifactResponse(
-                id=artifact.id, job_id=artifact.job_id, name=artifact.name,
-                type=artifact.type, mime_type=artifact.mime_type,
-                size_bytes=artifact.size_bytes, phase=artifact.phase,
+                id=artifact.id,
+                job_id=artifact.job_id,
+                name=artifact.name,
+                type=artifact.type,
+                mime_type=artifact.mime_type,
+                size_bytes=artifact.size_bytes,
+                phase=artifact.phase,
                 created_at=artifact.created_at,
             ).model_dump(mode="json")
 
@@ -655,8 +692,10 @@ def _register_repo_tool(mcp: FastMCP) -> None:
             with contextlib.suppress(GitError):
                 base_branch = await git.get_default_branch(resolved)
             return RepoDetailResponse(
-                path=resolved, origin_url=origin_url,
-                base_branch=base_branch, platform=_detect_platform(origin_url),
+                path=resolved,
+                origin_url=origin_url,
+                base_branch=base_branch,
+                platform=_detect_platform(origin_url),
             ).model_dump(mode="json")
 
         if action == "register":
@@ -675,7 +714,9 @@ def _register_repo_tool(mcp: FastMCP) -> None:
                     return {"error": f"Clone failed: {exc}"}
                 register_repo(config, cloned_path)
                 return RegisterRepoResponse(
-                    path=cloned_path, source=source, cloned=True,
+                    path=cloned_path,
+                    source=source,
+                    cloned=True,
                 ).model_dump(mode="json")
             resolved = str(Path(source).expanduser().resolve())
             is_valid = await git.validate_repo(resolved)
@@ -683,7 +724,9 @@ def _register_repo_tool(mcp: FastMCP) -> None:
                 return {"error": f"Not a valid git repository: {source}"}
             register_repo(config, resolved)
             return RegisterRepoResponse(
-                path=resolved, source=source, cloned=False,
+                path=resolved,
+                source=source,
+                cloned=False,
             ).model_dump(mode="json")
 
         if action == "remove":

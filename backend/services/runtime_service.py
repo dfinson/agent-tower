@@ -20,6 +20,9 @@ from backend.models.domain import (
 )
 from backend.models.events import DomainEvent, DomainEventKind
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
 
 class _AgentSession:
     """Thin wrapper around the adapter for a single running agent session."""
@@ -729,9 +732,9 @@ class RuntimeService:
             "Given the agent's recent messages and tool intents from a coding session, "
             "write a 3-5 word label describing what the agent is currently doing. "
             "Also provide the past tense version.\n"
-            "Respond as JSON only: {\"present\": \"...\", \"past\": \"...\"}\n"
-            "No articles. No period. Example: {\"present\": \"Fixing auth middleware\", "
-            "\"past\": \"Fixed auth middleware\"}\n\nMessages:\n"
+            'Respond as JSON only: {"present": "...", "past": "..."}\n'
+            'No articles. No period. Example: {"present": "Fixing auth middleware", '
+            '"past": "Fixed auth middleware"}\n\nMessages:\n'
         )
         initial_delay_s = 8
         interval_s = 15
@@ -951,12 +954,8 @@ class RuntimeService:
                         return  # already captured this session
 
                 # Build snapshot from events
-                transcript_events = await event_repo.list_by_job(
-                    job_id, kinds=[DomainEventKind.transcript_updated]
-                )
-                diff_events = await event_repo.list_by_job(
-                    job_id, kinds=[DomainEventKind.diff_updated]
-                )
+                transcript_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.transcript_updated])
+                diff_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.diff_updated])
 
                 from backend.services.summarization_service import _extract_changed_files
 
@@ -976,37 +975,46 @@ class RuntimeService:
                         if key in seen:
                             continue
                         seen.add(key)
-                        turns.append({
-                            "role": "assistant",
-                            "content": content[:2000],
-                            "timestamp": ev.payload.get("timestamp", ""),
-                        })
+                        turns.append(
+                            {
+                                "role": "assistant",
+                                "content": content[:2000],
+                                "timestamp": ev.payload.get("timestamp", ""),
+                            }
+                        )
                     elif role in ("operator", "user"):
                         if not content:
                             continue
-                        turns.append({
-                            "role": "operator",
-                            "content": content[:2000],
-                            "timestamp": ev.payload.get("timestamp", ""),
-                        })
+                        turns.append(
+                            {
+                                "role": "operator",
+                                "content": content[:2000],
+                                "timestamp": ev.payload.get("timestamp", ""),
+                            }
+                        )
                     elif role == "tool_call":
                         # Keep metadata only — drop raw tool_result bodies
-                        turns.append({
-                            "role": "tool_call",
-                            "tool_name": ev.payload.get("tool_name", "tool"),
-                            "tool_intent": ev.payload.get("tool_intent", ""),
-                            "tool_success": ev.payload.get("tool_success", True),
-                            "timestamp": ev.payload.get("timestamp", ""),
-                        })
+                        turns.append(
+                            {
+                                "role": "tool_call",
+                                "tool_name": ev.payload.get("tool_name", "tool"),
+                                "tool_intent": ev.payload.get("tool_intent", ""),
+                                "tool_success": ev.payload.get("tool_success", True),
+                                "timestamp": ev.payload.get("timestamp", ""),
+                            }
+                        )
 
                 import json
 
-                snapshot = json.dumps({
-                    "original_task": job.prompt,
-                    "session_number": job.session_count,
-                    "transcript_turns": turns,
-                    "changed_files": changed_files,
-                }, indent=2)
+                snapshot = json.dumps(
+                    {
+                        "original_task": job.prompt,
+                        "session_number": job.session_count,
+                        "transcript_turns": turns,
+                        "changed_files": changed_files,
+                    },
+                    indent=2,
+                )
 
                 await artifact_svc.store_session_snapshot(job_id, job.session_count, snapshot)
                 await session.commit()
@@ -1112,7 +1120,9 @@ class RuntimeService:
                             if snapshot_changed:
                                 changed_files = snapshot_changed
                             await self._summarization_service.summarize_and_store(
-                                job_id, job.session_count, job.prompt,
+                                job_id,
+                                job.session_count,
+                                job.prompt,
                                 pre_built_transcript=transcript_text,
                                 pre_built_changed_files=changed_files,
                             )
@@ -1123,9 +1133,7 @@ class RuntimeService:
                     if summary_artifact is None:
                         # Final fallback — generate from raw events
                         try:
-                            await self._summarization_service.summarize_and_store(
-                                job_id, job.session_count, job.prompt
-                            )
+                            await self._summarization_service.summarize_and_store(job_id, job.session_count, job.prompt)
                             summary_artifact = await artifact_svc.get_latest_session_summary(job_id)
                         except Exception:
                             log.warning("inline_summarization_failed", job_id=job_id, exc_info=True)
