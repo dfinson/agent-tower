@@ -423,21 +423,31 @@ def up(host: str | None, port: int | None, dev: bool, tunnel: bool, password: st
         click.secho("ERROR: --tunnel --no-password is not allowed. Remote access requires authentication.", fg="red")
         raise SystemExit(1)
 
+    # Password priority: --password flag > CPL_TUNNEL_PASSWORD env/dotenv > auto-generate for tunnel
     effective_password: str | None = password
-    if not no_password and tunnel and not password:
+
+    if not effective_password and not no_password:
+        import os
+        from pathlib import Path
+
+        # .env takes precedence over system env
+        env_pw: str | None = None
+        dotenv = Path(__file__).resolve().parent.parent / ".env"
+        if dotenv.is_file():
+            for line in dotenv.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("CPL_TUNNEL_PASSWORD=") and not line.startswith("#"):
+                    env_pw = line.split("=", 1)[1].strip()
+                    break
+        if not env_pw:
+            env_pw = os.environ.get("CPL_TUNNEL_PASSWORD")
+        if env_pw:
+            effective_password = env_pw
+
+    if not effective_password and not no_password and tunnel:
         from backend.services.auth import generate_password
 
         effective_password = generate_password()
-    if not no_password and password:
-        effective_password = password
-
-    # Also check env var
-    if not effective_password and not no_password:
-        import os
-
-        env_pw = os.environ.get("CODEPLANE_PASSWORD")
-        if env_pw:
-            effective_password = env_pw
 
     # Build frontend (unless --dev, which uses Vite's hot-reload server separately)
     if not dev:
