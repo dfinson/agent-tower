@@ -34,6 +34,7 @@ class GitService:
 
     async def _run_git(self, *args: str, cwd: str | Path) -> str:
         """Run a git command and return stdout. Raises GitError on failure."""
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         try:
             proc = await asyncio.create_subprocess_exec(
                 "git",
@@ -41,6 +42,7 @@ class GitService:
                 cwd=str(cwd),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
         except (FileNotFoundError, OSError) as exc:
             raise GitError("git executable not found. Ensure Git is installed and available on PATH.") from exc
@@ -82,9 +84,10 @@ class GitService:
 
     async def merge(self, branch: str, *, cwd: str | Path, message: str | None = None) -> None:
         """Merge a branch. Raises GitError on conflict."""
-        args = ["merge", "--no-edit", branch]
+        args = ["merge", "--no-edit"]
         if message:
-            args = ["merge", "-m", message, branch]
+            args.extend(["-m", message])
+        args.append(branch)
         await self._run_git(*args, cwd=cwd)
 
     async def merge_abort(self, *, cwd: str | Path) -> None:
