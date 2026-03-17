@@ -25,7 +25,7 @@ CodePlane is a control plane for running and supervising coding agents.
 
 Launch automated coding tasks against real repositories, watch everything the agent does in real time, and intervene when needed. CodePlane gives you visibility into execution progress, code changes, logs, artifacts, and agent reasoning so work can be reviewed and controlled as it happens.
 
-## Features (Planned)
+## Features
 
 - **Job orchestration** — Launch coding tasks against local repositories
 - **Live monitoring** — Watch agent reasoning, logs, and code changes as they happen
@@ -34,40 +34,64 @@ Launch automated coding tasks against real repositories, watch everything the ag
 - **Workspace isolation** — Git worktrees for concurrent job execution
 - **Remote access** — Dev Tunnel exposes the UI over HTTPS for phone/remote control
 - **Voice input** — Speak prompts and instructions into the browser
-- **PR creation** — Automatically opens a pull request on success (via `gh` CLI or GitHub MCP)
+- **Merge & PR** — Auto-merge or create a pull request on job completion
+- **MCP server** — Expose CodePlane as MCP tools for agent-to-agent orchestration
 
 ## Architecture
 
 ```
-React + TypeScript (Vite)  ──REST/SSE──▶  FastAPI (Python)
-                                            ├── SQLite
-                                            ├── Git worktrees
-                                            └── Copilot SDK
+┌──────────────────────────────────────────────┐
+│              Operator Browser                │
+│        React + TypeScript Frontend           │
+│     REST (commands/queries) + SSE (live)     │
+└──────────────────┬───────────────────────────┘
+                   │ HTTP / SSE
+┌──────────────────▼───────────────────────────┐
+│           FastAPI Backend (Python)           │
+│  REST API · SSE · Job orchestration · MCP    │
+│  Git worktrees · Agent adapter · Approvals   │
+└──────┬──────────────┬──────────────┬─────────┘
+       │              │              │
+  ┌────▼────┐   ┌─────▼─────┐  ┌───▼────┐
+  │ SQLite  │   │ Git repos │  │Copilot │
+  │   DB    │   │/worktrees │  │  SDK   │
+  └─────────┘   └───────────┘  └────────┘
 ```
 
 ## Quick Start
 
-> Requires Python 3.11+ and Node.js 20+
+> Requires Python 3.11+, Node.js 20+, and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# Backend
-uv sync
-uv run cpl up --dev
+make install                  # install backend + frontend dependencies
+cp .env.sample .env           # optional: set CPL_TUNNEL_PASSWORD
+make run                      # build frontend, start server with Dev Tunnel
+```
 
-# Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev
+Or step by step:
+
+```bash
+uv sync                       # install backend dependencies
+cd frontend && npm ci && cd ..
+uv run cpl up                 # start server (localhost:8080)
+uv run cpl up --tunnel        # start with remote access via Dev Tunnel
+uv run cpl up --dev           # skip frontend build (backend-only work)
 ```
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+```bash
+make lint        # ruff check + eslint
+make format      # ruff format
+make typecheck   # mypy + tsc
+make test        # pytest + vitest with coverage
+make ci          # all of the above
+```
 
-See [SPEC.md](SPEC.md) for the full product specification.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and project structure.
 
 See [SPEC.md](SPEC.md) for the full product specification.
 
 ## License
 
-See [LICENSE](LICENSE).
+[MIT](LICENSE)

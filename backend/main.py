@@ -408,7 +408,7 @@ def _build_frontend() -> bool:
 @cli.command()
 @click.option("--host", default=None, help="Bind host (default: from config or 127.0.0.1)")
 @click.option("--port", default=None, type=int, help="Bind port (default: from config or 8080)")
-@click.option("--dev", is_flag=True, help="Dev mode: skip frontend build, enable CORS for Vite (localhost:5173)")
+@click.option("--dev", is_flag=True, help="Dev mode: skip frontend build")
 @click.option("--tunnel", is_flag=True, help="Start Dev Tunnel for remote access")
 @click.option("--password", default=None, help="Set auth password (auto-generated if --tunnel without --password)")
 @click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --tunnel)")
