@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from backend.api.jobs import router as jobs_router
 
 
-def _make_app(cached_models: list) -> FastAPI:
+def _make_app(cached_models: list[dict[str, object]]) -> FastAPI:
     """Minimal FastAPI app with cached_models wired into app.state."""
     app = FastAPI()
     app.include_router(jobs_router, prefix="/api")

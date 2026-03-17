@@ -739,6 +739,8 @@ export interface components {
             branch?: string | null;
             permission_mode?: components["schemas"]["PermissionMode"] | null;
             completion_strategy?: components["schemas"]["CompletionStrategy"] | null;
+            /** Model */
+            model?: string | null;
         };
         /** CreateJobResponse */
         CreateJobResponse: {

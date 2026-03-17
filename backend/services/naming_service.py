@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import structlog
 
@@ -104,7 +104,7 @@ def _fallback_title(prompt: str) -> str:
     return clean[:57] + "..." if len(clean) > 60 else clean
 
 
-def _extract_json(raw: str) -> dict | None:
+def _extract_json(raw: str) -> dict[str, Any] | None:
     """Extract JSON object from LLM response, handling markdown fencing."""
     json_str = raw.strip()
     if "```" in json_str:
@@ -116,7 +116,8 @@ def _extract_json(raw: str) -> dict | None:
     if start == -1 or end == -1:
         return None
     try:
-        return json.loads(json_str[start : end + 1])
+        result: dict[str, Any] = json.loads(json_str[start : end + 1])
+        return result
     except json.JSONDecodeError:
         return None
 
