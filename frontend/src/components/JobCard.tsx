@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { GitBranch, GitMerge, GitPullRequest, Trash2, CheckCircle2, Archive, AlertTriangle, XCircle, ArrowDownCircle } from "lucide-react";
+import { GitBranch, GitMerge, GitPullRequest, Trash2, CheckCircle2, Archive, AlertTriangle, XCircle, ArrowDownCircle, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs, selectJobTimeline } from "../store";
 import type { JobSummary } from "../store";
@@ -114,6 +114,11 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
           {job.resolution && <ResolutionBadge resolution={job.resolution} />}
           <StateBadge state={job.state} />
         </div>
+      </div>
+
+      <div className="flex items-center gap-1 mb-1">
+        <BookOpen size={11} className="text-muted-foreground/60 shrink-0" />
+        <span className="text-xs text-muted-foreground/80 font-mono truncate" title={job.repo}>{job.repo}</span>
       </div>
 
       <div className="flex items-center gap-2 mb-1">
