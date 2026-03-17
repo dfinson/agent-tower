@@ -118,12 +118,13 @@ class ClaudeAdapter(AgentAdapterInterface):
         We inspect the CodePlane permission mode and either auto-approve,
         deny, or route the request to the operator via the approval service.
         """
+        from claude_code_sdk import PermissionResultAllow, PermissionResultDeny
 
         async def _can_use_tool(
             tool_name: str,
             input_data: dict,
             context: object,
-        ) -> dict:
+        ) -> PermissionResultAllow | PermissionResultDeny:
             mode = config.permission_mode
             job_id = self._session_to_job.get(session_id)
 
@@ -133,28 +134,28 @@ class ClaudeAdapter(AgentAdapterInterface):
                 and job_id
                 and self._approval_service.is_trusted(job_id)
             ):
-                return {"behavior": "allow"}
+                return PermissionResultAllow()
 
             # AUTO — approve everything
             if mode == PermissionMode.auto:
-                return {"behavior": "allow"}
+                return PermissionResultAllow()
 
             # READ_ONLY — only allow read-type tools
             if mode == PermissionMode.read_only:
                 read_tools = {"Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch"}
                 if tool_name in read_tools:
-                    return {"behavior": "allow"}
-                return {"behavior": "deny", "message": "Read-only mode: tool blocked"}
+                    return PermissionResultAllow()
+                return PermissionResultDeny(message="Read-only mode: tool blocked")
 
             # APPROVAL_REQUIRED — read tools auto-approved, everything else → operator
             read_tools = {"Read", "Glob", "Grep"}
             if tool_name in read_tools:
-                return {"behavior": "allow"}
+                return PermissionResultAllow()
 
             # Route to operator
             if self._approval_service is None or job_id is None:
                 log.warning("claude_permission_no_infra", tool=tool_name)
-                return {"behavior": "allow"}
+                return PermissionResultAllow()
 
             # Build human-readable description
             description = f"{tool_name}: {_summarize_tool_input(tool_name, input_data)}"
@@ -186,8 +187,8 @@ class ClaudeAdapter(AgentAdapterInterface):
 
             resolution = await self._approval_service.wait_for_resolution(approval.id)
             if resolution == "approved":
-                return {"behavior": "allow"}
-            return {"behavior": "deny", "message": "Operator denied the action"}
+                return PermissionResultAllow()
+            return PermissionResultDeny(message="Operator denied the action")
 
         return _can_use_tool
 
@@ -468,10 +469,11 @@ class ClaudeAdapter(AgentAdapterInterface):
         if config.resume_sdk_session_id:
             options.resume = config.resume_sdk_session_id
 
-        # Create client and connect
+        # Create client and connect — the SDK requires an AsyncIterable prompt
+        # when can_use_tool is set (streaming mode).
         try:
             client = ClaudeSDKClient(options)
-            await client.connect(config.prompt)
+            await client.connect(_prompt_to_stream(config.prompt))
         except Exception:
             log.error("claude_session_create_failed", exc_info=True)
             self._cleanup_session(session_id)
@@ -576,6 +578,16 @@ class ClaudeAdapter(AgentAdapterInterface):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+async def _prompt_to_stream(prompt: str):
+    """Wrap a string prompt as an async iterable for Claude SDK streaming mode."""
+    yield {
+        "type": "user",
+        "message": {"role": "user", "content": prompt},
+        "parent_tool_use_id": None,
+        "session_id": "default",
+    }
 
 
 def _summarize_tool_input(tool_name: str, input_data: dict) -> str:

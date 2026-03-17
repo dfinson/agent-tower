@@ -135,6 +135,8 @@ class TestClaudeAdapterPermissions:
     @pytest.mark.asyncio
     async def test_auto_mode_approves_all(self, adapter) -> None:
         """AUTO mode approves everything."""
+        from claude_code_sdk import PermissionResultAllow
+
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
@@ -142,11 +144,13 @@ class TestClaudeAdapterPermissions:
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Bash", {"command": "rm -rf /"}, None)
-        assert result["behavior"] == "allow"
+        assert isinstance(result, PermissionResultAllow)
 
     @pytest.mark.asyncio
     async def test_read_only_allows_reads(self, adapter) -> None:
         """READ_ONLY mode allows read tools."""
+        from claude_code_sdk import PermissionResultAllow
+
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
@@ -154,11 +158,13 @@ class TestClaudeAdapterPermissions:
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Read", {"file_path": "test.py"}, None)
-        assert result["behavior"] == "allow"
+        assert isinstance(result, PermissionResultAllow)
 
     @pytest.mark.asyncio
     async def test_read_only_denies_writes(self, adapter) -> None:
         """READ_ONLY mode denies write tools."""
+        from claude_code_sdk import PermissionResultDeny
+
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
@@ -166,11 +172,13 @@ class TestClaudeAdapterPermissions:
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Edit", {"file_path": "test.py"}, None)
-        assert result["behavior"] == "deny"
+        assert isinstance(result, PermissionResultDeny)
 
     @pytest.mark.asyncio
     async def test_approval_required_allows_reads(self, adapter) -> None:
         """APPROVAL_REQUIRED allows read tools without prompting."""
+        from claude_code_sdk import PermissionResultAllow
+
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
@@ -178,11 +186,13 @@ class TestClaudeAdapterPermissions:
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Glob", {"pattern": "**/*.py"}, None)
-        assert result["behavior"] == "allow"
+        assert isinstance(result, PermissionResultAllow)
 
     @pytest.mark.asyncio
     async def test_approval_required_routes_bash_to_operator(self, adapter) -> None:
         """APPROVAL_REQUIRED routes Bash to the operator."""
+        from claude_code_sdk import PermissionResultAllow
+
         approval_service = MagicMock()
         approval_service.is_trusted = MagicMock(return_value=False)
         mock_approval = MagicMock()
@@ -202,13 +212,15 @@ class TestClaudeAdapterPermissions:
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Bash", {"command": "make test"}, None)
 
-        assert result["behavior"] == "allow"
+        assert isinstance(result, PermissionResultAllow)
         approval_service.create_request.assert_called_once()
         approval_service.wait_for_resolution.assert_called_once_with("apr-1")
 
     @pytest.mark.asyncio
     async def test_trusted_job_auto_approves(self, adapter) -> None:
         """Trusted jobs skip all permission checks."""
+        from claude_code_sdk import PermissionResultAllow
+
         approval_service = MagicMock()
         approval_service.is_trusted = MagicMock(return_value=True)
 
@@ -222,7 +234,7 @@ class TestClaudeAdapterPermissions:
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Bash", {"command": "rm -rf /"}, None)
-        assert result["behavior"] == "allow"
+        assert isinstance(result, PermissionResultAllow)
 
 
 class TestClaudeAdapterToolSummary:

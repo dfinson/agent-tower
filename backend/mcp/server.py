@@ -44,6 +44,7 @@ from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.job_repo import JobRepository
 from backend.services.artifact_service import ArtifactService
 from backend.services.git_service import GitError, GitService
+from backend.services.agent_adapter import SDKModelMismatchError
 from backend.services.job_service import (
     JobNotFoundError,
     JobService,
@@ -174,6 +175,8 @@ def _register_job_tool(mcp: FastMCP) -> None:
         content: str | None = None,
         base_ref: str | None = None,
         branch: str | None = None,
+        model: str | None = None,
+        sdk: str | None = None,
         state: str | None = None,
         limit: int = 50,
         cursor: str | None = None,
@@ -196,8 +199,12 @@ def _register_job_tool(mcp: FastMCP) -> None:
                         prompt=prompt,
                         base_ref=base_ref,
                         branch=branch,
+                        model=model,
+                        sdk=sdk,
                     )
                 except RepoNotAllowedError as exc:
+                    return {"error": str(exc)}
+                except SDKModelMismatchError as exc:
                     return {"error": str(exc)}
                 await session.commit()
                 runtime = _get_runtime()
