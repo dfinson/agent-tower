@@ -84,7 +84,6 @@ def _job_to_response(job: object) -> JobResponse:
         prompt=j.prompt,
         title=j.title,
         state=j.state,
-        strategy=j.strategy,
         base_ref=j.base_ref,
         worktree_path=j.worktree_path,
         branch=j.branch,
@@ -95,9 +94,9 @@ def _job_to_response(job: object) -> JobResponse:
         merge_status=j.merge_status,
         resolution=j.resolution,
         archived_at=j.archived_at,
-        completion_strategy=j.completion_strategy,
         failure_reason=j.failure_reason,
         model=j.model,
+        worktree_name=j.worktree_name,
     )
 
 
@@ -115,7 +114,6 @@ async def create_job(
             prompt=body.prompt,
             base_ref=body.base_ref,
             branch=body.branch,
-            strategy=body.strategy or "single_agent",
             permission_mode=body.permission_mode or "auto",
             model=body.model,
         )
@@ -347,8 +345,39 @@ async def get_job_logs(
 async def get_job_diff(
     job_id: str,
     session: Annotated[AsyncSession, Depends(_get_session)],
+    request: Request,
 ) -> list[DiffFileModel]:
-    """Return the most recent diff snapshot for a job from the event store."""
+    """Return the current diff for a job.
+
+    For running jobs, calculates a fresh diff from the worktree.
+    For completed/archived jobs, returns the last stored diff snapshot.
+    """
+    job_repo = JobRepository(session)
+    job = await job_repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    # For active jobs with a worktree, calculate a fresh diff
+    diff_service = getattr(request.app.state, "runtime_service", None)
+    if (
+        job.state in ("running", "waiting_for_approval")
+        and job.worktree_path
+        and job.worktree_path != job.repo
+    ):
+        from backend.services.diff_service import DiffService
+        from backend.services.git_service import GitService
+
+        config = load_config()
+        git = GitService(config)
+        event_bus = getattr(request.app.state, "event_bus", None)
+        if event_bus:
+            ds = DiffService(git_service=git, event_bus=event_bus)
+            try:
+                return await ds.calculate_diff(job.worktree_path, job.base_ref)
+            except Exception:
+                pass  # fall through to event store
+
+    # Fallback: read from event store (completed/archived/failed jobs)
     event_repo = EventRepository(session)
     events = await event_repo.list_by_job(job_id, [DomainEventKind.diff_updated])
     if not events:

@@ -30,7 +30,6 @@ class JobRepository(BaseRepository):
             repo=row.repo,  # type: ignore[arg-type]
             prompt=row.prompt,  # type: ignore[arg-type]
             state=row.state,  # type: ignore[arg-type]
-            strategy=row.strategy,  # type: ignore[arg-type]
             base_ref=row.base_ref,  # type: ignore[arg-type]
             branch=row.branch,  # type: ignore[arg-type]
             worktree_path=row.worktree_path,  # type: ignore[arg-type]
@@ -41,13 +40,13 @@ class JobRepository(BaseRepository):
             pr_url=row.pr_url,  # type: ignore[arg-type]
             merge_status=row.merge_status,  # type: ignore[arg-type]
             title=row.title,  # type: ignore[arg-type]
+            worktree_name=row.worktree_name,  # type: ignore[arg-type]
             permission_mode=row.permission_mode or "auto",  # type: ignore[arg-type]
             session_count=row.session_count or 1,  # type: ignore[arg-type]
             sdk_session_id=row.sdk_session_id,  # type: ignore[arg-type]
             model=row.model,  # type: ignore[arg-type]
             resolution=row.resolution,  # type: ignore[arg-type]
             archived_at=row.archived_at,  # type: ignore[arg-type]
-            completion_strategy=row.completion_strategy,  # type: ignore[arg-type]
             failure_reason=row.failure_reason,  # type: ignore[arg-type]
         )
 
@@ -58,7 +57,6 @@ class JobRepository(BaseRepository):
             repo=job.repo,
             prompt=job.prompt,
             state=job.state,
-            strategy=job.strategy,
             base_ref=job.base_ref,
             branch=job.branch,
             worktree_path=job.worktree_path,
@@ -69,13 +67,13 @@ class JobRepository(BaseRepository):
             pr_url=job.pr_url,
             merge_status=job.merge_status,
             title=job.title,
+            worktree_name=job.worktree_name,
             permission_mode=job.permission_mode,
             session_count=job.session_count,
             sdk_session_id=job.sdk_session_id,
             model=job.model,
             resolution=job.resolution,
             archived_at=job.archived_at,
-            completion_strategy=job.completion_strategy,
         )
         self._session.add(row)
         await self._session.flush()
@@ -210,15 +208,6 @@ class JobRepository(BaseRepository):
         if row is None:
             return
         row.archived_at = archived_at  # type: ignore[assignment]
-        await self._session.flush()
-
-    async def update_completion_strategy(self, job_id: str, strategy: str) -> None:
-        """Set the completion strategy for a job."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.completion_strategy = strategy  # type: ignore[assignment]
         await self._session.flush()
 
     async def update_sdk_session_id(self, job_id: str, sdk_session_id: str) -> None:
