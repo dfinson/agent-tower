@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, GitBranch } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, GitBranch, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -159,7 +159,6 @@ export function JobDetailScreen() {
     );
   }
 
-  const repoName = job.repo.split("/").pop() ?? job.repo;
   const canCancel = ["queued", "running", "waiting_for_approval"].includes(job.state);
   const canRetry = job.state === "failed";
   const isRunning = job.state === "running";
@@ -291,13 +290,17 @@ export function JobDetailScreen() {
           </div>
         </div>
 
+        <div className="flex items-center gap-1.5 mb-3">
+          <BookOpen size={13} className="text-muted-foreground/70 shrink-0" />
+          <span className="text-sm text-muted-foreground font-mono">{job.repo}</span>
+        </div>
+
         {job.progressHeadline && (job.state === "running" || job.state === "queued") && (
           <p className="text-sm italic text-primary/70 mb-3">{job.progressHeadline}</p>
         )}
 
         <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-6 gap-y-2 text-sm mb-3">
           {[
-            ["Repo", repoName],
             ["Branch", job.branch ?? "—"],
             ["Base", job.baseRef],
             ["Worktree", job.worktreePath ? job.worktreePath.split("/").pop() ?? job.worktreePath : "—"],
