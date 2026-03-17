@@ -10,6 +10,7 @@ import asyncio
 import re
 import shutil
 import subprocess  # noqa: S404
+import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -122,7 +123,7 @@ class GitHubAdapter:
                 error="gh CLI not installed",
             )
         try:
-            rc, stdout, stderr = await _run_cli(["gh", "auth", "status"], cwd="/tmp")  # noqa: S108
+            rc, stdout, stderr = await _run_cli(["gh", "auth", "status"], cwd=tempfile.gettempdir())
             if rc == 0:
                 # Extract username from output like "Logged in to github.com account user123"
                 user = None
@@ -212,7 +213,7 @@ class AzureDevOpsAdapter:
         try:
             rc, stdout, stderr = await _run_cli(
                 ["az", "account", "show", "--output", "json"],
-                cwd="/tmp",  # noqa: S108
+                cwd=tempfile.gettempdir(),
             )
             if rc == 0:
                 import json
@@ -308,7 +309,7 @@ class GitLabAdapter:
         try:
             rc, stdout, stderr = await _run_cli(
                 ["glab", "auth", "status"],
-                cwd="/tmp",  # noqa: S108
+                cwd=tempfile.gettempdir(),
             )
             if rc == 0:
                 user = None
@@ -472,7 +473,7 @@ class PlatformRegistry:
             from backend.services.git_service import GitService
 
             git = GitService.__new__(GitService)
-            git._worktrees_dirname = ".cpl-worktrees"
+            git._worktrees_dirname = ".codeplane-worktrees"
             try:
                 origin_url = await git.get_origin_url(repo_path)
             except Exception:

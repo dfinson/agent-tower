@@ -486,7 +486,6 @@ class SSEManager:
                     prompt=j.prompt,
                     title=j.title,
                     state=j.state,
-                    strategy=j.strategy,
                     base_ref=j.base_ref,
                     worktree_path=j.worktree_path,
                     branch=j.branch,

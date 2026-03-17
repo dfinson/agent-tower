@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
 import shutil
 from pathlib import Path
@@ -377,7 +378,7 @@ class GitService:
         # Safety: reject symlinks and paths outside the worktrees directory
         worktrees_dir = (Path(repo_path) / self._worktrees_dirname).resolve()
         resolved_wt = wt.resolve()
-        if not str(resolved_wt).startswith(str(worktrees_dir) + "/"):
+        if not str(resolved_wt).startswith(str(worktrees_dir) + os.sep):
             log.warning("worktree_path_outside_dir", worktree=worktree_path, expected_parent=str(worktrees_dir))
             return
 
@@ -457,3 +458,34 @@ class GitService:
     def is_remote_url(source: str) -> bool:
         """Determine if a source string is a remote URL vs local path."""
         return bool(re.match(r"(https?://|git@|ssh://)", source))
+
+    async def list_branches(self, repo_path: str) -> set[str]:
+        """Return a set of all branch names (local + remote, without remote prefix)."""
+        branches: set[str] = set()
+        try:
+            local = await self._run_git("branch", "--format=%(refname:short)", cwd=repo_path)
+            for line in local.splitlines():
+                b = line.strip()
+                if b:
+                    branches.add(b)
+        except GitError:
+            pass
+        try:
+            remote = await self._run_git("branch", "-r", "--format=%(refname:short)", cwd=repo_path)
+            for line in remote.splitlines():
+                b = line.strip()
+                if b:
+                    # Strip "origin/" prefix
+                    if "/" in b:
+                        branches.add(b.split("/", 1)[1])
+                    branches.add(b)
+        except GitError:
+            pass
+        return branches
+
+    async def list_worktree_names(self, repo_path: str) -> set[str]:
+        """Return a set of existing worktree directory names."""
+        worktrees_dir = Path(repo_path) / self._worktrees_dirname
+        if not worktrees_dir.exists():
+            return set()
+        return {p.name for p in worktrees_dir.iterdir() if p.is_dir()}

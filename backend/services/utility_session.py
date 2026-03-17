@@ -275,8 +275,10 @@ class _WarmSession:
         async def _noop_permission(request: object, invocation: dict[str, str]) -> PermissionRequestResult:
             return PermissionRequestResult(kind="approved")
 
+        import tempfile
+
         opts = SessionConfig(
-            working_directory="/tmp",
+            working_directory=tempfile.gettempdir(),
             on_permission_request=_noop_permission,
             model=self.model,
         )

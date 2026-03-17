@@ -19,7 +19,36 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.execution_strategy import STRATEGY_REGISTRY
+
+
+class _AgentSession:
+    """Thin wrapper around the adapter for a single running agent session."""
+
+    def __init__(self) -> None:
+        self._session_id: str | None = None
+        self._adapter: AgentAdapterInterface | None = None
+
+    @property
+    def session_id(self) -> str | None:
+        return self._session_id
+
+    async def execute(
+        self,
+        config: SessionConfig,
+        adapter: AgentAdapterInterface,
+    ) -> AsyncIterator[SessionEvent]:
+        self._adapter = adapter
+        self._session_id = await adapter.create_session(config)
+        async for event in adapter.stream_events(self._session_id):
+            yield event
+
+    async def send_message(self, message: str) -> None:
+        if self._adapter and self._session_id:
+            await self._adapter.send_message(self._session_id, message)
+
+    async def abort(self) -> None:
+        if self._adapter and self._session_id:
+            await self._adapter.abort_session(self._session_id)
 
 
 class _ToolCallEntry(TypedDict):
@@ -42,7 +71,6 @@ if TYPE_CHECKING:
     from backend.services.approval_service import ApprovalService
     from backend.services.diff_service import DiffService
     from backend.services.event_bus import EventBus
-    from backend.services.execution_strategy import ExecutionStrategy
     from backend.services.job_service import JobService
     from backend.services.merge_service import MergeService
     from backend.services.platform_adapter import PlatformRegistry
@@ -151,7 +179,7 @@ def _resolve_permission_mode(repo_path: str) -> str | None:
         with open(codeplane_yml) as f:
             data = yaml.safe_load(f) or {}
         mode = data.get("permission_mode")
-        if mode and str(mode) in ("permissive", "auto", "supervised", "readonly"):
+        if mode and str(mode) in ("auto", "read_only", "approval_required"):
             return str(mode)
         return None
     except Exception:
@@ -221,7 +249,7 @@ class RuntimeService:
         self._platform_registry = platform_registry
         self._utility_session = utility_session
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._strategies: dict[str, ExecutionStrategy] = {}
+        self._agent_sessions: dict[str, _AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
         self._headline_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_activity: dict[str, float] = {}
@@ -294,22 +322,8 @@ class RuntimeService:
         if job.id in self._tasks:
             return  # Already running (race-condition guard)
 
-        from backend.models.api_schemas import StrategyKind
-
-        strategy_name = job.strategy or "single_agent"
-        try:
-            strategy_kind = StrategyKind(strategy_name)
-        except ValueError:
-            strategy_kind = StrategyKind.single_agent
-
-        strategy_cls = STRATEGY_REGISTRY.get(strategy_kind)
-        if strategy_cls is None:
-            log.error("unknown_strategy", strategy=strategy_name, job_id=job.id)
-            await self._fail_job(job.id, f"Unknown strategy: {strategy_name}")
-            return
-
-        strategy = strategy_cls()
-        self._strategies[job.id] = strategy
+        agent_session = _AgentSession()
+        self._agent_sessions[job.id] = agent_session
 
         # Ensure job is in running state
         if job.state != JobState.running:
@@ -334,22 +348,22 @@ class RuntimeService:
             session_config = dataclasses.replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
 
         task = asyncio.create_task(
-            self._run_job(job.id, strategy, session_config),
+            self._run_job(job.id, agent_session, session_config),
             name=f"job-{job.id}",
         )
         self._tasks[job.id] = task
         # Pre-register prompt for echo suppression so the SDK user.message
         # echo of the initial prompt is discarded (shown via the synthetic entry).
         self._echo_suppress.setdefault(job.id, set()).add(session_config.prompt)
-        log.info("job_started", job_id=job.id, strategy=strategy_name)
+        log.info("job_started", job_id=job.id)
 
     async def _run_job(
         self,
         job_id: str,
-        strategy: ExecutionStrategy,
+        agent_session: _AgentSession,
         config: SessionConfig,
     ) -> None:
-        """Execute a job strategy, translate events, and handle completion."""
+        """Execute the agent session, translate events, and handle completion."""
         import time
 
         self._last_activity[job_id] = time.monotonic()
@@ -393,7 +407,7 @@ class RuntimeService:
         session_id: str | None = None
         error_reason: str | None = None
         try:
-            async for session_event in strategy.execute(config, self._adapter):
+            async for session_event in agent_session.execute(config, self._adapter):
                 self._last_activity[job_id] = time.monotonic()
 
                 # Intercept file_changed events and route through DiffService
@@ -419,9 +433,9 @@ class RuntimeService:
                 ):
                     await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
 
-                # Capture SDK session_id on first event (strategy sets _session_id before first yield)
-                if session_id is None and hasattr(strategy, "session_id") and strategy.session_id:
-                    session_id = strategy.session_id
+                # Capture SDK session_id on first event (agent_session sets _session_id before first yield)
+                if session_id is None and agent_session.session_id:
+                    session_id = agent_session.session_id
                     self._session_ids[job_id] = session_id
                     asyncio.create_task(
                         self._persist_sdk_session_id(job_id, session_id),
@@ -503,11 +517,11 @@ class RuntimeService:
                             actual=actual,
                         )
                         await self._event_bus.publish(domain_event)
-                        # Abort the running strategy/session
+                        # Abort the running agent session
                         try:
-                            await strategy.abort()
+                            await agent_session.abort()
                         except Exception:
-                            log.warning("strategy_abort_on_downgrade_failed", job_id=job_id, exc_info=True)
+                            log.warning("agent_abort_on_downgrade_failed", job_id=job_id, exc_info=True)
 
                         # Transition to succeeded with unresolved resolution
                         # so the job lands in the sign-off column.
@@ -645,9 +659,9 @@ class RuntimeService:
                 except Exception:
                     log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
             try:
-                await strategy.abort()
+                await agent_session.abort()
             except Exception:
-                log.warning("strategy_abort_failed", job_id=job_id, exc_info=True)
+                log.warning("agent_abort_failed", job_id=job_id, exc_info=True)
             try:
                 async with self._session_factory() as session:
                     svc = self._make_job_service(session)
@@ -689,7 +703,7 @@ class RuntimeService:
             self._headline_last_text.pop(job_id, None)
             self._turn_tool_buffer.pop(job_id, None)
             self._tasks.pop(job_id, None)
-            self._strategies.pop(job_id, None)
+            self._agent_sessions.pop(job_id, None)
             self._last_activity.pop(job_id, None)
             self._session_ids.pop(job_id, None)
             self._echo_suppress.pop(job_id, None)
@@ -890,12 +904,12 @@ class RuntimeService:
         Publishes the transcript event locally for immediate UI feedback and
         suppresses the SDK echo to avoid showing the message twice.
         """
-        strategy = self._strategies.get(job_id)
-        if strategy is None:
-            log.warning("send_message_no_strategy", job_id=job_id)
+        agent_session = self._agent_sessions.get(job_id)
+        if agent_session is None:
+            log.warning("send_message_no_session", job_id=job_id)
             return False
         now = datetime.now(UTC)
-        await strategy.send_message(message)
+        await agent_session.send_message(message)
         # Publish immediately so the operator message appears in the transcript
         # without waiting for the SDK to echo it back.
         await self._event_bus.publish(
@@ -927,14 +941,14 @@ class RuntimeService:
             "Please stop what you are doing right now and wait. "
             "Do not take any further actions until the operator sends a follow-up message."
         )
-        strategy = self._strategies.get(job_id)
-        if strategy is None:
-            log.warning("pause_job_no_strategy", job_id=job_id)
+        agent_session = self._agent_sessions.get(job_id)
+        if agent_session is None:
+            log.warning("pause_job_no_session", job_id=job_id)
             return False
         # Pre-register the echo suppression before sending so the SDK echo
         # (if any) is discarded and never appears in the transcript.
         self._echo_suppress.setdefault(job_id, set()).add(_pause_msg)
-        await strategy.send_message(_pause_msg)
+        await agent_session.send_message(_pause_msg)
         log.info("job_pause_requested", job_id=job_id)
         return True
 
