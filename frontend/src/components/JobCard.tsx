@@ -1,13 +1,9 @@
-import { memo, useState, useCallback } from "react";
+import { memo } from "react";
 import { useNavigate } from "react-router-dom";
-import { GitBranch, GitMerge, GitPullRequest, Trash2, CheckCircle2, Archive, AlertTriangle, XCircle, ArrowDownCircle, BookOpen } from "lucide-react";
-import { toast } from "sonner";
-import { useStore, selectJobDiffs, selectJobTimeline } from "../store";
+import { GitBranch, AlertTriangle, XCircle, ArrowDownCircle, BookOpen, CheckCircle2 } from "lucide-react";
+import { useStore, selectJobTimeline } from "../store";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
-import { resolveJob } from "../api/client";
-import { CompleteJobDialog } from "./CompleteJobDialog";
-import { Button } from "./ui/button";
 
 function elapsed(createdAt: string): string {
   const ms = Date.now() - new Date(createdAt).getTime();
@@ -46,58 +42,10 @@ function ResolutionBadge({ resolution }: { resolution: string }) {
 export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   const navigate = useNavigate();
   const repoName = job.repo.split("/").pop() ?? job.repo;
-  const [loading, setLoading] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [completeOpen, setCompleteOpen] = useState(false);
-  const diffs = useStore(selectJobDiffs(job.id));
   const timeline = useStore(selectJobTimeline(job.id));
-  const hasChanges = diffs.length > 0;
-
-  const needsResolution =
-    job.state === "succeeded" &&
-    (job.resolution === "unresolved" || job.resolution === "conflict");
-
-  const isResolved =
-    job.state === "succeeded" &&
-    job.resolution != null &&
-    job.resolution !== "unresolved" &&
-    job.resolution !== "conflict";
 
   const isFailed = job.state === "failed";
-  const isCanceled = job.state === "canceled";
-
-  const handleResolve = useCallback(
-    async (e: React.MouseEvent, action: "merge" | "smart_merge" | "create_pr" | "discard") => {
-      e.stopPropagation();
-      setLoading(action);
-      setError(null);
-      try {
-        const res = await resolveJob(job.id, action);
-        if (res.prUrl) {
-          toast.success("PR created", {
-            description: res.prUrl,
-            action: { label: "Open", onClick: () => window.open(res.prUrl!, "_blank") },
-          });
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed");
-      } finally {
-        setLoading(null);
-      }
-    },
-    [job.id],
-  );
-
-  const handleComplete = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      setCompleteOpen(true);
-    },
-    [],
-  );
-
   return (
-    <>
     <button
       className="w-full text-left rounded-lg border border-border bg-background p-3 cursor-pointer transition-colors hover:border-primary/60 hover:bg-accent"
       onClick={() => navigate(`/jobs/${job.id}`)}
@@ -184,116 +132,11 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
         </div>
       )}
 
-      {error && (
-        <p className="text-[11px] text-red-500 mb-1">{error}</p>
-      )}
-
-      {/* Action buttons for unresolved/conflict jobs */}
-      {needsResolution && hasChanges && (
-        <div className="flex gap-1.5 mt-1 mb-1" onClick={(e) => e.stopPropagation()}>
-          {job.resolution !== "conflict" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-[11px] px-2 gap-1"
-              disabled={loading !== null}
-              onClick={(e) => handleResolve(e, "merge")}
-            >
-              <GitMerge size={11} />
-              {loading === "merge" ? "…" : "Merge"}
-            </Button>
-          )}
-          {job.resolution !== "conflict" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-[11px] px-2 gap-1"
-              disabled={loading !== null}
-              title="Cherry-pick commits onto the base branch"
-              onClick={(e) => handleResolve(e, "smart_merge")}
-            >
-              <GitMerge size={11} />
-              {loading === "smart_merge" ? "…" : "Smart"}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-[11px] px-2 gap-1"
-            disabled={loading !== null}
-            onClick={(e) => handleResolve(e, "create_pr")}
-          >
-            <GitPullRequest size={11} />
-            {loading === "create_pr" ? "…" : "PR"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-[11px] px-2 gap-1 text-destructive hover:text-destructive"
-            disabled={loading !== null}
-            onClick={(e) => handleResolve(e, "discard")}
-          >
-            <Trash2 size={11} />
-            {loading === "discard" ? "…" : "Discard"}
-          </Button>
-        </div>
-      )}
-
-      {/* No changes — just mark done */}
-      {needsResolution && !hasChanges && (
-        <div className="flex gap-1.5 mt-1 mb-1" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-[11px] px-2 gap-1"
-            disabled={loading !== null}
-            onClick={(e) => handleResolve(e, "discard")}
-          >
-            <CheckCircle2 size={11} />
-            {loading === "discard" ? "…" : "Mark Done"}
-          </Button>
-        </div>
-      )}
-
-      {/* Complete button for resolved succeeded jobs */}
-      {isResolved && (
-        <div className="flex gap-1.5 mt-1 mb-1" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-[11px] px-2 gap-1 text-green-600 hover:text-green-600 border-green-500/30"
-            onClick={handleComplete}
-          >
-            <CheckCircle2 size={11} />
-            Complete
-          </Button>
-        </div>
-      )}
-
-      {/* Archive button for failed/canceled jobs */}
-      {(isFailed || isCanceled) && (
-        <div className="flex gap-1.5 mt-1 mb-1" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-[11px] px-2 gap-1 text-muted-foreground"
-            onClick={handleComplete}
-          >
-            <Archive size={11} />
-            Archive
-          </Button>
-        </div>
-      )}
-
       <div className="flex justify-between text-[11px] text-muted-foreground">
         <span>{elapsed(job.createdAt)}</span>
         <span className="font-mono">{job.id}</span>
       </div>
 
     </button>
-    {completeOpen && (
-      <CompleteJobDialog job={job} open onClose={() => setCompleteOpen(false)} />
-    )}
-    </>
   );
 });
