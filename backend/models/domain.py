@@ -158,7 +158,7 @@ class Job:
     archived_at: datetime | None = None
     title: str | None = None
     worktree_name: str | None = None
-    permission_mode: str = "auto"
+    permission_mode: str = PermissionMode.auto
     session_count: int = 1
     sdk_session_id: str | None = None
     model: str | None = None
