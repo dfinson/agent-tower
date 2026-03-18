@@ -151,18 +151,20 @@ def adapter() -> FakeAgentAdapter:
 
 
 @pytest.fixture
-def runtime(
+async def runtime(
     session_factory: async_sessionmaker[AsyncSession],
     event_bus: EventBus,
     adapter: FakeAgentAdapter,
     config: CPLConfig,
-) -> RuntimeService:
-    return RuntimeService(
+) -> AsyncGenerator[RuntimeService, None]:
+    service = RuntimeService(
         session_factory=session_factory,
         event_bus=event_bus,
         adapter_registry=FakeAdapterRegistry(adapter),
         config=config,
     )
+    yield service
+    await service.shutdown()
 
 
 def _make_job(
@@ -203,11 +205,65 @@ async def _create_db_job(
             branch=job.branch,
             worktree_path=job.worktree_path,
             session_id=job.session_id,
+            title=job.title,
+            worktree_name=job.worktree_name,
+            permission_mode=job.permission_mode,
+            session_count=job.session_count,
+            sdk_session_id=job.sdk_session_id,
+            model=job.model,
+            resolution=job.resolution,
+            failure_reason=job.failure_reason,
+            sdk=job.sdk,
+            verify=job.verify,
+            self_review=job.self_review,
+            max_turns=job.max_turns,
+            verify_prompt=job.verify_prompt,
+            self_review_prompt=job.self_review_prompt,
             created_at=job.created_at,
             updated_at=job.updated_at,
+            completed_at=job.completed_at,
         )
         session.add(row)
         await session.commit()
+
+
+class ResumeFallbackAdapter(AgentAdapterInterface):
+    def __init__(self, *, first_attempt_progress: bool = False) -> None:
+        self.configs: list[SessionConfig] = []
+        self._first_attempt_progress = first_attempt_progress
+
+    async def create_session(self, config: SessionConfig) -> str:
+        self.configs.append(config)
+        return f"resume-{len(self.configs)}"
+
+    async def stream_events(self, session_id: str) -> AsyncGenerator[SessionEvent, None]:
+        attempt = int(session_id.rsplit("-", 1)[1])
+        if attempt == 1:
+            if self._first_attempt_progress:
+                yield SessionEvent(
+                    kind=SessionEventKind.transcript,
+                    payload={"role": "agent", "content": "I resumed and started working."},
+                )
+            yield SessionEvent(
+                kind=SessionEventKind.error,
+                payload={"message": "Execution failed: CAPIError: 400 400 Bad Request\n"},
+            )
+            return
+
+        yield SessionEvent(
+            kind=SessionEventKind.transcript,
+            payload={"role": "agent", "content": "Recovered via opaque handoff."},
+        )
+        yield SessionEvent(kind=SessionEventKind.done, payload={})
+
+    async def send_message(self, session_id: str, message: str) -> None:
+        return None
+
+    async def abort_session(self, session_id: str) -> None:
+        return None
+
+    async def complete(self, prompt: str) -> str:
+        return "{}"
 
 
 # ---------------------------------------------------------------------------
@@ -532,6 +588,88 @@ class TestJobLifecycle:
         """send_message returns False (not an error) for a job that doesn't exist."""
         result = await runtime.send_message("nonexistent-job", "hello")
         assert result is False
+
+
+class TestResumeFallback:
+    async def test_resume_falls_back_to_handoff_when_native_resume_errors_immediately(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: CPLConfig,
+    ) -> None:
+        adapter = ResumeFallbackAdapter()
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(adapter),
+            config=config,
+        )
+
+        job = _make_job(repo=config.repos[0], state=JobState.failed)
+        job.prompt = "Fix session pool scaling for naming service"
+        job.session_count = 7
+        job.sdk_session_id = "stale-sdk-session"
+        job.completed_at = datetime.now(UTC)
+        await _create_db_job(session_factory, job)
+
+        resumed = await runtime.resume_job(job.id, "continue")
+        assert resumed.state == JobState.running
+
+        await asyncio.sleep(0.2)
+
+        assert len(adapter.configs) == 2
+        assert adapter.configs[0].resume_sdk_session_id == "stale-sdk-session"
+        assert adapter.configs[0].prompt == "continue"
+        assert adapter.configs[1].resume_sdk_session_id is None
+        assert "[RESUMED SESSION" in adapter.configs[1].prompt
+        assert "Fix session pool scaling for naming service" in adapter.configs[1].prompt
+        assert "continue" in adapter.configs[1].prompt
+
+        async with session_factory() as session:
+            from backend.persistence.job_repo import JobRepository
+
+            repo = JobRepository(session)
+            row = await repo.get(job.id)
+            assert row is not None
+            assert row.state == JobState.succeeded
+            assert row.sdk_session_id == "resume-2"
+
+        await runtime.shutdown()
+
+    async def test_resume_does_not_fallback_after_progress_has_started(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: CPLConfig,
+    ) -> None:
+        adapter = ResumeFallbackAdapter(first_attempt_progress=True)
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(adapter),
+            config=config,
+        )
+
+        job = _make_job(repo=config.repos[0], state=JobState.failed)
+        job.session_count = 3
+        job.sdk_session_id = "resume-me"
+        job.completed_at = datetime.now(UTC)
+        await _create_db_job(session_factory, job)
+
+        await runtime.resume_job(job.id, "resume")
+        await asyncio.sleep(0.2)
+
+        assert len(adapter.configs) == 1
+
+        async with session_factory() as session:
+            from backend.persistence.job_repo import JobRepository
+
+            repo = JobRepository(session)
+            row = await repo.get(job.id)
+            assert row is not None
+            assert row.state == JobState.failed
+
+        await runtime.shutdown()
 
 
 # ---------------------------------------------------------------------------
