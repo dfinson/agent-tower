@@ -519,6 +519,21 @@ _INLINE_FIX_COMMANDS: dict[str, list[str]] = {
 }
 
 
+def _select_preflight_action(
+    message: str,
+    choices: list[questionary.Choice],
+) -> object | None:
+    """Render a consistent action picker for preflight/setup prompts."""
+    return questionary.select(
+        message,
+        choices=choices,
+        qmark="",
+        pointer=">",
+        instruction="Use arrow keys",
+        show_selected=False,
+    ).ask()
+
+
 def _offer_inline_fix(warning: CheckResult) -> bool:
     """Offer to fix a single preflight warning in-place.
 
@@ -541,13 +556,14 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
 
     if not fixes:
         # No automated fix available — just ask continue/abort
-        choice = questionary.select(
-            "    What would you like to do?",
+        _console.print("    Action:")
+        choice = _select_preflight_action(
+            "      Choose an action",
             choices=[
                 questionary.Choice("Continue anyway", value="continue"),
                 questionary.Choice("Abort", value="abort"),
             ],
-        ).ask()
+        )
         if choice == "abort" or choice is None:
             raise SystemExit(1)
         return False
@@ -560,27 +576,30 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
     choices.append(questionary.Choice("Skip — I'll fix this later", value=("skip", [])))
     choices.append(questionary.Choice("Abort", value=("abort", [])))
 
-    choice = questionary.select("    What would you like to do?", choices=choices).ask()
+    while True:
+        _console.print("    Action:")
+        choice = _select_preflight_action("      Choose an action", choices)
 
-    if choice is None or choice[0] == "abort":
-        raise SystemExit(1)
-    if choice[0] == "skip":
-        return False
+        if choice is None or choice[0] == "abort":
+            raise SystemExit(1)
+        if choice[0] == "skip":
+            return False
 
-    # Run the fix
-    _, cmd = choice
-    _console.print(f"    Running: [dim]{' '.join(cmd)}[/dim]")
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode == 0:
-            return True
-        _console.print(f"    [red]Failed (exit {result.returncode})[/red]")
-        if result.stderr:
-            for line in result.stderr.strip().split("\n")[:3]:
-                _console.print(f"      [dim]{line}[/dim]")
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
-        _console.print(f"    [red]Failed: {exc}[/red]")
-    return False
+        # Run the fix
+        _, cmd = choice
+        _console.print(f"    Running: [dim]{' '.join(cmd)}[/dim]")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                return True
+            _console.print(f"    [red]Failed (exit {result.returncode})[/red]")
+            if result.stderr:
+                for line in result.stderr.strip().split("\n")[:3]:
+                    _console.print(f"      [dim]{line}[/dim]")
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+            _console.print(f"    [red]Failed: {exc}[/red]")
+
+        _console.print("    [yellow]Issue is still unresolved.[/yellow]")
 
 
 # ---------------------------------------------------------------------------

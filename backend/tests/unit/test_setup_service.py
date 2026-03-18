@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.setup_service import (
+    AgentCLIStatus,
+    CheckResult,
+    CheckStatus,
     _check_command,
     _get_env_persistence_instructions,
+    _offer_inline_fix,
     preflight_check,
 )
 
@@ -88,3 +93,106 @@ class TestPreflightCheck:
         mock_check.side_effect = side_effect
         ok = preflight_check(verbose=False)
         assert ok is True
+
+
+class TestOfferInlineFix:
+    def test_failed_fix_then_skip_returns_false(self) -> None:
+        warning = CheckResult(
+            label="Claude Code",
+            status=CheckStatus.warn,
+            detail="Python SDK installed, claude CLI not on PATH",
+            category="agent",
+        )
+
+        with (
+            patch(
+                "backend.services.setup_service.check_agent_cli",
+                return_value=AgentCLIStatus(
+                    "claude",
+                    "Claude Code",
+                    True,
+                    False,
+                    False,
+                    "Python SDK installed, claude CLI not on PATH",
+                    "Install CLI: npm install -g @anthropic-ai/claude-code",
+                ),
+            ),
+            patch(
+                "backend.services.setup_service._select_preflight_action",
+                side_effect=[
+                    ("fix", ["npm", "install", "-g", "@anthropic-ai/claude-code"]),
+                    ("skip", []),
+                ],
+            ),
+            patch("backend.services.setup_service.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type("Result", (), {"returncode": 243, "stderr": "npm error code EACCES"})()
+            assert _offer_inline_fix(warning) is False
+
+    def test_failed_fix_then_abort_raises(self) -> None:
+        warning = CheckResult(
+            label="Claude Code",
+            status=CheckStatus.warn,
+            detail="Python SDK installed, claude CLI not on PATH",
+            category="agent",
+        )
+
+        with (
+            patch(
+                "backend.services.setup_service.check_agent_cli",
+                return_value=AgentCLIStatus(
+                    "claude",
+                    "Claude Code",
+                    True,
+                    False,
+                    False,
+                    "Python SDK installed, claude CLI not on PATH",
+                    "Install CLI: npm install -g @anthropic-ai/claude-code",
+                ),
+            ),
+            patch(
+                "backend.services.setup_service._select_preflight_action",
+                side_effect=[
+                    ("fix", ["npm", "install", "-g", "@anthropic-ai/claude-code"]),
+                    ("abort", []),
+                ],
+            ),
+            patch("backend.services.setup_service.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type("Result", (), {"returncode": 243, "stderr": "npm error code EACCES"})()
+            try:
+                _offer_inline_fix(warning)
+            except SystemExit as exc:
+                assert exc.code == 1
+            else:
+                assert False, "Expected SystemExit"
+
+    def test_successful_fix_returns_true(self) -> None:
+        warning = CheckResult(
+            label="Claude Code",
+            status=CheckStatus.warn,
+            detail="Python SDK installed, claude CLI not on PATH",
+            category="agent",
+        )
+
+        with (
+            patch(
+                "backend.services.setup_service.check_agent_cli",
+                return_value=AgentCLIStatus(
+                    "claude",
+                    "Claude Code",
+                    True,
+                    False,
+                    False,
+                    "Python SDK installed, claude CLI not on PATH",
+                    "Install CLI: npm install -g @anthropic-ai/claude-code",
+                ),
+            ),
+            patch(
+                "backend.services.setup_service._select_preflight_action",
+                return_value=("fix", ["npm", "install", "-g", "@anthropic-ai/claude-code"]),
+            ),
+            patch("backend.services.setup_service.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = type("Result", (), {"returncode": 0, "stderr": ""})()
+            assert _offer_inline_fix(warning) is True
