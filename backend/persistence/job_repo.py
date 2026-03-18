@@ -221,8 +221,8 @@ class JobRepository(BaseRepository):
         row.archived_at = archived_at  # type: ignore[assignment]
         await self._session.flush()
 
-    async def update_sdk_session_id(self, job_id: str, sdk_session_id: str) -> None:
-        """Persist the Copilot SDK session ID for future resumption."""
+    async def update_sdk_session_id(self, job_id: str, sdk_session_id: str | None) -> None:
+        """Persist or clear the Copilot SDK session ID for future resumption."""
         result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
         row = result.scalar_one_or_none()
         if row is None:

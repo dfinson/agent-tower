@@ -318,6 +318,16 @@ def _build_session_config(
     )
 
 
+def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
+    """Return True once a resumed session has produced real agent work."""
+    if event.kind in (SessionEventKind.file_changed, SessionEventKind.approval_request, SessionEventKind.model_downgraded):
+        return True
+    if event.kind != SessionEventKind.transcript:
+        return False
+    role = str(event.payload.get("role", ""))
+    return role != "operator"
+
+
 class RuntimeService:
     """Manages active job tasks, capacity enforcement, and queueing."""
 
@@ -365,6 +375,7 @@ class RuntimeService:
         self._headline_history: dict[str, list[str]] = {}
         # Agent plan extraction state per job
         self._plan_tasks: dict[str, asyncio.Task[None]] = {}
+        self._snapshot_tasks: dict[str, asyncio.Task[None]] = {}
         self._plan_transcript: dict[str, list[str]] = {}
         self._plan_last_steps: dict[str, list[dict[str, str]]] = {}
         # Contents to suppress when the SDK echoes them back (already published locally)
@@ -523,181 +534,42 @@ class RuntimeService:
         session_id: str | None = None
         error_reason: str | None = None
         try:
-            async for session_event in agent_session.execute(config, self._resolve_adapter(config.sdk)):
-                self._last_activity[job_id] = time.monotonic()
+            session_id, error_reason, made_resume_progress = await self._execute_session_attempt(
+                job_id,
+                agent_session,
+                config,
+                worktree_path,
+                base_ref,
+            )
 
-                # Intercept file_changed events and route through DiffService
-                if (
-                    session_event.kind == SessionEventKind.file_changed
-                    and self._diff_service is not None
-                    and worktree_path
-                    and base_ref
-                ):
-                    await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
-                    continue
+            if error_reason and config.resume_sdk_session_id and not made_resume_progress:
+                await self._clear_sdk_session_id(job_id)
+                try:
+                    fallback_prompt = await self._build_resume_handoff_prompt(job_id, config.prompt)
+                except Exception:
+                    log.warning("resume_handoff_prompt_build_failed", job_id=job_id, exc_info=True)
+                else:
+                    import dataclasses
 
-                # Trigger diff recalculation after tool completions.
-                # The SDK may not fire session.workspace_file_changed, so we
-                # piggyback on tool.execution_complete from the transcript stream.
-                # DiffService throttles to 5-second windows, so this is cheap.
-                if (
-                    session_event.kind == SessionEventKind.transcript
-                    and session_event.payload.get("role") == "tool_call"
-                    and self._diff_service is not None
-                    and worktree_path
-                    and base_ref
-                ):
-                    await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
-
-                # Capture SDK session_id on first event (agent_session sets _session_id before first yield)
-                if session_id is None and agent_session.session_id:
-                    session_id = agent_session.session_id
-                    self._session_ids[job_id] = session_id
-                    asyncio.create_task(
-                        self._persist_sdk_session_id(job_id, session_id),
-                        name=f"persist-session-{job_id}",
+                    log.warning(
+                        "resume_sdk_session_unusable_falling_back",
+                        job_id=job_id,
+                        sdk_session_id=config.resume_sdk_session_id,
                     )
-
-                domain_event = self._translate_event(job_id, session_event)
-                if domain_event is not None:
-                    if domain_event.kind == DomainEventKind.job_failed:
-                        error_reason = domain_event.payload.get("message", "Agent error")
-
-                    # Suppress SDK echoes for messages already published locally
-                    # (operator messages and silent system instructions like pause).
-                    if domain_event.kind == DomainEventKind.transcript_updated and job_id in self._echo_suppress:
-                        content = domain_event.payload.get("content", "")
-                        if content in self._echo_suppress[job_id]:
-                            self._echo_suppress[job_id].discard(content)
-                            continue
-
-                    # Handle approval requests: the adapter now blocks the
-                    # SDK directly.  RuntimeService just transitions state
-                    # and publishes the SSE event so the frontend can render
-                    # the approval banner.  The adapter's _on_permission
-                    # callback already created the Approval record and
-                    # injected approval_id into the payload.
-                    if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
-                        # Transition to waiting_for_approval
-                        async with self._session_factory() as sess:
-                            svc = self._make_job_service(sess)
-                            await svc.transition_state(job_id, JobState.waiting_for_approval)
-                            await sess.commit()
-
-                        await self._event_bus.publish(domain_event)
-
-                        # Wait for operator resolution — the adapter is
-                        # also awaiting the same Future, so when it
-                        # resolves the SDK resumes automatically.
-                        approval_id = domain_event.payload.get("approval_id", "")
-                        resolution = await self._approval_service.wait_for_resolution(approval_id)
-
-                        # Publish approval_resolved event
-                        await self._event_bus.publish(
-                            DomainEvent(
-                                event_id=_make_event_id(),
-                                job_id=job_id,
-                                timestamp=datetime.now(UTC),
-                                kind=DomainEventKind.approval_resolved,
-                                payload={
-                                    "approval_id": approval_id,
-                                    "resolution": resolution,
-                                    "timestamp": datetime.now(UTC).isoformat(),
-                                },
-                            )
-                        )
-
-                        # Transition back to running
-                        async with self._session_factory() as sess:
-                            svc = self._make_job_service(sess)
-                            await svc.transition_state(job_id, JobState.running)
-                            await sess.commit()
-                        await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
-                        self._last_activity[job_id] = time.monotonic()
-
-                        # If rejected, abort
-                        if resolution == "rejected":
-                            error_reason = "Approval rejected by operator"
-                            break
-                        continue
-
-                    # Handle model downgrade: abort the agent and move
-                    # the job to sign-off so the operator can decide.
-                    if domain_event.kind == DomainEventKind.model_downgraded:
-                        requested = domain_event.payload.get("requested_model", "")
-                        actual = domain_event.payload.get("actual_model", "")
-                        log.warning(
-                            "model_downgrade_detected",
-                            job_id=job_id,
-                            requested=requested,
-                            actual=actual,
-                        )
-                        await self._event_bus.publish(domain_event)
-                        # Abort the running agent session
-                        try:
-                            await agent_session.abort()
-                        except Exception:
-                            log.warning("agent_abort_on_downgrade_failed", job_id=job_id, exc_info=True)
-
-                        # Transition to succeeded with unresolved resolution
-                        # so the job lands in the sign-off column.
-                        reason = f"Model downgraded: requested {requested} but received {actual}"
-                        async with self._session_factory() as session:
-                            svc = self._make_job_service(session)
-                            await svc.transition_state(job_id, JobState.succeeded, failure_reason=reason)
-                            from backend.persistence.job_repo import JobRepository
-
-                            job_repo = JobRepository(session)
-                            await job_repo.update_resolution(job_id, "unresolved")
-                            await session.commit()
-
-                        await self._event_bus.publish(
-                            DomainEvent(
-                                event_id=_make_event_id(),
-                                job_id=job_id,
-                                timestamp=datetime.now(UTC),
-                                kind=DomainEventKind.job_succeeded,
-                                payload={
-                                    "resolution": "unresolved",
-                                    "model_downgraded": True,
-                                    "requested_model": requested,
-                                    "actual_model": actual,
-                                },
-                            )
-                        )
-                        log.info("job_moved_to_signoff_model_downgrade", job_id=job_id)
-                        return  # skip normal completion flow
-
-                    # Buffer transcript content for progress headlines
-                    if domain_event.kind == DomainEventKind.transcript_updated:
-                        role = domain_event.payload.get("role", "")
-                        content = domain_event.payload.get("content", "")
-                        if role == "agent" and content and job_id in self._headline_transcript:
-                            buf = self._headline_transcript[job_id]
-                            buf.append(content[:200])
-                            # Keep only last 3 assistant messages
-                            if len(buf) > 3:
-                                self._headline_transcript[job_id] = buf[-3:]
-                        # Buffer for plan extraction (keep more context)
-                        if role == "agent" and content and job_id in self._plan_transcript:
-                            pbuf = self._plan_transcript[job_id]
-                            pbuf.append(content[:400])
-                            if len(pbuf) > 8:
-                                self._plan_transcript[job_id] = pbuf[-8:]
-                        # Also collect tool intents for headline generation
-                        if role == "tool_call" and job_id in self._headline_tool_intents:
-                            intent = str(domain_event.payload.get("tool_intent") or "")
-                            if intent:
-                                ibuf = self._headline_tool_intents[job_id]
-                                ibuf.append(intent[:80])
-                                if len(ibuf) > 10:
-                                    self._headline_tool_intents[job_id] = ibuf[-10:]
-
-                        # Track tool calls by turn to trigger AI summaries at turn boundaries
-                        if self._utility_session is not None and role == "tool_call":
-                            pass  # Tool display is now handled deterministically by the frontend
-
-                    await self._event_bus.publish(domain_event)
+                    fallback_session = _AgentSession()
+                    self._agent_sessions[job_id] = fallback_session
+                    fallback_config = dataclasses.replace(
+                        config,
+                        prompt=fallback_prompt,
+                        resume_sdk_session_id=None,
+                    )
+                    session_id, error_reason, _ = await self._execute_session_attempt(
+                        job_id,
+                        fallback_session,
+                        fallback_config,
+                        worktree_path,
+                        base_ref,
+                    )
 
             if error_reason:
                 # An error event was received during execution — finalize diff before failing
@@ -816,13 +688,192 @@ class RuntimeService:
                 self._approval_service.cleanup_job(job_id)
             if self._diff_service is not None:
                 self._diff_service.cleanup(job_id)
-            # Store cheap session snapshot for future cold resumes
-            asyncio.create_task(
-                self._summarize_session_background(job_id),
-                name=f"snapshot-{job_id}",
-            )
+            # Store cheap session snapshot for future cold resumes.
+            # Track the background task so shutdown can await it cleanly.
+            self._start_snapshot_task(job_id)
             # Check if any queued jobs can now start
             await self._dequeue_next()
+
+    def _start_snapshot_task(self, job_id: str) -> None:
+        if self._shutting_down:
+            return
+        existing = self._snapshot_tasks.get(job_id)
+        if existing is not None and not existing.done():
+            return
+
+        task = asyncio.create_task(
+            self._summarize_session_background(job_id),
+            name=f"snapshot-{job_id}",
+        )
+        self._snapshot_tasks[job_id] = task
+
+        def _cleanup_snapshot_task(completed: asyncio.Task[None]) -> None:
+            current = self._snapshot_tasks.get(job_id)
+            if current is completed:
+                self._snapshot_tasks.pop(job_id, None)
+
+        task.add_done_callback(_cleanup_snapshot_task)
+
+    async def _execute_session_attempt(
+        self,
+        job_id: str,
+        agent_session: _AgentSession,
+        config: SessionConfig,
+        worktree_path: str | None,
+        base_ref: str | None,
+    ) -> tuple[str | None, str | None, bool]:
+        import time
+
+        session_id: str | None = None
+        error_reason: str | None = None
+        made_progress = False
+
+        async for session_event in agent_session.execute(config, self._resolve_adapter(config.sdk)):
+            self._last_activity[job_id] = time.monotonic()
+            made_progress = made_progress or _session_event_counts_as_resume_progress(session_event)
+
+            if (
+                session_event.kind == SessionEventKind.file_changed
+                and self._diff_service is not None
+                and worktree_path
+                and base_ref
+            ):
+                await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                continue
+
+            if (
+                session_event.kind == SessionEventKind.transcript
+                and session_event.payload.get("role") == "tool_call"
+                and self._diff_service is not None
+                and worktree_path
+                and base_ref
+            ):
+                await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+
+            if session_id is None and agent_session.session_id:
+                session_id = agent_session.session_id
+                self._session_ids[job_id] = session_id
+                asyncio.create_task(
+                    self._persist_sdk_session_id(job_id, session_id),
+                    name=f"persist-session-{job_id}",
+                )
+
+            domain_event = self._translate_event(job_id, session_event)
+            if domain_event is None:
+                continue
+
+            if domain_event.kind == DomainEventKind.job_failed:
+                error_reason = domain_event.payload.get("message", "Agent error")
+
+            if domain_event.kind == DomainEventKind.transcript_updated and job_id in self._echo_suppress:
+                content = domain_event.payload.get("content", "")
+                if content in self._echo_suppress[job_id]:
+                    self._echo_suppress[job_id].discard(content)
+                    continue
+
+            if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
+                async with self._session_factory() as sess:
+                    svc = self._make_job_service(sess)
+                    await svc.transition_state(job_id, JobState.waiting_for_approval)
+                    await sess.commit()
+
+                await self._event_bus.publish(domain_event)
+
+                approval_id = domain_event.payload.get("approval_id", "")
+                resolution = await self._approval_service.wait_for_resolution(approval_id)
+
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=_make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.approval_resolved,
+                        payload={
+                            "approval_id": approval_id,
+                            "resolution": resolution,
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        },
+                    )
+                )
+
+                async with self._session_factory() as sess:
+                    svc = self._make_job_service(sess)
+                    await svc.transition_state(job_id, JobState.running)
+                    await sess.commit()
+                await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
+                self._last_activity[job_id] = time.monotonic()
+
+                if resolution == "rejected":
+                    error_reason = "Approval rejected by operator"
+                    break
+                continue
+
+            if domain_event.kind == DomainEventKind.model_downgraded:
+                requested = domain_event.payload.get("requested_model", "")
+                actual = domain_event.payload.get("actual_model", "")
+                log.warning(
+                    "model_downgrade_detected",
+                    job_id=job_id,
+                    requested=requested,
+                    actual=actual,
+                )
+                await self._event_bus.publish(domain_event)
+                try:
+                    await agent_session.abort()
+                except Exception:
+                    log.warning("agent_abort_on_downgrade_failed", job_id=job_id, exc_info=True)
+
+                reason = f"Model downgraded: requested {requested} but received {actual}"
+                async with self._session_factory() as session:
+                    svc = self._make_job_service(session)
+                    await svc.transition_state(job_id, JobState.succeeded, failure_reason=reason)
+                    from backend.persistence.job_repo import JobRepository
+
+                    job_repo = JobRepository(session)
+                    await job_repo.update_resolution(job_id, "unresolved")
+                    await session.commit()
+
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=_make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.job_succeeded,
+                        payload={
+                            "resolution": "unresolved",
+                            "model_downgraded": True,
+                            "requested_model": requested,
+                            "actual_model": actual,
+                        },
+                    )
+                )
+                log.info("job_moved_to_signoff_model_downgrade", job_id=job_id)
+                return session_id, None, True
+
+            if domain_event.kind == DomainEventKind.transcript_updated:
+                role = domain_event.payload.get("role", "")
+                content = domain_event.payload.get("content", "")
+                if role == "agent" and content and job_id in self._headline_transcript:
+                    buf = self._headline_transcript[job_id]
+                    buf.append(content[:200])
+                    if len(buf) > 3:
+                        self._headline_transcript[job_id] = buf[-3:]
+                if role == "agent" and content and job_id in self._plan_transcript:
+                    pbuf = self._plan_transcript[job_id]
+                    pbuf.append(content[:400])
+                    if len(pbuf) > 8:
+                        self._plan_transcript[job_id] = pbuf[-8:]
+                if role == "tool_call" and job_id in self._headline_tool_intents:
+                    intent = str(domain_event.payload.get("tool_intent") or "")
+                    if intent:
+                        ibuf = self._headline_tool_intents[job_id]
+                        ibuf.append(intent[:80])
+                        if len(ibuf) > 10:
+                            self._headline_tool_intents[job_id] = ibuf[-10:]
+
+            await self._event_bus.publish(domain_event)
+
+        return session_id, error_reason, made_progress
 
     async def _run_followup_turn(
         self,
@@ -1441,6 +1492,8 @@ class RuntimeService:
 
     async def _dequeue_next(self) -> None:
         """Start the next queued job if capacity allows."""
+        if self._shutting_down:
+            return
         async with self._dequeue_lock:
             if self.running_count >= self.max_concurrent:
                 return
@@ -1595,6 +1648,112 @@ class RuntimeService:
         except Exception:
             log.warning("persist_sdk_session_id_failed", job_id=job_id, exc_info=True)
 
+    async def _clear_sdk_session_id(self, job_id: str) -> None:
+        """Clear a stale Copilot SDK session ID so resume falls back cleanly."""
+        try:
+            async with self._session_factory() as session:
+                from backend.persistence.job_repo import JobRepository
+
+                job_repo = JobRepository(session)
+                await job_repo.update_sdk_session_id(job_id, None)
+                await session.commit()
+        except Exception:
+            log.warning("clear_sdk_session_id_failed", job_id=job_id, exc_info=True)
+
+    async def _build_resume_handoff_prompt_for_job(
+        self,
+        session: AsyncSession,
+        job: Job,
+        instruction: str,
+        session_number: int,
+    ) -> str:
+        from pathlib import Path
+
+        from backend.persistence.artifact_repo import ArtifactRepository
+        from backend.persistence.event_repo import EventRepository
+        from backend.services.artifact_service import ArtifactService
+        from backend.services.summarization_service import _build_resume_prompt, _extract_changed_files
+
+        artifact_repo = ArtifactRepository(session)
+        artifact_svc = ArtifactService(artifact_repo)
+        summary_artifact = await artifact_svc.get_latest_session_summary(job.id)
+
+        event_repo = EventRepository(session)
+        diff_events = await event_repo.list_by_job(job.id, kinds=[DomainEventKind.diff_updated])
+        changed_files = _extract_changed_files(diff_events)
+
+        if summary_artifact is None and self._summarization_service is not None:
+            log_artifact = await artifact_svc.get_session_log(job.id)
+            if log_artifact is not None:
+                try:
+                    import json as _json
+
+                    log_text = Path(log_artifact.disk_path).read_text(encoding="utf-8")
+                    log_data = _json.loads(log_text)
+
+                    _parts: list[str] = []
+                    _counter = 0
+                    all_sessions = log_data.get("sessions", [])
+                    if not all_sessions and log_data.get("transcript_turns"):
+                        all_sessions = [log_data]
+                    for sess in all_sessions:
+                        sess_num = sess.get("session_number", "?")
+                        _turns = sess.get("transcript_turns", [])
+                        if len(all_sessions) > 1:
+                            _counter += 1
+                            _parts.append(f"=== Session {sess_num} ===")
+                        for t in _turns:
+                            _counter += 1
+                            role = t.get("role", "")
+                            if role == "tool_call":
+                                display = t.get("tool_display") or t.get("tool_intent") or t.get("tool_name", "tool")
+                                ok = "\u2713" if t.get("tool_success", True) else "\u2717"
+                                _parts.append(f"[{_counter}] TOOL {ok}: {display}")
+                            else:
+                                _parts.append(f"[{_counter}] {role.upper()}: {t.get('content', '')}")
+                    transcript_text = "\n---\n".join(_parts) or "(no transcript)"
+                    log_changed = log_data.get("all_changed_files") or log_data.get("changed_files", [])
+                    if log_changed:
+                        changed_files = log_changed
+                    await self._summarization_service.summarize_and_store(
+                        job.id,
+                        job.session_count,
+                        job.prompt,
+                        pre_built_transcript=transcript_text,
+                        pre_built_changed_files=changed_files,
+                    )
+                    summary_artifact = await artifact_svc.get_latest_session_summary(job.id)
+                except Exception:
+                    log.warning("session_log_summarization_failed", job_id=job.id, exc_info=True)
+
+            if summary_artifact is None:
+                try:
+                    await self._summarization_service.summarize_and_store(job.id, job.session_count, job.prompt)
+                    summary_artifact = await artifact_svc.get_latest_session_summary(job.id)
+                except Exception:
+                    log.warning("inline_summarization_failed", job_id=job.id, exc_info=True)
+
+        summary_text: str | None = None
+        if summary_artifact is not None:
+            try:
+                summary_text = Path(summary_artifact.disk_path).read_text(encoding="utf-8")
+            except Exception:
+                log.warning("summary_read_failed", job_id=job.id, exc_info=True)
+
+        return _build_resume_prompt(summary_text, changed_files, instruction, session_number, job.id, job.prompt)
+
+    async def _build_resume_handoff_prompt(self, job_id: str, instruction: str) -> str:
+        """Build the opaque handoff prompt used when native resume is unavailable."""
+        from backend.persistence.job_repo import JobRepository
+        from backend.services.job_service import JobNotFoundError
+
+        async with self._session_factory() as session:
+            job_repo = JobRepository(session)
+            job = await job_repo.get(job_id)
+            if job is None:
+                raise JobNotFoundError(f"Job {job_id} does not exist.")
+            return await self._build_resume_handoff_prompt_for_job(session, job, instruction, job.session_count)
+
     async def resume_job(self, job_id: str, instruction: str) -> Job:
         """Resume a terminal job in-place.
 
@@ -1639,89 +1798,12 @@ class RuntimeService:
                 override_prompt = instruction
                 resume_sdk_session_id: str | None = job.sdk_session_id
             else:
-                # Fallback path: summarization-based context injection.
-                # First try to generate from stored snapshot (cheap); fall back to
-                # full event-based summarization if no snapshot exists.
                 log.info("resume_via_summarization", job_id=job_id)
-                from backend.persistence.artifact_repo import ArtifactRepository
-                from backend.persistence.event_repo import EventRepository
-                from backend.services.artifact_service import ArtifactService
-                from backend.services.summarization_service import _build_resume_prompt, _extract_changed_files
-
-                artifact_repo = ArtifactRepository(session)
-                artifact_svc = ArtifactService(artifact_repo)
-                summary_artifact = await artifact_svc.get_latest_session_summary(job_id)
-
-                event_repo = EventRepository(session)
-                diff_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.diff_updated])
-                changed_files = _extract_changed_files(diff_events)
-
-                if summary_artifact is None and self._summarization_service is not None:
-                    # No cached summary — try to generate from unified session log (or legacy snapshot)
-                    log_artifact = await artifact_svc.get_session_log(job_id)
-                    if log_artifact is not None:
-                        try:
-                            import json as _json
-
-                            log_text = Path(log_artifact.disk_path).read_text(encoding="utf-8")
-                            log_data = _json.loads(log_text)
-
-                            # Build transcript from ALL sessions in the log
-                            _parts: list[str] = []
-                            _counter = 0
-                            all_sessions = log_data.get("sessions", [])
-                            # Fallback for legacy single-session snapshots
-                            if not all_sessions and log_data.get("transcript_turns"):
-                                all_sessions = [log_data]
-                            for sess in all_sessions:
-                                sess_num = sess.get("session_number", "?")
-                                _turns = sess.get("transcript_turns", [])
-                                if len(all_sessions) > 1:
-                                    _counter += 1
-                                    _parts.append(f"=== Session {sess_num} ===")
-                                for t in _turns:
-                                    _counter += 1
-                                    role = t.get("role", "")
-                                    if role == "tool_call":
-                                        display = (
-                                            t.get("tool_display") or t.get("tool_intent") or t.get("tool_name", "tool")
-                                        )
-                                        ok = "\u2713" if t.get("tool_success", True) else "\u2717"
-                                        _parts.append(f"[{_counter}] TOOL {ok}: {display}")
-                                    else:
-                                        _parts.append(f"[{_counter}] {role.upper()}: {t.get('content', '')}")
-                            transcript_text = "\n---\n".join(_parts) or "(no transcript)"
-                            log_changed = log_data.get("all_changed_files") or log_data.get("changed_files", [])
-                            if log_changed:
-                                changed_files = log_changed
-                            await self._summarization_service.summarize_and_store(
-                                job_id,
-                                job.session_count,
-                                job.prompt,
-                                pre_built_transcript=transcript_text,
-                                pre_built_changed_files=changed_files,
-                            )
-                            summary_artifact = await artifact_svc.get_latest_session_summary(job_id)
-                        except Exception:
-                            log.warning("session_log_summarization_failed", job_id=job_id, exc_info=True)
-
-                    if summary_artifact is None:
-                        # Final fallback — generate from raw events
-                        try:
-                            await self._summarization_service.summarize_and_store(job_id, job.session_count, job.prompt)
-                            summary_artifact = await artifact_svc.get_latest_session_summary(job_id)
-                        except Exception:
-                            log.warning("inline_summarization_failed", job_id=job_id, exc_info=True)
-
-                summary_text: str | None = None
-                if summary_artifact is not None:
-                    try:
-                        summary_text = Path(summary_artifact.disk_path).read_text(encoding="utf-8")
-                    except Exception:
-                        log.warning("summary_read_failed", job_id=job_id, exc_info=True)
-
-                override_prompt = _build_resume_prompt(
-                    summary_text, changed_files, instruction, new_session_count, job_id, job.prompt
+                override_prompt = await self._build_resume_handoff_prompt_for_job(
+                    session,
+                    job,
+                    instruction,
+                    new_session_count,
                 )
                 resume_sdk_session_id = None
 
@@ -1933,6 +2015,10 @@ class RuntimeService:
         tasks = list(self._tasks.values())
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+        snapshot_tasks = list(self._snapshot_tasks.values())
+        if snapshot_tasks:
+            await asyncio.gather(*snapshot_tasks, return_exceptions=True)
 
     @property
     def is_shutting_down(self) -> bool:
