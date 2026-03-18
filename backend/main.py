@@ -476,9 +476,9 @@ def up(
 
     # Run preflight checks before starting
     if not skip_preflight:
-        from backend.services.setup_service import run_preflight
+        from backend.services.setup_service import validate_preflight
 
-        if not run_preflight(port):
+        if not validate_preflight(port):
             raise SystemExit(1)
 
     # Password logic: auto-generate for tunnel, allow explicit, block unsafe combos
@@ -848,18 +848,18 @@ def version() -> None:
 @cli.command()
 def setup() -> None:
     """Interactive setup wizard — check dependencies, configure data directory, authenticate."""
-    from backend.services.setup_service import run_setup
+    from backend.services.setup_service import execute_setup_wizard
 
-    run_setup()
+    execute_setup_wizard()
 
 
 @cli.command()
 @click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
 def doctor(as_json: bool) -> None:
     """Full non-interactive health check — deps, auth, SDK, environment."""
-    from backend.services.setup_service import run_doctor
+    from backend.services.setup_service import diagnose_configuration
 
-    ok = run_doctor(as_json=as_json)
+    ok = diagnose_configuration(as_json=as_json)
     if not ok:
         raise SystemExit(1)
 

@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.config import CPLConfig, load_config
 from backend.models.api_schemas import WorkspaceEntry, WorkspaceEntryType, WorkspaceListResponse
-from backend.persistence.job_repo import JobRepository
 from backend.services.job_service import JobNotFoundError, JobService
 
 router = APIRouter(tags=["workspace"])
@@ -31,11 +30,7 @@ async def list_workspace(
     """List files in the job's worktree (max 200 entries per page)."""
     session_factory = request.app.state.session_factory
     async with session_factory() as session:
-        job_svc = JobService(
-            job_repo=JobRepository(session),
-            git_service=None,  # type: ignore[arg-type]
-            config=config,
-        )
+        job_svc = JobService.from_session(session, config, git_service=None)
         try:
             job = await job_svc.get_job(job_id)
         except JobNotFoundError as exc:
@@ -92,11 +87,7 @@ async def get_workspace_file(
     """Get the contents of a single file in the job's worktree."""
     session_factory = request.app.state.session_factory
     async with session_factory() as session:
-        job_svc = JobService(
-            job_repo=JobRepository(session),
-            git_service=None,  # type: ignore[arg-type]
-            config=config,
-        )
+        job_svc = JobService.from_session(session, config, git_service=None)
         try:
             job = await job_svc.get_job(job_id)
         except JobNotFoundError as exc:

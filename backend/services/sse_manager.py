@@ -634,6 +634,34 @@ class SSEManager:
                     )
                 )
 
+    async def replay_from_factory(
+        self,
+        conn: SSEConnection,
+        session_factory: object,
+        last_event_id: int,
+    ) -> None:
+        """Replay missed events using a session factory.
+
+        This is the preferred entry point from API routes — it keeps
+        persistence imports inside the service layer so route modules
+        never need to import repository classes directly.
+        """
+        from backend.persistence.approval_repo import ApprovalRepository
+        from backend.persistence.event_repo import EventRepository
+        from backend.persistence.job_repo import JobRepository
+
+        async with session_factory() as session:  # type: ignore[operator]
+            event_repo = EventRepository(session)
+            job_repo = JobRepository(session)
+            approval_repo = ApprovalRepository(session)
+            await self.replay_events(
+                conn,
+                event_repo,
+                job_repo,
+                last_event_id,
+                approval_repo=approval_repo,
+            )
+
     async def close_all(self) -> None:
         """Close all connections (used during shutdown)."""
         for conn in list(self._connections):

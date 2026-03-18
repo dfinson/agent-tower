@@ -14,6 +14,8 @@ from backend.models.api_schemas import ArtifactType, ExecutionPhase
 from backend.models.domain import Artifact
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from backend.models.api_schemas import DiffFileModel
     from backend.persistence.artifact_repo import ArtifactRepository
 
@@ -23,11 +25,27 @@ log = structlog.get_logger()
 _ARTIFACTS_BASE = Path.home() / ".codeplane" / "artifacts"
 
 
+def get_artifacts_base() -> Path:
+    """Return the base directory for artifact files on disk."""
+    return _ARTIFACTS_BASE
+
+
 class ArtifactService:
     """Collects, stores, and retrieves job artifacts."""
 
     def __init__(self, artifact_repo: ArtifactRepository) -> None:
         self._repo = artifact_repo
+
+    @classmethod
+    def from_session(cls, session: AsyncSession) -> ArtifactService:
+        """Construct an ArtifactService from a DB session.
+
+        This factory keeps persistence imports inside the service layer so
+        that callers (e.g. API routes) never import repository classes.
+        """
+        from backend.persistence.artifact_repo import ArtifactRepository
+
+        return cls(ArtifactRepository(session))
 
     async def store_diff_snapshot(
         self,
