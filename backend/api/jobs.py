@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
@@ -390,7 +391,11 @@ async def get_job_diff(
             try:
                 return await ds.calculate_diff(job.worktree_path, job.base_ref)
             except Exception:
-                pass  # fall through to event store
+                structlog.get_logger().warning(
+                    "get_job_diff_live_failed",
+                    job_id=job_id,
+                    exc_info=True,
+                )
 
     # Fallback: read from event store (completed/archived/failed jobs)
     event_repo = EventRepository(session)

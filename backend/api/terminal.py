@@ -240,7 +240,7 @@ async def terminal_ws(ws: WebSocket) -> None:
                     attached_session_id = None
 
     except WebSocketDisconnect:
-        pass
+        log.debug("terminal_ws_disconnected")
     except Exception:
         log.warning("terminal_ws_error", exc_info=True)
     finally:
