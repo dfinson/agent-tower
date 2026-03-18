@@ -170,7 +170,6 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     utility_session = UtilitySessionService(
         model=config.runtime.utility_model,
         pool_size=2,
-        max_pool_fn=lambda: config.runtime.naming_pool_max,
     )
     log.info("utility_session_starting", model=config.runtime.utility_model)
     await utility_session.start()
