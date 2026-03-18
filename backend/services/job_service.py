@@ -21,7 +21,11 @@ from backend.models.domain import (
 from backend.services.agent_adapter import validate_sdk_model
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from backend.config import CPLConfig
+    from backend.models.events import DomainEvent, DomainEventKind
+    from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
     from backend.services.git_service import GitService
     from backend.services.naming_service import NamingService
@@ -50,11 +54,44 @@ class JobService:
         git_service: GitService | None,
         config: CPLConfig,
         naming_service: NamingService | None = None,
+        event_repo: EventRepository | None = None,
     ) -> None:
         self._job_repo = job_repo
         self._git = git_service
         self._config = config
         self._naming = naming_service
+        self._event_repo = event_repo
+
+    @classmethod
+    def from_session(
+        cls,
+        session: AsyncSession,
+        config: CPLConfig,
+        *,
+        git_service: GitService | None = None,
+        naming_service: NamingService | None = None,
+    ) -> JobService:
+        """Construct a JobService from a DB session.
+
+        This factory keeps persistence imports inside the service layer so
+        that callers (e.g. API routes) never import repository classes.
+        """
+        from backend.persistence.event_repo import EventRepository
+        from backend.persistence.job_repo import JobRepository
+
+        job_repo = JobRepository(session)
+        event_repo = EventRepository(session)
+        if git_service is None:
+            from backend.services.git_service import GitService
+
+            git_service = GitService(config)
+        return cls(
+            job_repo=job_repo,
+            git_service=git_service,
+            config=config,
+            naming_service=naming_service,
+            event_repo=event_repo,
+        )
 
     def _resolve_repos(self) -> set[str]:
         """Expand glob patterns and return the full set of allowed repo paths."""
@@ -69,6 +106,21 @@ class JobService:
             else:
                 allowed.add(str(expanded.resolve()))
         return allowed
+
+    async def list_events_by_job(
+        self,
+        job_id: str,
+        kinds: list[DomainEventKind],
+        limit: int = 2000,
+    ) -> list[DomainEvent]:
+        """Query domain events for a job, filtered by kind.
+
+        Delegates to the event repository so that API routes never need
+        to import persistence classes directly.
+        """
+        if self._event_repo is None:
+            raise RuntimeError("JobService was created without an event_repo")
+        return await self._event_repo.list_by_job(job_id, kinds, limit=limit)
 
     def validate_repo(self, repo: str) -> str:
         """Validate a repo path is in the allowlist. Returns resolved path."""

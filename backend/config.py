@@ -1,4 +1,18 @@
-"""Configuration loading and validation."""
+"""Configuration loading and validation.
+
+Sections
+--------
+- **Path helpers** — ``get_codeplane_dir()``, lazy module-level constants
+  (``CODEPLANE_DIR``, ``DEFAULT_CONFIG_PATH``, ``DEFAULT_DB_PATH``).
+- **Feature flags** — compile-time constants (``VOICE_ENABLED``, ``MCP_ENABLED``, …).
+- **Dataclasses** — ``ServerConfig``, ``RuntimeConfig``, ``RetentionConfig``,
+  ``LoggingConfig``, ``RateLimitConfig``, ``CompletionConfig``,
+  ``VerificationConfig``, ``TerminalConfig``, ``PlatformConfig``, and the
+  root ``CPLConfig`` that aggregates them.
+- **YAML I/O** — ``load_config()``, ``save_config()``, ``init_config()``.
+- **Repo management** — ``register_repo()`` / ``unregister_repo()`` (file-level
+  read-modify-write to prevent concurrent overwrites).
+"""
 
 from __future__ import annotations
 

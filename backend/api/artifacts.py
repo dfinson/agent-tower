@@ -9,8 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from backend.models.api_schemas import ArtifactListResponse, ArtifactResponse
-from backend.persistence.artifact_repo import ArtifactRepository
-from backend.services.artifact_service import ArtifactService
+from backend.services.artifact_service import ArtifactService, get_artifacts_base
 
 router = APIRouter(tags=["artifacts"])
 
@@ -33,7 +32,7 @@ async def list_artifacts(
     """List all artifacts for a job."""
     session_factory = request.app.state.session_factory
     async with session_factory() as session:
-        svc = ArtifactService(ArtifactRepository(session))
+        svc = ArtifactService.from_session(session)
         artifacts = await svc.list_for_job(job_id)
         await session.commit()
 
@@ -61,7 +60,7 @@ async def download_artifact(
     """Download an artifact file."""
     session_factory = request.app.state.session_factory
     async with session_factory() as session:
-        svc = ArtifactService(ArtifactRepository(session))
+        svc = ArtifactService.from_session(session)
         artifact = await svc.get(artifact_id)
         await session.commit()
 
@@ -70,9 +69,7 @@ async def download_artifact(
 
     disk_path = Path(artifact.disk_path).resolve()
     # Validate artifact path is within the expected artifacts directory
-    from backend.services.artifact_service import _ARTIFACTS_BASE
-
-    if not disk_path.is_relative_to(_ARTIFACTS_BASE.resolve()):
+    if not disk_path.is_relative_to(get_artifacts_base().resolve()):
         raise HTTPException(status_code=403, detail="Artifact path outside allowed directory")
     if not disk_path.is_file():
         raise HTTPException(status_code=404, detail="Artifact file missing from disk")

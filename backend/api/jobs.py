@@ -26,8 +26,6 @@ from backend.models.api_schemas import (
     TranscriptPayload,
 )
 from backend.models.events import DomainEventKind
-from backend.persistence.event_repo import EventRepository
-from backend.persistence.job_repo import JobRepository
 from backend.services.agent_adapter import SDKModelMismatchError
 from backend.services.git_service import GitService
 from backend.services.job_service import JobNotFoundError, JobService, RepoNotAllowedError, StateConflictError
@@ -58,20 +56,17 @@ def _get_job_service(
     config: Annotated[CPLConfig, Depends(_get_config)],
     request: Request,
 ) -> JobService:
-    job_repo = JobRepository(session)
     git_service = GitService(config)
     # Pass naming service so title + branch are generated before worktree creation
     utility = getattr(request.app.state, "utility_session", None)
     naming = NamingService(utility) if utility is not None else None
-    return JobService(job_repo=job_repo, git_service=git_service, config=config, naming_service=naming)
+    return JobService.from_session(session, config, git_service=git_service, naming_service=naming)
 
 
 def _make_job_service(session: AsyncSession) -> JobService:
     """Create a JobService from a session (no request context needed)."""
     config = load_config()
-    job_repo = JobRepository(session)
-    git_service = GitService(config)
-    return JobService(job_repo=job_repo, git_service=git_service, config=config)
+    return JobService.from_session(session, config)
 
 
 def _get_merge_service(request: Request) -> MergeService | None:
@@ -345,8 +340,8 @@ async def get_job_logs(
     """
     _level_order = {"debug": 0, "info": 1, "warn": 2, "error": 3}
     min_priority = _level_order.get(level, 0)
-    event_repo = EventRepository(session)
-    events = await event_repo.list_by_job(job_id, [DomainEventKind.log_line_emitted], limit=limit)
+    svc = _make_job_service(session)
+    events = await svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=limit)
     return [
         LogLinePayload(
             job_id=event.job_id,
@@ -372,15 +367,15 @@ async def get_job_diff(
     For running jobs, calculates a fresh diff from the worktree.
     For completed/archived jobs, returns the last stored diff snapshot.
     """
-    job_repo = JobRepository(session)
-    job = await job_repo.get(job_id)
-    if job is None:
+    svc = _make_job_service(session)
+    try:
+        job = await svc.get_job(job_id)
+    except JobNotFoundError:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
     # For active jobs with a worktree, calculate a fresh diff
     if job.state in ("running", "waiting_for_approval") and job.worktree_path and job.worktree_path != job.repo:
         from backend.services.diff_service import DiffService
-        from backend.services.git_service import GitService
 
         config = load_config()
         git = GitService(config)
@@ -397,8 +392,7 @@ async def get_job_diff(
                 )
 
     # Fallback: read from event store (completed/archived/failed jobs)
-    event_repo = EventRepository(session)
-    events = await event_repo.list_by_job(job_id, [DomainEventKind.diff_updated])
+    events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
     if not events:
         return []
     raw_files = events[-1].payload.get("changed_files", [])
@@ -412,12 +406,12 @@ async def get_job_transcript(
     limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
 ) -> list[TranscriptPayload]:
     """Return historical transcript entries for a job from the event store."""
-    event_repo = EventRepository(session)
-    events = await event_repo.list_by_job(job_id, [DomainEventKind.transcript_updated], limit=limit)
+    svc = _make_job_service(session)
+    events = await svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=limit)
 
     # Build a turn_id → summary map from stored tool_group_summary events so
     # that restored transcripts include AI-generated group labels.
-    summary_events = await event_repo.list_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
+    summary_events = await svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
     group_summary_by_turn: dict[str, str] = {
         ev.payload["turn_id"]: ev.payload["summary"]
         for ev in summary_events
@@ -458,8 +452,8 @@ async def get_job_timeline(
     Events with ``replaces_count > 0`` retroactively collapse earlier entries,
     so the returned list is the final milestone timeline, not raw events.
     """
-    event_repo = EventRepository(session)
-    events = await event_repo.list_by_job(job_id, [DomainEventKind.progress_headline], limit=limit)
+    svc = _make_job_service(session)
+    events = await svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=limit)
 
     # Replay events to reconstruct the collapsed milestone list
     milestones: list[ProgressHeadlinePayload] = []
@@ -520,8 +514,7 @@ async def resolve_job(
             raise HTTPException(status_code=503, detail="Runtime service not configured")
 
         # Retrieve conflict files from the latest merge_conflict event
-        event_repo = EventRepository(session)
-        conflict_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.merge_conflict])
+        conflict_events = await svc.list_events_by_job(job_id, kinds=[DomainEventKind.merge_conflict])
         conflict_files: list[str] = []
         if conflict_events:
             conflict_files = conflict_events[-1].payload.get("conflict_files", [])

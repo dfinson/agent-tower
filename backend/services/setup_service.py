@@ -2,9 +2,9 @@
 
 Provides:
 - A shared verification engine used by ``cpl up``, ``cpl setup``, and ``cpl doctor``.
-- An interactive setup wizard (``run_setup``) using questionary + Rich.
-- A non-interactive diagnostic (``run_doctor``).
-- A quick preflight (``run_preflight``) called before server start.
+- An interactive setup wizard (``execute_setup_wizard``) using questionary + Rich.
+- A non-interactive diagnostic (``diagnose_configuration``).
+- A quick preflight (``validate_preflight``) called before server start.
 """
 
 from __future__ import annotations
@@ -433,7 +433,7 @@ def _get_env_persistence_instructions(var_name: str, value: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def run_checks(*, port: int | None = None) -> list[CheckResult]:
+def verify_requirements(*, port: int | None = None) -> list[CheckResult]:
     """Run all preflight checks and return structured results.
 
     Parameters
@@ -759,14 +759,14 @@ def _offer_inline_fix(warning: CheckResult) -> str:
 # ---------------------------------------------------------------------------
 
 
-def run_preflight(port: int) -> bool:
+def validate_preflight(port: int) -> bool:
     """Interactive preflight for ``cpl up``.
 
     Returns True if the server can start.
     On warnings, pauses to let the user fix issues or continue.
     """
     config = load_config()
-    results = run_checks(port=port)
+    results = verify_requirements(port=port)
 
     _console.print()
     _console.print("  [bold]Preflight[/bold]")
@@ -815,7 +815,7 @@ def run_preflight(port: int) -> bool:
                 _remember_skipped_warning(w, config.runtime.default_sdk)
 
         # Re-check for any remaining hard failures after fixes
-        results = run_checks(port=port)
+        results = verify_requirements(port=port)
         if any(r.status == CheckStatus.fail for r in results):
             _console.print()
             _console.print("  [red bold]Cannot start — fix the errors above.[/red bold]")
@@ -830,12 +830,12 @@ def run_preflight(port: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def run_doctor(*, as_json: bool = False) -> bool:
+def diagnose_configuration(*, as_json: bool = False) -> bool:
     """Full non-interactive diagnostic.
 
     Returns True if no hard failures.
     """
-    results = run_checks(port=load_config().server.port)
+    results = verify_requirements(port=load_config().server.port)
 
     if as_json:
         data = {
@@ -879,7 +879,7 @@ def run_doctor(*, as_json: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def run_setup() -> None:
+def execute_setup_wizard() -> None:
     """Run the interactive setup wizard."""
     _console.print()
     _console.print(
@@ -1120,9 +1120,9 @@ def preflight_check(*, verbose: bool = True) -> bool:
     """Quick non-interactive check of required dependencies.
 
     Returns True if all required deps are present.
-    Deprecated: use run_preflight() or run_doctor() instead.
+    Deprecated: use validate_preflight() or diagnose_configuration() instead.
     """
-    results = run_checks()
+    results = verify_requirements()
     if verbose:
         render_checks(results)
     return not any(r.status == CheckStatus.fail for r in results)

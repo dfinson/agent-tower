@@ -228,8 +228,10 @@ class JobResponse(CamelModel):
     updated_at: datetime
     completed_at: datetime | None
     pr_url: str | None = None
-    merge_status: str | None = None  # Git merge operation outcome
-    resolution: Resolution | None = None  # Overall job disposition
+    merge_status: str | None = None
+    """Git merge operation outcome (``not_merged`` | ``merged`` | ``conflict``)."""
+    resolution: Resolution | None = None
+    """User-facing job disposition — see :class:`~backend.models.domain.Resolution`."""
     archived_at: datetime | None = None
     failure_reason: str | None = None
     model: str | None = None
@@ -472,8 +474,10 @@ class JobFailedPayload(CamelModel):
 class JobSucceededPayload(CamelModel):
     job_id: str
     pr_url: str | None = None
-    merge_status: str | None = None  # Git merge operation outcome
-    resolution: str | None = None  # Overall job disposition
+    merge_status: str | None = None
+    """Git merge operation outcome (``not_merged`` | ``merged`` | ``conflict``)."""
+    resolution: str | None = None
+    """User-facing job disposition — see :class:`~backend.models.domain.Resolution`."""
     model_downgraded: bool = False
     requested_model: str | None = None
     actual_model: str | None = None

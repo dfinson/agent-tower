@@ -12,9 +12,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 from starlette.responses import JSONResponse, StreamingResponse
 
-from backend.persistence.approval_repo import ApprovalRepository
-from backend.persistence.event_repo import EventRepository
-from backend.persistence.job_repo import JobRepository
 from backend.services.sse_manager import SSEConnection
 
 router = APIRouter(tags=["events"])
@@ -52,17 +49,11 @@ async def stream_events(
             if header_last_id is not None:
                 try:
                     numeric_id = int(header_last_id)
-                    async with session_factory() as session:
-                        event_repo = EventRepository(session)
-                        job_repo = JobRepository(session)
-                        approval_repo = ApprovalRepository(session)
-                        await sse_manager.replay_events(
-                            conn,
-                            event_repo,
-                            job_repo,
-                            numeric_id,
-                            approval_repo=approval_repo,
-                        )
+                    await sse_manager.replay_from_factory(
+                        conn,
+                        session_factory,
+                        numeric_id,
+                    )
                 except (ValueError, TypeError):
                     structlog.get_logger().warning(
                         "sse_replay_invalid_last_event_id",
