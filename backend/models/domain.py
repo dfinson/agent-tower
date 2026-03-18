@@ -153,8 +153,10 @@ class Job:
     updated_at: datetime
     completed_at: datetime | None = None
     pr_url: str | None = None
-    merge_status: str | None = None  # not_merged | merged | conflict | pr_created
-    resolution: str | None = None  # unresolved | merged | pr_created | discarded | conflict
+    # Git merge operation outcome: not_merged | merged | conflict | pr_created
+    merge_status: str | None = None
+    # Overall job disposition after completion: unresolved | merged | pr_created | discarded | conflict
+    resolution: str | None = None
     archived_at: datetime | None = None
     title: str | None = None
     worktree_name: str | None = None

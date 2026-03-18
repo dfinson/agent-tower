@@ -173,15 +173,15 @@ class TestThrottle:
     @pytest.mark.asyncio
     async def test_throttle_skips_rapid_calls(self, diff_service: DiffService, mock_git: AsyncMock) -> None:
         mock_git.diff.return_value = SIMPLE_DIFF
-        await diff_service.handle_file_changed("job-1", "/work", "main")
-        await diff_service.handle_file_changed("job-1", "/work", "main")
+        await diff_service.on_worktree_file_modified("job-1", "/work", "main")
+        await diff_service.on_worktree_file_modified("job-1", "/work", "main")
         # Only 1 diff calculation despite 2 calls (throttle window)
         assert mock_git.diff.call_count == 1
 
     @pytest.mark.asyncio
     async def test_finalize_ignores_throttle(self, diff_service: DiffService, mock_git: AsyncMock) -> None:
         mock_git.diff.return_value = SIMPLE_DIFF
-        await diff_service.handle_file_changed("job-1", "/work", "main")
+        await diff_service.on_worktree_file_modified("job-1", "/work", "main")
         assert mock_git.diff.call_count == 1
         await diff_service.finalize("job-1", "/work", "main")
         assert mock_git.diff.call_count == 2
@@ -204,7 +204,7 @@ class TestEventPublishing:
         self, diff_service: DiffService, mock_git: AsyncMock, mock_event_bus: AsyncMock
     ) -> None:
         mock_git.diff.return_value = SIMPLE_DIFF
-        await diff_service.handle_file_changed("job-1", "/work", "main")
+        await diff_service.on_worktree_file_modified("job-1", "/work", "main")
         mock_event_bus.publish.assert_called_once()
         event = mock_event_bus.publish.call_args[0][0]
         assert event.kind.value == "DiffUpdated"
@@ -215,7 +215,7 @@ class TestEventPublishing:
         self, diff_service: DiffService, mock_git: AsyncMock, mock_event_bus: AsyncMock
     ) -> None:
         mock_git.diff.return_value = ""
-        await diff_service.handle_file_changed("job-1", "/work", "main")
+        await diff_service.on_worktree_file_modified("job-1", "/work", "main")
         mock_event_bus.publish.assert_called_once()
 
     @pytest.mark.asyncio

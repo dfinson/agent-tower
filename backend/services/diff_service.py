@@ -52,7 +52,7 @@ class DiffService:
         # Per-job locks to prevent concurrent diff calculations
         self._locks: dict[str, asyncio.Lock] = {}
 
-    async def handle_file_changed(
+    async def on_worktree_file_modified(
         self,
         job_id: str,
         worktree_path: str,
