@@ -1,15 +1,33 @@
-"""Local voice transcription via faster-whisper."""
+"""Local voice transcription via faster-whisper.
+
+Requires the ``voice`` extra: ``pip install codeplane[voice]``.
+"""
 
 from __future__ import annotations
 
 import io
+from typing import TYPE_CHECKING, Any
 
 import structlog
-from faster_whisper import WhisperModel
+
+if TYPE_CHECKING:
+    from faster_whisper import WhisperModel
 
 logger = structlog.get_logger()
 
 _MODEL_NAME = "base.en"
+
+
+def _import_whisper() -> type:
+    """Import faster-whisper at runtime, raising a clear error if missing."""
+    try:
+        from faster_whisper import WhisperModel as _Cls
+    except ImportError as exc:
+        raise ImportError(
+            "faster-whisper is required for voice features. "
+            "Install it with: pip install codeplane[voice]"
+        ) from exc
+    return _Cls
 
 
 class VoiceService:
@@ -22,8 +40,9 @@ class VoiceService:
         self._model_name = _MODEL_NAME
         self._model: WhisperModel | None = None
 
-    def _ensure_model(self) -> WhisperModel:
+    def _ensure_model(self) -> Any:
         if self._model is None:
+            WhisperModel = _import_whisper()
             logger.debug("voice_model_loading", model=self._model_name)
             self._model = WhisperModel(self._model_name, device="cpu", compute_type="int8")
             logger.debug("voice_model_loaded", model=self._model_name)
