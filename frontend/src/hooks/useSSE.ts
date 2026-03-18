@@ -83,6 +83,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "progress_headline",
         "model_downgraded",
         "agent_plan_updated",
+        "tool_group_summary",
       ];
 
       for (const eventType of eventTypes) {
