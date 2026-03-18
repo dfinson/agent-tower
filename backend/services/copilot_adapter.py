@@ -507,8 +507,7 @@ class CopilotAdapter(AgentAdapterInterface):
                                     result_text = str(parts)
                             if not result_text and data.partial_output:
                                 result_text = data.partial_output
-                        from backend.services.tool_formatters import format_tool_display
-                        from backend.services.tool_formatters import extract_tool_issue
+                        from backend.services.tool_formatters import extract_tool_issue, format_tool_display
 
                         tool_args_str = buffered.get("tool_args")
                         success = bool(data.success) if data and data.success is not None else True
