@@ -19,6 +19,7 @@ import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 import questionary
 from rich.console import Console
@@ -255,7 +256,7 @@ def check_agent_cli(sdk_id: str) -> AgentCLIStatus:
         cli_reachable = installed
         ready = installed
         if ready:
-            ver = getattr(copilot, "__version__", "installed")  # type: ignore[possibly-undefined]
+            ver = getattr(copilot, "__version__", "installed")
             detail = f"github-copilot-sdk {ver}"
             hint = ""
         else:
@@ -519,7 +520,7 @@ _INLINE_FIX_COMMANDS: dict[str, list[str]] = {
 }
 
 
-def _prompt_select(choices: list[questionary.Choice]) -> object | None:
+def _prompt_select(choices: list[questionary.Choice]) -> Any:  # noqa: ANN401
     """Present a selection prompt styled to match Rich preflight output.
 
     Uses a blank qmark, leading-space message, and the ``pointer`` style

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.setup_service import (
@@ -181,7 +180,7 @@ class TestOfferInlineFix:
             except SystemExit as exc:
                 assert exc.code == 1
             else:
-                assert False, "Expected SystemExit"
+                raise AssertionError("Expected SystemExit")
 
     def test_failed_fix_then_recheck_succeeds(self) -> None:
         warning = CheckResult(
