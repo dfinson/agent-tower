@@ -1,15 +1,11 @@
 """Utility session pool — warm Copilot SDK sessions with a cheap/fast model.
 
-Keeps one or two sessions alive on server start for non-agentic meta-work:
+Keeps a small pool of sessions alive on server start for non-agentic meta-work:
 naming, summarization, progress headlines, commit messages, etc.
 
-Sessions are created once at startup and reused across all jobs. If a session
-dies it is transparently re-created on the next call.
-
-Pool size autoscales between MIN_POOL (1) and max_pool_fn() based on observed
-queue depth: when there are more pending calls than available sessions, a new
-session is spawned (up to the ceiling). Sessions idle longer than
-SCALE_DOWN_IDLE_S are closed during periodic housekeeping.
+The pool has no hard ceiling. It autoscales up to match the number of
+concurrent pending calls (naming requests etc.) and scales back down via
+idle housekeeping once sessions have been unused for SCALE_DOWN_IDLE_S.
 """
 
 from __future__ import annotations
@@ -22,8 +18,6 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from copilot.generated.session_events import SessionEvent as SdkSessionEvent
     from copilot.session import CopilotSession
 
@@ -61,20 +55,19 @@ class UtilitySessionService:
         result = await utility.complete("Generate a title for: ...")
         await utility.shutdown()       # call at server shutdown
 
-    The pool autoscales between 1 and max_pool_fn() sessions based on
-    observed queue depth. Pass a callable so it stays in sync with live
-    config changes without a server restart.
+    The pool autoscales without a hard ceiling: it grows to match the number
+    of concurrent pending calls (naming requests, summaries, etc.) and shrinks
+    back to the minimum via idle housekeeping.  There is no configured maximum
+    — the pool is exactly as large as current demand requires.
     """
 
     def __init__(
         self,
         model: str = DEFAULT_UTILITY_MODEL,
-        pool_size: int = 1,
-        max_pool_fn: Callable[[], int] | None = None,
+        pool_size: int = 2,
     ) -> None:
         self._model = model
         self._initial_pool_size = pool_size
-        self._max_pool_fn: Callable[[], int] = max_pool_fn or (lambda: self._initial_pool_size)
         self._sessions: list[_WarmSession] = []
         self._lock = asyncio.Lock()
         self._round_robin = 0
@@ -169,12 +162,11 @@ class UtilitySessionService:
         self._active_jobs = max(0, self._active_jobs - 1)
 
     async def _scale_to_target(self) -> None:
-        """Scale pool up to match active job count (capped at max_pool).
+        """Scale pool up to match active job count.
 
         Session creation is done outside the lock to allow parallel connects.
         """
-        max_p = max(_MIN_POOL, self._max_pool_fn())
-        target = min(max(_MIN_POOL, self._active_jobs), max_p)
+        target = max(_MIN_POOL, self._active_jobs)
         if len(self._sessions) >= target:
             return
 
@@ -195,11 +187,7 @@ class UtilitySessionService:
             return
 
         async with self._lock:
-            max_p_now = max(_MIN_POOL, self._max_pool_fn())
             for ws in connected:
-                if len(self._sessions) >= max_p_now:
-                    await ws.close()
-                    break
                 ws.index = len(self._sessions)
                 self._sessions.append(ws)
                 log.info(
@@ -214,26 +202,18 @@ class UtilitySessionService:
     # ------------------------------------------------------------------
 
     async def _maybe_scale_up(self) -> None:
-        """Spawn a new session if the queue is deeper than current capacity.
+        """Spawn new sessions to match the current pending call depth.
 
+        The pool has no hard ceiling — it grows to exactly meet demand.
         Session creation (ws.connect) is done OUTSIDE the lock so that
-        concurrent callers can create sessions in parallel rather than
-        serialising behind a single lock.  The lock is held only for the
-        brief list-mutation at the end.
+        concurrent callers create sessions in parallel.  The lock is held
+        only for the brief list append at the end.
         """
-        max_pool = max(_MIN_POOL, self._max_pool_fn())
         target = max(self._pending, self._active_jobs)
-        if not (target > len(self._sessions) and len(self._sessions) < max_pool):
-            return
-
-        # Determine how many new sessions to create without holding the lock.
-        # Use a snapshot so we don't over-provision if multiple callers race.
-        need = min(target - len(self._sessions), max_pool - len(self._sessions))
+        need = target - len(self._sessions)
         if need <= 0:
             return
 
-        # Spawn sessions concurrently — connect() does network I/O and can
-        # take ~1-2 s; doing them in parallel keeps burst creation fast.
         new_index_base = len(self._sessions)
         candidates = [_WarmSession(model=self._model, index=new_index_base + i) for i in range(need)]
 
@@ -250,12 +230,7 @@ class UtilitySessionService:
             return
 
         async with self._lock:
-            # Re-check ceiling under lock in case another coroutine already scaled.
-            max_pool_now = max(_MIN_POOL, self._max_pool_fn())
             for ws in connected:
-                if len(self._sessions) >= max_pool_now:
-                    await ws.close()
-                    break
                 ws.index = len(self._sessions)
                 self._sessions.append(ws)
             log.info(
@@ -263,7 +238,6 @@ class UtilitySessionService:
                 new_size=len(self._sessions),
                 pending=self._pending,
                 active_jobs=self._active_jobs,
-                max_pool=max_pool_now,
             )
 
     async def _housekeeping_loop(self) -> None:
