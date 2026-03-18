@@ -225,29 +225,68 @@ def _check_port(port: int) -> tuple[bool, str]:
         return False, "in use"
 
 
-def _check_sdk_copilot() -> tuple[bool, str]:
-    """Check if the Copilot SDK is importable. Returns (ok, detail)."""
-    try:
-        import copilot  # noqa: F401
+@dataclass
+class AgentCLIStatus:
+    """Result of checking whether an agent CLI is usable."""
 
-        ver = getattr(copilot, "__version__", "installed")
-        return True, f"github-copilot-sdk {ver}"
-    except ImportError:
-        return False, "github-copilot-sdk not installed"
+    sdk_id: str
+    name: str
+    installed: bool  # Python package importable
+    cli_reachable: bool  # CLI binary on PATH (or package acts as entry point)
+    ready: bool  # both installed and reachable
+    detail: str  # human-readable summary
+    hint: str  # actionable suggestion, empty when ready
 
 
-def _check_sdk_claude() -> tuple[bool, str]:
-    """Check if Claude SDK is importable and API key is set. Returns (ok, detail)."""
-    try:
-        import claude_code_sdk  # noqa: F401
+def check_agent_cli(sdk_id: str) -> AgentCLIStatus:
+    """Unified check for an agent CLI.
 
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            return True, "claude-code-sdk installed, API key set"
-        return False, "claude-code-sdk installed, ANTHROPIC_API_KEY not set"
-    except ImportError:
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            return False, "claude-code-sdk not installed (API key is set)"
-        return False, "claude-code-sdk not installed, ANTHROPIC_API_KEY not set"
+    Used by preflight, setup wizard, and the /api/sdks endpoint.
+    Does NOT verify auth — that is the CLI's responsibility.
+    """
+    if sdk_id == "copilot":
+        try:
+            import copilot  # noqa: F401
+
+            installed = True
+        except ImportError:
+            installed = False
+        # Copilot SDK is the entry point (no separate binary)
+        cli_reachable = installed
+        ready = installed
+        if ready:
+            ver = getattr(copilot, "__version__", "installed")  # type: ignore[possibly-undefined]
+            detail = f"github-copilot-sdk {ver}"
+            hint = ""
+        else:
+            detail = "not installed"
+            hint = "Install: uv add github-copilot-sdk"
+        return AgentCLIStatus("copilot", "GitHub Copilot", installed, cli_reachable, ready, detail, hint)
+
+    if sdk_id == "claude":
+        try:
+            import claude_code_sdk  # noqa: F401
+
+            installed = True
+        except ImportError:
+            installed = False
+        cli_reachable = shutil.which("claude") is not None
+        ready = installed and cli_reachable
+        if ready:
+            detail = "claude CLI and SDK installed"
+            hint = ""
+        elif cli_reachable and not installed:
+            detail = "claude CLI found, Python SDK missing"
+            hint = "Install: uv add claude-code-sdk"
+        elif installed and not cli_reachable:
+            detail = "Python SDK installed, claude CLI not on PATH"
+            hint = "Install CLI: npm install -g @anthropic-ai/claude-code"
+        else:
+            detail = "not installed"
+            hint = "Install CLI: npm install -g @anthropic-ai/claude-code\nInstall SDK: uv add claude-code-sdk"
+        return AgentCLIStatus("claude", "Claude Code", installed, cli_reachable, ready, detail, hint)
+
+    return AgentCLIStatus(sdk_id, sdk_id, False, False, False, "unknown agent", "")
 
 
 def _try_auto_install(dep: Dependency) -> bool:
@@ -339,69 +378,21 @@ def run_checks(*, port: int | None = None) -> list[CheckResult]:
                 )
             )
 
-    # --- Authentication ---
-    if shutil.which("gh"):
-        ok, detail = _check_gh_auth()
-        if ok:
-            results.append(CheckResult("GitHub CLI auth", CheckStatus.passed, detail, category="auth"))
+    # --- Agent CLIs ---
+    for sdk_id in ("copilot", "claude"):
+        cli = check_agent_cli(sdk_id)
+        if cli.ready:
+            results.append(CheckResult(cli.name, CheckStatus.passed, cli.detail, category="agent"))
         else:
             results.append(
                 CheckResult(
-                    "GitHub CLI auth",
+                    cli.name,
                     CheckStatus.warn,
-                    detail,
-                    hint="Run: gh auth login",
-                    category="auth",
+                    cli.detail,
+                    hint=cli.hint,
+                    category="agent",
                 )
             )
-    else:
-        results.append(CheckResult("GitHub CLI auth", CheckStatus.skipped, "gh not installed", category="auth"))
-
-    if shutil.which("devtunnel"):
-        ok, detail = _check_devtunnel_login()
-        if ok:
-            results.append(CheckResult("Dev Tunnel auth", CheckStatus.passed, detail, category="auth"))
-        else:
-            results.append(
-                CheckResult(
-                    "Dev Tunnel auth",
-                    CheckStatus.warn,
-                    detail,
-                    hint="Run: devtunnel user login",
-                    category="auth",
-                )
-            )
-    else:
-        results.append(CheckResult("Dev Tunnel auth", CheckStatus.skipped, "not installed", category="auth"))
-
-    # --- Agent SDK ---
-    ok, detail = _check_sdk_copilot()
-    if ok:
-        results.append(CheckResult("Copilot SDK", CheckStatus.passed, detail, category="sdk"))
-    else:
-        results.append(
-            CheckResult(
-                "Copilot SDK",
-                CheckStatus.warn,
-                detail,
-                hint="Install: uv add github-copilot-sdk",
-                category="sdk",
-            )
-        )
-
-    ok, detail = _check_sdk_claude()
-    if ok:
-        results.append(CheckResult("Claude SDK", CheckStatus.passed, detail, category="sdk"))
-    else:
-        results.append(
-            CheckResult(
-                "Claude SDK",
-                CheckStatus.warn,
-                detail,
-                hint="Set ANTHROPIC_API_KEY or add to ~/.codeplane/.env",
-                category="sdk",
-            )
-        )
 
     # --- Environment ---
     if DEFAULT_CONFIG_PATH.exists():
@@ -472,8 +463,7 @@ def render_checks(results: list[CheckResult], *, grouped: bool = False) -> None:
     if grouped:
         categories = [
             ("Dependencies", "deps"),
-            ("Authentication", "auth"),
-            ("Agent SDK", "sdk"),
+            ("Agent CLIs", "agent"),
             ("Environment", "env"),
         ]
         for cat_label, cat_key in categories:
@@ -634,16 +624,10 @@ def run_setup() -> None:
     # Step 2: System dependencies
     _setup_dependencies()
 
-    # Step 3: GitHub CLI auth
-    _setup_gh_auth()
+    # Step 3: Agent CLIs
+    _setup_agent_clis()
 
-    # Step 4: Dev Tunnel auth
-    _setup_devtunnel_auth()
-
-    # Step 5: Agent SDK
-    _setup_sdk()
-
-    # Step 6: Config
+    # Step 4: Config
     _setup_config()
 
     # Done
@@ -667,9 +651,12 @@ def _step_header(num: int, total: int, title: str) -> None:
     _console.print()
 
 
+_SETUP_TOTAL_STEPS = 4
+
+
 def _setup_home() -> None:
     """Step 1: Configure CODEPLANE_HOME directory."""
-    _step_header(1, 6, "Data Directory")
+    _step_header(1, _SETUP_TOTAL_STEPS, "Data Directory")
 
     current = os.environ.get("CODEPLANE_HOME")
     default = str(Path.home() / ".codeplane")
@@ -714,7 +701,7 @@ def _setup_home() -> None:
 
 def _setup_dependencies() -> None:
     """Step 2: Check and optionally install system deps."""
-    _step_header(2, 6, "System Dependencies")
+    _step_header(2, _SETUP_TOTAL_STEPS, "System Dependencies")
 
     all_ok = True
     for dep in DEPENDENCIES:
@@ -763,143 +750,22 @@ def _show_manual_instructions(dep: Dependency) -> None:
     _console.print(f"    [dim]More info: {dep.url}[/dim]")
 
 
-def _setup_gh_auth() -> None:
-    """Step 3: GitHub CLI authentication."""
-    _step_header(3, 6, "GitHub Authentication")
+def _setup_agent_clis() -> None:
+    """Step 3: Agent CLI availability check and default selection."""
+    _step_header(3, _SETUP_TOTAL_STEPS, "Agent CLIs")
 
-    if not shutil.which("gh"):
-        _console.print("  [dim]⊘ GitHub CLI not installed — skipping auth setup.[/dim]")
-        return
+    copilot = check_agent_cli("copilot")
+    claude = check_agent_cli("claude")
 
-    ok, detail = _check_gh_auth()
-    if ok:
-        _console.print(f"  [green]✓[/green]  {detail}")
-        return
-
-    _console.print("  [red]✗[/red]  GitHub CLI is not authenticated.")
-    _console.print()
-
-    if _IS_WSL:
-        _console.print("  [dim]WSL detected — browser-based auth may not work directly.[/dim]")
-        _console.print()
-        method = questionary.select(
-            "  How would you like to authenticate?",
-            choices=[
-                questionary.Choice("Personal access token (recommended for WSL)", value="token"),
-                questionary.Choice("Browser auth via Windows host", value="browser"),
-                questionary.Choice("Skip for now", value="skip"),
-            ],
-        ).ask()
-
-        if method == "token":
-            _console.print()
-            _console.print("  [cyan]Steps:[/cyan]")
-            _console.print("    1. Go to https://github.com/settings/tokens")
-            _console.print("    2. Create a token with [bold]repo[/bold] and [bold]read:org[/bold] scopes")
-            _console.print("    3. Run: [cyan]echo '<TOKEN>' | gh auth login --with-token[/cyan]")
-            _console.print()
-            return
-        elif method == "browser":
-            cmd = ["gh", "auth", "login", "-w"]
-        elif method == "skip" or method is None:
-            _console.print("  [dim]Skipped — run 'gh auth login' later.[/dim]")
-            return
+    _console.print("  Available agents:")
+    for cli in (copilot, claude):
+        if cli.ready:
+            _console.print(f"    [green]✓[/green]  {cli.name} — {cli.detail}")
         else:
-            return
-    else:
-        should_login = questionary.confirm("  Attempt 'gh auth login' now?", default=True).ask()
-        if not should_login:
-            _console.print("  [dim]Skipped — run 'gh auth login' later.[/dim]")
-            return
-        cmd = ["gh", "auth", "login"]
-
-    try:
-        subprocess.run(cmd, timeout=120)
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        _console.print(f"  [red]Auth attempt failed: {exc}[/red]")
-
-    ok2, detail2 = _check_gh_auth()
-    if ok2:
-        _console.print(f"  [green]✓[/green]  {detail2}")
-    else:
-        _console.print("  [yellow]![/yellow]  Auth not completed. Run [cyan]gh auth login[/cyan] later.")
-
-
-def _setup_devtunnel_auth() -> None:
-    """Step 4: Dev Tunnel authentication."""
-    _step_header(4, 6, "Dev Tunnel Authentication")
-
-    if not shutil.which("devtunnel"):
-        _console.print("  [dim]⊘ Dev Tunnel CLI not installed — skipping.[/dim]")
-        _console.print("  [dim]  (Not required unless you use 'cpl up --tunnel')[/dim]")
-        return
-
-    ok, _detail = _check_devtunnel_login()
-    if ok:
-        _console.print("  [green]✓[/green]  Dev Tunnel is logged in.")
-        return
-
-    _console.print("  [red]✗[/red]  Dev Tunnel is not logged in.")
-    _console.print()
-
-    if _IS_WSL:
-        _console.print("  [dim]WSL detected — browser-based login may not work directly.[/dim]")
-        _console.print()
-        method = questionary.select(
-            "  How would you like to log in?",
-            choices=[
-                questionary.Choice("Device code flow (recommended for WSL)", value="device"),
-                questionary.Choice("GitHub token", value="github"),
-                questionary.Choice("Skip for now", value="skip"),
-            ],
-        ).ask()
-
-        if method == "device":
-            cmd = ["devtunnel", "user", "login", "-d"]
-        elif method == "github":
-            cmd = ["devtunnel", "user", "login", "-g"]
-        elif method == "skip" or method is None:
-            _console.print("  [dim]Skipped — run 'devtunnel user login' later.[/dim]")
-            return
-        else:
-            return
-    else:
-        should_login = questionary.confirm("  Attempt login now?", default=True).ask()
-        if not should_login:
-            _console.print("  [dim]Skipped — run 'devtunnel user login' later.[/dim]")
-            return
-        cmd = ["devtunnel", "user", "login"]
-
-    try:
-        subprocess.run(cmd, timeout=120)
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        _console.print(f"  [red]Login attempt failed: {exc}[/red]")
-
-    ok2, _ = _check_devtunnel_login()
-    if ok2:
-        _console.print("  [green]✓[/green]  Dev Tunnel is now logged in!")
-    else:
-        _console.print("  [yellow]![/yellow]  Login not completed. Run [cyan]devtunnel user login[/cyan] later.")
-
-
-def _setup_sdk() -> None:
-    """Step 5: Agent SDK selection and credential check."""
-    _step_header(5, 6, "Agent SDK")
-
-    # Check what's available
-    copilot_ok, copilot_detail = _check_sdk_copilot()
-    claude_ok, claude_detail = _check_sdk_claude()
-
-    _console.print("  Available SDKs:")
-    if copilot_ok:
-        _console.print(f"    [green]✓[/green]  Copilot — {copilot_detail}")
-    else:
-        _console.print(f"    [yellow]![/yellow]  Copilot — {copilot_detail}")
-
-    if claude_ok:
-        _console.print(f"    [green]✓[/green]  Claude  — {claude_detail}")
-    else:
-        _console.print(f"    [yellow]![/yellow]  Claude  — {claude_detail}")
+            _console.print(f"    [yellow]![/yellow]  {cli.name} — {cli.detail}")
+            if cli.hint:
+                for line in cli.hint.split("\n"):
+                    _console.print(f"         [dim]→ {line}[/dim]")
     _console.print()
 
     # Build choices
@@ -908,12 +774,11 @@ def _setup_sdk() -> None:
         questionary.Choice("claude  — Anthropic Claude Code", value="claude"),
     ]
 
-    # Read current default
     config = load_config()
     current_default = config.runtime.default_sdk
 
     sdk_choice = questionary.select(
-        "  Which SDK should be the default?",
+        "  Which agent should be the default?",
         choices=choices,
         default=f"{'copilot — GitHub Copilot' if current_default == 'copilot' else 'claude  — Anthropic Claude Code'}",
     ).ask()
@@ -921,30 +786,40 @@ def _setup_sdk() -> None:
     if sdk_choice is None:
         sdk_choice = current_default
 
-    # SDK-specific guidance
-    if sdk_choice == "copilot" and not copilot_ok:
+    # Show auth hints (not errors — auth is the CLI's job)
+    chosen = copilot if sdk_choice == "copilot" else claude
+    if not chosen.ready:
         _console.print()
-        _console.print("  [yellow]Copilot SDK needs authentication.[/yellow]")
-        _console.print("  [dim]Ensure GitHub CLI is authenticated: gh auth login[/dim]")
-    elif sdk_choice == "claude" and not claude_ok:
+        _console.print(f"  [yellow]{chosen.name} is not fully installed yet.[/yellow]")
+        if chosen.hint:
+            for line in chosen.hint.split("\n"):
+                _console.print(f"    [dim]→ {line}[/dim]")
+    elif sdk_choice == "copilot":
+        # Hint about gh auth — Copilot SDK needs it at runtime
+        gh_ok, _ = _check_gh_auth() if shutil.which("gh") else (False, "")
+        if not gh_ok:
+            _console.print()
+            _console.print("  [dim]Hint: Copilot requires GitHub CLI auth. Run: gh auth login[/dim]")
+    elif sdk_choice == "claude":
         _console.print()
-        _console.print("  [yellow]Claude SDK needs an API key.[/yellow]")
-        _console.print("  [dim]Set ANTHROPIC_API_KEY in your environment or ~/.codeplane/.env[/dim]")
+        _console.print(
+            "  [dim]Hint: Authenticate the Claude CLI if you haven't already "
+            "(e.g. claude auth login, or set credentials per your org's method).[/dim]"
+        )
 
-    # Save choice to config
     if sdk_choice != current_default:
         config.runtime.default_sdk = sdk_choice
         save_config(config)
         _console.print()
-        _console.print(f"  [green]✓[/green]  Default SDK set to [bold]{sdk_choice}[/bold]")
+        _console.print(f"  [green]✓[/green]  Default agent set to [bold]{sdk_choice}[/bold]")
     else:
         _console.print()
-        _console.print(f"  [green]✓[/green]  Default SDK: [bold]{sdk_choice}[/bold] (unchanged)")
+        _console.print(f"  [green]✓[/green]  Default agent: [bold]{sdk_choice}[/bold] (unchanged)")
 
 
 def _setup_config() -> None:
-    """Step 6: Config initialization."""
-    _step_header(6, 6, "Configuration")
+    """Step 4: Config initialization."""
+    _step_header(4, _SETUP_TOTAL_STEPS, "Configuration")
 
     if DEFAULT_CONFIG_PATH.exists():
         _console.print(f"  [green]✓[/green]  Config exists at [bold]{DEFAULT_CONFIG_PATH}[/bold]")

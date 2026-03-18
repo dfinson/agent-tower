@@ -299,34 +299,9 @@ async def get_platform_status(
 # --- SDK status ---
 
 
-def _check_sdk_status(sdk_id: str) -> str:
-    """Check whether a given SDK is usable (CLI binary installed and reachable)."""
-    import shutil
-
-    if sdk_id == "copilot":
-        try:
-            import copilot  # noqa: F401
-
-            return "ready"
-        except ImportError:
-            return "not_installed"
-    if sdk_id == "claude":
-        try:
-            import claude_code_sdk  # noqa: F401
-        except ImportError:
-            return "not_installed"
-        # The SDK spawns the `claude` CLI as a subprocess.
-        # Auth is handled by the CLI itself (API key, Bedrock, Vertex, etc.)
-        # so we only check that the binary exists on PATH.
-        if shutil.which("claude") is None:
-            return "not_installed"
-        return "ready"
-    return "not_installed"
-
-
 _SDK_DISPLAY_NAMES: dict[str, str] = {
     "copilot": "GitHub Copilot",
-    "claude": "Claude Agent SDK",
+    "claude": "Claude Code",
 }
 
 
@@ -334,19 +309,20 @@ _SDK_DISPLAY_NAMES: dict[str, str] = {
 async def list_sdks() -> SDKListResponse:
     """List available agent SDKs and their status."""
     from backend.services.agent_adapter import AgentSDK
+    from backend.services.setup_service import check_agent_cli
 
     config = _get_config()
     default_sdk = config.runtime.default_sdk
 
     items: list[SDKInfoResponse] = []
     for sdk in AgentSDK:
-        status = _check_sdk_status(sdk.value)
+        cli = check_agent_cli(sdk.value)
         items.append(
             SDKInfoResponse(
                 id=sdk.value,
                 name=_SDK_DISPLAY_NAMES.get(sdk.value, sdk.value),
-                enabled=status == "ready",
-                status=status,
+                enabled=cli.ready,
+                status="ready" if cli.ready else "not_installed",
             )
         )
 
