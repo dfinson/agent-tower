@@ -14,6 +14,7 @@ import os
 import platform
 import shutil
 import socket
+import errno
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -217,13 +218,37 @@ def _check_devtunnel_login() -> tuple[bool, str]:
 
 def _check_port(port: int) -> tuple[bool, str]:
     """Check if a port is available. Returns (available, detail)."""
+    probe_targets: list[tuple[int, str]] = [(socket.AF_INET, "127.0.0.1")]
+    if socket.has_ipv6:
+        probe_targets.append((socket.AF_INET6, "::1"))
+
+    refused_errnos = {
+        0,
+        errno.ECONNREFUSED,
+        errno.EHOSTUNREACH,
+        errno.ENETUNREACH,
+        errno.EADDRNOTAVAIL,
+    }
+
+    for family, host in probe_targets:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.2)
+                if probe.connect_ex((host, port)) == 0:
+                    return False, "in use"
+        except OSError:
+            continue
+
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(("127.0.0.1", port))
             return True, "available"
-    except OSError:
-        return False, "in use"
+    except OSError as exc:
+        if exc.errno in refused_errnos:
+            return True, "available"
+        return False, "unavailable"
 
 
 @dataclass
