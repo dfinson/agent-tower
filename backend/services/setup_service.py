@@ -519,18 +519,18 @@ _INLINE_FIX_COMMANDS: dict[str, list[str]] = {
 }
 
 
-def _select_preflight_action(
-    message: str,
-    choices: list[questionary.Choice],
-) -> object | None:
-    """Render a consistent action picker for preflight/setup prompts."""
+def _prompt_select(choices: list[questionary.Choice]) -> object | None:
+    """Present a selection prompt styled to match Rich preflight output.
+
+    Uses a blank qmark, leading-space message, and the ``pointer`` style
+    so the choices line up with the Rich check lines (2-space base indent).
+    """
     return questionary.select(
-        message,
-        choices=choices,
+        message="",
         qmark="",
-        pointer=">",
-        instruction="Use arrow keys",
-        show_selected=False,
+        instruction="",
+        pointer="  →",
+        choices=choices,
     ).ask()
 
 
@@ -556,50 +556,70 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
 
     if not fixes:
         # No automated fix available — just ask continue/abort
-        _console.print("    Action:")
-        choice = _select_preflight_action(
-            "      Choose an action",
-            choices=[
-                questionary.Choice("Continue anyway", value="continue"),
-                questionary.Choice("Abort", value="abort"),
-            ],
-        )
+        choice = _prompt_select([
+            questionary.Choice("Continue anyway", value="continue"),
+            questionary.Choice("Abort", value="abort"),
+        ])
         if choice == "abort" or choice is None:
             raise SystemExit(1)
         return False
 
-    # Build choices: one per fix + skip + abort
-    choices = [
-        questionary.Choice(f"Fix now: {label}  ({' '.join(cmd)})", value=("fix", cmd))
-        for label, cmd in fixes
+    # Offer to run the fix
+    fix_choices = [
+        questionary.Choice(f"Fix now  {' '.join(cmd)}", value=("fix", cmd))
+        for _label, cmd in fixes
     ]
-    choices.append(questionary.Choice("Skip — I'll fix this later", value=("skip", [])))
-    choices.append(questionary.Choice("Abort", value=("abort", [])))
+    fix_choices.append(questionary.Choice("Skip", value=("skip", [])))
+    fix_choices.append(questionary.Choice("Abort", value=("abort", [])))
 
-    while True:
-        _console.print("    Action:")
-        choice = _select_preflight_action("      Choose an action", choices)
+    choice = _prompt_select(fix_choices)
 
-        if choice is None or choice[0] == "abort":
-            raise SystemExit(1)
-        if choice[0] == "skip":
-            return False
+    if choice is None or choice[0] == "abort":
+        raise SystemExit(1)
+    if choice[0] == "skip":
+        return False
 
-        # Run the fix
-        _, cmd = choice
-        _console.print(f"    Running: [dim]{' '.join(cmd)}[/dim]")
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            if result.returncode == 0:
+    # Attempt the fix
+    _, cmd = choice
+    _console.print(f"       [dim]Running {' '.join(cmd)} …[/dim]")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            return True
+        _console.print(f"       [red]Failed (exit {result.returncode})[/red]")
+        if result.stderr:
+            for line in result.stderr.strip().split("\n")[:3]:
+                _console.print(f"       [dim]{line}[/dim]")
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        _console.print(f"       [red]Failed: {exc}[/red]")
+
+    # Auto-fix failed — give manual instructions and a recheck option
+    _console.print()
+    _console.print("       [yellow]Could not install automatically.[/yellow]")
+    _console.print("       [dim]Fix it in another terminal:[/dim]")
+    for _label, fix_cmd in fixes:
+        _console.print(f"       [cyan]{' '.join(fix_cmd)}[/cyan]")
+    _console.print()
+
+    retry = _prompt_select([
+        questionary.Choice("I've fixed it — recheck", value="recheck"),
+        questionary.Choice("Continue anyway", value="continue"),
+        questionary.Choice("Abort", value="abort"),
+    ])
+
+    if retry == "abort" or retry is None:
+        raise SystemExit(1)
+    if retry == "recheck":
+        if warning.category == "agent":
+            rechecked = check_agent_cli(
+                "copilot" if "Copilot" in warning.label else "claude"
+            )
+            if rechecked.ready:
                 return True
-            _console.print(f"    [red]Failed (exit {result.returncode})[/red]")
-            if result.stderr:
-                for line in result.stderr.strip().split("\n")[:3]:
-                    _console.print(f"      [dim]{line}[/dim]")
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
-            _console.print(f"    [red]Failed: {exc}[/red]")
-
-        _console.print("    [yellow]Issue is still unresolved.[/yellow]")
+            _console.print(f"       [yellow]Still not resolved: {rechecked.detail}[/yellow]")
+        return False
+    # "continue"
+    return False
 
 
 # ---------------------------------------------------------------------------
