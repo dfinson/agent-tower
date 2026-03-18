@@ -58,6 +58,25 @@ _LOG_LEVEL_MAP: dict[str, int] = {
     "error": logging.ERROR,
 }
 
+_CONSOLE_NOISE_PREFIXES: tuple[str, ...] = (
+    "alembic",
+    "uvicorn.access",
+    "uvicorn.error",
+    "mcp.server.streamable_http_manager",
+    "backend.services.sse_manager",
+    "backend.services.voice_service",
+    "backend.services.utility_session",
+)
+
+
+class _ConsoleNoiseFilter(logging.Filter):
+    """Keep warnings/errors on console while suppressing chatty info logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        return not any(record.name.startswith(prefix) for prefix in _CONSOLE_NOISE_PREFIXES)
+
 
 def setup_logging(log_file: str, console_level: str = "info") -> None:
     """Configure structlog + stdlib logging.
@@ -96,6 +115,7 @@ def setup_logging(log_file: str, console_level: str = "info") -> None:
     console_handler = logging.StreamHandler()
     console_handler.setLevel(console_int)
     console_handler.setFormatter(fmt)
+    console_handler.addFilter(_ConsoleNoiseFilter())
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # let handlers decide what to suppress
@@ -165,11 +185,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # --- Utility session pool (warm cheap model for naming / summaries) ---
+    # Pre-warm 5 sessions in parallel so the first burst of concurrent naming
+    # requests is served immediately without any cold-start delay.
     utility_session = UtilitySessionService(
         model=config.runtime.utility_model,
-        max_pool_fn=lambda: config.runtime.max_concurrent_jobs,
+        pool_size=5,
     )
-    log.info("utility_session_starting", model=config.runtime.utility_model)
+    log.debug("utility_session_starting", model=config.runtime.utility_model)
     await utility_session.start()
 
     summarization_service = SummarizationService(
@@ -217,7 +239,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         terminal.set_terminal_service(terminal_service)
         terminal.set_utility_session(utility_session)
         app.state.terminal_service = terminal_service
-        log.info("terminal_service_enabled", max_sessions=config.terminal.max_sessions)
+        log.debug("terminal_service_enabled", max_sessions=config.terminal.max_sessions)
 
     # --- Model list cache ---
     # Fetch once at startup so the job-creation form renders instantly.
@@ -230,7 +252,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await _model_client.start()
         try:
             cached_models = [m.to_dict() for m in await _model_client.list_models()]
-            log.info("models_cached", count=len(cached_models))
+            log.debug("models_cached", count=len(cached_models))
         finally:
             await _model_client.stop()
     except Exception as exc:
@@ -240,7 +262,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- Voice service ---
     voice_service = VoiceService()
     # Pre-load the whisper model at startup so the first request is fast
-    log.info("voice_model_preloading", model="base.en")
+    log.debug("voice_model_preloading", model="base.en")
     await asyncio.to_thread(voice_service._ensure_model)  # noqa: SLF001
     app.state.voice_service = voice_service
     app.state.voice_max_bytes = VOICE_MAX_AUDIO_SIZE_MB * 1024 * 1024
@@ -280,7 +302,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     mcp_ctx = mcp_server.session_manager.run()
     await mcp_ctx.__aenter__()
     mcp_cleanup = mcp_ctx
-    log.info("mcp_server_mounted", path=MCP_PATH)
+    log.debug("mcp_server_mounted", path=MCP_PATH)
 
     async def _session_dep() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:
@@ -595,7 +617,7 @@ class _TunnelWatchdog:
         """Kill the current devtunnel host and start a fresh one."""
         import subprocess
 
-        log.warning("tunnel_watchdog_restarting", tunnel=self.tunnel_name)
+        log.debug("tunnel_watchdog_restarting", tunnel=self.tunnel_name)
 
         # Kill the old process
         import contextlib
@@ -622,7 +644,7 @@ class _TunnelWatchdog:
                     break
 
         self.proc = proc
-        log.info("tunnel_watchdog_restarted", tunnel=self.tunnel_name)
+        log.debug("tunnel_watchdog_restarted", tunnel=self.tunnel_name)
 
     def _run(self) -> None:
         # Give the tunnel a grace period to fully initialize
@@ -634,11 +656,11 @@ class _TunnelWatchdog:
         while not self._stop_event.is_set():
             if self._health_ok():
                 if consecutive_failures > 0:
-                    log.info("tunnel_watchdog_recovered", failures=consecutive_failures)
+                    log.debug("tunnel_watchdog_recovered", failures=consecutive_failures)
                 consecutive_failures = 0
             else:
                 consecutive_failures += 1
-                log.warning(
+                log.debug(
                     "tunnel_watchdog_check_failed",
                     consecutive=consecutive_failures,
                     threshold=self._FAIL_THRESHOLD,
@@ -737,9 +759,9 @@ def _start_tunnel(port: int) -> tuple[str | None, Any]:
                     "http",
                 ]
             )
-            log.info("tunnel_created", name=tunnel_name)
+            log.debug("tunnel_created", name=tunnel_name)
         else:
-            log.info("tunnel_reused", name=tunnel_name)
+            log.debug("tunnel_reused", name=tunnel_name)
 
         # Host the tunnel
         proc = subprocess.Popen(
@@ -758,7 +780,7 @@ def _start_tunnel(port: int) -> tuple[str | None, Any]:
                 if "Connect via" in line or "Hosting port" in line:
                     break
 
-        log.info("tunnel_started", url=tunnel_url, name=tunnel_name)
+        log.debug("tunnel_started", url=tunnel_url, name=tunnel_name)
         return tunnel_url, proc
     except FileNotFoundError:
         click.secho(

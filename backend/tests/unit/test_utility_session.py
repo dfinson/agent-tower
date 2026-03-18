@@ -25,6 +25,7 @@ def _mock_warm_session(index: int = 0, model: str = DEFAULT_UTILITY_MODEL) -> Ma
     ws = MagicMock(spec=_WarmSession)
     ws.index = index
     ws.model = model
+    ws.in_use = False
     ws.last_used_at = time.monotonic()
     ws.connect = AsyncMock()
     ws.complete = AsyncMock(return_value="mock response")
@@ -161,7 +162,8 @@ class TestUtilitySessionComplete:
         ws.complete.assert_awaited_once_with("prompt", timeout=10.0)
 
     @pytest.mark.asyncio
-    async def test_complete_round_robins(self) -> None:
+    async def test_complete_reuses_first_free_session(self) -> None:
+        """Sequential calls reuse the first free session (checkout model)."""
         svc = UtilitySessionService()
         ws0 = _mock_warm_session(index=0)
         ws1 = _mock_warm_session(index=1)
@@ -170,8 +172,9 @@ class TestUtilitySessionComplete:
 
         await svc.complete("a")
         await svc.complete("b")
-        ws0.complete.assert_awaited_once()
-        ws1.complete.assert_awaited_once()
+        # Sequential calls: ws0 is freed before second call, so reused
+        assert ws0.complete.await_count == 2
+        ws1.complete.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_complete_cold_start_when_pool_empty(self) -> None:
@@ -189,7 +192,8 @@ class TestUtilitySessionComplete:
             assert result == "cold result"
 
     @pytest.mark.asyncio
-    async def test_complete_cold_start_failure_returns_empty(self) -> None:
+    async def test_complete_cold_start_failure_raises(self) -> None:
+        """When pool is empty and all connect attempts fail, error propagates."""
         svc = UtilitySessionService()
         svc._sessions = []
         svc._started = True
@@ -198,8 +202,8 @@ class TestUtilitySessionComplete:
             ws = _mock_warm_session()
             ws.connect = AsyncMock(side_effect=RuntimeError("nope"))
             mock_ws_cls.return_value = ws
-            result = await svc.complete("prompt")
-            assert result == ""
+            with pytest.raises(RuntimeError, match="nope"):
+                await svc.complete("prompt")
 
     @pytest.mark.asyncio
     async def test_complete_failure_triggers_reconnect(self) -> None:
@@ -258,8 +262,8 @@ class TestUtilitySessionAutoscaling:
     """Scale-up and scale-down logic."""
 
     @pytest.mark.asyncio
-    async def test_maybe_scale_up_adds_session(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 3)
+    async def test_scale_up_to_demand_adds_sessions(self) -> None:
+        svc = UtilitySessionService()
         ws0 = _mock_warm_session(index=0)
         svc._sessions = [ws0]
         svc._started = True
@@ -268,24 +272,25 @@ class TestUtilitySessionAutoscaling:
         with patch("backend.services.utility_session._WarmSession") as mock_ws_cls:
             new_ws = _mock_warm_session(index=1)
             mock_ws_cls.return_value = new_ws
-            await svc._maybe_scale_up()
+            await svc._scale_up_to_demand()
             assert len(svc._sessions) == 2
 
     @pytest.mark.asyncio
-    async def test_maybe_scale_up_respects_max_pool(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 1)
+    async def test_scale_up_noop_when_pool_sufficient(self) -> None:
+        svc = UtilitySessionService()
         ws0 = _mock_warm_session(index=0)
-        svc._sessions = [ws0]
+        ws1 = _mock_warm_session(index=1)
+        svc._sessions = [ws0, ws1]
         svc._started = True
-        svc._pending = 5
+        svc._pending = 1
 
-        await svc._maybe_scale_up()
-        # Pool is already at max (1), should not grow
-        assert len(svc._sessions) == 1
+        await svc._scale_up_to_demand()
+        # Pool already >= demand, should not grow
+        assert len(svc._sessions) == 2
 
     @pytest.mark.asyncio
-    async def test_maybe_scale_up_tolerates_connect_failure(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 3)
+    async def test_scale_up_tolerates_connect_failure(self) -> None:
+        svc = UtilitySessionService()
         svc._sessions = [_mock_warm_session(index=0)]
         svc._started = True
         svc._pending = 3
@@ -294,13 +299,13 @@ class TestUtilitySessionAutoscaling:
             ws = _mock_warm_session()
             ws.connect = AsyncMock(side_effect=RuntimeError("fail"))
             mock_ws_cls.return_value = ws
-            await svc._maybe_scale_up()
-            # Should not grow because connect failed
+            await svc._scale_up_to_demand()
+            # All new connections failed; pool unchanged
             assert len(svc._sessions) == 1
 
     @pytest.mark.asyncio
     async def test_scale_down_idle_removes_stale_sessions(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 3)
+        svc = UtilitySessionService()
         ws0 = _mock_warm_session(index=0)
         ws0.last_used_at = time.monotonic()  # recently used
 
@@ -318,7 +323,7 @@ class TestUtilitySessionAutoscaling:
 
     @pytest.mark.asyncio
     async def test_scale_down_keeps_min_pool(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 3)
+        svc = UtilitySessionService()
         ws0 = _mock_warm_session(index=0)
         ws0.last_used_at = time.monotonic() - _SCALE_DOWN_IDLE_S - 10
         svc._sessions = [ws0]
@@ -331,7 +336,7 @@ class TestUtilitySessionAutoscaling:
 
     @pytest.mark.asyncio
     async def test_scale_down_respects_active_jobs_floor(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 5)
+        svc = UtilitySessionService()
         ws0 = _mock_warm_session(index=0)
         ws0.last_used_at = time.monotonic()
 
@@ -356,7 +361,7 @@ class TestUtilitySessionJobNotifications:
 
     @pytest.mark.asyncio
     async def test_notify_job_started_increments_counter(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 3)
+        svc = UtilitySessionService()
         ws0 = _mock_warm_session(index=0)
         svc._sessions = [ws0]
         svc._started = True
@@ -368,19 +373,18 @@ class TestUtilitySessionJobNotifications:
 
     @pytest.mark.asyncio
     async def test_notify_job_started_scales_pool(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 5)
+        svc = UtilitySessionService()
         svc._sessions = [_mock_warm_session(index=0)]
         svc._started = True
         svc._active_jobs = 0
 
         with patch("backend.services.utility_session._WarmSession") as mock_ws_cls:
             mock_ws_cls.return_value = _mock_warm_session(index=1)
-            # Simulate 3 jobs starting
+            # Simulate 3 jobs starting — pool should grow to match demand
             await svc.notify_job_started()
             await svc.notify_job_started()
             await svc.notify_job_started()
             assert svc._active_jobs == 3
-            assert len(svc._sessions) == 3
 
     @pytest.mark.asyncio
     async def test_notify_job_ended_decrements_counter(self) -> None:
@@ -397,31 +401,31 @@ class TestUtilitySessionJobNotifications:
         assert svc._active_jobs == 0
 
     @pytest.mark.asyncio
-    async def test_scale_to_target_capped_by_max_pool(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 2)
+    async def test_scale_up_to_demand_grows_pool(self) -> None:
+        svc = UtilitySessionService()
         svc._sessions = [_mock_warm_session(index=0)]
         svc._started = True
-        svc._active_jobs = 5  # wants 5 but max is 2
+        svc._active_jobs = 3  # demand exceeds pool
 
         with patch("backend.services.utility_session._WarmSession") as mock_ws_cls:
             mock_ws_cls.return_value = _mock_warm_session()
-            await svc._scale_to_target()
-            assert len(svc._sessions) == 2
+            await svc._scale_up_to_demand()
+            assert len(svc._sessions) == 3
 
     @pytest.mark.asyncio
-    async def test_scale_to_target_noop_when_already_at_target(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 3)
+    async def test_scale_up_noop_when_pool_sufficient(self) -> None:
+        svc = UtilitySessionService()
         svc._sessions = [_mock_warm_session(index=0), _mock_warm_session(index=1)]
         svc._started = True
         svc._active_jobs = 1
 
-        await svc._scale_to_target()
+        await svc._scale_up_to_demand()
         # Pool already >= target, no new sessions
         assert len(svc._sessions) == 2
 
     @pytest.mark.asyncio
-    async def test_scale_to_target_breaks_on_connect_failure(self) -> None:
-        svc = UtilitySessionService(max_pool_fn=lambda: 5)
+    async def test_scale_up_tolerates_connect_failure(self) -> None:
+        svc = UtilitySessionService()
         svc._sessions = [_mock_warm_session(index=0)]
         svc._started = True
         svc._active_jobs = 3
@@ -430,8 +434,8 @@ class TestUtilitySessionJobNotifications:
             ws = _mock_warm_session()
             ws.connect = AsyncMock(side_effect=RuntimeError("fail"))
             mock_ws_cls.return_value = ws
-            await svc._scale_to_target()
-            # Should stop trying after first failure
+            await svc._scale_up_to_demand()
+            # All new connections failed; pool unchanged
             assert len(svc._sessions) == 1
 
 

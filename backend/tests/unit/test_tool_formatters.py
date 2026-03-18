@@ -9,6 +9,7 @@ from backend.services.tool_formatters import (
     _parse_args,
     _short_path,
     _truncate,
+    extract_tool_issue,
     format_tool_display,
 )
 
@@ -746,3 +747,16 @@ class TestFormatToolDisplay:
         # Only the last segment after "/" is used
         result = format_tool_display("a/b/c/bash", json.dumps({"command": "ls"}))
         assert result == "$ ls"
+
+
+class TestExtractToolIssue:
+    def test_prefers_json_error_fields(self) -> None:
+        result = '{"error": "oldString not found in file", "details": "replace failed"}'
+        assert extract_tool_issue(result) == "oldString not found in file"
+
+    def test_falls_back_to_first_meaningful_line(self) -> None:
+        result = "warning: no matches found\nsearched 0 files"
+        assert extract_tool_issue(result) == "warning: no matches found"
+
+    def test_returns_none_for_empty_result(self) -> None:
+        assert extract_tool_issue("   ") is None

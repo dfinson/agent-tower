@@ -81,27 +81,27 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
         )}
       </div>
 
-      <div className="text-xs leading-snug text-foreground/70 mb-2">
-        {job.state === "running" && timeline.length > 0 ? (
-          (() => {
-            const active = timeline.find((e) => e.active) ?? timeline[timeline.length - 1];
-            return (
-              <>
-                <p className="italic text-primary/70 line-clamp-1">{active!.headline}</p>
-                {active?.summary && (
-                  <p className="text-[11px] text-muted-foreground/70 mt-0.5 line-clamp-2">
-                    {active.summary}
-                  </p>
-                )}
-              </>
-            );
-          })()
-        ) : job.progressHeadline ? (
-          <p className="italic text-primary/70 line-clamp-2">{job.progressHeadline}</p>
-        ) : (
-          <p className="line-clamp-2">{job.prompt}</p>
-        )}
-      </div>
+      {(job.state === "running" && timeline.length > 0) || job.progressHeadline ? (
+        <div className="text-xs leading-snug text-foreground/70 mb-2">
+          {job.state === "running" && timeline.length > 0 ? (
+            (() => {
+              const active = timeline.find((e) => e.active) ?? timeline[timeline.length - 1];
+              return (
+                <>
+                  <p className="italic text-primary/70 line-clamp-1">{active!.headline}</p>
+                  {active?.summary && (
+                    <p className="text-[11px] text-muted-foreground/70 mt-0.5 line-clamp-2">
+                      {active.summary}
+                    </p>
+                  )}
+                </>
+              );
+            })()
+          ) : (
+            <p className="italic text-primary/70 line-clamp-2">{job.progressHeadline}</p>
+          )}
+        </div>
+      ) : null}
 
       {/* Model downgrade warning */}
       {job.modelDowngraded && (

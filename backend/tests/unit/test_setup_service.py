@@ -2,17 +2,47 @@
 
 from __future__ import annotations
 
+import errno
 from unittest.mock import patch
 
 from backend.services.setup_service import (
+    AgentAuthStatus,
     AgentCLIStatus,
     CheckResult,
     CheckStatus,
+    _build_agent_check_result,
     _check_command,
+    _check_port,
     _get_env_persistence_instructions,
     _offer_inline_fix,
+    _should_prompt_for_warning,
     preflight_check,
 )
+
+
+class _FakeSocket:
+    def __init__(self, *, connect_result: int = errno.ECONNREFUSED, bind_error: OSError | None = None) -> None:
+        self._connect_result = connect_result
+        self._bind_error = bind_error
+
+    def settimeout(self, timeout: float) -> None:
+        return None
+
+    def setsockopt(self, level: int, optname: int, value: int) -> None:
+        return None
+
+    def connect_ex(self, address: tuple[str, int] | tuple[str, int, int, int]) -> int:
+        return self._connect_result
+
+    def bind(self, address: tuple[str, int]) -> None:
+        if self._bind_error is not None:
+            raise self._bind_error
+
+    def __enter__(self) -> _FakeSocket:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
 
 
 class TestCheckCommand:
@@ -94,6 +124,64 @@ class TestPreflightCheck:
         assert ok is True
 
 
+class TestCheckPort:
+    @patch("backend.services.setup_service.socket.has_ipv6", False)
+    @patch("backend.services.setup_service.socket.socket")
+    def test_listener_is_reported_in_use(self, mock_socket) -> None:
+        mock_socket.side_effect = [_FakeSocket(connect_result=0)]
+        assert _check_port(8080) == (False, "in use")
+
+    @patch("backend.services.setup_service.socket.has_ipv6", False)
+    @patch("backend.services.setup_service.socket.socket")
+    def test_refused_then_bind_success_is_available(self, mock_socket) -> None:
+        mock_socket.side_effect = [
+            _FakeSocket(connect_result=errno.ECONNREFUSED),
+            _FakeSocket(),
+        ]
+        assert _check_port(8080) == (True, "available")
+
+    @patch("backend.services.setup_service.socket.has_ipv6", False)
+    @patch("backend.services.setup_service.socket.socket")
+    def test_bind_failure_without_listener_is_not_reported_in_use(self, mock_socket) -> None:
+        mock_socket.side_effect = [
+            _FakeSocket(connect_result=errno.ECONNREFUSED),
+            _FakeSocket(bind_error=OSError(errno.EADDRINUSE, "Address already in use")),
+        ]
+        assert _check_port(8080) == (False, "unavailable")
+
+
+class TestAgentCheckResult:
+    @patch("backend.services.setup_service._check_agent_auth")
+    @patch("backend.services.setup_service.check_agent_cli")
+    def test_ready_but_unauthenticated_agent_is_warning(self, mock_check_agent_cli, mock_check_agent_auth) -> None:
+        mock_check_agent_cli.return_value = AgentCLIStatus(
+            "copilot", "GitHub Copilot", True, True, True, "github-copilot-sdk 0.1.0", ""
+        )
+        mock_check_agent_auth.return_value = AgentAuthStatus(
+            "copilot", False, "not authenticated", "Run: gh auth login"
+        )
+
+        result = _build_agent_check_result("copilot")
+
+        assert result.status == CheckStatus.warn
+        assert result.category == "agent_auth"
+        assert "auth not detected" in result.detail
+        assert result.hint == "Run: gh auth login"
+
+    @patch("backend.services.setup_service._check_agent_auth")
+    @patch("backend.services.setup_service.check_agent_cli")
+    def test_ready_agent_with_unknown_auth_stays_passed(self, mock_check_agent_cli, mock_check_agent_auth) -> None:
+        mock_check_agent_cli.return_value = AgentCLIStatus(
+            "claude", "Claude Code", True, True, True, "claude CLI and SDK installed", ""
+        )
+        mock_check_agent_auth.return_value = AgentAuthStatus("claude", None, "unknown")
+
+        result = _build_agent_check_result("claude")
+
+        assert result.status == CheckStatus.passed
+        assert result.category == "agent"
+
+
 class TestOfferInlineFix:
     _CLAUDE_NOT_ON_PATH = AgentCLIStatus(
         "claude",
@@ -125,9 +213,9 @@ class TestOfferInlineFix:
             patch("backend.services.setup_service.subprocess.run") as mock_run,
         ):
             mock_run.return_value = type("Result", (), {"returncode": 0, "stderr": ""})()
-            assert _offer_inline_fix(warning) is True
+            assert _offer_inline_fix(warning) == "fixed"
 
-    def test_failed_fix_then_continue_returns_false(self) -> None:
+    def test_failed_fix_then_continue_returns_continued(self) -> None:
         warning = CheckResult(
             label="Claude Code",
             status=CheckStatus.warn,
@@ -150,7 +238,27 @@ class TestOfferInlineFix:
             patch("backend.services.setup_service.subprocess.run") as mock_run,
         ):
             mock_run.return_value = type("Result", (), {"returncode": 243, "stderr": "npm error code EACCES"})()
-            assert _offer_inline_fix(warning) is False
+            assert _offer_inline_fix(warning) == "continued"
+
+    def test_explicit_skip_returns_skipped(self) -> None:
+        warning = CheckResult(
+            label="Claude Code",
+            status=CheckStatus.warn,
+            detail="Python SDK installed, claude CLI not on PATH",
+            category="agent",
+        )
+
+        with (
+            patch(
+                "backend.services.setup_service.check_agent_cli",
+                return_value=self._CLAUDE_NOT_ON_PATH,
+            ),
+            patch(
+                "backend.services.setup_service._prompt_select",
+                return_value=("skip", []),
+            ),
+        ):
+            assert _offer_inline_fix(warning) == "skipped"
 
     def test_failed_fix_then_abort_raises(self) -> None:
         warning = CheckResult(
@@ -214,4 +322,34 @@ class TestOfferInlineFix:
             patch("backend.services.setup_service.subprocess.run") as mock_run,
         ):
             mock_run.return_value = type("Result", (), {"returncode": 243, "stderr": "npm error"})()
-            assert _offer_inline_fix(warning) is True
+            assert _offer_inline_fix(warning) == "fixed"
+
+
+class TestPromptSuppression:
+    def test_non_agent_warning_does_not_prompt(self) -> None:
+        warning = CheckResult(label="GitHub Copilot", status=CheckStatus.warn, category="agent_auth")
+        assert _should_prompt_for_warning(warning, "copilot", []) is False
+
+    def test_default_agent_warning_still_prompts(self) -> None:
+        warning = CheckResult(label="GitHub Copilot", status=CheckStatus.warn, category="agent")
+        assert _should_prompt_for_warning(warning, "copilot", ["copilot"]) is True
+
+    def test_inactive_agent_warning_prompts_if_not_suppressed(self) -> None:
+        warning = CheckResult(label="Claude Code", status=CheckStatus.warn, category="agent")
+        assert _should_prompt_for_warning(warning, "copilot", []) is True
+
+    @patch("backend.services.setup_service.check_agent_cli")
+    def test_inactive_agent_warning_is_suppressed_when_default_is_ready(self, mock_check_agent_cli) -> None:
+        warning = CheckResult(label="Claude Code", status=CheckStatus.warn, category="agent")
+        mock_check_agent_cli.return_value = AgentCLIStatus(
+            "copilot", "GitHub Copilot", True, True, True, "github-copilot-sdk 0.1.0", ""
+        )
+        assert _should_prompt_for_warning(warning, "copilot", ["claude"]) is False
+
+    @patch("backend.services.setup_service.check_agent_cli")
+    def test_inactive_agent_warning_still_prompts_when_default_is_not_ready(self, mock_check_agent_cli) -> None:
+        warning = CheckResult(label="Claude Code", status=CheckStatus.warn, category="agent")
+        mock_check_agent_cli.return_value = AgentCLIStatus(
+            "copilot", "GitHub Copilot", False, False, False, "not installed", "Install: uv add github-copilot-sdk"
+        )
+        assert _should_prompt_for_warning(warning, "copilot", ["claude"]) is True

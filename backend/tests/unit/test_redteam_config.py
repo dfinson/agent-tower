@@ -149,6 +149,12 @@ class TestTypeMismatches:
         # YAML 'yes' is bool True when unquoted; quoted is string
         assert config.retention.cleanup_on_startup == "yes"  # type: ignore[comparison-overlap]
 
+    def test_suppressed_preflight_agent_prompts_round_trip(self, tmp_path: Path) -> None:
+        f = tmp_path / "config.yaml"
+        f.write_text("runtime:\n  suppressed_preflight_agent_prompts:\n    - claude\n")
+        config = load_config(f)
+        assert config.runtime.suppressed_preflight_agent_prompts == ["claude"]
+
 
 # ── Repos field edge cases ───────────────────────────────────────
 

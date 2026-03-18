@@ -432,6 +432,7 @@ async def get_job_transcript(
             tool_args=event.payload.get("tool_args"),
             tool_result=event.payload.get("tool_result"),
             tool_success=event.payload.get("tool_success"),
+            tool_issue=event.payload.get("tool_issue"),
             tool_intent=event.payload.get("tool_intent"),
             tool_title=event.payload.get("tool_title"),
             tool_display=event.payload.get("tool_display"),
