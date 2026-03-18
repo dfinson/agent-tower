@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 from unittest.mock import patch
 
 from backend.services.setup_service import (
@@ -9,11 +10,37 @@ from backend.services.setup_service import (
     CheckResult,
     CheckStatus,
     _check_command,
+    _check_port,
     _get_env_persistence_instructions,
     _offer_inline_fix,
     _should_prompt_for_warning,
     preflight_check,
 )
+
+
+class _FakeSocket:
+    def __init__(self, *, connect_result: int = errno.ECONNREFUSED, bind_error: OSError | None = None) -> None:
+        self._connect_result = connect_result
+        self._bind_error = bind_error
+
+    def settimeout(self, timeout: float) -> None:
+        return None
+
+    def setsockopt(self, level: int, optname: int, value: int) -> None:
+        return None
+
+    def connect_ex(self, address: tuple[str, int] | tuple[str, int, int, int]) -> int:
+        return self._connect_result
+
+    def bind(self, address: tuple[str, int]) -> None:
+        if self._bind_error is not None:
+            raise self._bind_error
+
+    def __enter__(self) -> _FakeSocket:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
 
 
 class TestCheckCommand:
@@ -93,6 +120,32 @@ class TestPreflightCheck:
         mock_check.side_effect = side_effect
         ok = preflight_check(verbose=False)
         assert ok is True
+
+
+class TestCheckPort:
+    @patch("backend.services.setup_service.socket.has_ipv6", False)
+    @patch("backend.services.setup_service.socket.socket")
+    def test_listener_is_reported_in_use(self, mock_socket) -> None:
+        mock_socket.side_effect = [_FakeSocket(connect_result=0)]
+        assert _check_port(8080) == (False, "in use")
+
+    @patch("backend.services.setup_service.socket.has_ipv6", False)
+    @patch("backend.services.setup_service.socket.socket")
+    def test_refused_then_bind_success_is_available(self, mock_socket) -> None:
+        mock_socket.side_effect = [
+            _FakeSocket(connect_result=errno.ECONNREFUSED),
+            _FakeSocket(),
+        ]
+        assert _check_port(8080) == (True, "available")
+
+    @patch("backend.services.setup_service.socket.has_ipv6", False)
+    @patch("backend.services.setup_service.socket.socket")
+    def test_bind_failure_without_listener_is_not_reported_in_use(self, mock_socket) -> None:
+        mock_socket.side_effect = [
+            _FakeSocket(connect_result=errno.ECONNREFUSED),
+            _FakeSocket(bind_error=OSError(errno.EADDRINUSE, "Address already in use")),
+        ]
+        assert _check_port(8080) == (False, "unavailable")
 
 
 class TestOfferInlineFix:
