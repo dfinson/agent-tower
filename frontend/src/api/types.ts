@@ -16,7 +16,7 @@ export type RegisterRepoRequest = components["schemas"]["RegisterRepoRequest"];
 export type RegisterRepoResponse = components["schemas"]["RegisterRepoResponse"];
 export type RepoListResponse = components["schemas"]["RepoListResponse"];
 export type PermissionMode = components["schemas"]["PermissionMode"];
-export type CompletionStrategy = components["schemas"]["CompletionStrategy"];
+export type CompletionStrategy = "auto_merge" | "pr_only" | "manual";
 
 export interface Settings {
   maxConcurrentJobs: number;

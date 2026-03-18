@@ -79,6 +79,7 @@ export interface TranscriptEntry {
   toolArgs?: string;     // tool_call: JSON-serialised arguments
   toolResult?: string;   // tool_call: text output
   toolSuccess?: boolean; // tool_call: success flag
+  toolIssue?: string;    // tool_call: short issue summary when attention is needed
   toolIntent?: string;   // tool_call: SDK-provided intent string (deterministic label)
   toolTitle?: string;    // tool_call: SDK-provided display title
   toolDisplay?: string;  // tool_call: deterministic per-tool label (e.g. "$ ls -la", "Read src/main.py")
@@ -92,6 +93,89 @@ export interface TimelineEntry {
   summary: string;
   timestamp: string;
   active: boolean;
+}
+
+const HEADLINE_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "the",
+  "to",
+  "for",
+  "of",
+  "in",
+  "on",
+  "with",
+  "agent",
+  "phase",
+  "task",
+  "tasks",
+  "work",
+  "working",
+  "progress",
+  "checking",
+  "check",
+  "investigating",
+  "investigate",
+  "debugging",
+  "debug",
+  "analyzing",
+  "analyze",
+  "exploring",
+  "explore",
+  "reviewing",
+  "review",
+  "fixing",
+  "fix",
+  "implementing",
+  "implement",
+  "updating",
+  "update",
+  "writing",
+  "write",
+  "running",
+  "run",
+  "editing",
+  "edit",
+  "refining",
+  "refine",
+]);
+
+function normalizeHeadlineText(text: string): string {
+  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).join(" ");
+}
+
+function normalizeHeadlineTokens(text: string): Set<string> {
+  return new Set((text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((word) => !HEADLINE_STOP_WORDS.has(word)));
+}
+
+function headlinesAreSimilar(left: string, right: string): boolean {
+  const leftNorm = normalizeHeadlineText(left);
+  const rightNorm = normalizeHeadlineText(right);
+  if (!leftNorm || !rightNorm) return false;
+  if (leftNorm === rightNorm || leftNorm.includes(rightNorm) || rightNorm.includes(leftNorm)) return true;
+
+  const leftTokens = normalizeHeadlineTokens(left);
+  const rightTokens = normalizeHeadlineTokens(right);
+  if (leftTokens.size === 0 || rightTokens.size === 0) return false;
+
+  const shared = [...leftTokens].filter((token) => rightTokens.has(token));
+  if (shared.length < 2) return false;
+  return shared.length / Math.min(leftTokens.size, rightTokens.size) >= 0.67;
+}
+
+function countSimilarTrailingEntries(timeline: TimelineEntry[], headline: string): number {
+  let count = 0;
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const entry = timeline[index];
+    if (!entry) continue;
+    if (headlinesAreSimilar(entry.headline, headline) || headlinesAreSimilar(entry.headlinePast, headline)) {
+      count += 1;
+      continue;
+    }
+    break;
+  }
+  return count;
 }
 
 export interface PlanStep {
@@ -244,6 +328,7 @@ export const useStore = create<AppState>((set, get) => ({
             toolArgs: payload.toolArgs as string | undefined,
             toolResult: payload.toolResult as string | undefined,
             toolSuccess: payload.toolSuccess as boolean | undefined,
+            toolIssue: payload.toolIssue as string | undefined,
             toolIntent: payload.toolIntent as string | undefined,
             toolTitle: payload.toolTitle as string | undefined,
             toolDisplay: payload.toolDisplay as string | undefined,
@@ -486,11 +571,13 @@ export const useStore = create<AppState>((set, get) => ({
           const headline = payload.headline as string;
           const headlinePast = (payload.headlinePast as string) || headline;
           const timestamp = (payload.timestamp as string) || new Date().toISOString();
-          const replacesCount = (payload.replacesCount as number) || 0;
+          const requestedReplacesCount = (payload.replacesCount as number) || 0;
           const existing = state.jobs[jobId];
 
           // Accumulate timeline entry
           const prevTimeline = state.timelines[jobId] ?? [];
+          const similarityReplacesCount = requestedReplacesCount > 0 ? 0 : countSimilarTrailingEntries(prevTimeline, headline);
+          const replacesCount = Math.max(requestedReplacesCount, similarityReplacesCount);
           // If collapsing, remove the last N entries first
           const base = replacesCount > 0 ? prevTimeline.slice(0, -replacesCount) : prevTimeline;
           // Mark all remaining previous entries as inactive

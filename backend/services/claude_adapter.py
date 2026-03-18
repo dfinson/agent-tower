@@ -321,6 +321,11 @@ class ClaudeAdapter(AgentAdapterInterface):
             result_text = "\n".join(parts)
 
         success = not is_error
+        tool_issue = None
+        if not success:
+            from backend.services.tool_formatters import extract_tool_issue
+
+            tool_issue = extract_tool_issue(result_text) or "Tool reported an issue"
 
         if tool_name not in _HIDDEN_TOOLS:
             from backend.services.tool_formatters import format_tool_display
@@ -336,6 +341,7 @@ class ClaudeAdapter(AgentAdapterInterface):
                         "tool_args": tool_args_str,
                         "tool_result": result_text,
                         "tool_success": success,
+                        "tool_issue": tool_issue,
                         "tool_display": format_tool_display(
                             tool_name,
                             tool_args_str,
