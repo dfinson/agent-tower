@@ -10,6 +10,7 @@ import { AddRepoModal } from "./AddRepoModal";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
 import { Spinner } from "./ui/spinner";
 
 const PERMISSION_MODES = [
@@ -263,6 +264,62 @@ export function SettingsScreen() {
             max={365}
             description="Archive completed jobs after this many days"
           />
+        </div>
+      </div>
+
+      {/* Verification */}
+      <div className="rounded-lg border border-border bg-card p-5">
+        <p className="text-sm font-semibold mb-4">Verification</p>
+        <p className="text-xs text-muted-foreground mb-4">
+          Global defaults for post-completion verification. Individual jobs can override these.
+        </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.verify}
+                onChange={(e) => patch({ verify: e.target.checked })}
+                className="rounded border-border"
+              />
+              <span className="text-sm">Verify (run tests/lint)</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.selfReview}
+                onChange={(e) => patch({ selfReview: e.target.checked })}
+                className="rounded border-border"
+              />
+              <span className="text-sm">Self-review (review diff)</span>
+            </label>
+          </div>
+          <NumberField
+            label="Max Verify Turns"
+            value={settings.maxTurns}
+            onChange={(v) => patch({ maxTurns: v })}
+            min={1}
+            max={10}
+            description="Maximum number of verify loop iterations"
+          />
+          <div className="flex flex-col gap-1.5">
+            <Label>Verify Prompt</Label>
+            <Textarea
+              placeholder="Leave empty to use the built-in default"
+              value={settings.verifyPrompt}
+              onChange={(e) => patch({ verifyPrompt: e.target.value })}
+              rows={3}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Self-Review Prompt</Label>
+            <Textarea
+              placeholder="Leave empty to use the built-in default"
+              value={settings.selfReviewPrompt}
+              onChange={(e) => patch({ selfReviewPrompt: e.target.value })}
+              rows={3}
+            />
+          </div>
         </div>
       </div>
 
