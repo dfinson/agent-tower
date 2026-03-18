@@ -112,7 +112,7 @@ export function JobCreationScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [repo, prompt, baseRef, branch, model, navigate, permissionMode, sdk, defaultSdk, verify, selfReview, maxTurns, verifyPrompt, selfReviewPrompt, defaultVerifyPrompt, defaultSelfReviewPrompt]);
+  }, [repo, prompt, baseRef, branch, model, navigate, permissionMode, sdk, defaultSdk, verify, selfReview, maxTurns, verifyPrompt, selfReviewPrompt]);
 
   return (
     <div className="max-w-xl mx-auto">
