@@ -228,8 +228,8 @@ class JobResponse(CamelModel):
     updated_at: datetime
     completed_at: datetime | None
     pr_url: str | None = None
-    merge_status: str | None = None
-    resolution: Resolution | None = None
+    merge_status: str | None = None  # Git merge operation outcome
+    resolution: Resolution | None = None  # Overall job disposition
     archived_at: datetime | None = None
     failure_reason: str | None = None
     model: str | None = None
@@ -472,8 +472,8 @@ class JobFailedPayload(CamelModel):
 class JobSucceededPayload(CamelModel):
     job_id: str
     pr_url: str | None = None
-    merge_status: str | None = None
-    resolution: str | None = None
+    merge_status: str | None = None  # Git merge operation outcome
+    resolution: str | None = None  # Overall job disposition
     model_downgraded: bool = False
     requested_model: str | None = None
     actual_model: str | None = None

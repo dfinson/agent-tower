@@ -168,7 +168,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             repo = EventRepository(session)
             await repo.append(event)
             await session.commit()
-        await sse_manager.handle_event(event)
+        await sse_manager.broadcast_domain_event(event)
 
     event_bus.subscribe(_persist_and_broadcast)
 
@@ -352,13 +352,13 @@ def create_app(*, dev: bool = False, tunnel_origin: str | None = None, password:
 
     # Password auth — enabled when password is provided (tunnel mode or explicit)
     if password:
-        from backend.services.auth import auth_middleware, handle_login, set_password
+        from backend.services.auth import auth_middleware, authenticate_login_request, set_password
 
         set_password(password)
 
         from starlette.routing import Route
 
-        app.routes.insert(0, Route("/api/auth/login", handle_login, methods=["POST"]))
+        app.routes.insert(0, Route("/api/auth/login", authenticate_login_request, methods=["POST"]))
 
         @app.middleware("http")
         async def _auth_gate(request: Request, call_next: Callable[..., Awaitable[Response]]) -> Response:

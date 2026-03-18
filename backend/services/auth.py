@@ -118,7 +118,7 @@ def _get_login_html() -> str:
     return _LOGIN_HTML
 
 
-async def handle_login(request: Request) -> Response:
+async def authenticate_login_request(request: Request) -> Response:
     """Handle POST /api/auth/login — validate password, set cookie."""
     ip = request.client.host if request.client else "unknown"
 

@@ -386,7 +386,7 @@ class SSEManager:
         """Update the active job count for selective streaming decisions."""
         self._active_job_count = count
 
-    async def handle_event(self, event: DomainEvent) -> None:
+    async def broadcast_domain_event(self, event: DomainEvent) -> None:
         """Event bus subscriber — translate and broadcast a domain event."""
         sse_type = _SSE_EVENT_TYPE.get(event.kind)
         if sse_type is None:
@@ -585,7 +585,7 @@ class SSEManager:
             frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
             await conn.send(frame)
 
-            # Mirror handle_event(): approval events emit a derived
+            # Mirror broadcast_domain_event(): approval events emit a derived
             # job_state_changed frame so the client sees the state
             # transition on reconnect.  Reuse the same SSE id so the
             # replay cursor does not advance beyond the underlying event.

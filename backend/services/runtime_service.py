@@ -820,7 +820,7 @@ class RuntimeService:
                 and worktree_path
                 and base_ref
             ):
-                await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
                 continue
 
             if (
@@ -830,7 +830,7 @@ class RuntimeService:
                 and worktree_path
                 and base_ref
             ):
-                await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
 
             if session_id is None and agent_session.session_id:
                 session_id = agent_session.session_id
@@ -999,7 +999,7 @@ class RuntimeService:
                     and worktree_path
                     and base_ref
                 ):
-                    await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                    await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
                     continue
 
                 # Diff recalculation on tool completions
@@ -1010,7 +1010,7 @@ class RuntimeService:
                     and worktree_path
                     and base_ref
                 ):
-                    await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                    await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
 
                 # Capture session ID
                 if new_session_id is None and followup_session.session_id:

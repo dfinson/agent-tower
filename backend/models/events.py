@@ -97,8 +97,8 @@ class JobStatePayloadDict(TypedDict, total=False):
 
 class JobSucceededPayloadDict(TypedDict, total=False):
     pr_url: str | None
-    merge_status: str | None
-    resolution: str | None
+    merge_status: str | None  # Git merge operation outcome
+    resolution: str | None  # Overall job disposition
     model_downgraded: bool
     requested_model: str | None
     actual_model: str | None
@@ -135,7 +135,7 @@ class SessionResumedPayloadDict(TypedDict, total=False):
 
 
 class JobResolvedPayloadDict(TypedDict, total=False):
-    resolution: str
+    resolution: str  # Overall job disposition (not the git merge outcome)
     pr_url: str | None
     conflict_files: list[str] | None
 
