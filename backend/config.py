@@ -30,13 +30,14 @@ MCP_PATH = "/mcp"
 
 DEFAULT_CONFIG_YAML = """\
 server:
-  host: 127.0.0.1
-  port: 8080
+    host: 127.0.0.1
+    port: 8080
 
 runtime:
-  max_concurrent_jobs: 2
-  worktrees_dirname: .codeplane-worktrees
-  default_sdk: copilot
+    max_concurrent_jobs: 2
+    worktrees_dirname: .codeplane-worktrees
+    default_sdk: copilot
+    suppressed_preflight_agent_prompts: []
 
 retention:
   artifact_retention_days: 30
@@ -66,6 +67,7 @@ class RuntimeConfig:
     permission_mode: str = "auto"  # auto | read_only | approval_required
     utility_model: str = "gpt-4o-mini"  # cheap/fast model for naming, summaries, etc.
     default_sdk: str = "copilot"  # copilot | claude
+    suppressed_preflight_agent_prompts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -215,6 +217,7 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
         "permission_mode": str(config.runtime.permission_mode),
         "utility_model": config.runtime.utility_model,
         "default_sdk": config.runtime.default_sdk,
+        "suppressed_preflight_agent_prompts": config.runtime.suppressed_preflight_agent_prompts,
     }
     existing["retention"] = {
         "artifact_retention_days": config.retention.artifact_retention_days,

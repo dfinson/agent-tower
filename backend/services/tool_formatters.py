@@ -31,6 +31,24 @@ def _parse_args(tool_args: str | None) -> dict[str, Any]:
         return {}
 
 
+def _extract_issue_from_json(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("error", "message", "detail", "details", "stderr"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for nested in value.values():
+            found = _extract_issue_from_json(nested)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            found = _extract_issue_from_json(item)
+            if found:
+                return found
+    return None
+
+
 def _short_path(path: str) -> str:
     """Abbreviate long file paths to last two path components."""
     p = PurePosixPath(path)
@@ -367,3 +385,30 @@ def format_tool_display(
                 label = f"{label} {hint_fn(tool_result, tool_success)}"
 
     return label
+
+
+def extract_tool_issue(tool_result: str | None) -> str | None:
+    """Return a concise issue summary for a non-successful tool result."""
+    if not tool_result:
+        return None
+
+    stripped = tool_result.strip()
+    if not stripped:
+        return None
+
+    with contextlib.suppress(json.JSONDecodeError, TypeError):
+        parsed = json.loads(stripped)
+        candidate = _extract_issue_from_json(parsed)
+        if candidate:
+            return _truncate(" ".join(candidate.split()), 120)
+
+    lines = [" ".join(line.split()) for line in stripped.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    for line in lines:
+        lowered = line.lower()
+        if lowered.startswith(("error:", "errors:", "failed:", "failure:", "warning:", "warnings:")):
+            return _truncate(line, 120)
+
+    return _truncate(lines[0], 120)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -93,6 +94,90 @@ DEFAULT_SELF_REVIEW_PROMPT = (
     "paths that may no longer be needed, and inconsistencies with the "
     "surrounding codebase. If you find issues, fix them."
 )
+
+_HEADLINE_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "the",
+        "to",
+        "for",
+        "of",
+        "in",
+        "on",
+        "with",
+        "agent",
+        "phase",
+        "task",
+        "tasks",
+        "work",
+        "working",
+        "progress",
+        "checking",
+        "check",
+        "investigating",
+        "investigate",
+        "debugging",
+        "debug",
+        "analyzing",
+        "analyze",
+        "exploring",
+        "explore",
+        "reviewing",
+        "review",
+        "fixing",
+        "fix",
+        "implementing",
+        "implement",
+        "updating",
+        "update",
+        "writing",
+        "write",
+        "running",
+        "run",
+        "editing",
+        "edit",
+        "refining",
+        "refine",
+    }
+)
+
+
+def _normalize_headline_tokens(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    return {word for word in words if word not in _HEADLINE_STOP_WORDS}
+
+
+def _headlines_are_similar(left: str, right: str) -> bool:
+    left_norm = " ".join(re.findall(r"[a-z0-9]+", left.lower()))
+    right_norm = " ".join(re.findall(r"[a-z0-9]+", right.lower()))
+    if not left_norm or not right_norm:
+        return False
+    if left_norm == right_norm or left_norm in right_norm or right_norm in left_norm:
+        return True
+
+    left_tokens = _normalize_headline_tokens(left)
+    right_tokens = _normalize_headline_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+
+    shared = left_tokens & right_tokens
+    if len(shared) < 2:
+        return False
+
+    overlap = len(shared) / min(len(left_tokens), len(right_tokens))
+    return overlap >= 0.67
+
+
+def _count_similar_trailing_headlines(history: list[str], headline: str) -> int:
+    count = 0
+    for existing in reversed(history):
+        if _headlines_are_similar(existing, headline):
+            count += 1
+            continue
+        break
+    return count
 
 
 def _discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, MCPServerConfig]:
@@ -1055,6 +1140,8 @@ class RuntimeService:
                     "RULES:\n"
                     "- STRONGLY prefer defer. Only emit when the agent has clearly moved to a "
                     "different area of the codebase or a different kind of task.\n"
+                    "- If the new milestone is mostly the same subject as the latest one, either defer or use replace_last.\n"
+                    "- Avoid emitting adjacent milestones that only change the verb, tense, or wording.\n"
                     "- Use replace_last to merge entries that say essentially the same thing "
                     "(e.g. 'Updating auth routes' and 'Fixing auth middleware' → 'Implementing auth system').\n"
                     "- Labels: 3-6 words, no articles, no period, present tense for 'present', past tense for 'past'.\n"
@@ -1089,6 +1176,8 @@ class RuntimeService:
 
                         last_headline = self._headline_last_text.get(job_id, "")
                         if headline and len(headline) > 3 and headline != last_headline:
+                            replace_last = max(replace_last, _count_similar_trailing_headlines(history, headline))
+
                             # Clamp replace_last to actual history length
                             replace_last = max(0, min(replace_last, len(history)))
 
