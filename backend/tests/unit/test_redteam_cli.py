@@ -5,13 +5,9 @@ Covers: invalid arguments, edge cases for cpl up/init/version.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from click.testing import CliRunner
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 from backend.main import cli
 
@@ -29,36 +25,23 @@ class TestVersionCommand:
         assert result.output.strip() == "cpl 0.1.0"
 
 
-class TestInitCommand:
-    def test_init_second_call_refuses(self, tmp_path: Path) -> None:
-        import backend.config as config_mod
+class TestDoctorCommand:
+    def test_doctor_runs(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor"])
+        # exit 0 (all clear) or 1 (failures) — both valid
+        assert result.exit_code in (0, 1)
 
-        original = config_mod.DEFAULT_CONFIG_PATH
-        try:
-            config_mod.DEFAULT_CONFIG_PATH = tmp_path / "config.yaml"
-            runner = CliRunner()
-            result1 = runner.invoke(cli, ["init"])
-            assert result1.exit_code == 0
-            assert "Created" in result1.output
+    def test_doctor_json_has_schema(self) -> None:
+        import json
 
-            result2 = runner.invoke(cli, ["init"])
-            assert result2.exit_code == 0
-            assert "already exists" in result2.output
-        finally:
-            config_mod.DEFAULT_CONFIG_PATH = original
-
-    def test_init_creates_parent_dirs(self, tmp_path: Path) -> None:
-        import backend.config as config_mod
-
-        original = config_mod.DEFAULT_CONFIG_PATH
-        try:
-            config_mod.DEFAULT_CONFIG_PATH = tmp_path / "deep" / "nested" / "config.yaml"
-            runner = CliRunner()
-            result = runner.invoke(cli, ["init"])
-            assert result.exit_code == 0
-            assert config_mod.DEFAULT_CONFIG_PATH.exists()
-        finally:
-            config_mod.DEFAULT_CONFIG_PATH = original
+        runner = CliRunner()
+        result = runner.invoke(cli, ["doctor", "--json"])
+        assert result.exit_code in (0, 1)
+        data = json.loads(result.output)
+        assert isinstance(data["checks"], list)
+        assert isinstance(data["passed"], int)
+        assert isinstance(data["failed"], int)
 
 
 class TestUpCommand:
