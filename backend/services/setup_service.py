@@ -520,6 +520,49 @@ _INLINE_FIX_COMMANDS: dict[str, list[str]] = {
 }
 
 
+def _warning_sdk_id(warning: CheckResult) -> str | None:
+    """Return the agent SDK id for an agent warning label."""
+    if warning.category != "agent":
+        return None
+    if "Copilot" in warning.label:
+        return "copilot"
+    if "Claude" in warning.label:
+        return "claude"
+    return None
+
+
+def _should_prompt_for_warning(warning: CheckResult, default_sdk: str, suppressed_agent_prompts: list[str]) -> bool:
+    """Return whether preflight should stop and prompt for this warning.
+
+    Once a non-default agent warning has been explicitly skipped and the
+    current default agent is usable, later preflight runs should only log the
+    warning instead of prompting again.
+    """
+    sdk_id = _warning_sdk_id(warning)
+    if sdk_id is None:
+        return True
+    if sdk_id == default_sdk:
+        return True
+    if sdk_id not in suppressed_agent_prompts:
+        return True
+    return not check_agent_cli(default_sdk).ready
+
+
+def _remember_skipped_warning(warning: CheckResult, default_sdk: str) -> None:
+    """Persist that an inactive agent warning should not prompt again."""
+    sdk_id = _warning_sdk_id(warning)
+    if sdk_id is None or sdk_id == default_sdk:
+        return
+    if not check_agent_cli(default_sdk).ready:
+        return
+
+    config = load_config()
+    if sdk_id in config.runtime.suppressed_preflight_agent_prompts:
+        return
+    config.runtime.suppressed_preflight_agent_prompts.append(sdk_id)
+    save_config(config)
+
+
 def _prompt_select(choices: list[questionary.Choice]) -> Any:  # noqa: ANN401
     """Present a selection prompt styled to match Rich preflight output.
 
@@ -535,10 +578,10 @@ def _prompt_select(choices: list[questionary.Choice]) -> Any:  # noqa: ANN401
     ).ask()
 
 
-def _offer_inline_fix(warning: CheckResult) -> bool:
+def _offer_inline_fix(warning: CheckResult) -> str:
     """Offer to fix a single preflight warning in-place.
 
-    Returns True if the issue was resolved.
+    Returns one of: ``fixed``, ``skipped``, ``continued``.
     """
     # Determine which fix(es) apply
     fixes: list[tuple[str, list[str]]] = []
@@ -563,7 +606,7 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
         ])
         if choice == "abort" or choice is None:
             raise SystemExit(1)
-        return False
+        return "continued"
 
     # Offer to run the fix
     fix_choices = [
@@ -578,7 +621,7 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
     if choice is None or choice[0] == "abort":
         raise SystemExit(1)
     if choice[0] == "skip":
-        return False
+        return "skipped"
 
     # Attempt the fix
     _, cmd = choice
@@ -586,7 +629,7 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode == 0:
-            return True
+            return "fixed"
         _console.print(f"       [red]Failed (exit {result.returncode})[/red]")
         if result.stderr:
             for line in result.stderr.strip().split("\n")[:3]:
@@ -616,11 +659,11 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
                 "copilot" if "Copilot" in warning.label else "claude"
             )
             if rechecked.ready:
-                return True
+                return "fixed"
             _console.print(f"       [yellow]Still not resolved: {rechecked.detail}[/yellow]")
-        return False
+        return "continued"
     # "continue"
-    return False
+    return "continued"
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +677,7 @@ def run_preflight(port: int) -> bool:
     Returns True if the server can start.
     On warnings, pauses to let the user fix issues or continue.
     """
+    config = load_config()
     results = run_checks(port=port)
 
     _console.print()
@@ -668,9 +712,19 @@ def run_preflight(port: int) -> bool:
                 for line in w.hint.split("\n"):
                     _console.print(f"       → {line}")
 
-            resolved = _offer_inline_fix(w)
-            if resolved:
+            if not _should_prompt_for_warning(
+                w,
+                config.runtime.default_sdk,
+                config.runtime.suppressed_preflight_agent_prompts,
+            ):
+                _console.print("       [dim]Prompt suppressed by config; continuing with current default agent.[/dim]")
+                continue
+
+            outcome = _offer_inline_fix(w)
+            if outcome == "fixed":
                 _console.print(f"    [green]✓[/green]  {w.label}: fixed")
+            elif outcome == "skipped":
+                _remember_skipped_warning(w, config.runtime.default_sdk)
 
         # Re-check for any remaining hard failures after fixes
         results = run_checks(port=port)
