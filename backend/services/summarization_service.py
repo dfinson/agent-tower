@@ -36,65 +36,65 @@ a colleague who is equally skilled but has no memory of the session.
 
 Respond with a single JSON object that matches this schema exactly:
 
-{
+{{
   "original_task": "<verbatim from the original prompt>",
   "session_number": <integer>,
   "accomplished": [
-    {
+    {{
       "what": "<what was achieved>",
       "how": "<approach taken>",
       "files_affected": ["<relative path>", ...],
       "notes": "<non-obvious decisions, gotchas, or null>"
-    }
+    }}
   ],
   "file_states": [
-    {
+    {{
       "path": "<relative path>",
       "status": "<complete|partial|read_only|created|deleted>",
       "summary": "<what changed and why>",
       "partial_state": "<if partial: exactly what is done vs remaining, else null>",
       "known_issues": "<TODOs, FIXMEs, known problems, else null>"
-    }
+    }}
   ],
   "decisions": [
-    {
+    {{
       "decision": "<what was decided>",
       "rationale": "<why>",
       "alternatives_rejected": "<what else was considered and why not, or null>",
       "affects": ["<file path or component name>"]
-    }
+    }}
   ],
   "operator_instructions": [
-    {
+    {{
       "seq": <integer starting at 1>,
       "content": "<verbatim operator message>",
       "agent_response_summary": "<one sentence: what the agent did in response>"
-    }
+    }}
   ],
   "in_progress": [
-    {
+    {{
       "description": "<what is being worked on>",
       "file": "<which file>",
       "done_so_far": "<what part is complete>",
       "remaining": "<what still needs to happen>"
-    }
+    }}
   ],
   "resume_instructions": "<imperative: 'Complete X in file Y...' — next action for the new agent>",
   "blockers_and_open_questions": [
-    {
+    {{
       "issue": "<the issue>",
       "context": "<relevant context>",
       "suggested_resolution": "<suggestion or null>"
-    }
+    }}
   ],
-  "verification_state": {
+  "verification_state": {{
     "tests_run": <boolean>,
     "tests_passed": <boolean or null>,
     "build_run": <boolean>,
     "build_passed": <boolean or null>,
     "notes": "<anything relevant about test/build state, or null>"
-  }
-}
+  }}
+}}
 
 Rules:
 - Use exact file paths (relative to repo root)
