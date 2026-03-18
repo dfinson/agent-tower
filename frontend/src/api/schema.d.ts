@@ -34,6 +34,9 @@ export interface paths {
         /**
          * List Jobs
          * @description List jobs with optional state filter and cursor pagination.
+         *
+         *     Pass archived=true to list only archived jobs, archived=false to
+         *     exclude them. Default (None) returns all jobs.
          */
         get: operations["list_jobs_api_jobs_get"];
         put?: never;
@@ -177,7 +180,7 @@ export interface paths {
         };
         /**
          * List Models
-         * @description List available models from the Copilot SDK.
+         * @description Return the model list cached at server startup.
          */
         get: operations["list_models_api_models_get"];
         put?: never;
@@ -223,7 +226,10 @@ export interface paths {
         };
         /**
          * Get Job Diff
-         * @description Return the most recent diff snapshot for a job from the event store.
+         * @description Return the current diff for a job.
+         *
+         *     For running jobs, calculates a fresh diff from the worktree.
+         *     For completed/archived jobs, returns the last stored diff snapshot.
          */
         get: operations["get_job_diff_api_jobs__job_id__diff_get"];
         put?: never;
@@ -246,6 +252,29 @@ export interface paths {
          * @description Return historical transcript entries for a job from the event store.
          */
         get: operations["get_job_transcript_api_jobs__job_id__transcript_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Timeline
+         * @description Return historical progress_headline milestones for a job.
+         *
+         *     Events with ``replaces_count > 0`` retroactively collapse earlier entries,
+         *     so the returned list is the final milestone timeline, not raw events.
+         */
+        get: operations["get_job_timeline_api_jobs__job_id__timeline_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -285,7 +314,7 @@ export interface paths {
         put?: never;
         /**
          * Resolve Job
-         * @description Resolve a succeeded job: merge, create PR, or discard.
+         * @description Resolve a succeeded job: merge, create PR, discard, or resolve with agent.
          */
         post: operations["resolve_job_api_jobs__job_id__resolve_post"];
         delete?: never;
@@ -537,7 +566,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/settings/global": {
+    "/api/settings": {
         parameters: {
             query?: never;
             header?: never;
@@ -545,18 +574,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Global Config
-         * @description Get current global config as YAML.
+         * Get Settings
+         * @description Get current settings as structured data.
          */
-        get: operations["get_global_config_api_settings_global_get"];
+        get: operations["get_settings_api_settings_get"];
         /**
-         * Update Global Config
-         * @description Update global config from YAML string.
-         *
-         *     Non-destructive: incoming YAML is merged into the existing config.
-         *     Keys not present in the incoming YAML are preserved.
+         * Update Settings
+         * @description Update settings. Only provided fields are changed.
          */
-        put: operations["update_global_config_api_settings_global_put"];
+        put: operations["update_settings_api_settings_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -654,6 +680,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/platforms/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Platform Status
+         * @description Check auth status for all detected git hosting platforms.
+         */
+        get: operations["get_platform_status_api_platforms_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sdks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sdks
+         * @description List available agent SDKs and their status.
+         */
+        get: operations["list_sdks_api_sdks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/terminal/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sessions
+         * @description List all active terminal sessions.
+         */
+        get: operations["list_sessions_api_terminal_sessions_get"];
+        put?: never;
+        /**
+         * Create Session
+         * @description Create a new terminal session.
+         */
+        post: operations["create_session_api_terminal_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/terminal/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Session
+         * @description Kill a terminal session.
+         */
+        delete: operations["delete_session_api_terminal_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/terminal/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Ai
+         * @description Translate natural language to a shell command using the utility model.
+         */
+        post: operations["ask_ai_api_terminal_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -711,17 +841,26 @@ export interface components {
          * ArtifactType
          * @enum {string}
          */
-        ArtifactType: "diff_snapshot" | "agent_summary" | "custom";
+        ArtifactType: "diff_snapshot" | "agent_summary" | "session_snapshot" | "session_log" | "document" | "custom";
+        /** AskRequest */
+        AskRequest: {
+            /** Prompt */
+            prompt: string;
+            /** Context */
+            context?: string | null;
+        };
+        /** AskResponse */
+        AskResponse: {
+            /** Command */
+            command: string;
+            /** Explanation */
+            explanation: string;
+        };
         /** Body_transcribe_api_voice_transcribe_post */
         Body_transcribe_api_voice_transcribe_post: {
             /** Audio */
             audio: string;
         };
-        /**
-         * CompletionStrategy
-         * @enum {string}
-         */
-        CompletionStrategy: "auto_merge" | "pr_only" | "manual";
         /** ContinueJobRequest */
         ContinueJobRequest: {
             /** Instruction */
@@ -738,7 +877,6 @@ export interface components {
             /** Branch */
             branch?: string | null;
             permission_mode?: components["schemas"]["PermissionMode"] | null;
-            completion_strategy?: components["schemas"]["CompletionStrategy"] | null;
             /** Model */
             model?: string | null;
             /** Sdk */
@@ -767,10 +905,37 @@ export interface components {
             /** Worktreepath */
             worktreePath?: string | null;
             /**
+             * Sdk
+             * @default copilot
+             */
+            sdk: string;
+            /**
              * Createdat
              * Format: date-time
              */
             createdAt: string;
+        };
+        /** CreateSessionRequest */
+        CreateSessionRequest: {
+            /** Shell */
+            shell?: string | null;
+            /** Cwd */
+            cwd?: string | null;
+            /** Jobid */
+            jobId?: string | null;
+        };
+        /** CreateSessionResponse */
+        CreateSessionResponse: {
+            /** Id */
+            id: string;
+            /** Shell */
+            shell: string;
+            /** Cwd */
+            cwd: string;
+            /** Jobid */
+            jobId?: string | null;
+            /** Pid */
+            pid: number;
         };
         /** DiffFileModel */
         DiffFileModel: {
@@ -817,12 +982,7 @@ export interface components {
          * ExecutionPhase
          * @enum {string}
          */
-        ExecutionPhase: "environment_setup" | "agent_reasoning" | "finalization" | "post_completion";
-        /** GlobalConfigResponse */
-        GlobalConfigResponse: {
-            /** Config Yaml */
-            config_yaml: string;
-        };
+        ExecutionPhase: "environment_setup" | "agent_reasoning" | "verification" | "finalization" | "post_completion";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -893,10 +1053,17 @@ export interface components {
             resolution?: string | null;
             /** Archivedat */
             archivedAt?: string | null;
-            /** Completionstrategy */
-            completionStrategy?: string | null;
-            /** Sdk */
-            sdk?: string;
+            /** Failurereason */
+            failureReason?: string | null;
+            /** Model */
+            model?: string | null;
+            /**
+             * Sdk
+             * @default copilot
+             */
+            sdk: string;
+            /** Worktreename */
+            worktreeName?: string | null;
             /** Verify */
             verify?: boolean | null;
             /** Selfreview */
@@ -907,10 +1074,6 @@ export interface components {
             verifyPrompt?: string | null;
             /** Selfreviewprompt */
             selfReviewPrompt?: string | null;
-            /** Model */
-            model?: string | null;
-            /** Worktreename */
-            worktreeName?: string | null;
         };
         /**
          * LogLevel
@@ -941,10 +1104,54 @@ export interface components {
          * @enum {string}
          */
         PermissionMode: "auto" | "read_only" | "approval_required";
+        /** PlatformStatusListResponse */
+        PlatformStatusListResponse: {
+            /** Items */
+            items: components["schemas"]["PlatformStatusResponse"][];
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+        };
+        /** PlatformStatusResponse */
+        PlatformStatusResponse: {
+            /** Platform */
+            platform: string;
+            /** Authenticated */
+            authenticated: boolean;
+            /** User */
+            user?: string | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** ProgressHeadlinePayload */
+        ProgressHeadlinePayload: {
+            /** Jobid */
+            jobId: string;
+            /** Headline */
+            headline: string;
+            /** Headlinepast */
+            headlinePast: string;
+            /** Summary */
+            summary: string;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /**
+             * Replacescount
+             * @default 0
+             */
+            replacesCount: number;
+        };
         /** RegisterRepoRequest */
         RegisterRepoRequest: {
             /** Source */
             source: string;
+            /** Clone To */
+            clone_to?: string | null;
         };
         /** RegisterRepoResponse */
         RegisterRepoResponse: {
@@ -968,6 +1175,8 @@ export interface components {
              * @default 0
              */
             activeJobCount: number;
+            /** Platform */
+            platform?: string | null;
         };
         /** RepoListResponse */
         RepoListResponse: {
@@ -997,6 +1206,24 @@ export interface components {
             /** Instruction */
             instruction: string;
         };
+        /** SDKInfoResponse */
+        SDKInfoResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Status */
+            status: string;
+        };
+        /** SDKListResponse */
+        SDKListResponse: {
+            /** Default */
+            default: string;
+            /** Sdks */
+            sdks: components["schemas"]["SDKInfoResponse"][];
+        };
         /** SendMessageRequest */
         SendMessageRequest: {
             /** Content */
@@ -1011,6 +1238,50 @@ export interface components {
              * Format: date-time
              */
             timestamp: string;
+        };
+        /** SessionInfo */
+        SessionInfo: {
+            /** Id */
+            id: string;
+            /** Shell */
+            shell: string;
+            /** Cwd */
+            cwd: string;
+            /** Jobid */
+            jobId?: string | null;
+            /** Pid */
+            pid: number;
+            /** Clients */
+            clients: number;
+        };
+        /** SettingsResponse */
+        SettingsResponse: {
+            /** Maxconcurrentjobs */
+            maxConcurrentJobs: number;
+            /** Permissionmode */
+            permissionMode: string;
+            /** Autopush */
+            autoPush: boolean;
+            /** Cleanupworktree */
+            cleanupWorktree: boolean;
+            /** Deletebranchaftermerge */
+            deleteBranchAfterMerge: boolean;
+            /** Artifactretentiondays */
+            artifactRetentionDays: number;
+            /** Maxartifactsizemb */
+            maxArtifactSizeMb: number;
+            /** Autoarchivedays */
+            autoArchiveDays: number;
+            /** Verify */
+            verify: boolean;
+            /** Selfreview */
+            selfReview: boolean;
+            /** Maxturns */
+            maxTurns: number;
+            /** Verifyprompt */
+            verifyPrompt: string;
+            /** Selfreviewprompt */
+            selfReviewPrompt: string;
         };
         /** TranscribeResponse */
         TranscribeResponse: {
@@ -1047,16 +1318,46 @@ export interface components {
             toolIntent?: string | null;
             /** Tooltitle */
             toolTitle?: string | null;
+            /** Tooldisplay */
+            toolDisplay?: string | null;
+            /** Toolgroupsummary */
+            toolGroupSummary?: string | null;
         };
         /**
          * TranscriptRole
          * @enum {string}
          */
         TranscriptRole: "agent" | "operator" | "tool_call" | "reasoning" | "divider";
-        /** UpdateGlobalConfigRequest */
-        UpdateGlobalConfigRequest: {
-            /** Config Yaml */
-            config_yaml: string;
+        /**
+         * UpdateSettingsRequest
+         * @description Structured settings update — only include fields to change.
+         */
+        UpdateSettingsRequest: {
+            /** Maxconcurrentjobs */
+            maxConcurrentJobs?: number | null;
+            permissionMode?: components["schemas"]["PermissionMode"] | null;
+            /** Autopush */
+            autoPush?: boolean | null;
+            /** Cleanupworktree */
+            cleanupWorktree?: boolean | null;
+            /** Deletebranchaftermerge */
+            deleteBranchAfterMerge?: boolean | null;
+            /** Artifactretentiondays */
+            artifactRetentionDays?: number | null;
+            /** Maxartifactsizemb */
+            maxArtifactSizeMb?: number | null;
+            /** Autoarchivedays */
+            autoArchiveDays?: number | null;
+            /** Verify */
+            verify?: boolean | null;
+            /** Selfreview */
+            selfReview?: boolean | null;
+            /** Maxturns */
+            maxTurns?: number | null;
+            /** Verifyprompt */
+            verifyPrompt?: string | null;
+            /** Selfreviewprompt */
+            selfReviewPrompt?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1128,6 +1429,7 @@ export interface operations {
                 state?: string | null;
                 limit?: number;
                 cursor?: string | null;
+                archived?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -1487,6 +1789,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TranscriptPayload"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_timeline_api_jobs__job_id__timeline_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgressHeadlinePayload"][];
                 };
             };
             /** @description Validation Error */
@@ -1958,7 +2293,7 @@ export interface operations {
             };
         };
     };
-    get_global_config_api_settings_global_get: {
+    get_settings_api_settings_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1973,12 +2308,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GlobalConfigResponse"];
+                    "application/json": components["schemas"]["SettingsResponse"];
                 };
             };
         };
     };
-    update_global_config_api_settings_global_put: {
+    update_settings_api_settings_put: {
         parameters: {
             query?: never;
             header?: never;
@@ -1987,7 +2322,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateGlobalConfigRequest"];
+                "application/json": components["schemas"]["UpdateSettingsRequest"];
             };
         };
         responses: {
@@ -1997,7 +2332,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GlobalConfigResponse"];
+                    "application/json": components["schemas"]["SettingsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2166,6 +2501,161 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_platform_status_api_platforms_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformStatusListResponse"];
+                };
+            };
+        };
+    };
+    list_sdks_api_sdks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SDKListResponse"];
+                };
+            };
+        };
+    };
+    list_sessions_api_terminal_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInfo"][];
+                };
+            };
+        };
+    };
+    create_session_api_terminal_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_session_api_terminal_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_ai_api_terminal_ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AskResponse"];
                 };
             };
             /** @description Validation Error */

@@ -145,7 +145,7 @@ class UtilitySessionService:
             await ws.close()
         self._sessions.clear()
         self._started = False
-        log.info("utility_session_pool_shutdown")
+        log.debug("utility_session_pool_shutdown")
 
     # ------------------------------------------------------------------
     # Session checkout — guaranteed exclusive access per caller
@@ -300,7 +300,7 @@ class UtilitySessionService:
                     survivors.append(ws)
             if to_close:
                 self._sessions = survivors
-                log.info("utility_pool_scaled_down", closed=len(to_close), new_size=len(self._sessions))
+                log.debug("utility_pool_scaled_down", closed=len(to_close), new_size=len(self._sessions))
         for ws in to_close:
             await ws.close()
 
