@@ -190,7 +190,13 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
     """Persist the current CPLConfig back to the YAML config file.
 
     Non-destructive: loads the existing file first and merges changes in,
-    preserving any keys or repos that might exist.
+    preserving any keys that might exist.
+
+    Note: the ``repos`` list is intentionally NOT written here — it is managed
+    exclusively by :func:`register_repo` and :func:`unregister_repo`, which
+    perform their own targeted read-modify-write.  This prevents a stale
+    in-memory ``config.repos`` (loaded earlier in the request lifecycle) from
+    silently overwriting repo registrations that happened concurrently.
     """
     if path is None:
         path = DEFAULT_CONFIG_PATH
@@ -243,7 +249,7 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
             **({"default_shell": config.terminal.default_shell} if config.terminal.default_shell else {}),
             "scrollback_size_kb": config.terminal.scrollback_size_kb,
         }
-    existing["repos"] = config.repos
+    # repos is intentionally omitted — managed by register_repo / unregister_repo
     existing["verification"] = {
         "verify": config.verification.verify,
         "self_review": config.verification.self_review,
@@ -259,35 +265,91 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
         yaml.dump(existing, f, default_flow_style=False, sort_keys=False)
 
 
+def _update_repos_in_file(repos: list[str], path: Path) -> None:
+    """Write only the ``repos`` list to the config file, preserving all other keys.
+
+    This is a targeted read-modify-write that always reads the latest file
+    state before writing, so it never overwrites concurrent changes to other
+    parts of the config.
+    """
+    existing: dict[str, Any] = {}
+    if path.exists():
+        with open(path) as f:
+            existing = yaml.safe_load(f) or {}
+    existing["repos"] = repos
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        yaml.dump(existing, f, default_flow_style=False, sort_keys=False)
+
+
 def register_repo(config: CPLConfig, repo_path: str, config_path: Path | None = None) -> str:
     """Add a repo path to the allowlist if not already present.
 
+    Always reads the current repos from the config file before appending, so
+    concurrent registrations from other requests are not silently lost.
+
     Returns the resolved path that was added.
     """
+    if config_path is None:
+        config_path = DEFAULT_CONFIG_PATH
     resolved = str(Path(repo_path).expanduser().resolve())
+
+    # Read the authoritative repos from the file (not from the caller's
+    # potentially-stale CPLConfig object).
+    file_repos: list[str] = []
+    if config_path.exists():
+        with open(config_path) as f:
+            raw = yaml.safe_load(f) or {}
+        file_repos = [str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else []
+
+    if resolved not in file_repos:
+        file_repos.append(resolved)
+        _update_repos_in_file(file_repos, config_path)
+
+    # Keep the caller's in-memory config in sync.
     if resolved not in config.repos:
         config.repos.append(resolved)
-        save_config(config, config_path)
+
     return resolved
 
 
 def unregister_repo(config: CPLConfig, repo_path: str, config_path: Path | None = None) -> str:
     """Remove a repo path from the allowlist.
 
+    Always reads the current repos from the config file before removing, so
+    the removal is applied to the latest state rather than a stale snapshot.
+
     Returns the resolved path that was removed.
     Raises ValueError if the repo is not in the allowlist.
     """
+    if config_path is None:
+        config_path = DEFAULT_CONFIG_PATH
     resolved = str(Path(repo_path).expanduser().resolve())
-    if resolved in config.repos:
-        config.repos.remove(resolved)
-        save_config(config, config_path)
-        return resolved
-    # Also try matching the original string
-    if repo_path in config.repos:
-        config.repos.remove(repo_path)
-        save_config(config, config_path)
-        return repo_path
-    raise ValueError(f"Repository '{repo_path}' is not in the allowlist.")
+
+    # Read the authoritative repos from the file.
+    file_repos: list[str] = []
+    if config_path.exists():
+        with open(config_path) as f:
+            raw = yaml.safe_load(f) or {}
+        file_repos = [str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else []
+
+    removed: str | None = None
+    if resolved in file_repos:
+        file_repos.remove(resolved)
+        removed = resolved
+    elif repo_path in file_repos:
+        file_repos.remove(repo_path)
+        removed = repo_path
+
+    if removed is None:
+        raise ValueError(f"Repository '{repo_path}' is not in the allowlist.")
+
+    _update_repos_in_file(file_repos, config_path)
+
+    # Keep the caller's in-memory config in sync.
+    config.repos = [r for r in config.repos if r not in (resolved, repo_path)]
+
+    return removed
 
 
 def init_config(path: Path | None = None) -> Path:
