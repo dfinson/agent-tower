@@ -95,6 +95,64 @@ DEFAULT_SELF_REVIEW_PROMPT = (
     "surrounding codebase. If you find issues, fix them."
 )
 
+# Truncation limits for transcript buffers
+_HEADLINE_MSG_MAX = 200
+_PLAN_MSG_MAX = 400
+_DEDUP_KEY_MAX = 500
+_TRANSCRIPT_CONTENT_MAX = 2000
+_TOOL_INTENT_MAX = 80
+
+# LLM prompt templates for milestone and plan generation
+_MILESTONE_PROMPT_PREFIX = (
+    "You are maintaining a milestone timeline for a coding agent. "
+    "Milestones mark distinct PHASES of work — not incremental progress. "
+    "Good milestones: 'Setting up project', 'Implementing auth API', 'Writing tests'. "
+    "Bad milestones: 'Reading file X', 'Editing line 42', 'Running search'. "
+    "The timeline should read like a high-level summary of what the agent accomplished, "
+    "not a log of individual actions.\n\n"
+)
+
+_MILESTONE_PROMPT_SUFFIX = (
+    "\n\nRespond with JSON only — exactly one of:\n\n"
+    '1. No meaningful phase change: {"defer": true}\n'
+    '2. New milestone: {"present": "Implementing auth API", "past": "Implemented auth API", '
+    '"summary": "Adding JWT token validation to /login and /refresh endpoints. '
+    'Wiring up middleware to reject expired tokens."}\n'
+    "3. Recent milestones were actually the same phase — consolidate the last N "
+    'into one: {"replace_last": 2, "present": "Implementing auth system", '
+    '"past": "Implemented auth system", '
+    '"summary": "Built login/refresh endpoints with JWT validation and expiry middleware."}\n\n'
+    "RULES:\n"
+    "- STRONGLY prefer defer. Only emit when the agent has clearly moved to a "
+    "different area of the codebase or a different kind of task.\n"
+    "- If the new milestone is mostly the same subject as the latest one, either defer or use replace_last.\n"
+    "- Avoid emitting adjacent milestones that only change the verb, tense, or wording.\n"
+    "- Use replace_last to merge entries that say essentially the same thing "
+    "(e.g. 'Updating auth routes' and 'Fixing auth middleware' → 'Implementing auth system').\n"
+    "- Labels: 3-6 words, no articles, no period, present tense for 'present', past tense for 'past'.\n"
+    "- 'summary': 1-3 SHORT sentences describing specifically what was/is being done. "
+    "Be concrete — mention actual files, endpoints, functions, or components. "
+    "BAD: 'Exploring authentication documentation'. "
+    "GOOD: 'Adding JWT middleware to protect /api routes. Storing refresh tokens in Redis.'"
+)
+
+_PLAN_PROMPT_PREFIX = (
+    "You are extracting a high-level execution plan from a coding agent's activity. "
+    "The plan should show 3-7 steps the agent is working through, with status markers.\n\n"
+)
+
+_PLAN_PROMPT_SUFFIX = (
+    "\n\nRespond with JSON only:\n"
+    '{"steps": [{"label": "Step description", "status": "done|active|pending"}]}\n\n'
+    "RULES:\n"
+    "- 3-7 steps total. Each label: 3-8 words, no articles, no period.\n"
+    "- Mark completed work as 'done', current work as 'active' (exactly one), "
+    "future work as 'pending'.\n"
+    "- Steps should cover the full task arc — from what's been done to what remains.\n"
+    "- Be concrete: mention actual components, endpoints, files when possible.\n"
+    '- If you can\'t determine a plan from the activity, respond: {"steps": []}\n'
+)
+
 _HEADLINE_STOP_WORDS = frozenset(
     {
         "a",
@@ -398,6 +456,17 @@ class RuntimeService:
             config=self._config,
         )
 
+    async def _finalize_diff_safe(
+        self, job_id: str, worktree_path: str | None, base_ref: str | None
+    ) -> None:
+        """Finalize the diff snapshot, swallowing exceptions."""
+        if self._diff_service is None or not worktree_path or not base_ref:
+            return
+        try:
+            await self._diff_service.finalize(job_id, worktree_path, base_ref)
+        except Exception:
+            log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
+
     @property
     def running_count(self) -> int:
         """Number of currently running job tasks."""
@@ -576,20 +645,12 @@ class RuntimeService:
             if error_reason:
                 # An error event was received during execution — finalize diff before failing
                 log.warning("job_error_reason_detected", job_id=job_id, error_reason=error_reason)
-                if self._diff_service is not None and worktree_path and base_ref:
-                    try:
-                        await self._diff_service.finalize(job_id, worktree_path, base_ref)
-                    except Exception:
-                        log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
+                await self._finalize_diff_safe(job_id, worktree_path, base_ref)
                 await self._fail_job(job_id, error_reason)
                 return
 
             # Final diff snapshot before resolution
-            if self._diff_service is not None and worktree_path and base_ref:
-                try:
-                    await self._diff_service.finalize(job_id, worktree_path, base_ref)
-                except Exception:
-                    log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
+            await self._finalize_diff_safe(job_id, worktree_path, base_ref)
 
             # Run optional verify / self-review follow-up turns
             await self._run_verify_review(job_id, config, session_id, worktree_path, base_ref)
@@ -626,11 +687,7 @@ class RuntimeService:
         except asyncio.CancelledError:
             log.info("job_canceled_by_task", job_id=job_id)
             # Finalize diff so changes are preserved even for canceled jobs
-            if self._diff_service is not None and worktree_path and base_ref:
-                try:
-                    await self._diff_service.finalize(job_id, worktree_path, base_ref)
-                except Exception:
-                    log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
+            await self._finalize_diff_safe(job_id, worktree_path, base_ref)
             try:
                 await agent_session.abort()
             except Exception:
@@ -659,11 +716,7 @@ class RuntimeService:
         except Exception as exc:
             log.error("job_execution_failed", job_id=job_id, exc_info=True)
             # Finalize diff so changes are preserved even for crashed jobs
-            if self._diff_service is not None and worktree_path and base_ref:
-                try:
-                    await self._diff_service.finalize(job_id, worktree_path, base_ref)
-                except Exception:
-                    log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
+            await self._finalize_diff_safe(job_id, worktree_path, base_ref)
             await self._fail_job(job_id, f"Execution error: {exc}")
         finally:
             tel.end_job(job_id)
@@ -885,19 +938,19 @@ class RuntimeService:
                 content = domain_event.payload.get("content", "")
                 if role == "agent" and content and job_id in self._headline_transcript:
                     buf = self._headline_transcript[job_id]
-                    buf.append(content[:200])
+                    buf.append(content[:_HEADLINE_MSG_MAX])
                     if len(buf) > 3:
                         self._headline_transcript[job_id] = buf[-3:]
                 if role == "agent" and content and job_id in self._plan_transcript:
                     pbuf = self._plan_transcript[job_id]
-                    pbuf.append(content[:400])
+                    pbuf.append(content[:_PLAN_MSG_MAX])
                     if len(pbuf) > 8:
                         self._plan_transcript[job_id] = pbuf[-8:]
                 if role == "tool_call" and job_id in self._headline_tool_intents:
                     intent = str(domain_event.payload.get("tool_intent") or "")
                     if intent:
                         ibuf = self._headline_tool_intents[job_id]
-                        ibuf.append(intent[:80])
+                        ibuf.append(intent[:_TOOL_INTENT_MAX])
                         if len(ibuf) > 10:
                             self._headline_tool_intents[job_id] = ibuf[-10:]
 
@@ -1099,11 +1152,7 @@ class RuntimeService:
                 log.info("self_review_complete", job_id=job_id)
 
         # Final diff snapshot after verify/review turns
-        if self._diff_service is not None and worktree_path and base_ref:
-            try:
-                await self._diff_service.finalize(job_id, worktree_path, base_ref)
-            except Exception:
-                log.warning("diff_finalize_after_verify_failed", job_id=job_id, exc_info=True)
+        await self._finalize_diff_safe(job_id, worktree_path, base_ref)
 
     async def _heartbeat_loop(self, job_id: str) -> None:
         """Emit periodic heartbeats; timeout based on time since last activity."""
@@ -1189,7 +1238,7 @@ class RuntimeService:
 
                 parts = []
                 for msg in recent_msgs:
-                    parts.append(msg[:200])
+                    parts.append(msg[:_HEADLINE_MSG_MAX])
                 if recent_intents:
                     parts.append("Tool intents: " + ", ".join(recent_intents))
 
@@ -1200,36 +1249,11 @@ class RuntimeService:
                     history_block = f"Milestone history so far:\n{numbered}\n\n"
 
                 prompt = (
-                    "You are maintaining a milestone timeline for a coding agent. "
-                    "Milestones mark distinct PHASES of work — not incremental progress. "
-                    "Good milestones: 'Setting up project', 'Implementing auth API', 'Writing tests'. "
-                    "Bad milestones: 'Reading file X', 'Editing line 42', 'Running search'. "
-                    "The timeline should read like a high-level summary of what the agent accomplished, "
-                    "not a log of individual actions.\n\n"
+                    _MILESTONE_PROMPT_PREFIX
                     + history_block
                     + "Recent agent activity:\n"
                     + "\n---\n".join(parts)
-                    + "\n\nRespond with JSON only — exactly one of:\n\n"
-                    '1. No meaningful phase change: {"defer": true}\n'
-                    '2. New milestone: {"present": "Implementing auth API", "past": "Implemented auth API", '
-                    '"summary": "Adding JWT token validation to /login and /refresh endpoints. '
-                    'Wiring up middleware to reject expired tokens."}\n'
-                    "3. Recent milestones were actually the same phase — consolidate the last N "
-                    'into one: {"replace_last": 2, "present": "Implementing auth system", '
-                    '"past": "Implemented auth system", '
-                    '"summary": "Built login/refresh endpoints with JWT validation and expiry middleware."}\n\n'
-                    "RULES:\n"
-                    "- STRONGLY prefer defer. Only emit when the agent has clearly moved to a "
-                    "different area of the codebase or a different kind of task.\n"
-                    "- If the new milestone is mostly the same subject as the latest one, either defer or use replace_last.\n"
-                    "- Avoid emitting adjacent milestones that only change the verb, tense, or wording.\n"
-                    "- Use replace_last to merge entries that say essentially the same thing "
-                    "(e.g. 'Updating auth routes' and 'Fixing auth middleware' → 'Implementing auth system').\n"
-                    "- Labels: 3-6 words, no articles, no period, present tense for 'present', past tense for 'past'.\n"
-                    "- 'summary': 1-3 SHORT sentences describing specifically what was/is being done. "
-                    "Be concrete — mention actual files, endpoints, functions, or components. "
-                    "BAD: 'Exploring authentication documentation'. "
-                    "GOOD: 'Adding JWT middleware to protect /api routes. Storing refresh tokens in Redis.'"
+                    + _MILESTONE_PROMPT_SUFFIX
                 )
 
                 try:
@@ -1326,21 +1350,12 @@ class RuntimeService:
                     prev_block = "Previous plan:\n" + "\n".join(lines) + "\n\n"
 
                 prompt = (
-                    "You are extracting a high-level execution plan from a coding agent's activity. "
-                    "The plan should show 3-7 steps the agent is working through, with status markers.\n\n"
+                    _PLAN_PROMPT_PREFIX
                     + milestone_block
                     + prev_block
                     + "Recent agent messages:\n"
                     + "\n---\n".join(recent)
-                    + "\n\nRespond with JSON only:\n"
-                    '{"steps": [{"label": "Step description", "status": "done|active|pending"}]}\n\n'
-                    "RULES:\n"
-                    "- 3-7 steps total. Each label: 3-8 words, no articles, no period.\n"
-                    "- Mark completed work as 'done', current work as 'active' (exactly one), "
-                    "future work as 'pending'.\n"
-                    "- Steps should cover the full task arc — from what's been done to what remains.\n"
-                    "- Be concrete: mention actual components, endpoints, files when possible.\n"
-                    '- If you can\'t determine a plan from the activity, respond: {"steps": []}\n'
+                    + _PLAN_PROMPT_SUFFIX
                 )
 
                 try:
@@ -1613,14 +1628,14 @@ class RuntimeService:
                     if role == "agent" or role == "assistant":
                         if not content:
                             continue
-                        key = content[:500]
+                        key = content[:_DEDUP_KEY_MAX]
                         if key in seen:
                             continue
                         seen.add(key)
                         turns.append(
                             {
                                 "role": "assistant",
-                                "content": content[:2000],
+                                "content": content[:_TRANSCRIPT_CONTENT_MAX],
                                 "timestamp": ev.payload.get("timestamp", ""),
                             }
                         )
@@ -1630,7 +1645,7 @@ class RuntimeService:
                         turns.append(
                             {
                                 "role": "operator",
-                                "content": content[:2000],
+                                "content": content[:_TRANSCRIPT_CONTENT_MAX],
                                 "timestamp": ev.payload.get("timestamp", ""),
                             }
                         )

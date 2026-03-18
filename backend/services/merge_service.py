@@ -15,6 +15,7 @@ import contextlib
 import re
 import shutil
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 _REF_PATTERN = re.compile(r"^[a-zA-Z0-9/_.-]+$")
+_PR_TITLE_MAX_PROMPT_LEN = 80
 
 
 def _make_event_id() -> str:
@@ -177,6 +179,75 @@ class MergeService:
         await self._update_merge_status(job_id, "merged")
         return MergeResult(status="merged", strategy="ff_only")
 
+    @contextlib.asynccontextmanager
+    async def _preserved_worktree(
+        self, repo_path: str, job_id: str, log_prefix: str = "merge"
+    ) -> AsyncIterator[None]:
+        """Save and restore the main worktree's branch + stash state."""
+        original_branch: str | None = None
+        main_stashed = False
+
+        with contextlib.suppress(Exception):
+            original_branch = await self._git.get_current_branch(cwd=repo_path)
+
+        try:
+            main_stashed = await self._git.stash(cwd=repo_path)
+        except Exception:
+            log.warning(f"{log_prefix}_main_stash_failed", job_id=job_id, exc_info=True)
+
+        try:
+            yield
+        finally:
+            if original_branch:
+                try:
+                    await self._git.checkout(original_branch, cwd=repo_path)
+                except Exception:
+                    log.warning(f"{log_prefix}_restore_branch_failed", job_id=job_id, exc_info=True)
+            if main_stashed:
+                try:
+                    await self._git.stash_pop(cwd=repo_path)
+                except Exception:
+                    log.warning(f"{log_prefix}_main_stash_pop_failed", job_id=job_id, exc_info=True)
+
+    async def _checkout_and_merge(
+        self,
+        job_id: str,
+        repo_path: str,
+        branch: str,
+        base_ref: str,
+    ) -> tuple[bool, list[str]]:
+        """Checkout base_ref, attempt merge, and handle conflicts.
+
+        Returns (merge_ok, conflict_files).
+        """
+        from backend.services.git_service import GitError
+
+        merge_ok = False
+        try:
+            await self._git.checkout(base_ref, cwd=repo_path)
+            await self._git.merge(
+                branch,
+                cwd=repo_path,
+                message=f"Merge {branch} (CodePlane {job_id})",
+            )
+            merge_ok = True
+        except GitError:
+            log.info("merge_conflict_detected", job_id=job_id, branch=branch)
+
+        if merge_ok:
+            return True, []
+
+        # Merge failed — abort, collect conflict files
+        await self._git.merge_abort(cwd=repo_path)
+        conflict_files = await self._get_conflict_file_list(repo_path, branch, base_ref)
+
+        try:
+            await self._git.checkout(base_ref, cwd=repo_path)
+        except Exception:
+            log.warning("checkout_base_ref_failed", job_id=job_id, exc_info=True)
+
+        return False, conflict_files
+
     async def _merge_in_worktree(
         self,
         job_id: str,
@@ -191,20 +262,7 @@ class MergeService:
         Saves and restores the original branch + stash to avoid corrupting
         any other job that may be using the main worktree.
         """
-
-        # Remember what the main worktree was doing so we can restore it.
-        original_branch: str | None = None
-        main_stashed = False
-
-        with contextlib.suppress(Exception):
-            original_branch = await self._git.get_current_branch(cwd=repo_path)
-
-        try:
-            main_stashed = await self._git.stash(cwd=repo_path)
-        except Exception:
-            log.warning("merge_main_stash_failed", job_id=job_id, exc_info=True)
-
-        try:
+        async with self._preserved_worktree(repo_path, job_id, "merge"):
             result = await self._do_merge_steps(
                 job_id,
                 repo_path,
@@ -213,19 +271,6 @@ class MergeService:
                 base_ref,
                 prompt,
             )
-        finally:
-            # Restore the main worktree to its original branch, then pop stash.
-            if original_branch:
-                try:
-                    await self._git.checkout(original_branch, cwd=repo_path)
-                except Exception:
-                    log.warning("merge_restore_branch_failed", job_id=job_id, exc_info=True)
-            if main_stashed:
-                try:
-                    await self._git.stash_pop(cwd=repo_path)
-                except Exception:
-                    log.warning("merge_main_stash_pop_failed", job_id=job_id, exc_info=True)
-
         return result
 
     async def _do_merge_steps(
@@ -238,20 +283,9 @@ class MergeService:
         prompt: str,
     ) -> MergeResult:
         """Checkout + merge in the main worktree (caller handles stash/restore)."""
-        from backend.services.git_service import GitError
-
-        # Try regular merge (FF already failed via ref update path)
-        merge_ok = False
-        try:
-            await self._git.checkout(base_ref, cwd=repo_path)
-            await self._git.merge(
-                branch,
-                cwd=repo_path,
-                message=f"Merge {branch} (CodePlane {job_id})",
-            )
-            merge_ok = True
-        except GitError:
-            log.info("merge_conflict_detected", job_id=job_id, branch=branch)
+        merge_ok, conflict_files = await self._checkout_and_merge(
+            job_id, repo_path, branch, base_ref,
+        )
 
         if merge_ok:
             log.info("merge_succeeded", job_id=job_id, branch=branch, base_ref=base_ref)
@@ -259,15 +293,6 @@ class MergeService:
             await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
             await self._update_merge_status(job_id, "merged")
             return MergeResult(status="merged", strategy="merge")
-
-        # Merge failed — abort, report conflict, leave resolution to operator
-        await self._git.merge_abort(cwd=repo_path)
-        conflict_files = await self._get_conflict_file_list(repo_path, branch, base_ref)
-
-        try:
-            await self._git.checkout(base_ref, cwd=repo_path)
-        except Exception:
-            log.warning("checkout_base_ref_failed", job_id=job_id, exc_info=True)
 
         log.info("merge_conflict_detected", job_id=job_id, conflict_files=conflict_files)
 
@@ -330,7 +355,7 @@ class MergeService:
             cwd=cwd,
             head=branch,
             base=base_ref,
-            title=f"[CodePlane] {prompt[:80]}",
+            title=f"[CodePlane] {prompt[:_PR_TITLE_MAX_PROMPT_LEN]}",
             body=f"Automated PR created by CodePlane for job `{job_id}`.",
         )
 
@@ -551,32 +576,10 @@ class MergeService:
         base_ref: str,
     ) -> MergeResult:
         """Operator merge using checkout (lock must be held)."""
-        from backend.services.git_service import GitError
-
-        original_branch: str | None = None
-        main_stashed = False
-
-        with contextlib.suppress(Exception):
-            original_branch = await self._git.get_current_branch(cwd=repo_path)
-
-        try:
-            main_stashed = await self._git.stash(cwd=repo_path)
-        except Exception:
-            log.warning("resolve_main_stash_failed", job_id=job_id, exc_info=True)
-
-        try:
-            # Try regular merge
-            merge_ok = False
-            try:
-                await self._git.checkout(base_ref, cwd=repo_path)
-                await self._git.merge(
-                    branch,
-                    cwd=repo_path,
-                    message=f"Merge {branch} (CodePlane {job_id})",
-                )
-                merge_ok = True
-            except GitError:
-                log.info("resolve_merge_conflict", job_id=job_id, branch=branch)
+        async with self._preserved_worktree(repo_path, job_id, "resolve"):
+            merge_ok, conflict_files = await self._checkout_and_merge(
+                job_id, repo_path, branch, base_ref,
+            )
 
             if merge_ok:
                 log.info("resolve_merge_succeeded", job_id=job_id, branch=branch)
@@ -584,15 +587,6 @@ class MergeService:
                 await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
                 await self._update_merge_status(job_id, "merged")
                 return MergeResult(status="merged", strategy="merge")
-
-            # Conflict — abort merge, report conflict files
-            await self._git.merge_abort(cwd=repo_path)
-            conflict_files = await self._get_conflict_file_list(repo_path, branch, base_ref)
-
-            try:
-                await self._git.checkout(base_ref, cwd=repo_path)
-            except Exception:
-                log.warning("checkout_base_ref_failed", job_id=job_id, exc_info=True)
 
             await self._publish_merge_conflict(
                 job_id,
@@ -603,17 +597,6 @@ class MergeService:
                 pr_url=None,
             )
             return MergeResult(status="conflict", conflict_files=conflict_files)
-        finally:
-            if original_branch:
-                try:
-                    await self._git.checkout(original_branch, cwd=repo_path)
-                except Exception:
-                    log.warning("resolve_restore_branch_failed", job_id=job_id, exc_info=True)
-            if main_stashed:
-                try:
-                    await self._git.stash_pop(cwd=repo_path)
-                except Exception:
-                    log.warning("resolve_main_stash_pop_failed", job_id=job_id, exc_info=True)
 
     async def _operator_smart_merge(
         self,
