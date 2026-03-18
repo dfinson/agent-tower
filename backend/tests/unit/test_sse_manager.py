@@ -101,6 +101,23 @@ class TestBuildSSEData:
         parsed = json.loads(result)
         assert parsed["newState"] == "running"
 
+    def test_transcript_update_includes_tool_issue(self) -> None:
+        event = _make_event(
+            kind=DomainEventKind.transcript_updated,
+            payload={
+                "seq": 3,
+                "role": "tool_call",
+                "content": "replace_string_in_file",
+                "tool_name": "replace_string_in_file",
+                "tool_success": False,
+                "tool_issue": "oldString not found",
+            },
+        )
+        result = _build_sse_data(event, "transcript_update")
+        parsed = json.loads(result)
+        assert parsed["toolSuccess"] is False
+        assert parsed["toolIssue"] == "oldString not found"
+
 
 # --- SSEConnection tests ---
 

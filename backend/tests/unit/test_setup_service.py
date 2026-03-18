@@ -11,6 +11,7 @@ from backend.services.setup_service import (
     _check_command,
     _get_env_persistence_instructions,
     _offer_inline_fix,
+    _should_prompt_for_warning,
     preflight_check,
 )
 
@@ -125,9 +126,9 @@ class TestOfferInlineFix:
             patch("backend.services.setup_service.subprocess.run") as mock_run,
         ):
             mock_run.return_value = type("Result", (), {"returncode": 0, "stderr": ""})()
-            assert _offer_inline_fix(warning) is True
+            assert _offer_inline_fix(warning) == "fixed"
 
-    def test_failed_fix_then_continue_returns_false(self) -> None:
+    def test_failed_fix_then_continue_returns_continued(self) -> None:
         warning = CheckResult(
             label="Claude Code",
             status=CheckStatus.warn,
@@ -150,7 +151,27 @@ class TestOfferInlineFix:
             patch("backend.services.setup_service.subprocess.run") as mock_run,
         ):
             mock_run.return_value = type("Result", (), {"returncode": 243, "stderr": "npm error code EACCES"})()
-            assert _offer_inline_fix(warning) is False
+            assert _offer_inline_fix(warning) == "continued"
+
+    def test_explicit_skip_returns_skipped(self) -> None:
+        warning = CheckResult(
+            label="Claude Code",
+            status=CheckStatus.warn,
+            detail="Python SDK installed, claude CLI not on PATH",
+            category="agent",
+        )
+
+        with (
+            patch(
+                "backend.services.setup_service.check_agent_cli",
+                return_value=self._CLAUDE_NOT_ON_PATH,
+            ),
+            patch(
+                "backend.services.setup_service._prompt_select",
+                return_value=("skip", []),
+            ),
+        ):
+            assert _offer_inline_fix(warning) == "skipped"
 
     def test_failed_fix_then_abort_raises(self) -> None:
         warning = CheckResult(
@@ -209,4 +230,30 @@ class TestOfferInlineFix:
             patch("backend.services.setup_service.subprocess.run") as mock_run,
         ):
             mock_run.return_value = type("Result", (), {"returncode": 243, "stderr": "npm error"})()
-            assert _offer_inline_fix(warning) is True
+            assert _offer_inline_fix(warning) == "fixed"
+
+
+class TestPromptSuppression:
+    def test_default_agent_warning_still_prompts(self) -> None:
+        warning = CheckResult(label="GitHub Copilot", status=CheckStatus.warn, category="agent")
+        assert _should_prompt_for_warning(warning, "copilot", ["copilot"]) is True
+
+    def test_inactive_agent_warning_prompts_if_not_suppressed(self) -> None:
+        warning = CheckResult(label="Claude Code", status=CheckStatus.warn, category="agent")
+        assert _should_prompt_for_warning(warning, "copilot", []) is True
+
+    @patch("backend.services.setup_service.check_agent_cli")
+    def test_inactive_agent_warning_is_suppressed_when_default_is_ready(self, mock_check_agent_cli) -> None:
+        warning = CheckResult(label="Claude Code", status=CheckStatus.warn, category="agent")
+        mock_check_agent_cli.return_value = AgentCLIStatus(
+            "copilot", "GitHub Copilot", True, True, True, "github-copilot-sdk 0.1.0", ""
+        )
+        assert _should_prompt_for_warning(warning, "copilot", ["claude"]) is False
+
+    @patch("backend.services.setup_service.check_agent_cli")
+    def test_inactive_agent_warning_still_prompts_when_default_is_not_ready(self, mock_check_agent_cli) -> None:
+        warning = CheckResult(label="Claude Code", status=CheckStatus.warn, category="agent")
+        mock_check_agent_cli.return_value = AgentCLIStatus(
+            "copilot", "GitHub Copilot", False, False, False, "not installed", "Install: uv add github-copilot-sdk"
+        )
+        assert _should_prompt_for_warning(warning, "copilot", ["claude"]) is True
