@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+import structlog
 from fastapi import APIRouter, Query, Request
 
 if TYPE_CHECKING:
@@ -63,7 +64,11 @@ async def stream_events(
                             approval_repo=approval_repo,
                         )
                 except (ValueError, TypeError):
-                    pass  # invalid Last-Event-ID, skip replay
+                    structlog.get_logger().warning(
+                        "sse_replay_invalid_last_event_id",
+                        last_event_id=header_last_id,
+                        exc_info=True,
+                    )
 
             # Send immediate heartbeat so the connection is established
             # and proxies see data flowing immediately.

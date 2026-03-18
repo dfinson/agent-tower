@@ -571,7 +571,7 @@ class ClaudeAdapter(AgentAdapterInterface):
                         collected.append(result)
                     break
         except Exception:
-            log.error("claude_complete_failed", exc_info=True)
+            log.error("claude_complete_failed", prompt_len=len(prompt), exc_info=True)
             return ""
         return "\n".join(collected)
 

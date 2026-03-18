@@ -104,6 +104,7 @@ class DiffService:
             try:
                 effective_base = await self._git.merge_base(base_ref, "HEAD", cwd=worktree_path)
             except Exception:
+                log.debug("merge_base_fallback", worktree=worktree_path, base_ref=base_ref, exc_info=True)
                 effective_base = base_ref  # fallback to two-dot if merge-base fails
             raw = await self._git.diff(
                 effective_base,

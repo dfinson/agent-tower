@@ -577,7 +577,10 @@ class CopilotAdapter(AgentAdapterInterface):
         if session is None:
             log.warning("copilot_send_no_session", session_id=session_id)
             return
-        await session.send({"prompt": message, "mode": "immediate", "attachments": []})
+        try:
+            await session.send({"prompt": message, "mode": "immediate", "attachments": []})
+        except Exception:
+            log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
 
     async def abort_session(self, session_id: str) -> None:
         session = self._sessions.get(session_id)
@@ -637,7 +640,7 @@ class CopilotAdapter(AgentAdapterInterface):
                 log.warning("complete_timeout")
             return "\n".join(collected)
         except Exception:
-            log.error("complete_failed", exc_info=True)
+            log.error("complete_failed", prompt_len=len(prompt), exc_info=True)
             return ""
         finally:
             try:
@@ -645,5 +648,5 @@ class CopilotAdapter(AgentAdapterInterface):
                 if s:
                     await s.abort()
             except Exception:
-                pass
+                log.warning("copilot_complete_cleanup_failed", session_id=tmp_session_id, exc_info=True)
             self._cleanup_session(tmp_session_id)

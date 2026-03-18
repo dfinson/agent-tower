@@ -254,7 +254,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         finally:
             await _model_client.stop()
     except Exception as exc:
-        log.warning("model_cache_failed", error=str(exc))
+        log.warning("model_cache_failed", error=str(exc), exc_info=True)
     app.state.cached_models = cached_models
 
     # --- Voice service ---
@@ -609,6 +609,7 @@ class _TunnelWatchdog:
             with urllib.request.urlopen(req, timeout=self._HTTP_TIMEOUT) as resp:
                 return bool(resp.status == 200)
         except Exception:
+            log.debug("tunnel_health_check_failed", tunnel=self.tunnel_name, exc_info=True)
             return False
 
     def _restart_host(self) -> None:
@@ -624,6 +625,7 @@ class _TunnelWatchdog:
             self.proc.terminate()
             self.proc.wait(timeout=5)
         except Exception:
+            log.debug("tunnel_terminate_failed_forcing_kill", tunnel=self.tunnel_name, exc_info=True)
             with contextlib.suppress(Exception):
                 self.proc.kill()
 
@@ -716,7 +718,7 @@ def _start_tunnel(port: int) -> tuple[str | None, Any]:
                 if tid.startswith(tunnel_name) and "." in tid:
                     tunnel_region = tid.split(".")[1]
         except (json.JSONDecodeError, KeyError):
-            pass
+            log.warning("tunnel_list_parse_failed", exc_info=True)
 
         if tunnel_name not in existing_tunnels:
             # Create the tunnel
@@ -827,7 +829,7 @@ def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | Non
         qr.print_ascii(invert=True)
         click.echo(f"\n  Scan to open: {url}\n")
     except ImportError:
-        pass
+        log.debug("qrcode_not_installed")
 
 
 @cli.command()

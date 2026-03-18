@@ -258,9 +258,8 @@ def _resolve_protected_paths(repo_path: str) -> list[str]:
         paths = data.get("protected_paths", [])
         return [str(p) for p in paths] if isinstance(paths, list) else []
     except Exception:
+        log.warning("protected_paths_read_failed", path=str(codeplane_yml), exc_info=True)
         return []
-
-
 def _resolve_permission_mode(repo_path: str) -> str | None:
     """Read permission_mode from .codeplane.yml if present (per-repo override)."""
     from pathlib import Path
@@ -278,6 +277,7 @@ def _resolve_permission_mode(repo_path: str) -> str | None:
             return str(mode)
         return None
     except Exception:
+        log.warning("permission_mode_read_failed", path=str(codeplane_yml), exc_info=True)
         return None
 
 
@@ -575,6 +575,7 @@ class RuntimeService:
 
             if error_reason:
                 # An error event was received during execution — finalize diff before failing
+                log.warning("job_error_reason_detected", job_id=job_id, error_reason=error_reason)
                 if self._diff_service is not None and worktree_path and base_ref:
                     try:
                         await self._diff_service.finalize(job_id, worktree_path, base_ref)
@@ -792,6 +793,7 @@ class RuntimeService:
 
             if domain_event.kind == DomainEventKind.job_failed:
                 error_reason = domain_event.payload.get("message", "Agent error")
+                log.warning("agent_error_event", job_id=job_id, error_reason=error_reason)
 
             if domain_event.kind == DomainEventKind.transcript_updated and job_id in self._echo_suppress:
                 content = domain_event.payload.get("content", "")
