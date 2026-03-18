@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api import approvals, artifacts, events, health, jobs, settings, terminal, voice, workspace
-from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, init_config, load_config
+from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, load_config
 from backend.persistence.database import create_engine, create_session_factory, run_migrations
 from backend.persistence.event_repo import EventRepository
 from backend.services.adapter_registry import AdapterRegistry
@@ -432,11 +432,22 @@ def _build_frontend() -> bool:
 @click.option("--tunnel", is_flag=True, help="Start Dev Tunnel for remote access")
 @click.option("--password", default=None, help="Set auth password (auto-generated if --tunnel without --password)")
 @click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --tunnel)")
-def up(host: str | None, port: int | None, dev: bool, tunnel: bool, password: str | None, no_password: bool) -> None:
+@click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
+def up(
+    host: str | None, port: int | None, dev: bool, tunnel: bool,
+    password: str | None, no_password: bool, skip_preflight: bool,
+) -> None:
     """Start the CodePlane server."""
     config = load_config()
     host = host or config.server.host
     port = port or config.server.port
+
+    # Run preflight checks before starting
+    if not skip_preflight:
+        from backend.services.setup_service import run_preflight
+
+        if not run_preflight(port):
+            raise SystemExit(1)
 
     # Password logic: auto-generate for tunnel, allow explicit, block unsafe combos
     if tunnel and no_password:
@@ -527,6 +538,7 @@ def up(host: str | None, port: int | None, dev: bool, tunnel: bool, password: st
 # Tunnel watchdog — restart devtunnel host when the relay drops
 # ---------------------------------------------------------------------------
 
+
 class _TunnelWatchdog:
     """Background thread that pings the tunnel URL and restarts devtunnel host
     when the relay connection goes stale.
@@ -537,8 +549,8 @@ class _TunnelWatchdog:
     """
 
     _CHECK_INTERVAL = 10  # seconds between health checks
-    _FAIL_THRESHOLD = 2   # consecutive failures before restart
-    _HTTP_TIMEOUT = 5     # seconds per health check request
+    _FAIL_THRESHOLD = 2  # consecutive failures before restart
+    _HTTP_TIMEOUT = 5  # seconds per health check request
 
     def __init__(self, *, tunnel_url: str, tunnel_name: str, port: int, proc: Any) -> None:
         self.tunnel_url = tunnel_url
@@ -794,19 +806,6 @@ def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | Non
 
 
 @cli.command()
-def init() -> None:
-    """Create default configuration at ~/.codeplane/config.yaml."""
-    import backend.config as _cfg
-
-    if _cfg.DEFAULT_CONFIG_PATH.exists():
-        click.echo(f"Configuration already exists at {_cfg.DEFAULT_CONFIG_PATH}")
-        click.echo("Delete it first if you want to regenerate defaults.")
-        return
-    path = init_config()
-    click.echo(f"Created default configuration at {path}")
-
-
-@cli.command()
 def version() -> None:
     """Print CodePlane version."""
     click.echo("cpl 0.1.0")
@@ -821,16 +820,13 @@ def setup() -> None:
 
 
 @cli.command()
-def doctor() -> None:
-    """Quick dependency check (non-interactive)."""
-    from backend.services.setup_service import preflight_check
+@click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
+def doctor(as_json: bool) -> None:
+    """Full non-interactive health check — deps, auth, SDK, environment."""
+    from backend.services.setup_service import run_doctor
 
-    click.echo("Checking dependencies...")
-    ok = preflight_check(verbose=True)
-    if ok:
-        click.secho("\nAll required dependencies are present.", fg="green")
-    else:
-        click.secho("\nSome required dependencies are missing. Run 'cpl setup' to install.", fg="red")
+    ok = run_doctor(as_json=as_json)
+    if not ok:
         raise SystemExit(1)
 
 
