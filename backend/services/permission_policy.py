@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import re
 from enum import StrEnum
+from typing import NamedTuple
 
 import structlog
 
@@ -59,6 +60,102 @@ def _is_path_within_workspace(path: str, workspace: str) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Rule table
+# ---------------------------------------------------------------------------
+
+_A = PolicyDecision.approve
+_D = PolicyDecision.deny
+_K = PolicyDecision.ask  # "asK" — avoids shadowing `ask` builtin
+
+# Sentinel callables for special-case evaluation
+_SHELL_RO = "shell_readonly"  # approve if readonly shell, else <fallback>
+_PATH_WS = "path_in_ws"  # approve if target is inside workspace
+_MCP_RO = "mcp_readonly"  # approve if mcp tool is read-only
+_READ_WS = "read_in_ws"  # approve if read target is in workspace (deny otherwise)
+
+
+class _Rule(NamedTuple):
+    decision: PolicyDecision | str
+    fallback: PolicyDecision = _A  # used by compound rules
+
+
+# (mode, kind) → rule.  Missing entries fall through to the mode default.
+_RULES: dict[tuple[str, str], _Rule] = {
+    # ── AUTO ──────────────────────────────────────────────────────────
+    ("auto", "read"):        _Rule(_A),
+    ("auto", "memory"):      _Rule(_A),
+    ("auto", "write"):       _Rule(_PATH_WS, _A),  # approve; workspace path check first
+    ("auto", "shell"):       _Rule(_A),
+    ("auto", "mcp"):         _Rule(_A),
+    ("auto", "url"):         _Rule(_A),
+    ("auto", "custom-tool"): _Rule(_A),
+    # ── READ_ONLY ────────────────────────────────────────────────────
+    ("read_only", "memory"):      _Rule(_A),
+    ("read_only", "read"):        _Rule(_READ_WS),
+    ("read_only", "shell"):       _Rule(_SHELL_RO, _D),
+    ("read_only", "mcp"):         _Rule(_MCP_RO, _D),
+    ("read_only", "write"):       _Rule(_D),
+    ("read_only", "url"):         _Rule(_D),
+    ("read_only", "custom-tool"): _Rule(_D),
+    # ── APPROVAL_REQUIRED ────────────────────────────────────────────
+    ("approval_required", "memory"):      _Rule(_A),
+    ("approval_required", "read"):        _Rule(_A),
+    ("approval_required", "shell"):       _Rule(_SHELL_RO, _K),
+    ("approval_required", "write"):       _Rule(_K),
+    ("approval_required", "url"):         _Rule(_K),
+    ("approval_required", "mcp"):         _Rule(_MCP_RO, _K),
+    ("approval_required", "custom-tool"): _Rule(_K),
+}
+
+# Default decisions when a (mode, kind) pair is not in the table.
+_MODE_DEFAULTS: dict[str, PolicyDecision] = {
+    "auto": _A,
+    "read_only": _D,
+    "approval_required": _K,
+}
+
+
+def _resolve(
+    rule: _Rule,
+    *,
+    workspace_path: str,
+    file_name: str | None,
+    path: str | None,
+    possible_paths: list[str] | None,
+    full_command_text: str | None,
+    read_only: bool | None,
+) -> PolicyDecision:
+    """Resolve a rule entry into a concrete PolicyDecision."""
+    decision = rule.decision
+
+    if isinstance(decision, PolicyDecision):
+        return decision
+
+    if decision == _PATH_WS:
+        target = file_name or path
+        if target and _is_path_within_workspace(target, workspace_path):
+            return _A
+        if possible_paths and all(_is_path_within_workspace(p, workspace_path) for p in possible_paths):
+            return _A
+        return rule.fallback
+
+    if decision == _SHELL_RO:
+        cmd = full_command_text or ""
+        return _A if _READONLY_SHELL_RE.match(cmd) else rule.fallback
+
+    if decision == _MCP_RO:
+        return _A if read_only else rule.fallback
+
+    if decision == _READ_WS:
+        target = file_name or path
+        if target is None or _is_path_within_workspace(target, workspace_path):
+            return _A
+        return _D
+
+    return rule.fallback  # pragma: no cover
+
+
 def evaluate_auto(
     *,
     kind: str,
@@ -68,38 +165,14 @@ def evaluate_auto(
     path: str | None = None,
 ) -> PolicyDecision:
     """AUTO mode: approve everything that touches the current worktree."""
-
-    # All reads — approve
-    if kind in ("read", "memory"):
-        return PolicyDecision.approve
-
-    # Writes/shells within workspace — approve
-    target = file_name or path
-    if target and _is_path_within_workspace(target, workspace_path):
-        return PolicyDecision.approve
-
-    # Check possible_paths
-    if possible_paths and all(_is_path_within_workspace(p, workspace_path) for p in possible_paths):
-        return PolicyDecision.approve
-
-    # Shell commands — approve (agent has full execution permission)
-    if kind == "shell":
-        return PolicyDecision.approve
-
-    # MCP tools — approve
-    if kind == "mcp":
-        return PolicyDecision.approve
-
-    # URL fetches — approve
-    if kind == "url":
-        return PolicyDecision.approve
-
-    # Writes with no path info — approve (trust the agent)
-    if kind == "write":
-        return PolicyDecision.approve
-
-    # Unknown — approve (AUTO = full trust)
-    return PolicyDecision.approve
+    return _evaluate(
+        "auto",
+        kind=kind,
+        workspace_path=workspace_path,
+        possible_paths=possible_paths,
+        file_name=file_name,
+        path=path,
+    )
 
 
 def evaluate_read_only(
@@ -112,36 +185,15 @@ def evaluate_read_only(
     read_only: bool | None = None,
 ) -> PolicyDecision:
     """READ_ONLY mode: allow reads within worktree + grep/find. Block everything else."""
-
-    # Memory — approve
-    if kind == "memory":
-        return PolicyDecision.approve
-
-    # Reads within workspace — approve
-    if kind == "read":
-        target = file_name or path
-        if target is None or _is_path_within_workspace(target, workspace_path):
-            return PolicyDecision.approve
-        return PolicyDecision.deny
-
-    # Shell: only grep/find allowed
-    if kind == "shell":
-        cmd = full_command_text or ""
-        if _READONLY_SHELL_RE.match(cmd):
-            return PolicyDecision.approve
-        return PolicyDecision.deny
-
-    # MCP: only read-only tools
-    if kind == "mcp":
-        if read_only:
-            return PolicyDecision.approve
-        return PolicyDecision.deny
-
-    # Writes, URL fetches — deny
-    if kind in ("write", "url", "custom-tool"):
-        return PolicyDecision.deny
-
-    return PolicyDecision.deny
+    return _evaluate(
+        "read_only",
+        kind=kind,
+        workspace_path=workspace_path,
+        full_command_text=full_command_text,
+        file_name=file_name,
+        path=path,
+        read_only=read_only,
+    )
 
 
 def evaluate_approval_required(
@@ -154,40 +206,42 @@ def evaluate_approval_required(
     read_only: bool | None = None,
 ) -> PolicyDecision:
     """APPROVAL_REQUIRED mode: always allow read_file. Require approval for the rest."""
+    return _evaluate(
+        "approval_required",
+        kind=kind,
+        workspace_path=workspace_path,
+        full_command_text=full_command_text,
+        file_name=file_name,
+        path=path,
+        read_only=read_only,
+    )
 
-    # Memory — approve
-    if kind == "memory":
-        return PolicyDecision.approve
 
-    # Reads — always approve
-    if kind == "read":
-        return PolicyDecision.approve
+def _evaluate(
+    mode: str,
+    *,
+    kind: str,
+    workspace_path: str,
+    possible_paths: list[str] | None = None,
+    file_name: str | None = None,
+    path: str | None = None,
+    full_command_text: str | None = None,
+    read_only: bool | None = None,
+) -> PolicyDecision:
+    """Core dispatcher: look up (mode, kind) in the rule table and resolve."""
+    rule = _RULES.get((mode, kind))
+    if rule is None:
+        default = _MODE_DEFAULTS.get(mode, _K)
+        if default == _K:
+            log.warning("unknown_permission_kind", kind=kind)
+        return default
 
-    # Shell: grep/find auto-approve, everything else needs approval
-    if kind == "shell":
-        cmd = full_command_text or ""
-        if _READONLY_SHELL_RE.match(cmd):
-            return PolicyDecision.approve
-        return PolicyDecision.ask
-
-    # Writes — need approval
-    if kind == "write":
-        return PolicyDecision.ask
-
-    # URL fetches — need approval
-    if kind == "url":
-        return PolicyDecision.ask
-
-    # MCP: read-only auto-approve, mutations need approval
-    if kind == "mcp":
-        if read_only:
-            return PolicyDecision.approve
-        return PolicyDecision.ask
-
-    # Custom tools — need approval
-    if kind == "custom-tool":
-        return PolicyDecision.ask
-
-    # Unknown — ask
-    log.warning("unknown_permission_kind", kind=kind)
-    return PolicyDecision.ask
+    return _resolve(
+        rule,
+        workspace_path=workspace_path,
+        file_name=file_name,
+        path=path,
+        possible_paths=possible_paths,
+        full_command_text=full_command_text,
+        read_only=read_only,
+    )

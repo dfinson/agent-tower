@@ -123,183 +123,230 @@ def _format_sse(event_id: str | None, event_type: str, data: str) -> str:
     return "\n".join(parts) + "\n\n"
 
 
+def _build_job_state_changed(event: DomainEvent) -> str:
+    new_state = _KIND_TO_STATE.get(event.kind, event.payload.get("state", event.payload.get("new_state", "queued")))
+    return JobStateChangedPayload(
+        job_id=event.job_id,
+        previous_state=event.payload.get("previous_state"),
+        new_state=new_state,
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+def _build_log_line(event: DomainEvent) -> str:
+    return LogLinePayload(
+        job_id=event.job_id,
+        seq=event.payload.get("seq", 0),
+        timestamp=event.payload.get("timestamp", event.timestamp),
+        level=event.payload.get("level", "info"),
+        message=event.payload.get("message", ""),
+        context=event.payload.get("context"),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_transcript_update(event: DomainEvent) -> str:
+    return TranscriptPayload(
+        job_id=event.job_id,
+        seq=event.payload.get("seq", 0),
+        timestamp=event.payload.get("timestamp", event.timestamp),
+        role=event.payload.get("role", "agent"),
+        content=event.payload.get("content", ""),
+        title=event.payload.get("title"),
+        turn_id=event.payload.get("turn_id"),
+        tool_name=event.payload.get("tool_name"),
+        tool_args=event.payload.get("tool_args"),
+        tool_result=event.payload.get("tool_result"),
+        tool_success=event.payload.get("tool_success"),
+        tool_issue=event.payload.get("tool_issue"),
+        tool_intent=event.payload.get("tool_intent"),
+        tool_title=event.payload.get("tool_title"),
+        tool_display=event.payload.get("tool_display"),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_diff_update(event: DomainEvent) -> str:
+    return DiffUpdatePayload(
+        job_id=event.job_id,
+        changed_files=event.payload.get("changed_files", []),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_approval_requested(event: DomainEvent) -> str:
+    return ApprovalRequestedPayload(
+        job_id=event.job_id,
+        approval_id=event.payload.get("approval_id", ""),
+        description=event.payload.get("description", ""),
+        proposed_action=event.payload.get("proposed_action"),
+        timestamp=event.payload.get("timestamp", event.timestamp),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_approval_resolved(event: DomainEvent) -> str:
+    return ApprovalResolvedPayload(
+        job_id=event.job_id,
+        approval_id=event.payload.get("approval_id", ""),
+        resolution=event.payload.get("resolution", ""),
+        timestamp=event.payload.get("timestamp", event.timestamp),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_session_heartbeat(event: DomainEvent) -> str:
+    return SessionHeartbeatPayload(
+        job_id=event.job_id,
+        session_id=event.payload.get("session_id", ""),
+        timestamp=event.payload.get("timestamp", event.timestamp),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_merge_completed(event: DomainEvent) -> str:
+    return MergeCompletedPayload(
+        job_id=event.job_id,
+        branch=event.payload.get("branch", ""),
+        base_ref=event.payload.get("base_ref", ""),
+        strategy=event.payload.get("strategy", ""),
+        timestamp=event.payload.get("timestamp", event.timestamp),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_merge_conflict(event: DomainEvent) -> str:
+    return MergeConflictPayload(
+        job_id=event.job_id,
+        branch=event.payload.get("branch", ""),
+        base_ref=event.payload.get("base_ref", ""),
+        conflict_files=event.payload.get("conflict_files", []),
+        fallback=event.payload.get("fallback", "none"),
+        pr_url=event.payload.get("pr_url"),
+        timestamp=event.payload.get("timestamp", event.timestamp),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_session_resumed(event: DomainEvent) -> str:
+    return SessionResumedPayload(
+        job_id=event.job_id,
+        session_number=event.payload.get("session_number", 1),
+        timestamp=event.payload.get("timestamp", event.timestamp),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_job_failed(event: DomainEvent) -> str:
+    return JobFailedPayload(
+        job_id=event.job_id,
+        reason=event.payload.get("reason", "Unknown error"),
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+def _build_job_succeeded(event: DomainEvent) -> str:
+    return JobSucceededPayload(
+        job_id=event.job_id,
+        pr_url=event.payload.get("pr_url"),
+        merge_status=event.payload.get("merge_status"),
+        resolution=event.payload.get("resolution"),
+        model_downgraded=bool(event.payload.get("model_downgraded", False)),
+        requested_model=event.payload.get("requested_model"),
+        actual_model=event.payload.get("actual_model"),
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+def _build_job_resolved(event: DomainEvent) -> str:
+    return JobResolvedPayload(
+        job_id=event.job_id,
+        resolution=event.payload.get("resolution", "unresolved"),
+        pr_url=event.payload.get("pr_url"),
+        conflict_files=event.payload.get("conflict_files"),
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+def _build_job_archived(event: DomainEvent) -> str:
+    return JobArchivedPayload(
+        job_id=event.job_id,
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+def _build_job_title_updated(event: DomainEvent) -> str:
+    return JobTitleUpdatedPayload(
+        job_id=event.job_id,
+        title=event.payload.get("title"),
+        branch=event.payload.get("branch"),
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+def _build_progress_headline(event: DomainEvent) -> str:
+    return ProgressHeadlinePayload(
+        job_id=event.job_id,
+        headline=event.payload.get("headline", ""),
+        headline_past=event.payload.get("headline_past", event.payload.get("headline", "")),
+        summary=event.payload.get("summary", ""),
+        timestamp=event.timestamp,
+        replaces_count=event.payload.get("replaces_count", 0),
+    ).model_dump_json(by_alias=True)
+
+
+def _build_model_downgraded(event: DomainEvent) -> str:
+    return ModelDowngradedPayload(
+        job_id=event.job_id,
+        requested_model=event.payload.get("requested_model", ""),
+        actual_model=event.payload.get("actual_model", ""),
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+def _build_tool_group_summary(event: DomainEvent) -> str:
+    return ToolGroupSummaryPayload(
+        job_id=event.job_id,
+        turn_id=event.payload.get("turn_id", ""),
+        summary=event.payload.get("summary", ""),
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+def _build_agent_plan_updated(event: DomainEvent) -> str:
+    raw_steps = event.payload.get("steps", [])
+    steps = [AgentPlanStep(label=s.get("label", ""), status=s.get("status", "pending")) for s in raw_steps]
+    return AgentPlanPayload(
+        job_id=event.job_id,
+        steps=steps,
+        timestamp=event.timestamp,
+    ).model_dump_json(by_alias=True)
+
+
+from collections.abc import Callable
+
+_SSE_BUILDERS: dict[str, Callable[[DomainEvent], str]] = {
+    "job_state_changed": _build_job_state_changed,
+    "log_line": _build_log_line,
+    "transcript_update": _build_transcript_update,
+    "diff_update": _build_diff_update,
+    "approval_requested": _build_approval_requested,
+    "approval_resolved": _build_approval_resolved,
+    "session_heartbeat": _build_session_heartbeat,
+    "merge_completed": _build_merge_completed,
+    "merge_conflict": _build_merge_conflict,
+    "session_resumed": _build_session_resumed,
+    "job_failed": _build_job_failed,
+    "job_succeeded": _build_job_succeeded,
+    "job_resolved": _build_job_resolved,
+    "job_archived": _build_job_archived,
+    "job_title_updated": _build_job_title_updated,
+    "progress_headline": _build_progress_headline,
+    "model_downgraded": _build_model_downgraded,
+    "tool_group_summary": _build_tool_group_summary,
+    "agent_plan_updated": _build_agent_plan_updated,
+}
+
+
 def _build_sse_data(event: DomainEvent, sse_type: str) -> str:
     """Serialize the domain event payload via the appropriate Pydantic SSE model.
 
     This ensures all SSE payloads use **camelCase** keys matching the API contract.
     """
-    if sse_type == "job_state_changed":
-        new_state = _KIND_TO_STATE.get(event.kind, event.payload.get("state", event.payload.get("new_state", "queued")))
-        return JobStateChangedPayload(
-            job_id=event.job_id,
-            previous_state=event.payload.get("previous_state"),
-            new_state=new_state,
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "log_line":
-        return LogLinePayload(
-            job_id=event.job_id,
-            seq=event.payload.get("seq", 0),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-            level=event.payload.get("level", "info"),
-            message=event.payload.get("message", ""),
-            context=event.payload.get("context"),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "transcript_update":
-        return TranscriptPayload(
-            job_id=event.job_id,
-            seq=event.payload.get("seq", 0),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-            role=event.payload.get("role", "agent"),
-            content=event.payload.get("content", ""),
-            title=event.payload.get("title"),
-            turn_id=event.payload.get("turn_id"),
-            tool_name=event.payload.get("tool_name"),
-            tool_args=event.payload.get("tool_args"),
-            tool_result=event.payload.get("tool_result"),
-            tool_success=event.payload.get("tool_success"),
-            tool_issue=event.payload.get("tool_issue"),
-            tool_intent=event.payload.get("tool_intent"),
-            tool_title=event.payload.get("tool_title"),
-            tool_display=event.payload.get("tool_display"),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "diff_update":
-        return DiffUpdatePayload(
-            job_id=event.job_id,
-            changed_files=event.payload.get("changed_files", []),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "approval_requested":
-        return ApprovalRequestedPayload(
-            job_id=event.job_id,
-            approval_id=event.payload.get("approval_id", ""),
-            description=event.payload.get("description", ""),
-            proposed_action=event.payload.get("proposed_action"),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "approval_resolved":
-        return ApprovalResolvedPayload(
-            job_id=event.job_id,
-            approval_id=event.payload.get("approval_id", ""),
-            resolution=event.payload.get("resolution", ""),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "session_heartbeat":
-        return SessionHeartbeatPayload(
-            job_id=event.job_id,
-            session_id=event.payload.get("session_id", ""),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "merge_completed":
-        return MergeCompletedPayload(
-            job_id=event.job_id,
-            branch=event.payload.get("branch", ""),
-            base_ref=event.payload.get("base_ref", ""),
-            strategy=event.payload.get("strategy", ""),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "merge_conflict":
-        return MergeConflictPayload(
-            job_id=event.job_id,
-            branch=event.payload.get("branch", ""),
-            base_ref=event.payload.get("base_ref", ""),
-            conflict_files=event.payload.get("conflict_files", []),
-            fallback=event.payload.get("fallback", "none"),
-            pr_url=event.payload.get("pr_url"),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "session_resumed":
-        return SessionResumedPayload(
-            job_id=event.job_id,
-            session_number=event.payload.get("session_number", 1),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "job_failed":
-        return JobFailedPayload(
-            job_id=event.job_id,
-            reason=event.payload.get("reason", "Unknown error"),
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "job_succeeded":
-        return JobSucceededPayload(
-            job_id=event.job_id,
-            pr_url=event.payload.get("pr_url"),
-            merge_status=event.payload.get("merge_status"),
-            resolution=event.payload.get("resolution"),
-            model_downgraded=bool(event.payload.get("model_downgraded", False)),
-            requested_model=event.payload.get("requested_model"),
-            actual_model=event.payload.get("actual_model"),
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "job_resolved":
-        return JobResolvedPayload(
-            job_id=event.job_id,
-            resolution=event.payload.get("resolution", "unresolved"),
-            pr_url=event.payload.get("pr_url"),
-            conflict_files=event.payload.get("conflict_files"),
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "job_archived":
-        return JobArchivedPayload(
-            job_id=event.job_id,
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "job_title_updated":
-        return JobTitleUpdatedPayload(
-            job_id=event.job_id,
-            title=event.payload.get("title"),
-            branch=event.payload.get("branch"),
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "progress_headline":
-        return ProgressHeadlinePayload(
-            job_id=event.job_id,
-            headline=event.payload.get("headline", ""),
-            headline_past=event.payload.get("headline_past", event.payload.get("headline", "")),
-            summary=event.payload.get("summary", ""),
-            timestamp=event.timestamp,
-            replaces_count=event.payload.get("replaces_count", 0),
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "model_downgraded":
-        return ModelDowngradedPayload(
-            job_id=event.job_id,
-            requested_model=event.payload.get("requested_model", ""),
-            actual_model=event.payload.get("actual_model", ""),
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "tool_group_summary":
-        return ToolGroupSummaryPayload(
-            job_id=event.job_id,
-            turn_id=event.payload.get("turn_id", ""),
-            summary=event.payload.get("summary", ""),
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
-    if sse_type == "agent_plan_updated":
-        raw_steps = event.payload.get("steps", [])
-        steps = [AgentPlanStep(label=s.get("label", ""), status=s.get("status", "pending")) for s in raw_steps]
-        return AgentPlanPayload(
-            job_id=event.job_id,
-            steps=steps,
-            timestamp=event.timestamp,
-        ).model_dump_json(by_alias=True)
-
+    builder = _SSE_BUILDERS.get(sse_type)
+    if builder is not None:
+        return builder(event)
     # Fallback (should not happen for known types)
     return json.dumps(event.payload, default=str)
 

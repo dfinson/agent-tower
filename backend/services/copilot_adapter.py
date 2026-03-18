@@ -17,6 +17,7 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.services.agent_adapter import AgentAdapterInterface
+from backend.services.claude_adapter import _CODEPLANE_SYSTEM_PROMPT
 from backend.services.permission_policy import (
     PolicyDecision,
     evaluate_approval_required,
@@ -210,10 +211,8 @@ class CopilotAdapter(AgentAdapterInterface):
             system_message={
                 "mode": "append",
                 "content": (
-                    "You are running inside CodePlane, a headless non-interactive orchestration "
-                    "framework. There is no human at a terminal. Do not enter plan mode or "
-                    "pause to present a plan for review. Proceed directly with task execution. "
-                    "Before making tool calls, call report_intent first to declare your current intent."
+                    _CODEPLANE_SYSTEM_PROMPT
+                    + " Before making tool calls, call report_intent first to declare your current intent."
                 ),
             },
         )

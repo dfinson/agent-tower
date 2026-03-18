@@ -16,6 +16,7 @@ import secrets
 import time
 from collections import defaultdict
 from pathlib import Path
+from string import Template
 from typing import Any
 
 from starlette.requests import Request  # noqa: TC002
@@ -95,90 +96,10 @@ def _is_localhost(request: Request) -> bool:
     return host in ("127.0.0.1", "::1", "localhost")
 
 
-_LOGIN_HTML_TEMPLATE = """\
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CodePlane — Login</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: #0d1117; color: #e6edf3;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    display: flex; align-items: center; justify-content: center;
-    min-height: 100vh;
-  }
-  .login-card {
-    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
-    padding: 32px; width: 360px; max-width: 90vw;
-  }
-  .logo { display: block; margin: 0 auto 12px; width: 80px; height: 80px; }
-  h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; text-align: center; }
-  .subtitle { color: #8b949e; font-size: 13px; text-align: center; margin-bottom: 24px; }
-  label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
-  input[type=password] {
-    width: 100%; padding: 10px 12px; background: #0d1117;
-    border: 1px solid #30363d; border-radius: 6px; color: #e6edf3;
-    font-size: 14px; font-family: inherit;
-  }
-  input:focus { outline: none; border-color: #58a6ff; }
-  button {
-    width: 100%; margin-top: 16px; padding: 10px; background: #238636;
-    border: 1px solid #2ea043; border-radius: 6px; color: #fff;
-    font-size: 14px; font-weight: 500; cursor: pointer;
-  }
-  button:hover { background: #2ea043; }
-  .error { color: #f85149; font-size: 13px; margin-top: 12px; text-align: center; display: none; }
-  .error.show { display: block; }
-</style>
-</head>
-<body>
-<div class="login-card">
-  <img class="logo" src="data:image/png;base64,{logo_b64}" alt="CodePlane" />
-  <h1>CodePlane</h1>
-  <p class="subtitle">Enter the password printed in your terminal</p>
-  <form id="login-form">
-    <label for="password">Password</label>
-    <input type="password" id="password" name="password" autofocus autocomplete="current-password" />
-    <button type="submit">Sign in</button>
-    <p class="error" id="error"></p>
-  </form>
-</div>
-<script>
-  const form = document.getElementById("login-form");
-  const pw = document.getElementById("password");
-  const err = document.getElementById("error");
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    err.className = "error";
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: pw.value }),
-      });
-      if (res.ok) {
-        window.location.href = "/";
-      } else {
-        const data = await res.json();
-        err.textContent = data.detail || "Invalid password";
-        err.className = "error show";
-        pw.value = "";
-        pw.focus();
-      }
-    } catch {
-      err.textContent = "Connection failed";
-      err.className = "error show";
-    }
-  });
-</script>
-</body>
-</html>
-"""
-
-_LOGIN_HTML = _LOGIN_HTML_TEMPLATE.replace("{logo_b64}", _logo_b64)
+_LOGIN_HTML_TEMPLATE = Template(
+    (Path(__file__).resolve().parent.parent / "templates" / "login.html").read_text()
+)
+_LOGIN_HTML = _LOGIN_HTML_TEMPLATE.safe_substitute(logo_b64=_logo_b64)
 
 
 async def handle_login(request: Request) -> Response:
