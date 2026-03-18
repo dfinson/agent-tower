@@ -9,6 +9,7 @@ import { AddRepoModal } from "./AddRepoModal";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
 import { Combobox } from "./ui/combobox";
 
 export function JobCreationScreen() {
@@ -27,6 +28,11 @@ export function JobCreationScreen() {
   const [sdk, setSdk] = useState<string>("copilot");
   const [sdks, setSdks] = useState<SDKInfo[]>([]);
   const [defaultSdk, setDefaultSdk] = useState<string>("copilot");
+  const [verify, setVerify] = useState<boolean | null>(null);
+  const [selfReview, setSelfReview] = useState<boolean | null>(null);
+  const [maxTurns, setMaxTurns] = useState<string>("");
+  const [verifyPrompt, setVerifyPrompt] = useState("");
+  const [selfReviewPrompt, setSelfReviewPrompt] = useState("");
 
   useEffect(() => {
     fetchRepos()
@@ -69,6 +75,11 @@ export function JobCreationScreen() {
         permission_mode: permissionMode,
         model: model || undefined,
         sdk: sdk !== defaultSdk ? sdk : undefined,
+        verify: verify ?? undefined,
+        self_review: selfReview ?? undefined,
+        max_turns: maxTurns ? parseInt(maxTurns, 10) || undefined : undefined,
+        verify_prompt: verifyPrompt || undefined,
+        self_review_prompt: selfReviewPrompt || undefined,
       });
       toast.success(`Job ${result.id} created`);
       navigate(`/jobs/${result.id}`);
@@ -77,7 +88,7 @@ export function JobCreationScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [repo, prompt, baseRef, branch, model, navigate, permissionMode, sdk, defaultSdk]);
+  }, [repo, prompt, baseRef, branch, model, navigate, permissionMode, sdk, defaultSdk, verify, selfReview, maxTurns, verifyPrompt, selfReviewPrompt]);
 
   return (
     <div className="max-w-xl mx-auto">
@@ -197,6 +208,70 @@ export function JobCreationScreen() {
                   onChange={(e) => setBranch(e.currentTarget.value)}
                 />
               </div>
+
+              <hr className="border-border" />
+              <p className="text-xs font-medium text-muted-foreground">Verification</p>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={verify === true}
+                  ref={(el) => { if (el) el.indeterminate = verify === null; }}
+                  onChange={(e) => setVerify(e.target.checked)}
+                  className="rounded border-border"
+                />
+                <span className="text-sm">Verify (run tests/lint after completion)</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selfReview === true}
+                  ref={(el) => { if (el) el.indeterminate = selfReview === null; }}
+                  onChange={(e) => setSelfReview(e.target.checked)}
+                  className="rounded border-border"
+                />
+                <span className="text-sm">Self-review (review diff for issues)</span>
+              </label>
+
+              {(verify || selfReview) && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>Max Verify Turns</Label>
+                  <Input
+                    type="number"
+                    placeholder="Default (from settings)"
+                    value={maxTurns}
+                    onChange={(e) => setMaxTurns(e.target.value)}
+                    min={1}
+                    max={10}
+                    className="w-32"
+                  />
+                </div>
+              )}
+
+              {verify && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>Verify Prompt</Label>
+                  <Textarea
+                    placeholder="Leave empty to use the default verify prompt"
+                    value={verifyPrompt}
+                    onChange={(e) => setVerifyPrompt(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+              )}
+
+              {selfReview && (
+                <div className="flex flex-col gap-1.5">
+                  <Label>Self-Review Prompt</Label>
+                  <Textarea
+                    placeholder="Leave empty to use the default self-review prompt"
+                    value={selfReviewPrompt}
+                    onChange={(e) => setSelfReviewPrompt(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+              )}
             </div>
           )}
 

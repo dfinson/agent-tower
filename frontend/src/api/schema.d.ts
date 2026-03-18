@@ -743,6 +743,16 @@ export interface components {
             model?: string | null;
             /** Sdk */
             sdk?: string | null;
+            /** Verify */
+            verify?: boolean | null;
+            /** Self Review */
+            self_review?: boolean | null;
+            /** Max Turns */
+            max_turns?: number | null;
+            /** Verify Prompt */
+            verify_prompt?: string | null;
+            /** Self Review Prompt */
+            self_review_prompt?: string | null;
         };
         /** CreateJobResponse */
         CreateJobResponse: {
@@ -887,6 +897,20 @@ export interface components {
             completionStrategy?: string | null;
             /** Sdk */
             sdk?: string;
+            /** Verify */
+            verify?: boolean | null;
+            /** Selfreview */
+            selfReview?: boolean | null;
+            /** Maxturns */
+            maxTurns?: number | null;
+            /** Verifyprompt */
+            verifyPrompt?: string | null;
+            /** Selfreviewprompt */
+            selfReviewPrompt?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Worktreename */
+            worktreeName?: string | null;
         };
         /**
          * LogLevel
