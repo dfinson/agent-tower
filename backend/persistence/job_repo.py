@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import and_, or_, select
 
 from backend.models.db import JobRow
-from backend.models.domain import Job
+from backend.models.domain import Job, PermissionMode
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ class JobRepository(BaseRepository):
             merge_status=row.merge_status,  # type: ignore[arg-type]
             title=row.title,  # type: ignore[arg-type]
             worktree_name=row.worktree_name,  # type: ignore[arg-type]
-            permission_mode=row.permission_mode or "auto",  # type: ignore[arg-type]
+            permission_mode=row.permission_mode or PermissionMode.auto,  # type: ignore[arg-type]
             session_count=row.session_count or 1,  # type: ignore[arg-type]
             sdk_session_id=row.sdk_session_id,  # type: ignore[arg-type]
             model=row.model,  # type: ignore[arg-type]

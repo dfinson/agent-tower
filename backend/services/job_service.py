@@ -15,6 +15,7 @@ from backend.models.domain import (
     InvalidStateTransitionError,
     Job,
     JobState,
+    PermissionMode,
     validate_state_transition,
 )
 from backend.services.agent_adapter import validate_sdk_model
@@ -83,7 +84,7 @@ class JobService:
         prompt: str,
         base_ref: str | None = None,
         branch: str | None = None,
-        permission_mode: str = "auto",
+        permission_mode: str = PermissionMode.auto,
         model: str | None = None,
         sdk: str | None = None,
         verify: bool | None = None,

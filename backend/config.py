@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from backend.models.domain import PermissionMode
+
 
 def _resolve_tower_dir() -> Path:
     """Resolve CODEPLANE_HOME from env var, falling back to ~/.codeplane."""
@@ -64,7 +66,7 @@ class ServerConfig:
 class RuntimeConfig:
     max_concurrent_jobs: int = 2
     worktrees_dirname: str = ".codeplane-worktrees"
-    permission_mode: str = "auto"  # auto | read_only | approval_required
+    permission_mode: str = PermissionMode.auto
     utility_model: str = "gpt-4o-mini"  # cheap/fast model for naming, summaries, etc.
     default_sdk: str = "copilot"  # copilot | claude
     suppressed_preflight_agent_prompts: list[str] = field(default_factory=list)

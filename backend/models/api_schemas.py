@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime  # noqa: TC003 — Pydantic resolves annotations at runtime
-from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
+
+from backend.models.domain import JobState, PermissionMode, Resolution
 
 
 class CamelModel(BaseModel):
@@ -31,35 +32,19 @@ class CamelModel(BaseModel):
 
 
 # --- Enums ---
+# JobState, PermissionMode, and Resolution are imported from backend.models.domain
+# (canonical definitions live there). Re-exported here for backward compatibility.
+
+from enum import StrEnum  # noqa: E402 — after domain imports to keep grouping clear
+
+# Alias so any code referencing api_schemas.ResolutionStatus still works.
+ResolutionStatus = Resolution
 
 
 class CompletionStrategy(StrEnum):
     auto_merge = "auto_merge"
     pr_only = "pr_only"
     manual = "manual"
-
-
-class ResolutionStatus(StrEnum):
-    unresolved = "unresolved"
-    merged = "merged"
-    pr_created = "pr_created"
-    discarded = "discarded"
-    conflict = "conflict"
-
-
-class PermissionMode(StrEnum):
-    auto = "auto"
-    read_only = "read_only"
-    approval_required = "approval_required"
-
-
-class JobState(StrEnum):
-    queued = "queued"
-    running = "running"
-    waiting_for_approval = "waiting_for_approval"
-    succeeded = "succeeded"
-    failed = "failed"
-    canceled = "canceled"
 
 
 class ApprovalResolution(StrEnum):
