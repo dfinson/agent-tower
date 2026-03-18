@@ -185,9 +185,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # --- Utility session pool (warm cheap model for naming / summaries) ---
+    # Pre-warm 5 sessions in parallel so the first burst of concurrent naming
+    # requests is served immediately without any cold-start delay.
     utility_session = UtilitySessionService(
         model=config.runtime.utility_model,
-        max_pool_fn=lambda: config.runtime.max_concurrent_jobs,
+        pool_size=5,
     )
     log.debug("utility_session_starting", model=config.runtime.utility_model)
     await utility_session.start()
