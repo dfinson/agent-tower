@@ -508,6 +508,82 @@ def render_summary(results: list[CheckResult]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Inline fix helpers (used by preflight)
+# ---------------------------------------------------------------------------
+
+# Map (category, label-substring) → shell commands that can fix the issue.
+_INLINE_FIX_COMMANDS: dict[str, list[str]] = {
+    "claude_cli": ["npm", "install", "-g", "@anthropic-ai/claude-code"],
+    "claude_sdk": ["uv", "add", "claude-code-sdk"],
+    "copilot_sdk": ["uv", "add", "github-copilot-sdk"],
+}
+
+
+def _offer_inline_fix(warning: CheckResult) -> bool:
+    """Offer to fix a single preflight warning in-place.
+
+    Returns True if the issue was resolved.
+    """
+    # Determine which fix(es) apply
+    fixes: list[tuple[str, list[str]]] = []
+
+    if warning.category == "agent":
+        cli = check_agent_cli(
+            "copilot" if "Copilot" in warning.label else "claude"
+        )
+        if cli.sdk_id == "claude":
+            if not cli.cli_reachable:
+                fixes.append(("Install claude CLI", _INLINE_FIX_COMMANDS["claude_cli"]))
+            if not cli.installed:
+                fixes.append(("Install claude-code-sdk", _INLINE_FIX_COMMANDS["claude_sdk"]))
+        elif cli.sdk_id == "copilot" and not cli.installed:
+            fixes.append(("Install github-copilot-sdk", _INLINE_FIX_COMMANDS["copilot_sdk"]))
+
+    if not fixes:
+        # No automated fix available — just ask continue/abort
+        choice = questionary.select(
+            "    What would you like to do?",
+            choices=[
+                questionary.Choice("Continue anyway", value="continue"),
+                questionary.Choice("Abort", value="abort"),
+            ],
+        ).ask()
+        if choice == "abort" or choice is None:
+            raise SystemExit(1)
+        return False
+
+    # Build choices: one per fix + skip + abort
+    choices = [
+        questionary.Choice(f"Fix now: {label}  ({' '.join(cmd)})", value=("fix", cmd))
+        for label, cmd in fixes
+    ]
+    choices.append(questionary.Choice("Skip — I'll fix this later", value=("skip", [])))
+    choices.append(questionary.Choice("Abort", value=("abort", [])))
+
+    choice = questionary.select("    What would you like to do?", choices=choices).ask()
+
+    if choice is None or choice[0] == "abort":
+        raise SystemExit(1)
+    if choice[0] == "skip":
+        return False
+
+    # Run the fix
+    _, cmd = choice
+    _console.print(f"    Running: [dim]{' '.join(cmd)}[/dim]")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            return True
+        _console.print(f"    [red]Failed (exit {result.returncode})[/red]")
+        if result.stderr:
+            for line in result.stderr.strip().split("\n")[:3]:
+                _console.print(f"      [dim]{line}[/dim]")
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        _console.print(f"    [red]Failed: {exc}[/red]")
+    return False
+
+
+# ---------------------------------------------------------------------------
 # cpl up — preflight
 # ---------------------------------------------------------------------------
 
@@ -544,35 +620,24 @@ def run_preflight(port: int) -> bool:
     if warnings:
         _console.print()
         _console.print(f"  [yellow bold]{len(warnings)} issue{'s' if len(warnings) != 1 else ''} found:[/yellow bold]")
-        _console.print()
+
         for w in warnings:
+            _console.print()
             _console.print(f"    [yellow]![/yellow]  [bold]{w.label}[/bold]: {w.detail}")
             if w.hint:
                 for line in w.hint.split("\n"):
                     _console.print(f"       → {line}")
-        _console.print()
 
-        choice = questionary.select(
-            "  How would you like to proceed?",
-            choices=[
-                questionary.Choice("Continue anyway — I'll fix this later", value="continue"),
-                questionary.Choice("Run guided setup (cpl setup)", value="setup"),
-                questionary.Choice("Abort", value="abort"),
-            ],
-        ).ask()
+            resolved = _offer_inline_fix(w)
+            if resolved:
+                _console.print(f"    [green]✓[/green]  {w.label}: fixed")
 
-        if choice == "setup":
+        # Re-check for any remaining hard failures after fixes
+        results = run_checks(port=port)
+        if any(r.status == CheckStatus.fail for r in results):
             _console.print()
-            run_setup()
-            # Re-check after setup
-            results = run_checks(port=port)
-            if any(r.status == CheckStatus.fail for r in results):
-                _console.print()
-                _console.print("  [red bold]Still have hard failures — cannot start.[/red bold]")
-                return False
-        elif choice == "abort" or choice is None:
+            _console.print("  [red bold]Cannot start — fix the errors above.[/red bold]")
             return False
-        # "continue" falls through
 
     _console.print()
     return True
