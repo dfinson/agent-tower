@@ -615,7 +615,7 @@ class _TunnelWatchdog:
         """Kill the current devtunnel host and start a fresh one."""
         import subprocess
 
-        log.warning("tunnel_watchdog_restarting", tunnel=self.tunnel_name)
+        log.debug("tunnel_watchdog_restarting", tunnel=self.tunnel_name)
 
         # Kill the old process
         import contextlib
@@ -658,7 +658,7 @@ class _TunnelWatchdog:
                 consecutive_failures = 0
             else:
                 consecutive_failures += 1
-                log.warning(
+                log.debug(
                     "tunnel_watchdog_check_failed",
                     consecutive=consecutive_failures,
                     threshold=self._FAIL_THRESHOLD,
