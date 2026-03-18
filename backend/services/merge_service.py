@@ -240,36 +240,67 @@ class MergeService:
         """Checkout + merge in the main worktree (caller handles stash/restore)."""
         from backend.services.git_service import GitError
 
-        # Try regular merge (FF already failed via ref update path)
-        merge_ok = False
+        # Step 1: checkout the base branch.  Treat checkout failures as hard
+        # errors, NOT as merge conflicts — they have different root causes and
+        # different remediation paths.
         try:
             await self._git.checkout(base_ref, cwd=repo_path)
+        except GitError as exc:
+            log.warning("merge_checkout_failed", job_id=job_id, base_ref=base_ref, error=str(exc))
+            return MergeResult(status="error", error=f"Failed to checkout {base_ref}: {exc}")
+
+        # Step 2: attempt the merge.
+        try:
             await self._git.merge(
                 branch,
                 cwd=repo_path,
                 message=f"Merge {branch} (CodePlane {job_id})",
             )
-            merge_ok = True
         except GitError:
-            log.info("merge_conflict_detected", job_id=job_id, branch=branch)
-
-        if merge_ok:
+            # Merge produced conflict markers — fall through to conflict handling.
+            pass
+        else:
             log.info("merge_succeeded", job_id=job_id, branch=branch, base_ref=base_ref)
             await self._publish_merge_completed(job_id, branch, base_ref, "merge")
             await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
             await self._update_merge_status(job_id, "merged")
             return MergeResult(status="merged", strategy="merge")
 
-        # Merge failed — abort, report conflict, leave resolution to operator
+        # Merge failed — abort and probe for the conflicting files.
         await self._git.merge_abort(cwd=repo_path)
         conflict_files = await self._get_conflict_file_list(repo_path, branch, base_ref)
+
+        # If the probe merge succeeded (conflict_files is None — meaning the
+        # probe reported "actually clean"), the first attempt failed for a
+        # transient reason (dirty index, lock file, etc.).  Retry once.
+        if conflict_files is None:
+            log.info("merge_retrying_after_clean_probe", job_id=job_id, branch=branch)
+            try:
+                await self._git.checkout(base_ref, cwd=repo_path)
+                await self._git.merge(
+                    branch,
+                    cwd=repo_path,
+                    message=f"Merge {branch} (CodePlane {job_id})",
+                )
+            except GitError:
+                pass
+            else:
+                log.info("merge_succeeded_on_retry", job_id=job_id, branch=branch, base_ref=base_ref)
+                await self._publish_merge_completed(job_id, branch, base_ref, "merge")
+                await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
+                await self._update_merge_status(job_id, "merged")
+                return MergeResult(status="merged", strategy="merge")
+
+            # Retry also failed — treat as a real conflict with no file list.
+            await self._git.merge_abort(cwd=repo_path)
+            conflict_files = []
+
+        log.info("merge_conflict_detected", job_id=job_id, conflict_files=conflict_files)
 
         try:
             await self._git.checkout(base_ref, cwd=repo_path)
         except Exception:
             log.warning("checkout_base_ref_failed", job_id=job_id, exc_info=True)
-
-        log.info("merge_conflict_detected", job_id=job_id, conflict_files=conflict_files)
 
         await self._publish_merge_conflict(
             job_id,
@@ -281,8 +312,16 @@ class MergeService:
         await self._update_merge_status(job_id, "conflict")
         return MergeResult(status="conflict", conflict_files=conflict_files)
 
-    async def _get_conflict_file_list(self, repo_path: str, branch: str, base_ref: str) -> list[str]:
-        """Attempt a merge to discover conflicting files, then abort."""
+    async def _get_conflict_file_list(self, repo_path: str, branch: str, base_ref: str) -> list[str] | None:
+        """Probe for conflicting files by attempting a test merge, then aborting.
+
+        Returns:
+            - ``None`` if the probe merge succeeded (no real conflicts exist).
+            - A list of conflicting file paths if the merge failed.
+              The list may be empty if the conflicting files could not be
+              determined, but ``None`` vs ``[]`` distinguishes "clean" from
+              "conflict with unknown files".
+        """
         try:
             await self._git.checkout(base_ref, cwd=repo_path)
         except Exception:
@@ -290,10 +329,10 @@ class MergeService:
 
         try:
             await self._git.merge(branch, cwd=repo_path)
-            # Merge succeeded — no conflicts. Reset HEAD back to undo the merge commit.
+            # Probe merge succeeded — undo the commit and signal "no conflict".
             with contextlib.suppress(Exception):
                 await self._git._run_git("reset", "--hard", "HEAD~1", cwd=repo_path)  # noqa: SLF001
-            return []
+            return None
         except Exception:
             files = await self._git.get_conflict_files(cwd=repo_path)
             await self._git.merge_abort(cwd=repo_path)
