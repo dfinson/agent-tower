@@ -9,6 +9,7 @@ Provides:
 
 from __future__ import annotations
 
+import errno
 import json as _json
 import os
 import platform
@@ -217,13 +218,45 @@ def _check_devtunnel_login() -> tuple[bool, str]:
 
 def _check_port(port: int) -> tuple[bool, str]:
     """Check if a port is available. Returns (available, detail)."""
+    probe_targets: list[tuple[int, str]] = [(socket.AF_INET, "127.0.0.1")]
+    if socket.has_ipv6:
+        probe_targets.append((socket.AF_INET6, "::1"))
+
+    refused_errnos = {
+        0,
+        errno.ECONNREFUSED,
+        errno.EHOSTUNREACH,
+        errno.ENETUNREACH,
+        errno.EADDRNOTAVAIL,
+    }
+
+    for family, host in probe_targets:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.2)
+                if probe.connect_ex((host, port)) == 0:
+                    return False, "in use"
+        except OSError:
+            continue
+
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(("127.0.0.1", port))
             return True, "available"
-    except OSError:
-        return False, "in use"
+    except OSError as exc:
+        if exc.errno in refused_errnos:
+            return True, "available"
+        return False, "unavailable"
+
+
+@dataclass
+class AgentAuthStatus:
+    sdk_id: str
+    authenticated: bool | None
+    detail: str
+    hint: str = ""
 
 
 @dataclass
@@ -237,6 +270,71 @@ class AgentCLIStatus:
     ready: bool  # both installed and reachable
     detail: str  # human-readable summary
     hint: str  # actionable suggestion, empty when ready
+
+
+def _check_agent_auth(sdk_id: str) -> AgentAuthStatus:
+    """Best-effort auth status for agent CLIs.
+
+    This is advisory only. Unknown status should not be treated as a failure.
+    """
+    if sdk_id == "copilot":
+        if shutil.which("gh") is None:
+            return AgentAuthStatus(sdk_id, None, "GitHub CLI not available")
+        ok, detail = _check_gh_auth()
+        if ok:
+            return AgentAuthStatus(sdk_id, True, detail)
+        return AgentAuthStatus(sdk_id, False, detail, "Run: gh auth login")
+
+    if sdk_id == "claude":
+        if shutil.which("claude") is None:
+            return AgentAuthStatus(sdk_id, None, "claude CLI not available")
+        try:
+            result = subprocess.run(
+                ["claude", "auth", "status"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return AgentAuthStatus(sdk_id, None, "Unable to determine auth status")
+
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        lowered = output.lower()
+        if result.returncode == 0 or "logged in" in lowered or "authenticated" in lowered:
+            detail = lines[0] if lines else "authenticated"
+            return AgentAuthStatus(sdk_id, True, detail)
+        if any(token in lowered for token in ("not logged in", "login required", "unauth", "authenticate")):
+            detail = lines[0] if lines else "not authenticated"
+            return AgentAuthStatus(sdk_id, False, detail, "Run: claude auth login")
+        return AgentAuthStatus(sdk_id, None, lines[0] if lines else "Unable to determine auth status")
+
+    return AgentAuthStatus(sdk_id, None, "Unknown agent")
+
+
+def _build_agent_check_result(sdk_id: str) -> CheckResult:
+    cli = check_agent_cli(sdk_id)
+    if not cli.ready:
+        return CheckResult(
+            cli.name,
+            CheckStatus.warn,
+            cli.detail,
+            hint=cli.hint,
+            category="agent",
+        )
+
+    auth = _check_agent_auth(sdk_id)
+    if auth.authenticated is False:
+        detail = f"{cli.detail} (auth not detected)"
+        return CheckResult(
+            cli.name,
+            CheckStatus.warn,
+            detail,
+            hint=auth.hint,
+            category="agent_auth",
+        )
+
+    return CheckResult(cli.name, CheckStatus.passed, cli.detail, category="agent")
 
 
 def check_agent_cli(sdk_id: str) -> AgentCLIStatus:
@@ -381,19 +479,7 @@ def run_checks(*, port: int | None = None) -> list[CheckResult]:
 
     # --- Agent CLIs ---
     for sdk_id in ("copilot", "claude"):
-        cli = check_agent_cli(sdk_id)
-        if cli.ready:
-            results.append(CheckResult(cli.name, CheckStatus.passed, cli.detail, category="agent"))
-        else:
-            results.append(
-                CheckResult(
-                    cli.name,
-                    CheckStatus.warn,
-                    cli.detail,
-                    hint=cli.hint,
-                    category="agent",
-                )
-            )
+        results.append(_build_agent_check_result(sdk_id))
 
     # --- Environment ---
     if DEFAULT_CONFIG_PATH.exists():
@@ -520,6 +606,51 @@ _INLINE_FIX_COMMANDS: dict[str, list[str]] = {
 }
 
 
+def _warning_sdk_id(warning: CheckResult) -> str | None:
+    """Return the agent SDK id for an agent warning label."""
+    if warning.category != "agent":
+        return None
+    if "Copilot" in warning.label:
+        return "copilot"
+    if "Claude" in warning.label:
+        return "claude"
+    return None
+
+
+def _should_prompt_for_warning(warning: CheckResult, default_sdk: str, suppressed_agent_prompts: list[str]) -> bool:
+    """Return whether preflight should stop and prompt for this warning.
+
+    Once a non-default agent warning has been explicitly skipped and the
+    current default agent is usable, later preflight runs should only log the
+    warning instead of prompting again.
+    """
+    if warning.category != "agent":
+        return False
+    sdk_id = _warning_sdk_id(warning)
+    if sdk_id is None:
+        return True
+    if sdk_id == default_sdk:
+        return True
+    if sdk_id not in suppressed_agent_prompts:
+        return True
+    return not check_agent_cli(default_sdk).ready
+
+
+def _remember_skipped_warning(warning: CheckResult, default_sdk: str) -> None:
+    """Persist that an inactive agent warning should not prompt again."""
+    sdk_id = _warning_sdk_id(warning)
+    if sdk_id is None or sdk_id == default_sdk:
+        return
+    if not check_agent_cli(default_sdk).ready:
+        return
+
+    config = load_config()
+    if sdk_id in config.runtime.suppressed_preflight_agent_prompts:
+        return
+    config.runtime.suppressed_preflight_agent_prompts.append(sdk_id)
+    save_config(config)
+
+
 def _prompt_select(choices: list[questionary.Choice]) -> Any:  # noqa: ANN401
     """Present a selection prompt styled to match Rich preflight output.
 
@@ -535,10 +666,10 @@ def _prompt_select(choices: list[questionary.Choice]) -> Any:  # noqa: ANN401
     ).ask()
 
 
-def _offer_inline_fix(warning: CheckResult) -> bool:
+def _offer_inline_fix(warning: CheckResult) -> str:
     """Offer to fix a single preflight warning in-place.
 
-    Returns True if the issue was resolved.
+    Returns one of: ``fixed``, ``skipped``, ``continued``.
     """
     # Determine which fix(es) apply
     fixes: list[tuple[str, list[str]]] = []
@@ -563,7 +694,7 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
         )
         if choice == "abort" or choice is None:
             raise SystemExit(1)
-        return False
+        return "continued"
 
     # Offer to run the fix
     fix_choices = [questionary.Choice(f"Fix now  {' '.join(cmd)}", value=("fix", cmd)) for _label, cmd in fixes]
@@ -575,7 +706,7 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
     if choice is None or choice[0] == "abort":
         raise SystemExit(1)
     if choice[0] == "skip":
-        return False
+        return "skipped"
 
     # Attempt the fix
     _, cmd = choice
@@ -583,7 +714,7 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode == 0:
-            return True
+            return "fixed"
         _console.print(f"       [red]Failed (exit {result.returncode})[/red]")
         if result.stderr:
             for line in result.stderr.strip().split("\n")[:3]:
@@ -613,11 +744,11 @@ def _offer_inline_fix(warning: CheckResult) -> bool:
         if warning.category == "agent":
             rechecked = check_agent_cli("copilot" if "Copilot" in warning.label else "claude")
             if rechecked.ready:
-                return True
+                return "fixed"
             _console.print(f"       [yellow]Still not resolved: {rechecked.detail}[/yellow]")
-        return False
+        return "continued"
     # "continue"
-    return False
+    return "continued"
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +762,7 @@ def run_preflight(port: int) -> bool:
     Returns True if the server can start.
     On warnings, pauses to let the user fix issues or continue.
     """
+    config = load_config()
     results = run_checks(port=port)
 
     _console.print()
@@ -665,9 +797,19 @@ def run_preflight(port: int) -> bool:
                 for line in w.hint.split("\n"):
                     _console.print(f"       → {line}")
 
-            resolved = _offer_inline_fix(w)
-            if resolved:
+            if not _should_prompt_for_warning(
+                w,
+                config.runtime.default_sdk,
+                config.runtime.suppressed_preflight_agent_prompts,
+            ):
+                _console.print("       [dim]Prompt suppressed by config; continuing with current default agent.[/dim]")
+                continue
+
+            outcome = _offer_inline_fix(w)
+            if outcome == "fixed":
                 _console.print(f"    [green]✓[/green]  {w.label}: fixed")
+            elif outcome == "skipped":
+                _remember_skipped_warning(w, config.runtime.default_sdk)
 
         # Re-check for any remaining hard failures after fixes
         results = run_checks(port=port)
