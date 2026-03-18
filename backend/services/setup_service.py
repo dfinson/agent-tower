@@ -806,7 +806,7 @@ def _setup_agent_clis() -> None:
     sdk_choice = questionary.select(
         "  Which agent should be the default?",
         choices=choices,
-        default=f"{'copilot — GitHub Copilot' if current_default == 'copilot' else 'claude  — Anthropic Claude Code'}",
+        default=current_default,
     ).ask()
 
     if sdk_choice is None:
