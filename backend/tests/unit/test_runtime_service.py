@@ -165,6 +165,9 @@ async def runtime(
     )
     yield service
     await service.shutdown()
+    # Allow aiosqlite background threads to drain so they don't
+    # encounter a closed event-loop after the engine is disposed.
+    await asyncio.sleep(0.05)
 
 
 def _make_job(
@@ -316,9 +319,6 @@ class TestCapacityAndQueueing:
             row = await repo.get("job-2")
             assert row is not None
             assert row.state == JobState.queued
-
-        # Cleanup
-        await runtime.shutdown()
 
     async def test_running_count_property(self, runtime: RuntimeService) -> None:
         assert runtime.running_count == 0
@@ -481,8 +481,6 @@ class TestJobLifecycle:
             # State remains queued — API layer handles the transition
             assert row.state == JobState.queued
 
-        await runtime.shutdown()
-
     async def test_send_message_delegates_to_session(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
@@ -499,8 +497,6 @@ class TestJobLifecycle:
         await runtime.send_message(job.id, "hello")
         # Non-existent job should also not raise
         await runtime.send_message("no-such-job", "hello")
-
-        await runtime.shutdown()
 
     async def test_send_message_auto_resumes_terminal_job(
         self,
@@ -535,8 +531,6 @@ class TestJobLifecycle:
         transcript_events = [e for e in published if e.kind == DomainEventKind.transcript_updated]
         operator_msgs = [e for e in transcript_events if e.payload.get("role") == "operator"]
         assert any("please continue" in e.payload.get("content", "") for e in operator_msgs)
-
-        await runtime.shutdown()
 
     async def test_send_message_auto_resumes_orphaned_running_job(
         self,
@@ -576,8 +570,6 @@ class TestJobLifecycle:
             row = await repo.get(job.id)
             assert row is not None
             assert row.state in (JobState.succeeded, JobState.failed, JobState.canceled)
-
-        await runtime.shutdown()
 
     async def test_send_message_returns_false_for_nonexistent_job(
         self,
@@ -975,8 +967,6 @@ class TestConcurrencyGuards:
         # Should still have only one running task
         assert runtime.running_count == 1
 
-        await runtime.shutdown()
-
     async def test_dequeue_respects_capacity(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
@@ -1001,8 +991,6 @@ class TestConcurrencyGuards:
         )
         # Still at capacity
         assert runtime.running_count <= runtime.max_concurrent
-
-        await runtime.shutdown()
 
     async def test_cancel_already_canceled_is_idempotent(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
@@ -1050,8 +1038,6 @@ class TestRecoveryCapacity:
 
         # Should only start max_concurrent (2), not all 3
         assert runtime.running_count == runtime.max_concurrent
-
-        await runtime.shutdown()
 
 
 class TestJobStateChangedEvent:
@@ -1167,6 +1153,8 @@ class TestErrorEventCausesFailure:
 
             row = (await session.execute(select(JobRow).where(JobRow.id == job.id))).scalar_one()
             assert row.state == JobState.failed
+
+        await runtime.shutdown()
 
 
 # ---------------------------------------------------------------------------

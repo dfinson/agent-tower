@@ -6,8 +6,8 @@ import errno
 from unittest.mock import patch
 
 from backend.services.setup_service import (
-    AgentCLIStatus,
     AgentAuthStatus,
+    AgentCLIStatus,
     CheckResult,
     CheckStatus,
     _build_agent_check_result,
@@ -298,8 +298,13 @@ class TestOfferInlineFix:
             category="agent",
         )
         cli_fixed = AgentCLIStatus(
-            "claude", "Claude Code", True, True, True,
-            "claude CLI and SDK installed", "",
+            "claude",
+            "Claude Code",
+            True,
+            True,
+            True,
+            "claude CLI and SDK installed",
+            "",
         )
 
         with (

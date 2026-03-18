@@ -320,7 +320,11 @@ def _build_session_config(
 
 def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
     """Return True once a resumed session has produced real agent work."""
-    if event.kind in (SessionEventKind.file_changed, SessionEventKind.approval_request, SessionEventKind.model_downgraded):
+    if event.kind in (
+        SessionEventKind.file_changed,
+        SessionEventKind.approval_request,
+        SessionEventKind.model_downgraded,
+    ):
         return True
     if event.kind != SessionEventKind.transcript:
         return False

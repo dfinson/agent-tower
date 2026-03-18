@@ -303,7 +303,9 @@ def register_repo(config: CPLConfig, repo_path: str, config_path: Path | None = 
     if config_path.exists():
         with open(config_path) as f:
             raw = yaml.safe_load(f) or {}
-        file_repos = [str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else []
+        file_repos = (
+            [str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else []
+        )
 
     if resolved not in file_repos:
         file_repos.append(resolved)
@@ -334,7 +336,9 @@ def unregister_repo(config: CPLConfig, repo_path: str, config_path: Path | None 
     if config_path.exists():
         with open(config_path) as f:
             raw = yaml.safe_load(f) or {}
-        file_repos = [str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else []
+        file_repos = (
+            [str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else []
+        )
 
     removed: str | None = None
     if resolved in file_repos:
