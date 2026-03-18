@@ -471,7 +471,7 @@ export const useStore = create<AppState>((set, get) => ({
           if (!entries) return null;
           let changed = false;
           const patched = entries.map((e) => {
-            if (e.role === "tool_call" && e.turnId === turnId && !e.toolGroupSummary) {
+            if (e.role === "tool_call" && e.turnId === turnId && e.toolGroupSummary !== summary) {
               changed = true;
               return { ...e, toolGroupSummary: summary };
             }
