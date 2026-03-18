@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -19,6 +19,7 @@ from backend.models.api_schemas import (
     LogLinePayload,
     PermissionMode,
     ProgressHeadlinePayload,
+    ResolutionAction,
     ResolveJobRequest,
     ResolveJobResponse,
     ResumeJobRequest,
@@ -482,7 +483,11 @@ async def get_job_timeline(
 
 @router.get("/jobs/{job_id}/telemetry")
 async def get_job_telemetry(job_id: str) -> dict[str, object]:
-    """Get telemetry data for a job run."""
+    """Get telemetry data for a job run.
+
+    Returns a dict rather than a typed model because the telemetry shape
+    is defined by the TelemetryCollector and varies by SDK.
+    """
     from backend.services.telemetry import collector
 
     tel = collector.get(job_id)
@@ -507,12 +512,12 @@ async def resolve_job(
     except StateConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    # agent_merge: hand the conflict back to the agent to resolve, then re-run
-    if body.action == "agent_merge":
+    # agent_merge: hand the conflict back to the agent to resolve
+    if body.action == ResolutionAction.agent_merge:
         if job.resolution != "conflict":
             raise HTTPException(status_code=409, detail="agent_merge is only valid when resolution is 'conflict'")
 
-        runtime_service = getattr(request.app.state, "runtime_service", None)
+        runtime_service: RuntimeService | None = getattr(request.app.state, "runtime_service", None)
         if runtime_service is None:
             raise HTTPException(status_code=503, detail="Runtime service not configured")
 
@@ -546,61 +551,19 @@ async def resolve_job(
     if merge_service is None:
         raise HTTPException(status_code=503, detail="Merge service not configured")
 
-    result = await merge_service.resolve_job(
-        job_id=job.id,
-        action=body.action,
-        repo_path=job.repo,
-        worktree_path=job.worktree_path,
-        branch=job.branch,
-        base_ref=job.base_ref,
-        prompt=job.prompt,
-    )
-
-    # Determine the resolution status
-    if result.status == "merged":
-        resolution = "merged"
-    elif result.status == "pr_created":
-        resolution = "pr_created"
-    elif result.status == "discarded":
-        resolution = "discarded"
-    elif result.status == "conflict":
-        resolution = "conflict"
-    else:
-        resolution = "unresolved"
-
-    # Persist resolution
-    repo = JobRepository(session)
-    await repo.update_resolution(job_id, resolution, pr_url=result.pr_url)
-    await session.commit()
-
-    # Publish event
     event_bus = getattr(request.app.state, "event_bus", None)
-    if event_bus:
-        import uuid
-        from datetime import UTC, datetime
-
-        from backend.models.events import DomainEvent
-
-        payload: dict[str, Any] = {"resolution": resolution}
-        if result.pr_url:
-            payload["pr_url"] = result.pr_url
-        if result.conflict_files:
-            payload["conflict_files"] = result.conflict_files
-
-        await event_bus.publish(
-            DomainEvent(
-                event_id=f"evt-{uuid.uuid4().hex[:12]}",
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.job_resolved,
-                payload=payload,
-            )
-        )
+    resolution, pr_url, conflict_files_result = await svc.execute_resolve(
+        job=job,
+        action=body.action,
+        merge_service=merge_service,
+        event_bus=event_bus,
+    )
+    await session.commit()
 
     return ResolveJobResponse(
         resolution=resolution,
-        pr_url=result.pr_url,
-        conflict_files=result.conflict_files,
+        pr_url=pr_url,
+        conflict_files=conflict_files_result,
     )
 
 

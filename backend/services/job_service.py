@@ -355,13 +355,76 @@ class JobService:
         return len(jobs)
 
     async def resolve_job(self, job_id: str, action: str) -> Job:
-        """Resolve a succeeded job by merging, creating a PR, or discarding."""
+        """Validate that a job is eligible for resolution.
+
+        Raises StateConflictError if the job state or current resolution
+        prevents the requested action.
+        """
         job = await self.get_job(job_id)
         if job.state != JobState.succeeded:
             raise StateConflictError(f"Job {job_id} is in state {job.state!r}, not 'succeeded'")
         if job.resolution not in (None, "unresolved", "conflict"):
             raise StateConflictError(f"Job {job_id} already resolved as {job.resolution!r}")
         return job
+
+    async def execute_resolve(
+        self,
+        job: Job,
+        action: str,
+        merge_service: object,
+        event_bus: object | None = None,
+    ) -> tuple[str, str | None, list[str] | None]:
+        """Execute merge/PR/discard resolution and persist the outcome.
+
+        Returns (resolution, pr_url, conflict_files).
+        """
+        from backend.services.merge_service import MergeService as _MS
+
+        ms: _MS = merge_service  # type: ignore[assignment]
+        result = await ms.resolve_job(
+            job_id=job.id,
+            action=action,
+            repo_path=job.repo,
+            worktree_path=job.worktree_path,
+            branch=job.branch,
+            base_ref=job.base_ref,
+            prompt=job.prompt,
+        )
+
+        _STATUS_MAP = {
+            "merged": "merged",
+            "pr_created": "pr_created",
+            "discarded": "discarded",
+            "conflict": "conflict",
+        }
+        resolution = _STATUS_MAP.get(result.status, "unresolved")
+
+        # Persist resolution
+        await self._job_repo.update_resolution(job.id, resolution, pr_url=result.pr_url)
+
+        # Publish event
+        if event_bus is not None:
+            import uuid as _uuid
+
+            from backend.models.events import DomainEvent, DomainEventKind
+
+            payload: dict[str, object] = {"resolution": resolution}
+            if result.pr_url:
+                payload["pr_url"] = result.pr_url
+            if result.conflict_files:
+                payload["conflict_files"] = result.conflict_files
+
+            await event_bus.publish(
+                DomainEvent(
+                    event_id=f"evt-{_uuid.uuid4().hex[:12]}",
+                    job_id=job.id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.job_resolved,
+                    payload=payload,
+                )
+            )
+
+        return resolution, result.pr_url, result.conflict_files
 
     async def archive_job(self, job_id: str) -> Job:
         """Archive a job (hide from Kanban board)."""
