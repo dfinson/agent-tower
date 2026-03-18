@@ -140,9 +140,8 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
         </div>
       )}
 
-      <div className="flex justify-between text-[11px] text-muted-foreground">
+      <div className="text-[11px] text-muted-foreground">
         <span>{elapsed(job.createdAt)}</span>
-        <span className="font-mono">{job.id}</span>
       </div>
 
     </button>
