@@ -604,29 +604,58 @@ class MergeService:
             log.warning("resolve_main_stash_failed", job_id=job_id, exc_info=True)
 
         try:
-            # Try regular merge
-            merge_ok = False
+            # Step 1: checkout — treat failures as hard errors, NOT conflicts.
             try:
                 await self._git.checkout(base_ref, cwd=repo_path)
+            except GitError as exc:
+                log.warning("resolve_checkout_failed", job_id=job_id, base_ref=base_ref, error=str(exc))
+                return MergeResult(status="error", error=f"Failed to checkout {base_ref}: {exc}")
+
+            # Step 2: attempt the merge.
+            try:
                 await self._git.merge(
                     branch,
                     cwd=repo_path,
                     message=f"Merge {branch} (CodePlane {job_id})",
                 )
-                merge_ok = True
             except GitError:
-                log.info("resolve_merge_conflict", job_id=job_id, branch=branch)
-
-            if merge_ok:
+                pass
+            else:
                 log.info("resolve_merge_succeeded", job_id=job_id, branch=branch)
                 await self._publish_merge_completed(job_id, branch, base_ref, "merge")
                 await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
                 await self._update_merge_status(job_id, "merged")
                 return MergeResult(status="merged", strategy="merge")
 
-            # Conflict — abort merge, report conflict files
+            # Merge failed — probe for actual conflict files.
             await self._git.merge_abort(cwd=repo_path)
             conflict_files = await self._get_conflict_file_list(repo_path, branch, base_ref)
+
+            # If the probe merge succeeded (None return), the first attempt failed
+            # for a transient reason (dirty index, lock file, etc.). Retry once.
+            if conflict_files is None:
+                log.info("resolve_retrying_after_clean_probe", job_id=job_id, branch=branch)
+                try:
+                    await self._git.checkout(base_ref, cwd=repo_path)
+                    await self._git.merge(
+                        branch,
+                        cwd=repo_path,
+                        message=f"Merge {branch} (CodePlane {job_id})",
+                    )
+                except GitError:
+                    pass
+                else:
+                    log.info("resolve_merge_succeeded_on_retry", job_id=job_id, branch=branch)
+                    await self._publish_merge_completed(job_id, branch, base_ref, "merge")
+                    await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
+                    await self._update_merge_status(job_id, "merged")
+                    return MergeResult(status="merged", strategy="merge")
+
+                # Retry also failed — treat as conflict with no specific files.
+                await self._git.merge_abort(cwd=repo_path)
+                conflict_files = []
+
+            log.info("resolve_merge_conflict", job_id=job_id, conflict_files=conflict_files)
 
             try:
                 await self._git.checkout(base_ref, cwd=repo_path)
