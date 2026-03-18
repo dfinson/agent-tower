@@ -38,7 +38,9 @@ from backend.services.runtime_service import (
     RuntimeService,
     _AgentSession,
     _build_session_config,
+    _count_similar_trailing_headlines,
     _discover_mcp_servers,
+    _headlines_are_similar,
     _make_event_id,
     _resolve_protected_paths,
 )
@@ -265,6 +267,22 @@ class TestCapacityAndQueueing:
     async def test_running_count_property(self, runtime: RuntimeService) -> None:
         assert runtime.running_count == 0
         assert runtime.max_concurrent == 2  # default
+
+
+class TestHeadlineSimilarity:
+    def test_headlines_are_similar_when_subject_is_same(self) -> None:
+        assert _headlines_are_similar("Investigating tool error display", "Debugging tool error display")
+
+    def test_headlines_are_not_similar_for_different_work(self) -> None:
+        assert not _headlines_are_similar("Implementing auth API", "Writing Playwright tests")
+
+    def test_count_similar_trailing_headlines_counts_contiguous_tail(self) -> None:
+        history = [
+            "Preparing worktree",
+            "Investigating tool error display",
+            "Debugging tool error display",
+        ]
+        assert _count_similar_trailing_headlines(history, "Fixing tool error display") == 2
 
 
 # ---------------------------------------------------------------------------

@@ -246,6 +246,7 @@ function ToolChips({ calls, autoExpand }: { calls: TranscriptEntry[]; autoExpand
   );
   const chips = chipify(calls);
   const anyFailed = calls.some((c) => c.toolSuccess === false);
+  const firstIssue = calls.find((c) => c.toolSuccess === false)?.toolIssue;
 
   return (
     <div className="space-y-1.5 mb-1">
@@ -275,7 +276,9 @@ function ToolChips({ calls, autoExpand }: { calls: TranscriptEntry[]; autoExpand
           );
         })}
         {anyFailed && (
-          <span className="text-[10px] text-red-400 self-center ml-0.5">has errors</span>
+          <span className="text-[10px] text-red-400 self-center ml-0.5">
+            {firstIssue ? `issue: ${firstIssue}` : "reported issue"}
+          </span>
         )}
       </div>
 
@@ -291,7 +294,7 @@ function ToolChips({ calls, autoExpand }: { calls: TranscriptEntry[]; autoExpand
                 "text-[10px] font-medium",
                 expanded.toolSuccess !== false ? "text-green-500" : "text-red-400",
               )}>
-                {expanded.toolSuccess !== false ? "ok" : "failed"}
+                {expanded.toolSuccess !== false ? "ok" : "issue"}
               </span>
               {/* Navigation within the chip group */}
               {calls.length > 1 && (
@@ -325,6 +328,12 @@ function ToolChips({ calls, autoExpand }: { calls: TranscriptEntry[]; autoExpand
             </div>
           </div>
           <div className="divide-y divide-border/30">
+            {expanded.toolSuccess === false && expanded.toolIssue && (
+              <div className="px-2.5 py-2 bg-red-500/5">
+                <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-1">Issue</p>
+                <p className="text-red-200/90 whitespace-pre-wrap break-words">{expanded.toolIssue}</p>
+              </div>
+            )}
             {expanded.toolArgs && (
               <div className="px-2.5 py-2">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Input</p>

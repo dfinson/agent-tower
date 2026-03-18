@@ -358,6 +358,7 @@ class TranscriptPayload(CamelModel):
     tool_args: str | None = None  # role=tool_call: JSON-serialized arguments
     tool_result: str | None = None  # role=tool_call: text output from tool
     tool_success: bool | None = None  # role=tool_call: whether execution succeeded
+    tool_issue: str | None = None  # role=tool_call: short issue summary when attention is needed
     tool_intent: str | None = None  # role=tool_call: SDK-provided intent string
     tool_title: str | None = None  # role=tool_call: SDK-provided display title
     tool_display: str | None = None  # role=tool_call: deterministic per-tool label
