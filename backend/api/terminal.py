@@ -6,10 +6,15 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from backend.models.api_schemas import CamelModel
+from backend.models.api_schemas import (
+    CreateTerminalSessionRequest,
+    CreateTerminalSessionResponse,
+    TerminalAskRequest,
+    TerminalAskResponse,
+    TerminalSessionInfo,
+)
 
 if TYPE_CHECKING:
     from backend.services.terminal_service import TerminalService
@@ -33,53 +38,12 @@ def _svc() -> TerminalService:
 
 
 # ------------------------------------------------------------------
-# Request / Response schemas
-# ------------------------------------------------------------------
-
-
-class CreateSessionRequest(BaseModel):
-    shell: str | None = None
-    cwd: str | None = None
-    job_id: str | None = Field(None, alias="jobId")
-
-    class Config:
-        populate_by_name = True
-
-
-class CreateSessionResponse(CamelModel):
-    id: str
-    shell: str
-    cwd: str
-    job_id: str | None = None
-    pid: int
-
-
-class SessionInfo(CamelModel):
-    id: str
-    shell: str
-    cwd: str
-    job_id: str | None = None
-    pid: int
-    clients: int
-
-
-class AskRequest(BaseModel):
-    prompt: str
-    context: str | None = None  # recent terminal output for context
-
-
-class AskResponse(CamelModel):
-    command: str
-    explanation: str
-
-
-# ------------------------------------------------------------------
 # REST endpoints
 # ------------------------------------------------------------------
 
 
-@router.post("/sessions", response_model=CreateSessionResponse, status_code=201)
-async def create_session(req: CreateSessionRequest) -> CreateSessionResponse:
+@router.post("/sessions", response_model=CreateTerminalSessionResponse, status_code=201)
+async def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSessionResponse:
     """Create a new terminal session."""
     svc = _svc()
     try:
@@ -89,10 +53,8 @@ async def create_session(req: CreateSessionRequest) -> CreateSessionResponse:
             job_id=req.job_id,
         )
     except (RuntimeError, ValueError) as exc:
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse(status_code=400, content={"error": str(exc)})  # type: ignore[return-value]
-    return CreateSessionResponse(
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CreateTerminalSessionResponse(
         id=session.id,
         shell=session.shell,
         cwd=session.cwd,
@@ -101,12 +63,12 @@ async def create_session(req: CreateSessionRequest) -> CreateSessionResponse:
     )
 
 
-@router.get("/sessions", response_model=list[SessionInfo])
-async def list_sessions() -> list[SessionInfo]:
+@router.get("/sessions", response_model=list[TerminalSessionInfo])
+async def list_sessions() -> list[TerminalSessionInfo]:
     """List all active terminal sessions."""
     svc = _svc()
     sessions = svc.list_sessions()
-    return [SessionInfo(**s) for s in sessions]
+    return [TerminalSessionInfo(**s) for s in sessions]
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
@@ -115,18 +77,16 @@ async def delete_session(session_id: str) -> None:
     svc = _svc()
     killed = await svc.kill_session(session_id)
     if not killed:
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse(status_code=404, content={"error": "Session not found"})  # type: ignore[return-value]
+        raise HTTPException(status_code=404, detail="Session not found")
 
 
-@router.post("/ask", response_model=AskResponse)
-async def ask_ai(req: AskRequest) -> AskResponse:
+@router.post("/ask", response_model=TerminalAskResponse)
+async def ask_ai(req: TerminalAskRequest) -> TerminalAskResponse:
     """Translate natural language to a shell command using the utility model."""
     # Access utility session from app state (set in main.py)
     try:
         if _ask_utility_session is None:
-            return AskResponse(command="", explanation="AI assistant not available")
+            return TerminalAskResponse(command="", explanation="AI assistant not available")
 
         prompt = f"""Translate this natural language request into a single shell command.
 Respond with ONLY valid JSON: {{"command": "...", "explanation": "..."}}
@@ -141,12 +101,12 @@ User request: {req.prompt}"""
         result = await _ask_utility_session.complete(prompt, timeout=10.0)
         try:
             parsed = json.loads(result.strip().removeprefix("```json").removesuffix("```").strip())
-            return AskResponse(command=parsed["command"], explanation=parsed.get("explanation", ""))
+            return TerminalAskResponse(command=parsed["command"], explanation=parsed.get("explanation", ""))
         except (json.JSONDecodeError, KeyError):
-            return AskResponse(command=result.strip(), explanation="")
+            return TerminalAskResponse(command=result.strip(), explanation="")
     except Exception as exc:
         log.warning("terminal_ask_failed", error=str(exc))
-        return AskResponse(command="", explanation=f"Error: {exc}")
+        return TerminalAskResponse(command="", explanation=f"Error: {exc}")
 
 
 _ask_utility_session: Any = None

@@ -109,11 +109,20 @@ class ArtifactService:
         return collected
 
     async def list_for_job(self, job_id: str) -> list[Artifact]:
-        """Return all artifacts for a job."""
+        """Return all artifacts for a job.
+
+        Pass-through to the repository layer. This indirection exists so
+        that future business logic (permission checks, filtering, caching)
+        can be added in one place without changing callers.
+        """
         return await self._repo.list_for_job(job_id)
 
     async def get(self, artifact_id: str) -> Artifact | None:
-        """Retrieve a single artifact by ID."""
+        """Retrieve a single artifact by ID.
+
+        Pass-through to the repository layer — same rationale as
+        ``list_for_job`` above.
+        """
         return await self._repo.get(artifact_id)
 
     async def store_session_summary(self, job_id: str, session_number: int, summary_json: str) -> Artifact:

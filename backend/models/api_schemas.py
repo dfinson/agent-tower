@@ -52,6 +52,14 @@ class ApprovalResolution(StrEnum):
     rejected = "rejected"
 
 
+class ResolutionAction(StrEnum):
+    merge = "merge"
+    smart_merge = "smart_merge"
+    create_pr = "create_pr"
+    discard = "discard"
+    agent_merge = "agent_merge"
+
+
 class ArtifactType(StrEnum):
     diff_snapshot = "diff_snapshot"
     agent_summary = "agent_summary"
@@ -174,7 +182,7 @@ class UpdateSettingsRequest(CamelModel):
 
 class SettingsResponse(CamelModel):
     max_concurrent_jobs: int
-    permission_mode: str
+    permission_mode: PermissionMode
     auto_push: bool
     cleanup_worktree: bool
     delete_branch_after_merge: bool
@@ -198,7 +206,7 @@ class RegisterRepoRequest(BaseModel):
 
 class CreateJobResponse(CamelModel):
     id: str
-    state: str
+    state: JobState
     title: str | None = None
     branch: str | None = None
     worktree_path: str | None = None
@@ -211,7 +219,7 @@ class JobResponse(CamelModel):
     repo: str
     prompt: str
     title: str | None = None
-    state: str
+    state: JobState
     base_ref: str
     worktree_path: str | None
     branch: str | None
@@ -221,7 +229,7 @@ class JobResponse(CamelModel):
     completed_at: datetime | None
     pr_url: str | None = None
     merge_status: str | None = None
-    resolution: str | None = None
+    resolution: Resolution | None = None
     archived_at: datetime | None = None
     failure_reason: str | None = None
     model: str | None = None
@@ -382,8 +390,8 @@ class DiffFileModel(CamelModel):
 
 class JobStateChangedPayload(CamelModel):
     job_id: str
-    previous_state: str | None
-    new_state: str
+    previous_state: JobState | None
+    new_state: JobState
     timestamp: datetime
 
 
@@ -398,7 +406,7 @@ class ApprovalRequestedPayload(CamelModel):
 class ApprovalResolvedPayload(CamelModel):
     job_id: str
     approval_id: str
-    resolution: str
+    resolution: ApprovalResolution
     timestamp: datetime
 
 
@@ -446,11 +454,11 @@ class PlatformStatusListResponse(CamelModel):
 
 
 class ResolveJobRequest(BaseModel):
-    action: str  # merge | smart_merge | create_pr | discard | agent_merge
+    action: ResolutionAction
 
 
 class ResolveJobResponse(CamelModel):
-    resolution: str
+    resolution: Resolution | ResolutionAction
     pr_url: str | None = None
     conflict_files: list[str] | None = None
 
@@ -474,7 +482,7 @@ class JobSucceededPayload(CamelModel):
 
 class JobResolvedPayload(CamelModel):
     job_id: str
-    resolution: str
+    resolution: Resolution
     pr_url: str | None = None
     conflict_files: list[str] | None = None
     timestamp: datetime
@@ -534,3 +542,69 @@ class SDKInfoResponse(CamelModel):
 class SDKListResponse(CamelModel):
     default: str
     sdks: list[SDKInfoResponse]
+
+
+# --- Terminal schemas (moved from backend/api/terminal.py) ---
+
+
+class CreateTerminalSessionRequest(BaseModel):
+    shell: str | None = None
+    cwd: str | None = None
+    job_id: str | None = Field(None, alias="jobId")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class CreateTerminalSessionResponse(CamelModel):
+    id: str
+    shell: str
+    cwd: str
+    job_id: str | None = None
+    pid: int
+
+
+class TerminalSessionInfo(CamelModel):
+    id: str
+    shell: str
+    cwd: str
+    job_id: str | None = None
+    pid: int
+    clients: int
+
+
+class TerminalAskRequest(BaseModel):
+    prompt: str
+    context: str | None = None  # recent terminal output for context
+
+
+class TerminalAskResponse(CamelModel):
+    command: str
+    explanation: str
+
+
+# --- Typed response models for previously untyped dict endpoints ---
+
+
+class TrustJobResponse(CamelModel):
+    resolved: int
+
+
+class CleanupWorktreesResponse(CamelModel):
+    removed: int
+
+
+class BrowseEntry(CamelModel):
+    name: str
+    path: str
+    is_git_repo: bool = False
+
+
+class BrowseDirectoryResponse(CamelModel):
+    current: str
+    parent: str | None = None
+    items: list[BrowseEntry]
+
+
+class WorkspaceFileResponse(CamelModel):
+    path: str
+    content: str

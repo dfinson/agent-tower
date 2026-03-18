@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from backend.config import CPLConfig, load_config
 from backend.models.api_schemas import ArtifactListResponse, ArtifactResponse
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.services.artifact_service import ArtifactService
@@ -15,8 +15,14 @@ from backend.services.artifact_service import ArtifactService
 router = APIRouter(tags=["artifacts"])
 
 
-def _get_config() -> CPLConfig:
-    return load_config()
+def _get_artifact_service(request: Request) -> ArtifactService:
+    """Build ArtifactService from app-state session factory.
+
+    This creates a short-lived session per request. The caller is
+    responsible for committing when writes are involved (reads don't
+    need an explicit commit with the async SQLAlchemy driver).
+    """
+    return request.app.state.artifact_service  # type: ignore[no-any-return]
 
 
 @router.get("/jobs/{job_id}/artifacts", response_model=ArtifactListResponse)

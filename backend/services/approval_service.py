@@ -39,7 +39,11 @@ class ApprovalService:
         self._session_factory = session_factory
         self._pending_futures: dict[str, asyncio.Future[str]] = {}
         self._approval_to_job: dict[str, str] = {}  # approval_id → job_id
-        self._trusted_jobs: set[str] = set()  # jobs with "approve all" active
+        # Trust state is intentionally ephemeral (in-memory only). A server
+        # restart resets all trust grants, which is the safer default: the
+        # operator must re-trust after a restart rather than having stale
+        # blanket approvals persist across sessions.
+        self._trusted_jobs: set[str] = set()
 
     def _make_repo(self, session: AsyncSession) -> ApprovalRepository:
         from backend.persistence.approval_repo import ApprovalRepository

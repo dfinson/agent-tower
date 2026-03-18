@@ -22,13 +22,13 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
   const [adding, setAdding] = useState(false);
 
   const [browsePath, setBrowsePath] = useState("~");
-  const [browseEntries, setBrowseEntries] = useState<{ name: string; path: string; isGitRepo: string }[]>([]);
+  const [browseEntries, setBrowseEntries] = useState<{ name: string; path: string; isGitRepo: boolean }[]>([]);
   const [browseParent, setBrowseParent] = useState<string | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
   const [cloneBrowseOpen, setCloneBrowseOpen] = useState(false);
   const [cloneBrowsePath, setCloneBrowsePath] = useState("~");
-  const [cloneBrowseEntries, setCloneBrowseEntries] = useState<{ name: string; path: string; isGitRepo: string }[]>([]);
+  const [cloneBrowseEntries, setCloneBrowseEntries] = useState<{ name: string; path: string; isGitRepo: boolean }[]>([]);
   const [cloneBrowseParent, setCloneBrowseParent] = useState<string | null>(null);
   const [cloneBrowseLoading, setCloneBrowseLoading] = useState(false);
 
@@ -242,7 +242,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                 ) : (
                   <div className="p-1 flex flex-col gap-px">
                     {browseEntries.map((entry) => {
-                      const isGit = entry.isGitRepo === "true";
+                      const isGit = entry.isGitRepo === true;
                       return (
                         <button
                           key={entry.path}

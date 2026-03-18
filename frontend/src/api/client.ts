@@ -208,7 +208,7 @@ export function unregisterRepo(repoPath: string): Promise<void> {
 export function browseDirectories(path?: string): Promise<{
   current: string;
   parent: string | null;
-  items: { name: string; path: string; isGitRepo: string }[];
+  items: { name: string; path: string; isGitRepo: boolean }[];
 }> {
   const qs = path ? `?path=${encodeURIComponent(path)}` : "";
   return request(`/settings/browse${qs}`);
