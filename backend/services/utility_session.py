@@ -1,11 +1,18 @@
 """Utility session pool — warm Copilot SDK sessions with a cheap/fast model.
 
-Keeps a small pool of sessions alive on server start for non-agentic meta-work:
+Keeps a pool of sessions alive on server start for non-agentic meta-work:
 naming, summarization, progress headlines, commit messages, etc.
 
-The pool has no hard ceiling. It autoscales up to match the number of
-concurrent pending calls (naming requests etc.) and scales back down via
-idle housekeeping once sessions have been unused for SCALE_DOWN_IDLE_S.
+Design invariants
+-----------------
+* Every concurrent ``complete()`` call gets its **own** session — sessions are
+  never shared between callers.  This is tracked via ``_WarmSession.in_use``.
+* The pool autoscales without a hard ceiling: it grows to match concurrent
+  demand and shrinks back to the minimum via idle housekeeping.
+* Scale-up is serialized through ``_scale_lock`` so a burst of concurrent
+  callers triggers exactly ONE batch of session connects, not N thundering herds.
+* ``start()`` initialises the pool in parallel so startup time is bounded by
+  a single connection round-trip, not pool_size × connection time.
 """
 
 from __future__ import annotations
@@ -30,6 +37,9 @@ DEFAULT_UTILITY_MODEL = "gpt-4o-mini"
 _MIN_POOL = 1
 _SCALE_DOWN_IDLE_S = 120.0  # close a session idle longer than this
 _HOUSEKEEPING_INTERVAL_S = 30
+# Maximum time to wait for a free session before creating a fresh emergency one
+_CHECKOUT_SPIN_S = 3.0
+_CHECKOUT_SLEEP_S = 0.05
 
 # System prompt injected at session creation so the model understands its role
 _UTILITY_SYSTEM_PROMPT = """\
@@ -55,10 +65,13 @@ class UtilitySessionService:
         result = await utility.complete("Generate a title for: ...")
         await utility.shutdown()       # call at server shutdown
 
-    The pool autoscales without a hard ceiling: it grows to match the number
-    of concurrent pending calls (naming requests, summaries, etc.) and shrinks
-    back to the minimum via idle housekeeping.  There is no configured maximum
-    — the pool is exactly as large as current demand requires.
+    Each concurrent ``complete()`` call gets its own session.  The pool grows
+    to match demand (no hard ceiling) and shrinks via idle housekeeping.
+
+    Thread-safety model (asyncio single-threaded):
+    * ``_lock`` guards ``_sessions`` list mutations and ``in_use`` checks.
+    * ``_scale_lock`` serialises scale-up so a burst of N concurrent callers
+      triggers exactly one batch connect, not N parallel ones.
     """
 
     def __init__(
@@ -70,7 +83,7 @@ class UtilitySessionService:
         self._initial_pool_size = pool_size
         self._sessions: list[_WarmSession] = []
         self._lock = asyncio.Lock()
-        self._round_robin = 0
+        self._scale_lock = asyncio.Lock()  # serialise concurrent scale-ups
         self._started = False
         self._pending: int = 0
         self._active_jobs: int = 0
@@ -81,48 +94,31 @@ class UtilitySessionService:
         return self._model
 
     async def start(self) -> None:
-        """Create the warm session pool. Safe to call multiple times."""
+        """Create the warm session pool in parallel. Safe to call multiple times."""
         if self._started:
             return
-        for i in range(self._initial_pool_size):
-            ws = _WarmSession(model=self._model, index=i)
-            try:
-                await ws.connect()
+        candidates = [_WarmSession(model=self._model, index=i) for i in range(self._initial_pool_size)]
+        results = await asyncio.gather(*[ws.connect() for ws in candidates], return_exceptions=True)
+        for ws, result in zip(candidates, results):
+            if isinstance(result, Exception):
+                log.warning("utility_session_start_failed", index=ws.index, exc_info=result)
+            else:
                 self._sessions.append(ws)
-                log.info("utility_session_ready", index=i, model=self._model)
-            except Exception:
-                log.warning("utility_session_start_failed", index=i, exc_info=True)
+                log.info("utility_session_ready", index=ws.index, model=self._model)
         self._started = True
         if not self._sessions:
             log.warning("utility_session_pool_empty", model=self._model)
         self._housekeeping_task = asyncio.create_task(self._housekeeping_loop(), name="utility-session-housekeeping")
 
     async def complete(self, prompt: str, timeout: float = 30.0) -> str:
-        """Send a prompt to a warm session and return the response.
+        """Send a prompt to a free session and return the response.
 
-        Automatically reconnects if the session is dead. Falls back to
-        creating a one-off session if the pool is exhausted.
+        Guarantees each caller gets its own session — no sharing.
+        Scales the pool up if all sessions are busy.
         """
         self._pending += 1
         try:
-            if not self._sessions:
-                ws = _WarmSession(model=self._model, index=0)
-                try:
-                    await ws.connect()
-                    self._sessions.append(ws)
-                except Exception:
-                    log.error("utility_session_cold_start_failed", exc_info=True)
-                    return ""
-
-            await self._maybe_scale_up()
-
-            async with self._lock:
-                idx = self._round_robin % len(self._sessions)
-                self._round_robin += 1
-                ws = self._sessions[idx]
-
-            log.debug("utility_pool_queue_depth", pending=self._pending, pool_size=len(self._sessions))
-
+            ws = await self._checkout_session()
             try:
                 return await ws.complete(prompt, timeout=timeout)
             except Exception:
@@ -132,6 +128,9 @@ class UtilitySessionService:
                 except Exception:
                     log.warning("utility_session_reconnect_failed", index=ws.index, exc_info=True)
                 return ""
+            finally:
+                async with self._lock:
+                    ws.in_use = False
         finally:
             self._pending -= 1
 
@@ -149,96 +148,127 @@ class UtilitySessionService:
         log.info("utility_session_pool_shutdown")
 
     # ------------------------------------------------------------------
+    # Session checkout — guaranteed exclusive access per caller
+    # ------------------------------------------------------------------
+
+    async def _checkout_session(self) -> _WarmSession:
+        """Return an exclusive free session, scaling up if all are busy.
+
+        1. Fast path: find a free session in the pool.
+        2. Scale path: scale the pool up and retry.
+        3. Spin path: busy-wait up to _CHECKOUT_SPIN_S for a session to free.
+        4. Emergency path: create a fresh session unconditionally.
+        """
+        # Fast path
+        async with self._lock:
+            ws = self._find_free()
+            if ws is not None:
+                ws.in_use = True
+                log.debug("utility_pool_checkout_fast", index=ws.index, pending=self._pending)
+                return ws
+
+        # All busy (or empty) — scale up then retry
+        await self._scale_up_to_demand()
+
+        async with self._lock:
+            ws = self._find_free()
+            if ws is not None:
+                ws.in_use = True
+                log.debug("utility_pool_checkout_post_scale", index=ws.index, pool_size=len(self._sessions))
+                return ws
+
+        # Scale-up didn't help (e.g. all connections failed).  Spin briefly.
+        deadline = time.monotonic() + _CHECKOUT_SPIN_S
+        while time.monotonic() < deadline:
+            await asyncio.sleep(_CHECKOUT_SLEEP_S)
+            async with self._lock:
+                ws = self._find_free()
+                if ws is not None:
+                    ws.in_use = True
+                    log.debug("utility_pool_checkout_spin", index=ws.index)
+                    return ws
+
+        # Emergency: create a brand-new session outside the normal pool.
+        log.warning("utility_pool_checkout_emergency", pending=self._pending, pool_size=len(self._sessions))
+        ws = _WarmSession(model=self._model, index=-1)
+        await ws.connect()
+        async with self._lock:
+            ws.index = len(self._sessions)
+            self._sessions.append(ws)
+        ws.in_use = True
+        return ws
+
+    def _find_free(self) -> _WarmSession | None:
+        """Return the first free session, or None. Must be called under _lock."""
+        for ws in self._sessions:
+            if not ws.in_use:
+                return ws
+        return None
+
+    # ------------------------------------------------------------------
     # Job-aware proactive scaling
     # ------------------------------------------------------------------
 
     async def notify_job_started(self) -> None:
         """Signal that a new job is running — proactively scale the pool."""
         self._active_jobs += 1
-        await self._scale_to_target()
+        await self._scale_up_to_demand()
 
     async def notify_job_ended(self) -> None:
         """Signal that a job finished — pool will shrink via idle housekeeping."""
         self._active_jobs = max(0, self._active_jobs - 1)
 
-    async def _scale_to_target(self) -> None:
-        """Scale pool up to match active job count.
+    # ------------------------------------------------------------------
+    # Autoscaling internals
+    # ------------------------------------------------------------------
 
-        Session creation is done outside the lock to allow parallel connects.
+    async def _scale_up_to_demand(self) -> None:
+        """Grow the pool to match current demand, serialised by _scale_lock.
+
+        Using _scale_lock means a burst of N concurrent callers triggers
+        exactly ONE batch of session connects rather than N thundering herds.
+        Callers that lose the race simply wait for the winner to finish, then
+        find sessions already available.
         """
-        target = max(_MIN_POOL, self._active_jobs)
+        target = max(self._pending, self._active_jobs, _MIN_POOL)
         if len(self._sessions) >= target:
-            return
+            return  # fast path — avoid lock acquisition
 
-        need = target - len(self._sessions)
-        new_index_base = len(self._sessions)
-        candidates = [_WarmSession(model=self._model, index=new_index_base + i) for i in range(need)]
+        async with self._scale_lock:
+            # Re-check under the scale lock; a previous winner may have already
+            # added enough sessions while we were waiting.
+            target = max(self._pending, self._active_jobs, _MIN_POOL)
+            need = target - len(self._sessions)
+            if need <= 0:
+                return
 
-        results = await asyncio.gather(*[ws.connect() for ws in candidates], return_exceptions=True)
+            new_index_base = len(self._sessions)
+            candidates = [_WarmSession(model=self._model, index=new_index_base + i) for i in range(need)]
 
-        connected: list[_WarmSession] = []
-        for ws, result in zip(candidates, results):
-            if isinstance(result, Exception):
-                log.warning("utility_pool_scale_up_failed", index=ws.index, exc_info=result)
-            else:
-                connected.append(ws)
+            results = await asyncio.gather(*[ws.connect() for ws in candidates], return_exceptions=True)
 
-        if not connected:
-            return
+            connected: list[_WarmSession] = []
+            for ws, result in zip(candidates, results):
+                if isinstance(result, Exception):
+                    log.warning("utility_pool_scale_up_failed", index=ws.index, exc_info=result)
+                else:
+                    connected.append(ws)
 
-        async with self._lock:
-            for ws in connected:
-                ws.index = len(self._sessions)
-                self._sessions.append(ws)
+            if not connected:
+                log.error("utility_pool_scale_up_all_failed", need=need)
+                return
+
+            async with self._lock:
+                for ws in connected:
+                    ws.index = len(self._sessions)
+                    self._sessions.append(ws)
                 log.info(
                     "utility_pool_scaled_up",
                     new_size=len(self._sessions),
                     target=target,
                     active_jobs=self._active_jobs,
+                    pending=self._pending,
                 )
-
-    # ------------------------------------------------------------------
-    # Autoscaling internals
-    # ------------------------------------------------------------------
-
-    async def _maybe_scale_up(self) -> None:
-        """Spawn new sessions to match the current pending call depth.
-
-        The pool has no hard ceiling — it grows to exactly meet demand.
-        Session creation (ws.connect) is done OUTSIDE the lock so that
-        concurrent callers create sessions in parallel.  The lock is held
-        only for the brief list append at the end.
-        """
-        target = max(self._pending, self._active_jobs)
-        need = target - len(self._sessions)
-        if need <= 0:
-            return
-
-        new_index_base = len(self._sessions)
-        candidates = [_WarmSession(model=self._model, index=new_index_base + i) for i in range(need)]
-
-        results = await asyncio.gather(*[ws.connect() for ws in candidates], return_exceptions=True)
-
-        connected: list[_WarmSession] = []
-        for ws, result in zip(candidates, results):
-            if isinstance(result, Exception):
-                log.warning("utility_pool_scale_up_failed", index=ws.index, exc_info=result)
-            else:
-                connected.append(ws)
-
-        if not connected:
-            return
-
-        async with self._lock:
-            for ws in connected:
-                ws.index = len(self._sessions)
-                self._sessions.append(ws)
-            log.info(
-                "utility_pool_scaled_up",
-                new_size=len(self._sessions),
-                pending=self._pending,
-                active_jobs=self._active_jobs,
-            )
 
     async def _housekeeping_loop(self) -> None:
         """Periodically close idle sessions beyond the minimum pool size."""
@@ -250,7 +280,7 @@ class UtilitySessionService:
             pass
 
     async def _scale_down_idle(self) -> None:
-        """Close sessions that have been idle longer than SCALE_DOWN_IDLE_S."""
+        """Close idle, non-busy sessions beyond the minimum pool size."""
         now = time.monotonic()
         to_close: list[_WarmSession] = []
         floor = max(_MIN_POOL, self._active_jobs)
@@ -260,7 +290,8 @@ class UtilitySessionService:
             survivors: list[_WarmSession] = []
             for ws in self._sessions:
                 if (
-                    ws.index != 0
+                    not ws.in_use
+                    and ws.index != 0
                     and (now - ws.last_used_at) > _SCALE_DOWN_IDLE_S
                     and (len(survivors) + len(self._sessions) - len(to_close) - 1) >= floor
                 ):
@@ -277,9 +308,9 @@ class UtilitySessionService:
 class _WarmSession:
     """A single long-lived Copilot SDK session for utility completions.
 
-    Uses a mutex to serialize requests — each session handles one prompt at a
-    time. With pool_size=1 this means utility calls are sequential, which is
-    fine for the low-volume meta-work they handle.
+    The pool guarantees each session is used by at most one caller at a time
+    via the ``in_use`` flag.  The internal ``_lock`` provides an additional
+    safety net (e.g. during reconnects initiated by the pool's error handler).
     """
 
     def __init__(self, model: str, index: int) -> None:
@@ -288,6 +319,7 @@ class _WarmSession:
         self._session: CopilotSession | None = None
         self._lock = asyncio.Lock()
         self.last_used_at: float = time.monotonic()
+        self.in_use: bool = False  # controlled exclusively by UtilitySessionService
 
     async def connect(self) -> None:
         """Create a fresh Copilot session with the utility model."""
@@ -310,7 +342,9 @@ class _WarmSession:
         session = await client.create_session(opts)
         self._session = session
 
-        # Prime the session with the system prompt so subsequent calls are faster
+        # Prime the session with the system prompt so the model context is warm.
+        # Keep the timeout short — a prime that times out is not fatal; the session
+        # still works, the first real request will just carry a bit more context.
         done = asyncio.Event()
 
         def _on_event(sdk_event: SdkSessionEvent) -> None:
@@ -333,12 +367,12 @@ class _WarmSession:
             }
         )
         try:
-            await asyncio.wait_for(done.wait(), timeout=15)
+            await asyncio.wait_for(done.wait(), timeout=5)
         except TimeoutError:
             log.warning("utility_session_prime_timeout", index=self.index)
 
     async def complete(self, prompt: str, timeout: float = 30.0) -> str:
-        """Send a prompt and collect the response. Thread-safe via mutex."""
+        """Send a prompt and collect the response."""
         async with self._lock:
             self.last_used_at = time.monotonic()
             if self._session is None:
