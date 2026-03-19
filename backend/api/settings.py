@@ -278,7 +278,7 @@ async def browse_directories(
 
 
 def _get_platform_registry(request: Request) -> PlatformRegistry | None:
-    return getattr(request.app.state, "platform_registry", None)
+    return request.app.state.platform_registry
 
 
 @router.get("/platforms/status", response_model=PlatformStatusListResponse)

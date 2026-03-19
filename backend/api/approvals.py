@@ -13,11 +13,7 @@ from backend.models.api_schemas import (
     SendMessageResponse,
     TrustJobResponse,
 )
-from backend.services.approval_service import (
-    ApprovalAlreadyResolvedError,
-    ApprovalNotFoundError,
-    ApprovalService,
-)
+from backend.services.approval_service import ApprovalService
 
 if TYPE_CHECKING:
     from backend.models.domain import Approval
@@ -57,12 +53,7 @@ async def resolve_approval(
 ) -> ApprovalResponse:
     """Approve or reject a pending approval request."""
     svc: ApprovalService = request.app.state.approval_service
-    try:
-        approval = await svc.resolve(approval_id, body.resolution.value)
-    except ApprovalNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ApprovalAlreadyResolvedError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    approval = await svc.resolve(approval_id, body.resolution.value)
     return _to_response(approval)
 
 

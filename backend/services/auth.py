@@ -118,7 +118,7 @@ def is_request_authenticated(request: Request) -> bool:
         return True
     if is_localhost(request):
         return True
-    return is_valid_token(request.cookies.get("cpl_session"))
+    return is_valid_token(request.cookies.get(COOKIE_NAME))
 
 
 def is_password_auth_enabled() -> bool:
@@ -135,9 +135,9 @@ def check_websocket_auth(*, client_host: str | None, cookies: dict[str, str]) ->
     """
     if not is_password_auth_enabled():
         return True
-    if client_host and client_host in ("127.0.0.1", "::1", "localhost"):
+    if client_host and client_host in LOCALHOST_ADDRS:
         return True
-    return is_valid_token(cookies.get("cpl_session"))
+    return is_valid_token(cookies.get(COOKIE_NAME))
 
 
 _LOGIN_HTML_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "login.html"

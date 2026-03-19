@@ -85,10 +85,7 @@ async def get_workspace_file(
     session_factory = request.app.state.session_factory
     async with session_factory() as session:
         job_svc = JobService.from_session(session, config, git_service=None)
-        try:
-            job = await job_svc.get_job(job_id)
-        except JobNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        job = await job_svc.get_job(job_id)
 
     worktree = Path(job.worktree_path or job.repo).resolve()
     file_path = (worktree / path).resolve()
