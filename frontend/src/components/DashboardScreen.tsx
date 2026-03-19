@@ -20,7 +20,7 @@ export function DashboardScreen() {
           return { jobs: updated };
         });
       })
-      .catch(() => {});
+      .catch((err) => console.error("Failed to fetch jobs", err));
   }, []);
 
   return (

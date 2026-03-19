@@ -83,7 +83,7 @@ export function JobDetailScreen() {
     if (existing) { setLoading(false); return; }
     fetchJob(jobId)
       .then((f) => useStore.setState((s) => ({ jobs: { ...s.jobs, [f.id]: enrichJob(f as JobSummary) } })))
-      .catch(() => {})
+      .catch((err) => console.error("Failed to fetch job", err))
       .finally(() => setLoading(false));
   }, [jobId]);
 
@@ -102,7 +102,7 @@ export function JobDetailScreen() {
             transcript: { ...s.transcript, [jobId]: mergedTx },
           };
         });
-    }).catch(() => {});
+    }).catch((err) => console.error("Failed to fetch job transcript", err));
   }, [jobId]);
 
   // Hydrate activity timeline from the persisted event store. This ensures the
@@ -127,7 +127,7 @@ export function JobDetailScreen() {
         );
         return { timelines: { ...s.timelines, [jobId]: full } };
       });
-    }).catch(() => {});
+    }).catch((err) => console.error("Failed to fetch job timeline", err));
   }, [jobId]);
 
   // Load pending approvals so late-joining clients can approve/reject.
@@ -139,7 +139,7 @@ export function JobDetailScreen() {
         for (const a of approvals) updated[a.id] = a;
         return { approvals: updated };
       });
-    }).catch(() => {});
+    }).catch((err) => console.error("Failed to fetch approvals", err));
   }, [jobId]);
 
   // Load diff data: on mount, when job reaches terminal state, or when diff tab selected.
@@ -152,7 +152,7 @@ export function JobDetailScreen() {
           diffs: { ...s.diffs, [jobId]: files },
         }));
       })
-      .catch(() => {});
+      .catch((err) => console.error("Failed to fetch job diff", err));
   }, [jobId, jobState, tab]);
 
   const handleCancel = useCallback(async () => {

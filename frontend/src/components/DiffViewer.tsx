@@ -173,7 +173,7 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt, on
           }));
         }
       })
-      .catch(() => {});
+      .catch((err) => console.error("Failed to fetch job diff", err));
   }, [jobId]);
 
   const selectedFile = diffs[selectedIdx];

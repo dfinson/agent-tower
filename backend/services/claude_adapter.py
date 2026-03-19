@@ -105,6 +105,13 @@ class ClaudeAdapter(AgentAdapterInterface):
         level: str = "info",
         seq: list[int] | None = None,
     ) -> None:
+        """Enqueue a log event for the session.
+
+        .. note::
+            When *seq* is provided it is **mutated in-place** (``seq[0]``
+            is incremented) so the caller's counter stays in sync across
+            successive calls.
+        """
         if seq is not None:
             seq[0] += 1
         self._enqueue(
@@ -549,7 +556,7 @@ class ClaudeAdapter(AgentAdapterInterface):
         finally:
             self._cleanup_session(session_id)
 
-    async def complete(self, prompt: str) -> str:
+    async def complete(self, prompt: str) -> str | None:
         """Single-turn completion using the Claude Agent SDK."""
         from claude_code_sdk import (
             AssistantMessage,
@@ -581,7 +588,7 @@ class ClaudeAdapter(AgentAdapterInterface):
                     break
         except Exception:
             log.error("claude_complete_failed", prompt_len=len(prompt), exc_info=True)
-            return ""
+            return None
         return "\n".join(collected)
 
 

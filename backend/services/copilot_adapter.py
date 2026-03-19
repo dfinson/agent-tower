@@ -606,7 +606,7 @@ class CopilotAdapter(AgentAdapterInterface):
         finally:
             self._cleanup_session(session_id)
 
-    async def complete(self, prompt: str) -> str:
+    async def complete(self, prompt: str) -> str | None:
         """Create a minimal session for single-turn completion, collect the response."""
         from copilot import CopilotClient
         from copilot import PermissionRequestResult as _Result
@@ -654,7 +654,7 @@ class CopilotAdapter(AgentAdapterInterface):
             return "\n".join(collected)
         except Exception:
             log.error("complete_failed", prompt_len=len(prompt), exc_info=True)
-            return ""
+            return None
         finally:
             try:
                 s = self._sessions.get(tmp_session_id)

@@ -693,7 +693,7 @@ export const useStore = create<AppState>((set, get) => ({
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [id]: _removed, ...rest } = s.terminalSessions;
       // Delete the session on the backend (fire-and-forget)
-      fetch(`/api/terminal/sessions/${id}`, { method: "DELETE" }).catch(() => {});
+      fetch(`/api/terminal/sessions/${id}`, { method: "DELETE" }).catch((err) => console.error("Failed to delete terminal session", err));
       const remaining = Object.keys(rest);
       const drawerSessions = Object.values(rest).filter((sess) => !sess.jobId);
       return {

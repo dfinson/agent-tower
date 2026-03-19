@@ -111,7 +111,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   useEffect(() => {
     fetchWorkspaceFiles(jobId)
       .then((res) => setEntries(res.items))
-      .catch(() => {})
+      .catch((err) => console.error("Failed to fetch workspace files", err))
       .finally(() => setLoading(false));
   }, [jobId]);
 

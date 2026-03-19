@@ -265,6 +265,7 @@ async def continue_job(
     return CreateJobResponse(
         id=job.id,
         state=job.state,
+        title=job.title,
         branch=job.branch,
         worktree_path=job.worktree_path,
         sdk=job.sdk,
@@ -455,7 +456,7 @@ async def get_job_telemetry(job_id: str) -> dict[str, object]:
     return {**tel.to_dict(), "available": True}
 
 
-@router.post("/jobs/{job_id}/resolve")
+@router.post("/jobs/{job_id}/resolve", response_model=ResolveJobResponse)
 async def resolve_job(
     job_id: str,
     body: ResolveJobRequest,
