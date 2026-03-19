@@ -57,8 +57,7 @@ def _get_job_service(
 ) -> JobService:
     git_service = GitService(config)
     # Pass naming service so title + branch are generated before worktree creation
-    utility = getattr(request.app.state, "utility_session", None)
-    naming = NamingService(utility) if utility is not None else None
+    naming = NamingService(request.app.state.utility_session)
     return JobService.from_session(session, config, git_service=git_service, naming_service=naming)
 
 
@@ -70,7 +69,7 @@ def _make_job_service(session: AsyncSession) -> JobService:
 
 def _get_merge_service(request: Request) -> MergeService | None:
     """Get MergeService from app state (may be None if not configured)."""
-    return getattr(request.app.state, "merge_service", None)
+    return request.app.state.merge_service
 
 
 def _job_to_response(job: Job) -> JobResponse:
@@ -345,19 +344,18 @@ async def get_job_diff(
 
         config = load_config()
         git = GitService(config)
-        event_bus = getattr(request.app.state, "event_bus", None)
-        if event_bus:
-            ds = DiffService(git_service=git, event_bus=event_bus)
-            try:
-                return await ds.calculate_diff(job.worktree_path, job.base_ref)
-            except Exception:
-                structlog.get_logger(__name__).warning(
-                    "get_job_diff_live_failed",
-                    job_id=job_id,
-                    worktree_path=str(job.worktree_path),
-                    base_ref=job.base_ref,
-                    exc_info=True,
-                )
+        event_bus = request.app.state.event_bus
+        ds = DiffService(git_service=git, event_bus=event_bus)
+        try:
+            return await ds.calculate_diff(job.worktree_path, job.base_ref)
+        except Exception:
+            structlog.get_logger(__name__).warning(
+                "get_job_diff_live_failed",
+                job_id=job_id,
+                worktree_path=str(job.worktree_path),
+                base_ref=job.base_ref,
+                exc_info=True,
+            )
 
     # Fallback: read from event store (completed/archived/failed jobs)
     events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
@@ -472,9 +470,7 @@ async def resolve_job(
         if job.resolution != "conflict":
             raise HTTPException(status_code=409, detail="agent_merge is only valid when resolution is 'conflict'")
 
-        runtime_service: RuntimeService | None = getattr(request.app.state, "runtime_service", None)
-        if runtime_service is None:
-            raise HTTPException(status_code=503, detail="Runtime service not configured")
+        runtime_service: RuntimeService = request.app.state.runtime_service
 
         # Retrieve conflict files from the latest merge_conflict event
         conflict_events = await svc.list_events_by_job(job_id, kinds=[DomainEventKind.merge_conflict])
@@ -501,11 +497,8 @@ async def resolve_job(
         await runtime_service.resume_job(job_id, conflict_prompt)
         return ResolveJobResponse(resolution="agent_merge")
 
-    merge_service: MergeService | None = getattr(request.app.state, "merge_service", None)
-    if merge_service is None:
-        raise HTTPException(status_code=503, detail="Merge service not configured")
-
-    event_bus = getattr(request.app.state, "event_bus", None)
+    merge_service: MergeService = request.app.state.merge_service
+    event_bus = request.app.state.event_bus
     resolution, pr_url, conflict_files_result = await svc.execute_resolve(
         job=job,
         action=body.action,
@@ -533,22 +526,21 @@ async def archive_job(
     await session.commit()
 
     # Publish event
-    event_bus = getattr(request.app.state, "event_bus", None)
-    if event_bus:
-        import uuid
-        from datetime import UTC, datetime
+    import uuid
+    from datetime import UTC, datetime
 
-        from backend.models.events import DomainEvent
+    from backend.models.events import DomainEvent
 
-        await event_bus.publish(
-            DomainEvent(
-                event_id=f"evt-{uuid.uuid4().hex[:12]}",
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.job_archived,
-                payload={},
-            )
+    event_bus = request.app.state.event_bus
+    await event_bus.publish(
+        DomainEvent(
+            event_id=f"evt-{uuid.uuid4().hex[:12]}",
+            job_id=job_id,
+            timestamp=datetime.now(UTC),
+            kind=DomainEventKind.job_archived,
+            payload={},
         )
+    )
 
 
 @router.post("/jobs/{job_id}/unarchive", status_code=204)
