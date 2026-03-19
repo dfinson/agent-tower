@@ -1,15 +1,27 @@
-import { Component, type ReactNode, useEffect, useCallback } from "react";
+import { Component, type ReactNode, Suspense, lazy, useEffect, useCallback } from "react";
 import { Routes, Route, Link } from "react-router-dom";
 import { Settings, History, TerminalSquare } from "lucide-react";
 import { useSSE } from "./hooks/useSSE";
 import { useStore, selectConnectionStatus } from "./store";
 import { DashboardScreen } from "./components/DashboardScreen";
-import { JobDetailScreen } from "./components/JobDetailScreen";
-import { JobCreationScreen } from "./components/JobCreationScreen";
-import { SettingsScreen } from "./components/SettingsScreen";
-import { HistoryScreen } from "./components/HistoryScreen";
-import { TerminalDrawer } from "./components/TerminalDrawer";
 import { DotBadge } from "./components/ui/badge";
+import { Spinner } from "./components/ui/spinner";
+
+const JobDetailScreen = lazy(() =>
+  import("./components/JobDetailScreen").then((module) => ({ default: module.JobDetailScreen })),
+);
+const JobCreationScreen = lazy(() =>
+  import("./components/JobCreationScreen").then((module) => ({ default: module.JobCreationScreen })),
+);
+const SettingsScreen = lazy(() =>
+  import("./components/SettingsScreen").then((module) => ({ default: module.SettingsScreen })),
+);
+const HistoryScreen = lazy(() =>
+  import("./components/HistoryScreen").then((module) => ({ default: module.HistoryScreen })),
+);
+const TerminalDrawer = lazy(() =>
+  import("./components/TerminalDrawer").then((module) => ({ default: module.TerminalDrawer })),
+);
 
 /* ------------------------------------------------------------------ */
 /* Error boundary                                                      */
@@ -55,6 +67,14 @@ function ConnectionStatus() {
     <DotBadge color={color}>
       {status === "reconnecting" ? "connecting" : status}
     </DotBadge>
+  );
+}
+
+function RouteFallback() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <Spinner size="lg" />
+    </div>
   );
 }
 
@@ -124,17 +144,21 @@ export function App() {
 
       <main className={`flex-1 overflow-y-auto p-4 ${terminalDrawerOpen ? "min-h-0" : ""}`}>
         <ErrorBoundary>
-          <Routes>
-            <Route path="/" element={<DashboardScreen />} />
-            <Route path="/jobs/new" element={<JobCreationScreen />} />
-            <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
-            <Route path="/history" element={<HistoryScreen />} />
-            <Route path="/settings" element={<SettingsScreen />} />
-          </Routes>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/" element={<DashboardScreen />} />
+              <Route path="/jobs/new" element={<JobCreationScreen />} />
+              <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
+              <Route path="/history" element={<HistoryScreen />} />
+              <Route path="/settings" element={<SettingsScreen />} />
+            </Routes>
+          </Suspense>
         </ErrorBoundary>
       </main>
 
-      <TerminalDrawer />
+      <Suspense fallback={null}>
+        <TerminalDrawer />
+      </Suspense>
     </div>
   );
 }

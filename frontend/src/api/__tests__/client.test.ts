@@ -61,6 +61,23 @@ function noContentResponse() {
   return { ok: true, status: 204, statusText: "No Content", json: async () => undefined };
 }
 
+function getFirstFetchCall(): [input: RequestInfo | URL, init?: RequestInit] {
+  const firstCall = mockFetch.mock.calls[0];
+  expect(firstCall).toBeDefined();
+  return firstCall as [RequestInfo | URL, RequestInit?];
+}
+
+function getFirstFetchUrl(): string {
+  const [input] = getFirstFetchCall();
+  return String(input);
+}
+
+function getFirstFetchInit(): RequestInit {
+  const [, init] = getFirstFetchCall();
+  expect(init).toBeDefined();
+  return init as RequestInit;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -115,7 +132,7 @@ describe("fetchJobs", () => {
   it("appends state and limit query params", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ items: [], cursor: null }));
     await fetchJobs({ state: "running", limit: 10 });
-    const url = mockFetch.mock.calls[0][0] as string;
+    const url = getFirstFetchUrl();
     expect(url).toContain("state=running");
     expect(url).toContain("limit=10");
   });
@@ -123,14 +140,14 @@ describe("fetchJobs", () => {
   it("appends cursor param", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ items: [], cursor: null }));
     await fetchJobs({ cursor: "abc" });
-    const url = mockFetch.mock.calls[0][0] as string;
+    const url = getFirstFetchUrl();
     expect(url).toContain("cursor=abc");
   });
 
   it("appends archived param", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ items: [], cursor: null }));
     await fetchJobs({ archived: true });
-    const url = mockFetch.mock.calls[0][0] as string;
+    const url = getFirstFetchUrl();
     expect(url).toContain("archived=true");
   });
 });
@@ -163,10 +180,11 @@ describe("createJob", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse(body));
     const result = await createJob({ repo: "/repo", prompt: "Fix it" } as any);
     expect(result).toEqual(body);
-    const [url, init] = mockFetch.mock.calls[0];
+    const [url] = getFirstFetchCall();
+    const init = getFirstFetchInit();
     expect(url).toBe("/api/jobs");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toEqual({ repo: "/repo", prompt: "Fix it" });
+    expect(JSON.parse(init.body as string)).toEqual({ repo: "/repo", prompt: "Fix it" });
   });
 
   it("throws ApiError on 422 validation error", async () => {
@@ -199,7 +217,8 @@ describe("cancelJob", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ id: "j-1", state: "canceled" }));
     const result = await cancelJob("j-1");
     expect(result.state).toBe("canceled");
-    const [url, init] = mockFetch.mock.calls[0];
+    const [url] = getFirstFetchCall();
+    const init = getFirstFetchInit();
     expect(url).toBe("/api/jobs/j-1/cancel");
     expect(init.method).toBe("POST");
   });
@@ -210,7 +229,7 @@ describe("rerunJob", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ id: "j-2", state: "queued" }));
     const result = await rerunJob("j-1");
     expect(result.id).toBe("j-2");
-    expect(mockFetch.mock.calls[0][0]).toBe("/api/jobs/j-1/rerun");
+    expect(getFirstFetchUrl()).toBe("/api/jobs/j-1/rerun");
   });
 });
 
@@ -219,7 +238,7 @@ describe("resolveJob", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ resolution: "merged" }));
     const result = await resolveJob("j-1", "merge");
     expect(result.resolution).toBe("merged");
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = JSON.parse(getFirstFetchInit().body as string);
     expect(body.action).toBe("merge");
   });
 });
@@ -229,14 +248,14 @@ describe("archiveJob / unarchiveJob", () => {
     mockFetch.mockResolvedValueOnce(noContentResponse());
     const result = await archiveJob("j-1");
     expect(result).toBeUndefined();
-    expect(mockFetch.mock.calls[0][0]).toBe("/api/jobs/j-1/archive");
+    expect(getFirstFetchUrl()).toBe("/api/jobs/j-1/archive");
   });
 
   it("unarchives a job (204)", async () => {
     mockFetch.mockResolvedValueOnce(noContentResponse());
     const result = await unarchiveJob("j-1");
     expect(result).toBeUndefined();
-    expect(mockFetch.mock.calls[0][0]).toBe("/api/jobs/j-1/unarchive");
+    expect(getFirstFetchUrl()).toBe("/api/jobs/j-1/unarchive");
   });
 });
 
@@ -244,8 +263,8 @@ describe("pauseJob", () => {
   it("pauses a job", async () => {
     mockFetch.mockResolvedValueOnce(noContentResponse());
     await pauseJob("j-1");
-    expect(mockFetch.mock.calls[0][0]).toBe("/api/jobs/j-1/pause");
-    expect(mockFetch.mock.calls[0][1].method).toBe("POST");
+    expect(getFirstFetchUrl()).toBe("/api/jobs/j-1/pause");
+    expect(getFirstFetchInit().method).toBe("POST");
   });
 });
 
@@ -254,7 +273,7 @@ describe("continueJob", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ id: "j-1", state: "running", branch: null, worktreePath: null, createdAt: "2025-01-01" }));
     const result = await continueJob("j-1", "Do more");
     expect(result.id).toBe("j-1");
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = JSON.parse(getFirstFetchInit().body as string);
     expect(body.instruction).toBe("Do more");
   });
 });
@@ -264,7 +283,7 @@ describe("resumeJob", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ id: "j-1", state: "running", branch: null, worktreePath: null, createdAt: "2025-01-01", updatedAt: "2025-01-01" }));
     const result = await resumeJob("j-1", "Continue");
     expect(result.state).toBe("running");
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = JSON.parse(getFirstFetchInit().body as string);
     expect(body.instruction).toBe("Continue");
   });
 });
@@ -277,7 +296,7 @@ describe("fetchJobLogs", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse(logs));
     const result = await fetchJobLogs("j-1");
     expect(result).toEqual(logs);
-    const url = mockFetch.mock.calls[0][0] as string;
+    const url = getFirstFetchUrl();
     expect(url).toContain("/api/jobs/j-1/logs");
     expect(url).toContain("level=debug");
   });
@@ -285,7 +304,7 @@ describe("fetchJobLogs", () => {
   it("respects level param", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse([]));
     await fetchJobLogs("j-1", "error");
-    const url = mockFetch.mock.calls[0][0] as string;
+    const url = getFirstFetchUrl();
     expect(url).toContain("level=error");
   });
 });
@@ -296,7 +315,7 @@ describe("fetchJobTranscript", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse(entries));
     const result = await fetchJobTranscript("j-1");
     expect(result).toEqual(entries);
-    expect(mockFetch.mock.calls[0][0]).toContain("/api/jobs/j-1/transcript");
+    expect(getFirstFetchUrl()).toContain("/api/jobs/j-1/transcript");
   });
 });
 
@@ -305,8 +324,10 @@ describe("fetchJobTimeline", () => {
     const raw = [{ headline: "h", headlinePast: "hp", summary: "s", timestamp: "2025-01-01" }];
     mockFetch.mockResolvedValueOnce(jsonResponse(raw));
     const result = await fetchJobTimeline("j-1");
-    expect(result[0].active).toBe(false);
-    expect(result[0].headline).toBe("h");
+    const firstEntry = result[0];
+    expect(firstEntry).toBeDefined();
+    expect(firstEntry?.active).toBe(false);
+    expect(firstEntry?.headline).toBe("h");
   });
 });
 
@@ -316,7 +337,7 @@ describe("fetchJobDiff", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse(diff));
     const result = await fetchJobDiff("j-1");
     expect(result).toEqual(diff);
-    expect(mockFetch.mock.calls[0][0]).toContain("/api/jobs/j-1/diff");
+    expect(getFirstFetchUrl()).toContain("/api/jobs/j-1/diff");
   });
 });
 
@@ -337,7 +358,7 @@ describe("updateSettings", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse(settings));
     const result = await updateSettings(settings as any);
     expect(result).toEqual(settings);
-    expect(mockFetch.mock.calls[0][1].method).toBe("PUT");
+    expect(getFirstFetchInit().method).toBe("PUT");
   });
 });
 
@@ -356,7 +377,7 @@ describe("registerRepo", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ path: "/repos/a", source: "/repos/a", cloned: false }));
     const result = await registerRepo("/repos/a");
     expect(result.path).toBe("/repos/a");
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = JSON.parse(getFirstFetchInit().body as string);
     expect(body.source).toBe("/repos/a");
   });
 });
@@ -365,7 +386,7 @@ describe("unregisterRepo", () => {
   it("deletes a repo", async () => {
     mockFetch.mockResolvedValueOnce(noContentResponse());
     await unregisterRepo("/repos/a");
-    expect(mockFetch.mock.calls[0][1].method).toBe("DELETE");
+    expect(getFirstFetchInit().method).toBe("DELETE");
   });
 });
 
@@ -385,7 +406,7 @@ describe("resolveApproval", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ id: "apr-1", resolution: "approved" }));
     const result = await resolveApproval("apr-1", "approved");
     expect(result.resolution).toBe("approved");
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = JSON.parse(getFirstFetchInit().body as string);
     expect(body.resolution).toBe("approved");
   });
 });
@@ -395,7 +416,7 @@ describe("trustJob", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ resolved: 3 }));
     const result = await trustJob("j-1");
     expect(result.resolved).toBe(3);
-    expect(mockFetch.mock.calls[0][0]).toBe("/api/jobs/j-1/approvals/trust");
+    expect(getFirstFetchUrl()).toBe("/api/jobs/j-1/approvals/trust");
   });
 });
 
@@ -406,7 +427,7 @@ describe("fetchArtifacts", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ items: [] }));
     const result = await fetchArtifacts("j-1");
     expect(result.items).toEqual([]);
-    expect(mockFetch.mock.calls[0][0]).toContain("/api/jobs/j-1/artifacts");
+    expect(getFirstFetchUrl()).toContain("/api/jobs/j-1/artifacts");
   });
 });
 
@@ -422,7 +443,7 @@ describe("fetchWorkspaceFiles", () => {
   it("appends path param", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ items: [], cursor: null, hasMore: false }));
     await fetchWorkspaceFiles("j-1", { path: "src/" });
-    const url = mockFetch.mock.calls[0][0] as string;
+    const url = getFirstFetchUrl();
     expect(url).toContain("path=src");
   });
 });
@@ -432,7 +453,7 @@ describe("fetchWorkspaceFile", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ path: "a.ts", content: "hello" }));
     const result = await fetchWorkspaceFile("j-1", "a.ts");
     expect(result.content).toBe("hello");
-    const url = mockFetch.mock.calls[0][0] as string;
+    const url = getFirstFetchUrl();
     expect(url).toContain("path=a.ts");
   });
 });
@@ -444,7 +465,7 @@ describe("sendOperatorMessage", () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ seq: 1, timestamp: "2025-01-01" }));
     const result = await sendOperatorMessage("j-1", "Hello");
     expect(result.seq).toBe(1);
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body = JSON.parse(getFirstFetchInit().body as string);
     expect(body.content).toBe("Hello");
   });
 });
@@ -461,7 +482,8 @@ describe("transcribeAudio", () => {
     const blob = new Blob(["audio"], { type: "audio/webm" });
     const result = await transcribeAudio(blob);
     expect(result).toBe("Hello world");
-    const [url, init] = mockFetch.mock.calls[0];
+    const [url] = getFirstFetchCall();
+    const init = getFirstFetchInit();
     expect(url).toBe("/api/voice/transcribe");
     expect(init.method).toBe("POST");
     expect(init.body).toBeInstanceOf(FormData);
@@ -485,7 +507,9 @@ describe("fetchModels", () => {
   it("returns model list", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse([{ id: "gpt-4", name: "GPT-4" }]));
     const result = await fetchModels();
-    expect(result[0].id).toBe("gpt-4");
+    const firstModel = result[0];
+    expect(firstModel).toBeDefined();
+    expect(firstModel?.id).toBe("gpt-4");
   });
 });
 

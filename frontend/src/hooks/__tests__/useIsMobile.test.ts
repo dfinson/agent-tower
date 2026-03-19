@@ -20,7 +20,8 @@ beforeEach(() => {
     value: vi.fn((query: string) => {
       // Parse the max-width value from the query
       const match = query.match(/max-width:\s*(\d+)px/);
-      const breakpointPx = match ? parseInt(match[1], 10) : 767;
+      const breakpointValue = match?.[1];
+      const breakpointPx = breakpointValue ? parseInt(breakpointValue, 10) : 767;
       currentMatches = window.innerWidth <= breakpointPx;
       return {
         matches: currentMatches,
