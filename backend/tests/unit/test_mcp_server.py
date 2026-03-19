@@ -219,7 +219,7 @@ class TestJobTool:
 
     @pytest.mark.asyncio
     async def test_cancel(self, mcp_server) -> None:
-        job = _make_job(state="cancelled")
+        job = _make_job(state="canceled")
         with (
             patch("backend.mcp.server.JobService") as mock_svc_cls,
             patch("backend.mcp.server.GitService"),
@@ -229,7 +229,7 @@ class TestJobTool:
             mock_svc_cls.return_value = svc
 
             result = await _tool(mcp_server, "codeplane_job")(action="cancel", job_id="job-123")
-            assert result["state"] == "cancelled"
+            assert result["state"] == "canceled"
 
     @pytest.mark.asyncio
     async def test_rerun(self, mcp_server) -> None:

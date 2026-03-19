@@ -173,20 +173,20 @@ class TestSSEManager:
         assert mgr.connection_count == 0
 
     @pytest.mark.asyncio
-    async def test_handle_event_broadcasts_to_global(self) -> None:
+    async def test_broadcast_domain_event_broadcasts_to_global(self) -> None:
         mgr = SSEManager()
         conn = SSEConnection()
         mgr.register(conn)
 
         event = _make_event(kind=DomainEventKind.job_created, db_id=42)
-        await mgr.handle_event(event)
+        await mgr.broadcast_domain_event(event)
 
         data = conn.queue.get_nowait()
         assert "event: job_state_changed" in data
         assert "id: 42\n" in data
 
     @pytest.mark.asyncio
-    async def test_handle_event_routes_to_scoped_connection(self) -> None:
+    async def test_broadcast_domain_event_routes_to_scoped_connection(self) -> None:
         mgr = SSEManager()
         conn1 = SSEConnection(job_id="job-1")
         conn2 = SSEConnection(job_id="job-2")
@@ -194,7 +194,7 @@ class TestSSEManager:
         mgr.register(conn2)
 
         event = _make_event(kind=DomainEventKind.job_created, job_id="job-1", db_id=10)
-        await mgr.handle_event(event)
+        await mgr.broadcast_domain_event(event)
 
         assert not conn1.queue.empty()
         assert conn2.queue.empty()
@@ -206,7 +206,7 @@ class TestSSEManager:
         mgr.register(conn)
 
         event = _make_event(kind=DomainEventKind.workspace_prepared)
-        await mgr.handle_event(event)
+        await mgr.broadcast_domain_event(event)
 
         assert conn.queue.empty()
 
@@ -217,7 +217,7 @@ class TestSSEManager:
         mgr.register(conn)
 
         event = _make_event(kind=DomainEventKind.agent_session_started)
-        await mgr.handle_event(event)
+        await mgr.broadcast_domain_event(event)
 
         assert conn.queue.empty()
 
@@ -235,7 +235,7 @@ class TestSSEManager:
             DomainEventKind.diff_updated,
             DomainEventKind.session_heartbeat,
         ]:
-            await mgr.handle_event(_make_event(kind=kind))
+            await mgr.broadcast_domain_event(_make_event(kind=kind))
 
         assert conn.queue.empty()
 
@@ -247,7 +247,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        await mgr.handle_event(_make_event(kind=DomainEventKind.job_succeeded))
+        await mgr.broadcast_domain_event(_make_event(kind=DomainEventKind.job_succeeded))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -258,7 +258,7 @@ class TestSSEManager:
         conn = SSEConnection(job_id="job-1")
         mgr.register(conn)
 
-        await mgr.handle_event(_make_event(kind=DomainEventKind.log_line_emitted, job_id="job-1"))
+        await mgr.broadcast_domain_event(_make_event(kind=DomainEventKind.log_line_emitted, job_id="job-1"))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -269,7 +269,7 @@ class TestSSEManager:
         conn = SSEConnection()
         mgr.register(conn)
 
-        await mgr.handle_event(_make_event(kind=DomainEventKind.log_line_emitted))
+        await mgr.broadcast_domain_event(_make_event(kind=DomainEventKind.log_line_emitted))
         assert not conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -282,7 +282,7 @@ class TestSSEManager:
             kind=DomainEventKind.approval_requested,
             payload={"approval_id": "apr-1", "description": "approve?"},
         )
-        await mgr.handle_event(event)
+        await mgr.broadcast_domain_event(event)
 
         # Should have 2 frames: approval_requested + job_state_changed
         frames = []
@@ -306,7 +306,7 @@ class TestSSEManager:
             kind=DomainEventKind.approval_resolved,
             payload={"resolution": "approved"},
         )
-        await mgr.handle_event(event)
+        await mgr.broadcast_domain_event(event)
 
         frames = []
         while not conn.queue.empty():
@@ -327,7 +327,7 @@ class TestSSEManager:
             kind=DomainEventKind.approval_resolved,
             payload={"resolution": "rejected"},
         )
-        await mgr.handle_event(event)
+        await mgr.broadcast_domain_event(event)
 
         frames = []
         while not conn.queue.empty():
@@ -344,7 +344,7 @@ class TestSSEManager:
         mgr.register(conn)
         conn.close()
 
-        await mgr.handle_event(_make_event())
+        await mgr.broadcast_domain_event(_make_event())
         assert conn.queue.empty()
 
     @pytest.mark.asyncio
@@ -541,7 +541,7 @@ class TestSSEManager:
                 payload = {"reason": "test error"}
             if kind == DomainEventKind.job_resolved:
                 payload = {"resolution": "merged"}
-            await mgr.handle_event(_make_event(kind=kind, event_id=f"evt-{i}", payload=payload))
+            await mgr.broadcast_domain_event(_make_event(kind=kind, event_id=f"evt-{i}", payload=payload))
 
         frames = []
         while not conn.queue.empty():
@@ -564,7 +564,7 @@ class TestSSEManager:
             payload={"resolution": "approved"},
             db_id=99,
         )
-        await mgr.handle_event(event)
+        await mgr.broadcast_domain_event(event)
 
         frames = []
         while not conn.queue.empty():

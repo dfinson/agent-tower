@@ -15,12 +15,18 @@ from backend.models.domain import (
     InvalidStateTransitionError,
     Job,
     JobState,
+    PermissionMode,
+    Resolution,
     validate_state_transition,
 )
 from backend.services.agent_adapter import validate_sdk_model
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from backend.config import CPLConfig
+    from backend.models.events import DomainEvent, DomainEventKind
+    from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
     from backend.services.git_service import GitService
     from backend.services.naming_service import NamingService
@@ -46,14 +52,47 @@ class JobService:
     def __init__(
         self,
         job_repo: JobRepository,
-        git_service: GitService,
+        git_service: GitService | None,
         config: CPLConfig,
         naming_service: NamingService | None = None,
+        event_repo: EventRepository | None = None,
     ) -> None:
         self._job_repo = job_repo
         self._git = git_service
         self._config = config
         self._naming = naming_service
+        self._event_repo = event_repo
+
+    @classmethod
+    def from_session(
+        cls,
+        session: AsyncSession,
+        config: CPLConfig,
+        *,
+        git_service: GitService | None = None,
+        naming_service: NamingService | None = None,
+    ) -> JobService:
+        """Construct a JobService from a DB session.
+
+        This factory keeps persistence imports inside the service layer so
+        that callers (e.g. API routes) never import repository classes.
+        """
+        from backend.persistence.event_repo import EventRepository
+        from backend.persistence.job_repo import JobRepository
+
+        job_repo = JobRepository(session)
+        event_repo = EventRepository(session)
+        if git_service is None:
+            from backend.services.git_service import GitService
+
+            git_service = GitService(config)
+        return cls(
+            job_repo=job_repo,
+            git_service=git_service,
+            config=config,
+            naming_service=naming_service,
+            event_repo=event_repo,
+        )
 
     def _resolve_repos(self) -> set[str]:
         """Expand glob patterns and return the full set of allowed repo paths."""
@@ -69,6 +108,21 @@ class JobService:
                 allowed.add(str(expanded.resolve()))
         return allowed
 
+    async def list_events_by_job(
+        self,
+        job_id: str,
+        kinds: list[DomainEventKind],
+        limit: int = 2000,
+    ) -> list[DomainEvent]:
+        """Query domain events for a job, filtered by kind.
+
+        Delegates to the event repository so that API routes never need
+        to import persistence classes directly.
+        """
+        if self._event_repo is None:
+            raise RuntimeError("JobService was created without an event_repo")
+        return await self._event_repo.list_by_job(job_id, kinds, limit=limit)
+
     def validate_repo(self, repo: str) -> str:
         """Validate a repo path is in the allowlist. Returns resolved path."""
         resolved = str(Path(repo).expanduser().resolve())
@@ -83,7 +137,7 @@ class JobService:
         prompt: str,
         base_ref: str | None = None,
         branch: str | None = None,
-        permission_mode: str = "auto",
+        permission_mode: str = PermissionMode.auto,
         model: str | None = None,
         sdk: str | None = None,
         verify: bool | None = None,
@@ -354,13 +408,76 @@ class JobService:
         return len(jobs)
 
     async def resolve_job(self, job_id: str, action: str) -> Job:
-        """Resolve a succeeded job by merging, creating a PR, or discarding."""
+        """Validate that a job is eligible for resolution.
+
+        Raises StateConflictError if the job state or current resolution
+        prevents the requested action.
+        """
         job = await self.get_job(job_id)
         if job.state != JobState.succeeded:
             raise StateConflictError(f"Job {job_id} is in state {job.state!r}, not 'succeeded'")
-        if job.resolution not in (None, "unresolved", "conflict"):
+        if job.resolution not in (None, Resolution.unresolved, Resolution.conflict):
             raise StateConflictError(f"Job {job_id} already resolved as {job.resolution!r}")
         return job
+
+    async def execute_resolve(
+        self,
+        job: Job,
+        action: str,
+        merge_service: object,
+        event_bus: object | None = None,
+    ) -> tuple[str, str | None, list[str] | None]:
+        """Execute merge/PR/discard resolution and persist the outcome.
+
+        Returns (resolution, pr_url, conflict_files).
+        """
+        from backend.services.merge_service import MergeService as _MS
+
+        ms: _MS = merge_service  # type: ignore[assignment]
+        result = await ms.resolve_job(
+            job_id=job.id,
+            action=action,
+            repo_path=job.repo,
+            worktree_path=job.worktree_path,
+            branch=job.branch,
+            base_ref=job.base_ref,
+            prompt=job.prompt,
+        )
+
+        _STATUS_MAP = {
+            Resolution.merged: Resolution.merged,
+            Resolution.pr_created: Resolution.pr_created,
+            Resolution.discarded: Resolution.discarded,
+            Resolution.conflict: Resolution.conflict,
+        }
+        resolution = _STATUS_MAP.get(result.status, Resolution.unresolved)
+
+        # Persist resolution
+        await self._job_repo.update_resolution(job.id, resolution, pr_url=result.pr_url)
+
+        # Publish event
+        if event_bus is not None:
+            import uuid as _uuid
+
+            from backend.models.events import DomainEvent, DomainEventKind
+
+            payload: dict[str, object] = {"resolution": resolution}
+            if result.pr_url:
+                payload["pr_url"] = result.pr_url
+            if result.conflict_files:
+                payload["conflict_files"] = result.conflict_files
+
+            await event_bus.publish(
+                DomainEvent(
+                    event_id=f"evt-{_uuid.uuid4().hex[:12]}",
+                    job_id=job.id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.job_resolved,
+                    payload=payload,
+                )
+            )
+
+        return resolution, result.pr_url, result.conflict_files
 
     async def archive_job(self, job_id: str) -> Job:
         """Archive a job (hide from Kanban board)."""

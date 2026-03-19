@@ -12,7 +12,9 @@ from __future__ import annotations
 import contextlib
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+
+from typing_extensions import TypedDict
 
 import structlog
 from mcp.server.fastmcp import FastMCP
@@ -56,14 +58,38 @@ from backend.services.platform_adapter import detect_platform as _detect_platfor
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.config import CPLConfig
+    from backend.models.domain import Job
     from backend.services.approval_service import ApprovalService
     from backend.services.runtime_service import RuntimeService
 
 log = structlog.get_logger()
 
+# Intentionally captured at import time — used to compute MCP server uptime.
+# This module is imported during app startup so the value is accurate.
 _start_time = time.monotonic()
 
-# Module-level references to shared services, set during create_mcp_server()
+
+# ---------------------------------------------------------------------------
+# MCP tool return-type helpers
+# ---------------------------------------------------------------------------
+
+class McpErrorDict(TypedDict):
+    """Standard error response returned by MCP tool handlers."""
+
+    error: str
+
+
+# MCP tool handlers return JSON-serializable dicts produced by Pydantic's
+# ``model_dump(mode="json")``.  The broad ``dict[str, Any]`` component
+# reflects Pydantic's own return signature; ``McpErrorDict`` captures the
+# error path so callers can narrow on the ``"error"`` key.
+McpToolResult: TypeAlias = McpErrorDict | dict[str, Any]
+
+# Module-level service references, set once by create_mcp_server().
+# These are module-scoped rather than passed per-call because the MCP FastMCP
+# tool decorator captures free functions — there is no instance to bind to.
+# The assert-based accessors below ensure a clear error if called before init.
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 _runtime_service: RuntimeService | None = None
 _approval_service: ApprovalService | None = None
@@ -84,7 +110,24 @@ def _get_approval() -> ApprovalService:
     return _approval_service
 
 
-def _job_to_response(job: Any) -> dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Service factory helpers — avoid repeating construction across tool handlers
+# ---------------------------------------------------------------------------
+
+
+def _make_job_service(session: AsyncSession, config: CPLConfig, *, git: bool = True) -> JobService:
+    return JobService(
+        job_repo=JobRepository(session),
+        git_service=GitService(config) if git else None,
+        config=config,
+    )
+
+
+def _make_artifact_service(session: AsyncSession) -> ArtifactService:
+    return ArtifactService(ArtifactRepository(session))
+
+
+def _job_to_response(job: Job) -> McpToolResult:
     """Convert a domain Job to a serializable dict via JobResponse."""
     resp = JobResponse(
         id=job.id,
@@ -168,7 +211,7 @@ def _register_job_tool(mcp: FastMCP) -> None:
         ),
     )
     async def codeplane_job(
-        action: str,
+        action: Literal["create", "list", "get", "cancel", "rerun", "message"],
         job_id: str | None = None,
         repo: str | None = None,
         prompt: str | None = None,
@@ -180,7 +223,7 @@ def _register_job_tool(mcp: FastMCP) -> None:
         state: str | None = None,
         limit: int = 50,
         cursor: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> McpToolResult:
         sf = _get_session_factory()
         config = load_config()
 
@@ -188,11 +231,7 @@ def _register_job_tool(mcp: FastMCP) -> None:
             if not repo or not prompt:
                 return {"error": "repo and prompt are required for create"}
             async with sf() as session:
-                svc = JobService(
-                    job_repo=JobRepository(session),
-                    git_service=GitService(config),
-                    config=config,
-                )
+                svc = _make_job_service(session, config)
                 try:
                     job = await svc.create_job(
                         repo=repo,
@@ -221,11 +260,7 @@ def _register_job_tool(mcp: FastMCP) -> None:
 
         if action == "list":
             async with sf() as session:
-                svc = JobService(
-                    job_repo=JobRepository(session),
-                    git_service=GitService(config),
-                    config=config,
-                )
+                svc = _make_job_service(session, config)
                 jobs, next_cursor, has_more = await svc.list_jobs(
                     state=state,
                     limit=min(max(limit, 1), 100),
@@ -256,11 +291,7 @@ def _register_job_tool(mcp: FastMCP) -> None:
             if not job_id:
                 return {"error": "job_id is required for get"}
             async with sf() as session:
-                svc = JobService(
-                    job_repo=JobRepository(session),
-                    git_service=GitService(config),
-                    config=config,
-                )
+                svc = _make_job_service(session, config)
                 try:
                     job = await svc.get_job(job_id)
                 except JobNotFoundError as exc:
@@ -271,11 +302,7 @@ def _register_job_tool(mcp: FastMCP) -> None:
             if not job_id:
                 return {"error": "job_id is required for cancel"}
             async with sf() as session:
-                svc = JobService(
-                    job_repo=JobRepository(session),
-                    git_service=GitService(config),
-                    config=config,
-                )
+                svc = _make_job_service(session, config)
                 try:
                     job = await svc.cancel_job(job_id)
                 except (JobNotFoundError, StateConflictError) as exc:
@@ -288,11 +315,7 @@ def _register_job_tool(mcp: FastMCP) -> None:
             if not job_id:
                 return {"error": "job_id is required for rerun"}
             async with sf() as session:
-                svc = JobService(
-                    job_repo=JobRepository(session),
-                    git_service=GitService(config),
-                    config=config,
-                )
+                svc = _make_job_service(session, config)
                 try:
                     job = await svc.rerun_job(job_id)
                 except (JobNotFoundError, RepoNotAllowedError) as exc:
@@ -344,11 +367,11 @@ def _register_approval_tool(mcp: FastMCP) -> None:
         ),
     )
     async def codeplane_approval(
-        action: str,
+        action: Literal["list", "resolve"],
         job_id: str | None = None,
         approval_id: str | None = None,
         resolution: str | None = None,
-    ) -> dict[str, Any] | list[dict[str, Any]]:
+    ) -> McpToolResult | list[dict[str, Any]]:
         svc = _get_approval()
 
         if action == "list":
@@ -415,23 +438,19 @@ def _register_workspace_tool(mcp: FastMCP) -> None:
         ),
     )
     async def codeplane_workspace(
-        action: str,
+        action: Literal["list", "read"],
         job_id: str | None = None,
         path: str = "",
         cursor: str | None = None,
         limit: int = 200,
-    ) -> dict[str, Any]:
+    ) -> McpToolResult:
         if not job_id:
             return {"error": "job_id is required"}
 
         sf = _get_session_factory()
         config = load_config()
         async with sf() as session:
-            svc = JobService(
-                job_repo=JobRepository(session),
-                git_service=None,  # type: ignore[arg-type]
-                config=config,
-            )
+            svc = _make_job_service(session, config, git=False)
             try:
                 job = await svc.get_job(job_id)
             except JobNotFoundError as exc:
@@ -519,17 +538,17 @@ def _register_artifact_tool(mcp: FastMCP) -> None:
         ),
     )
     async def codeplane_artifact(
-        action: str,
+        action: Literal["list", "get"],
         job_id: str | None = None,
         artifact_id: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> McpToolResult:
         sf = _get_session_factory()
 
         if action == "list":
             if not job_id:
                 return {"error": "job_id is required for list"}
             async with sf() as session:
-                svc = ArtifactService(ArtifactRepository(session))
+                svc = _make_artifact_service(session)
                 artifacts = await svc.list_for_job(job_id)
                 await session.commit()
             return {
@@ -552,7 +571,7 @@ def _register_artifact_tool(mcp: FastMCP) -> None:
             if not artifact_id:
                 return {"error": "artifact_id is required for get"}
             async with sf() as session:
-                svc = ArtifactService(ArtifactRepository(session))
+                svc = _make_artifact_service(session)
                 artifact = await svc.get(artifact_id)
                 await session.commit()
             if artifact is None:
@@ -592,7 +611,7 @@ def _register_settings_tool(mcp: FastMCP) -> None:
         ),
     )
     async def codeplane_settings(
-        action: str,
+        action: Literal["get", "update"],
         max_concurrent_jobs: int | None = None,
         permission_mode: str | None = None,
         voice_model: str | None = None,
@@ -603,7 +622,7 @@ def _register_settings_tool(mcp: FastMCP) -> None:
         artifact_retention_days: int | None = None,
         max_artifact_size_mb: int | None = None,
         auto_archive_days: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> McpToolResult:
         config = load_config()
 
         if action == "get":
@@ -675,11 +694,11 @@ def _register_repo_tool(mcp: FastMCP) -> None:
         ),
     )
     async def codeplane_repo(
-        action: str,
+        action: Literal["list", "get", "register", "remove"],
         repo_path: str | None = None,
         source: str | None = None,
         clone_to: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> McpToolResult:
         config = load_config()
 
         if action == "list":
@@ -767,17 +786,13 @@ def _register_health_tool(mcp: FastMCP) -> None:
             "\n- cleanup: remove worktrees for completed jobs"
         ),
     )
-    async def codeplane_health(action: str = "check") -> dict[str, Any]:
+    async def codeplane_health(action: Literal["check", "cleanup"] = "check") -> McpToolResult:
         config = load_config()
 
         if action == "check":
             sf = _get_session_factory()
             async with sf() as session:
-                svc = JobService(
-                    job_repo=JobRepository(session),
-                    git_service=GitService(config),
-                    config=config,
-                )
+                svc = _make_job_service(session, config)
                 active = await svc.count_active_jobs()
                 queued = await svc.count_queued_jobs()
             return HealthResponse(

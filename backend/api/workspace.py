@@ -8,9 +8,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.config import CPLConfig, load_config
-from backend.models.api_schemas import WorkspaceEntry, WorkspaceEntryType, WorkspaceListResponse
-from backend.persistence.job_repo import JobRepository
-from backend.services.job_service import JobNotFoundError, JobService
+from backend.models.api_schemas import WorkspaceEntry, WorkspaceEntryType, WorkspaceFileResponse, WorkspaceListResponse
+from backend.services.job_service import JobService
 
 router = APIRouter(tags=["workspace"])
 
@@ -31,15 +30,8 @@ async def list_workspace(
     """List files in the job's worktree (max 200 entries per page)."""
     session_factory = request.app.state.session_factory
     async with session_factory() as session:
-        job_svc = JobService(
-            job_repo=JobRepository(session),
-            git_service=None,  # type: ignore[arg-type]
-            config=config,
-        )
-        try:
-            job = await job_svc.get_job(job_id)
-        except JobNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        job_svc = JobService.from_session(session, config, git_service=None)
+        job = await job_svc.get_job(job_id)
 
     worktree = Path(job.worktree_path or job.repo).resolve()
     if not worktree.is_dir():
@@ -82,25 +74,18 @@ async def list_workspace(
     return WorkspaceListResponse(items=entries, cursor=next_cursor, has_more=has_more)
 
 
-@router.get("/jobs/{job_id}/workspace/file")
+@router.get("/jobs/{job_id}/workspace/file", response_model=WorkspaceFileResponse)
 async def get_workspace_file(
     request: Request,
     job_id: str,
     config: Annotated[CPLConfig, Depends(_get_config)],
     path: str = Query(..., description="Relative path within the worktree"),
-) -> dict[str, str]:
+) -> WorkspaceFileResponse:
     """Get the contents of a single file in the job's worktree."""
     session_factory = request.app.state.session_factory
     async with session_factory() as session:
-        job_svc = JobService(
-            job_repo=JobRepository(session),
-            git_service=None,  # type: ignore[arg-type]
-            config=config,
-        )
-        try:
-            job = await job_svc.get_job(job_id)
-        except JobNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        job_svc = JobService.from_session(session, config, git_service=None)
+        job = await job_svc.get_job(job_id)
 
     worktree = Path(job.worktree_path or job.repo).resolve()
     file_path = (worktree / path).resolve()
@@ -121,4 +106,4 @@ async def get_workspace_file(
     except (PermissionError, OSError) as exc:
         raise HTTPException(status_code=403, detail="Cannot read file") from exc
 
-    return {"path": path, "content": content}
+    return WorkspaceFileResponse(path=path, content=content)

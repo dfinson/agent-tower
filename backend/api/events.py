@@ -5,15 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+import structlog
 from fastapi import APIRouter, Query, Request
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 from starlette.responses import JSONResponse, StreamingResponse
 
-from backend.persistence.approval_repo import ApprovalRepository
-from backend.persistence.event_repo import EventRepository
-from backend.persistence.job_repo import JobRepository
 from backend.services.sse_manager import SSEConnection
 
 router = APIRouter(tags=["events"])
@@ -51,19 +49,17 @@ async def stream_events(
             if header_last_id is not None:
                 try:
                     numeric_id = int(header_last_id)
-                    async with session_factory() as session:
-                        event_repo = EventRepository(session)
-                        job_repo = JobRepository(session)
-                        approval_repo = ApprovalRepository(session)
-                        await sse_manager.replay_events(
-                            conn,
-                            event_repo,
-                            job_repo,
-                            numeric_id,
-                            approval_repo=approval_repo,
-                        )
+                    await sse_manager.replay_from_factory(
+                        conn,
+                        session_factory,
+                        numeric_id,
+                    )
                 except (ValueError, TypeError):
-                    pass  # invalid Last-Event-ID, skip replay
+                    structlog.get_logger().warning(
+                        "sse_replay_invalid_last_event_id",
+                        last_event_id=header_last_id,
+                        exc_info=True,
+                    )
 
             # Send immediate heartbeat so the connection is established
             # and proxies see data flowing immediately.
@@ -79,6 +75,10 @@ async def stream_events(
                     # don't prevent idle stream timeouts.
                     yield "event: session_heartbeat\ndata: {}\n\n"
                 except (asyncio.CancelledError, GeneratorExit):
+                    structlog.get_logger(__name__).debug(
+                        "sse_client_disconnected",
+                        job_id=job_id,
+                    )
                     break
         finally:
             sse_manager.unregister(conn)

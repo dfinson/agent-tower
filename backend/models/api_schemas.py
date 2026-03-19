@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime  # noqa: TC003 — Pydantic resolves annotations at runtime
-from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
+
+from backend.models.domain import JobState, PermissionMode, Resolution
 
 
 class CamelModel(BaseModel):
@@ -31,40 +32,22 @@ class CamelModel(BaseModel):
 
 
 # --- Enums ---
+# JobState, PermissionMode, and Resolution are imported from backend.models.domain
+# (canonical definitions live there). Re-exported here for backward compatibility.
 
-
-class CompletionStrategy(StrEnum):
-    auto_merge = "auto_merge"
-    pr_only = "pr_only"
-    manual = "manual"
-
-
-class ResolutionStatus(StrEnum):
-    unresolved = "unresolved"
-    merged = "merged"
-    pr_created = "pr_created"
-    discarded = "discarded"
-    conflict = "conflict"
-
-
-class PermissionMode(StrEnum):
-    auto = "auto"
-    read_only = "read_only"
-    approval_required = "approval_required"
-
-
-class JobState(StrEnum):
-    queued = "queued"
-    running = "running"
-    waiting_for_approval = "waiting_for_approval"
-    succeeded = "succeeded"
-    failed = "failed"
-    canceled = "canceled"
-
+from enum import StrEnum  # noqa: E402 — after domain imports to keep grouping clear
 
 class ApprovalResolution(StrEnum):
     approved = "approved"
     rejected = "rejected"
+
+
+class ResolutionAction(StrEnum):
+    merge = "merge"
+    smart_merge = "smart_merge"
+    create_pr = "create_pr"
+    discard = "discard"
+    agent_merge = "agent_merge"
 
 
 class ArtifactType(StrEnum):
@@ -124,7 +107,7 @@ class DiffFileStatus(StrEnum):
 # --- Request Models ---
 
 
-class CreateJobRequest(BaseModel):
+class CreateJobRequest(CamelModel):
     repo: str
     prompt: str
     base_ref: str | None = None
@@ -153,19 +136,19 @@ class CreateJobRequest(BaseModel):
         return values
 
 
-class SendMessageRequest(BaseModel):
+class SendMessageRequest(CamelModel):
     content: str = Field(min_length=1, max_length=10_000)
 
 
-class ResumeJobRequest(BaseModel):
+class ResumeJobRequest(CamelModel):
     instruction: str = Field(min_length=1, max_length=50_000)
 
 
-class ContinueJobRequest(BaseModel):
+class ContinueJobRequest(CamelModel):
     instruction: str = Field(min_length=1, max_length=10_000)
 
 
-class ResolveApprovalRequest(BaseModel):
+class ResolveApprovalRequest(CamelModel):
     resolution: ApprovalResolution
 
 
@@ -189,7 +172,7 @@ class UpdateSettingsRequest(CamelModel):
 
 class SettingsResponse(CamelModel):
     max_concurrent_jobs: int
-    permission_mode: str
+    permission_mode: PermissionMode
     auto_push: bool
     cleanup_worktree: bool
     delete_branch_after_merge: bool
@@ -203,7 +186,7 @@ class SettingsResponse(CamelModel):
     self_review_prompt: str
 
 
-class RegisterRepoRequest(BaseModel):
+class RegisterRepoRequest(CamelModel):
     source: str
     clone_to: str | None = None
 
@@ -224,7 +207,7 @@ class SuggestNamesResponse(CamelModel):
 
 class CreateJobResponse(CamelModel):
     id: str
-    state: str
+    state: JobState
     title: str | None = None
     branch: str | None = None
     worktree_path: str | None = None
@@ -237,7 +220,7 @@ class JobResponse(CamelModel):
     repo: str
     prompt: str
     title: str | None = None
-    state: str
+    state: JobState
     base_ref: str
     worktree_path: str | None
     branch: str | None
@@ -247,7 +230,9 @@ class JobResponse(CamelModel):
     completed_at: datetime | None
     pr_url: str | None = None
     merge_status: str | None = None
-    resolution: str | None = None
+    """Git merge operation outcome (``not_merged`` | ``merged`` | ``conflict``)."""
+    resolution: Resolution | None = None
+    """User-facing job disposition — see :class:`~backend.models.domain.Resolution`."""
     archived_at: datetime | None = None
     failure_reason: str | None = None
     model: str | None = None
@@ -314,8 +299,17 @@ class WorkspaceListResponse(CamelModel):
     has_more: bool
 
 
-class TranscribeResponse(BaseModel):
+class TranscribeResponse(CamelModel):
     text: str
+
+
+class ModelInfoResponse(CamelModel):
+    """Model information returned by the agent SDK."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
 
 
 class HealthResponse(CamelModel):
@@ -353,7 +347,7 @@ class LogLinePayload(CamelModel):
     timestamp: datetime
     level: LogLevel
     message: str
-    context: dict | None = None  # type: ignore[type-arg]
+    context: dict[str, Any] | None = None
 
 
 class TranscriptPayload(CamelModel):
@@ -408,8 +402,8 @@ class DiffFileModel(CamelModel):
 
 class JobStateChangedPayload(CamelModel):
     job_id: str
-    previous_state: str | None
-    new_state: str
+    previous_state: JobState | None
+    new_state: JobState
     timestamp: datetime
 
 
@@ -424,7 +418,7 @@ class ApprovalRequestedPayload(CamelModel):
 class ApprovalResolvedPayload(CamelModel):
     job_id: str
     approval_id: str
-    resolution: str
+    resolution: ApprovalResolution
     timestamp: datetime
 
 
@@ -471,12 +465,12 @@ class PlatformStatusListResponse(CamelModel):
     timestamp: datetime
 
 
-class ResolveJobRequest(BaseModel):
-    action: str  # merge | smart_merge | create_pr | discard | agent_merge
+class ResolveJobRequest(CamelModel):
+    action: ResolutionAction
 
 
 class ResolveJobResponse(CamelModel):
-    resolution: str
+    resolution: Resolution | ResolutionAction
     pr_url: str | None = None
     conflict_files: list[str] | None = None
 
@@ -491,7 +485,9 @@ class JobSucceededPayload(CamelModel):
     job_id: str
     pr_url: str | None = None
     merge_status: str | None = None
+    """Git merge operation outcome (``not_merged`` | ``merged`` | ``conflict``)."""
     resolution: str | None = None
+    """User-facing job disposition — see :class:`~backend.models.domain.Resolution`."""
     model_downgraded: bool = False
     requested_model: str | None = None
     actual_model: str | None = None
@@ -500,7 +496,7 @@ class JobSucceededPayload(CamelModel):
 
 class JobResolvedPayload(CamelModel):
     job_id: str
-    resolution: str
+    resolution: Resolution
     pr_url: str | None = None
     conflict_files: list[str] | None = None
     timestamp: datetime
@@ -534,9 +530,12 @@ class ProgressHeadlinePayload(CamelModel):
     replaces_count: int = 0
 
 
+PlanStepStatus = Literal["pending", "active", "done", "skipped"]
+
+
 class AgentPlanStep(CamelModel):
     label: str
-    status: str  # "pending" | "active" | "done" | "skipped"
+    status: PlanStepStatus
 
 
 class AgentPlanPayload(CamelModel):
@@ -554,7 +553,7 @@ class SDKInfoResponse(CamelModel):
     id: str
     name: str
     enabled: bool
-    status: str  # ready | not_installed | not_configured
+    status: Literal["ready", "not_installed", "not_configured"]
     authenticated: bool | None = None  # None = unknown / not applicable
     hint: str = ""  # actionable suggestion for the user
 
@@ -562,3 +561,67 @@ class SDKInfoResponse(CamelModel):
 class SDKListResponse(CamelModel):
     default: str
     sdks: list[SDKInfoResponse]
+
+
+# --- Terminal schemas (moved from backend/api/terminal.py) ---
+
+
+class CreateTerminalSessionRequest(CamelModel):
+    shell: str | None = None
+    cwd: str | None = None
+    job_id: str | None = None
+
+
+class CreateTerminalSessionResponse(CamelModel):
+    id: str
+    shell: str
+    cwd: str
+    job_id: str | None = None
+    pid: int
+
+
+class TerminalSessionInfo(CamelModel):
+    id: str
+    shell: str
+    cwd: str
+    job_id: str | None = None
+    pid: int
+    clients: int
+
+
+class TerminalAskRequest(CamelModel):
+    prompt: str
+    context: str | None = None  # recent terminal output for context
+
+
+class TerminalAskResponse(CamelModel):
+    command: str
+    explanation: str
+
+
+# --- Typed response models for previously untyped dict endpoints ---
+
+
+class TrustJobResponse(CamelModel):
+    resolved: int
+
+
+class CleanupWorktreesResponse(CamelModel):
+    removed: int
+
+
+class BrowseEntry(CamelModel):
+    name: str
+    path: str
+    is_git_repo: bool = False
+
+
+class BrowseDirectoryResponse(CamelModel):
+    current: str
+    parent: str | None = None
+    items: list[BrowseEntry]
+
+
+class WorkspaceFileResponse(CamelModel):
+    path: str
+    content: str

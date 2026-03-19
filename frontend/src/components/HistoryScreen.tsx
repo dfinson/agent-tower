@@ -41,7 +41,7 @@ export function HistoryScreen() {
         setCursor(result.cursor);
         setHasMore(result.hasMore);
       })
-      .catch(() => {})
+      .catch((err) => console.error("Failed to fetch job history", err))
       .finally(() => setLoading(false));
   }, []);
 

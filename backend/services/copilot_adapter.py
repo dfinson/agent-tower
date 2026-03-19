@@ -17,17 +17,16 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.services.agent_adapter import AgentAdapterInterface
+from backend.services.claude_adapter import _CODEPLANE_SYSTEM_PROMPT
 from backend.services.permission_policy import (
     PolicyDecision,
-    evaluate_approval_required,
-    evaluate_auto,
-    evaluate_read_only,
+    evaluate,
 )
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from copilot import PermissionRequestResult
+    from copilot import PermissionRequest, PermissionRequestResult
     from copilot.generated.session_events import SessionEvent as SdkSessionEvent
     from copilot.session import CopilotSession
 
@@ -68,6 +67,143 @@ class CopilotAdapter(AgentAdapterInterface):
         self._queues.pop(session_id, None)
         self._session_to_job.pop(session_id, None)
 
+    async def _handle_permission_request(
+        self,
+        request: PermissionRequest,
+        invocation: dict[str, str],
+        config: SessionConfig,
+    ) -> PermissionRequestResult:
+        """Bridge SDK permission requests into CodePlane's approval system.
+
+        Extracted from the ``create_session`` closure so it can be tested and
+        reviewed independently.  The ``config`` provides the permission mode
+        and workspace path that were captured by the original closure.
+        """
+        from copilot import PermissionRequestResult as _Result
+
+        kind_val = request.kind.value if request.kind else "unknown"
+        mode = config.permission_mode
+        sid = invocation.get("session_id", "")
+
+        # --- Check if operator has trusted this job session ---
+        approval_service = self._approval_service
+        job_id = self._session_to_job.get(sid)
+        if approval_service is not None and job_id and approval_service.is_trusted(job_id):
+            log.debug("permission_auto_approved", mode="trusted", kind=kind_val)
+            return _Result(kind="approved")
+
+        # --- AUTO: approve everything (full execution permission) ---
+        if mode == PermissionMode.auto:
+            candidate_paths: list[str] = []
+            if request.file_name:
+                candidate_paths.append(request.file_name)
+            if request.path:
+                candidate_paths.append(request.path)
+            if request.possible_paths:
+                candidate_paths.extend(request.possible_paths)
+
+            decision = evaluate(
+                mode=PermissionMode.auto,
+                kind=kind_val,
+                workspace_path=config.workspace_path,
+                possible_paths=candidate_paths or None,
+                file_name=request.file_name,
+                path=request.path,
+            )
+            if decision == PolicyDecision.approve:
+                log.debug("permission_auto_approved", mode=PermissionMode.auto, kind=kind_val)
+                return _Result(kind="approved")
+
+        # --- READ_ONLY: deny mutations ---
+        if mode == PermissionMode.read_only:
+            decision = evaluate(
+                mode=PermissionMode.read_only,
+                kind=kind_val,
+                workspace_path=config.workspace_path,
+                full_command_text=request.full_command_text,
+                file_name=request.file_name,
+                path=request.path,
+                read_only=request.read_only,
+            )
+            if decision == PolicyDecision.approve:
+                log.debug("permission_auto_approved", mode=PermissionMode.read_only, kind=kind_val)
+                return _Result(kind="approved")
+            if decision == PolicyDecision.deny:
+                log.info("permission_denied_readonly", kind=kind_val)
+                return _Result(kind="denied-interactively-by-user")
+            # ask → fall through (shouldn't happen in read_only, but safe)
+
+        # --- APPROVAL_REQUIRED: check policy ---
+        if mode == PermissionMode.approval_required:
+            decision = evaluate(
+                mode=PermissionMode.approval_required,
+                kind=kind_val,
+                workspace_path=config.workspace_path,
+                full_command_text=request.full_command_text,
+                file_name=request.file_name,
+                path=request.path,
+                read_only=request.read_only,
+            )
+            if decision == PolicyDecision.approve:
+                log.debug("permission_auto_approved", mode=PermissionMode.approval_required, kind=kind_val)
+                return _Result(kind="approved")
+
+        # --- Route to operator for approval ---
+        # Build human-readable description
+        if kind_val == "write":
+            description = f"Write file: {request.file_name or request.intention or ''}"
+        elif kind_val == "shell":
+            description = f"Run shell: {request.full_command_text or request.intention or ''}"
+        elif kind_val == "url":
+            description = f"Fetch URL: {request.url or request.intention or ''}"
+        elif kind_val in ("mcp", "custom-tool"):
+            label = request.tool_title or request.tool_name or kind_val
+            description = f"{label}: {request.intention or ''}"
+        else:
+            description = request.intention or request.full_command_text or kind_val
+
+        approval_service = self._approval_service
+        job_id = self._session_to_job.get(sid)
+
+        if approval_service is None or job_id is None:
+            log.warning("permission_ask_no_infra", kind=kind_val)
+            return _Result(kind="approved")
+
+        # Persist the approval request and create a Future
+        approval = await approval_service.create_request(
+            job_id=job_id,
+            description=description,
+            proposed_action=request.full_command_text,
+        )
+
+        # Emit approval_request event so RuntimeService transitions state
+        q = self._queues.get(sid)
+        if q is not None:
+            q.put_nowait(
+                SessionEvent(
+                    kind=SessionEventKind.approval_request,
+                    payload={
+                        "description": description,
+                        "proposed_action": request.full_command_text,
+                        "approval_id": approval.id,
+                    },
+                )
+            )
+
+        log.info(
+            "permission_awaiting_operator",
+            approval_id=approval.id,
+            kind=kind_val,
+            description=description,
+        )
+
+        # Block the SDK until the operator responds
+        resolution = await approval_service.wait_for_resolution(approval.id)
+
+        if resolution == "approved":
+            return _Result(kind="approved")
+        return _Result(kind="denied-interactively-by-user")
+
     async def create_session(self, config: SessionConfig) -> str:
         from copilot import CopilotClient, PermissionRequest
         from copilot.types import ResumeSessionConfig
@@ -75,130 +211,9 @@ class CopilotAdapter(AgentAdapterInterface):
 
         client = CopilotClient()
 
-        # Permission handler — bridges SDK permission requests into CodePlane's
-        # approval system based on the job's permission mode.
+        # Thin closure that delegates to the instance method, capturing only `config`.
         async def _on_permission(request: PermissionRequest, invocation: dict[str, str]) -> PermissionRequestResult:
-            from copilot import PermissionRequestResult as _Result
-
-            kind_val = request.kind.value if request.kind else "unknown"
-            mode = config.permission_mode
-            sid = invocation.get("session_id", "")
-
-            # --- Check if operator has trusted this job session ---
-            approval_service = self._approval_service
-            job_id = self._session_to_job.get(sid)
-            if approval_service is not None and job_id and approval_service.is_trusted(job_id):
-                log.debug("permission_auto_approved", mode="trusted", kind=kind_val)
-                return _Result(kind="approved")
-
-            # --- AUTO: approve everything (full execution permission) ---
-            if mode == PermissionMode.auto:
-                candidate_paths: list[str] = []
-                if request.file_name:
-                    candidate_paths.append(request.file_name)
-                if request.path:
-                    candidate_paths.append(request.path)
-                if request.possible_paths:
-                    candidate_paths.extend(request.possible_paths)
-
-                decision = evaluate_auto(
-                    kind=kind_val,
-                    workspace_path=config.workspace_path,
-                    possible_paths=candidate_paths or None,
-                    file_name=request.file_name,
-                    path=request.path,
-                )
-                if decision == PolicyDecision.approve:
-                    log.debug("permission_auto_approved", mode="auto", kind=kind_val)
-                    return _Result(kind="approved")
-
-            # --- READ_ONLY: deny mutations ---
-            if mode == PermissionMode.read_only:
-                decision = evaluate_read_only(
-                    kind=kind_val,
-                    workspace_path=config.workspace_path,
-                    full_command_text=request.full_command_text,
-                    file_name=request.file_name,
-                    path=request.path,
-                    read_only=request.read_only,
-                )
-                if decision == PolicyDecision.approve:
-                    log.debug("permission_auto_approved", mode="read_only", kind=kind_val)
-                    return _Result(kind="approved")
-                if decision == PolicyDecision.deny:
-                    log.info("permission_denied_readonly", kind=kind_val)
-                    return _Result(kind="denied-interactively-by-user")
-                # ask → fall through (shouldn't happen in read_only, but safe)
-
-            # --- APPROVAL_REQUIRED: check policy ---
-            if mode == PermissionMode.approval_required:
-                decision = evaluate_approval_required(
-                    kind=kind_val,
-                    workspace_path=config.workspace_path,
-                    full_command_text=request.full_command_text,
-                    file_name=request.file_name,
-                    path=request.path,
-                    read_only=request.read_only,
-                )
-                if decision == PolicyDecision.approve:
-                    log.debug("permission_auto_approved", mode="approval_required", kind=kind_val)
-                    return _Result(kind="approved")
-
-            # --- Route to operator for approval ---
-            # Build human-readable description
-            if kind_val == "write":
-                description = f"Write file: {request.file_name or request.intention or ''}"
-            elif kind_val == "shell":
-                description = f"Run shell: {request.full_command_text or request.intention or ''}"
-            elif kind_val == "url":
-                description = f"Fetch URL: {request.url or request.intention or ''}"
-            elif kind_val in ("mcp", "custom-tool"):
-                label = request.tool_title or request.tool_name or kind_val
-                description = f"{label}: {request.intention or ''}"
-            else:
-                description = request.intention or request.full_command_text or kind_val
-
-            approval_service = self._approval_service
-            job_id = self._session_to_job.get(sid)
-
-            if approval_service is None or job_id is None:
-                log.warning("permission_ask_no_infra", kind=kind_val)
-                return _Result(kind="approved")
-
-            # Persist the approval request and create a Future
-            approval = await approval_service.create_request(
-                job_id=job_id,
-                description=description,
-                proposed_action=request.full_command_text,
-            )
-
-            # Emit approval_request event so RuntimeService transitions state
-            q = self._queues.get(sid)
-            if q is not None:
-                q.put_nowait(
-                    SessionEvent(
-                        kind=SessionEventKind.approval_request,
-                        payload={
-                            "description": description,
-                            "proposed_action": request.full_command_text,
-                            "approval_id": approval.id,
-                        },
-                    )
-                )
-
-            log.info(
-                "permission_awaiting_operator",
-                approval_id=approval.id,
-                kind=kind_val,
-                description=description,
-            )
-
-            # Block the SDK until the operator responds
-            resolution = await approval_service.wait_for_resolution(approval.id)
-
-            if resolution == "approved":
-                return _Result(kind="approved")
-            return _Result(kind="denied-interactively-by-user")
+            return await self._handle_permission_request(request, invocation, config)
 
         # Build session options dict — used for both create and resume
         session_opts = SdkSessionConfig(
@@ -210,18 +225,8 @@ class CopilotAdapter(AgentAdapterInterface):
             system_message={
                 "mode": "append",
                 "content": (
-                    "You are running inside CodePlane, a headless non-interactive orchestration "
-                    "framework. There is no human at a terminal. Do not enter plan mode or "
-                    "pause to present a plan for review. Proceed directly with task execution. "
-                    "Before making tool calls, call report_intent first to declare your current intent. "
-                    "When you believe your implementation is complete, merge the base branch into "
-                    "your worktree (e.g. `git merge <base_ref>`) to catch any conflicts early. "
-                    "If the merge is clean or you can fully resolve all conflicts while preserving "
-                    "the intent of both sides, do so and commit the result. "
-                    "If any conflict requires human judgment — you are not fully confident you can "
-                    "resolve it without losing functionality or making a product decision — stop, "
-                    "describe the conflict clearly in a message to the operator, and ask for "
-                    "guidance before finishing."
+                    _CODEPLANE_SYSTEM_PROMPT
+                    + " Before making tool calls, call report_intent first to declare your current intent."
                 ),
             },
         )
@@ -608,7 +613,10 @@ class CopilotAdapter(AgentAdapterInterface):
         if session is None:
             log.warning("copilot_send_no_session", session_id=session_id)
             return
-        await session.send({"prompt": message, "mode": "immediate", "attachments": []})
+        try:
+            await session.send({"prompt": message, "mode": "immediate", "attachments": []})
+        except Exception:
+            log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
 
     async def abort_session(self, session_id: str) -> None:
         session = self._sessions.get(session_id)
@@ -621,7 +629,7 @@ class CopilotAdapter(AgentAdapterInterface):
         finally:
             self._cleanup_session(session_id)
 
-    async def complete(self, prompt: str) -> str:
+    async def complete(self, prompt: str) -> str | None:
         """Create a minimal session for single-turn completion, collect the response."""
         from copilot import CopilotClient
         from copilot import PermissionRequestResult as _Result
@@ -668,13 +676,13 @@ class CopilotAdapter(AgentAdapterInterface):
                 log.warning("complete_timeout")
             return "\n".join(collected)
         except Exception:
-            log.error("complete_failed", exc_info=True)
-            return ""
+            log.error("complete_failed", prompt_len=len(prompt), exc_info=True)
+            return None
         finally:
             try:
                 s = self._sessions.get(tmp_session_id)
                 if s:
                     await s.abort()
             except Exception:
-                pass
+                log.warning("copilot_complete_cleanup_failed", session_id=tmp_session_id, exc_info=True)
             self._cleanup_session(tmp_session_id)

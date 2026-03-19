@@ -21,7 +21,12 @@ Contract:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+
+
+# Retention limits for call history lists
+_MAX_LLM_CALLS = 100
+_MAX_TOOL_CALLS = 200
 
 
 @dataclass
@@ -165,7 +170,7 @@ class JobTelemetry:
                     "success": tc.success,
                     "offsetSec": round(tc.timestamp - self.start_time, 1) if self.start_time else 0,
                 }
-                for tc in self.tool_calls[-200:]
+                for tc in self.tool_calls[-_MAX_TOOL_CALLS:]
             ],
             "llmCallCount": self.llm_call_count,
             "totalLlmDurationMs": round(self.total_llm_duration_ms),
@@ -181,7 +186,7 @@ class JobTelemetry:
                     "offsetSec": round(lc.timestamp - self.start_time, 1) if self.start_time else 0,
                     "isSubagent": lc.is_subagent,
                 }
-                for lc in self.llm_calls[-100:]
+                for lc in self.llm_calls[-_MAX_LLM_CALLS:]
             ],
             "approvalCount": self.approval_count,
             "totalApprovalWaitMs": round(self.total_approval_wait_ms),
@@ -217,21 +222,15 @@ class TelemetryCollector:
     def start_job(self, job_id: str, model: str = "") -> None:
         existing = self._jobs.get(job_id)
         if existing:
-            # Session resumption: carry over all accumulated metrics; only reset the
-            # monotonic clock (so wall-clock time is additive, not restarted).
-            self._jobs[job_id] = JobTelemetry(
-                job_id=job_id,
+            # Session resumption: carry forward all accumulated metrics; only
+            # reset the monotonic clock so wall-clock time is additive.
+            self._jobs[job_id] = replace(
+                existing,
                 model=model or existing.model,
                 main_model=existing.main_model or model or existing.model,
                 start_time=time.monotonic(),
                 end_time=0.0,
                 accumulated_duration_ms=existing.duration_ms,
-                input_tokens=existing.input_tokens,
-                output_tokens=existing.output_tokens,
-                total_tokens=existing.total_tokens,
-                cache_read_tokens=existing.cache_read_tokens,
-                cache_write_tokens=existing.cache_write_tokens,
-                total_cost=existing.total_cost,
                 # context_window_size / current_context_tokens reflect live state;
                 # let the new session overwrite them via record_context_snapshot.
                 compactions=existing.compactions,
@@ -249,6 +248,8 @@ class TelemetryCollector:
                 # Carry over accumulated quota/premium data across resumptions
                 premium_requests=existing.premium_requests,
                 quota_snapshots=existing.quota_snapshots,
+                context_window_size=0,
+                current_context_tokens=0,
             )
         else:
             self._jobs[job_id] = JobTelemetry(
@@ -327,9 +328,9 @@ class TelemetryCollector:
                 is_subagent=is_subagent,
             )
         )
-        # Keep last 100 LLM calls
-        if len(tel.llm_calls) > 100:
-            tel.llm_calls = tel.llm_calls[-100:]
+        # Keep last _MAX_LLM_CALLS LLM calls
+        if len(tel.llm_calls) > _MAX_LLM_CALLS:
+            tel.llm_calls = tel.llm_calls[-_MAX_LLM_CALLS:]
 
     def record_tool_call(
         self,
@@ -353,9 +354,9 @@ class TelemetryCollector:
         )
         tel.tool_call_count += 1
         tel.total_tool_duration_ms += duration_ms
-        # Keep last 200 tool calls
-        if len(tel.tool_calls) > 200:
-            tel.tool_calls = tel.tool_calls[-200:]
+        # Keep last _MAX_TOOL_CALLS tool calls
+        if len(tel.tool_calls) > _MAX_TOOL_CALLS:
+            tel.tool_calls = tel.tool_calls[-_MAX_TOOL_CALLS:]
 
     def record_context_change(
         self,
@@ -426,5 +427,8 @@ class TelemetryCollector:
         return dict(self._jobs)
 
 
-# Global singleton
+# Module-level singleton — intentional.  All agent adapters import ``collector``
+# directly and call its methods to feed telemetry.  A single shared instance is
+# required so that the API layer can read aggregated data for any job regardless
+# of which adapter produced it.  Instantiation is side-effect-free (no I/O).
 collector = TelemetryCollector()

@@ -67,9 +67,9 @@ class AgentAdapterInterface(ABC):
 
     @abstractmethod
     async def abort_session(self, session_id: str) -> None:
-        """Abort the current message processing. Session remains valid."""
+        """Abort the current message processing and destroy the session."""
 
     @abstractmethod
-    async def complete(self, prompt: str) -> str:
-        """Non-agentic single-turn completion. Returns the full response text."""
-        return ""
+    async def complete(self, prompt: str) -> str | None:
+        """Non-agentic single-turn completion. Returns the full response text, or None on error."""
+        return None
