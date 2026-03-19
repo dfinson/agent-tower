@@ -369,7 +369,7 @@ class _WarmSession:
         try:
             await asyncio.wait_for(done.wait(), timeout=5)
         except TimeoutError:
-            log.warning("utility_session_prime_timeout", index=self.index)
+            log.debug("utility_session_prime_timeout", index=self.index)
 
     async def complete(self, prompt: str, timeout: float = 30.0) -> str:
         """Send a prompt and collect the response."""
