@@ -279,7 +279,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.session_factory = session_factory
 
     # Session dependency override for job routes
-    from backend.api import jobs
+    from backend.api.deps import get_db_session
 
     async def _session_dep() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:
@@ -290,7 +290,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 await session.rollback()
                 raise
 
-    app.dependency_overrides[jobs._get_session] = _session_dep
+    app.dependency_overrides[get_db_session] = _session_dep
 
     yield
 

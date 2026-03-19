@@ -37,7 +37,27 @@ def _configure_middleware(
     tunnel_origin: str | None,
     password: str | None,
 ) -> None:
-    """Configure CORS and authentication middleware."""
+    """Configure CORS and authentication middleware.
+
+    **Auth model**: when *password* is provided (tunnel mode or explicit
+    ``--password``), an HTTP middleware gate is installed that protects every
+    route by default.  Only the following paths are exempt:
+
+    - ``/api/auth/*`` — the login endpoint itself
+    - ``/api/health`` — liveness/readiness probe
+    - ``/api/events`` — SSE stream (checked inline, not via
+      ``BaseHTTPMiddleware``, because middleware buffering kills SSE)
+    - Localhost requests (``127.0.0.1``, ``::1``) — same-machine access is
+      unconditionally trusted
+
+    Static frontend assets are served by the SPA fallback 404 handler
+    registered in ``_mount_spa_fallback`` and are not affected by this
+    middleware (they sit outside ``/api``).
+
+    **WebSocket endpoints** are *not* protected by this middleware — Starlette
+    dispatches WebSocket upgrades before HTTP middleware runs.  WS routes must
+    call ``check_websocket_auth`` themselves at connect time.
+    """
     origins: list[str] = []
     if dev:
         origins.append("http://localhost:5173")

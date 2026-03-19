@@ -17,6 +17,7 @@ from backend.models.api_schemas import (
     JobListResponse,
     JobResponse,
     LogLinePayload,
+    ModelInfoResponse,
     PermissionMode,
     ProgressHeadlinePayload,
     ResolutionAction,
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from backend.services.merge_service import MergeService
     from backend.services.runtime_service import RuntimeService
 
+from backend.api.deps import get_db_session
 from backend.models.domain import JobState, Resolution
 
 router = APIRouter(tags=["jobs"])
@@ -44,16 +46,8 @@ def _get_config() -> CPLConfig:
     return load_config()
 
 
-# The session_factory will be injected at app startup via app.state
-async def _get_session(
-    config: Annotated[CPLConfig, Depends(_get_config)],
-) -> AsyncSession:
-    """Placeholder — replaced by the real dependency at startup."""
-    raise NotImplementedError("Session factory not wired")  # pragma: no cover
-
-
 def _get_job_service(
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     config: Annotated[CPLConfig, Depends(_get_config)],
     request: Request,
 ) -> JobService:
@@ -107,7 +101,7 @@ def _job_to_response(job: Job) -> JobResponse:
 async def create_job(
     body: CreateJobRequest,
     svc: Annotated[JobService, Depends(_get_job_service)],
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     request: Request,
 ) -> CreateJobResponse:
     """Create a new job."""
@@ -207,7 +201,7 @@ async def cancel_job(
 async def rerun_job(
     job_id: str,
     svc: Annotated[JobService, Depends(_get_job_service)],
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     request: Request,
 ) -> CreateJobResponse:
     """Create a new job from an existing job's configuration."""
@@ -250,7 +244,7 @@ async def continue_job(
     job_id: str,
     body: ContinueJobRequest,
     svc: Annotated[JobService, Depends(_get_job_service)],
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     request: Request,
 ) -> CreateJobResponse:
     """Create a follow-up job with a new instruction on the same repo/config."""
@@ -286,17 +280,17 @@ async def resume_job(
     return _job_to_response(job)
 
 
-@router.get("/models")
-async def list_models(request: Request) -> list[dict[str, object]]:
+@router.get("/models", response_model=list[ModelInfoResponse])
+async def list_models(request: Request) -> list[ModelInfoResponse]:
     """Return the model list cached at server startup."""
     models: list[dict[str, object]] = request.app.state.cached_models
-    return models
+    return [ModelInfoResponse.model_validate(m) for m in models]
 
 
 @router.get("/jobs/{job_id}/logs", response_model=list[LogLinePayload])
 async def get_job_logs(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     level: Annotated[str, Query(pattern="^(debug|info|warn|error)$")] = "debug",
     limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
 ) -> list[LogLinePayload]:
@@ -329,7 +323,7 @@ async def get_job_logs(
 @router.get("/jobs/{job_id}/diff", response_model=list[DiffFileModel])
 async def get_job_diff(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     request: Request,
 ) -> list[DiffFileModel]:
     """Return the current diff for a job.
@@ -370,7 +364,7 @@ async def get_job_diff(
 @router.get("/jobs/{job_id}/transcript", response_model=list[TranscriptPayload])
 async def get_job_transcript(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
 ) -> list[TranscriptPayload]:
     """Return historical transcript entries for a job from the event store."""
@@ -412,7 +406,7 @@ async def get_job_transcript(
 @router.get("/jobs/{job_id}/timeline", response_model=list[ProgressHeadlinePayload])
 async def get_job_timeline(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
 ) -> list[ProgressHeadlinePayload]:
     """Return historical progress_headline milestones for a job.
@@ -460,7 +454,7 @@ async def get_job_telemetry(job_id: str) -> dict[str, object]:
 async def resolve_job(
     job_id: str,
     body: ResolveJobRequest,
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     request: Request,
 ) -> ResolveJobResponse:
     """Resolve a succeeded job: merge, create PR, discard, or resolve with agent."""
@@ -519,7 +513,7 @@ async def resolve_job(
 @router.post("/jobs/{job_id}/archive", status_code=204)
 async def archive_job(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     request: Request,
 ) -> None:
     """Archive a completed job (hide from Kanban board)."""
@@ -548,7 +542,7 @@ async def archive_job(
 @router.post("/jobs/{job_id}/unarchive", status_code=204)
 async def unarchive_job(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(_get_session)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> None:
     """Unarchive a job (show on Kanban board again)."""
     svc = _make_job_service(session)
