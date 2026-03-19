@@ -330,6 +330,180 @@ class TestPrOnlyStrategy:
 
 
 # ---------------------------------------------------------------------------
+# False-positive conflict detection (regression tests)
+# ---------------------------------------------------------------------------
+
+
+def _add_failing_pre_merge_commit_hook(repo: Path) -> None:
+    """Install a pre-merge-commit hook that always exits 1.
+
+    This hook fires during ``git merge`` (just before the merge commit is
+    created) but is NOT called when ``git merge --no-commit`` is used.
+    That asymmetry is exactly what we rely on: the --no-commit probe in
+    ``_get_conflict_file_list`` bypasses the hook and correctly reports
+    "no real conflicts", while the actual merge attempt fails.
+    """
+    hooks_dir = repo / ".git" / "hooks"
+    hook_path = hooks_dir / "pre-merge-commit"
+    hook_path.write_text("#!/bin/sh\necho 'pre-merge-commit hook failed'\nexit 1\n")
+    hook_path.chmod(0o755)
+
+
+class TestFalsePositiveConflicts:
+    """Regression tests for false-positive merge conflict detection.
+
+    Before the fix, any git error during merge/cherry-pick was reported as a
+    merge conflict.  These tests verify that only *actual* conflict markers
+    trigger the "conflict" status — other failures (hooks, identity, locks)
+    result in "error".
+    """
+
+    async def test_smart_merge_already_applied_is_not_a_conflict(
+        self,
+        tmp_path: Path,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        """Cherry-pick of already-applied commits must not be reported as a conflict.
+
+        When the same changes already exist in the target branch (e.g. the
+        commit was separately cherry-picked to main), git exits 1 with
+        "the previous cherry-pick is now empty" but leaves no conflict markers.
+        The old code treated this as "conflict with unknown files".
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_repo(repo)
+        _branch_with_change(repo, "cpl/job-1", "feature.py", "x = 1\n")
+
+        # Apply the same change to main via cherry-pick (simulating another merge path)
+        _git(repo, "cherry-pick", "cpl/job-1")
+
+        # Diverge main so the branch is not simply fast-forward-able
+        (repo / "extra.py").write_text("# extra\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "more main changes")
+
+        service = _make_service(event_bus, session_factory)
+        await _insert_job(session_factory, _make_job(str(repo)))
+
+        published: list[DomainEvent] = []
+
+        async def _collect(e: DomainEvent) -> None:
+            published.append(e)
+
+        event_bus.subscribe(_collect)
+
+        result = await service.resolve_job(
+            job_id="job-1",
+            action="smart_merge",
+            repo_path=str(repo),
+            worktree_path=None,
+            branch="cpl/job-1",
+            base_ref="main",
+            prompt="test",
+        )
+
+        # "Already applied" is not a real merge conflict — must be "error".
+        assert result.status == "error", f"Expected error, got {result.status!r}"
+        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        assert conflict_events == [], "No merge_conflict event should be published for already-applied commits"
+
+    async def test_smart_merge_real_conflict_still_detected(
+        self,
+        tmp_path: Path,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        """Cherry-pick with a real conflict must still be reported as a conflict."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_repo(repo)
+        _branch_with_change(repo, "cpl/job-1", "README.md", "# Branch version\n")
+
+        # Conflicting change on main
+        (repo / "README.md").write_text("# Main version\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "conflicting change on main")
+
+        service = _make_service(event_bus, session_factory)
+        await _insert_job(session_factory, _make_job(str(repo)))
+
+        published: list[DomainEvent] = []
+
+        async def _collect(e: DomainEvent) -> None:
+            published.append(e)
+
+        event_bus.subscribe(_collect)
+
+        result = await service.resolve_job(
+            job_id="job-1",
+            action="smart_merge",
+            repo_path=str(repo),
+            worktree_path=None,
+            branch="cpl/job-1",
+            base_ref="main",
+            prompt="test",
+        )
+
+        assert result.status == "conflict"
+        assert result.conflict_files  # should list the conflicting file
+        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        assert len(conflict_events) == 1
+
+    async def test_auto_merge_hook_failure_is_not_a_conflict(
+        self,
+        tmp_path: Path,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        """Automatic merge failing due to a pre-merge-commit hook is not a conflict.
+
+        The pre-merge-commit hook fires just before the merge commit is created
+        but is NOT invoked when ``git merge --no-commit`` is used.  The probe
+        therefore bypasses the hook and correctly reports "no real conflicts".
+        The retry also fails (hook fires again), which should produce "error"
+        rather than "conflict".
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_repo(repo)
+        _branch_with_change(repo, "cpl/job-1", "feature.py", "x = 1\n")
+
+        # Diverge main so a merge commit is required (FF is not possible).
+        (repo / "other.py").write_text("# other\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "diverge main")
+
+        # Hook installed after branch commits are in place.
+        _add_failing_pre_merge_commit_hook(repo)
+
+        service = _make_service(event_bus, session_factory)
+        await _insert_job(session_factory, _make_job(str(repo)))
+
+        published: list[DomainEvent] = []
+
+        async def _collect(e: DomainEvent) -> None:
+            published.append(e)
+
+        event_bus.subscribe(_collect)
+
+        result = await service.try_merge_back(
+            job_id="job-1",
+            repo_path=str(repo),
+            worktree_path=None,
+            branch="cpl/job-1",
+            base_ref="main",
+            prompt="test",
+        )
+
+        # Hook failure → error, not conflict.
+        assert result.status == "error", f"Expected error, got {result.status!r}"
+        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        assert conflict_events == [], "No merge_conflict event should be published for a hook failure"
+
+
+# ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
 
