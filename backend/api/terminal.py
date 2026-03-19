@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
+from backend.services.auth import check_websocket_auth
+
 from backend.models.api_schemas import (
     CreateTerminalSessionRequest,
     CreateTerminalSessionResponse,
@@ -150,6 +152,11 @@ async def terminal_ws(ws: WebSocket) -> None:
             { "type": "exit", "code": N }
             { "type": "error", "message": "..." }
     """
+    client_host = ws.client.host if ws.client else None
+    if not check_websocket_auth(client_host=client_host, cookies=ws.cookies):
+        await ws.close(code=1008, reason="Authentication required")
+        return
+
     await ws.accept()
     svc = _svc()
     attached_session_id: str | None = None
