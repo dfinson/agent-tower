@@ -210,7 +210,9 @@ describe("dispatchSSEEvent — additional events", () => {
     expect(job.progressHeadline).toBe("Analyzing code");
     const timeline = selectJobTimeline("job-1")(useStore.getState());
     expect(timeline).toHaveLength(1);
-    expect(timeline[0].active).toBe(true);
+    const firstEntry = timeline[0];
+    expect(firstEntry).toBeDefined();
+    expect(firstEntry?.active).toBe(true);
   });
 
   it("progress_headline deactivates previous entries", () => {
@@ -227,8 +229,12 @@ describe("dispatchSSEEvent — additional events", () => {
     });
     const timeline = selectJobTimeline("job-1")(useStore.getState());
     expect(timeline).toHaveLength(2);
-    expect(timeline[0].active).toBe(false);
-    expect(timeline[1].active).toBe(true);
+    const firstEntry = timeline[0];
+    const secondEntry = timeline[1];
+    expect(firstEntry).toBeDefined();
+    expect(secondEntry).toBeDefined();
+    expect(firstEntry?.active).toBe(false);
+    expect(secondEntry?.active).toBe(true);
   });
 
   it("handles model_downgraded", () => {
@@ -264,8 +270,12 @@ describe("dispatchSSEEvent — additional events", () => {
     });
     const plan = selectJobPlan("job-1")(useStore.getState());
     expect(plan).toHaveLength(3);
-    expect(plan[0].status).toBe("done");
-    expect(plan[1].status).toBe("active");
+    const firstStep = plan[0];
+    const secondStep = plan[1];
+    expect(firstStep).toBeDefined();
+    expect(secondStep).toBeDefined();
+    expect(firstStep?.status).toBe("done");
+    expect(secondStep?.status).toBe("active");
   });
 
   it("transcript_update deduplicates", () => {
@@ -359,8 +369,12 @@ describe("column selectors", () => {
       },
     });
     const active = selectActiveJobs(useStore.getState());
-    expect(active[0].id).toBe("j-2");
-    expect(active[1].id).toBe("j-1");
+    const firstJob = active[0];
+    const secondJob = active[1];
+    expect(firstJob).toBeDefined();
+    expect(secondJob).toBeDefined();
+    expect(firstJob?.id).toBe("j-2");
+    expect(secondJob?.id).toBe("j-1");
   });
 });
 
