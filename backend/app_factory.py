@@ -1,0 +1,138 @@
+"""FastAPI application factory for CodePlane.
+
+Creates and configures the FastAPI app with middleware, route registration,
+and static file serving.  Delegates lifecycle management to ``lifespan.py``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import Response
+
+from backend.api import approvals, artifacts, events, health, jobs, settings, terminal, voice, workspace
+from backend.lifespan import lifespan
+
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _configure_middleware(
+    app: FastAPI,
+    *,
+    dev: bool,
+    tunnel_origin: str | None,
+    password: str | None,
+) -> None:
+    """Configure CORS and authentication middleware."""
+    origins: list[str] = []
+    if dev:
+        origins.append("http://localhost:5173")
+    if tunnel_origin:
+        origins.append(tunnel_origin)
+
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    # Password auth — enabled when password is provided (tunnel mode or explicit)
+    if password:
+        from backend.services.auth import auth_middleware, authenticate_login_request, set_password
+
+        set_password(password)
+
+        from starlette.routing import Route
+
+        app.routes.insert(0, Route("/api/auth/login", authenticate_login_request, methods=["POST"]))
+
+        @app.middleware("http")
+        async def _auth_gate(request: Request, call_next: Callable[..., Awaitable[Response]]) -> Response:
+            # SSE must bypass middleware wrapping — BaseHTTPMiddleware
+            # buffers streaming responses and kills the connection.
+            if request.url.path == "/api/events":
+                # Check auth inline without wrapping
+                from backend.services.auth import _is_localhost, _is_valid_token
+
+                if not _is_localhost(request):
+                    token = request.cookies.get("cpl_session")
+                    if not _is_valid_token(token):
+                        return JSONResponse({"detail": "Authentication required"}, status_code=401)
+                return await call_next(request)
+            return await auth_middleware(request, call_next)
+
+
+def _register_routes(app: FastAPI) -> None:
+    """Register all API routers."""
+    app.include_router(health.router, prefix="/api")
+    app.include_router(jobs.router, prefix="/api")
+    app.include_router(events.router, prefix="/api")
+    app.include_router(approvals.router, prefix="/api")
+    app.include_router(artifacts.router, prefix="/api")
+    app.include_router(workspace.router, prefix="/api")
+    app.include_router(voice.router, prefix="/api")
+    app.include_router(settings.router, prefix="/api")
+    # Terminal router has its own /api/terminal prefix
+    app.include_router(terminal.router)
+
+
+def _mount_spa_fallback(app: FastAPI) -> None:
+    """Serve frontend static files (SPA fallback for client-side routing).
+
+    Uses exception handler instead of middleware to avoid wrapping
+    streaming responses (middleware breaks SSE).
+    """
+    if not _FRONTEND_DIR.is_dir():
+        return
+
+    from starlette.responses import FileResponse
+
+    _index_html = str(_FRONTEND_DIR / "index.html")
+
+    @app.exception_handler(404)
+    async def _spa_fallback(request: Request, exc: Exception) -> Response:
+        path = request.url.path
+        if (
+            request.method in ("GET", "HEAD")
+            and not path.startswith(("/api", "/mcp"))
+            and "\x00" not in path
+            and ".." not in path
+        ):
+            # Serve root-level static files (favicon, logo, etc.)
+            candidate = _FRONTEND_DIR / path.lstrip("/")
+            if candidate.is_file():
+                return FileResponse(str(candidate))
+            return FileResponse(_index_html)
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="static-assets")
+
+
+# ---------------------------------------------------------------------------
+# Public factory
+# ---------------------------------------------------------------------------
+
+
+def create_app(*, dev: bool = False, tunnel_origin: str | None = None, password: str | None = None) -> FastAPI:
+    """Create and configure the FastAPI application."""
+    app = FastAPI(title="CodePlane", version="0.1.0", lifespan=lifespan)
+
+    _configure_middleware(app, dev=dev, tunnel_origin=tunnel_origin, password=password)
+    _register_routes(app)
+    _mount_spa_fallback(app)
+
+    return app
