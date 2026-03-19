@@ -19,7 +19,7 @@ cp .env.sample .env          # optional — set CPL_TUNNEL_PASSWORD for tunnel a
 ## Development
 
 ```bash
-# Start server (builds frontend, opens Dev Tunnel)
+# Start server (builds frontend, starts Tailscale Funnel)
 make run
 
 # Backend-only work (skip frontend build)

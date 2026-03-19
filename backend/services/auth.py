@@ -200,11 +200,10 @@ async def handle_login(request: Request) -> Response:
 
     token = _create_session_token()
     response = JSONResponse({"ok": True})
-    # Detect HTTPS: check scheme, x-forwarded-proto, or devtunnel headers
+    # Detect HTTPS: check scheme or x-forwarded-proto (set by tunnel infra)
     is_https = (
         request.url.scheme == "https"
         or request.headers.get("x-forwarded-proto") == "https"
-        or ".devtunnels.ms" in request.headers.get("host", "")
     )
     response.set_cookie(
         key="cpl_session",

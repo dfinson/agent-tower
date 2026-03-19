@@ -516,15 +516,15 @@ def _build_frontend() -> bool:
 @click.option("--host", default=None, help="Bind host (default: from config or 127.0.0.1)")
 @click.option("--port", default=None, type=int, help="Bind port (default: from config or 8080)")
 @click.option("--dev", is_flag=True, help="Dev mode: skip frontend build")
-@click.option("--tunnel", is_flag=True, help="Start Dev Tunnel for remote access")
-@click.option("--password", default=None, help="Set auth password (auto-generated if --tunnel without --password)")
-@click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --tunnel)")
+@click.option("--remote", is_flag=True, help="Enable remote access via Tailscale Funnel")
+@click.option("--password", default=None, help="Set auth password (auto-generated with --remote)")
+@click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --remote)")
 @click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
 def up(
     host: str | None,
     port: int | None,
     dev: bool,
-    tunnel: bool,
+    remote: bool,
     password: str | None,
     no_password: bool,
     skip_preflight: bool,
@@ -542,8 +542,8 @@ def up(
             raise SystemExit(1)
 
     # Password logic: auto-generate for tunnel, allow explicit, block unsafe combos
-    if tunnel and no_password:
-        click.secho("ERROR: --tunnel --no-password is not allowed. Remote access requires authentication.", fg="red")
+    if remote and no_password:
+        click.secho("ERROR: --remote with --no-password is not allowed. Remote access requires authentication.", fg="red")
         raise SystemExit(1)
 
     # Password priority: --password flag > CPL_TUNNEL_PASSWORD env/dotenv > auto-generate for tunnel
@@ -567,7 +567,7 @@ def up(
         if env_pw:
             effective_password = env_pw
 
-    if not effective_password and not no_password and tunnel:
+    if not effective_password and not no_password and remote:
         from backend.services.auth import generate_password
 
         effective_password = generate_password()
@@ -587,7 +587,7 @@ def up(
         log.warning(
             "binding_all_interfaces",
             host=host,
-            message="Binding to 0.0.0.0 — no authentication is enforced. Use --tunnel for authenticated remote access.",
+            message="Binding to 0.0.0.0 — no authentication is enforced. Use --remote for authenticated remote access.",
         )
         click.secho(
             "WARNING: Binding to 0.0.0.0 — no authentication is enforced.",
@@ -599,15 +599,14 @@ def up(
     tunnel_proc = None
     tunnel_watchdog: _TunnelWatchdog | None = None
 
-    if tunnel:
+    if remote:
         tunnel_origin, tunnel_proc = _start_tunnel(port)
 
     app = create_app(dev=dev, tunnel_origin=tunnel_origin, password=effective_password)
 
-    if tunnel and tunnel_origin and tunnel_proc:
+    if remote and tunnel_origin and tunnel_proc:
         tunnel_watchdog = _TunnelWatchdog(
             tunnel_url=tunnel_origin,
-            tunnel_name=tunnel_origin.split("//")[1].rsplit(f"-{port}.", 1)[0],
             port=port,
             proc=tunnel_proc,
         )
@@ -627,26 +626,21 @@ def up(
 
 
 # ---------------------------------------------------------------------------
-# Tunnel watchdog — restart devtunnel host when the relay drops
+# Tunnel watchdog — restart tunnel process when the connection drops
 # ---------------------------------------------------------------------------
 
 
 class _TunnelWatchdog:
-    """Background thread that pings the tunnel URL and restarts devtunnel host
-    when the relay connection goes stale.
-
-    The devtunnel host process sometimes loses its WebSocket connection to the
-    Azure relay but doesn't exit.  This watchdog detects the failure via HTTP
-    health checks and kills/restarts the process automatically.
+    """Background thread that pings the Tailscale Funnel URL and restarts
+    the process when the connection goes stale.
     """
 
     _CHECK_INTERVAL = 10  # seconds between health checks
     _FAIL_THRESHOLD = 2  # consecutive failures before restart
     _HTTP_TIMEOUT = 5  # seconds per health check request
 
-    def __init__(self, *, tunnel_url: str, tunnel_name: str, port: int, proc: Any) -> None:
+    def __init__(self, *, tunnel_url: str, port: int, proc: Any) -> None:
         self.tunnel_url = tunnel_url
-        self.tunnel_name = tunnel_name
         self.port = port
         self.proc = proc
         self._stop_event: Any = __import__("threading").Event()
@@ -679,12 +673,11 @@ class _TunnelWatchdog:
             return False
 
     def _restart_host(self) -> None:
-        """Kill the current devtunnel host and start a fresh one."""
+        """Kill the current tailscale funnel process and start a fresh one."""
         import subprocess
 
-        log.debug("tunnel_watchdog_restarting", tunnel=self.tunnel_name)
+        log.debug("tunnel_watchdog_restarting")
 
-        # Kill the old process
         import contextlib
 
         try:
@@ -694,22 +687,18 @@ class _TunnelWatchdog:
             with contextlib.suppress(Exception):
                 self.proc.kill()
 
-        # Start a new host process
         proc = subprocess.Popen(
-            ["devtunnel", "host", self.tunnel_name],
+            ["tailscale", "funnel", str(self.port)],
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             text=True,
         )
+        import time
 
-        # Wait for readiness
-        if proc.stdout:
-            for line in proc.stdout:
-                if "Connect via" in line or "Hosting port" in line:
-                    break
+        time.sleep(2)
 
         self.proc = proc
-        log.debug("tunnel_watchdog_restarted", tunnel=self.tunnel_name)
+        log.debug("tunnel_watchdog_restarted")
 
     def _run(self) -> None:
         # Give the tunnel a grace period to fully initialize
@@ -742,120 +731,64 @@ class _TunnelWatchdog:
 
 
 def _start_tunnel(port: int) -> tuple[str | None, Any]:
-    """Start a devtunnel with a stable, reusable tunnel name.
+    """Start Tailscale Funnel on *port*.
 
-    Naming convention: {username}-cpl
-    The tunnel is created once and reused on subsequent runs.
-    If the name is taken, random padding is appended.
+    Serves the port over HTTPS at ``https://{machine}.{tailnet}.ts.net``.
+    Requires Tailscale to be running and Funnel to be enabled in the admin.
     """
-    import json
-    import secrets
     import subprocess
 
-    def _run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(args, capture_output=True, text=True, timeout=30, **kwargs)
-
     try:
-        # Get logged-in username
-        user_result = _run(["devtunnel", "user", "show"])
-        username = "codeplane"
-        for line in user_result.stdout.splitlines():
-            if "Logged in as" in line:
-                # "Logged in as dfinson using GitHub."
-                parts = line.split()
-                idx = parts.index("as") + 1 if "as" in parts else -1
-                if idx > 0 and idx < len(parts):
-                    username = parts[idx]
-                break
+        # Discover the machine's Tailscale FQDN
+        status_result = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if status_result.returncode != 0:
+            click.secho("ERROR: 'tailscale status' failed. Is Tailscale running?", fg="red", err=True)
+            return None, None
 
-        tunnel_name = f"{username}-codeplane"
+        import json
 
-        # Check if tunnel already exists
-        list_result = _run(["devtunnel", "list", "--json"])
-        existing_tunnels: list[str] = []
-        tunnel_region = "euw"  # default
-        try:
-            data = json.loads(list_result.stdout)
-            for t in data.get("tunnels", []):
-                tid = t.get("tunnelId", "")
-                existing_tunnels.append(tid.split(".")[0])
-                # Extract region from existing tunnel (e.g. "dfinson-cpl.euw")
-                if tid.startswith(tunnel_name) and "." in tid:
-                    tunnel_region = tid.split(".")[1]
-        except (json.JSONDecodeError, KeyError):
-            pass
+        status = json.loads(status_result.stdout)
+        dns_name: str = status.get("Self", {}).get("DNSName", "")
+        if not dns_name:
+            click.secho("ERROR: Could not determine Tailscale DNS name.", fg="red", err=True)
+            return None, None
+        # DNSName has a trailing dot — strip it
+        dns_name = dns_name.rstrip(".")
+        tunnel_url = f"https://{dns_name}"
 
-        if tunnel_name not in existing_tunnels:
-            # Create the tunnel
-            create_result = _run(
-                [
-                    "devtunnel",
-                    "create",
-                    tunnel_name,
-                    "--allow-anonymous",
-                    "--expiration",
-                    "30d",
-                ]
-            )
-            if create_result.returncode != 0:
-                # Name might be taken by another user — add random padding
-                tunnel_name = f"{username}-codeplane-{secrets.token_hex(2)}"
-                _run(
-                    [
-                        "devtunnel",
-                        "create",
-                        tunnel_name,
-                        "--allow-anonymous",
-                        "--expiration",
-                        "30d",
-                    ]
-                )
-
-            # Add port
-            _run(
-                [
-                    "devtunnel",
-                    "port",
-                    "create",
-                    tunnel_name,
-                    "-p",
-                    str(port),
-                    "--protocol",
-                    "http",
-                ]
-            )
-            log.debug("tunnel_created", name=tunnel_name)
-        else:
-            log.debug("tunnel_reused", name=tunnel_name)
-
-        # Host the tunnel
+        # Start `tailscale funnel {port}` — runs in foreground, exposes the port
         proc = subprocess.Popen(
-            ["devtunnel", "host", tunnel_name],
+            ["tailscale", "funnel", str(port)],
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             text=True,
         )
 
-        # Construct the stable URL from the tunnel name
-        tunnel_url = f"https://{tunnel_name}-{port}.{tunnel_region}.devtunnels.ms"
+        # Give it a moment to bind; check it hasn't exited immediately
+        import time
 
-        # Wait for the tunnel to actually be ready (check stdout for "Connect via")
-        if proc.stdout:
-            for line in proc.stdout:
-                if "Connect via" in line or "Hosting port" in line:
-                    break
+        time.sleep(2)
+        if proc.poll() is not None:
+            stderr = proc.stderr.read() if proc.stderr else ""
+            click.secho(f"ERROR: tailscale funnel exited immediately: {stderr}", fg="red", err=True)
+            return None, None
 
-        log.debug("tunnel_started", url=tunnel_url, name=tunnel_name)
+        log.debug("tunnel_started", url=tunnel_url, provider="tailscale")
         return tunnel_url, proc
     except FileNotFoundError:
         click.secho(
-            "ERROR: 'devtunnel' CLI not found. Install from https://aka.ms/devtunnels/cli",
+            "ERROR: 'tailscale' CLI not found. Install from https://tailscale.com/download",
             fg="red",
             err=True,
         )
         return None, None
     except subprocess.TimeoutExpired:
-        log.warning("tunnel_setup_timeout")
+        log.warning("tunnel_setup_timeout", provider="tailscale")
         return None, None
 
 

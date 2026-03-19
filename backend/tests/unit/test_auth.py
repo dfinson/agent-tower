@@ -252,12 +252,12 @@ class TestHandleLogin:
         assert b"secure" in raw_headers[b"set-cookie"].lower()
 
     @pytest.mark.asyncio
-    async def test_login_https_via_devtunnel(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_login_https_via_forwarded_proto(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _reset_auth_state(monkeypatch)
         auth.set_password("pw")
         req = _make_request(
             json_body={"password": "pw"},
-            headers={"host": "myapp.devtunnels.ms"},
+            headers={"x-forwarded-proto": "https"},
         )
         resp = await auth.handle_login(req)
         assert resp.status_code == 200
