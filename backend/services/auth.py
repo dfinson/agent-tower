@@ -105,6 +105,25 @@ def _is_localhost(request: Request) -> bool:
     return host in ("127.0.0.1", "::1", "localhost")
 
 
+def is_password_auth_enabled() -> bool:
+    """Return True when the server has password authentication configured."""
+    return _password_hash is not None
+
+
+def check_websocket_auth(*, client_host: str | None, cookies: dict[str, str]) -> bool:
+    """Validate authentication for a WebSocket connection.
+
+    Mirrors the HTTP middleware logic: if password auth is not enabled
+    everyone is allowed; localhost is trusted; otherwise a valid
+    ``cpl_session`` cookie is required.
+    """
+    if not is_password_auth_enabled():
+        return True
+    if client_host and client_host in ("127.0.0.1", "::1", "localhost"):
+        return True
+    return _is_valid_token(cookies.get("cpl_session"))
+
+
 _LOGIN_HTML_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "login.html"
 _LOGIN_HTML: str | None = None
 
