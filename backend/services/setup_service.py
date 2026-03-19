@@ -138,18 +138,18 @@ DEPENDENCIES: list[Dependency] = [
         },
     ),
     Dependency(
-        name="Dev Tunnel CLI",
-        command="devtunnel",
-        url="https://aka.ms/devtunnels/cli",
+        name="Tailscale",
+        command="tailscale",
+        url="https://tailscale.com/download",
         required=False,
         install_instructions={
-            "linux": "curl -sL https://aka.ms/DevTunnelCliInstall | bash",
-            "darwin": "brew install --cask devtunnel",
-            "windows": "winget install Microsoft.devtunnel",
+            "linux": "curl -fsSL https://tailscale.com/install.sh | sh",
+            "darwin": "brew install --cask tailscale",
+            "windows": "winget install Tailscale.Tailscale",
         },
         auto_install_cmd={
-            "linux": ["bash", "-c", "curl -sL https://aka.ms/DevTunnelCliInstall | bash"],
-            "darwin": ["brew", "install", "--cask", "devtunnel"],
+            "linux": ["bash", "-c", "curl -fsSL https://tailscale.com/install.sh | sh"],
+            "darwin": ["brew", "install", "--cask", "tailscale"],
         },
     ),
 ]
@@ -198,22 +198,6 @@ def _check_gh_auth() -> tuple[bool, str]:
         return False, "not authenticated"
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False, "gh not available"
-
-
-def _check_devtunnel_login() -> tuple[bool, str]:
-    """Check if devtunnel is logged in. Returns (ok, detail)."""
-    try:
-        result = subprocess.run(
-            ["devtunnel", "user", "show"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if result.returncode == 0:
-            return True, "logged in"
-        return False, "not logged in"
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return False, "devtunnel not available"
 
 
 def _check_port(port: int) -> tuple[bool, str]:

@@ -22,9 +22,9 @@ test: ## Run backend and frontend tests with coverage
 	uv run pytest --cov=backend --cov-report=term-missing
 	cd frontend && npm run test:coverage
 
-run: ## Build frontend and start server with tunnel
+run: ## Build frontend and start server with remote access
 	cd frontend && npm run build
-	uv run cpl up --tunnel
+	uv run cpl up --remote
 
 ci: lint format typecheck test ## Run full CI pipeline
 

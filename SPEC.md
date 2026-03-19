@@ -43,7 +43,7 @@ The system provides visibility into execution progress, code changes, logs, arti
 
 Operators can intervene at any time by sending instructions, approving risky actions, canceling runs, or rerunning failed tasks.
 
-The interface can be accessed locally or remotely through a Dev Tunnel, allowing jobs to be monitored and controlled from another device such as a phone.
+The interface can be accessed locally or remotely through Tailscale Funnel, allowing jobs to be monitored and controlled from another device such as a phone.
 
 CodePlane turns autonomous coding agents into something observable, controllable, and safe to operate.
 
@@ -56,7 +56,7 @@ CodePlane turns autonomous coding agents into something observable, controllable
 | Approval gating | Intercept and approve or reject risky actions before they execute |
 | Operator intervention | Send messages, cancel, or rerun jobs at any time |
 | Workspace isolation | Every job gets its own isolated worktree under `.codeplane-worktrees/` |
-| Remote access | Dev Tunnel exposes the UI over HTTPS for phone/remote control |
+| Remote access | Tailscale Funnel exposes the UI over HTTPS for phone/remote control |
 | Voice input | Speak prompts, operator instructions, and terminal commands into the browser |
 | Artifact inspection | Browse files, diffs, and produced outputs from every job |
 | Integrated terminal | PTY-backed terminal sessions with optional AI agent assistance |
@@ -95,7 +95,7 @@ CodePlane is a two-tier application.
 | Agent runtime | Pluggable SDK adapters behind `AgentAdapterInterface`; ships with Copilot SDK and Claude Agent SDK |
 | Workspace isolation | Git worktrees |
 | Voice transcription | faster-whisper |
-| Remote access | Dev Tunnel (HTTPS) |
+| Remote access | Tailscale Funnel (HTTPS) |
 | State management | Zustand |
 | UI primitives | Radix UI (headless) |
 | Diff / code viewer | Monaco Editor (`@monaco-editor/react`) |
@@ -116,7 +116,7 @@ In production mode, the FastAPI backend serves the built frontend as static file
 This means:
 
 - Only one port is exposed in production (`8080`)
-- The Dev Tunnel exposes a single port
+- The tunnel exposes a single port
 - CORS is not needed in production (same origin)
 - During development, CORS allows `http://localhost:5173`
 
@@ -1016,18 +1016,22 @@ Developer Machine
 ├── Global config (~/.codeplane/config.yaml)
 ├── Application logs (~/.codeplane/logs/)
 ├── Local git repositories (/repos/...)
-└── Dev Tunnel (HTTPS tunnel to public URL)
+└── Tailscale Funnel (HTTPS tunnel for remote access)
 ```
 
 In production mode, the backend serves the built React frontend as static files. Only one port (`8080`) is exposed. The Vite dev server on port `5173` is used only during frontend development.
 
-### 7.1 Dev Tunnel
+### 7.1 Tunnel
 
-Dev Tunnel exposes the local application over HTTPS, enabling remote access from phones and other devices.
+Tailscale Funnel exposes the local application over HTTPS, enabling remote access from phones and other devices.
 
-- The tunnel is created with `--allow-anonymous=false` so that only the tunnel owner's Microsoft/GitHub identity can connect
-- Dev Tunnel handles authentication and HTTPS termination — the backend itself has no auth layer
-- The tunnel URL should be treated as semi-private but is not a secret; identity verification prevents unauthorized access even if the URL is known
+- Requires Tailscale installed and running on the machine
+- Exposes the local port over HTTPS at `https://{machine}.{tailnet}.ts.net`
+- Stable URL — persists across restarts
+- Access is restricted to devices on the operator's Tailnet (mesh VPN), plus Funnel for external HTTPS access
+- No public-internet brute-force surface when used without Funnel (Tailnet-only access)
+- Password auth is always enabled when tunneling — remote access requires the password printed in the startup banner
+- HTTPS is enforced by the Tailscale infrastructure
 - The backend enforces CORS to prevent cross-origin abuse from other browser tabs
 
 ### 7.2 Startup
@@ -1045,7 +1049,7 @@ This command:
 3. Runs restart recovery (see Section 6.6)
 4. Loads the faster-whisper model (if voice is enabled)
 5. Starts the FastAPI server
-6. Optionally starts the Dev Tunnel
+6. Optionally starts Tailscale Funnel
 
 ### 7.3 CLI
 
@@ -1068,7 +1072,7 @@ cpl = "backend.main:cli"
 |---|---|
 | `cpl up` | Start the server |
 | `cpl up --port 9090` | Start on a custom port |
-| `cpl up --tunnel` | Start with Dev Tunnel enabled |
+| `cpl up --remote` | Start with Tailscale Funnel for remote access |
 | `cpl up --dev` | Start in development mode (CORS allows localhost:5173) |
 | `cpl init` | Create `~/.codeplane/config.yaml` with defaults |
 | `cpl version` | Print version |
@@ -1257,7 +1261,7 @@ CodePlane supports voice input for dictating prompts and operator messages. Audi
 
 All voice transcription runs locally on the developer machine:
 
-- Audio is uploaded only to `localhost` (or via the authenticated Dev Tunnel)
+- Audio is uploaded only to `localhost` (or via the authenticated tunnel)
 - The `faster-whisper` library performs inference locally using downloaded model weights
 - `faster-whisper` does not phone home or transmit data to external servers
 - The UI displays a "Local transcription" indicator next to the microphone button
@@ -1971,7 +1975,7 @@ Job records and events are never deleted. They serve as an audit log.
 
 All endpoints are prefixed with `/api`.
 
-Authentication is handled at the transport layer by Dev Tunnel identity verification (see Section 21.1). The backend binds to `127.0.0.1` by default, so direct access is limited to the local machine. No application-level authentication headers are required.
+Authentication is handled by password-based session cookies when accessed remotely via tunnel (see §21.1). The backend binds to `127.0.0.1` by default, so direct access is limited to the local machine. Localhost requests bypass authentication.
 
 ### 17.1 Health Check
 
@@ -2633,21 +2637,19 @@ If no heartbeat is received for a running session within 90 seconds:
 
 ### 21.1 Authentication
 
-CodePlane has **no application-level authentication**. Access control relies on two mechanisms:
+CodePlane uses **password-based authentication** for remote access and **localhost trust** for local access:
 
-1. **Localhost binding**: The backend binds to `127.0.0.1` by default, making it accessible only from the local machine
-2. **Dev Tunnel identity verification**: When remote access is needed, Microsoft Dev Tunnel authenticates users via their Microsoft or GitHub identity. Only the tunnel owner can connect. The tunnel is always created with `--allow-anonymous=false`
+1. **Localhost binding**: The backend binds to `127.0.0.1` by default, making it accessible only from the local machine. Localhost requests bypass password auth entirely.
+2. **Password auth for remote access**: When `--remote` is used, a password is required. It is set explicitly (`--password`, `CPL_TUNNEL_PASSWORD` env var / `.env`) or auto-generated. Remote clients must authenticate via the login page; sessions use httpOnly cookies with 24h expiry.
+3. **Tailscale network-level auth**: Only devices on the operator's Tailnet can reach the server. This provides device-level identity verification on top of the password.
 
 This means:
 
-- No bearer tokens, session cookies, or API keys to manage or rotate
-- No authentication middleware in the backend
-- The SSE endpoint (`/api/events`) requires no special auth handling
+- Local access requires no credentials
+- Remote access requires the password printed in the operator's terminal
+- Tailscale adds network-level access control (only your devices can reach it)
+- Rate limiting (5 attempts/min/IP) protects the login endpoint against brute-force
 - If the server is intentionally bound to `0.0.0.0` (e.g., for LAN access), a startup warning is emitted noting that no authentication is enforced
-
-#### Why not application-level auth?
-
-CodePlane is a single-operator tool on a developer machine. Adding a token/session system would create operational overhead (managing secrets, handling rotation, config errors) without meaningfully improving security over the combination of localhost binding + Dev Tunnel identity. If the local machine is compromised, application-level auth provides no additional protection.
 
 ### 21.2 Repository Allowlist
 
@@ -2673,21 +2675,23 @@ The backend enforces CORS:
 
 - In production mode (single port): CORS is not needed (same origin)
 - In development mode (`--dev`): `http://localhost:5173` is allowed
-- When Dev Tunnel is active: the tunnel origin is dynamically added to the allowed origins list
+- When tunnel is active: the tunnel origin is dynamically added to the allowed origins list
 
 ### 21.6 Connection Limits
 
 SSE connections are capped at `max_sse_connections` (default: 5) to prevent resource exhaustion from too many open connections. No per-request rate limiting is applied.
 
-### 21.7 Dev Tunnel Security
+### 21.7 Tunnel Security
 
-When the Dev Tunnel is active:
+When Tailscale Funnel is active:
 
-- Identity-linked access is always enabled (`--allow-anonymous=false`)
-- Only the tunnel owner's Microsoft/GitHub identity can access the application
-- HTTPS is enforced by the Dev Tunnel infrastructure
-- The tunnel URL does not need to be kept secret (identity verification prevents unauthorized access)
-- The operator must be signed in to their Microsoft or GitHub account in the browser to access the UI remotely
+- Access is restricted to devices on the operator's Tailnet. Funnel additionally enables HTTPS access from outside the Tailnet, protected by password auth.
+- The Tailscale MagicDNS URL is stable and does not need to be kept secret — network-level identity prevents unauthorized access
+- HTTPS is enforced by Tailscale infrastructure
+- Password auth is mandatory
+- Session cookies are set with `Secure; HttpOnly; SameSite=Lax`
+- Rate limiting prevents brute-force attacks on the login endpoint
+- Localhost requests bypass auth entirely (same-machine access is trusted)
 
 ---
 
@@ -3051,7 +3055,7 @@ This enables hierarchical agent architectures where a planning agent delegates i
 The MCP server uses **Streamable HTTP** transport, served from the same FastAPI process on a dedicated path:
 
 - **Endpoint**: `POST /mcp` (message endpoint), `GET /mcp` (SSE stream for server-initiated notifications)
-- **Authentication**: None for local connections; remote access is secured via Dev Tunnel authentication (see §7)
+- **Authentication**: None for local connections; remote access is secured via tunnel authentication (see §7, §21)
 - **Discovery**: Standard MCP capabilities negotiation on `initialize`
 
 Running in-process avoids a separate deployment unit and shares the service layer, database connections, and event bus with the REST API.
@@ -3129,7 +3133,7 @@ The MCP server is always enabled and mounted at `/mcp`. These are hardcoded cons
 ### 26.7 Security Considerations
 
 - Local connections (localhost) require no authentication — same trust model as the REST API.
-- Remote access is secured exclusively via Dev Tunnel authentication (see §7, §9 Operational Hardening).
+- Remote access is secured via tunnel authentication with mandatory password auth (see §7, §21).
 - Tool calls are subject to the same validation as REST requests (repository allowlist, state machine rules).
 - Rate limiting and capacity enforcement from `RuntimeService` apply equally to MCP-initiated jobs.
 - The MCP server does **not** expose raw database access, shell execution, or filesystem paths outside registered repositories.
