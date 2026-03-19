@@ -1,4 +1,26 @@
-"""Long-running job execution manager."""
+"""Long-running job execution manager.
+
+RuntimeService orchestrates the full lifecycle of agent jobs: session creation,
+event streaming, heartbeat monitoring, headline/plan generation, diff tracking,
+approval flow, cancellation, and post-job cleanup.
+
+**Design note (2025-07):** this class is intentionally kept as a single
+orchestrator rather than split across multiple service classes.  The async job
+execution flow is deeply intertwined—extracting sub-services risks subtle
+concurrency bugs around task cancellation and state cleanup.  Instead,
+responsibility boundaries are enforced through well-named private helper
+methods:
+
+* ``_handle_approval_request`` — shared approval flow (session + followup)
+* ``_attempt_resume_fallback``  — retry logic for failed session resumes
+* ``_handle_job_canceled``      — cancellation state transitions
+* ``_finalize_plan_steps``      — terminal plan-step resolution
+* ``_cleanup_job_state``        — per-job in-memory state teardown
+
+Further decomposition into separate classes (e.g. HeadlineManager,
+PlanExtractor) is tracked but deferred to avoid destabilising the execution
+pipeline.
+"""
 
 from __future__ import annotations
 
@@ -614,33 +636,9 @@ class RuntimeService:
             )
 
             if error_reason and config.resume_sdk_session_id and not made_resume_progress:
-                await self._clear_sdk_session_id(job_id)
-                try:
-                    fallback_prompt = await self._build_resume_handoff_prompt(job_id, config.prompt)
-                except Exception:
-                    log.warning("resume_handoff_prompt_build_failed", job_id=job_id, exc_info=True)
-                else:
-                    import dataclasses
-
-                    log.warning(
-                        "resume_sdk_session_unusable_falling_back",
-                        job_id=job_id,
-                        sdk_session_id=config.resume_sdk_session_id,
-                    )
-                    fallback_session = _AgentSession()
-                    self._agent_sessions[job_id] = fallback_session
-                    fallback_config = dataclasses.replace(
-                        config,
-                        prompt=fallback_prompt,
-                        resume_sdk_session_id=None,
-                    )
-                    session_id, error_reason, _ = await self._execute_session_attempt(
-                        job_id,
-                        fallback_session,
-                        fallback_config,
-                        worktree_path,
-                        base_ref,
-                    )
+                session_id, error_reason = await self._attempt_resume_fallback(
+                    job_id, config, worktree_path, base_ref,
+                )
 
             if error_reason:
                 # An error event was received during execution — finalize diff before failing
@@ -686,33 +684,7 @@ class RuntimeService:
             )
         except asyncio.CancelledError:
             log.info("job_canceled_by_task", job_id=job_id)
-            # Finalize diff so changes are preserved even for canceled jobs
-            await self._finalize_diff_safe(job_id, worktree_path, base_ref)
-            try:
-                await agent_session.abort()
-            except Exception:
-                log.warning("agent_abort_failed", job_id=job_id, exc_info=True)
-            try:
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    current = await svc.get_job(job_id)
-                    if current and current.state != JobState.canceled:
-                        await svc.transition_state(job_id, JobState.canceled)
-                        await session.commit()
-                        self._plan_terminal_state[job_id] = "canceled"
-                        await self._event_bus.publish(
-                            DomainEvent(
-                                event_id=_make_event_id(),
-                                job_id=job_id,
-                                timestamp=datetime.now(UTC),
-                                kind=DomainEventKind.job_canceled,
-                                payload={"reason": "operator_cancel"},
-                            )
-                        )
-                    else:
-                        await session.commit()
-            except Exception:
-                log.warning("job_cancel_transition_failed", job_id=job_id, exc_info=True)
+            await self._handle_job_canceled(job_id, agent_session, worktree_path, base_ref)
         except Exception as exc:
             log.error("job_execution_failed", job_id=job_id, exc_info=True)
             # Finalize diff so changes are preserved even for crashed jobs
@@ -728,53 +700,8 @@ class RuntimeService:
             plan_t = self._plan_tasks.pop(job_id, None)
             if plan_t is not None:
                 plan_t.cancel()
-            # Emit a final plan update so the frontend resolves any spinning steps.
-            terminal_outcome = self._plan_terminal_state.pop(job_id, None)
-            last_steps = self._plan_last_steps.get(job_id)
-            if terminal_outcome and last_steps:
-                succeeded = terminal_outcome == "succeeded"
-                final_steps = []
-                for s in last_steps:
-                    status = s.get("status", "pending")
-                    if status in ("active", "pending"):
-                        status = "done" if succeeded else "skipped"
-                    final_steps.append({"label": s["label"], "status": status})
-                if final_steps != last_steps:
-                    try:
-                        await self._event_bus.publish(
-                            DomainEvent(
-                                event_id=_make_event_id(),
-                                job_id=job_id,
-                                timestamp=datetime.now(UTC),
-                                kind=DomainEventKind.agent_plan_updated,
-                                payload={"steps": final_steps},
-                            )
-                        )
-                    except Exception:
-                        log.debug("plan_finalize_emit_failed", job_id=job_id, exc_info=True)
-            self._headline_transcript.pop(job_id, None)
-            self._headline_tool_intents.pop(job_id, None)
-            self._headline_last_snapshot.pop(job_id, None)
-            self._headline_last_text.pop(job_id, None)
-            self._headline_history.pop(job_id, None)
-            self._plan_transcript.pop(job_id, None)
-            self._plan_last_steps.pop(job_id, None)
-            self._tasks.pop(job_id, None)
-            self._agent_sessions.pop(job_id, None)
-            self._last_activity.pop(job_id, None)
-            self._session_ids.pop(job_id, None)
-            self._echo_suppress.pop(job_id, None)
-            if self._utility_session is not None:
-                await self._utility_session.notify_job_ended()
-            if self._approval_service is not None:
-                self._approval_service.cleanup_job(job_id)
-            if self._diff_service is not None:
-                self._diff_service.cleanup(job_id)
-            # Store cheap session snapshot for future cold resumes.
-            # Track the background task so shutdown can await it cleanly.
-            self._start_snapshot_task(job_id)
-            # Check if any queued jobs can now start
-            await self._dequeue_next()
+            await self._finalize_plan_steps(job_id)
+            await self._cleanup_job_state(job_id)
 
     def _start_snapshot_task(self, job_id: str) -> None:
         if self._shutting_down:
@@ -795,6 +722,180 @@ class RuntimeService:
                 self._snapshot_tasks.pop(job_id, None)
 
         task.add_done_callback(_cleanup_snapshot_task)
+
+    async def _finalize_plan_steps(self, job_id: str) -> None:
+        """Emit a final plan update so the frontend resolves any spinning steps."""
+        terminal_outcome = self._plan_terminal_state.pop(job_id, None)
+        last_steps = self._plan_last_steps.get(job_id)
+        if not terminal_outcome or not last_steps:
+            return
+
+        succeeded = terminal_outcome == "succeeded"
+        final_steps = []
+        for s in last_steps:
+            status = s.get("status", "pending")
+            if status in ("active", "pending"):
+                status = "done" if succeeded else "skipped"
+            final_steps.append({"label": s["label"], "status": status})
+
+        if final_steps == last_steps:
+            return
+
+        try:
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=_make_event_id(),
+                    job_id=job_id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.agent_plan_updated,
+                    payload={"steps": final_steps},
+                )
+            )
+        except Exception:
+            log.debug("plan_finalize_emit_failed", job_id=job_id, exc_info=True)
+
+    async def _cleanup_job_state(self, job_id: str) -> None:
+        """Remove all per-job in-memory state and trigger post-job hooks."""
+        self._headline_transcript.pop(job_id, None)
+        self._headline_tool_intents.pop(job_id, None)
+        self._headline_last_snapshot.pop(job_id, None)
+        self._headline_last_text.pop(job_id, None)
+        self._headline_history.pop(job_id, None)
+        self._plan_transcript.pop(job_id, None)
+        self._plan_last_steps.pop(job_id, None)
+        self._tasks.pop(job_id, None)
+        self._agent_sessions.pop(job_id, None)
+        self._last_activity.pop(job_id, None)
+        self._session_ids.pop(job_id, None)
+        self._echo_suppress.pop(job_id, None)
+        if self._utility_session is not None:
+            await self._utility_session.notify_job_ended()
+        if self._approval_service is not None:
+            self._approval_service.cleanup_job(job_id)
+        if self._diff_service is not None:
+            self._diff_service.cleanup(job_id)
+        self._start_snapshot_task(job_id)
+        await self._dequeue_next()
+
+    async def _handle_approval_request(
+        self,
+        job_id: str,
+        domain_event: DomainEvent,
+        rejection_message: str,
+    ) -> str:
+        """Handle an approval_requested event: transition state, wait for operator, return resolution.
+
+        Returns the resolution string (``"approved"`` or ``"rejected"``).
+        """
+        import time
+
+        assert self._approval_service is not None
+
+        async with self._session_factory() as sess:
+            svc = self._make_job_service(sess)
+            await svc.transition_state(job_id, JobState.waiting_for_approval)
+            await sess.commit()
+
+        await self._event_bus.publish(domain_event)
+
+        approval_id = domain_event.payload.get("approval_id", "")
+        resolution = await self._approval_service.wait_for_resolution(approval_id)
+
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=_make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.approval_resolved,
+                payload={
+                    "approval_id": approval_id,
+                    "resolution": resolution,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        )
+
+        async with self._session_factory() as sess:
+            svc = self._make_job_service(sess)
+            await svc.transition_state(job_id, JobState.running)
+            await sess.commit()
+        await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
+        self._last_activity[job_id] = time.monotonic()
+
+        return resolution
+
+    async def _attempt_resume_fallback(
+        self,
+        job_id: str,
+        config: SessionConfig,
+        worktree_path: str | None,
+        base_ref: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Try a fresh session after a failed resume, returning ``(session_id, error_reason)``."""
+        import dataclasses
+
+        await self._clear_sdk_session_id(job_id)
+        try:
+            fallback_prompt = await self._build_resume_handoff_prompt(job_id, config.prompt)
+        except Exception:
+            log.warning("resume_handoff_prompt_build_failed", job_id=job_id, exc_info=True)
+            return None, "Resume handoff prompt build failed"
+
+        log.warning(
+            "resume_sdk_session_unusable_falling_back",
+            job_id=job_id,
+            sdk_session_id=config.resume_sdk_session_id,
+        )
+        fallback_session = _AgentSession()
+        self._agent_sessions[job_id] = fallback_session
+        fallback_config = dataclasses.replace(
+            config,
+            prompt=fallback_prompt,
+            resume_sdk_session_id=None,
+        )
+        session_id, error_reason, _ = await self._execute_session_attempt(
+            job_id,
+            fallback_session,
+            fallback_config,
+            worktree_path,
+            base_ref,
+        )
+        return session_id, error_reason
+
+    async def _handle_job_canceled(
+        self,
+        job_id: str,
+        agent_session: _AgentSession,
+        worktree_path: str | None,
+        base_ref: str | None,
+    ) -> None:
+        """Process cancellation: finalize diff, abort agent, transition state."""
+        await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+        try:
+            await agent_session.abort()
+        except Exception:
+            log.warning("agent_abort_failed", job_id=job_id, exc_info=True)
+        try:
+            async with self._session_factory() as session:
+                svc = self._make_job_service(session)
+                current = await svc.get_job(job_id)
+                if current and current.state != JobState.canceled:
+                    await svc.transition_state(job_id, JobState.canceled)
+                    await session.commit()
+                    self._plan_terminal_state[job_id] = "canceled"
+                    await self._event_bus.publish(
+                        DomainEvent(
+                            event_id=_make_event_id(),
+                            job_id=job_id,
+                            timestamp=datetime.now(UTC),
+                            kind=DomainEventKind.job_canceled,
+                            payload={"reason": "operator_cancel"},
+                        )
+                    )
+                else:
+                    await session.commit()
+        except Exception:
+            log.warning("job_cancel_transition_failed", job_id=job_id, exc_info=True)
 
     async def _execute_session_attempt(
         self,
@@ -855,37 +956,9 @@ class RuntimeService:
                     continue
 
             if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
-                async with self._session_factory() as sess:
-                    svc = self._make_job_service(sess)
-                    await svc.transition_state(job_id, JobState.waiting_for_approval)
-                    await sess.commit()
-
-                await self._event_bus.publish(domain_event)
-
-                approval_id = domain_event.payload.get("approval_id", "")
-                resolution = await self._approval_service.wait_for_resolution(approval_id)
-
-                await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=_make_event_id(),
-                        job_id=job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.approval_resolved,
-                        payload={
-                            "approval_id": approval_id,
-                            "resolution": resolution,
-                            "timestamp": datetime.now(UTC).isoformat(),
-                        },
-                    )
+                resolution = await self._handle_approval_request(
+                    job_id, domain_event, "Approval rejected by operator",
                 )
-
-                async with self._session_factory() as sess:
-                    svc = self._make_job_service(sess)
-                    await svc.transition_state(job_id, JobState.running)
-                    await sess.commit()
-                await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
-                self._last_activity[job_id] = time.monotonic()
-
                 if resolution == "rejected":
                     error_reason = "Approval rejected by operator"
                     break
@@ -1037,37 +1110,9 @@ class RuntimeService:
 
                 # Handle approval requests (same pattern as main loop)
                 if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
-                    async with self._session_factory() as sess:
-                        svc = self._make_job_service(sess)
-                        await svc.transition_state(job_id, JobState.waiting_for_approval)
-                        await sess.commit()
-
-                    await self._event_bus.publish(domain_event)
-
-                    approval_id = domain_event.payload.get("approval_id", "")
-                    resolution = await self._approval_service.wait_for_resolution(approval_id)
-
-                    await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=_make_event_id(),
-                            job_id=job_id,
-                            timestamp=datetime.now(UTC),
-                            kind=DomainEventKind.approval_resolved,
-                            payload={
-                                "approval_id": approval_id,
-                                "resolution": resolution,
-                                "timestamp": datetime.now(UTC).isoformat(),
-                            },
-                        )
+                    resolution = await self._handle_approval_request(
+                        job_id, domain_event, "Approval rejected during verification",
                     )
-
-                    async with self._session_factory() as sess:
-                        svc = self._make_job_service(sess)
-                        await svc.transition_state(job_id, JobState.running)
-                        await sess.commit()
-                    await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
-                    self._last_activity[job_id] = time.monotonic()
-
                     if resolution == "rejected":
                         error_reason = "Approval rejected during verification"
                         break
