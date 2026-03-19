@@ -291,9 +291,11 @@ class MergeService:
                 await self._update_merge_status(job_id, "merged")
                 return MergeResult(status="merged", strategy="merge")
 
-            # Retry also failed — treat as a real conflict with no file list.
+            # Retry also failed after a clean probe — this is a git-level
+            # error (hook, identity, lock, etc.), not a real merge conflict.
             await self._git.merge_abort(cwd=repo_path)
-            conflict_files = []
+            log.warning("merge_retry_failed_after_clean_probe", job_id=job_id, branch=branch)
+            return MergeResult(status="error", error="Merge failed for a non-conflict reason; check git configuration")
 
         log.info("merge_conflict_detected", job_id=job_id, conflict_files=conflict_files)
 
@@ -313,14 +315,18 @@ class MergeService:
         return MergeResult(status="conflict", conflict_files=conflict_files)
 
     async def _get_conflict_file_list(self, repo_path: str, branch: str, base_ref: str) -> list[str] | None:
-        """Probe for conflicting files by attempting a test merge, then aborting.
+        """Probe for conflicting files using a no-commit merge that never creates a commit.
+
+        Uses ``--no-commit --no-ff`` so git identity is never required, making
+        the probe robust against misconfigured environments and git hooks.
 
         Returns:
             - ``None`` if the probe merge succeeded (no real conflicts exist).
-            - A list of conflicting file paths if the merge failed.
-              The list may be empty if the conflicting files could not be
-              determined, but ``None`` vs ``[]`` distinguishes "clean" from
-              "conflict with unknown files".
+            - A list of conflicting file paths if the merge produced actual
+              conflict markers.  The list is always non-empty in this case.
+            - ``None`` (not ``[]``) when the merge failed for a non-conflict
+              reason (no conflict markers found), so callers don't misclassify
+              infrastructure errors as merge conflicts.
         """
         try:
             await self._git.checkout(base_ref, cwd=repo_path)
@@ -328,15 +334,19 @@ class MergeService:
             return []
 
         try:
-            await self._git.merge(branch, cwd=repo_path)
-            # Probe merge succeeded — undo the commit and signal "no conflict".
-            with contextlib.suppress(Exception):
-                await self._git._run_git("reset", "--hard", "HEAD~1", cwd=repo_path)  # noqa: SLF001
+            # --no-commit: never create a commit (no git identity required).
+            # --no-ff: force a real merge attempt even when FF would suffice.
+            await self._git._run_git("merge", "--no-commit", "--no-ff", branch, cwd=repo_path)  # noqa: SLF001
+            # Probe succeeded — clean up the staged-but-uncommitted merge.
+            await self._git.merge_abort(cwd=repo_path)
             return None
         except Exception:
             files = await self._git.get_conflict_files(cwd=repo_path)
             await self._git.merge_abort(cwd=repo_path)
-            return files
+            # If git failed but left no conflict markers the failure was caused
+            # by something other than a real merge conflict (e.g. a commit hook,
+            # missing identity, or a transient lock).  Treat as "no conflict".
+            return files if files else None
 
     async def _create_pr(
         self,
@@ -651,9 +661,11 @@ class MergeService:
                     await self._update_merge_status(job_id, "merged")
                     return MergeResult(status="merged", strategy="merge")
 
-                # Retry also failed — treat as conflict with no specific files.
+                # Retry also failed after a clean probe — this is a git-level
+                # error (hook, identity, lock, etc.), not a real merge conflict.
                 await self._git.merge_abort(cwd=repo_path)
-                conflict_files = []
+                log.warning("resolve_retry_failed_after_clean_probe", job_id=job_id, branch=branch)
+                return MergeResult(status="error", error="Merge failed for a non-conflict reason; check git configuration")
 
             log.info("resolve_merge_conflict", job_id=job_id, conflict_files=conflict_files)
 
@@ -711,9 +723,24 @@ class MergeService:
         try:
             await self._git.cherry_pick(commit_range, cwd=repo_path)
         except GitError:
-            log.info("smart_merge_conflict_detected", job_id=job_id, branch=branch)
-            await self._git.cherry_pick_abort(cwd=repo_path)
+            # Check for actual conflict markers BEFORE aborting — abort removes them.
             conflict_files = await self._git.get_conflict_files(cwd=repo_path)
+            await self._git.cherry_pick_abort(cwd=repo_path)
+
+            if not conflict_files:
+                # Cherry-pick failed but left no conflict markers → not a real
+                # merge conflict (e.g. hook failure, missing git identity, or
+                # the commit range was already applied).  Return an error so the
+                # job stays in "unresolved" and the user can retry or create a PR.
+                log.warning(
+                    "smart_merge_failed_no_conflict_markers",
+                    job_id=job_id,
+                    branch=branch,
+                    commit_range=commit_range,
+                )
+                return MergeResult(status="error", error="Cherry-pick failed without conflict markers; check git configuration or hooks")
+
+            log.info("smart_merge_conflict_detected", job_id=job_id, branch=branch)
             try:
                 await self._git.checkout(base_ref, cwd=repo_path)
             except Exception:
