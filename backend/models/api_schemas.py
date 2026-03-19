@@ -288,7 +288,7 @@ class WorkspaceListResponse(CamelModel):
     has_more: bool
 
 
-class TranscribeResponse(BaseModel):
+class TranscribeResponse(CamelModel):
     text: str
 
 

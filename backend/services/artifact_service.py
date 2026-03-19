@@ -236,6 +236,12 @@ class ArtifactService:
             try:
                 log_contents = json.loads(Path(existing_log.disk_path).read_text(encoding="utf-8"))
             except Exception:
+                log.warning(
+                    "session_log_read_failed",
+                    job_id=job_id,
+                    disk_path=existing_log.disk_path,
+                    exc_info=True,
+                )
                 log_contents = {"sessions": []}
 
             # Avoid duplicate session entries

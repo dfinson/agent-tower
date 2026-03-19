@@ -11,6 +11,7 @@ from backend.models.api_schemas import (
     ResolveApprovalRequest,
     SendMessageRequest,
     SendMessageResponse,
+    TrustJobResponse,
 )
 from backend.services.approval_service import (
     ApprovalAlreadyResolvedError,
@@ -71,14 +72,14 @@ async def resolve_approval(
     return _to_response(approval)
 
 
-@router.post("/jobs/{job_id}/approvals/trust")
+@router.post("/jobs/{job_id}/approvals/trust", response_model=TrustJobResponse)
 async def trust_job(
     job_id: str,
     svc: Annotated[ApprovalService, Depends(_get_approval_service)],
-) -> dict[str, int]:
+) -> TrustJobResponse:
     """Trust a job session — auto-approve all current and future permission requests."""
     count = await svc.trust_job(job_id)
-    return {"resolved": count}
+    return TrustJobResponse(resolved=count)
 
 
 @router.post("/jobs/{job_id}/messages", response_model=SendMessageResponse)

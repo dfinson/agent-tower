@@ -64,14 +64,14 @@ export function JobCreationScreen() {
             .filter((x) => x.value),
         );
       })
-      .catch(() => {});
+      .catch((err) => console.error("Failed to fetch models", err));
     fetchSDKs()
       .then((r) => {
         setSdks(r.sdks);
         setDefaultSdk(r.default);
         setSdk(r.default);
       })
-      .catch(() => {});
+      .catch((err) => console.error("Failed to fetch SDKs", err));
   }, []);
 
   useEffect(() => {

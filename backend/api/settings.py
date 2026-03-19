@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -17,6 +17,9 @@ from backend.config import (
     unregister_repo,
 )
 from backend.models.api_schemas import (
+    BrowseDirectoryResponse,
+    BrowseEntry,
+    CleanupWorktreesResponse,
     PlatformStatusListResponse,
     PlatformStatusResponse,
     RegisterRepoRequest,
@@ -207,11 +210,11 @@ async def unregister_repo_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/settings/cleanup-worktrees")
+@router.post("/settings/cleanup-worktrees", response_model=CleanupWorktreesResponse)
 async def cleanup_worktrees(
     config: Annotated[CPLConfig, Depends(_get_config)],
     git: Annotated[GitService, Depends(_get_git_service)],
-) -> dict[str, int]:
+) -> CleanupWorktreesResponse:
     """Clean up completed job worktrees for all registered repos."""
     total = 0
     for repo in config.repos:
@@ -220,13 +223,13 @@ async def cleanup_worktrees(
             total += count
         except GitError:
             structlog.get_logger().warning("cleanup_worktrees_failed", repo=repo)
-    return {"removed": total}
+    return CleanupWorktreesResponse(removed=total)
 
 
-@router.get("/settings/browse")
+@router.get("/settings/browse", response_model=BrowseDirectoryResponse)
 async def browse_directories(
     path: str = "~",
-) -> dict[str, Any]:
+) -> BrowseDirectoryResponse:
     """List directories at a given path for the repo browser.
 
     Returns subdirectories and indicates which are git repos.
@@ -244,18 +247,18 @@ async def browse_directories(
     if not str(base).startswith(str(home)) and base != home:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    entries: list[dict[str, str]] = []
+    entries: list[BrowseEntry] = []
     try:
         for item in sorted(base.iterdir(), key=lambda p: p.name.lower()):
             if item.name.startswith(".") or not item.is_dir():
                 continue
             is_git = (item / ".git").is_dir()
             entries.append(
-                {
-                    "name": item.name,
-                    "path": str(item),
-                    "isGitRepo": str(is_git).lower(),
-                }
+                BrowseEntry(
+                    name=item.name,
+                    path=str(item),
+                    is_git_repo=is_git,
+                )
             )
     except PermissionError:
         structlog.get_logger(__name__).warning(
@@ -264,11 +267,11 @@ async def browse_directories(
             exc_info=True,
         )
 
-    return {
-        "current": str(base),
-        "parent": str(base.parent) if base != home else None,
-        "items": entries,
-    }
+    return BrowseDirectoryResponse(
+        current=str(base),
+        parent=str(base.parent) if base != home else None,
+        items=entries,
+    )
 
 
 # --- Platform status ---

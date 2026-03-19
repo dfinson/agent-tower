@@ -125,7 +125,7 @@ export default function ArtifactViewer({ jobId }: Props) {
   useEffect(() => {
     fetchArtifacts(jobId)
       .then((res) => setArtifacts(res.items as Artifact[]))
-      .catch(() => {})
+      .catch((err) => console.error("Failed to fetch artifacts", err))
       .finally(() => setLoading(false));
   }, [jobId]);
 
