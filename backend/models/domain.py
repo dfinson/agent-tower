@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -38,8 +38,14 @@ ACTIVE_STATES: frozenset[str] = frozenset(
 )
 
 
-# Resolution statuses for completed jobs
 class Resolution(StrEnum):
+    """User-facing disposition of a completed job.
+
+    Distinct from ``Job.merge_status`` which tracks only the *git merge
+    operation* outcome.  ``resolution`` captures the *user's decision* about
+    what to do with the agent's work after it finishes.
+    """
+
     unresolved = "unresolved"
     merged = "merged"
     pr_created = "pr_created"
@@ -113,7 +119,7 @@ class SessionEventKind(StrEnum):
 @dataclass
 class SessionEvent:
     kind: SessionEventKind
-    payload: dict  # type: ignore[type-arg]
+    payload: dict[str, Any]
 
 
 @dataclass
@@ -141,6 +147,22 @@ class MCPServerConfig:
 
 @dataclass
 class Job:
+    """Domain representation of a coding job.
+
+    ``merge_status`` vs ``resolution`` — these track two distinct lifecycle phases:
+
+    * **merge_status** — The outcome of the *git merge operation* performed
+      automatically when the agent session completes.  Values are purely
+      mechanical: ``not_merged`` | ``merged`` | ``conflict``.  Set once by
+      ``MergeService`` and never changed by user action.
+
+    * **resolution** — The *user-facing disposition* of the completed job,
+      reflecting what the user (or auto-completion policy) decided to do with
+      the agent's work.  Governed by the ``Resolution`` enum:
+      ``unresolved`` | ``merged`` | ``pr_created`` | ``discarded`` | ``conflict``.
+      Updated when the user explicitly resolves a job via the UI or API.
+    """
+
     id: str
     repo: str
     prompt: str
@@ -153,12 +175,14 @@ class Job:
     updated_at: datetime
     completed_at: datetime | None = None
     pr_url: str | None = None
-    merge_status: str | None = None  # not_merged | merged | conflict | pr_created
-    resolution: str | None = None  # unresolved | merged | pr_created | discarded | conflict
+    merge_status: str | None = None
+    """Git merge operation outcome: ``not_merged`` | ``merged`` | ``conflict``."""
+    resolution: str | None = None
+    """User-facing job disposition (see :class:`Resolution`)."""
     archived_at: datetime | None = None
     title: str | None = None
     worktree_name: str | None = None
-    permission_mode: str = "auto"
+    permission_mode: str = PermissionMode.auto
     session_count: int = 1
     sdk_session_id: str | None = None
     model: str | None = None

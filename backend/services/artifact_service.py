@@ -14,6 +14,8 @@ from backend.models.api_schemas import ArtifactType, ExecutionPhase
 from backend.models.domain import Artifact
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from backend.models.api_schemas import DiffFileModel
     from backend.persistence.artifact_repo import ArtifactRepository
 
@@ -23,11 +25,27 @@ log = structlog.get_logger()
 _ARTIFACTS_BASE = Path.home() / ".codeplane" / "artifacts"
 
 
+def get_artifacts_base() -> Path:
+    """Return the base directory for artifact files on disk."""
+    return _ARTIFACTS_BASE
+
+
 class ArtifactService:
     """Collects, stores, and retrieves job artifacts."""
 
     def __init__(self, artifact_repo: ArtifactRepository) -> None:
         self._repo = artifact_repo
+
+    @classmethod
+    def from_session(cls, session: AsyncSession) -> ArtifactService:
+        """Construct an ArtifactService from a DB session.
+
+        This factory keeps persistence imports inside the service layer so
+        that callers (e.g. API routes) never import repository classes.
+        """
+        from backend.persistence.artifact_repo import ArtifactRepository
+
+        return cls(ArtifactRepository(session))
 
     async def store_diff_snapshot(
         self,
@@ -109,11 +127,20 @@ class ArtifactService:
         return collected
 
     async def list_for_job(self, job_id: str) -> list[Artifact]:
-        """Return all artifacts for a job."""
+        """Return all artifacts for a job.
+
+        Pass-through to the repository layer. This indirection exists so
+        that future business logic (permission checks, filtering, caching)
+        can be added in one place without changing callers.
+        """
         return await self._repo.list_for_job(job_id)
 
     async def get(self, artifact_id: str) -> Artifact | None:
-        """Retrieve a single artifact by ID."""
+        """Retrieve a single artifact by ID.
+
+        Pass-through to the repository layer — same rationale as
+        ``list_for_job`` above.
+        """
         return await self._repo.get(artifact_id)
 
     async def store_session_summary(self, job_id: str, session_number: int, summary_json: str) -> Artifact:
@@ -209,6 +236,12 @@ class ArtifactService:
             try:
                 log_contents = json.loads(Path(existing_log.disk_path).read_text(encoding="utf-8"))
             except Exception:
+                log.warning(
+                    "session_log_read_failed",
+                    job_id=job_id,
+                    disk_path=existing_log.disk_path,
+                    exc_info=True,
+                )
                 log_contents = {"sessions": []}
 
             # Avoid duplicate session entries

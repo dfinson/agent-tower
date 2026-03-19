@@ -53,7 +53,7 @@ export function LogsPanel({ jobId }: { jobId: string }) {
         ].sort((a, b) => a.seq - b.seq);
         return { logs: { ...s.logs, [jobId]: merged } };
       });
-    }).catch(() => {});
+    }).catch((err) => console.error("Failed to fetch job logs", err));
   }, [jobId, minLevel]);
 
   useEffect(() => {

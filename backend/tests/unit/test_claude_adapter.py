@@ -862,7 +862,7 @@ class TestComplete:
         with patch.dict(sys.modules["claude_code_sdk"].__dict__, {"query": _exploding_query}):
             result = await adapter.complete("test")
 
-        assert result == ""
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

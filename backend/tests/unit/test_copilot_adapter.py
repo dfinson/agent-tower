@@ -1151,7 +1151,7 @@ class TestComplete:
         with patch("copilot.CopilotClient", return_value=_FailingClient()):
             result = await adapter.complete("test")
 
-        assert result == ""
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_complete_timeout(self, adapter: CopilotAdapter) -> None:

@@ -44,7 +44,7 @@ def _make_request(
 def _reset_auth_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reset all module-level mutable state in auth."""
     monkeypatch.setattr(auth, "_password_hash", None)
-    monkeypatch.setattr(auth, "_session_tokens", set())
+    monkeypatch.setattr(auth, "_session_tokens", {})
     monkeypatch.setattr(auth, "_login_attempts", auth.defaultdict(list))
 
 
@@ -132,19 +132,19 @@ class TestSessionTokens:
     def test_created_token_is_valid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _reset_auth_state(monkeypatch)
         token = auth._create_session_token()
-        assert auth._is_valid_token(token) is True
+        assert auth.is_valid_token(token) is True
 
     def test_unknown_token_is_invalid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _reset_auth_state(monkeypatch)
-        assert auth._is_valid_token("not-a-real-token") is False
+        assert auth.is_valid_token("not-a-real-token") is False
 
     def test_none_token_is_invalid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _reset_auth_state(monkeypatch)
-        assert auth._is_valid_token(None) is False
+        assert auth.is_valid_token(None) is False
 
     def test_empty_string_token_is_invalid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _reset_auth_state(monkeypatch)
-        assert auth._is_valid_token("") is False
+        assert auth.is_valid_token("") is False
 
 
 # ---------------------------------------------------------------------------
@@ -156,16 +156,16 @@ class TestIsLocalhost:
     @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
     def test_localhost_addresses(self, host: str) -> None:
         req = _make_request(client_host=host)
-        assert auth._is_localhost(req) is True
+        assert auth.is_localhost(req) is True
 
     def test_remote_address(self) -> None:
         req = _make_request(client_host="203.0.113.5")
-        assert auth._is_localhost(req) is False
+        assert auth.is_localhost(req) is False
 
     def test_no_client(self) -> None:
         req = MagicMock()
         req.client = None
-        assert auth._is_localhost(req) is False
+        assert auth.is_localhost(req) is False
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +179,7 @@ class TestHandleLogin:
         _reset_auth_state(monkeypatch)
         auth.set_password("correct")
         req = _make_request(json_body={"password": "correct"})
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
@@ -187,7 +187,7 @@ class TestHandleLogin:
         _reset_auth_state(monkeypatch)
         auth.set_password("correct")
         req = _make_request(json_body={"password": "wrong"})
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
@@ -198,7 +198,7 @@ class TestHandleLogin:
         for _ in range(auth._RATE_LIMIT_MAX):
             auth._record_attempt(ip)
         req = _make_request(client_host=ip, json_body={"password": "correct"})
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 429
 
     @pytest.mark.asyncio
@@ -206,7 +206,7 @@ class TestHandleLogin:
         _reset_auth_state(monkeypatch)
         auth.set_password("pw")
         req = _make_request(json_raises=True)
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -214,7 +214,7 @@ class TestHandleLogin:
         _reset_auth_state(monkeypatch)
         auth.set_password("correct")
         req = _make_request(json_body={})  # no "password" key
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
@@ -222,7 +222,7 @@ class TestHandleLogin:
         _reset_auth_state(monkeypatch)
         auth.set_password("pw")
         req = _make_request(json_body={"password": "pw"})
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         # JSONResponse stores raw headers; check set-cookie was called
         raw_headers = dict(resp.raw_headers)
         assert b"set-cookie" in raw_headers
@@ -233,7 +233,7 @@ class TestHandleLogin:
         _reset_auth_state(monkeypatch)
         auth.set_password("pw")
         req = _make_request(json_body={"password": "pw"}, scheme="https")
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 200
         raw_headers = dict(resp.raw_headers)
         assert b"secure" in raw_headers[b"set-cookie"].lower()
@@ -246,7 +246,7 @@ class TestHandleLogin:
             json_body={"password": "pw"},
             headers={"x-forwarded-proto": "https"},
         )
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 200
         raw_headers = dict(resp.raw_headers)
         assert b"secure" in raw_headers[b"set-cookie"].lower()
@@ -259,7 +259,7 @@ class TestHandleLogin:
             json_body={"password": "pw"},
             headers={"x-forwarded-proto": "https"},
         )
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 200
         raw_headers = dict(resp.raw_headers)
         assert b"secure" in raw_headers[b"set-cookie"].lower()
@@ -270,7 +270,7 @@ class TestHandleLogin:
         auth.set_password("correct")
         ip = "10.0.0.55"
         req = _make_request(client_host=ip, json_body={"password": "wrong"})
-        await auth.handle_login(req)
+        await auth.authenticate_login_request(req)
         assert len(auth._login_attempts[ip]) == 1
 
     @pytest.mark.asyncio
@@ -279,7 +279,7 @@ class TestHandleLogin:
         auth.set_password("pw")
         req = _make_request(json_body={"password": "wrong"})
         req.client = None
-        resp = await auth.handle_login(req)
+        resp = await auth.authenticate_login_request(req)
         # client is None => ip = "unknown"; wrong password => 401
         assert resp.status_code == 401
 

@@ -52,7 +52,7 @@ class DiffService:
         # Per-job locks to prevent concurrent diff calculations
         self._locks: dict[str, asyncio.Lock] = {}
 
-    async def handle_file_changed(
+    async def on_worktree_file_modified(
         self,
         job_id: str,
         worktree_path: str,
@@ -104,6 +104,7 @@ class DiffService:
             try:
                 effective_base = await self._git.merge_base(base_ref, "HEAD", cwd=worktree_path)
             except Exception:
+                log.debug("merge_base_fallback", worktree=worktree_path, base_ref=base_ref, exc_info=True)
                 effective_base = base_ref  # fallback to two-dot if merge-base fails
             raw = await self._git.diff(
                 effective_base,

@@ -64,7 +64,7 @@ class TestUpCommand:
     def test_up_accepts_negative_port(self) -> None:
         """Click accepts negative int; uvicorn would fail at bind time."""
         runner = CliRunner()
-        with patch("backend.main.run_migrations"), patch("backend.main.uvicorn.run") as mock_run:
+        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.run") as mock_run:
             result = runner.invoke(cli, ["up", "--port", "-1"])
             # Should reach uvicorn.run (click doesn't validate port range)
             if result.exit_code == 0:
@@ -74,14 +74,14 @@ class TestUpCommand:
 
     def test_up_with_zero_port(self) -> None:
         runner = CliRunner()
-        with patch("backend.main.run_migrations"), patch("backend.main.uvicorn.run") as mock_run:
+        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.run") as mock_run:
             result = runner.invoke(cli, ["up", "--port", "0"])
             if result.exit_code == 0:
                 assert mock_run.called
 
     def test_up_with_custom_host(self) -> None:
         runner = CliRunner()
-        with patch("backend.main.run_migrations"), patch("backend.main.uvicorn.run") as mock_run:
+        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.run") as mock_run:
             result = runner.invoke(cli, ["up", "--host", "0.0.0.0"])
             if result.exit_code == 0:
                 _, kwargs = mock_run.call_args
@@ -89,7 +89,7 @@ class TestUpCommand:
 
     def test_up_uses_config_defaults(self) -> None:
         runner = CliRunner()
-        with patch("backend.main.run_migrations"), patch("backend.main.uvicorn.run") as mock_run:
+        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.run") as mock_run:
             result = runner.invoke(cli, ["up"])
             if result.exit_code == 0:
                 _, kwargs = mock_run.call_args

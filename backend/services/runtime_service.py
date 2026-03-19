@@ -1,4 +1,12 @@
-"""Long-running job execution manager."""
+"""Long-running job execution manager.
+
+RuntimeService orchestrates the full lifecycle of agent jobs: session creation,
+event streaming, heartbeat monitoring, diff tracking, approval flow,
+cancellation, and post-job cleanup.
+
+Progress tracking (headline milestones and plan extraction) is delegated to
+``ProgressTrackingService`` — see ``backend/services/progress_tracking_service.py``.
+"""
 
 from __future__ import annotations
 
@@ -15,11 +23,17 @@ from backend.models.domain import (
     JobState,
     MCPServerConfig,
     PermissionMode,
+    Resolution,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
 )
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.services.progress_tracking_service import (
+    ProgressTrackingService,
+    _count_similar_trailing_headlines,
+    _headlines_are_similar,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -95,89 +109,9 @@ DEFAULT_SELF_REVIEW_PROMPT = (
     "surrounding codebase. If you find issues, fix them."
 )
 
-_HEADLINE_STOP_WORDS = frozenset(
-    {
-        "a",
-        "an",
-        "and",
-        "the",
-        "to",
-        "for",
-        "of",
-        "in",
-        "on",
-        "with",
-        "agent",
-        "phase",
-        "task",
-        "tasks",
-        "work",
-        "working",
-        "progress",
-        "checking",
-        "check",
-        "investigating",
-        "investigate",
-        "debugging",
-        "debug",
-        "analyzing",
-        "analyze",
-        "exploring",
-        "explore",
-        "reviewing",
-        "review",
-        "fixing",
-        "fix",
-        "implementing",
-        "implement",
-        "updating",
-        "update",
-        "writing",
-        "write",
-        "running",
-        "run",
-        "editing",
-        "edit",
-        "refining",
-        "refine",
-    }
-)
-
-
-def _normalize_headline_tokens(text: str) -> set[str]:
-    words = re.findall(r"[a-z0-9]+", text.lower())
-    return {word for word in words if word not in _HEADLINE_STOP_WORDS}
-
-
-def _headlines_are_similar(left: str, right: str) -> bool:
-    left_norm = " ".join(re.findall(r"[a-z0-9]+", left.lower()))
-    right_norm = " ".join(re.findall(r"[a-z0-9]+", right.lower()))
-    if not left_norm or not right_norm:
-        return False
-    if left_norm == right_norm or left_norm in right_norm or right_norm in left_norm:
-        return True
-
-    left_tokens = _normalize_headline_tokens(left)
-    right_tokens = _normalize_headline_tokens(right)
-    if not left_tokens or not right_tokens:
-        return False
-
-    shared = left_tokens & right_tokens
-    if len(shared) < 2:
-        return False
-
-    overlap = len(shared) / min(len(left_tokens), len(right_tokens))
-    return overlap >= 0.67
-
-
-def _count_similar_trailing_headlines(history: list[str], headline: str) -> int:
-    count = 0
-    for existing in reversed(history):
-        if _headlines_are_similar(existing, headline):
-            count += 1
-            continue
-        break
-    return count
+# Truncation limits for session snapshot buffers
+_DEDUP_KEY_MAX = 500
+_TRANSCRIPT_CONTENT_MAX = 2000
 
 
 def _discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, MCPServerConfig]:
@@ -258,9 +192,8 @@ def _resolve_protected_paths(repo_path: str) -> list[str]:
         paths = data.get("protected_paths", [])
         return [str(p) for p in paths] if isinstance(paths, list) else []
     except Exception:
+        log.warning("protected_paths_read_failed", path=str(codeplane_yml), exc_info=True)
         return []
-
-
 def _resolve_permission_mode(repo_path: str) -> str | None:
     """Read permission_mode from .codeplane.yml if present (per-repo override)."""
     from pathlib import Path
@@ -274,10 +207,11 @@ def _resolve_permission_mode(repo_path: str) -> str | None:
         with open(codeplane_yml) as f:
             data = yaml.safe_load(f) or {}
         mode = data.get("permission_mode")
-        if mode and str(mode) in ("auto", "read_only", "approval_required"):
+        if mode and str(mode) in (PermissionMode.auto, PermissionMode.read_only, PermissionMode.approval_required):
             return str(mode)
         return None
     except Exception:
+        log.warning("permission_mode_read_failed", path=str(codeplane_yml), exc_info=True)
         return None
 
 
@@ -361,31 +295,21 @@ class RuntimeService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._agent_sessions: dict[str, _AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
-        self._headline_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_activity: dict[str, float] = {}
         self._session_ids: dict[str, str] = {}
         self._permission_overrides: dict[str, str] = {}  # job_id → permission_mode
         self._dequeue_lock = asyncio.Lock()
         self._shutting_down = False
-        # Transcript buffer for headline generation (last N agent turns per job)
-        self._headline_transcript: dict[str, list[str]] = {}
-        # Tool intent buffer for headline generation (last N intents per job)
-        self._headline_tool_intents: dict[str, list[str]] = {}
-        # Last snapshot used for headline generation (fallback when buffer is empty)
-        self._headline_last_snapshot: dict[str, list[str]] = {}
-        # Last generated headline per job (avoid exact repeats)
-        self._headline_last_text: dict[str, str] = {}
-        # Full milestone history per job (for retroactive collapsing)
-        self._headline_history: dict[str, list[str]] = {}
-        # Agent plan extraction state per job
-        self._plan_tasks: dict[str, asyncio.Task[None]] = {}
         self._snapshot_tasks: dict[str, asyncio.Task[None]] = {}
-        self._plan_transcript: dict[str, list[str]] = {}
-        self._plan_last_steps: dict[str, list[dict[str, str]]] = {}
-        # Terminal outcome per job: "succeeded" | "failed" | "canceled"
-        self._plan_terminal_state: dict[str, str] = {}
         # Contents to suppress when the SDK echoes them back (already published locally)
         self._echo_suppress: dict[str, set[str]] = {}
+        # Progress tracking (headline milestones + plan extraction)
+        self._progress_tracking: ProgressTrackingService | None = None
+        if utility_session is not None:
+            self._progress_tracking = ProgressTrackingService(
+                utility_session=utility_session,
+                event_bus=event_bus,
+            )
 
     def _resolve_adapter(self, sdk: str) -> AgentAdapterInterface:
         """Resolve the adapter for a given SDK via the registry."""
@@ -401,6 +325,17 @@ class RuntimeService:
             git_service=GitService(self._config),
             config=self._config,
         )
+
+    async def _finalize_diff_safe(
+        self, job_id: str, worktree_path: str | None, base_ref: str | None
+    ) -> None:
+        """Finalize the diff snapshot, swallowing exceptions."""
+        if self._diff_service is None or not worktree_path or not base_ref:
+            return
+        try:
+            await self._diff_service.finalize(job_id, worktree_path, base_ref)
+        except Exception:
+            log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
 
     @property
     def running_count(self) -> int:
@@ -496,26 +431,9 @@ class RuntimeService:
         )
         self._heartbeat_tasks[job_id] = heartbeat_task
 
-        # Start progress headline generation (periodically summarises what the agent is doing)
-        if self._utility_session is not None:
-            self._headline_transcript[job_id] = []
-            self._headline_tool_intents[job_id] = []
-            self._headline_last_snapshot[job_id] = []
-            self._headline_last_text[job_id] = ""
-            self._headline_history[job_id] = []
-            headline_task = asyncio.create_task(
-                self._headline_loop(job_id),
-                name=f"headline-{job_id}",
-            )
-            self._headline_tasks[job_id] = headline_task
-            # Start plan extraction (projects what the agent will do next)
-            self._plan_transcript[job_id] = []
-            self._plan_last_steps[job_id] = []
-            plan_task = asyncio.create_task(
-                self._plan_loop(job_id),
-                name=f"plan-{job_id}",
-            )
-            self._plan_tasks[job_id] = plan_task
+        # Start progress tracking (headline milestones + plan extraction)
+        if self._progress_tracking is not None:
+            self._progress_tracking.start_tracking(job_id)
             # Proactively scale the utility pool to match running jobs
             await self._utility_session.notify_job_started()
 
@@ -549,61 +467,25 @@ class RuntimeService:
             )
 
             if error_reason and config.resume_sdk_session_id and not made_resume_progress:
-                await self._clear_sdk_session_id(job_id)
-                try:
-                    fallback_prompt = await self._build_resume_handoff_prompt(job_id, config.prompt)
-                except Exception:
-                    log.warning("resume_handoff_prompt_build_failed", job_id=job_id, exc_info=True)
-                else:
-                    import dataclasses
-
-                    log.warning(
-                        "resume_sdk_session_unusable_falling_back",
-                        job_id=job_id,
-                        sdk_session_id=config.resume_sdk_session_id,
-                    )
-                    fallback_session = _AgentSession()
-                    self._agent_sessions[job_id] = fallback_session
-                    fallback_config = dataclasses.replace(
-                        config,
-                        prompt=fallback_prompt,
-                        resume_sdk_session_id=None,
-                    )
-                    # Suppress the SDK echo of the handoff prompt so it never
-                    # appears in the transcript.  The original echo_suppress entry
-                    # only contains the user instruction; we need to also register
-                    # the full [RESUMED SESSION…] prompt used for this new session.
-                    self._echo_suppress.setdefault(job_id, set()).add(fallback_prompt)
-                    session_id, error_reason, _ = await self._execute_session_attempt(
-                        job_id,
-                        fallback_session,
-                        fallback_config,
-                        worktree_path,
-                        base_ref,
-                    )
+                session_id, error_reason = await self._attempt_resume_fallback(
+                    job_id, config, worktree_path, base_ref,
+                )
 
             if error_reason:
                 # An error event was received during execution — finalize diff before failing
-                if self._diff_service is not None and worktree_path and base_ref:
-                    try:
-                        await self._diff_service.finalize(job_id, worktree_path, base_ref)
-                    except Exception:
-                        log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
+                log.warning("job_error_reason_detected", job_id=job_id, error_reason=error_reason)
+                await self._finalize_diff_safe(job_id, worktree_path, base_ref)
                 await self._fail_job(job_id, error_reason)
                 return
 
             # Final diff snapshot before resolution
-            if self._diff_service is not None and worktree_path and base_ref:
-                try:
-                    await self._diff_service.finalize(job_id, worktree_path, base_ref)
-                except Exception:
-                    log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
+            await self._finalize_diff_safe(job_id, worktree_path, base_ref)
 
             # Run optional verify / self-review follow-up turns
             await self._run_verify_review(job_id, config, session_id, worktree_path, base_ref)
 
             # Always go to sign-off: leave resolution to operator
-            final_resolution: str = "unresolved"
+            final_resolution = Resolution.unresolved
             log.info("job_awaiting_sign_off", job_id=job_id)
 
             # Strategy completed normally → succeeded
@@ -616,7 +498,7 @@ class RuntimeService:
                 await job_repo.update_resolution(job_id, final_resolution, pr_url=None)
                 await session.commit()
 
-            self._plan_terminal_state[job_id] = "succeeded"
+            self._set_progress_terminal_state(job_id, JobState.succeeded)
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=_make_event_id(),
@@ -633,103 +515,20 @@ class RuntimeService:
             )
         except asyncio.CancelledError:
             log.info("job_canceled_by_task", job_id=job_id)
-            # Finalize diff so changes are preserved even for canceled jobs
-            if self._diff_service is not None and worktree_path and base_ref:
-                try:
-                    await self._diff_service.finalize(job_id, worktree_path, base_ref)
-                except Exception:
-                    log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
-            try:
-                await agent_session.abort()
-            except Exception:
-                log.warning("agent_abort_failed", job_id=job_id, exc_info=True)
-            try:
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    current = await svc.get_job(job_id)
-                    if current and current.state != JobState.canceled:
-                        await svc.transition_state(job_id, JobState.canceled)
-                        await session.commit()
-                        self._plan_terminal_state[job_id] = "canceled"
-                        await self._event_bus.publish(
-                            DomainEvent(
-                                event_id=_make_event_id(),
-                                job_id=job_id,
-                                timestamp=datetime.now(UTC),
-                                kind=DomainEventKind.job_canceled,
-                                payload={"reason": "operator_cancel"},
-                            )
-                        )
-                    else:
-                        await session.commit()
-            except Exception:
-                log.warning("job_cancel_transition_failed", job_id=job_id, exc_info=True)
+            await self._handle_job_canceled(job_id, agent_session, worktree_path, base_ref)
         except Exception as exc:
             log.error("job_execution_failed", job_id=job_id, exc_info=True)
             # Finalize diff so changes are preserved even for crashed jobs
-            if self._diff_service is not None and worktree_path and base_ref:
-                try:
-                    await self._diff_service.finalize(job_id, worktree_path, base_ref)
-                except Exception:
-                    log.warning("diff_finalize_failed", job_id=job_id, exc_info=True)
+            await self._finalize_diff_safe(job_id, worktree_path, base_ref)
             await self._fail_job(job_id, f"Execution error: {exc}")
         finally:
             tel.end_job(job_id)
             heartbeat_task.cancel()
             self._heartbeat_tasks.pop(job_id, None)
-            headline_t = self._headline_tasks.pop(job_id, None)
-            if headline_t is not None:
-                headline_t.cancel()
-            plan_t = self._plan_tasks.pop(job_id, None)
-            if plan_t is not None:
-                plan_t.cancel()
-            # Emit a final plan update so the frontend resolves any spinning steps.
-            terminal_outcome = self._plan_terminal_state.pop(job_id, None)
-            last_steps = self._plan_last_steps.get(job_id)
-            if terminal_outcome and last_steps:
-                succeeded = terminal_outcome == "succeeded"
-                final_steps = []
-                for s in last_steps:
-                    status = s.get("status", "pending")
-                    if status in ("active", "pending"):
-                        status = "done" if succeeded else "skipped"
-                    final_steps.append({"label": s["label"], "status": status})
-                if final_steps != last_steps:
-                    try:
-                        await self._event_bus.publish(
-                            DomainEvent(
-                                event_id=_make_event_id(),
-                                job_id=job_id,
-                                timestamp=datetime.now(UTC),
-                                kind=DomainEventKind.agent_plan_updated,
-                                payload={"steps": final_steps},
-                            )
-                        )
-                    except Exception:
-                        log.debug("plan_finalize_emit_failed", job_id=job_id, exc_info=True)
-            self._headline_transcript.pop(job_id, None)
-            self._headline_tool_intents.pop(job_id, None)
-            self._headline_last_snapshot.pop(job_id, None)
-            self._headline_last_text.pop(job_id, None)
-            self._headline_history.pop(job_id, None)
-            self._plan_transcript.pop(job_id, None)
-            self._plan_last_steps.pop(job_id, None)
-            self._tasks.pop(job_id, None)
-            self._agent_sessions.pop(job_id, None)
-            self._last_activity.pop(job_id, None)
-            self._session_ids.pop(job_id, None)
-            self._echo_suppress.pop(job_id, None)
-            if self._utility_session is not None:
-                await self._utility_session.notify_job_ended()
-            if self._approval_service is not None:
-                self._approval_service.cleanup_job(job_id)
-            if self._diff_service is not None:
-                self._diff_service.cleanup(job_id)
-            # Store cheap session snapshot for future cold resumes.
-            # Track the background task so shutdown can await it cleanly.
-            self._start_snapshot_task(job_id)
-            # Check if any queued jobs can now start
-            await self._dequeue_next()
+            if self._progress_tracking is not None:
+                self._progress_tracking.stop_tracking(job_id)
+                await self._progress_tracking.finalize_plan_steps(job_id)
+            await self._cleanup_job_state(job_id)
 
     def _start_snapshot_task(self, job_id: str) -> None:
         if self._shutting_down:
@@ -750,6 +549,149 @@ class RuntimeService:
                 self._snapshot_tasks.pop(job_id, None)
 
         task.add_done_callback(_cleanup_snapshot_task)
+
+    def _set_progress_terminal_state(self, job_id: str, outcome: str) -> None:
+        """Forward terminal outcome to the progress tracker."""
+        if self._progress_tracking is not None:
+            self._progress_tracking.set_terminal_state(job_id, outcome)
+
+    async def _cleanup_job_state(self, job_id: str) -> None:
+        """Remove all per-job in-memory state and trigger post-job hooks."""
+        if self._progress_tracking is not None:
+            self._progress_tracking.cleanup(job_id)
+        self._tasks.pop(job_id, None)
+        self._agent_sessions.pop(job_id, None)
+        self._last_activity.pop(job_id, None)
+        self._session_ids.pop(job_id, None)
+        self._echo_suppress.pop(job_id, None)
+        if self._utility_session is not None:
+            await self._utility_session.notify_job_ended()
+        if self._approval_service is not None:
+            self._approval_service.cleanup_job(job_id)
+        if self._diff_service is not None:
+            self._diff_service.cleanup(job_id)
+        self._start_snapshot_task(job_id)
+        await self._dequeue_next()
+
+    async def _handle_approval_request(
+        self,
+        job_id: str,
+        domain_event: DomainEvent,
+        rejection_message: str,
+    ) -> str:
+        """Handle an approval_requested event: transition state, wait for operator, return resolution.
+
+        Returns the resolution string (``"approved"`` or ``"rejected"``).
+        """
+        import time
+
+        assert self._approval_service is not None
+
+        async with self._session_factory() as sess:
+            svc = self._make_job_service(sess)
+            await svc.transition_state(job_id, JobState.waiting_for_approval)
+            await sess.commit()
+
+        await self._event_bus.publish(domain_event)
+
+        approval_id = domain_event.payload.get("approval_id", "")
+        resolution = await self._approval_service.wait_for_resolution(approval_id)
+
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=_make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.approval_resolved,
+                payload={
+                    "approval_id": approval_id,
+                    "resolution": resolution,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        )
+
+        async with self._session_factory() as sess:
+            svc = self._make_job_service(sess)
+            await svc.transition_state(job_id, JobState.running)
+            await sess.commit()
+        await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
+        self._last_activity[job_id] = time.monotonic()
+
+        return resolution
+
+    async def _attempt_resume_fallback(
+        self,
+        job_id: str,
+        config: SessionConfig,
+        worktree_path: str | None,
+        base_ref: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Try a fresh session after a failed resume, returning ``(session_id, error_reason)``."""
+        import dataclasses
+
+        await self._clear_sdk_session_id(job_id)
+        try:
+            fallback_prompt = await self._build_resume_handoff_prompt(job_id, config.prompt)
+        except Exception:
+            log.warning("resume_handoff_prompt_build_failed", job_id=job_id, exc_info=True)
+            return None, "Resume handoff prompt build failed"
+
+        log.warning(
+            "resume_sdk_session_unusable_falling_back",
+            job_id=job_id,
+            sdk_session_id=config.resume_sdk_session_id,
+        )
+        fallback_session = _AgentSession()
+        self._agent_sessions[job_id] = fallback_session
+        fallback_config = dataclasses.replace(
+            config,
+            prompt=fallback_prompt,
+            resume_sdk_session_id=None,
+        )
+        session_id, error_reason, _ = await self._execute_session_attempt(
+            job_id,
+            fallback_session,
+            fallback_config,
+            worktree_path,
+            base_ref,
+        )
+        return session_id, error_reason
+
+    async def _handle_job_canceled(
+        self,
+        job_id: str,
+        agent_session: _AgentSession,
+        worktree_path: str | None,
+        base_ref: str | None,
+    ) -> None:
+        """Process cancellation: finalize diff, abort agent, transition state."""
+        await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+        try:
+            await agent_session.abort()
+        except Exception:
+            log.warning("agent_abort_failed", job_id=job_id, exc_info=True)
+        try:
+            async with self._session_factory() as session:
+                svc = self._make_job_service(session)
+                current = await svc.get_job(job_id)
+                if current and current.state != JobState.canceled:
+                    await svc.transition_state(job_id, JobState.canceled)
+                    await session.commit()
+                    self._set_progress_terminal_state(job_id, JobState.canceled)
+                    await self._event_bus.publish(
+                        DomainEvent(
+                            event_id=_make_event_id(),
+                            job_id=job_id,
+                            timestamp=datetime.now(UTC),
+                            kind=DomainEventKind.job_canceled,
+                            payload={"reason": "operator_cancel"},
+                        )
+                    )
+                else:
+                    await session.commit()
+        except Exception:
+            log.warning("job_cancel_transition_failed", job_id=job_id, exc_info=True)
 
     async def _execute_session_attempt(
         self,
@@ -775,7 +717,7 @@ class RuntimeService:
                 and worktree_path
                 and base_ref
             ):
-                await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
                 continue
 
             if (
@@ -785,15 +727,12 @@ class RuntimeService:
                 and worktree_path
                 and base_ref
             ):
-                await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
 
             if session_id is None and agent_session.session_id:
                 session_id = agent_session.session_id
                 self._session_ids[job_id] = session_id
-                asyncio.create_task(
-                    self._persist_sdk_session_id(job_id, session_id),
-                    name=f"persist-session-{job_id}",
-                )
+                await self._persist_sdk_session_id(job_id, session_id)
 
             domain_event = self._translate_event(job_id, session_event)
             if domain_event is None:
@@ -801,6 +740,7 @@ class RuntimeService:
 
             if domain_event.kind == DomainEventKind.job_failed:
                 error_reason = domain_event.payload.get("message", "Agent error")
+                log.warning("agent_error_event", job_id=job_id, error_reason=error_reason)
 
             if domain_event.kind == DomainEventKind.transcript_updated and job_id in self._echo_suppress:
                 content = domain_event.payload.get("content", "")
@@ -809,37 +749,9 @@ class RuntimeService:
                     continue
 
             if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
-                async with self._session_factory() as sess:
-                    svc = self._make_job_service(sess)
-                    await svc.transition_state(job_id, JobState.waiting_for_approval)
-                    await sess.commit()
-
-                await self._event_bus.publish(domain_event)
-
-                approval_id = domain_event.payload.get("approval_id", "")
-                resolution = await self._approval_service.wait_for_resolution(approval_id)
-
-                await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=_make_event_id(),
-                        job_id=job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.approval_resolved,
-                        payload={
-                            "approval_id": approval_id,
-                            "resolution": resolution,
-                            "timestamp": datetime.now(UTC).isoformat(),
-                        },
-                    )
+                resolution = await self._handle_approval_request(
+                    job_id, domain_event, "Approval rejected by operator",
                 )
-
-                async with self._session_factory() as sess:
-                    svc = self._make_job_service(sess)
-                    await svc.transition_state(job_id, JobState.running)
-                    await sess.commit()
-                await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
-                self._last_activity[job_id] = time.monotonic()
-
                 if resolution == "rejected":
                     error_reason = "Approval rejected by operator"
                     break
@@ -867,7 +779,7 @@ class RuntimeService:
                     from backend.persistence.job_repo import JobRepository
 
                     job_repo = JobRepository(session)
-                    await job_repo.update_resolution(job_id, "unresolved")
+                    await job_repo.update_resolution(job_id, Resolution.unresolved)
                     await session.commit()
 
                 await self._event_bus.publish(
@@ -877,7 +789,7 @@ class RuntimeService:
                         timestamp=datetime.now(UTC),
                         kind=DomainEventKind.job_succeeded,
                         payload={
-                            "resolution": "unresolved",
+                            "resolution": Resolution.unresolved,
                             "model_downgraded": True,
                             "requested_model": requested,
                             "actual_model": actual,
@@ -887,26 +799,11 @@ class RuntimeService:
                 log.info("job_moved_to_signoff_model_downgrade", job_id=job_id)
                 return session_id, None, True
 
-            if domain_event.kind == DomainEventKind.transcript_updated:
+            if domain_event.kind == DomainEventKind.transcript_updated and self._progress_tracking is not None:
                 role = domain_event.payload.get("role", "")
                 content = domain_event.payload.get("content", "")
-                if role == "agent" and content and job_id in self._headline_transcript:
-                    buf = self._headline_transcript[job_id]
-                    buf.append(content[:200])
-                    if len(buf) > 3:
-                        self._headline_transcript[job_id] = buf[-3:]
-                if role == "agent" and content and job_id in self._plan_transcript:
-                    pbuf = self._plan_transcript[job_id]
-                    pbuf.append(content[:400])
-                    if len(pbuf) > 8:
-                        self._plan_transcript[job_id] = pbuf[-8:]
-                if role == "tool_call" and job_id in self._headline_tool_intents:
-                    intent = str(domain_event.payload.get("tool_intent") or "")
-                    if intent:
-                        ibuf = self._headline_tool_intents[job_id]
-                        ibuf.append(intent[:80])
-                        if len(ibuf) > 10:
-                            self._headline_tool_intents[job_id] = ibuf[-10:]
+                tool_intent = str(domain_event.payload.get("tool_intent") or "")
+                self._progress_tracking.feed_transcript(job_id, role, content, tool_intent)
 
             await self._event_bus.publish(domain_event)
 
@@ -953,7 +850,7 @@ class RuntimeService:
                     and worktree_path
                     and base_ref
                 ):
-                    await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                    await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
                     continue
 
                 # Diff recalculation on tool completions
@@ -964,16 +861,13 @@ class RuntimeService:
                     and worktree_path
                     and base_ref
                 ):
-                    await self._diff_service.handle_file_changed(job_id, worktree_path, base_ref)
+                    await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
 
                 # Capture session ID
                 if new_session_id is None and followup_session.session_id:
                     new_session_id = followup_session.session_id
                     self._session_ids[job_id] = new_session_id
-                    asyncio.create_task(
-                        self._persist_sdk_session_id(job_id, new_session_id),
-                        name=f"persist-session-{job_id}",
-                    )
+                    await self._persist_sdk_session_id(job_id, new_session_id)
 
                 domain_event = self._translate_event(job_id, event)
                 if domain_event is None:
@@ -991,37 +885,9 @@ class RuntimeService:
 
                 # Handle approval requests (same pattern as main loop)
                 if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
-                    async with self._session_factory() as sess:
-                        svc = self._make_job_service(sess)
-                        await svc.transition_state(job_id, JobState.waiting_for_approval)
-                        await sess.commit()
-
-                    await self._event_bus.publish(domain_event)
-
-                    approval_id = domain_event.payload.get("approval_id", "")
-                    resolution = await self._approval_service.wait_for_resolution(approval_id)
-
-                    await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=_make_event_id(),
-                            job_id=job_id,
-                            timestamp=datetime.now(UTC),
-                            kind=DomainEventKind.approval_resolved,
-                            payload={
-                                "approval_id": approval_id,
-                                "resolution": resolution,
-                                "timestamp": datetime.now(UTC).isoformat(),
-                            },
-                        )
+                    resolution = await self._handle_approval_request(
+                        job_id, domain_event, "Approval rejected during verification",
                     )
-
-                    async with self._session_factory() as sess:
-                        svc = self._make_job_service(sess)
-                        await svc.transition_state(job_id, JobState.running)
-                        await sess.commit()
-                    await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
-                    self._last_activity[job_id] = time.monotonic()
-
                     if resolution == "rejected":
                         error_reason = "Approval rejected during verification"
                         break
@@ -1106,11 +972,7 @@ class RuntimeService:
                 log.info("self_review_complete", job_id=job_id)
 
         # Final diff snapshot after verify/review turns
-        if self._diff_service is not None and worktree_path and base_ref:
-            try:
-                await self._diff_service.finalize(job_id, worktree_path, base_ref)
-            except Exception:
-                log.warning("diff_finalize_after_verify_failed", job_id=job_id, exc_info=True)
+        await self._finalize_diff_safe(job_id, worktree_path, base_ref)
 
     async def _heartbeat_loop(self, job_id: str) -> None:
         """Emit periodic heartbeats; timeout based on time since last activity."""
@@ -1150,246 +1012,6 @@ class RuntimeService:
                         },
                     )
                 )
-        except asyncio.CancelledError:
-            pass
-
-    async def _headline_loop(self, job_id: str) -> None:
-        """Periodically assess agent activity and emit milestone headlines.
-
-        Only emits when the agent has transitioned to a meaningfully different
-        phase of work.  The LLM sees the full milestone history and can
-        retroactively collapse recent entries that turned out to be part of
-        the same phase.
-        """
-        import json as _json
-        import re as _re
-
-        initial_delay_s = 8
-        interval_s = 15
-        try:
-            await asyncio.sleep(initial_delay_s)
-            first = True
-            while True:
-                buf = self._headline_transcript.get(job_id)
-                intents_buf = self._headline_tool_intents.get(job_id)
-
-                recent_msgs: list[str] = []
-                recent_intents: list[str] = []
-
-                if buf:
-                    recent_msgs = list(buf)
-                    buf.clear()
-                if intents_buf:
-                    recent_intents = list(intents_buf)
-                    intents_buf.clear()
-
-                if recent_msgs or recent_intents:
-                    self._headline_last_snapshot[job_id] = recent_msgs or self._headline_last_snapshot.get(job_id, [])
-                else:
-                    recent_msgs = self._headline_last_snapshot.get(job_id, [])
-
-                if not recent_msgs and not recent_intents:
-                    if not first:
-                        await asyncio.sleep(interval_s)
-                    first = False
-                    continue
-
-                parts = []
-                for msg in recent_msgs:
-                    parts.append(msg[:200])
-                if recent_intents:
-                    parts.append("Tool intents: " + ", ".join(recent_intents))
-
-                history = self._headline_history.get(job_id, [])
-                history_block = ""
-                if history:
-                    numbered = "\n".join(f"  {i + 1}. {h}" for i, h in enumerate(history))
-                    history_block = f"Milestone history so far:\n{numbered}\n\n"
-
-                prompt = (
-                    "You are maintaining a milestone timeline for a coding agent. "
-                    "Milestones mark distinct PHASES of work — not incremental progress. "
-                    "Good milestones: 'Setting up project', 'Implementing auth API', 'Writing tests'. "
-                    "Bad milestones: 'Reading file X', 'Editing line 42', 'Running search'. "
-                    "The timeline should read like a high-level summary of what the agent accomplished, "
-                    "not a log of individual actions.\n\n"
-                    + history_block
-                    + "Recent agent activity:\n"
-                    + "\n---\n".join(parts)
-                    + "\n\nRespond with JSON only — exactly one of:\n\n"
-                    '1. No meaningful phase change: {"defer": true}\n'
-                    '2. New milestone: {"present": "Implementing auth API", "past": "Implemented auth API", '
-                    '"summary": "Adding JWT token validation to /login and /refresh endpoints. '
-                    'Wiring up middleware to reject expired tokens."}\n'
-                    "3. Recent milestones were actually the same phase — consolidate the last N "
-                    'into one: {"replace_last": 2, "present": "Implementing auth system", '
-                    '"past": "Implemented auth system", '
-                    '"summary": "Built login/refresh endpoints with JWT validation and expiry middleware."}\n\n'
-                    "RULES:\n"
-                    "- STRONGLY prefer defer. Only emit when the agent has clearly moved to a "
-                    "different area of the codebase or a different kind of task.\n"
-                    "- If the new milestone is mostly the same subject as the latest one, either defer or use replace_last.\n"
-                    "- Avoid emitting adjacent milestones that only change the verb, tense, or wording.\n"
-                    "- Use replace_last to merge entries that say essentially the same thing "
-                    "(e.g. 'Updating auth routes' and 'Fixing auth middleware' → 'Implementing auth system').\n"
-                    "- Labels: 3-6 words, no articles, no period, present tense for 'present', past tense for 'past'.\n"
-                    "- 'summary': 1-3 SHORT sentences describing specifically what was/is being done. "
-                    "Be concrete — mention actual files, endpoints, functions, or components. "
-                    "BAD: 'Exploring authentication documentation'. "
-                    "GOOD: 'Adding JWT middleware to protect /api routes. Storing refresh tokens in Redis.'"
-                )
-
-                try:
-                    raw = await self._utility_session.complete(prompt, timeout=10)  # type: ignore[union-attr]
-                    raw = raw.strip()
-
-                    # Strip markdown fences if present
-                    if raw.startswith("```"):
-                        raw = _re.sub(r"^```[a-zA-Z]*\n?", "", raw)
-                        raw = _re.sub(r"\n?```$", "", raw)
-                        raw = raw.strip()
-
-                    try:
-                        parsed = _json.loads(raw)
-                    except (ValueError, AttributeError):
-                        parsed = {}
-
-                    if parsed.get("defer"):
-                        log.debug("headline_deferred", job_id=job_id)
-                    else:
-                        headline = str(parsed.get("present", "")).strip().strip('"').strip(".")
-                        headline_past = str(parsed.get("past", "")).strip().strip('"').strip(".")
-                        summary = str(parsed.get("summary", "")).strip().strip('"')
-                        replace_last = int(parsed.get("replace_last", 0))
-
-                        last_headline = self._headline_last_text.get(job_id, "")
-                        if headline and len(headline) > 3 and headline != last_headline:
-                            replace_last = max(replace_last, _count_similar_trailing_headlines(history, headline))
-
-                            # Clamp replace_last to actual history length
-                            replace_last = max(0, min(replace_last, len(history)))
-
-                            # Update in-memory history
-                            if replace_last > 0:
-                                self._headline_history[job_id] = history[:-replace_last] + [headline]
-                            else:
-                                self._headline_history.setdefault(job_id, []).append(headline)
-                            self._headline_last_text[job_id] = headline
-
-                            await self._event_bus.publish(
-                                DomainEvent(
-                                    event_id=_make_event_id(),
-                                    job_id=job_id,
-                                    timestamp=datetime.now(UTC),
-                                    kind=DomainEventKind.progress_headline,
-                                    payload={
-                                        "headline": headline,
-                                        "headline_past": headline_past,
-                                        "replaces_count": replace_last,
-                                        "summary": summary,
-                                    },
-                                )
-                            )
-                except Exception:
-                    log.debug("headline_generation_failed", job_id=job_id, exc_info=True)
-
-                await asyncio.sleep(interval_s)
-                first = False
-        except asyncio.CancelledError:
-            pass
-
-    async def _plan_loop(self, job_id: str) -> None:
-        """Periodically extract the agent's plan and project remaining steps.
-
-        Runs less frequently than the headline loop. Emits an agent_plan_updated
-        event with a list of steps and their statuses.
-        """
-        import json as _json
-
-        initial_delay_s = 12
-        interval_s = 30
-        try:
-            await asyncio.sleep(initial_delay_s)
-            while True:
-                buf = self._plan_transcript.get(job_id)
-                if not buf:
-                    await asyncio.sleep(interval_s)
-                    continue
-
-                recent = list(buf)
-                # Don't clear — we want the plan loop to see cumulative context
-
-                milestones = self._headline_history.get(job_id, [])
-                milestone_block = ""
-                if milestones:
-                    milestone_block = "Completed milestones:\n" + "\n".join(f"  - {m}" for m in milestones) + "\n\n"
-
-                prev_steps = self._plan_last_steps.get(job_id, [])
-                prev_block = ""
-                if prev_steps:
-                    lines = []
-                    for s in prev_steps:
-                        lines.append(f"  - [{s.get('status', 'pending')}] {s.get('label', '')}")
-                    prev_block = "Previous plan:\n" + "\n".join(lines) + "\n\n"
-
-                prompt = (
-                    "You are extracting a high-level execution plan from a coding agent's activity. "
-                    "The plan should show 3-7 steps the agent is working through, with status markers.\n\n"
-                    + milestone_block
-                    + prev_block
-                    + "Recent agent messages:\n"
-                    + "\n---\n".join(recent)
-                    + "\n\nRespond with JSON only:\n"
-                    '{"steps": [{"label": "Step description", "status": "done|active|pending"}]}\n\n'
-                    "RULES:\n"
-                    "- 3-7 steps total. Each label: 3-8 words, no articles, no period.\n"
-                    "- Mark completed work as 'done', current work as 'active' (exactly one), "
-                    "future work as 'pending'.\n"
-                    "- Steps should cover the full task arc — from what's been done to what remains.\n"
-                    "- Be concrete: mention actual components, endpoints, files when possible.\n"
-                    '- If you can\'t determine a plan from the activity, respond: {"steps": []}\n'
-                )
-
-                try:
-                    raw = await self._utility_session.complete(prompt, timeout=10)  # type: ignore[union-attr]
-                    raw = raw.strip()
-
-                    # Strip markdown fences
-                    if raw.startswith("```"):
-                        import re as _re
-
-                        raw = _re.sub(r"^```[a-zA-Z]*\n?", "", raw)
-                        raw = _re.sub(r"\n?```$", "", raw)
-                        raw = raw.strip()
-
-                    parsed = _json.loads(raw)
-                    steps = parsed.get("steps", [])
-
-                    if steps and isinstance(steps, list):
-                        # Validate steps
-                        clean_steps = []
-                        for s in steps:
-                            if isinstance(s, dict) and s.get("label"):
-                                status = s.get("status", "pending")
-                                if status not in ("done", "active", "pending", "skipped"):
-                                    status = "pending"
-                                clean_steps.append({"label": s["label"], "status": status})
-
-                        if clean_steps and clean_steps != self._plan_last_steps.get(job_id, []):
-                            self._plan_last_steps[job_id] = clean_steps
-                            await self._event_bus.publish(
-                                DomainEvent(
-                                    event_id=_make_event_id(),
-                                    job_id=job_id,
-                                    timestamp=datetime.now(UTC),
-                                    kind=DomainEventKind.agent_plan_updated,
-                                    payload={"steps": clean_steps},
-                                )
-                            )
-                except Exception:
-                    log.debug("plan_extraction_failed", job_id=job_id, exc_info=True)
-
-                await asyncio.sleep(interval_s)
         except asyncio.CancelledError:
             pass
 
@@ -1552,7 +1174,7 @@ class RuntimeService:
                 await svc.get_job(job_id)
                 await svc.transition_state(job_id, JobState.failed, failure_reason=reason)
                 await session.commit()
-            self._plan_terminal_state[job_id] = "failed"
+            self._set_progress_terminal_state(job_id, JobState.failed)
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=_make_event_id(),
@@ -1620,14 +1242,14 @@ class RuntimeService:
                     if role == "agent" or role == "assistant":
                         if not content:
                             continue
-                        key = content[:500]
+                        key = content[:_DEDUP_KEY_MAX]
                         if key in seen:
                             continue
                         seen.add(key)
                         turns.append(
                             {
                                 "role": "assistant",
-                                "content": content[:2000],
+                                "content": content[:_TRANSCRIPT_CONTENT_MAX],
                                 "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
                             }
                         )
@@ -1637,7 +1259,7 @@ class RuntimeService:
                         turns.append(
                             {
                                 "role": "operator",
-                                "content": content[:2000],
+                                "content": content[:_TRANSCRIPT_CONTENT_MAX],
                                 "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
                             }
                         )

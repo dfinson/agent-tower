@@ -189,6 +189,11 @@ export interface PlanStep {
 
 const MODEL_DOWNGRADE_RE = /^Model downgraded: requested (.+) but received (.+)$/;
 
+/** Finalize all active/pending plan steps to a terminal status. */
+function finalizePlanSteps(plan: PlanStep[] | undefined, finalStatus: "done" | "skipped"): PlanStep[] | undefined {
+  return plan?.map((s) => (s.status === "active" || s.status === "pending" ? { ...s, status: finalStatus } : s));
+}
+
 /** Enrich a job loaded from the REST API with parsed model downgrade info. */
 export function enrichJob(job: JobSummary): JobSummary {
   if (job.modelDowngraded) return job; // already enriched (e.g. from SSE)
@@ -290,9 +295,7 @@ export const useStore = create<AppState>((set, get) => ({
           if (existing) {
             const isCanceled = newState === "canceled";
             const existingPlan = isCanceled ? state.plans[jobId] : undefined;
-            const finalPlan = existingPlan?.map((s: PlanStep) =>
-              s.status === "active" || s.status === "pending" ? { ...s, status: "skipped" as const } : s,
-            );
+            const finalPlan = finalizePlanSteps(existingPlan, "skipped");
             return {
               jobs: {
                 ...state.jobs,
@@ -417,9 +420,7 @@ export const useStore = create<AppState>((set, get) => ({
           const existing = state.jobs[jobId];
           if (existing) {
             const existingPlan = state.plans[jobId];
-            const finalPlan = existingPlan?.map((s: PlanStep) =>
-              s.status === "active" || s.status === "pending" ? { ...s, status: "done" as const } : s,
-            );
+            const finalPlan = finalizePlanSteps(existingPlan, "done");
             return {
               jobs: {
                 ...state.jobs,
@@ -446,9 +447,7 @@ export const useStore = create<AppState>((set, get) => ({
           const existing = state.jobs[jobId];
           if (existing) {
             const existingPlan = state.plans[jobId];
-            const finalPlan = existingPlan?.map((s: PlanStep) =>
-              s.status === "active" || s.status === "pending" ? { ...s, status: "skipped" as const } : s,
-            );
+            const finalPlan = finalizePlanSteps(existingPlan, "skipped");
             return {
               jobs: {
                 ...state.jobs,
@@ -739,7 +738,7 @@ export const useStore = create<AppState>((set, get) => ({
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [id]: _removed, ...rest } = s.terminalSessions;
       // Delete the session on the backend (fire-and-forget)
-      fetch(`/api/terminal/sessions/${id}`, { method: "DELETE" }).catch(() => {});
+      fetch(`/api/terminal/sessions/${id}`, { method: "DELETE" }).catch((err) => console.error("Failed to delete terminal session", err));
       const remaining = Object.keys(rest);
       const drawerSessions = Object.values(rest).filter((sess) => !sess.jobId);
       return {

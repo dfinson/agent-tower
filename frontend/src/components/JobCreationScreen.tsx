@@ -56,7 +56,10 @@ export function JobCreationScreen() {
             .filter((x) => x.value),
         );
       })
-      .catch(() => setModels([]))
+      .catch((err) => {
+        console.error("Failed to fetch models", err);
+        setModels([]);
+      })
       .finally(() => setModelsLoading(false));
   }, []);
 
@@ -75,7 +78,7 @@ export function JobCreationScreen() {
         setSdk(r.default);
         loadModels(r.default);
       })
-      .catch(() => {});
+      .catch((err) => console.error("Failed to fetch SDKs", err));
   }, [loadModels]);
 
   useEffect(() => {

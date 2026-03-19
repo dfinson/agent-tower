@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import and_, or_, select
 
 from backend.models.db import JobRow
-from backend.models.domain import Job
+from backend.models.domain import Job, JobState, PermissionMode
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
@@ -17,6 +17,16 @@ if TYPE_CHECKING:
 class JobRepository(BaseRepository):
     """Database access for job records."""
 
+    async def _update_row(self, job_id: str, **updates: Any) -> None:
+        """Fetch a job row by ID and apply field updates."""
+        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
+        row = result.scalar_one_or_none()
+        if row is None:
+            return
+        for field, value in updates.items():
+            setattr(row, field, value)
+        await self._session.flush()
+
     async def list_ids(self) -> set[str]:
         """Return the set of all existing job IDs."""
         result = await self._session.execute(select(JobRow.id))
@@ -24,35 +34,37 @@ class JobRepository(BaseRepository):
 
     @staticmethod
     def _to_domain(row: JobRow) -> Job:
+        # SQLAlchemy Column descriptors return Any at the type level;
+        # cast() documents the expected runtime type for each field.
         return Job(
-            id=row.id,  # type: ignore[arg-type]
-            repo=row.repo,  # type: ignore[arg-type]
-            prompt=row.prompt,  # type: ignore[arg-type]
-            state=row.state,  # type: ignore[arg-type]
-            base_ref=row.base_ref,  # type: ignore[arg-type]
-            branch=row.branch,  # type: ignore[arg-type]
-            worktree_path=row.worktree_path,  # type: ignore[arg-type]
-            session_id=row.session_id,  # type: ignore[arg-type]
-            created_at=row.created_at,  # type: ignore[arg-type]
-            updated_at=row.updated_at,  # type: ignore[arg-type]
-            completed_at=row.completed_at,  # type: ignore[arg-type]
-            pr_url=row.pr_url,  # type: ignore[arg-type]
-            merge_status=row.merge_status,  # type: ignore[arg-type]
-            title=row.title,  # type: ignore[arg-type]
-            worktree_name=row.worktree_name,  # type: ignore[arg-type]
-            permission_mode=row.permission_mode or "auto",  # type: ignore[arg-type]
-            session_count=row.session_count or 1,  # type: ignore[arg-type]
-            sdk_session_id=row.sdk_session_id,  # type: ignore[arg-type]
-            model=row.model,  # type: ignore[arg-type]
-            resolution=row.resolution,  # type: ignore[arg-type]
-            archived_at=row.archived_at,  # type: ignore[arg-type]
-            failure_reason=row.failure_reason,  # type: ignore[arg-type]
-            sdk=row.sdk or "copilot",  # type: ignore[arg-type]
-            verify=row.verify,  # type: ignore[arg-type]
-            self_review=row.self_review,  # type: ignore[arg-type]
-            max_turns=row.max_turns,  # type: ignore[arg-type]
-            verify_prompt=row.verify_prompt,  # type: ignore[arg-type]
-            self_review_prompt=row.self_review_prompt,  # type: ignore[arg-type]
+            id=cast(str, row.id),
+            repo=cast(str, row.repo),
+            prompt=cast(str, row.prompt),
+            state=cast(str, row.state),
+            base_ref=cast(str, row.base_ref),
+            branch=cast("str | None", row.branch),
+            worktree_path=cast("str | None", row.worktree_path),
+            session_id=cast("str | None", row.session_id),
+            created_at=cast("datetime", row.created_at),
+            updated_at=cast("datetime", row.updated_at),
+            completed_at=cast("datetime | None", row.completed_at),
+            pr_url=cast("str | None", row.pr_url),
+            merge_status=cast("str | None", row.merge_status),
+            title=cast("str | None", row.title),
+            worktree_name=cast("str | None", row.worktree_name),
+            permission_mode=cast(str, row.permission_mode) or PermissionMode.auto,
+            session_count=cast(int, row.session_count) or 1,
+            sdk_session_id=cast("str | None", row.sdk_session_id),
+            model=cast("str | None", row.model),
+            resolution=cast("str | None", row.resolution),
+            archived_at=cast("datetime | None", row.archived_at),
+            failure_reason=cast("str | None", row.failure_reason),
+            sdk=cast(str, row.sdk) or "copilot",
+            verify=cast("bool | None", row.verify),
+            self_review=cast("bool | None", row.self_review),
+            max_turns=cast("int | None", row.max_turns),
+            verify_prompt=cast("str | None", row.verify_prompt),
+            self_review_prompt=cast("str | None", row.self_review_prompt),
         )
 
     async def create(self, job: Job) -> Job:
@@ -140,104 +152,67 @@ class JobRepository(BaseRepository):
         failure_reason: str | None = None,
     ) -> None:
         """Update a job's state and timestamps."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.state = new_state  # type: ignore[assignment]
-        row.updated_at = updated_at  # type: ignore[assignment]
+        updates: dict[str, Any] = {"state": new_state, "updated_at": updated_at}
         if completed_at is not None:
-            row.completed_at = completed_at  # type: ignore[assignment]
+            updates["completed_at"] = completed_at
         if failure_reason is not None:
-            row.failure_reason = failure_reason  # type: ignore[assignment]
-        await self._session.flush()
+            updates["failure_reason"] = failure_reason
+        await self._update_row(job_id, **updates)
 
     async def update_pr_url(self, job_id: str, pr_url: str) -> None:
         """Store the PR URL on a job row."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.pr_url = pr_url  # type: ignore[assignment]
-        await self._session.flush()
+        await self._update_row(job_id, pr_url=pr_url)
 
     async def update_merge_status(self, job_id: str, merge_status: str, pr_url: str | None = None) -> None:
         """Update the merge status (and optionally PR URL) on a job row."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.merge_status = merge_status  # type: ignore[assignment]
+        updates: dict[str, Any] = {"merge_status": merge_status}
         if pr_url is not None:
-            row.pr_url = pr_url  # type: ignore[assignment]
-        await self._session.flush()
+            updates["pr_url"] = pr_url
+        await self._update_row(job_id, **updates)
 
     async def reset_for_resume(self, job_id: str, new_session_count: int) -> None:
         """Reset a terminal job back to running state for resumption."""
         from datetime import UTC, datetime
 
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.state = "running"  # type: ignore[assignment]
-        row.completed_at = None  # type: ignore[assignment]
-        row.session_id = None  # type: ignore[assignment]
-        row.session_count = new_session_count  # type: ignore[assignment]
-        row.resolution = None  # type: ignore[assignment]
-        row.failure_reason = None  # type: ignore[assignment]
-        row.archived_at = None  # type: ignore[assignment]
-        row.merge_status = None  # type: ignore[assignment]
-        row.pr_url = None  # type: ignore[assignment]
-        row.updated_at = datetime.now(UTC)  # type: ignore[assignment]
-        await self._session.flush()
+        await self._update_row(
+            job_id,
+            state=JobState.running,
+            completed_at=None,
+            session_id=None,
+            session_count=new_session_count,
+            resolution=None,
+            failure_reason=None,
+            archived_at=None,
+            merge_status=None,
+            pr_url=None,
+            updated_at=datetime.now(UTC),
+        )
 
     async def update_worktree_path(self, job_id: str, worktree_path: str) -> None:
         """Update the worktree path (e.g. after re-creating a cleaned-up worktree)."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.worktree_path = worktree_path  # type: ignore[assignment]
-        await self._session.flush()
+        await self._update_row(job_id, worktree_path=worktree_path)
 
     async def update_resolution(self, job_id: str, resolution: str, pr_url: str | None = None) -> None:
         """Update the resolution status (and optionally PR URL) on a job row."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.resolution = resolution  # type: ignore[assignment]
+        updates: dict[str, Any] = {"resolution": resolution}
         if pr_url is not None:
-            row.pr_url = pr_url  # type: ignore[assignment]
-        await self._session.flush()
+            updates["pr_url"] = pr_url
+        await self._update_row(job_id, **updates)
 
     async def update_archived_at(self, job_id: str, archived_at: datetime | None) -> None:
         """Set or clear the archived_at timestamp."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.archived_at = archived_at  # type: ignore[assignment]
-        await self._session.flush()
+        await self._update_row(job_id, archived_at=archived_at)
 
     async def update_sdk_session_id(self, job_id: str, sdk_session_id: str | None) -> None:
         """Persist or clear the Copilot SDK session ID for future resumption."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
-        row.sdk_session_id = sdk_session_id  # type: ignore[assignment]
-        await self._session.flush()
+        await self._update_row(job_id, sdk_session_id=sdk_session_id)
 
     async def update_title_and_branch(self, job_id: str, title: str | None = None, branch: str | None = None) -> None:
         """Update the title and/or branch of a job (used by async naming)."""
-        result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
-        row = result.scalar_one_or_none()
-        if row is None:
-            return
+        updates: dict[str, Any] = {}
         if title is not None:
-            row.title = title  # type: ignore[assignment]
+            updates["title"] = title
         if branch is not None:
-            row.branch = branch  # type: ignore[assignment]
-        await self._session.flush()
+            updates["branch"] = branch
+        if updates:
+            await self._update_row(job_id, **updates)
