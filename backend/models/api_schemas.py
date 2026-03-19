@@ -292,6 +292,15 @@ class TranscribeResponse(CamelModel):
     text: str
 
 
+class ModelInfoResponse(CamelModel):
+    """Model information returned by the agent SDK."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+
+
 class HealthResponse(CamelModel):
     status: HealthStatus
     version: str

@@ -728,10 +728,7 @@ class RuntimeService:
             if session_id is None and agent_session.session_id:
                 session_id = agent_session.session_id
                 self._session_ids[job_id] = session_id
-                asyncio.create_task(
-                    self._persist_sdk_session_id(job_id, session_id),
-                    name=f"persist-session-{job_id}",
-                )
+                await self._persist_sdk_session_id(job_id, session_id)
 
             domain_event = self._translate_event(job_id, session_event)
             if domain_event is None:
@@ -866,10 +863,7 @@ class RuntimeService:
                 if new_session_id is None and followup_session.session_id:
                     new_session_id = followup_session.session_id
                     self._session_ids[job_id] = new_session_id
-                    asyncio.create_task(
-                        self._persist_sdk_session_id(job_id, new_session_id),
-                        name=f"persist-session-{job_id}",
-                    )
+                    await self._persist_sdk_session_id(job_id, new_session_id)
 
                 domain_event = self._translate_event(job_id, event)
                 if domain_event is None:

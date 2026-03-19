@@ -1,10 +1,32 @@
 """Password-based authentication for CodePlane.
 
-Implements TermBeam-style auth:
-- Password auto-generated or set via --password / CODEPLANE_PASSWORD
-- httpOnly cookie sessions with 24h expiry
-- Rate-limited login endpoint (5 attempts/min/IP)
-- Localhost requests bypass auth (same-machine access is trusted)
+Auth architecture
+-----------------
+Authentication is enforced via **Starlette HTTP middleware** registered in
+``app_factory.py``.  When a password is configured (tunnel mode or explicit
+``--password`` / ``CODEPLANE_PASSWORD``), *every* incoming HTTP request passes
+through ``auth_middleware`` before reaching any route handler.
+
+**Exempt paths** (no session cookie required):
+- ``/api/auth/*`` — login endpoint itself
+- ``/api/health``  — health-check probe
+- Static frontend assets served by the SPA fallback handler
+
+**Localhost bypass**: requests originating from ``127.0.0.1``, ``::1``, or
+``localhost`` are unconditionally trusted and never challenged.  This allows
+same-machine tools and CLIs to access the API without credentials.
+
+**WebSocket auth**: WebSocket upgrades are *not* wrapped by the HTTP
+middleware (Starlette handles them on a different code-path).  Instead, each
+WebSocket endpoint calls ``check_websocket_auth`` at connect time, passing the
+client host and cookies extracted from the upgrade request.  The logic mirrors
+the middleware — localhost is trusted, otherwise a valid ``cpl_session`` cookie
+is required.
+
+**Session tokens**: on successful login a cryptographic token is generated,
+stored server-side in ``_session_tokens``, and returned to the browser as an
+``httpOnly`` cookie.  Tokens expire after ``SESSION_TTL`` seconds (default
+24 h); stale tokens are purged lazily during validation.
 """
 
 from __future__ import annotations
@@ -19,8 +41,11 @@ from pathlib import Path
 from string import Template
 from typing import Any
 
+import structlog
 from starlette.requests import Request  # noqa: TC002
 from starlette.responses import HTMLResponse, JSONResponse, Response  # noqa: TC002
+
+log = structlog.get_logger()
 
 COOKIE_NAME = "cpl_session"
 LOCALHOST_ADDRS = {"127.0.0.1", "::1", "localhost"}
@@ -30,8 +55,11 @@ _login_attempts: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT_WINDOW = 60  # seconds
 _RATE_LIMIT_MAX = 5  # max attempts per window
 
-# Active session tokens
-_session_tokens: set[str] = set()
+# Session token TTL (seconds).  Tokens older than this are rejected and purged.
+SESSION_TTL: float = 86400  # 24 hours
+
+# Active session tokens: token → creation timestamp (monotonic clock)
+_session_tokens: dict[str, float] = {}
 
 # The password hash (set during startup)
 _password_hash: str | None = None
@@ -85,17 +113,29 @@ def _record_attempt(ip: str) -> None:
     _login_attempts[ip].append(time.monotonic())
 
 
+def _cleanup_expired_tokens() -> None:
+    """Remove tokens whose age exceeds ``SESSION_TTL``."""
+    now = time.monotonic()
+    expired = [t for t, created_at in _session_tokens.items() if now - created_at > SESSION_TTL]
+    for t in expired:
+        del _session_tokens[t]
+
+
 def _create_session_token() -> str:
-    """Create a new session token."""
+    """Create a new session token and record its creation time."""
     token = secrets.token_hex(32)
-    _session_tokens.add(token)
+    _session_tokens[token] = time.monotonic()
     return token
 
 
 def is_valid_token(token: str | None) -> bool:
-    """Check if a session token is valid."""
+    """Check if a session token is valid and not expired.
+
+    Lazily cleans up expired tokens on each call.
+    """
     if not token:
         return False
+    _cleanup_expired_tokens()
     return token in _session_tokens
 
 
@@ -158,6 +198,7 @@ async def authenticate_login_request(request: Request) -> Response:
     ip = request.client.host if request.client else "unknown"
 
     if _is_rate_limited(ip):
+        log.warning("auth_login_rate_limited", client_ip=ip)
         return JSONResponse({"detail": "Too many attempts. Try again in a minute."}, status_code=429)
 
     try:
@@ -168,9 +209,11 @@ async def authenticate_login_request(request: Request) -> Response:
 
     if not _check_password(password):
         _record_attempt(ip)
+        log.warning("auth_login_failed", client_ip=ip)
         return JSONResponse({"detail": "Invalid password"}, status_code=401)
 
     token = _create_session_token()
+    log.info("auth_login_success", client_ip=ip)
     response = JSONResponse({"ok": True})
     # Detect HTTPS: check scheme, x-forwarded-proto, or devtunnel headers
     is_https = (
@@ -193,10 +236,20 @@ async def authenticate_login_request(request: Request) -> Response:
 async def auth_middleware(request: Request, call_next: Any) -> Response:
     """Middleware that enforces password auth when enabled.
 
-    - Localhost requests are always allowed (trusted)
-    - /api/auth/* and /api/health are always allowed
-    - Static assets are always allowed
-    - Everything else requires a valid session cookie
+    Registered by ``app_factory._configure_middleware`` when a password is set.
+    All HTTP requests (except WebSocket upgrades, which are handled separately
+    by ``check_websocket_auth``) pass through this middleware.
+
+    **Bypass rules** (checked in order):
+
+    1. ``/api/auth/*`` and ``/api/health`` — always allowed so the login
+       endpoint and health probe remain reachable.
+    2. Localhost (``127.0.0.1``, ``::1``, ``localhost``) — trusted, no cookie
+       needed.
+    3. Valid ``cpl_session`` cookie — normal authenticated browser session.
+
+    If none of the above match, API/MCP routes receive a 401 JSON response and
+    browser requests receive the login HTML page.
     """
     path = request.url.path
 
@@ -206,11 +259,14 @@ async def auth_middleware(request: Request, call_next: Any) -> Response:
 
     # Localhost is trusted — no auth needed
     if is_localhost(request):
+        client_ip = request.client.host if request.client else "unknown"
+        log.debug("auth_localhost_bypass", client_ip=client_ip, path=path)
         return await call_next(request)  # type: ignore[no-any-return]
 
     # Check session cookie
     token = request.cookies.get(COOKIE_NAME)
     if is_valid_token(token):
+        log.debug("auth_token_valid", path=path)
         return await call_next(request)  # type: ignore[no-any-return]
 
     # Not authenticated
