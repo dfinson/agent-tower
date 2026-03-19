@@ -52,7 +52,7 @@ class TestUpCommand:
         assert "--host" in result.output
         assert "--port" in result.output
         assert "--dev" in result.output
-        assert "--tunnel" in result.output
+        assert "--remote" in result.output
 
     def test_up_rejects_string_port(self) -> None:
         runner = CliRunner()
