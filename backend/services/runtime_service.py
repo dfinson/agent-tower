@@ -28,11 +28,7 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.progress_tracking_service import (
-    ProgressTrackingService,
-    _count_similar_trailing_headlines,
-    _headlines_are_similar,
-)
+from backend.services.progress_tracking_service import ProgressTrackingService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
