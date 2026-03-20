@@ -160,9 +160,8 @@ export function TerminalDrawer() {
         {activeTerminalTab && terminalSessions[activeTerminalTab] ? (
           <TerminalPanel
             sessionId={activeTerminalTab}
-            onExit={(code) => {
-              // Could show a "Process exited" message
-              console.log(`Terminal session ${activeTerminalTab} exited with code ${code}`);
+            onExit={() => {
+              // Terminal process exited — no action needed
             }}
           />
         ) : sessionList.length === 0 ? (

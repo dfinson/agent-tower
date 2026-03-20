@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+_MAX_COUNT_LIMIT = 10_000  # upper bound for count queries that scan all jobs
+
 
 class RepoNotAllowedError(Exception):
     """Raised when a repo path is not in the allowlist."""
@@ -400,13 +402,13 @@ class JobService:
         """Count currently active (non-terminal) jobs."""
         jobs = await self._job_repo.list(
             state=",".join(ACTIVE_STATES),
-            limit=10000,
+            limit=_MAX_COUNT_LIMIT,
         )
         return len(jobs)
 
     async def count_queued_jobs(self) -> int:
         """Count queued jobs."""
-        jobs = await self._job_repo.list(state=JobState.queued, limit=10000)
+        jobs = await self._job_repo.list(state=JobState.queued, limit=_MAX_COUNT_LIMIT)
         return len(jobs)
 
     async def resolve_job(self, job_id: str, action: str) -> Job:
