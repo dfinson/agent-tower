@@ -37,20 +37,6 @@ from backend.services.platform_adapter import PlatformRegistry, detect_platform
 router = APIRouter(tags=["settings"])
 
 
-def _strip_url_credentials(url: str) -> str:
-    """Remove embedded credentials from a git remote URL."""
-    from urllib.parse import urlparse, urlunparse
-
-    parsed = urlparse(url)
-    if parsed.username or parsed.password:
-        host = parsed.hostname or ""
-        if parsed.port:
-            host = f"{host}:{parsed.port}"
-        cleaned = parsed._replace(netloc=host)
-        return urlunparse(cleaned)
-    return url
-
-
 def _get_config() -> CPLConfig:
     return load_config()
 
@@ -146,7 +132,7 @@ async def get_repo_detail(
     with contextlib.suppress(GitError):
         raw_url = await git.get_origin_url(resolved)
         if raw_url:
-            origin_url = _strip_url_credentials(raw_url)
+            origin_url = GitService.strip_url_credentials(raw_url)
     with contextlib.suppress(GitError):
         base_branch = await git.get_default_branch(resolved)
 
