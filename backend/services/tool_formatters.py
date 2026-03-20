@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -61,17 +62,72 @@ def _short_path(path: str) -> str:
     return str(PurePosixPath(*parts[-2:]))
 
 
-# -- Individual formatters ---------------------------------------------------
+# -- Formatter / hint factories for common patterns --------------------------
 
 
-def _fmt_bash(args: ToolArgs) -> str:
-    cmd = args.get("command", "")
-    return f"$ {_truncate(cmd, 55)}" if cmd else "bash"
+@dataclass(frozen=True, slots=True)
+class _FmtSpec:
+    """Declarative spec for a simple single-arg formatter."""
+
+    keys: tuple[str, ...]          # arg keys to try, first non-empty wins
+    prefix: str                    # label prefix (e.g. "Create", "Grep")
+    fallback: str                  # returned when no arg found
+    use_path: bool = False         # apply _short_path to the value
+    truncate: int = 0              # apply _truncate (0 = no truncation)
+    quote: bool = False            # wrap value in double quotes
+    separator: str = " "           # between prefix and value
 
 
-def _fmt_run_in_terminal(args: ToolArgs) -> str:
-    cmd = args.get("command", "")
-    return f"$ {_truncate(cmd, 55)}" if cmd else "Run command"
+def _build_formatter(spec: _FmtSpec) -> Callable[[ToolArgs], str]:
+    """Build a formatter function from a declarative spec."""
+    def fmt(args: ToolArgs) -> str:
+        for k in spec.keys:
+            v = args.get(k, "")
+            if v:
+                display = _short_path(v) if spec.use_path else v
+                if spec.truncate:
+                    display = _truncate(display, spec.truncate)
+                if spec.quote:
+                    display = f'"{display}"'
+                return f"{spec.prefix}{spec.separator}{display}"
+        return spec.fallback
+    return fmt
+
+
+def _count_hint(unit: str, *, empty: str = "") -> Callable[[str, bool], str]:
+    """Factory for hints like '→ 12 matches' / '→ no matches'."""
+    def hint(result: str, success: bool) -> str:
+        n = _count_lines(result)
+        return f"→ {n} {unit}" if n else (empty or f"→ no {unit}")
+    return hint
+
+
+def _static_hint(ok: str, fail: str = "→ FAIL") -> Callable[[str, bool], str]:
+    """Factory for hints that return a fixed string."""
+    def hint(result: str, success: bool) -> str:
+        return ok if success else fail
+    return hint
+
+
+# Declarative specs for simple formatters
+_SIMPLE_SPECS: dict[str, _FmtSpec] = {
+    "bash":                _FmtSpec(("command",), "$", "bash", truncate=55),
+    "run_in_terminal":     _FmtSpec(("command",), "$", "Run command", truncate=55),
+    "create_file":         _FmtSpec(("filePath", "file_path"), "Create", "Create file", use_path=True),
+    "replace_string_in_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "grep_search":         _FmtSpec(("query", "pattern"), "Grep:", "Grep search", truncate=40, quote=True),
+    "semantic_search":     _FmtSpec(("query",), "Search:", "Semantic search", truncate=40, quote=True),
+    "file_search":         _FmtSpec(("query", "pattern"), "Find:", "File search", truncate=40, quote=True),
+    "list_dir":            _FmtSpec(("path", "directory"), "List", "List directory", use_path=True),
+    "runSubagent":         _FmtSpec(("description",), "Subagent:", "Run subagent", truncate=50),
+    "search_subagent":     _FmtSpec(("description", "query"), "Search agent:", "Search agent", truncate=45),
+    "get_terminal_output": _FmtSpec(("id",), "Read terminal", "Read terminal"),
+    "tool_search_tool_regex": _FmtSpec(("pattern",), "Find tools:", "Find tools", truncate=40, quote=True),
+    "vscode_listCodeUsages": _FmtSpec(("symbol", "query"), "Usages:", "Find usages", truncate=45),
+}
+
+
+# -- Complex formatters (not reducible to _FmtSpec) --------------------------
 
 
 def _fmt_read_file(args: ToolArgs) -> str:
@@ -84,16 +140,6 @@ def _fmt_read_file(args: ToolArgs) -> str:
     if start and end:
         return f"Read {short}:{start}-{end}"
     return f"Read {short}"
-
-
-def _fmt_create_file(args: ToolArgs) -> str:
-    path = args.get("filePath", args.get("file_path", ""))
-    return f"Create {_short_path(path)}" if path else "Create file"
-
-
-def _fmt_replace_string(args: ToolArgs) -> str:
-    path = args.get("filePath", args.get("file_path", ""))
-    return f"Edit {_short_path(path)}" if path else "Edit file"
 
 
 def _fmt_multi_replace(args: ToolArgs) -> str:
@@ -110,26 +156,6 @@ def _fmt_multi_replace(args: ToolArgs) -> str:
         return f"Edit {listed}{suffix}"
     count = len(replacements) if isinstance(replacements, list) else 0
     return f"Edit {count} locations"
-
-
-def _fmt_grep_search(args: ToolArgs) -> str:
-    query = args.get("query", args.get("pattern", ""))
-    return f'Grep: "{_truncate(query, 40)}"' if query else "Grep search"
-
-
-def _fmt_semantic_search(args: ToolArgs) -> str:
-    query = args.get("query", "")
-    return f'Search: "{_truncate(query, 40)}"' if query else "Semantic search"
-
-
-def _fmt_file_search(args: ToolArgs) -> str:
-    query = args.get("query", args.get("pattern", ""))
-    return f'Find: "{_truncate(query, 40)}"' if query else "File search"
-
-
-def _fmt_list_dir(args: ToolArgs) -> str:
-    path = args.get("path", args.get("directory", ""))
-    return f"List {_short_path(path)}" if path else "List directory"
 
 
 def _fmt_memory(args: ToolArgs) -> str:
@@ -155,25 +181,9 @@ def _fmt_get_errors(args: ToolArgs) -> str:
     return f"Check errors: {len(paths)} files"
 
 
-def _fmt_run_subagent(args: ToolArgs) -> str:
-    desc = args.get("description", "")
-    return f"Subagent: {_truncate(desc, 50)}" if desc else "Run subagent"
-
-
-def _fmt_search_subagent(args: ToolArgs) -> str:
-    desc = args.get("description", args.get("query", ""))
-    return f"Search agent: {_truncate(desc, 45)}" if desc else "Search agent"
-
-
-def _fmt_get_terminal_output(args: ToolArgs) -> str:
-    tid = args.get("id", "")
-    return f"Read terminal {tid}" if tid else "Read terminal"
-
-
 def _fmt_fetch_webpage(args: ToolArgs) -> str:
     url = args.get("url", "")
     if url:
-        # Show domain + path start only
         from urllib.parse import urlparse
 
         try:
@@ -185,22 +195,12 @@ def _fmt_fetch_webpage(args: ToolArgs) -> str:
     return "Fetch webpage"
 
 
-def _fmt_tool_search(args: ToolArgs) -> str:
-    pat = args.get("pattern", "")
-    return f'Find tools: "{_truncate(pat, 40)}"' if pat else "Find tools"
-
-
 def _fmt_rename_symbol(args: ToolArgs) -> str:
     old = args.get("oldName", args.get("old_name", ""))
     new = args.get("newName", args.get("new_name", ""))
     if old and new:
         return f"Rename {_truncate(old, 20)} → {_truncate(new, 20)}"
     return "Rename symbol"
-
-
-def _fmt_list_code_usages(args: ToolArgs) -> str:
-    sym = args.get("symbol", args.get("query", ""))
-    return f"Usages: {_truncate(sym, 45)}" if sym else "Find usages"
 
 
 # -- Result hint formatters ---------------------------------------------------
@@ -220,15 +220,6 @@ def _hint_bash(result: str, success: bool) -> str:
     return f"→ {n} lines" if n else "→ done"
 
 
-def _hint_read_file(result: str, success: bool) -> str:
-    n = _count_lines(result)
-    return f"→ {n} lines" if n else "→ empty"
-
-
-def _hint_create_file(result: str, success: bool) -> str:
-    return "→ created" if success else "→ FAIL"
-
-
 def _hint_replace_string(result: str, success: bool) -> str:
     return "→ applied" if success else "→ FAIL: no match"
 
@@ -237,33 +228,6 @@ def _hint_multi_replace(result: str, success: bool) -> str:
     if not success:
         return "→ partial FAIL"
     return "→ applied"
-
-
-def _hint_grep_search(result: str, success: bool) -> str:
-    # grep_search results typically contain match lines
-    n = _count_lines(result)
-    if n == 0:
-        return "→ no matches"
-    return f"→ {n} matches"
-
-
-def _hint_semantic_search(result: str, success: bool) -> str:
-    n = _count_lines(result)
-    return f"→ {n} results" if n else "→ no results"
-
-
-def _hint_file_search(result: str, success: bool) -> str:
-    n = _count_lines(result)
-    return f"→ {n} files" if n else "→ no files"
-
-
-def _hint_list_dir(result: str, success: bool) -> str:
-    n = _count_lines(result)
-    return f"→ {n} entries" if n else "→ empty"
-
-
-def _hint_manage_todo(result: str, success: bool) -> str:
-    return "→ updated"
 
 
 def _hint_get_errors(result: str, success: bool) -> str:
@@ -276,11 +240,6 @@ def _hint_subagent(result: str, success: bool) -> str:
         return "→ FAIL"
     n = _count_lines(result)
     return f"→ done ({n} lines)" if n > 1 else "→ done"
-
-
-def _hint_get_terminal_output(result: str, success: bool) -> str:
-    n = _count_lines(result)
-    return f"→ {n} lines" if n else "→ empty"
 
 
 def _hint_fetch_webpage(result: str, success: bool) -> str:
@@ -299,60 +258,42 @@ def _hint_memory(result: str, success: bool) -> str:
     return f"→ {n} lines" if n else "→ done"
 
 
-def _hint_rename_symbol(result: str, success: bool) -> str:
-    return "→ renamed" if success else "→ FAIL"
-
-
-def _hint_list_code_usages(result: str, success: bool) -> str:
-    n = _count_lines(result)
-    return f"→ {n} usages" if n else "→ none"
-
-
 # -- Registries ---------------------------------------------------------------
+# Built from _SIMPLE_SPECS + explicit complex entries.
 
 _FORMATTERS: dict[str, Callable[[ToolArgs], str]] = {
-    "bash": _fmt_bash,
-    "run_in_terminal": _fmt_run_in_terminal,
+    name: _build_formatter(spec) for name, spec in _SIMPLE_SPECS.items()
+}
+_FORMATTERS.update({
     "read_file": _fmt_read_file,
-    "create_file": _fmt_create_file,
-    "replace_string_in_file": _fmt_replace_string,
     "multi_replace_string_in_file": _fmt_multi_replace,
-    "grep_search": _fmt_grep_search,
-    "semantic_search": _fmt_semantic_search,
-    "file_search": _fmt_file_search,
-    "list_dir": _fmt_list_dir,
     "memory": _fmt_memory,
     "manage_todo_list": _fmt_manage_todo,
     "get_errors": _fmt_get_errors,
-    "runSubagent": _fmt_run_subagent,
-    "search_subagent": _fmt_search_subagent,
-    "get_terminal_output": _fmt_get_terminal_output,
     "fetch_webpage": _fmt_fetch_webpage,
-    "tool_search_tool_regex": _fmt_tool_search,
     "vscode_renameSymbol": _fmt_rename_symbol,
-    "vscode_listCodeUsages": _fmt_list_code_usages,
-}
+})
 
 _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
     "bash": _hint_bash,
     "run_in_terminal": _hint_bash,
-    "read_file": _hint_read_file,
-    "create_file": _hint_create_file,
+    "read_file": _count_hint("lines", empty="→ empty"),
+    "create_file": _static_hint("→ created"),
     "replace_string_in_file": _hint_replace_string,
     "multi_replace_string_in_file": _hint_multi_replace,
-    "grep_search": _hint_grep_search,
-    "semantic_search": _hint_semantic_search,
-    "file_search": _hint_file_search,
-    "list_dir": _hint_list_dir,
-    "manage_todo_list": _hint_manage_todo,
+    "grep_search": _count_hint("matches"),
+    "semantic_search": _count_hint("results"),
+    "file_search": _count_hint("files"),
+    "list_dir": _count_hint("entries", empty="→ empty"),
+    "manage_todo_list": _static_hint("→ updated"),
     "get_errors": _hint_get_errors,
     "runSubagent": _hint_subagent,
     "search_subagent": _hint_subagent,
-    "get_terminal_output": _hint_get_terminal_output,
+    "get_terminal_output": _count_hint("lines", empty="→ empty"),
     "fetch_webpage": _hint_fetch_webpage,
     "memory": _hint_memory,
-    "vscode_renameSymbol": _hint_rename_symbol,
-    "vscode_listCodeUsages": _hint_list_code_usages,
+    "vscode_renameSymbol": _static_hint("→ renamed"),
+    "vscode_listCodeUsages": _count_hint("usages", empty="→ none"),
 }
 
 

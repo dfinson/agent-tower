@@ -238,6 +238,7 @@ dependencies = [
     { name = "claude-code-sdk" },
     { name = "click" },
     { name = "fastapi" },
+    { name = "faster-whisper" },
     { name = "github-copilot-sdk" },
     { name = "mcp" },
     { name = "pydantic" },
@@ -249,11 +250,6 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-voice = [
-    { name = "faster-whisper" },
 ]
 
 [package.dev-dependencies]
@@ -275,7 +271,7 @@ requires-dist = [
     { name = "claude-code-sdk", specifier = ">=0.0.25,<1" },
     { name = "click", specifier = ">=8.0,<9" },
     { name = "fastapi", specifier = ">=0.115,<1" },
-    { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.1,<2" },
+    { name = "faster-whisper", specifier = ">=1.1,<2" },
     { name = "github-copilot-sdk", specifier = ">=0.1,<1" },
     { name = "mcp", specifier = ">=1.9,<2" },
     { name = "pydantic", specifier = ">=2.0,<3" },
@@ -288,7 +284,6 @@ requires-dist = [
     { name = "structlog", specifier = ">=24.0,<26" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32,<1" },
 ]
-provides-extras = ["voice"]
 
 [package.metadata.requires-dev]
 dev = [

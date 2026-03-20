@@ -24,6 +24,9 @@ log = structlog.get_logger()
 # Default base directory for artifact files on disk
 _ARTIFACTS_BASE = Path.home() / ".codeplane" / "artifacts"
 
+# Maximum file size for workspace artifacts (50 MB)
+_MAX_WORKSPACE_ARTIFACT_BYTES = 50 * 1024 * 1024
+
 
 def get_artifacts_base() -> Path:
     """Return the base directory for artifact files on disk."""
@@ -100,7 +103,7 @@ class ArtifactService:
                 continue
             # Skip files larger than 50 MB
             entry_size = entry.stat().st_size
-            if entry_size > 50 * 1024 * 1024:
+            if entry_size > _MAX_WORKSPACE_ARTIFACT_BYTES:
                 log.warning("artifact_too_large", path=str(entry), size=entry_size)
                 continue
             artifact_id = f"art-{uuid.uuid4().hex[:12]}"

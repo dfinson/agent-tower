@@ -16,8 +16,9 @@ Sections
 
 from __future__ import annotations
 
+import enum
 import os
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -254,58 +255,29 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
             existing = yaml.safe_load(f) or {}
 
     # Merge our known sections — existing keys not in our model are preserved
-    existing["server"] = {"host": config.server.host, "port": config.server.port}
-    existing["runtime"] = {
-        "max_concurrent_jobs": config.runtime.max_concurrent_jobs,
-        "worktrees_dirname": config.runtime.worktrees_dirname,
-        "permission_mode": str(config.runtime.permission_mode),
-        "utility_model": config.runtime.utility_model,
-        "default_sdk": config.runtime.default_sdk,
-        "suppressed_preflight_agent_prompts": config.runtime.suppressed_preflight_agent_prompts,
-    }
-    existing["retention"] = {
-        "artifact_retention_days": config.retention.artifact_retention_days,
-        "max_artifact_size_mb": config.retention.max_artifact_size_mb,
-        "cleanup_on_startup": config.retention.cleanup_on_startup,
-        "auto_archive_days": config.retention.auto_archive_days,
-    }
-    existing["logging"] = {
-        "level": config.logging.level,
-        "file": config.logging.file,
-        "max_file_size_mb": config.logging.max_file_size_mb,
-        "backup_count": config.logging.backup_count,
-    }
-    existing["rate_limits"] = {
-        "max_sse_connections": config.rate_limits.max_sse_connections,
-    }
-    existing["completion"] = {
-        "strategy": config.completion.strategy,
-        "auto_push": config.completion.auto_push,
-        "cleanup_worktree": config.completion.cleanup_worktree,
-        "delete_branch_after_merge": config.completion.delete_branch_after_merge,
-    }
+    _to_dict = lambda dc: asdict(dc, dict_factory=lambda pairs: {
+        k: (str(v) if isinstance(v, enum.Enum) else v) for k, v in pairs
+    })
+    existing["server"] = _to_dict(config.server)
+    existing["runtime"] = _to_dict(config.runtime)
+    existing["retention"] = _to_dict(config.retention)
+    existing["logging"] = _to_dict(config.logging)
+    existing["rate_limits"] = _to_dict(config.rate_limits)
+    existing["completion"] = _to_dict(config.completion)
     if (
         config.terminal.enabled is not True
         or config.terminal.max_sessions != 5
         or config.terminal.default_shell is not None
         or config.terminal.scrollback_size_kb != 500
     ):
-        existing["terminal"] = {
-            "enabled": config.terminal.enabled,
-            "max_sessions": config.terminal.max_sessions,
-            **({"default_shell": config.terminal.default_shell} if config.terminal.default_shell else {}),
-            "scrollback_size_kb": config.terminal.scrollback_size_kb,
-        }
+        d = _to_dict(config.terminal)
+        if not d.get("default_shell"):
+            d.pop("default_shell", None)
+        existing["terminal"] = d
     # repos is intentionally omitted — managed by register_repo / unregister_repo
-    existing["verification"] = {
-        "verify": config.verification.verify,
-        "self_review": config.verification.self_review,
-        "max_turns": config.verification.max_turns,
-        "verify_prompt": config.verification.verify_prompt,
-        "self_review_prompt": config.verification.self_review_prompt,
-    }
+    existing["verification"] = _to_dict(config.verification)
     if config.platforms:
-        existing["platforms"] = {name: {"auth": pc.auth, "repos": pc.repos} for name, pc in config.platforms.items()}
+        existing["platforms"] = {name: _to_dict(pc) for name, pc in config.platforms.items()}
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
