@@ -16,8 +16,7 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.agent_adapter import AgentAdapterInterface
-from backend.services.claude_adapter import _CODEPLANE_SYSTEM_PROMPT
+from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, AgentAdapterInterface
 from backend.services.permission_policy import (
     PolicyDecision,
     evaluate,
@@ -225,7 +224,7 @@ class CopilotAdapter(AgentAdapterInterface):
             system_message={
                 "mode": "append",
                 "content": (
-                    _CODEPLANE_SYSTEM_PROMPT
+                    CODEPLANE_SYSTEM_PROMPT
                     + " Before making tool calls, call report_intent first to declare your current intent."
                 ),
             },

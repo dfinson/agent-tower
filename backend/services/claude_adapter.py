@@ -35,21 +35,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-# Shared system prompt appended to all agent sessions.
-# Tells the agent it's running headless inside CodePlane.
-_CODEPLANE_SYSTEM_PROMPT = (
-    "You are running inside CodePlane, a headless non-interactive orchestration "
-    "framework. There is no human at a terminal. Do not enter plan mode or "
-    "pause to present a plan for review. Proceed directly with task execution. "
-    "When you believe your implementation is complete, merge the base branch into "
-    "your worktree (e.g. `git merge <base_ref>`) to catch any conflicts early. "
-    "If the merge is clean or you can fully resolve all conflicts while preserving "
-    "the intent of both sides, do so and commit the result. "
-    "If any conflict requires human judgment — you are not fully confident you can "
-    "resolve it without losing functionality or making a product decision — stop, "
-    "describe the conflict clearly in a message to the operator, and ask for "
-    "guidance before finishing."
-)
+from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT
 
 # Truncation limits for approval action payloads and tool summaries
 _TOOL_ACTION_MAX = 2000
@@ -478,7 +464,7 @@ class ClaudeAdapter(AgentAdapterInterface):
             model=config.model,
             permission_mode=_PERMISSION_MODE_MAP.get(config.permission_mode, "default"),  # type: ignore[arg-type]
             can_use_tool=self._build_can_use_tool(config, session_id),
-            append_system_prompt=_CODEPLANE_SYSTEM_PROMPT,
+            append_system_prompt=CODEPLANE_SYSTEM_PROMPT,
         )
 
         # MCP servers from CodePlane config

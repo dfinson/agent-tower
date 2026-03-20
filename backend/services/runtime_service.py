@@ -166,8 +166,8 @@ def _discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, MCPSer
     if codeplane_yml_path.exists():
         try:
             with open(codeplane_yml_path) as f:
-                tower_config = yaml.safe_load(f) or {}
-            disabled = tower_config.get("tools", {}).get("mcp", {}).get("disabled", [])
+                codeplane_config = yaml.safe_load(f) or {}
+            disabled = codeplane_config.get("tools", {}).get("mcp", {}).get("disabled", [])
             if isinstance(disabled, list):
                 for name in disabled:
                     servers.pop(str(name), None)

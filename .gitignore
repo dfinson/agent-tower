@@ -115,3 +115,4 @@ __marimo__/
 # Tool artifacts
 .desloppify/
 scorecard.png
+.desloppify-observe-report*.txt
