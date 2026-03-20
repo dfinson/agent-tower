@@ -16,6 +16,8 @@ router = APIRouter(tags=["voice"])
 
 ALLOWED_AUDIO_TYPES = frozenset({"audio/webm", "audio/ogg", "audio/wav", "audio/mpeg", "audio/mp4", "audio/x-wav"})
 
+_AUDIO_READ_CHUNK = 64 * 1024  # 64 KB
+
 _transcribe_semaphore = asyncio.Semaphore(2)
 
 
@@ -38,7 +40,7 @@ async def transcribe(request: Request, audio: UploadFile) -> TranscribeResponse:
     chunks: list[bytes] = []
     total = 0
     while True:
-        chunk = await audio.read(64 * 1024)  # 64 KB chunks
+        chunk = await audio.read(_AUDIO_READ_CHUNK)
         if not chunk:
             break
         total += len(chunk)
