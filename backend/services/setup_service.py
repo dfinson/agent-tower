@@ -1092,18 +1092,3 @@ def _setup_config() -> None:
     _console.print(f"  [dim]Edit: {DEFAULT_CONFIG_PATH}[/dim]")
 
 
-# ---------------------------------------------------------------------------
-# Legacy compat — keep preflight_check for any external callers
-# ---------------------------------------------------------------------------
-
-
-def preflight_check(*, verbose: bool = True) -> bool:
-    """Quick non-interactive check of required dependencies.
-
-    Returns True if all required deps are present.
-    Deprecated: use validate_preflight() or diagnose_configuration() instead.
-    """
-    results = verify_requirements()
-    if verbose:
-        render_checks(results)
-    return not any(r.status == CheckStatus.fail for r in results)

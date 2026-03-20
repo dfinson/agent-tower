@@ -49,6 +49,23 @@ def validate_sdk_model(sdk: str, model: str | None) -> None:
         )
 
 
+# Shared system prompt appended to all agent sessions.
+# Tells the agent it's running headless inside CodePlane.
+CODEPLANE_SYSTEM_PROMPT = (
+    "You are running inside CodePlane, a headless non-interactive orchestration "
+    "framework. There is no human at a terminal. Do not enter plan mode or "
+    "pause to present a plan for review. Proceed directly with task execution. "
+    "When you believe your implementation is complete, merge the base branch into "
+    "your worktree (e.g. `git merge <base_ref>`) to catch any conflicts early. "
+    "If the merge is clean or you can fully resolve all conflicts while preserving "
+    "the intent of both sides, do so and commit the result. "
+    "If any conflict requires human judgment — you are not fully confident you can "
+    "resolve it without losing functionality or making a product decision — stop, "
+    "describe the conflict clearly in a message to the operator, and ask for "
+    "guidance before finishing."
+)
+
+
 class AgentAdapterInterface(ABC):
     """Wraps the agent runtime behind a generic interface."""
 

@@ -26,7 +26,7 @@ import yaml
 from backend.models.domain import PermissionMode
 
 
-def _resolve_tower_dir() -> Path:
+def _resolve_codeplane_dir() -> Path:
     """Resolve CODEPLANE_HOME from env var, falling back to ~/.codeplane."""
     env = os.environ.get("CODEPLANE_HOME")
     if env:
@@ -45,7 +45,7 @@ def get_codeplane_dir() -> Path:
     """
     global _codeplane_dir  # noqa: PLW0603
     if _codeplane_dir is None:
-        _codeplane_dir = _resolve_tower_dir()
+        _codeplane_dir = _resolve_codeplane_dir()
     return _codeplane_dir
 
 

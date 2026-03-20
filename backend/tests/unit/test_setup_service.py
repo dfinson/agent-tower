@@ -16,7 +16,7 @@ from backend.services.setup_service import (
     _get_env_persistence_instructions,
     _offer_inline_fix,
     _should_prompt_for_warning,
-    preflight_check,
+    verify_requirements,
 )
 
 
@@ -97,8 +97,8 @@ class TestPreflightCheck:
     @patch("backend.services.setup_service._check_command")
     def test_all_found(self, mock_check) -> None:
         mock_check.return_value = (True, "v1.0")
-        ok = preflight_check(verbose=False)
-        assert ok is True
+        results = verify_requirements()
+        assert not any(r.status == CheckStatus.fail for r in results)
 
     @patch("backend.services.setup_service._check_command")
     def test_required_missing(self, mock_check) -> None:
@@ -109,8 +109,8 @@ class TestPreflightCheck:
             return (True, "v1.0")
 
         mock_check.side_effect = side_effect
-        ok = preflight_check(verbose=False)
-        assert ok is False
+        results = verify_requirements()
+        assert any(r.status == CheckStatus.fail for r in results)
 
     @patch("backend.services.setup_service._check_command")
     def test_optional_missing_still_ok(self, mock_check) -> None:
@@ -120,8 +120,8 @@ class TestPreflightCheck:
             return (True, "v1.0")
 
         mock_check.side_effect = side_effect
-        ok = preflight_check(verbose=False)
-        assert ok is True
+        results = verify_requirements()
+        assert not any(r.status == CheckStatus.fail for r in results)
 
 
 class TestCheckPort:
