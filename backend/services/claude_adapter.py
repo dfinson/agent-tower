@@ -30,6 +30,8 @@ from backend.services.agent_adapter import AgentAdapterInterface
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from claude_code_sdk import ClaudeSDKClient
+
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
 
@@ -68,7 +70,7 @@ class ClaudeAdapter(AgentAdapterInterface):
         event_bus: EventBus | None = None,
     ) -> None:
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
-        self._clients: dict[str, object] = {}  # session_id → ClaudeSDKClient
+        self._clients: dict[str, ClaudeSDKClient] = {}
         self._consumer_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_to_job: dict[str, str] = {}
         self._tool_start_times: dict[str, float] = {}
