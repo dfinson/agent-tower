@@ -10,17 +10,31 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.api.deps import get_db_session
 from backend.main import create_app
+from backend.models.db import Base
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 
 @pytest.fixture
-def _client() -> Any:
-    """Yield an async client wired to the ASGI app."""
+async def _client() -> Any:
+    """Yield an async client wired to the ASGI app with in-memory DB."""
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
     app = create_app(dev=True)
+
+    async def _override() -> AsyncSession:  # type: ignore[misc]
+        async with session_factory() as s:
+            yield s  # type: ignore[misc]
+
+    app.dependency_overrides[get_db_session] = _override
 
     async def _make() -> AsyncClient:
         transport = ASGITransport(app=app, raise_app_exceptions=False)

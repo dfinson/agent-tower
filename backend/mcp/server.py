@@ -20,6 +20,7 @@ import structlog
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from backend import __version__
 from backend.config import (
     load_config,
     register_repo,
@@ -133,6 +134,7 @@ def _job_to_response(job: Job) -> McpToolResult:
         id=job.id,
         repo=job.repo,
         prompt=job.prompt,
+        title=job.title,
         state=job.state,
         base_ref=job.base_ref,
         worktree_path=job.worktree_path,
@@ -141,6 +143,17 @@ def _job_to_response(job: Job) -> McpToolResult:
         updated_at=job.updated_at,
         completed_at=job.completed_at,
         pr_url=job.pr_url,
+        merge_status=job.merge_status,
+        resolution=job.resolution,
+        archived_at=job.archived_at,
+        failure_reason=job.failure_reason,
+        model=job.model,
+        worktree_name=job.worktree_name,
+        verify=job.verify,
+        self_review=job.self_review,
+        max_turns=job.max_turns,
+        verify_prompt=job.verify_prompt,
+        self_review_prompt=job.self_review_prompt,
     )
     return resp.model_dump(mode="json")
 
@@ -605,23 +618,27 @@ def _register_settings_tool(mcp: FastMCP) -> None:
             "\n\n"
             "- get: no extra params"
             "\n- update: pass any combination of: max_concurrent_jobs, permission_mode,"
-            " voice_model, completion_strategy, auto_push, cleanup_worktree,"
+            " auto_push, cleanup_worktree,"
             " delete_branch_after_merge, artifact_retention_days,"
-            " max_artifact_size_mb, auto_archive_days"
+            " max_artifact_size_mb, auto_archive_days,"
+            " verify, self_review, max_turns, verify_prompt, self_review_prompt"
         ),
     )
     async def codeplane_settings(
         action: Literal["get", "update"],
         max_concurrent_jobs: int | None = None,
         permission_mode: str | None = None,
-        voice_model: str | None = None,
-        completion_strategy: str | None = None,
         auto_push: bool | None = None,
         cleanup_worktree: bool | None = None,
         delete_branch_after_merge: bool | None = None,
         artifact_retention_days: int | None = None,
         max_artifact_size_mb: int | None = None,
         auto_archive_days: int | None = None,
+        verify: bool | None = None,
+        self_review: bool | None = None,
+        max_turns: int | None = None,
+        verify_prompt: str | None = None,
+        self_review_prompt: str | None = None,
     ) -> McpToolResult:
         config = load_config()
 
@@ -629,13 +646,17 @@ def _register_settings_tool(mcp: FastMCP) -> None:
             return SettingsResponse(
                 max_concurrent_jobs=config.runtime.max_concurrent_jobs,
                 permission_mode=config.runtime.permission_mode,
-                completion_strategy=config.completion.strategy,
                 auto_push=config.completion.auto_push,
                 cleanup_worktree=config.completion.cleanup_worktree,
                 delete_branch_after_merge=config.completion.delete_branch_after_merge,
                 artifact_retention_days=config.retention.artifact_retention_days,
                 max_artifact_size_mb=config.retention.max_artifact_size_mb,
                 auto_archive_days=config.retention.auto_archive_days,
+                verify=config.verification.verify,
+                self_review=config.verification.self_review,
+                max_turns=config.verification.max_turns,
+                verify_prompt=config.verification.verify_prompt,
+                self_review_prompt=config.verification.self_review_prompt,
             ).model_dump(mode="json")
 
         if action == "update":
@@ -644,14 +665,17 @@ def _register_settings_tool(mcp: FastMCP) -> None:
             field_map: dict[str, tuple[str, str, Any]] = {
                 "max_concurrent_jobs": ("runtime", "max_concurrent_jobs", max_concurrent_jobs),
                 "permission_mode": ("runtime", "permission_mode", permission_mode),
-                "voice_model": ("voice", "model", voice_model),
-                "completion_strategy": ("completion", "strategy", completion_strategy),
                 "auto_push": ("completion", "auto_push", auto_push),
                 "cleanup_worktree": ("completion", "cleanup_worktree", cleanup_worktree),
                 "delete_branch_after_merge": ("completion", "delete_branch_after_merge", delete_branch_after_merge),
                 "artifact_retention_days": ("retention", "artifact_retention_days", artifact_retention_days),
                 "max_artifact_size_mb": ("retention", "max_artifact_size_mb", max_artifact_size_mb),
                 "auto_archive_days": ("retention", "auto_archive_days", auto_archive_days),
+                "verify": ("verification", "verify", verify),
+                "self_review": ("verification", "self_review", self_review),
+                "max_turns": ("verification", "max_turns", max_turns),
+                "verify_prompt": ("verification", "verify_prompt", verify_prompt),
+                "self_review_prompt": ("verification", "self_review_prompt", self_review_prompt),
             }
             for _key, (section_name, attr, value) in field_map.items():
                 if value is not None:
@@ -662,13 +686,17 @@ def _register_settings_tool(mcp: FastMCP) -> None:
             return SettingsResponse(
                 max_concurrent_jobs=config.runtime.max_concurrent_jobs,
                 permission_mode=config.runtime.permission_mode,
-                completion_strategy=config.completion.strategy,
                 auto_push=config.completion.auto_push,
                 cleanup_worktree=config.completion.cleanup_worktree,
                 delete_branch_after_merge=config.completion.delete_branch_after_merge,
                 artifact_retention_days=config.retention.artifact_retention_days,
                 max_artifact_size_mb=config.retention.max_artifact_size_mb,
                 auto_archive_days=config.retention.auto_archive_days,
+                verify=config.verification.verify,
+                self_review=config.verification.self_review,
+                max_turns=config.verification.max_turns,
+                verify_prompt=config.verification.verify_prompt,
+                self_review_prompt=config.verification.self_review_prompt,
             ).model_dump(mode="json")
 
         return {"error": f"Unknown action: {action}. Use: get, update"}
@@ -797,7 +825,7 @@ def _register_health_tool(mcp: FastMCP) -> None:
                 queued = await svc.count_queued_jobs()
             return HealthResponse(
                 status=HealthStatus.healthy,
-                version="0.1.0",
+                version=__version__,
                 uptime_seconds=round(time.monotonic() - _start_time, 1),
                 active_jobs=active,
                 queued_jobs=queued,

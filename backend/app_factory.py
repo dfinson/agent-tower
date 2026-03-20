@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+from backend import __version__
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -180,7 +182,7 @@ def _mount_spa_fallback(app: FastAPI) -> None:
 
 def create_app(*, dev: bool = False, tunnel_origin: str | None = None, password: str | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
-    app = FastAPI(title="CodePlane", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="CodePlane", version=__version__, lifespan=lifespan)
 
     _configure_middleware(app, dev=dev, tunnel_origin=tunnel_origin, password=password)
     _register_routes(app)

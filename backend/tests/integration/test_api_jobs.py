@@ -69,7 +69,7 @@ class TestHealth:
     async def test_health_response_structure(self, client: AsyncClient) -> None:
         data = (await client.get("/api/health")).json()
         assert data["status"] == "healthy"
-        assert data["version"] == "0.1.0"
+        assert data["version"]
         assert isinstance(data["uptimeSeconds"], (int, float))
         assert isinstance(data["activeJobs"], int)
         assert isinstance(data["queuedJobs"], int)

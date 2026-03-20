@@ -8,10 +8,11 @@ from backend.main import cli
 
 
 def test_version_command() -> None:
+    from backend import __version__
     runner = CliRunner()
     result = runner.invoke(cli, ["version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert __version__ in result.output
 
 
 def test_doctor_command_runs() -> None:
