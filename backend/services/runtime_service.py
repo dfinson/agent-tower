@@ -11,6 +11,7 @@ Progress tracking (headline milestones and plan extraction) is delegated to
 from __future__ import annotations
 
 import asyncio
+import enum
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -62,6 +63,14 @@ class _AgentSession:
     async def abort(self) -> None:
         if self._adapter and self._session_id:
             await self._adapter.abort_session(self._session_id)
+
+
+class _EventAction(enum.Enum):
+    """Action directive returned by ``_process_agent_event``."""
+
+    skip = enum.auto()
+    publish = enum.auto()
+    abort = enum.auto()
 
 
 if TYPE_CHECKING:
@@ -548,6 +557,79 @@ class RuntimeService:
         except Exception:
             log.warning("job_cancel_transition_failed", job_id=job_id, exc_info=True)
 
+    # ------------------------------------------------------------------
+    # Shared event processing
+    # ------------------------------------------------------------------
+
+    async def _process_agent_event(
+        self,
+        job_id: str,
+        session_event: SessionEvent,
+        agent_session: _AgentSession,
+        worktree_path: str | None,
+        base_ref: str | None,
+        rejection_message: str,
+    ) -> tuple[_EventAction, DomainEvent | None, str | None]:
+        """Process a single agent session event (shared by main + follow-up loops).
+
+        Returns ``(action, domain_event, error_reason)``:
+
+        * **skip** – event consumed internally, caller should ``continue``.
+        * **publish** – caller should emit *domain_event* via the event bus.
+          *error_reason* is set when the event signals a failure but the loop
+          should keep draining.
+        * **abort** – caller should ``break``; *error_reason* explains why.
+        """
+        import time
+
+        self._last_activity[job_id] = time.monotonic()
+
+        # Diff recalculation on file changes
+        if (
+            session_event.kind == SessionEventKind.file_changed
+            and self._diff_service is not None
+            and worktree_path
+            and base_ref
+        ):
+            await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
+            return _EventAction.skip, None, None
+
+        # Diff recalculation on tool completions
+        if (
+            session_event.kind == SessionEventKind.transcript
+            and session_event.payload.get("role") == "tool_call"
+            and self._diff_service is not None
+            and worktree_path
+            and base_ref
+        ):
+            await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
+
+        domain_event = self._translate_event(job_id, session_event)
+        if domain_event is None:
+            return _EventAction.skip, None, None
+
+        error_reason: str | None = None
+        if domain_event.kind == DomainEventKind.job_failed:
+            error_reason = domain_event.payload.get("message", "Agent error")
+
+        # Suppress SDK echoes
+        if domain_event.kind == DomainEventKind.transcript_updated and job_id in self._echo_suppress:
+            content = domain_event.payload.get("content", "")
+            if content in self._echo_suppress[job_id]:
+                self._echo_suppress[job_id].discard(content)
+                return _EventAction.skip, None, None
+
+        # Handle approval requests
+        if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
+            resolution = await self._handle_approval_request(
+                job_id, domain_event, rejection_message,
+            )
+            if resolution == "rejected":
+                return _EventAction.abort, None, rejection_message
+            return _EventAction.skip, None, None
+
+        return _EventAction.publish, domain_event, error_reason
+
     async def _execute_session_attempt(
         self,
         job_id: str,
@@ -556,62 +638,37 @@ class RuntimeService:
         worktree_path: str | None,
         base_ref: str | None,
     ) -> tuple[str | None, str | None, bool]:
-        import time
-
         session_id: str | None = None
         error_reason: str | None = None
         made_progress = False
 
         async for session_event in agent_session.execute(config, self._resolve_adapter(config.sdk)):
-            self._last_activity[job_id] = time.monotonic()
             made_progress = made_progress or _session_event_counts_as_resume_progress(session_event)
 
-            if (
-                session_event.kind == SessionEventKind.file_changed
-                and self._diff_service is not None
-                and worktree_path
-                and base_ref
-            ):
-                await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
+            action, domain_event, evt_error = await self._process_agent_event(
+                job_id, session_event, agent_session, worktree_path, base_ref,
+                "Approval rejected by operator",
+            )
+
+            if action == _EventAction.skip:
                 continue
+            if action == _EventAction.abort:
+                error_reason = evt_error
+                break
 
-            if (
-                session_event.kind == SessionEventKind.transcript
-                and session_event.payload.get("role") == "tool_call"
-                and self._diff_service is not None
-                and worktree_path
-                and base_ref
-            ):
-                await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
+            assert domain_event is not None  # publish always provides an event
 
+            if evt_error:
+                error_reason = evt_error
+                log.warning("agent_error_event", job_id=job_id, error_reason=error_reason)
+
+            # Session ID for return value + persistence
             if session_id is None and agent_session.session_id:
                 session_id = agent_session.session_id
                 self._session_ids[job_id] = session_id
                 await self._persist_sdk_session_id(job_id, session_id)
 
-            domain_event = self._translate_event(job_id, session_event)
-            if domain_event is None:
-                continue
-
-            if domain_event.kind == DomainEventKind.job_failed:
-                error_reason = domain_event.payload.get("message", "Agent error")
-                log.warning("agent_error_event", job_id=job_id, error_reason=error_reason)
-
-            if domain_event.kind == DomainEventKind.transcript_updated and job_id in self._echo_suppress:
-                content = domain_event.payload.get("content", "")
-                if content in self._echo_suppress[job_id]:
-                    self._echo_suppress[job_id].discard(content)
-                    continue
-
-            if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
-                resolution = await self._handle_approval_request(
-                    job_id, domain_event, "Approval rejected by operator",
-                )
-                if resolution == "rejected":
-                    error_reason = "Approval rejected by operator"
-                    break
-                continue
-
+            # Model downgrade handling (main loop only)
             if domain_event.kind == DomainEventKind.model_downgraded:
                 requested = domain_event.payload.get("requested_model", "")
                 actual = domain_event.payload.get("actual_model", "")
@@ -654,6 +711,7 @@ class RuntimeService:
                 log.info("job_moved_to_signoff_model_downgrade", job_id=job_id)
                 return session_id, None, True
 
+            # Progress tracking (main loop only)
             if domain_event.kind == DomainEventKind.transcript_updated and self._progress_tracking is not None:
                 role = domain_event.payload.get("role", "")
                 content = domain_event.payload.get("content", "")
@@ -679,7 +737,6 @@ class RuntimeService:
         the turn encountered an error; callers decide whether to abort.
         """
         import dataclasses
-        import time
 
         followup_session = _AgentSession()
         followup_config = dataclasses.replace(
@@ -696,57 +753,27 @@ class RuntimeService:
 
         try:
             async for event in followup_session.execute(followup_config, self._resolve_adapter(base_config.sdk)):
-                self._last_activity[job_id] = time.monotonic()
+                action, domain_event, evt_error = await self._process_agent_event(
+                    job_id, event, followup_session, worktree_path, base_ref,
+                    "Approval rejected during verification",
+                )
 
-                # Diff recalculation on file changes
-                if (
-                    event.kind == SessionEventKind.file_changed
-                    and self._diff_service is not None
-                    and worktree_path
-                    and base_ref
-                ):
-                    await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
+                if action == _EventAction.skip:
                     continue
+                if action == _EventAction.abort:
+                    error_reason = evt_error
+                    break
 
-                # Diff recalculation on tool completions
-                if (
-                    event.kind == SessionEventKind.transcript
-                    and event.payload.get("role") == "tool_call"
-                    and self._diff_service is not None
-                    and worktree_path
-                    and base_ref
-                ):
-                    await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
+                assert domain_event is not None
 
-                # Capture session ID
+                if evt_error:
+                    error_reason = evt_error
+
+                # Capture follow-up session ID
                 if new_session_id is None and followup_session.session_id:
                     new_session_id = followup_session.session_id
                     self._session_ids[job_id] = new_session_id
                     await self._persist_sdk_session_id(job_id, new_session_id)
-
-                domain_event = self._translate_event(job_id, event)
-                if domain_event is None:
-                    continue
-
-                if domain_event.kind == DomainEventKind.job_failed:
-                    error_reason = domain_event.payload.get("message", "Turn error")
-
-                # Suppress SDK echoes
-                if domain_event.kind == DomainEventKind.transcript_updated and job_id in self._echo_suppress:
-                    content = domain_event.payload.get("content", "")
-                    if content in self._echo_suppress[job_id]:
-                        self._echo_suppress[job_id].discard(content)
-                        continue
-
-                # Handle approval requests (same pattern as main loop)
-                if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
-                    resolution = await self._handle_approval_request(
-                        job_id, domain_event, "Approval rejected during verification",
-                    )
-                    if resolution == "rejected":
-                        error_reason = "Approval rejected during verification"
-                        break
-                    continue
 
                 await self._event_bus.publish(domain_event)
         except Exception:
