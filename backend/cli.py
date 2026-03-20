@@ -413,7 +413,8 @@ def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | Non
 @cli.command()
 def version() -> None:
     """Print CodePlane version."""
-    click.echo("cpl 0.1.0")
+    from backend import __version__
+    click.echo(f"cpl {__version__}")
 
 
 @cli.command()

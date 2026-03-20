@@ -20,9 +20,10 @@ class TestVersionCommand:
         assert result.exit_code == 0
 
     def test_version_output_format(self) -> None:
+        from backend import __version__
         runner = CliRunner()
         result = runner.invoke(cli, ["version"])
-        assert result.output.strip() == "cpl 0.1.0"
+        assert result.output.strip() == f"cpl {__version__}"
 
 
 class TestDoctorCommand:

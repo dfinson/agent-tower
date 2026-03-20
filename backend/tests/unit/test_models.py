@@ -55,9 +55,10 @@ def test_job_response_round_trip() -> None:
 
 
 def test_health_response_serialization() -> None:
+    from backend import __version__
     resp = HealthResponse(
         status=HealthStatus.healthy,
-        version="0.1.0",
+        version=__version__,
         uptime_seconds=123.4,
         active_jobs=1,
         queued_jobs=0,
