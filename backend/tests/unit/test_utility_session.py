@@ -720,7 +720,7 @@ class TestHousekeepingLoop:
         import backend.services.utility_session as mod
 
         orig = mod._HOUSEKEEPING_INTERVAL_S
-        mod._HOUSEKEEPING_INTERVAL_S = 0.01
+        mod._HOUSEKEEPING_INTERVAL_S = int(0.01)
         try:
             with patch.object(svc, "_scale_down_idle", new_callable=AsyncMock) as mock_sd:
                 task = asyncio.create_task(svc._housekeeping_loop())
@@ -739,7 +739,7 @@ class TestHousekeepingLoop:
         import backend.services.utility_session as mod
 
         orig = mod._HOUSEKEEPING_INTERVAL_S
-        mod._HOUSEKEEPING_INTERVAL_S = 0.01
+        mod._HOUSEKEEPING_INTERVAL_S = int(0.01)
         try:
             task = asyncio.create_task(svc._housekeeping_loop())
             await asyncio.sleep(0.03)

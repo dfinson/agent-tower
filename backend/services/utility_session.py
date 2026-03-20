@@ -99,7 +99,7 @@ class UtilitySessionService:
             return
         candidates = [_WarmSession(model=self._model, index=i) for i in range(self._initial_pool_size)]
         results = await asyncio.gather(*[ws.connect() for ws in candidates], return_exceptions=True)
-        for ws, result in zip(candidates, results):
+        for ws, result in zip(candidates, results, strict=False):
             if isinstance(result, Exception):
                 log.warning("utility_session_start_failed", index=ws.index, exc_info=result)
             else:
@@ -248,7 +248,7 @@ class UtilitySessionService:
             results = await asyncio.gather(*[ws.connect() for ws in candidates], return_exceptions=True)
 
             connected: list[_WarmSession] = []
-            for ws, result in zip(candidates, results):
+            for ws, result in zip(candidates, results, strict=False):
                 if isinstance(result, Exception):
                     log.warning("utility_pool_scale_up_failed", index=ws.index, exc_info=result)
                 else:

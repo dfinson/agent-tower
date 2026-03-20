@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime  # noqa: TC003 — used in cast() string arg
 from typing import cast
 
 from sqlalchemy import select
@@ -20,11 +21,11 @@ class EventRepository(BaseRepository):
         # SQLAlchemy Column descriptors return Any at the type level;
         # cast() documents the expected runtime type for each field.
         return DomainEvent(
-            event_id=cast(str, row.event_id),
-            job_id=cast(str, row.job_id),
+            event_id=cast("str", row.event_id),
+            job_id=cast("str", row.job_id),
             timestamp=cast("datetime", row.timestamp),
-            kind=DomainEventKind(cast(str, row.kind)),
-            payload=json.loads(cast(str, row.payload)),
+            kind=DomainEventKind(cast("str", row.kind)),
+            payload=json.loads(cast("str", row.payload)),
             db_id=cast("int | None", row.id),
         )
 
@@ -39,7 +40,7 @@ class EventRepository(BaseRepository):
         )
         self._session.add(row)
         await self._session.flush()
-        db_id = cast(int, row.id)
+        db_id = cast("int", row.id)
         event.db_id = db_id
         return db_id
 

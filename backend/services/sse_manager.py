@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -150,20 +151,21 @@ def _build_from_fields(event: DomainEvent, model_cls: type, fields: FieldMap) ->
             kwargs[kwarg_name] = event.timestamp
         else:
             kwargs[kwarg_name] = event.payload.get(payload_key, default)
-    return model_cls(**kwargs).model_dump_json(by_alias=True)
+    result: str = model_cls(**kwargs).model_dump_json(by_alias=True)
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Custom builders for event types with non-trivial extraction logic
 # ---------------------------------------------------------------------------
 
-from collections.abc import Callable
-
 _BuilderFn = Callable[[DomainEvent], str]
 
 
 def _build_job_state_changed(event: DomainEvent) -> str:
-    new_state = _KIND_TO_STATE.get(event.kind, event.payload.get("state", event.payload.get("new_state", JobState.queued)))
+    new_state = _KIND_TO_STATE.get(
+        event.kind, event.payload.get("state", event.payload.get("new_state", JobState.queued))
+    )
     return JobStateChangedPayload(
         job_id=event.job_id,
         previous_state=event.payload.get("previous_state"),
@@ -220,93 +222,138 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
     "progress_headline": _build_progress_headline,
     "agent_plan_updated": _build_agent_plan_updated,
     # --- Field-map builders (declarative) ---
-    "log_line": (LogLinePayload, {
-        "seq": ("seq", 0),
-        "timestamp": ("timestamp", _TS_FALLBACK),
-        "level": ("level", "info"),
-        "message": ("message", ""),
-        "context": ("context", None),
-    }),
-    "transcript_update": (TranscriptPayload, {
-        "seq": ("seq", 0),
-        "timestamp": ("timestamp", _TS_FALLBACK),
-        "role": ("role", "agent"),
-        "content": ("content", ""),
-        "title": ("title", None),
-        "turn_id": ("turn_id", None),
-        "tool_name": ("tool_name", None),
-        "tool_args": ("tool_args", None),
-        "tool_result": ("tool_result", None),
-        "tool_success": ("tool_success", None),
-        "tool_issue": ("tool_issue", None),
-        "tool_intent": ("tool_intent", None),
-        "tool_title": ("tool_title", None),
-        "tool_display": ("tool_display", None),
-    }),
-    "diff_update": (DiffUpdatePayload, {
-        "changed_files": ("changed_files", []),
-    }),
-    "approval_requested": (ApprovalRequestedPayload, {
-        "approval_id": ("approval_id", ""),
-        "description": ("description", ""),
-        "proposed_action": ("proposed_action", None),
-        "timestamp": ("timestamp", _TS_FALLBACK),
-    }),
-    "approval_resolved": (ApprovalResolvedPayload, {
-        "approval_id": ("approval_id", ""),
-        "resolution": ("resolution", ""),
-        "timestamp": ("timestamp", _TS_FALLBACK),
-    }),
-    "session_heartbeat": (SessionHeartbeatPayload, {
-        "session_id": ("session_id", ""),
-        "timestamp": ("timestamp", _TS_FALLBACK),
-    }),
-    "merge_completed": (MergeCompletedPayload, {
-        "branch": ("branch", ""),
-        "base_ref": ("base_ref", ""),
-        "strategy": ("strategy", ""),
-        "timestamp": ("timestamp", _TS_FALLBACK),
-    }),
-    "merge_conflict": (MergeConflictPayload, {
-        "branch": ("branch", ""),
-        "base_ref": ("base_ref", ""),
-        "conflict_files": ("conflict_files", []),
-        "fallback": ("fallback", "none"),
-        "pr_url": ("pr_url", None),
-        "timestamp": ("timestamp", _TS_FALLBACK),
-    }),
-    "session_resumed": (SessionResumedPayload, {
-        "session_number": ("session_number", 1),
-        "timestamp": ("timestamp", _TS_FALLBACK),
-    }),
-    "job_failed": (JobFailedPayload, {
-        "reason": ("reason", "Unknown error"),
-        "timestamp": ("timestamp", _TS_EVENT),
-    }),
-    "job_resolved": (JobResolvedPayload, {
-        "resolution": ("resolution", Resolution.unresolved),
-        "pr_url": ("pr_url", None),
-        "conflict_files": ("conflict_files", None),
-        "timestamp": ("timestamp", _TS_EVENT),
-    }),
-    "job_archived": (JobArchivedPayload, {
-        "timestamp": ("timestamp", _TS_EVENT),
-    }),
-    "job_title_updated": (JobTitleUpdatedPayload, {
-        "title": ("title", None),
-        "branch": ("branch", None),
-        "timestamp": ("timestamp", _TS_EVENT),
-    }),
-    "model_downgraded": (ModelDowngradedPayload, {
-        "requested_model": ("requested_model", ""),
-        "actual_model": ("actual_model", ""),
-        "timestamp": ("timestamp", _TS_EVENT),
-    }),
-    "tool_group_summary": (ToolGroupSummaryPayload, {
-        "turn_id": ("turn_id", ""),
-        "summary": ("summary", ""),
-        "timestamp": ("timestamp", _TS_EVENT),
-    }),
+    "log_line": (
+        LogLinePayload,
+        {
+            "seq": ("seq", 0),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+            "level": ("level", "info"),
+            "message": ("message", ""),
+            "context": ("context", None),
+        },
+    ),
+    "transcript_update": (
+        TranscriptPayload,
+        {
+            "seq": ("seq", 0),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+            "role": ("role", "agent"),
+            "content": ("content", ""),
+            "title": ("title", None),
+            "turn_id": ("turn_id", None),
+            "tool_name": ("tool_name", None),
+            "tool_args": ("tool_args", None),
+            "tool_result": ("tool_result", None),
+            "tool_success": ("tool_success", None),
+            "tool_issue": ("tool_issue", None),
+            "tool_intent": ("tool_intent", None),
+            "tool_title": ("tool_title", None),
+            "tool_display": ("tool_display", None),
+        },
+    ),
+    "diff_update": (
+        DiffUpdatePayload,
+        {
+            "changed_files": ("changed_files", []),
+        },
+    ),
+    "approval_requested": (
+        ApprovalRequestedPayload,
+        {
+            "approval_id": ("approval_id", ""),
+            "description": ("description", ""),
+            "proposed_action": ("proposed_action", None),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+        },
+    ),
+    "approval_resolved": (
+        ApprovalResolvedPayload,
+        {
+            "approval_id": ("approval_id", ""),
+            "resolution": ("resolution", ""),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+        },
+    ),
+    "session_heartbeat": (
+        SessionHeartbeatPayload,
+        {
+            "session_id": ("session_id", ""),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+        },
+    ),
+    "merge_completed": (
+        MergeCompletedPayload,
+        {
+            "branch": ("branch", ""),
+            "base_ref": ("base_ref", ""),
+            "strategy": ("strategy", ""),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+        },
+    ),
+    "merge_conflict": (
+        MergeConflictPayload,
+        {
+            "branch": ("branch", ""),
+            "base_ref": ("base_ref", ""),
+            "conflict_files": ("conflict_files", []),
+            "fallback": ("fallback", "none"),
+            "pr_url": ("pr_url", None),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+        },
+    ),
+    "session_resumed": (
+        SessionResumedPayload,
+        {
+            "session_number": ("session_number", 1),
+            "timestamp": ("timestamp", _TS_FALLBACK),
+        },
+    ),
+    "job_failed": (
+        JobFailedPayload,
+        {
+            "reason": ("reason", "Unknown error"),
+            "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
+    "job_resolved": (
+        JobResolvedPayload,
+        {
+            "resolution": ("resolution", Resolution.unresolved),
+            "pr_url": ("pr_url", None),
+            "conflict_files": ("conflict_files", None),
+            "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
+    "job_archived": (
+        JobArchivedPayload,
+        {
+            "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
+    "job_title_updated": (
+        JobTitleUpdatedPayload,
+        {
+            "title": ("title", None),
+            "branch": ("branch", None),
+            "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
+    "model_downgraded": (
+        ModelDowngradedPayload,
+        {
+            "requested_model": ("requested_model", ""),
+            "actual_model": ("actual_model", ""),
+            "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
+    "tool_group_summary": (
+        ToolGroupSummaryPayload,
+        {
+            "turn_id": ("turn_id", ""),
+            "summary": ("summary", ""),
+            "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
 }
 
 

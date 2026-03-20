@@ -14,18 +14,20 @@ import asyncio
 import contextlib
 import re
 import shutil
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import structlog
+from sqlalchemy.exc import SQLAlchemyError
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 from backend.models.domain import Resolution
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.git_service import GitError
-from sqlalchemy.exc import SQLAlchemyError
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -189,9 +191,7 @@ class MergeService:
         return MergeResult(status=MergeStatus.merged, strategy="ff_only")
 
     @contextlib.asynccontextmanager
-    async def _preserved_worktree(
-        self, repo_path: str, job_id: str, log_prefix: str = "merge"
-    ) -> AsyncIterator[None]:
+    async def _preserved_worktree(self, repo_path: str, job_id: str, log_prefix: str = "merge") -> AsyncIterator[None]:
         """Save and restore the main worktree's branch + stash state."""
         original_branch: str | None = None
         main_stashed = False
@@ -253,7 +253,7 @@ class MergeService:
         except GitError:
             log.warning("checkout_base_ref_failed", job_id=job_id, exc_info=True)
 
-        return False, conflict_files
+        return False, conflict_files or []
 
     async def _merge_in_worktree(
         self,
@@ -291,7 +291,10 @@ class MergeService:
     ) -> MergeResult:
         """Checkout + merge in the main worktree (caller handles stash/restore)."""
         merge_ok, conflict_files = await self._checkout_and_merge(
-            job_id, repo_path, branch, base_ref,
+            job_id,
+            repo_path,
+            branch,
+            base_ref,
         )
 
         if merge_ok:
@@ -597,7 +600,10 @@ class MergeService:
         """Operator merge using checkout (lock must be held)."""
         async with self._preserved_worktree(repo_path, job_id, "resolve"):
             merge_ok, conflict_files = await self._checkout_and_merge(
-                job_id, repo_path, branch, base_ref,
+                job_id,
+                repo_path,
+                branch,
+                base_ref,
             )
 
             if merge_ok:
@@ -658,7 +664,10 @@ class MergeService:
                     branch=branch,
                     commit_range=commit_range,
                 )
-                return MergeResult(status=MergeStatus.error, error="Cherry-pick failed without conflict markers; check git configuration or hooks")
+                return MergeResult(
+                    status=MergeStatus.error,
+                    error="Cherry-pick failed without conflict markers; check git configuration or hooks",
+                )
 
             log.info("smart_merge_conflict_detected", job_id=job_id, branch=branch)
             try:

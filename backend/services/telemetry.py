@@ -23,7 +23,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field, replace
 
-
 # Retention limits for call history lists
 _MAX_LLM_CALLS = 100
 _MAX_TOOL_CALLS = 200

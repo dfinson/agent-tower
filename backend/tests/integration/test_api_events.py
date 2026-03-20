@@ -70,7 +70,7 @@ async def _raw_asgi_sse(
             if chunk:
                 body_chunks.append(chunk)
 
-    task = asyncio.create_task(app(scope, receive, send))  # type: ignore[arg-type]
+    task = asyncio.create_task(app(scope, receive, send))
     try:
         await asyncio.wait_for(response_started.wait(), timeout=timeout)
         # Give the generator a moment to yield the first frame

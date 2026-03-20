@@ -20,7 +20,12 @@ if TYPE_CHECKING:
 
 import structlog
 
-from backend.config import CPLConfig
+from backend.config import (
+    CPLConfig,
+    build_session_config,
+    discover_mcp_servers,
+    resolve_protected_paths,
+)
 from backend.models.db import Base
 from backend.models.domain import (
     Job,
@@ -32,17 +37,11 @@ from backend.models.domain import (
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.adapter_registry import AdapterRegistry
-from backend.models.events import DomainEvent
 from backend.services.agent_adapter import AgentAdapterInterface
 from backend.services.event_bus import EventBus
 from backend.services.progress_tracking_service import (
     _count_similar_trailing_headlines,
     _headlines_are_similar,
-)
-from backend.config import (
-    build_session_config,
-    discover_mcp_servers,
-    resolve_protected_paths,
 )
 from backend.services.runtime_service import (
     RuntimeService,

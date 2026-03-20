@@ -122,17 +122,17 @@ class _FakeClaudeSDKClient:
 def _build_fake_sdk_module() -> ModuleType:
     """Build a fake ``claude_code_sdk`` module with all types the adapter imports."""
     mod = ModuleType("claude_code_sdk")
-    mod.PermissionResultAllow = _FakePermissionResultAllow  # type: ignore[attr-defined]
-    mod.PermissionResultDeny = _FakePermissionResultDeny  # type: ignore[attr-defined]
-    mod.TextBlock = _FakeTextBlock  # type: ignore[attr-defined]
-    mod.ToolUseBlock = _FakeToolUseBlock  # type: ignore[attr-defined]
-    mod.ToolResultBlock = _FakeToolResultBlock  # type: ignore[attr-defined]
-    mod.SystemMessage = _FakeSystemMessage  # type: ignore[attr-defined]
-    mod.AssistantMessage = _FakeAssistantMessage  # type: ignore[attr-defined]
-    mod.ResultMessage = _FakeResultMessage  # type: ignore[attr-defined]
-    mod.ClaudeCodeOptions = _FakeClaudeCodeOptions  # type: ignore[attr-defined]
-    mod.ClaudeSDKClient = _FakeClaudeSDKClient  # type: ignore[attr-defined]
-    mod.query = AsyncMock()  # type: ignore[attr-defined]
+    mod.PermissionResultAllow = _FakePermissionResultAllow
+    mod.PermissionResultDeny = _FakePermissionResultDeny
+    mod.TextBlock = _FakeTextBlock
+    mod.ToolUseBlock = _FakeToolUseBlock
+    mod.ToolResultBlock = _FakeToolResultBlock
+    mod.SystemMessage = _FakeSystemMessage
+    mod.AssistantMessage = _FakeAssistantMessage
+    mod.ResultMessage = _FakeResultMessage
+    mod.ClaudeCodeOptions = _FakeClaudeCodeOptions
+    mod.ClaudeSDKClient = _FakeClaudeSDKClient
+    mod.query = AsyncMock()
     return mod
 
 
@@ -288,6 +288,7 @@ class TestEnqueueLog:
 
         assert seq[0] == 1
         event = q.get_nowait()
+        assert event is not None
         assert event.kind == SessionEventKind.log
         assert event.payload["message"] == "hello"
         assert event.payload["level"] == "info"
@@ -301,6 +302,7 @@ class TestEnqueueLog:
         adapter._enqueue_log(sid, "msg", "warn")
 
         event = q.get_nowait()
+        assert event is not None
         assert event.payload["seq"] == 0
 
 
@@ -378,6 +380,7 @@ class TestBuildCanUseTool:
         assert isinstance(result, _FakePermissionResultAllow)
         # Check approval_request event was enqueued
         event = q.get_nowait()
+        assert event is not None
         assert event.kind == SessionEventKind.approval_request
         assert event.payload["approval_id"] == "req-1"
 
@@ -431,6 +434,7 @@ class TestProcessAssistantMessage:
         adapter._process_assistant_message(sid, msg, [0])
 
         event = adapter._queues[sid].get_nowait()
+        assert event is not None
         assert event.kind == SessionEventKind.transcript
         assert event.payload["role"] == "agent"
         assert event.payload["content"] == "Hello world"
@@ -481,7 +485,7 @@ class TestProcessAssistantMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        transcript_events = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
         assert len(transcript_events) == 1
         assert transcript_events[0].payload["tool_result"] == "output here"
         assert transcript_events[0].payload["tool_success"] is True
@@ -500,7 +504,7 @@ class TestProcessAssistantMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        transcript_events = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
         assert len(transcript_events) == 1
         assert transcript_events[0].payload["tool_success"] is False
 
@@ -521,7 +525,7 @@ class TestProcessAssistantMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        transcript_events = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
         assert transcript_events[0].payload["tool_result"] == "line1\nline2"
 
     @patch("backend.services.tool_formatters.format_tool_display", return_value="tool: ok")
@@ -539,7 +543,7 @@ class TestProcessAssistantMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        transcript_events = [e for e in events if e.kind == SessionEventKind.transcript]
+        transcript_events = [e for e in events if e is not None and e.kind == SessionEventKind.transcript]
         assert "42" in transcript_events[0].payload["tool_result"]
 
     def test_no_content_blocks(self, adapter: ClaudeAdapter) -> None:
@@ -571,11 +575,11 @@ class TestProcessResultMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        done_events = [e for e in events if e.kind == SessionEventKind.done]
+        done_events = [e for e in events if e is not None and e.kind == SessionEventKind.done]
         assert len(done_events) == 1
         assert done_events[0].payload["result"] == "All done"
 
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
+        log_events = [e for e in events if e is not None and e.kind == SessionEventKind.log]
         assert any("$0.0500" in e.payload["message"] for e in log_events)
 
     def test_error_result(self, adapter: ClaudeAdapter) -> None:
@@ -590,7 +594,7 @@ class TestProcessResultMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        error_events = [e for e in events if e.kind == SessionEventKind.error]
+        error_events = [e for e in events if e is not None and e.kind == SessionEventKind.error]
         assert len(error_events) == 1
         assert "error" in error_events[0].payload["message"].lower()
 
@@ -637,7 +641,7 @@ class TestProcessResultMessage:
         while not adapter._queues[sid].empty():
             events.append(adapter._queues[sid].get_nowait())
 
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
+        log_events = [e for e in events if e is not None and e.kind == SessionEventKind.log]
         # Should contain "0+0 tokens"
         assert any("0+0" in e.payload.get("message", "") for e in log_events)
 
@@ -668,7 +672,7 @@ class TestConsumeMessages:
 
         # Filter out sentinel None
         events = [e for e in events if e is not None]
-        log_events = [e for e in events if e.kind == SessionEventKind.log]
+        log_events = [e for e in events if e is not None and e.kind == SessionEventKind.log]
         assert any("initialized" in e.payload.get("message", "") for e in log_events)
 
     @pytest.mark.asyncio
@@ -783,7 +787,7 @@ class TestSendMessage:
     @pytest.mark.asyncio
     async def test_send_to_existing_session(self, adapter: ClaudeAdapter) -> None:
         client = _FakeClaudeSDKClient()
-        adapter._clients["sess-1"] = client
+        adapter._clients["sess-1"] = client  # type: ignore[assignment]
 
         await adapter.send_message("sess-1", "follow up")
 
@@ -809,7 +813,7 @@ class TestAbortSession:
     @pytest.mark.asyncio
     async def test_abort_existing_session(self, adapter: ClaudeAdapter) -> None:
         client = _FakeClaudeSDKClient()
-        adapter._clients["sess-1"] = client
+        adapter._clients["sess-1"] = client  # type: ignore[assignment]
         adapter._queues["sess-1"] = asyncio.Queue()
         adapter._session_to_job["sess-1"] = "job-1"
 
@@ -850,6 +854,7 @@ class TestComplete:
         with patch.dict(sys.modules["claude_code_sdk"].__dict__, {"query": _fake_query}):
             result = await adapter.complete("test prompt")
 
+        assert result is not None
         assert "Hello" in result
         assert "World" in result
 

@@ -113,7 +113,9 @@ def up(
 
     # Password logic: auto-generate for tunnel, allow explicit, block unsafe combos
     if remote and no_password:
-        click.secho("ERROR: --remote with --no-password is not allowed. Remote access requires authentication.", fg="red")
+        click.secho(
+            "ERROR: --remote with --no-password is not allowed. Remote access requires authentication.", fg="red"
+        )
         raise SystemExit(1)
 
     # Password priority: --password flag > CPL_TUNNEL_PASSWORD env/dotenv > auto-generate for tunnel
@@ -414,6 +416,7 @@ def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | Non
 def version() -> None:
     """Print CodePlane version."""
     from backend import __version__
+
     click.echo(f"cpl {__version__}")
 
 

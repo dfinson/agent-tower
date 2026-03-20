@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, TypedDict
-import uuid
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -209,7 +209,7 @@ class DomainEvent:
     job_id: str
     timestamp: datetime
     kind: DomainEventKind
-    payload: EventPayload
+    payload: dict[str, Any]
     db_id: int | None = None  # autoincrement ID from EventRow; set after persistence
 
     @staticmethod

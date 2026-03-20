@@ -7,11 +7,19 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy import and_, or_, select
 
 from backend.models.db import JobRow
-from backend.models.domain import Job, JobState, PermissionMode
+from backend.models.domain import Job, JobState, PermissionMode, Resolution
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+
+def _safe_job_state(raw: str) -> JobState:
+    """Convert a raw state string to JobState, defaulting to queued for unknown values."""
+    try:
+        return JobState(raw) if raw else JobState.queued
+    except ValueError:
+        return JobState.queued
 
 
 class JobRepository(BaseRepository):
@@ -37,11 +45,11 @@ class JobRepository(BaseRepository):
         # SQLAlchemy Column descriptors return Any at the type level;
         # cast() documents the expected runtime type for each field.
         return Job(
-            id=cast(str, row.id),
-            repo=cast(str, row.repo),
-            prompt=cast(str, row.prompt),
-            state=cast(str, row.state),
-            base_ref=cast(str, row.base_ref),
+            id=cast("str", row.id),
+            repo=cast("str", row.repo),
+            prompt=cast("str", row.prompt),
+            state=_safe_job_state(cast("str", row.state)),
+            base_ref=cast("str", row.base_ref),
             branch=cast("str | None", row.branch),
             worktree_path=cast("str | None", row.worktree_path),
             session_id=cast("str | None", row.session_id),
@@ -52,14 +60,14 @@ class JobRepository(BaseRepository):
             merge_status=cast("str | None", row.merge_status),
             title=cast("str | None", row.title),
             worktree_name=cast("str | None", row.worktree_name),
-            permission_mode=cast(str, row.permission_mode) or PermissionMode.auto,
-            session_count=cast(int, row.session_count) or 1,
+            permission_mode=PermissionMode(cast("str", row.permission_mode) or "auto"),
+            session_count=cast("int", row.session_count) or 1,
             sdk_session_id=cast("str | None", row.sdk_session_id),
             model=cast("str | None", row.model),
-            resolution=cast("str | None", row.resolution),
+            resolution=Resolution(cast("str", row.resolution)) if row.resolution else None,
             archived_at=cast("datetime | None", row.archived_at),
             failure_reason=cast("str | None", row.failure_reason),
-            sdk=cast(str, row.sdk) or "copilot",
+            sdk=cast("str", row.sdk) or "copilot",
             verify=cast("bool | None", row.verify),
             self_review=cast("bool | None", row.self_review),
             max_turns=cast("int | None", row.max_turns),

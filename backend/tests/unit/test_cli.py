@@ -9,6 +9,7 @@ from backend.main import cli
 
 def test_version_command() -> None:
     from backend import __version__
+
     runner = CliRunner()
     result = runner.invoke(cli, ["version"])
     assert result.exit_code == 0

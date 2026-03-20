@@ -69,17 +69,18 @@ def _short_path(path: str) -> str:
 class _FmtSpec:
     """Declarative spec for a simple single-arg formatter."""
 
-    keys: tuple[str, ...]          # arg keys to try, first non-empty wins
-    prefix: str                    # label prefix (e.g. "Create", "Grep")
-    fallback: str                  # returned when no arg found
-    use_path: bool = False         # apply _short_path to the value
-    truncate: int = 0              # apply _truncate (0 = no truncation)
-    quote: bool = False            # wrap value in double quotes
-    separator: str = " "           # between prefix and value
+    keys: tuple[str, ...]  # arg keys to try, first non-empty wins
+    prefix: str  # label prefix (e.g. "Create", "Grep")
+    fallback: str  # returned when no arg found
+    use_path: bool = False  # apply _short_path to the value
+    truncate: int = 0  # apply _truncate (0 = no truncation)
+    quote: bool = False  # wrap value in double quotes
+    separator: str = " "  # between prefix and value
 
 
 def _build_formatter(spec: _FmtSpec) -> Callable[[ToolArgs], str]:
     """Build a formatter function from a declarative spec."""
+
     def fmt(args: ToolArgs) -> str:
         for k in spec.keys:
             v = args.get(k, "")
@@ -91,36 +92,41 @@ def _build_formatter(spec: _FmtSpec) -> Callable[[ToolArgs], str]:
                     display = f'"{display}"'
                 return f"{spec.prefix}{spec.separator}{display}"
         return spec.fallback
+
     return fmt
 
 
 def _count_hint(unit: str, *, empty: str = "") -> Callable[[str, bool], str]:
     """Factory for hints like '→ 12 matches' / '→ no matches'."""
+
     def hint(result: str, success: bool) -> str:
         n = _count_lines(result)
         return f"→ {n} {unit}" if n else (empty or f"→ no {unit}")
+
     return hint
 
 
 def _static_hint(ok: str, fail: str = "→ FAIL") -> Callable[[str, bool], str]:
     """Factory for hints that return a fixed string."""
+
     def hint(result: str, success: bool) -> str:
         return ok if success else fail
+
     return hint
 
 
 # Declarative specs for simple formatters
 _SIMPLE_SPECS: dict[str, _FmtSpec] = {
-    "bash":                _FmtSpec(("command",), "$", "bash", truncate=55),
-    "run_in_terminal":     _FmtSpec(("command",), "$", "Run command", truncate=55),
-    "create_file":         _FmtSpec(("filePath", "file_path"), "Create", "Create file", use_path=True),
+    "bash": _FmtSpec(("command",), "$", "bash", truncate=55),
+    "run_in_terminal": _FmtSpec(("command",), "$", "Run command", truncate=55),
+    "create_file": _FmtSpec(("filePath", "file_path"), "Create", "Create file", use_path=True),
     "replace_string_in_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
-    "grep_search":         _FmtSpec(("query", "pattern"), "Grep:", "Grep search", truncate=40, quote=True),
-    "semantic_search":     _FmtSpec(("query",), "Search:", "Semantic search", truncate=40, quote=True),
-    "file_search":         _FmtSpec(("query", "pattern"), "Find:", "File search", truncate=40, quote=True),
-    "list_dir":            _FmtSpec(("path", "directory"), "List", "List directory", use_path=True),
-    "runSubagent":         _FmtSpec(("description",), "Subagent:", "Run subagent", truncate=50),
-    "search_subagent":     _FmtSpec(("description", "query"), "Search agent:", "Search agent", truncate=45),
+    "grep_search": _FmtSpec(("query", "pattern"), "Grep:", "Grep search", truncate=40, quote=True),
+    "semantic_search": _FmtSpec(("query",), "Search:", "Semantic search", truncate=40, quote=True),
+    "file_search": _FmtSpec(("query", "pattern"), "Find:", "File search", truncate=40, quote=True),
+    "list_dir": _FmtSpec(("path", "directory"), "List", "List directory", use_path=True),
+    "runSubagent": _FmtSpec(("description",), "Subagent:", "Run subagent", truncate=50),
+    "search_subagent": _FmtSpec(("description", "query"), "Search agent:", "Search agent", truncate=45),
     "get_terminal_output": _FmtSpec(("id",), "Read terminal", "Read terminal"),
     "tool_search_tool_regex": _FmtSpec(("pattern",), "Find tools:", "Find tools", truncate=40, quote=True),
     "vscode_listCodeUsages": _FmtSpec(("symbol", "query"), "Usages:", "Find usages", truncate=45),
@@ -264,15 +270,17 @@ def _hint_memory(result: str, success: bool) -> str:
 _FORMATTERS: dict[str, Callable[[ToolArgs], str]] = {
     name: _build_formatter(spec) for name, spec in _SIMPLE_SPECS.items()
 }
-_FORMATTERS.update({
-    "read_file": _fmt_read_file,
-    "multi_replace_string_in_file": _fmt_multi_replace,
-    "memory": _fmt_memory,
-    "manage_todo_list": _fmt_manage_todo,
-    "get_errors": _fmt_get_errors,
-    "fetch_webpage": _fmt_fetch_webpage,
-    "vscode_renameSymbol": _fmt_rename_symbol,
-})
+_FORMATTERS.update(
+    {
+        "read_file": _fmt_read_file,
+        "multi_replace_string_in_file": _fmt_multi_replace,
+        "memory": _fmt_memory,
+        "manage_todo_list": _fmt_manage_todo,
+        "get_errors": _fmt_get_errors,
+        "fetch_webpage": _fmt_fetch_webpage,
+        "vscode_renameSymbol": _fmt_rename_symbol,
+    }
+)
 
 _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
     "bash": _hint_bash,

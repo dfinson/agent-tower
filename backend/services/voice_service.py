@@ -18,14 +18,13 @@ logger = structlog.get_logger()
 _MODEL_NAME = "base.en"
 
 
-def _import_whisper() -> type:
+def _import_whisper() -> Any:
     """Import faster-whisper at runtime, raising a clear error if missing."""
     try:
         from faster_whisper import WhisperModel as _Cls
     except ImportError as exc:
         raise ImportError(
-            "faster-whisper is required for voice features. "
-            "Install it with: pip install codeplane[voice]"
+            "faster-whisper is required for voice features. Install it with: pip install codeplane[voice]"
         ) from exc
     return _Cls
 
@@ -42,9 +41,9 @@ class VoiceService:
 
     def _ensure_model(self) -> Any:
         if self._model is None:
-            WhisperModel = _import_whisper()
+            whisper_cls = _import_whisper()
             logger.debug("voice_model_loading", model=self._model_name)
-            self._model = WhisperModel(self._model_name, device="cpu", compute_type="int8")
+            self._model = whisper_cls(self._model_name, device="cpu", compute_type="int8")
             logger.debug("voice_model_loaded", model=self._model_name)
         return self._model
 

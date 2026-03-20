@@ -6,18 +6,21 @@ and static file serving.  Delegates lifecycle management to ``lifespan.py``.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend import __version__
-from starlette.requests import Request
-from starlette.responses import Response
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+from backend import __version__
 from backend.api import approvals, artifacts, events, health, jobs, settings, terminal, voice, workspace
 from backend.lifespan import lifespan
 from backend.services.agent_adapter import SDKModelMismatchError

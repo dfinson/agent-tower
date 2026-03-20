@@ -14,11 +14,10 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
-from typing_extensions import TypedDict
-
 import structlog
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from typing_extensions import TypedDict
 
 from backend import __version__
 from backend.config import (
@@ -74,6 +73,7 @@ _start_time = time.monotonic()
 # ---------------------------------------------------------------------------
 # MCP tool return-type helpers
 # ---------------------------------------------------------------------------
+
 
 class McpErrorDict(TypedDict):
     """Standard error response returned by MCP tool handlers."""

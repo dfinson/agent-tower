@@ -23,7 +23,7 @@ def _audio_file(
     data: bytes = b"\x00" * 128,
     content_type: str = "audio/webm",
     filename: str = "clip.webm",
-) -> dict:
+) -> dict[str, tuple[str, bytes, str]]:
     """Return kwargs suitable for ``client.post(files=...)``."""
     return {"audio": (filename, data, content_type)}
 

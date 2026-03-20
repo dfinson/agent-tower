@@ -34,7 +34,7 @@ def _transcript_event(role: str, content: str, timestamp: str = "2024-01-01T00:0
     )
 
 
-def _diff_event(changed_files: list[dict]) -> DomainEvent:
+def _diff_event(changed_files: list[dict[str, object]]) -> DomainEvent:
     """Create a diff_updated DomainEvent for testing."""
     return DomainEvent(
         event_id="evt-diff",

@@ -19,17 +19,16 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from backend.config import build_session_config
 from backend.models.domain import (
     Job,
     JobState,
-    PermissionMode,
     Resolution,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
 )
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.config import build_session_config
 from backend.services.progress_tracking_service import ProgressTrackingService
 
 if TYPE_CHECKING:
@@ -199,9 +198,7 @@ class RuntimeService:
             config=self._config,
         )
 
-    async def _finalize_diff_safe(
-        self, job_id: str, worktree_path: str | None, base_ref: str | None
-    ) -> None:
+    async def _finalize_diff_safe(self, job_id: str, worktree_path: str | None, base_ref: str | None) -> None:
         """Finalize the diff snapshot, swallowing exceptions."""
         if self._diff_service is None or not worktree_path or not base_ref:
             return
@@ -308,7 +305,8 @@ class RuntimeService:
         if self._progress_tracking is not None:
             self._progress_tracking.start_tracking(job_id)
             # Proactively scale the utility pool to match running jobs
-            await self._utility_session.notify_job_started()
+            if self._utility_session is not None:
+                await self._utility_session.notify_job_started()
 
         # Start telemetry tracking
         from backend.services.telemetry import collector as tel
@@ -344,7 +342,10 @@ class RuntimeService:
             # Resume fallback: first attempt errored without progress on a resumed session
             if error_reason and config.resume_sdk_session_id and not result.made_progress:
                 result = await self._attempt_resume_fallback(
-                    job_id, config, worktree_path, base_ref,
+                    job_id,
+                    config,
+                    worktree_path,
+                    base_ref,
                 )
                 session_id = result.session_id
                 error_reason = result.error_reason
@@ -670,7 +671,9 @@ class RuntimeService:
         # Handle approval requests
         if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
             resolution = await self._handle_approval_request(
-                job_id, domain_event, rejection_message,
+                job_id,
+                domain_event,
+                rejection_message,
             )
             if resolution == "rejected":
                 return _EventAction.abort, None, rejection_message
@@ -695,7 +698,11 @@ class RuntimeService:
             made_progress = made_progress or _session_event_counts_as_resume_progress(session_event)
 
             action, domain_event, evt_error = await self._process_agent_event(
-                job_id, session_event, agent_session, worktree_path, base_ref,
+                job_id,
+                session_event,
+                agent_session,
+                worktree_path,
+                base_ref,
                 "Approval rejected by operator",
             )
 
@@ -783,7 +790,11 @@ class RuntimeService:
         try:
             async for event in followup_session.execute(followup_config, self._resolve_adapter(base_config.sdk)):
                 action, domain_event, evt_error = await self._process_agent_event(
-                    job_id, event, followup_session, worktree_path, base_ref,
+                    job_id,
+                    event,
+                    followup_session,
+                    worktree_path,
+                    base_ref,
                     "Approval rejected during verification",
                 )
 
@@ -1361,8 +1372,6 @@ class RuntimeService:
         if job is None or not job.worktree_path or not job.branch:
             log.info("pr_creation_skipped_no_worktree", job_id=job_id)
             return None
-
-        import re
 
         _ref_pattern = re.compile(r"^[a-zA-Z0-9/_.-]+$")
         if not _ref_pattern.match(job.branch):

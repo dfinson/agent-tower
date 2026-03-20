@@ -5,7 +5,7 @@ from __future__ import annotations
 import glob
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -137,7 +137,7 @@ class JobService:
         prompt: str,
         base_ref: str | None = None,
         branch: str | None = None,
-        permission_mode: str = PermissionMode.auto,
+        permission_mode: PermissionMode = PermissionMode.auto,
         model: str | None = None,
         sdk: str | None = None,
         verify: bool | None = None,
@@ -157,6 +157,8 @@ class JobService:
         Raises RepoNotAllowedError if the repo is not in the allowlist.
         """
         resolved_repo = self.validate_repo(repo)
+
+        assert self._git is not None, "GitService required for job creation"
 
         resolved_sdk = sdk or self._config.runtime.default_sdk
 
@@ -341,7 +343,7 @@ class JobService:
         next_cursor = jobs[-1].id if has_more and jobs else None
         return jobs, next_cursor, has_more
 
-    async def transition_state(self, job_id: str, new_state: str, *, failure_reason: str | None = None) -> Job:
+    async def transition_state(self, job_id: str, new_state: JobState, *, failure_reason: str | None = None) -> Job:
         """Transition a job's state. Validates the transition."""
         job = await self.get_job(job_id)
         validate_state_transition(job.state, new_state)
@@ -424,16 +426,16 @@ class JobService:
         self,
         job: Job,
         action: str,
-        merge_service: object,
-        event_bus: object | None = None,
+        merge_service: Any,
+        event_bus: Any | None = None,
     ) -> tuple[str, str | None, list[str] | None]:
         """Execute merge/PR/discard resolution and persist the outcome.
 
         Returns (resolution, pr_url, conflict_files).
         """
-        from backend.services.merge_service import MergeService as _MS
+        from backend.services.merge_service import MergeService
 
-        ms: _MS = merge_service  # type: ignore[assignment]
+        ms: MergeService = merge_service
         result = await ms.resolve_job(
             job_id=job.id,
             action=action,
@@ -446,14 +448,14 @@ class JobService:
 
         from backend.services.merge_service import MergeStatus
 
-        _STATUS_MAP = {
+        status_map = {
             MergeStatus.merged: Resolution.merged,
             MergeStatus.pr_created: Resolution.pr_created,
             MergeStatus.conflict: Resolution.conflict,
             MergeStatus.skipped: Resolution.unresolved,
             MergeStatus.error: Resolution.unresolved,
         }
-        resolution = _STATUS_MAP.get(result.status, Resolution.unresolved)
+        resolution = status_map.get(result.status, Resolution.unresolved)
 
         # Persist resolution
         await self._job_repo.update_resolution(job.id, resolution, pr_url=result.pr_url)
@@ -482,7 +484,7 @@ class JobService:
 
         return resolution, result.pr_url, result.conflict_files
 
-    async def archive_job(self, job_id: str, event_bus: object | None = None) -> Job:
+    async def archive_job(self, job_id: str, event_bus: Any | None = None) -> Job:
         """Archive a job (hide from Kanban board)."""
         job = await self.get_job(job_id)
         if job.state not in TERMINAL_STATES:

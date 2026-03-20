@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime  # noqa: TC003 — used in cast() string arg
 from typing import cast
 
 from sqlalchemy import select
@@ -19,14 +20,14 @@ class ArtifactRepository(BaseRepository):
         # SQLAlchemy Column descriptors return Any at the type level;
         # cast() documents the expected runtime type for each field.
         return Artifact(
-            id=cast(str, row.id),
-            job_id=cast(str, row.job_id),
-            name=cast(str, row.name),
-            type=cast(str, row.type),
-            mime_type=cast(str, row.mime_type),
-            size_bytes=cast(int, row.size_bytes),
-            disk_path=cast(str, row.disk_path),
-            phase=cast(str, row.phase),
+            id=cast("str", row.id),
+            job_id=cast("str", row.job_id),
+            name=cast("str", row.name),
+            type=cast("str", row.type),
+            mime_type=cast("str", row.mime_type),
+            size_bytes=cast("int", row.size_bytes),
+            disk_path=cast("str", row.disk_path),
+            phase=cast("str", row.phase),
             created_at=cast("datetime", row.created_at),
         )
 

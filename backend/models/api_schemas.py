@@ -8,7 +8,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
-from backend.models.domain import JobState, PermissionMode, Resolution
+from backend.models.domain import (  # noqa: TC001 — Pydantic resolves annotations at runtime
+    JobState,
+    PermissionMode,
+    Resolution,
+)
 
 
 class CamelModel(BaseModel):
@@ -36,6 +40,7 @@ class CamelModel(BaseModel):
 # (canonical definitions live there). Re-exported here for backward compatibility.
 
 from enum import StrEnum  # noqa: E402 — after domain imports to keep grouping clear
+
 
 class ApprovalResolution(StrEnum):
     approved = "approved"

@@ -85,28 +85,28 @@ class _Rule(NamedTuple):
 # (mode, kind) → rule.  Missing entries fall through to the mode default.
 _RULES: dict[tuple[str, str], _Rule] = {
     # ── AUTO ──────────────────────────────────────────────────────────
-    (PermissionMode.auto, "read"):        _Rule(_A),
-    (PermissionMode.auto, "memory"):      _Rule(_A),
-    (PermissionMode.auto, "write"):       _Rule(_PATH_WS, _A),  # approve; workspace path check first
-    (PermissionMode.auto, "shell"):       _Rule(_A),
-    (PermissionMode.auto, "mcp"):         _Rule(_A),
-    (PermissionMode.auto, "url"):         _Rule(_A),
+    (PermissionMode.auto, "read"): _Rule(_A),
+    (PermissionMode.auto, "memory"): _Rule(_A),
+    (PermissionMode.auto, "write"): _Rule(_PATH_WS, _A),  # approve; workspace path check first
+    (PermissionMode.auto, "shell"): _Rule(_A),
+    (PermissionMode.auto, "mcp"): _Rule(_A),
+    (PermissionMode.auto, "url"): _Rule(_A),
     (PermissionMode.auto, "custom-tool"): _Rule(_A),
     # ── READ_ONLY ────────────────────────────────────────────────────
-    (PermissionMode.read_only, "memory"):      _Rule(_A),
-    (PermissionMode.read_only, "read"):        _Rule(_READ_WS),
-    (PermissionMode.read_only, "shell"):       _Rule(_SHELL_RO, _D),
-    (PermissionMode.read_only, "mcp"):         _Rule(_MCP_RO, _D),
-    (PermissionMode.read_only, "write"):       _Rule(_D),
-    (PermissionMode.read_only, "url"):         _Rule(_D),
+    (PermissionMode.read_only, "memory"): _Rule(_A),
+    (PermissionMode.read_only, "read"): _Rule(_READ_WS),
+    (PermissionMode.read_only, "shell"): _Rule(_SHELL_RO, _D),
+    (PermissionMode.read_only, "mcp"): _Rule(_MCP_RO, _D),
+    (PermissionMode.read_only, "write"): _Rule(_D),
+    (PermissionMode.read_only, "url"): _Rule(_D),
     (PermissionMode.read_only, "custom-tool"): _Rule(_D),
     # ── APPROVAL_REQUIRED ────────────────────────────────────────────
-    (PermissionMode.approval_required, "memory"):      _Rule(_A),
-    (PermissionMode.approval_required, "read"):        _Rule(_A),
-    (PermissionMode.approval_required, "shell"):       _Rule(_SHELL_RO, _K),
-    (PermissionMode.approval_required, "write"):       _Rule(_K),
-    (PermissionMode.approval_required, "url"):         _Rule(_K),
-    (PermissionMode.approval_required, "mcp"):         _Rule(_MCP_RO, _K),
+    (PermissionMode.approval_required, "memory"): _Rule(_A),
+    (PermissionMode.approval_required, "read"): _Rule(_A),
+    (PermissionMode.approval_required, "shell"): _Rule(_SHELL_RO, _K),
+    (PermissionMode.approval_required, "write"): _Rule(_K),
+    (PermissionMode.approval_required, "url"): _Rule(_K),
+    (PermissionMode.approval_required, "mcp"): _Rule(_MCP_RO, _K),
     (PermissionMode.approval_required, "custom-tool"): _Rule(_K),
 }
 
@@ -187,7 +187,7 @@ def evaluate(
 
 
 # Keep legacy wrappers for backward compatibility
-from functools import partial as _partial
+from functools import partial as _partial  # noqa: E402
 
 evaluate_auto = _partial(evaluate, "auto")
 evaluate_read_only = _partial(evaluate, "read_only")
