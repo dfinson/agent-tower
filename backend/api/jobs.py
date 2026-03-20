@@ -18,7 +18,6 @@ from backend.models.api_schemas import (
     JobResponse,
     LogLinePayload,
     ModelInfoResponse,
-    PermissionMode,
     ProgressHeadlinePayload,
     ResolutionAction,
     ResolveJobRequest,
@@ -39,7 +38,7 @@ if TYPE_CHECKING:
     from backend.services.runtime_service import RuntimeService
 
 from backend.api.deps import get_db_session
-from backend.models.domain import JobState, Resolution
+from backend.models.domain import JobState, PermissionMode, Resolution
 
 router = APIRouter(tags=["jobs"])
 
@@ -67,7 +66,8 @@ def _make_job_service(session: AsyncSession) -> JobService:
 
 def _get_merge_service(request: Request) -> MergeService | None:
     """Get MergeService from app state (may be None if not configured)."""
-    return request.app.state.merge_service
+    result: MergeService | None = request.app.state.merge_service
+    return result
 
 
 def _job_to_response(job: Job) -> JobResponse:
@@ -315,10 +315,7 @@ async def list_models(
 ) -> list[ModelInfoResponse]:
     """Return the model list for the requested SDK, cached at server startup."""
     by_sdk: dict[str, list[dict[str, object]]] = getattr(request.app.state, "cached_models_by_sdk", {})
-    if sdk is not None:
-        models = by_sdk.get(sdk, [])
-    else:
-        models = by_sdk.get("copilot", [])
+    models = by_sdk.get(sdk, []) if sdk is not None else by_sdk.get("copilot", [])
     return [ModelInfoResponse.model_validate(m) for m in models]
 
 
@@ -370,7 +367,11 @@ async def get_job_diff(
     job = await svc.get_job(job_id)
 
     # For active jobs with a worktree, calculate a fresh diff
-    if job.state in (JobState.running, JobState.waiting_for_approval) and job.worktree_path and job.worktree_path != job.repo:
+    if (
+        job.state in (JobState.running, JobState.waiting_for_approval)
+        and job.worktree_path
+        and job.worktree_path != job.repo
+    ):
         from backend.services.diff_service import DiffService
 
         config = load_config()
@@ -410,7 +411,7 @@ async def get_job_transcript(
     # that restored transcripts include AI-generated group labels.
     summary_events = await svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
     group_summary_by_turn: dict[str, str] = {
-        ev.payload["turn_id"]: ev.payload["summary"]
+        str(ev.payload.get("turn_id")): str(ev.payload.get("summary"))
         for ev in summary_events
         if ev.payload.get("turn_id") and ev.payload.get("summary")
     }

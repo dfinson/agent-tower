@@ -25,7 +25,7 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.agent_adapter import AgentAdapterInterface
+from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, AgentAdapterInterface
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -36,8 +36,6 @@ if TYPE_CHECKING:
     from backend.services.event_bus import EventBus
 
 log = structlog.get_logger()
-
-from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT
 
 # Truncation limits for approval action payloads and tool summaries
 _TOOL_ACTION_MAX = 2000
@@ -267,6 +265,7 @@ class ClaudeAdapter(AgentAdapterInterface):
         # Lock in the main model from the first AssistantMessage that carries one
         if job_id and model:
             from backend.services.telemetry import collector as tel
+
             tel.set_main_model(job_id, model)
 
         for block in content_blocks:
@@ -541,7 +540,7 @@ class ClaudeAdapter(AgentAdapterInterface):
             return
         try:
             # Start a new turn on the existing session
-            await client.query(message)  # type: ignore[attr-defined]
+            await client.query(message)
         except Exception:
             log.warning("claude_send_message_failed", session_id=session_id, exc_info=True)
 
@@ -550,8 +549,8 @@ class ClaudeAdapter(AgentAdapterInterface):
         if client is None:
             return
         try:
-            await client.interrupt()  # type: ignore[attr-defined]
-            await client.disconnect()  # type: ignore[attr-defined]
+            await client.interrupt()
+            await client.disconnect()
         except Exception:
             log.warning("claude_abort_failed", session_id=session_id, exc_info=True)
         finally:

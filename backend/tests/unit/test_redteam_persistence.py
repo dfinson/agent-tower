@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 from backend.models.db import Base
-from backend.models.domain import Artifact, Job
+from backend.models.domain import Artifact, Job, JobState
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.database import _set_sqlite_pragmas
@@ -262,7 +262,7 @@ class TestBoundaryValues:
             id="job-empty",
             repo="",
             prompt="",
-            state="",
+            state=JobState.queued,
             base_ref="",
             branch=None,
             worktree_path=None,
@@ -493,7 +493,7 @@ class TestUpdateStateEdgeCases:
 
     @pytest.mark.asyncio
     async def test_update_to_invalid_state(self, session: AsyncSession) -> None:
-        """No state machine enforcement in the repo layer — accepts any string."""
+        """Invalid state strings fall back to queued in the domain model."""
         repo = JobRepository(session)
         await repo.create(_make_job("job-1", "queued"))
         await session.commit()
@@ -504,7 +504,8 @@ class TestUpdateStateEdgeCases:
 
         job = await repo.get("job-1")
         assert job is not None
-        assert job.state == "invalid_state_value"
+        # _to_domain defaults unknown states to queued
+        assert job.state == JobState.queued
 
     @pytest.mark.asyncio
     async def test_update_state_preserves_other_fields(self, session: AsyncSession) -> None:

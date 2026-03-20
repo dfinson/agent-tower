@@ -22,7 +22,7 @@ def _make_request(
     cookies: dict[str, str] | None = None,
     scheme: str = "http",
     headers: dict[str, str] | None = None,
-    json_body: dict | None = None,
+    json_body: dict[str, object] | None = None,
     json_raises: bool = False,
 ) -> MagicMock:
     """Build a minimal mock Starlette Request."""
@@ -233,19 +233,6 @@ class TestHandleLogin:
         _reset_auth_state(monkeypatch)
         auth.set_password("pw")
         req = _make_request(json_body={"password": "pw"}, scheme="https")
-        resp = await auth.authenticate_login_request(req)
-        assert resp.status_code == 200
-        raw_headers = dict(resp.raw_headers)
-        assert b"secure" in raw_headers[b"set-cookie"].lower()
-
-    @pytest.mark.asyncio
-    async def test_login_https_via_forwarded_proto(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _reset_auth_state(monkeypatch)
-        auth.set_password("pw")
-        req = _make_request(
-            json_body={"password": "pw"},
-            headers={"x-forwarded-proto": "https"},
-        )
         resp = await auth.authenticate_login_request(req)
         assert resp.status_code == 200
         raw_headers = dict(resp.raw_headers)

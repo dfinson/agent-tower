@@ -32,7 +32,7 @@ async def _client() -> Any:
 
     async def _override() -> AsyncSession:  # type: ignore[misc]
         async with session_factory() as s:
-            yield s  # type: ignore[misc]
+            yield s
 
     app.dependency_overrides[get_db_session] = _override
 

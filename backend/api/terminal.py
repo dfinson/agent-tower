@@ -9,8 +9,6 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from backend.services.auth import check_websocket_auth
-
 from backend.models.api_schemas import (
     CreateTerminalSessionRequest,
     CreateTerminalSessionResponse,
@@ -18,6 +16,7 @@ from backend.models.api_schemas import (
     TerminalAskResponse,
     TerminalSessionInfo,
 )
+from backend.services.auth import check_websocket_auth
 
 if TYPE_CHECKING:
     from backend.services.terminal_service import TerminalService

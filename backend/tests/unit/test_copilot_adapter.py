@@ -112,37 +112,37 @@ class _FakeCopilotClient:
 
 def _build_fake_copilot_module() -> ModuleType:
     mod = ModuleType("copilot")
-    mod.CopilotClient = _FakeCopilotClient  # type: ignore[attr-defined]
-    mod.PermissionRequest = _FakePermissionRequest  # type: ignore[attr-defined]
-    mod.PermissionRequestResult = _FakePermissionRequestResult  # type: ignore[attr-defined]
+    mod.CopilotClient = _FakeCopilotClient
+    mod.PermissionRequest = _FakePermissionRequest
+    mod.PermissionRequestResult = _FakePermissionRequestResult
     return mod
 
 
 def _build_fake_copilot_types() -> ModuleType:
     mod = ModuleType("copilot.types")
 
-    class _SessionConfig(dict):
+    class _SessionConfig(dict):  # type: ignore[type-arg]
         pass
 
-    class _ResumeSessionConfig(dict):
+    class _ResumeSessionConfig(dict):  # type: ignore[type-arg]  # type: ignore[type-arg]
         pass
 
-    mod.SessionConfig = _SessionConfig  # type: ignore[attr-defined]
-    mod.ResumeSessionConfig = _ResumeSessionConfig  # type: ignore[attr-defined]
+    mod.SessionConfig = _SessionConfig
+    mod.ResumeSessionConfig = _ResumeSessionConfig
     return mod
 
 
 def _build_fake_copilot_session() -> ModuleType:
     mod = ModuleType("copilot.session")
-    mod.CopilotSession = _FakeCopilotSession  # type: ignore[attr-defined]
+    mod.CopilotSession = _FakeCopilotSession
     return mod
 
 
 def _build_fake_copilot_events() -> ModuleType:
     mod = ModuleType("copilot.generated")
     sub = ModuleType("copilot.generated.session_events")
-    sub.SessionEvent = _FakeSdkSessionEvent  # type: ignore[attr-defined]
-    mod.session_events = sub  # type: ignore[attr-defined]
+    sub.SessionEvent = _FakeSdkSessionEvent
+    mod.session_events = sub
     return mod
 
 
@@ -288,7 +288,7 @@ class TestSendMessage:
     @pytest.mark.asyncio
     async def test_send_to_existing_session(self, adapter: CopilotAdapter) -> None:
         session = _FakeCopilotSession()
-        adapter._sessions["sess-1"] = session
+        adapter._sessions["sess-1"] = session  # type: ignore[assignment]
 
         await adapter.send_message("sess-1", "follow up")
 
@@ -309,7 +309,7 @@ class TestAbortSession:
     @pytest.mark.asyncio
     async def test_abort_existing_session(self, adapter: CopilotAdapter) -> None:
         session = _FakeCopilotSession()
-        adapter._sessions["sess-1"] = session
+        adapter._sessions["sess-1"] = session  # type: ignore[assignment]  # type: ignore[assignment]
         adapter._queues["sess-1"] = asyncio.Queue()
         adapter._session_to_job["sess-1"] = "job-1"
 
@@ -427,7 +427,7 @@ class TestOnEventCallback:
         self,
         adapter: CopilotAdapter,
         config: SessionConfig | None = None,
-    ) -> tuple[str, asyncio.Queue[SessionEvent | None], _FakeCopilotSession]:
+    ) -> tuple[str, asyncio.Queue[SessionEvent | None], Any]:
         """Create a session and return (session_id, queue, fake_session)."""
         config = config or _make_config()
         fake_client = _FakeCopilotClient()
@@ -581,7 +581,7 @@ class TestEventTelemetry:
     async def _setup_session_with_job(
         self,
         adapter: CopilotAdapter,
-    ) -> tuple[str, asyncio.Queue[SessionEvent | None], _FakeCopilotSession]:
+    ) -> tuple[str, asyncio.Queue[SessionEvent | None], Any]:
         config = _make_config(job_id="job-tel")
         fake_client = _FakeCopilotClient()
 
@@ -891,9 +891,7 @@ class TestEventTelemetry:
 
 class TestLogEvents:
     @pytest.mark.asyncio
-    async def _setup_session(
-        self, adapter: CopilotAdapter
-    ) -> tuple[str, asyncio.Queue[SessionEvent | None], _FakeCopilotSession]:
+    async def _setup_session(self, adapter: CopilotAdapter) -> tuple[str, asyncio.Queue[SessionEvent | None], Any]:
         config = _make_config(job_id="job-log")
         fake_client = _FakeCopilotClient()
 
@@ -1135,11 +1133,12 @@ class TestComplete:
             callback(_FakeSdkSessionEvent("assistant.message", data))
             callback(_FakeSdkSessionEvent("session.task_complete", _FakeEventData()))
 
-        fake_session.on = _patched_on
+        fake_session.on = _patched_on  # type: ignore[method-assign]
 
         with patch("copilot.CopilotClient", return_value=_FakeCompleteClient()):
             result = await adapter.complete("test prompt")
 
+        assert result is not None
         assert collected_content in result
 
     @pytest.mark.asyncio

@@ -70,6 +70,7 @@ def __getattr__(name: str) -> Any:
             return d / "data.db"
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
+
 # Hardcoded constants — not user-configurable
 VOICE_ENABLED = True
 VOICE_MAX_AUDIO_SIZE_MB = 10
@@ -258,9 +259,12 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
             existing = yaml.safe_load(f) or {}
 
     # Merge our known sections — existing keys not in our model are preserved
-    _to_dict = lambda dc: asdict(dc, dict_factory=lambda pairs: {
-        k: (str(v) if isinstance(v, enum.Enum) else v) for k, v in pairs
-    })
+    def _to_dict(dc: Any) -> dict[str, Any]:
+        return asdict(
+            dc,
+            dict_factory=lambda pairs: {k: (str(v) if isinstance(v, enum.Enum) else v) for k, v in pairs},
+        )
+
     existing["server"] = _to_dict(config.server)
     existing["runtime"] = _to_dict(config.runtime)
     existing["retention"] = _to_dict(config.retention)
@@ -475,7 +479,7 @@ def resolve_protected_paths(repo_path: str) -> list[str]:
 
 def resolve_permission_mode(repo_path: str) -> str | None:
     """Read permission_mode from .codeplane.yml if present (per-repo override)."""
-    from backend.models.domain import PermissionMode as _PM
+    from backend.models.domain import PermissionMode
 
     codeplane_yml = Path(repo_path) / ".codeplane.yml"
     if not codeplane_yml.exists():
@@ -484,7 +488,7 @@ def resolve_permission_mode(repo_path: str) -> str | None:
         with open(codeplane_yml) as f:
             data = yaml.safe_load(f) or {}
         mode = data.get("permission_mode")
-        if mode and str(mode) in (_PM.auto, _PM.read_only, _PM.approval_required):
+        if mode and str(mode) in (PermissionMode.auto, PermissionMode.read_only, PermissionMode.approval_required):
             return str(mode)
         return None
     except Exception:
@@ -501,8 +505,7 @@ def build_session_config(
 
     Permission mode priority: per-job override > .codeplane.yml > global config.
     """
-    from backend.models.domain import PermissionMode as _PM
-    from backend.models.domain import SessionConfig
+    from backend.models.domain import PermissionMode, SessionConfig
 
     workspace = job.worktree_path or job.repo
     mcp_servers = discover_mcp_servers(job.repo, config)
@@ -516,9 +519,9 @@ def build_session_config(
         mode_str = repo_mode or config.runtime.permission_mode
 
     try:
-        mode = _PM(mode_str)
+        mode = PermissionMode(mode_str)
     except ValueError:
-        mode = _PM.auto
+        mode = PermissionMode.auto
 
     return SessionConfig(
         workspace_path=workspace,

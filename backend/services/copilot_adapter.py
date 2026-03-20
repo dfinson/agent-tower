@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import uuid
 from datetime import UTC
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -229,8 +229,13 @@ class CopilotAdapter(AgentAdapterInterface):
     # --- Extracted telemetry handlers ---
 
     def _handle_usage_event(
-        self, data: object, job_id: str, tel: object,
-        requested_model: str, model_verified: list[bool], queue: asyncio.Queue,
+        self,
+        data: Any,
+        job_id: str,
+        tel: Any,
+        requested_model: str,
+        model_verified: list[bool],
+        queue: asyncio.Queue[SessionEvent | None],
     ) -> None:
         actual_model = data.model or ""
         if not model_verified[0] and requested_model and actual_model:
@@ -268,10 +273,10 @@ class CopilotAdapter(AgentAdapterInterface):
         # Capture Copilot quota snapshots if present
         raw_snapshots = getattr(data, "quota_snapshots", None)
         if raw_snapshots:
-            from backend.services.telemetry import QuotaSnapshot as _QS
+            from backend.services.telemetry import QuotaSnapshot
 
             parsed = {
-                key: _QS(
+                key: QuotaSnapshot(
                     used_requests=float(getattr(snap, "used_requests", 0) or 0),
                     entitlement_requests=float(getattr(snap, "entitlement_requests", 0) or 0),
                     remaining_percentage=float(getattr(snap, "remaining_percentage", 0) or 0),
@@ -285,7 +290,7 @@ class CopilotAdapter(AgentAdapterInterface):
             }
             tel.record_quota_snapshots(job_id, snapshots=parsed)
 
-    def _handle_tool_start(self, data: object, job_id: str, tel: object) -> None:
+    def _handle_tool_start(self, data: Any, job_id: str, tel: Any) -> None:
         tool_id = data.tool_call_id or ""
         import json as _json
         import time as _time
@@ -295,16 +300,12 @@ class CopilotAdapter(AgentAdapterInterface):
         args_str: str | None = None
         if data.arguments is not None:
             try:
-                args_str = (
-                    _json.dumps(data.arguments) if not isinstance(data.arguments, str) else data.arguments
-                )
+                args_str = _json.dumps(data.arguments) if not isinstance(data.arguments, str) else data.arguments
             except Exception:
                 args_str = str(data.arguments)
         t_name = data.tool_name or data.mcp_tool_name or "tool"
         t_name_display = (
-            f"{data.mcp_server_name}/{data.mcp_tool_name}"
-            if data.mcp_server_name and data.mcp_tool_name
-            else t_name
+            f"{data.mcp_server_name}/{data.mcp_tool_name}" if data.mcp_server_name and data.mcp_tool_name else t_name
         )
         # Capture human-readable intent/title fields from the SDK if present
         tool_intent: str = getattr(data, "intention", None) or ""
@@ -321,7 +322,7 @@ class CopilotAdapter(AgentAdapterInterface):
             "tool_title": tool_title,
         }
 
-    def _handle_tool_end(self, data: object, job_id: str, tel: object) -> None:
+    def _handle_tool_end(self, data: Any, job_id: str, tel: Any) -> None:
         tool_id = data.tool_call_id or ""
         import time as _time
 
@@ -337,13 +338,13 @@ class CopilotAdapter(AgentAdapterInterface):
             success=bool(data.success) if data.success is not None else True,
         )
 
-    def _handle_context_changed(self, data: object, job_id: str, tel: object) -> None:
+    def _handle_context_changed(self, data: Any, job_id: str, tel: Any) -> None:
         tel.record_context_change(
             job_id,
             current_tokens=int(data.current_tokens or 0),
         )
 
-    def _handle_compaction(self, data: object, job_id: str, tel: object) -> None:
+    def _handle_compaction(self, data: Any, job_id: str, tel: Any) -> None:
         tel.record_compaction(
             job_id,
             pre_tokens=int(data.pre_compaction_tokens or 0),
@@ -358,8 +359,12 @@ class CopilotAdapter(AgentAdapterInterface):
     # --- Log emission ---
 
     def _emit_log_event(
-        self, kind_str: str, data: object, requested_model: str,
-        queue: asyncio.Queue, log_seq: list[int],
+        self,
+        kind_str: str,
+        data: Any,
+        requested_model: str,
+        queue: asyncio.Queue[SessionEvent | None],
+        log_seq: list[int],
     ) -> None:
         """Emit a log SessionEvent for operational SDK events."""
         _log_msg: str | None = None
@@ -382,7 +387,8 @@ class CopilotAdapter(AgentAdapterInterface):
             model = data.model or ""
             if model and requested_model and model != requested_model:
                 _log_msg = (
-                    f"\u26a0 MODEL MISMATCH: requested {requested_model} but serving {model} ({in_tok}+{out_tok} tokens)"
+                    f"\u26a0 MODEL MISMATCH: requested {requested_model}"
+                    f" but serving {model} ({in_tok}+{out_tok} tokens)"
                 )
                 _log_level = "error"
             else:
@@ -416,8 +422,12 @@ class CopilotAdapter(AgentAdapterInterface):
     # --- SDK → SessionEvent queue bridge ---
 
     def _bridge_to_session_queue(
-        self, kind_str: str, data: object, payload: dict,
-        queue: asyncio.Queue, session_id: str,
+        self,
+        kind_str: str,
+        data: Any,
+        payload: dict[str, object],
+        queue: asyncio.Queue[SessionEvent | None],
+        session_id: str,
     ) -> None:
         """Map SDK events to SessionEvent entries and push onto the queue."""
         kind = self._SDK_KIND_MAP.get(kind_str)
@@ -506,7 +516,7 @@ class CopilotAdapter(AgentAdapterInterface):
                 queue.put_nowait(None)  # sentinel
 
     async def create_session(self, config: SessionConfig) -> str:
-        from copilot import CopilotClient, PermissionRequest
+        from copilot import CopilotClient
         from copilot.types import ResumeSessionConfig
         from copilot.types import SessionConfig as SdkSessionConfig
 

@@ -22,9 +22,9 @@ class ApprovalRepository(BaseRepository):
         # SQLAlchemy Column descriptors return Any at the type level;
         # cast() documents the expected runtime type for each field.
         return Approval(
-            id=cast(str, row.id),
-            job_id=cast(str, row.job_id),
-            description=cast(str, row.description),
+            id=cast("str", row.id),
+            job_id=cast("str", row.job_id),
+            description=cast("str", row.description),
             proposed_action=cast("str | None", row.proposed_action),
             requested_at=cast("datetime", row.requested_at),
             resolved_at=cast("datetime | None", row.resolved_at),
@@ -86,7 +86,7 @@ class ApprovalRepository(BaseRepository):
         )
         result = await self._session.execute(stmt)
         # CursorResult.rowcount is always present but not in the generic type stub
-        if cast(int, result.rowcount) == 0:
+        if cast("int", result.rowcount) == 0:  # type: ignore[attr-defined]
             return None
         await self._session.flush()
         # Re-fetch the updated row

@@ -264,7 +264,8 @@ async def browse_directories(
 
 
 def _get_platform_registry(request: Request) -> PlatformRegistry | None:
-    return request.app.state.platform_registry
+    result: PlatformRegistry | None = request.app.state.platform_registry
+    return result
 
 
 @router.get("/platforms/status", response_model=PlatformStatusListResponse)
@@ -327,10 +328,7 @@ async def list_sdks() -> SDKListResponse:
 
         # Run auth check in a thread to avoid blocking the event loop on subprocess.
         auth = await asyncio.to_thread(_check_agent_auth, sdk.value)
-        if auth.authenticated is False:
-            status = "not_configured"
-        else:
-            status = "ready"
+        status = "not_configured" if auth.authenticated is False else "ready"
 
         items.append(
             SDKInfoResponse(

@@ -1090,5 +1090,3 @@ def _setup_config() -> None:
     _console.print(f"    completion.strategy:     [bold]{config.completion.strategy}[/bold]")
     _console.print()
     _console.print(f"  [dim]Edit: {DEFAULT_CONFIG_PATH}[/dim]")
-
-

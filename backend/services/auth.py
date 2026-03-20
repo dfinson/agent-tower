@@ -73,10 +73,7 @@ def _get_logo_b64() -> str:
     """Return base64-encoded logo, reading from disk on first call."""
     global _logo_b64  # noqa: PLW0603
     if _logo_b64 is None:
-        if _logo_path.is_file():
-            _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode()
-        else:
-            _logo_b64 = ""
+        _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode() if _logo_path.is_file() else ""
     return _logo_b64
 
 
@@ -216,10 +213,7 @@ async def authenticate_login_request(request: Request) -> Response:
     log.info("auth_login_success", client_ip=ip)
     response = JSONResponse({"ok": True})
     # Detect HTTPS: check scheme or x-forwarded-proto (set by tunnel infra)
-    is_https = (
-        request.url.scheme == "https"
-        or request.headers.get("x-forwarded-proto") == "https"
-    )
+    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,

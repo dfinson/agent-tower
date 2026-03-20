@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 import backend.services.auth as auth_mod
 from backend.services.auth import check_websocket_auth, set_password
 
 
 @pytest.fixture(autouse=True)
-def _reset_auth_state() -> None:
+def _reset_auth_state() -> Generator[None, None, None]:
     """Ensure each test starts with clean auth state."""
     orig_hash = auth_mod._password_hash
     orig_tokens = auth_mod._session_tokens.copy()
-    yield  # type: ignore[misc]
+    yield
     auth_mod._password_hash = orig_hash
     auth_mod._session_tokens = orig_tokens
 

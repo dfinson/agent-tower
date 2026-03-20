@@ -27,7 +27,7 @@ async def app() -> FastAPI:
 
     async def _override() -> AsyncSession:  # type: ignore[misc]
         async with session_factory() as s:
-            yield s  # type: ignore[misc]
+            yield s
 
     application.dependency_overrides[get_db_session] = _override
     return application

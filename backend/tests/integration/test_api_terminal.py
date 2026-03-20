@@ -16,6 +16,8 @@ from starlette.testclient import TestClient
 import backend.api.terminal as terminal_mod
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from fastapi import FastAPI
     from httpx import AsyncClient
 
@@ -232,7 +234,7 @@ class TestTerminalWebSocket:
         self._original = terminal_mod._terminal_service
 
     @pytest.fixture(autouse=True)
-    def _teardown_svc(self) -> None:
+    def _teardown_svc(self) -> Generator[None, None, None]:
         yield
         terminal_mod._terminal_service = self._original
 

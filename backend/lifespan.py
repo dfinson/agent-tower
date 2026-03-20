@@ -69,6 +69,7 @@ def _init_event_infrastructure(
     """Create event bus and SSE manager with persist-then-broadcast wiring."""
     event_bus = EventBus()
     sse_manager = SSEManager()
+
     # Persist-then-broadcast subscriber: ensures event.db_id is set
     # (monotonic autoincrement) before SSE frames are built.
     async def _persist_and_broadcast(event: DomainEvent) -> None:
@@ -108,7 +109,6 @@ async def _wire_core_services(
     # --- Utility session pool (warm cheap model for naming / summaries) ---
     utility_session = UtilitySessionService(
         model=config.runtime.utility_model,
-        max_pool_fn=lambda: config.runtime.max_concurrent_jobs,
     )
     log.debug("utility_session_starting", model=config.runtime.utility_model)
     await utility_session.start()
@@ -307,7 +307,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.utility_session = services.utility_session
 
     terminal_service, retention_task, mcp_cleanup = await _init_optional_services(
-        app, config, session_factory, services,
+        app,
+        config,
+        session_factory,
+        services,
     )
 
     # Session factory available for route handlers that need ad-hoc sessions

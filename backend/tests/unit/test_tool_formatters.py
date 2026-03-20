@@ -114,7 +114,7 @@ class TestCountLines:
 # ---------------------------------------------------------------------------
 
 
-def _fmt(tool_name: str, args: dict | None = None) -> str:
+def _fmt(tool_name: str, args: dict[str, object] | None = None) -> str:
     """Shorthand: format a tool call with no result."""
     return format_tool_display(tool_name, json.dumps(args) if args else None)
 
@@ -470,7 +470,7 @@ class TestFmtListCodeUsages:
 
 def _fmt_with_result(
     tool_name: str,
-    args: dict | None,
+    args: dict[str, object] | None,
     result: str,
     success: bool = True,
 ) -> str:
