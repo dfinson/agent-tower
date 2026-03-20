@@ -24,6 +24,10 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+# Truncation limits for session snapshot buffers
+_DEDUP_KEY_MAX = 500
+_TRANSCRIPT_CONTENT_MAX = 2000
+
 # ---------------------------------------------------------------------------
 # Summarization prompt
 # ---------------------------------------------------------------------------
@@ -197,6 +201,115 @@ class SummarizationService:
 
         log.info("summarization_complete", job_id=job_id, session=session_number)
         return summary_json
+
+    async def store_session_snapshot(self, job_id: str) -> None:
+        """Store a raw session snapshot (cheap, no LLM) for future cold resumes.
+
+        LLM-based summarization is deferred to resume_job() and only fires
+        when the SDK session is no longer available for native reconnection.
+        """
+        from backend.persistence.artifact_repo import ArtifactRepository
+        from backend.persistence.event_repo import EventRepository
+        from backend.persistence.job_repo import JobRepository
+        from backend.services.artifact_service import ArtifactService
+
+        try:
+            async with self._session_factory() as session:
+                job_repo = JobRepository(session)
+                job = await job_repo.get(job_id)
+            if job is None:
+                return
+
+            async with self._session_factory() as session:
+                event_repo = EventRepository(session)
+                artifact_svc = ArtifactService(ArtifactRepository(session))
+
+                # Check if this session is already captured in the unified log
+                existing = await artifact_svc.get_session_log(job_id)
+                if existing is not None:
+                    try:
+                        import json as _json_check
+                        from pathlib import Path as _PathCheck
+
+                        _log_data = _json_check.loads(_PathCheck(existing.disk_path).read_text(encoding="utf-8"))
+                        _recorded = {s.get("session_number") for s in _log_data.get("sessions", [])}
+                        if job.session_count in _recorded:
+                            return  # already captured this session
+                    except Exception:
+                        pass  # can't parse previous log — append anyway
+
+                # Build snapshot from events
+                transcript_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.transcript_updated])
+                diff_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.diff_updated])
+
+                changed_files = _extract_changed_files(diff_events)
+
+                # Build cleaned turns — keep assistant content + tool metadata, drop noise
+                turns: list[dict[str, object]] = []
+                seen: set[str] = set()
+                for ev in transcript_events:
+                    role = ev.payload.get("role", "")
+                    content = str(ev.payload.get("content") or "").strip()
+
+                    if role == "agent" or role == "assistant":
+                        if not content:
+                            continue
+                        key = content[:_DEDUP_KEY_MAX]
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        turns.append(
+                            {
+                                "role": "assistant",
+                                "content": content[:_TRANSCRIPT_CONTENT_MAX],
+                                "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
+                            }
+                        )
+                    elif role in ("operator", "user"):
+                        if not content:
+                            continue
+                        turns.append(
+                            {
+                                "role": "operator",
+                                "content": content[:_TRANSCRIPT_CONTENT_MAX],
+                                "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
+                            }
+                        )
+                    elif role == "tool_call":
+                        turns.append(
+                            {
+                                "role": "tool_call",
+                                "tool_name": ev.payload.get("tool_name", "tool"),
+                                "tool_display": ev.payload.get("tool_display", ""),
+                                "tool_intent": ev.payload.get("tool_intent", ""),
+                                "tool_success": ev.payload.get("tool_success", True),
+                                "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
+                            }
+                        )
+
+                snapshot = json.dumps(
+                    {
+                        "original_task": job.prompt,
+                        "session_number": job.session_count,
+                        "transcript_turns": turns,
+                        "changed_files": changed_files,
+                    },
+                    indent=2,
+                )
+
+                slug = (job.worktree_name or job.title or "").strip()
+                await artifact_svc.store_session_snapshot(job_id, job.session_count, snapshot, slug=slug)
+
+                if job.worktree_path:
+                    collected = await artifact_svc.collect_from_workspace(job_id, job.worktree_path)
+                    if collected:
+                        log.info("workspace_artifacts_collected", job_id=job_id, count=len(collected))
+
+                await session.commit()
+
+            log.info("session_log_stored", job_id=job_id, session=job.session_count, turns=len(turns))
+        except Exception:
+            log.warning("session_log_failed", job_id=job_id, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
