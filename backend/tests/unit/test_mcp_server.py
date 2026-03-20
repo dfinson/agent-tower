@@ -9,6 +9,7 @@ import pytest
 
 from backend.mcp.server import create_mcp_server
 from backend.models.domain import Job
+from backend.services.git_service import GitService
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -493,6 +494,7 @@ class TestRepoTool:
             git.get_origin_url = AsyncMock(return_value="https://github.com/test/repo.git")
             git.get_default_branch = AsyncMock(return_value="main")
             mock_git_cls.return_value = git
+            mock_git_cls.strip_url_credentials = GitService.strip_url_credentials
 
             result = await _tool(mcp_server, "codeplane_repo")(action="get", repo_path="/test/repo")
             assert result["path"] == "/test/repo"

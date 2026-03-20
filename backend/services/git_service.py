@@ -32,6 +32,20 @@ class GitService:
     def __init__(self, config: CPLConfig) -> None:
         self._worktrees_dirname = config.runtime.worktrees_dirname
 
+    @staticmethod
+    def strip_url_credentials(url: str) -> str:
+        """Remove embedded credentials from a git remote URL."""
+        from urllib.parse import urlparse, urlunparse
+
+        parsed = urlparse(url)
+        if parsed.username or parsed.password:
+            host = parsed.hostname or ""
+            if parsed.port:
+                host = f"{host}:{parsed.port}"
+            cleaned = parsed._replace(netloc=host)
+            return urlunparse(cleaned)
+        return url
+
     async def _run_git(self, *args: str, cwd: str | Path) -> str:
         """Run a git command and return stdout. Raises GitError on failure."""
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
