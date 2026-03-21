@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from dishka import make_async_container
-from dishka.integrations.fastapi import setup_dishka
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, load_config
@@ -332,7 +331,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             VoiceMaxBytes: VoiceMaxBytes(optional.voice_max_bytes),
         },
     )
-    setup_dishka(container, app)
+    app.state.dishka_container = container
 
     yield
 

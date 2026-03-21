@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from dishka.integrations.fastapi import ContainerMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -187,6 +188,7 @@ def create_app(*, dev: bool = False, tunnel_origin: str | None = None, password:
     """Create and configure the FastAPI application."""
     app = FastAPI(title="CodePlane", version=__version__, lifespan=lifespan)
 
+    app.add_middleware(ContainerMiddleware)
     _configure_middleware(app, dev=dev, tunnel_origin=tunnel_origin, password=password)
     _register_routes(app)
     _register_domain_exception_handlers(app)
