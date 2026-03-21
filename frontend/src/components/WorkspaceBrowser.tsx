@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useMemo } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Folder, FolderOpen, FileCode, FilePlus2, FileEdit, FileMinus2, FileSymlink, ChevronRight, ChevronDown, ArrowLeft } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import ReactMarkdown from "react-markdown";
@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { fetchWorkspaceFiles, fetchWorkspaceFile } from "../api/client";
 import { useStore, selectJobDiffs } from "../store";
-import type { DiffFileModel } from "../api/types";
+import type { DiffFileModel, DiffHunkModel } from "../api/types";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
@@ -146,6 +146,24 @@ function isMarkdown(path: string): boolean {
   return path.split(".").pop()?.toLowerCase() === "md";
 }
 
+/** Maps 1-based new-file line numbers to "addition" for lines that were added in the diff. */
+function buildLineTypeMap(hunks: DiffHunkModel[]): Set<number> {
+  const additions = new Set<number>();
+  for (const hunk of hunks) {
+    let newLine = hunk.newStart;
+    for (const line of hunk.lines) {
+      if (line.type === "addition") {
+        additions.add(newLine);
+        newLine++;
+      } else if (line.type === "context") {
+        newLine++;
+      }
+      // deletion lines don't appear in the new file — don't advance newLine
+    }
+  }
+  return additions;
+}
+
 interface Props {
   jobId: string;
 }
@@ -158,6 +176,14 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   const [fileLoading, setFileLoading] = useState(false);
   const isMobile = useIsMobile();
   const [mdMode, setMdMode] = useState<"preview" | "raw">("preview");
+
+  // Monaco editor refs for diff decoration management
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editorRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const monacoRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const decorationsRef = useRef<any>(null);
 
   const diffs = useStore(selectJobDiffs(jobId));
 
@@ -184,6 +210,38 @@ export default function WorkspaceBrowser({ jobId }: Props) {
       .catch((err) => console.error("Failed to fetch workspace files", err))
       .finally(() => setLoading(false));
   }, [jobId]);
+
+  const applyDiffDecorations = useCallback(() => {
+    const ed = editorRef.current;
+    const mc = monacoRef.current;
+    if (!ed || !mc) return;
+
+    if (decorationsRef.current) {
+      decorationsRef.current.clear();
+      decorationsRef.current = null;
+    }
+
+    const fileDiff = selected ? diffMap.get(selected) : undefined;
+    if (!fileDiff?.hunks?.length) return;
+
+    const additions = buildLineTypeMap(fileDiff.hunks);
+    if (additions.size === 0) return;
+
+    const decorations = Array.from(additions).map((lineNum) => ({
+      range: new mc.Range(lineNum, 1, lineNum, 1),
+      options: {
+        isWholeLine: true,
+        className: "diff-add-line",
+        linesDecorationsClassName: "diff-add-decoration",
+      },
+    }));
+
+    decorationsRef.current = ed.createDecorationsCollection(decorations);
+  }, [selected, diffMap]);
+
+  useEffect(() => {
+    applyDiffDecorations();
+  }, [applyDiffDecorations]);
 
   const handleSelect = useCallback(async (path: string) => {
     setSelected(path);
@@ -279,7 +337,11 @@ export default function WorkspaceBrowser({ jobId }: Props) {
           <div className="flex-1 overflow-hidden">
             {isMobile ? (
               <Suspense fallback={<div className="flex items-center justify-center h-full"><Spinner /></div>}>
-                <MobileSyntaxView content={fileContent || ""} language={getLanguageFromPath(selected)} />
+                <MobileSyntaxView
+                  content={fileContent || ""}
+                  language={getLanguageFromPath(selected)}
+                  diffHunks={diffMap.get(selected)?.hunks}
+                />
               </Suspense>
             ) : (
               <Editor
@@ -295,6 +357,11 @@ export default function WorkspaceBrowser({ jobId }: Props) {
                   glyphMargin: false,
                   lineDecorationsWidth: 4,
                   folding: true,
+                }}
+                onMount={(ed, mc) => {
+                  editorRef.current = ed;
+                  monacoRef.current = mc;
+                  applyDiffDecorations();
                 }}
               />
             )}

@@ -34,3 +34,7 @@
   ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
   a { text-decoration: none; color: inherit; }
 }
+
+/* Monaco diff line highlighting */
+.diff-add-line { background: rgba(16, 185, 129, 0.12) !important; }
+.diff-add-decoration { background: #10b981 !important; width: 3px !important; margin-left: 2px; }
