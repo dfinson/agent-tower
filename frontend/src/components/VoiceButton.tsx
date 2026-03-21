@@ -8,6 +8,7 @@ import { cn } from "../lib/utils";
 import { Textarea } from "./ui/textarea";
 import { Spinner } from "./ui/spinner";
 import { Tooltip } from "./ui/tooltip";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 type RecordingState = "idle" | "recording" | "transcribing";
 
@@ -21,6 +22,7 @@ interface PromptWithVoiceProps {
 
 export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown }: PromptWithVoiceProps) {
   const [state, setState] = useState<RecordingState>("idle");
+  const isMobile = useIsMobile();
   const containerRef = useRef<HTMLDivElement>(null);
   const recordRef = useRef<ReturnType<typeof RecordPlugin.create> | null>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -107,33 +109,16 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown }: P
           <label className="text-sm font-medium text-foreground">
             Prompt<span className="text-red-500 ml-0.5">*</span>
           </label>
-          <div className="relative">
-            <Textarea
-              value={value}
-              onChange={(e) => onChange(e.currentTarget.value)}
-              onBlur={onBlur}
-              onKeyDown={onKeyDown}
-              placeholder="Describe the task you want the agent to perform…"
-              rows={6}
-              className={cn("pr-12", error && "border-red-500 focus-visible:ring-red-500")}
-            />
-            <div className="absolute bottom-2 right-2" style={{ zIndex: 10 }}>
-              {state === "transcribing" ? (
-                <Spinner size="sm" />
-              ) : (
-                <Tooltip content="Voice input">
-                  <button
-                    type="button"
-                    onClick={handleToggle}
-                    className="h-9 w-9 rounded-full bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30 transition-colors"
-                  >
-                    <Mic size={18} />
-                  </button>
-                </Tooltip>
-              )}
-            </div>
-          </div>
-          {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+          <Textarea
+            value={value}
+            onChange={(e) => onChange(e.currentTarget.value)}
+            onBlur={onBlur}
+            onKeyDown={onKeyDown}
+            error={error}
+            placeholder="Describe the task you want the agent to perform…"
+            rows={isMobile ? 4 : 6}
+            className="pr-12"
+          />
           <p className="text-xs text-muted-foreground mt-1">Ctrl+Enter to submit</p>
         </div>
       </div>
