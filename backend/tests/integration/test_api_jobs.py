@@ -17,7 +17,6 @@ import pytest
 from backend.services.job_service import JobNotFoundError, StateConflictError
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
     from httpx import AsyncClient
 
     from .conftest import SeedJobFn
@@ -31,12 +30,12 @@ if TYPE_CHECKING:
 def _patch_for_job_creation(
     monkeypatch: pytest.MonkeyPatch,
     mock_git_service: AsyncMock,
-    app: FastAPI,
 ) -> None:
-    """Replace GitService in the jobs module and disable NamingService."""
-    monkeypatch.setattr("backend.api.jobs.GitService", lambda config: mock_git_service)
-    # Disable NamingService (requires LLM); hash-based fallback is fine
-    app.state.utility_session = None
+    """Replace GitService so create/rerun/continue routes use the mock."""
+    monkeypatch.setattr(
+        "backend.services.git_service.GitService",
+        lambda config: mock_git_service,
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -499,7 +498,7 @@ class TestJobResolution:
         mock_merge_service: AsyncMock,
     ) -> None:
         jid = await seed_job(state="succeeded", job_id="resolve-disc")
-        mock_merge_service.resolve_job.return_value = FakeMergeResult(status="discarded")
+        mock_merge_service.resolve_job.return_value = FakeMergeResult(status="skipped")
 
         resp = await client.post(f"/api/jobs/{jid}/resolve", json={"action": "discard"})
         assert resp.status_code == 200

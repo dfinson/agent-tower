@@ -48,8 +48,9 @@ def _fake_pty_session(
 
 class TestCreateSession:
     async def test_create_success(self, client: AsyncClient) -> None:
-        svc = terminal_mod._terminal_service
-        svc.create_session = Mock(return_value=_fake_pty_session())
+        svc = terminal_mod._state.service
+        assert svc is not None
+        svc.create_session = Mock(return_value=_fake_pty_session())  # type: ignore[method-assign]
 
         resp = await client.post(
             "/api/terminal/sessions",
@@ -63,8 +64,9 @@ class TestCreateSession:
         assert data["pid"] == 123
 
     async def test_create_with_job_id(self, client: AsyncClient) -> None:
-        svc = terminal_mod._terminal_service
-        svc.create_session = Mock(return_value=_fake_pty_session(job_id="job-42"))
+        svc = terminal_mod._state.service
+        assert svc is not None
+        svc.create_session = Mock(return_value=_fake_pty_session(job_id="job-42"))  # type: ignore[method-assign]
 
         resp = await client.post(
             "/api/terminal/sessions",
@@ -74,16 +76,18 @@ class TestCreateSession:
         assert resp.json()["jobId"] == "job-42"
 
     async def test_create_runtime_error_returns_400(self, client: AsyncClient) -> None:
-        svc = terminal_mod._terminal_service
-        svc.create_session = Mock(side_effect=RuntimeError("Maximum terminal sessions reached"))
+        svc = terminal_mod._state.service
+        assert svc is not None
+        svc.create_session = Mock(side_effect=RuntimeError("Maximum terminal sessions reached"))  # type: ignore[method-assign]
 
         resp = await client.post("/api/terminal/sessions", json={})
         assert resp.status_code == 400
-        assert "error" in resp.json()
+        assert "detail" in resp.json()
 
     async def test_create_value_error_returns_400(self, client: AsyncClient) -> None:
-        svc = terminal_mod._terminal_service
-        svc.create_session = Mock(side_effect=ValueError("Shell not found"))
+        svc = terminal_mod._state.service
+        assert svc is not None
+        svc.create_session = Mock(side_effect=ValueError("Shell not found"))  # type: ignore[method-assign]
 
         resp = await client.post("/api/terminal/sessions", json={"shell": "/nonexistent"})
         assert resp.status_code == 400
@@ -94,8 +98,9 @@ class TestCreateSession:
 
 class TestListSessions:
     async def test_list_returns_sessions(self, client: AsyncClient) -> None:
-        svc = terminal_mod._terminal_service
-        svc.list_sessions = Mock(
+        svc = terminal_mod._state.service
+        assert svc is not None
+        svc.list_sessions = Mock(  # type: ignore[method-assign]
             return_value=[
                 {
                     "id": "s1",
@@ -124,8 +129,9 @@ class TestListSessions:
         assert data[1]["jobId"] == "job-1"
 
     async def test_list_empty(self, client: AsyncClient) -> None:
-        svc = terminal_mod._terminal_service
-        svc.list_sessions = Mock(return_value=[])
+        svc = terminal_mod._state.service
+        assert svc is not None
+        svc.list_sessions = Mock(return_value=[])  # type: ignore[method-assign]
 
         resp = await client.get("/api/terminal/sessions")
         assert resp.status_code == 200
@@ -137,19 +143,21 @@ class TestListSessions:
 
 class TestDeleteSession:
     async def test_delete_success(self, client: AsyncClient) -> None:
-        svc = terminal_mod._terminal_service
-        svc.kill_session = AsyncMock(return_value=True)
+        svc = terminal_mod._state.service
+        assert svc is not None
+        svc.kill_session = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
         resp = await client.delete("/api/terminal/sessions/s1")
         assert resp.status_code == 204
 
     async def test_delete_not_found(self, client: AsyncClient) -> None:
-        svc = terminal_mod._terminal_service
-        svc.kill_session = AsyncMock(return_value=False)
+        svc = terminal_mod._state.service
+        assert svc is not None
+        svc.kill_session = AsyncMock(return_value=False)  # type: ignore[method-assign]
 
         resp = await client.delete("/api/terminal/sessions/nonexistent")
         assert resp.status_code == 404
-        assert "error" in resp.json()
+        assert "detail" in resp.json()
 
 
 # ── Ask AI ───────────────────────────────────────────────────────────
@@ -166,7 +174,7 @@ class TestAskAI:
                 }
             )
         )
-        with patch.object(terminal_mod, "_ask_utility_session", mock_session):
+        with patch.object(terminal_mod._state, "utility_session", mock_session):
             resp = await client.post(
                 "/api/terminal/ask",
                 json={"prompt": "list all files"},
@@ -177,7 +185,7 @@ class TestAskAI:
         assert data["explanation"] == "List files in detail"
 
     async def test_ask_not_initialized(self, client: AsyncClient) -> None:
-        with patch.object(terminal_mod, "_ask_utility_session", None):
+        with patch.object(terminal_mod._state, "utility_session", None):
             resp = await client.post(
                 "/api/terminal/ask",
                 json={"prompt": "list files"},
@@ -190,7 +198,7 @@ class TestAskAI:
     async def test_ask_with_context(self, client: AsyncClient) -> None:
         mock_session = AsyncMock()
         mock_session.complete = AsyncMock(return_value='{"command": "cd ..", "explanation": "Go up"}')
-        with patch.object(terminal_mod, "_ask_utility_session", mock_session):
+        with patch.object(terminal_mod._state, "utility_session", mock_session):
             resp = await client.post(
                 "/api/terminal/ask",
                 json={"prompt": "go up a dir", "context": "~/projects"},
@@ -201,7 +209,7 @@ class TestAskAI:
     async def test_ask_invalid_json_from_llm(self, client: AsyncClient) -> None:
         mock_session = AsyncMock()
         mock_session.complete = AsyncMock(return_value="just run: ls")
-        with patch.object(terminal_mod, "_ask_utility_session", mock_session):
+        with patch.object(terminal_mod._state, "utility_session", mock_session):
             resp = await client.post(
                 "/api/terminal/ask",
                 json={"prompt": "list files"},
@@ -231,16 +239,16 @@ class TestTerminalWebSocket:
 
     @pytest.fixture(autouse=True)
     def _setup_svc(self) -> None:
-        self._original = terminal_mod._terminal_service
+        self._original = terminal_mod._state.service
 
     @pytest.fixture(autouse=True)
     def _teardown_svc(self) -> Generator[None, None, None]:
         yield
-        terminal_mod._terminal_service = self._original
+        terminal_mod._state.service = self._original
 
     def test_attach_success(self, app: FastAPI) -> None:
         svc = _mock_terminal_svc_for_ws()
-        terminal_mod._terminal_service = svc
+        terminal_mod._state.service = svc
 
         with TestClient(app) as tc, tc.websocket_connect("/api/terminal/ws") as ws:
             ws.send_text(json.dumps({"type": "attach", "sessionId": "s1"}))
@@ -250,7 +258,7 @@ class TestTerminalWebSocket:
 
     def test_attach_sends_scrollback(self, app: FastAPI) -> None:
         svc = _mock_terminal_svc_for_ws(scrollback="$ whoami\nuser\n")
-        terminal_mod._terminal_service = svc
+        terminal_mod._state.service = svc
 
         with TestClient(app) as tc, tc.websocket_connect("/api/terminal/ws") as ws:
             ws.send_text(json.dumps({"type": "attach", "sessionId": "s1"}))
@@ -265,7 +273,7 @@ class TestTerminalWebSocket:
     def test_attach_unknown_session(self, app: FastAPI) -> None:
         svc = _mock_terminal_svc_for_ws()
         svc.get_session = Mock(return_value=None)
-        terminal_mod._terminal_service = svc
+        terminal_mod._state.service = svc
 
         with TestClient(app) as tc, tc.websocket_connect("/api/terminal/ws") as ws:
             ws.send_text(json.dumps({"type": "attach", "sessionId": "nope"}))
@@ -275,7 +283,7 @@ class TestTerminalWebSocket:
 
     def test_input_writes_to_session(self, app: FastAPI) -> None:
         svc = _mock_terminal_svc_for_ws()
-        terminal_mod._terminal_service = svc
+        terminal_mod._state.service = svc
 
         with TestClient(app) as tc, tc.websocket_connect("/api/terminal/ws") as ws:
             ws.send_text(json.dumps({"type": "attach", "sessionId": "s1"}))
@@ -285,7 +293,7 @@ class TestTerminalWebSocket:
 
     def test_resize_calls_service(self, app: FastAPI) -> None:
         svc = _mock_terminal_svc_for_ws()
-        terminal_mod._terminal_service = svc
+        terminal_mod._state.service = svc
 
         with TestClient(app) as tc, tc.websocket_connect("/api/terminal/ws") as ws:
             ws.send_text(json.dumps({"type": "attach", "sessionId": "s1"}))
@@ -295,7 +303,7 @@ class TestTerminalWebSocket:
 
     def test_detach_removes_client(self, app: FastAPI) -> None:
         svc = _mock_terminal_svc_for_ws()
-        terminal_mod._terminal_service = svc
+        terminal_mod._state.service = svc
 
         with TestClient(app) as tc, tc.websocket_connect("/api/terminal/ws") as ws:
             ws.send_text(json.dumps({"type": "attach", "sessionId": "s1"}))
@@ -310,7 +318,7 @@ class TestTerminalWebSocket:
 
     def test_invalid_json_returns_error(self, app: FastAPI) -> None:
         svc = _mock_terminal_svc_for_ws()
-        terminal_mod._terminal_service = svc
+        terminal_mod._state.service = svc
 
         with TestClient(app) as tc, tc.websocket_connect("/api/terminal/ws") as ws:
             ws.send_text("not json at all")
@@ -320,7 +328,7 @@ class TestTerminalWebSocket:
 
     def test_disconnect_cleans_up_client(self, app: FastAPI) -> None:
         svc = _mock_terminal_svc_for_ws()
-        terminal_mod._terminal_service = svc
+        terminal_mod._state.service = svc
 
         with TestClient(app) as tc:
             with tc.websocket_connect("/api/terminal/ws") as ws:

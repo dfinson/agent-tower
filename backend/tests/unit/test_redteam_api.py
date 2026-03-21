@@ -6,41 +6,101 @@ stub route handling, HTTP method abuse, and header edge cases.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncGenerator  # noqa: TC003 — pytest-asyncio resolves at runtime
+from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from dishka import make_async_container
+from dishka.integrations.fastapi import setup_dishka
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.api.deps import get_db_session
-from backend.main import create_app
+from backend.app_factory import (
+    _configure_middleware,
+    _register_domain_exception_handlers,
+)
+from backend.config import CPLConfig
+from backend.di import (
+    AppProvider,
+    CachedModelsBySdk,
+    RequestProvider,
+    VoiceMaxBytes,
+)
 from backend.models.db import Base
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+from backend.services.approval_service import ApprovalService
+from backend.services.event_bus import EventBus
+from backend.services.merge_service import MergeService
+from backend.services.platform_adapter import PlatformRegistry
+from backend.services.runtime_service import RuntimeService
+from backend.services.sse_manager import SSEManager
+from backend.services.utility_session import UtilitySessionService
+from backend.services.voice_service import VoiceService
 
 
 @pytest.fixture
-async def _client() -> Any:
+async def _client() -> AsyncGenerator[Any, None]:
     """Yield an async client wired to the ASGI app with in-memory DB."""
+    from backend.api import (
+        approvals,
+        artifacts,
+        events,
+        health,
+        jobs,
+        settings,
+        terminal,
+        voice,
+        workspace,
+    )
+
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    app = create_app(dev=True)
+    app = FastAPI(title="CodePlane-test")
+    _register_domain_exception_handlers(app)
 
-    async def _override() -> AsyncSession:  # type: ignore[misc]
-        async with session_factory() as s:
-            yield s
+    # Include routers
+    app.include_router(health.router, prefix="/api")
+    app.include_router(jobs.router, prefix="/api")
+    app.include_router(events.router, prefix="/api")
+    app.include_router(approvals.router, prefix="/api")
+    app.include_router(artifacts.router, prefix="/api")
+    app.include_router(workspace.router, prefix="/api")
+    app.include_router(voice.router, prefix="/api")
+    app.include_router(settings.router, prefix="/api")
+    app.include_router(terminal.router)
 
-    app.dependency_overrides[get_db_session] = _override
+    container = make_async_container(
+        AppProvider(),
+        RequestProvider(),
+        context={
+            CPLConfig: CPLConfig(repos=[]),
+            async_sessionmaker: session_factory,
+            EventBus: EventBus(),
+            SSEManager: SSEManager(),
+            ApprovalService: AsyncMock(spec=ApprovalService),
+            RuntimeService: AsyncMock(spec=RuntimeService),
+            MergeService: AsyncMock(spec=MergeService),
+            PlatformRegistry: Mock(spec=PlatformRegistry),
+            UtilitySessionService: AsyncMock(spec=UtilitySessionService),
+            VoiceService: Mock(),
+            CachedModelsBySdk: CachedModelsBySdk({}),
+            VoiceMaxBytes: VoiceMaxBytes(10 * 1024 * 1024),
+        },
+    )
+    setup_dishka(container, app)
 
     async def _make() -> AsyncClient:
         transport = ASGITransport(app=app, raise_app_exceptions=False)
         return AsyncClient(transport=transport, base_url="http://test")
 
-    return _make
+    yield _make
+
+    await container.close()
+    await engine.dispose()
 
 
 @pytest.fixture
@@ -259,8 +319,14 @@ class TestCORSDevMode:
 
     @pytest.mark.asyncio
     async def test_cors_rejects_arbitrary_origin(self) -> None:
-        app = create_app(dev=True)
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        from backend.api import health as health_mod
+
+        app = FastAPI()
+        _configure_middleware(app, dev=True, tunnel_origin=None, password=None)
+        app.include_router(health_mod.router, prefix="/api")
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
+        ) as c:
             resp = await c.options(
                 "/api/health",
                 headers={
@@ -274,8 +340,14 @@ class TestCORSDevMode:
 
     @pytest.mark.asyncio
     async def test_cors_disabled_in_prod_mode(self) -> None:
-        app = create_app(dev=False)
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        from backend.api import health as health_mod
+
+        app = FastAPI()
+        _configure_middleware(app, dev=False, tunnel_origin=None, password=None)
+        app.include_router(health_mod.router, prefix="/api")
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
+        ) as c:
             resp = await c.options(
                 "/api/health",
                 headers={

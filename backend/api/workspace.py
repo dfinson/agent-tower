@@ -3,35 +3,30 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import CPLConfig, load_config
+from backend.config import CPLConfig
 from backend.models.api_schemas import WorkspaceEntry, WorkspaceEntryType, WorkspaceFileResponse, WorkspaceListResponse
 from backend.services.job_service import JobService
 
-router = APIRouter(tags=["workspace"])
-
-
-def _get_config() -> CPLConfig:
-    return load_config()
+router = APIRouter(tags=["workspace"], route_class=DishkaRoute)
 
 
 @router.get("/jobs/{job_id}/workspace", response_model=WorkspaceListResponse)
 async def list_workspace(
-    request: Request,
     job_id: str,
-    config: Annotated[CPLConfig, Depends(_get_config)],
+    session: FromDishka[AsyncSession],
+    config: FromDishka[CPLConfig],
     path: str = "",
     cursor: str | None = Query(None),
     limit: int = Query(200, ge=1, le=200),
 ) -> WorkspaceListResponse:
     """List files in the job's worktree (max 200 entries per page)."""
-    session_factory = request.app.state.session_factory
-    async with session_factory() as session:
-        job_svc = JobService.from_session(session, config, git_service=None)
-        job = await job_svc.get_job(job_id)
+    job_svc = JobService.from_session(session, config, git_service=None)
+    job = await job_svc.get_job(job_id)
 
     worktree = Path(job.worktree_path or job.repo).resolve()
     if not worktree.is_dir():
@@ -76,16 +71,14 @@ async def list_workspace(
 
 @router.get("/jobs/{job_id}/workspace/file", response_model=WorkspaceFileResponse)
 async def get_workspace_file(
-    request: Request,
     job_id: str,
-    config: Annotated[CPLConfig, Depends(_get_config)],
+    session: FromDishka[AsyncSession],
+    config: FromDishka[CPLConfig],
     path: str = Query(..., description="Relative path within the worktree"),
 ) -> WorkspaceFileResponse:
     """Get the contents of a single file in the job's worktree."""
-    session_factory = request.app.state.session_factory
-    async with session_factory() as session:
-        job_svc = JobService.from_session(session, config, git_service=None)
-        job = await job_svc.get_job(job_id)
+    job_svc = JobService.from_session(session, config, git_service=None)
+    job = await job_svc.get_job(job_id)
 
     worktree = Path(job.worktree_path or job.repo).resolve()
     file_path = (worktree / path).resolve()

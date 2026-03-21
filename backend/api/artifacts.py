@@ -4,26 +4,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.api_schemas import ArtifactListResponse, ArtifactResponse
 from backend.services.artifact_service import ArtifactService, get_artifacts_base
 
-router = APIRouter(tags=["artifacts"])
+router = APIRouter(tags=["artifacts"], route_class=DishkaRoute)
 
 
 @router.get("/jobs/{job_id}/artifacts", response_model=ArtifactListResponse)
 async def list_artifacts(
-    request: Request,
     job_id: str,
+    session: FromDishka[AsyncSession],
 ) -> ArtifactListResponse:
     """List all artifacts for a job."""
-    session_factory = request.app.state.session_factory
-    async with session_factory() as session:
-        svc = ArtifactService.from_session(session)
-        artifacts = await svc.list_for_job(job_id)
-        await session.commit()
+    svc = ArtifactService.from_session(session)
+    artifacts = await svc.list_for_job(job_id)
 
     items = [
         ArtifactResponse(
@@ -43,15 +42,12 @@ async def list_artifacts(
 
 @router.get("/artifacts/{artifact_id}")
 async def download_artifact(
-    request: Request,
     artifact_id: str,
+    session: FromDishka[AsyncSession],
 ) -> FileResponse:
     """Download an artifact file."""
-    session_factory = request.app.state.session_factory
-    async with session_factory() as session:
-        svc = ArtifactService.from_session(session)
-        artifact = await svc.get(artifact_id)
-        await session.commit()
+    svc = ArtifactService.from_session(session)
+    artifact = await svc.get(artifact_id)
 
     if artifact is None:
         raise HTTPException(status_code=404, detail="Artifact not found")

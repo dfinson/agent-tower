@@ -1,9 +1,9 @@
 """Fixtures for API integration tests.
 
 Provides a fully-wired FastAPI test app backed by an in-memory SQLite
-database and mock services where needed.  Routes, dependency overrides,
-and ``app.state`` are configured exactly as the real lifespan does, but
-without starting real subprocesses, loading ML models, or touching disk.
+database and mock services where needed.  A dishka container provides
+dependency injection exactly as the real lifespan does, but without
+starting real subprocesses, loading ML models, or touching disk.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
+from dishka import make_async_container
+from dishka.integrations.fastapi import setup_dishka
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event as sa_event
@@ -26,14 +28,18 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from backend.config import CPLConfig
+from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
 from backend.models.db import Base, JobRow
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.approval_service import ApprovalService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
 from backend.services.merge_service import MergeService
+from backend.services.platform_adapter import PlatformRegistry
 from backend.services.runtime_service import RuntimeService
 from backend.services.sse_manager import SSEManager
+from backend.services.utility_session import UtilitySessionService
+from backend.services.voice_service import VoiceService
 
 # ---------------------------------------------------------------------------
 # Database
@@ -93,6 +99,8 @@ def mock_git_service() -> AsyncMock:
     svc.cleanup_worktrees.return_value = 0
     svc.get_origin_url.return_value = "https://github.com/test/repo.git"
     svc.clone_repo.return_value = "/tmp/cloned"
+    svc.list_branches.return_value = set()
+    svc.list_worktree_names.return_value = set()
     return svc
 
 
@@ -116,6 +124,25 @@ def mock_voice_service() -> Mock:
     svc = Mock()
     svc.transcribe.return_value = "hello world"
     return svc
+
+
+@pytest.fixture
+def mock_platform_registry() -> Mock:
+    return Mock(spec=PlatformRegistry)
+
+
+@pytest.fixture
+def mock_utility_session() -> AsyncMock:
+    svc = AsyncMock(spec=UtilitySessionService)
+    # Return valid naming JSON so NamingService succeeds in tests
+    svc.complete.return_value = '{"title": "Test Task", "branch_name": "fix/test-task", "worktree_name": "task-test"}'
+    return svc
+
+
+@pytest.fixture
+def voice_max_bytes_value() -> int:
+    """Default voice max bytes — override in specific test classes for smaller limits."""
+    return 10 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -142,8 +169,11 @@ async def app(
     mock_merge_service: AsyncMock,
     mock_git_service: AsyncMock,
     mock_voice_service: Mock,
+    mock_platform_registry: Mock,
+    mock_utility_session: AsyncMock,
+    voice_max_bytes_value: int,
     monkeypatch: pytest.MonkeyPatch,
-) -> FastAPI:
+) -> AsyncGenerator[FastAPI, None]:
     from backend.api import (
         approvals,
         artifacts,
@@ -155,8 +185,10 @@ async def app(
         voice,
         workspace,
     )
+    from backend.app_factory import _register_domain_exception_handlers
 
     application = FastAPI(title="CodePlane", version="0.1.0")
+    _register_domain_exception_handlers(application)
 
     # -- routers (same order as create_app) --------------------------------
     application.include_router(health.router, prefix="/api")
@@ -169,37 +201,30 @@ async def app(
     application.include_router(settings.router, prefix="/api")
     application.include_router(terminal.router)  # already has /api/terminal prefix
 
-    # -- app.state ---------------------------------------------------------
-    application.state.session_factory = session_factory
-    application.state.event_bus = event_bus
-    application.state.sse_manager = sse_manager
-    application.state.approval_service = approval_service
-    application.state.runtime_service = mock_runtime_service
-    application.state.merge_service = mock_merge_service
-    application.state.utility_session = AsyncMock()
-    application.state.platform_registry = Mock()
-    application.state.voice_service = mock_voice_service
-    application.state.cached_models_by_sdk = {}
-    application.state.voice_max_bytes = 10 * 1024 * 1024
+    # -- dishka DI container (replaces app.state) --------------------------
+    container = make_async_container(
+        AppProvider(),
+        RequestProvider(),
+        context={
+            CPLConfig: _test_config(),
+            async_sessionmaker: session_factory,
+            EventBus: event_bus,
+            SSEManager: sse_manager,
+            ApprovalService: approval_service,
+            RuntimeService: mock_runtime_service,
+            MergeService: mock_merge_service,
+            PlatformRegistry: mock_platform_registry,
+            UtilitySessionService: mock_utility_session,
+            VoiceService: mock_voice_service,
+            CachedModelsBySdk: CachedModelsBySdk({}),
+            VoiceMaxBytes: VoiceMaxBytes(voice_max_bytes_value),
+        },
+    )
+    setup_dishka(container, application)
 
-    # -- session dependency override (mirrors _lifespan) -------------------
-    async def _session_dep() -> AsyncGenerator[AsyncSession, None]:
-        async with session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-
-    application.dependency_overrides[jobs._get_session] = _session_dep
-
-    # -- config overrides --------------------------------------------------
+    # -- config overrides (for non-dishka Depends still in settings.py) ----
     monkeypatch.setattr("backend.config.load_config", _test_config)
-    monkeypatch.setattr("backend.api.jobs._get_config", _test_config)
     monkeypatch.setattr("backend.api.settings._get_config", _test_config)
-    monkeypatch.setattr("backend.api.workspace._get_config", _test_config)
-    monkeypatch.setattr("backend.api.artifacts._get_config", _test_config)
 
     # -- settings router git-service override ------------------------------
     application.dependency_overrides[settings._get_git_service] = lambda: mock_git_service
@@ -207,7 +232,9 @@ async def app(
     # -- terminal module-level service -------------------------------------
     terminal.set_terminal_service(Mock())
 
-    return application
+    yield application
+
+    await container.close()
 
 
 # ---------------------------------------------------------------------------

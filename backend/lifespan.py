@@ -12,8 +12,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from dishka import make_async_container
+from dishka.integrations.fastapi import setup_dishka
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, load_config
+from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, load_config
+from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
 from backend.persistence.database import create_engine, create_session_factory
 from backend.persistence.event_repo import EventRepository
 from backend.services.adapter_registry import AdapterRegistry
@@ -34,9 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from fastapi import FastAPI
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession
 
-    from backend.config import CPLConfig
     from backend.models.events import DomainEvent
     from backend.services.terminal_service import TerminalService
 
@@ -144,17 +147,25 @@ async def _wire_core_services(
     )
 
 
+@dataclass(frozen=True)
+class _OptionalServices:
+    """Bundle of optional services and background handles for shutdown."""
+
+    terminal_service: TerminalService | None
+    retention_task: asyncio.Task[None]
+    mcp_cleanup: Any
+    voice_service: VoiceService
+    voice_max_bytes: int
+    cached_models_by_sdk: dict[str, list[dict[str, object]]]
+
+
 async def _init_optional_services(
     app: FastAPI,
     config: CPLConfig,
     session_factory: async_sessionmaker[AsyncSession],
     services: _CoreServices,
-) -> tuple[TerminalService | None, asyncio.Task[None], Any]:
-    """Initialise terminal, voice, retention, model cache, and MCP services.
-
-    Returns (terminal_service, retention_task, mcp_cleanup) needed for
-    shutdown.
-    """
+) -> _OptionalServices:
+    """Initialise terminal, voice, retention, model cache, and MCP services."""
     from backend.api import terminal
 
     # --- Terminal service ---
@@ -169,7 +180,6 @@ async def _init_optional_services(
         )
         terminal.set_terminal_service(terminal_service)
         terminal.set_utility_session(services.utility_session)
-        app.state.terminal_service = terminal_service
         log.debug("terminal_service_enabled", max_sessions=config.terminal.max_sessions)
 
     # --- Model list cache ---
@@ -232,22 +242,18 @@ async def _init_optional_services(
         log.warning("claude_model_cache_failed", error=str(exc))
     cached_models_by_sdk["claude"] = claude_models
 
-    app.state.cached_models_by_sdk = cached_models_by_sdk
-
     # --- Voice service ---
     voice_service = VoiceService()
     # Pre-load the whisper model at startup so the first request is fast
     log.debug("voice_model_preloading", model="base.en")
     await asyncio.to_thread(voice_service._ensure_model)  # noqa: SLF001
-    app.state.voice_service = voice_service
-    app.state.voice_max_bytes = VOICE_MAX_AUDIO_SIZE_MB * 1024 * 1024
+    voice_max_bytes = VOICE_MAX_AUDIO_SIZE_MB * 1024 * 1024
 
     # --- Retention service ---
     retention_service = RetentionService(
         session_factory=session_factory,
         config=config,
     )
-    app.state.retention_service = retention_service
 
     if config.retention.cleanup_on_startup:
         await retention_service.run_cleanup()
@@ -266,17 +272,22 @@ async def _init_optional_services(
         runtime_service=services.runtime_service,
         approval_service=services.approval_service,
     )
-    app.state.mcp_server = mcp_server
     mcp_app = mcp_server.streamable_http_app()
     app.mount(MCP_PATH, mcp_app)
     # Manually start the session manager's task group (sub-app lifespan
     # doesn't fire when mounted during the parent's lifespan).
     mcp_ctx = mcp_server.session_manager.run()
     await mcp_ctx.__aenter__()
-    mcp_cleanup = mcp_ctx
     log.debug("mcp_server_mounted", path=MCP_PATH)
 
-    return terminal_service, retention_task, mcp_cleanup
+    return _OptionalServices(
+        terminal_service=terminal_service,
+        retention_task=retention_task,
+        mcp_cleanup=mcp_ctx,
+        voice_service=voice_service,
+        voice_max_bytes=voice_max_bytes,
+        cached_models_by_sdk=cached_models_by_sdk,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -295,50 +306,43 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     config = load_config()
     services = await _wire_core_services(session_factory, event_bus, config)
 
-    # Store on app.state for access from route handlers
-    app.state.event_bus = event_bus
-    app.state.sse_manager = sse_manager
-    app.state.session_factory = session_factory
-    app.state.runtime_service = services.runtime_service
-    app.state.merge_service = services.merge_service
-    app.state.platform_registry = services.platform_registry
-    app.state.approval_service = services.approval_service
-    app.state.adapter_registry = services.adapter_registry
-    app.state.utility_session = services.utility_session
-
-    terminal_service, retention_task, mcp_cleanup = await _init_optional_services(
+    optional = await _init_optional_services(
         app,
         config,
         session_factory,
         services,
     )
 
-    # Session factory available for route handlers that need ad-hoc sessions
-    app.state.session_factory = session_factory
-
-    # Session dependency override for job routes
-    from backend.api.deps import get_db_session
-
-    async def _session_dep() -> AsyncGenerator[AsyncSession, None]:
-        async with session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-
-    app.dependency_overrides[get_db_session] = _session_dep
+    # Build the dishka DI container with all services as context values
+    container = make_async_container(
+        AppProvider(),
+        RequestProvider(),
+        context={
+            CPLConfig: config,
+            async_sessionmaker: session_factory,
+            EventBus: event_bus,
+            SSEManager: sse_manager,
+            ApprovalService: services.approval_service,
+            RuntimeService: services.runtime_service,
+            MergeService: services.merge_service,
+            PlatformRegistry: services.platform_registry,
+            UtilitySessionService: services.utility_session,
+            VoiceService: optional.voice_service,
+            CachedModelsBySdk: CachedModelsBySdk(optional.cached_models_by_sdk),
+            VoiceMaxBytes: VoiceMaxBytes(optional.voice_max_bytes),
+        },
+    )
+    setup_dishka(container, app)
 
     yield
 
     # Shutdown in reverse initialisation order
-    await mcp_cleanup.__aexit__(None, None, None)
-    retention_task.cancel()
-    if terminal_service is not None:
-        await terminal_service.shutdown()
+    await container.close()
+    await optional.mcp_cleanup.__aexit__(None, None, None)
+    optional.retention_task.cancel()
+    if optional.terminal_service is not None:
+        await optional.terminal_service.shutdown()
     await services.utility_session.shutdown()
     await services.runtime_service.shutdown()
     await sse_manager.close_all()
-    app.dependency_overrides.clear()
     await engine.dispose()

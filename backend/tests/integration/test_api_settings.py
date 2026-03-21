@@ -16,7 +16,6 @@ Exercises:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -26,6 +25,7 @@ from backend.config import CPLConfig
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from unittest.mock import AsyncMock, Mock
 
     from fastapi import FastAPI
     from httpx import AsyncClient
@@ -310,7 +310,7 @@ class TestBrowseDirectories:
         assert data["current"] == str(fake_home)
         assert len(data["items"]) == 1
         assert data["items"][0]["name"] == "myproject"
-        assert data["items"][0]["isGitRepo"] == "true"
+        assert data["items"][0]["isGitRepo"] is True
 
     @pytest.mark.asyncio
     async def test_browse_nonexistent_returns_404(
@@ -360,21 +360,19 @@ class TestPlatformStatus:
     """
 
     @pytest.mark.asyncio
-    async def test_raises_due_to_missing_timestamp(self, client: AsyncClient, app: FastAPI) -> None:
+    async def test_raises_due_to_missing_timestamp(self, client: AsyncClient, mock_platform_registry: Mock) -> None:
         from backend.services.platform_adapter import PlatformStatus
 
-        registry = AsyncMock()
-        registry.check_all.return_value = [
+        mock_platform_registry.check_all.return_value = [
             PlatformStatus(platform="github", authenticated=True, user="octocat"),
         ]
-        app.state.platform_registry = registry
 
         with pytest.raises(ValidationError, match="timestamp"):
             await client.get("/api/platforms/status")
 
     @pytest.mark.asyncio
-    async def test_no_registry_also_raises(self, client: AsyncClient, app: FastAPI) -> None:
-        app.state.platform_registry = None
+    async def test_no_results_also_raises(self, client: AsyncClient, mock_platform_registry: Mock) -> None:
+        mock_platform_registry.check_all.return_value = []
 
         with pytest.raises(ValidationError, match="timestamp"):
             await client.get("/api/platforms/status")

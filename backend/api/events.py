@@ -6,37 +6,32 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import structlog
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Query, Request
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.responses import StreamingResponse
 
-from backend.services.sse_manager import SSEConnection
+from backend.services.sse_manager import SSEConnection, SSEManager
 
-router = APIRouter(tags=["events"])
+router = APIRouter(tags=["events"], route_class=DishkaRoute)
 
 
 @router.get("/events", response_model=None)
 async def stream_events(
     request: Request,
+    sse_manager: FromDishka[SSEManager],
+    session_factory: FromDishka[async_sessionmaker],  # type: ignore[type-arg]
     job_id: str | None = Query(default=None),
     last_event_id: str | None = Query(default=None, alias="Last-Event-ID"),
-) -> StreamingResponse | JSONResponse:
+) -> StreamingResponse:
     """SSE stream for live events.
 
     Optional ``job_id`` query param scopes the stream to a single job.
     ``Last-Event-ID`` (header or query) enables reconnection replay.
     """
-    try:
-        sse_manager = request.app.state.sse_manager
-        session_factory = request.app.state.session_factory
-    except AttributeError:
-        return JSONResponse(
-            status_code=503,
-            content={"detail": "SSE infrastructure not ready"},
-        )
-
     # Also check the standard SSE header
     header_last_id = request.headers.get("Last-Event-ID") or last_event_id
 

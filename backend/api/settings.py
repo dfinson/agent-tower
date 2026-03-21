@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.config import (
     CPLConfig,
@@ -34,7 +35,7 @@ from backend.models.api_schemas import (
 from backend.services.git_service import GitError, GitService
 from backend.services.platform_adapter import PlatformRegistry, detect_platform
 
-router = APIRouter(tags=["settings"])
+router = APIRouter(tags=["settings"], route_class=DishkaRoute)
 
 
 def _get_config() -> CPLConfig:
@@ -263,20 +264,12 @@ async def browse_directories(
 # --- Platform status ---
 
 
-def _get_platform_registry(request: Request) -> PlatformRegistry | None:
-    result: PlatformRegistry | None = request.app.state.platform_registry
-    return result
-
-
 @router.get("/platforms/status", response_model=PlatformStatusListResponse)
 async def get_platform_status(
-    request: Request,
+    platform_registry: FromDishka[PlatformRegistry],
 ) -> PlatformStatusListResponse:
     """Check auth status for all detected git hosting platforms."""
-    registry = _get_platform_registry(request)
-    if registry is None:
-        return PlatformStatusListResponse(items=[])
-    statuses = await registry.check_all()
+    statuses = await platform_registry.check_all()
     return PlatformStatusListResponse(
         items=[
             PlatformStatusResponse(

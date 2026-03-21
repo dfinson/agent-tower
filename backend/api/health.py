@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 import time
-from typing import Annotated
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
+from fastapi import APIRouter
 
 from backend import __version__
-from backend.api.deps import get_db_session
-from backend.config import load_config
 from backend.models.api_schemas import HealthResponse, HealthStatus
 from backend.services.job_service import JobService
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["health"], route_class=DishkaRoute)
 
 # Intentionally captured at import time — this module is first imported during
 # app startup, so the value accurately represents the process start time and is
@@ -24,11 +21,9 @@ _start_time = time.monotonic()
 
 @router.get("/health", response_model=HealthResponse)
 async def health(
-    session: Annotated[AsyncSession, Depends(get_db_session)],
+    svc: FromDishka[JobService],
 ) -> HealthResponse:
     """Return service health and status."""
-    config = load_config()
-    svc = JobService.from_session(session, config)
     active = await svc.count_active_jobs()
     queued = await svc.count_queued_jobs()
     return HealthResponse(

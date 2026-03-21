@@ -34,6 +34,7 @@ dependencies = [
     # Voice
     "faster-whisper>=1.1,<2",
     "claude-code-sdk>=0.0.25,<1",
+    "dishka[fastapi]>=1.9.1",
 ]
 
 [project.scripts]
@@ -62,6 +63,17 @@ select = [
     "SIM", # flake8-simplify
     "TCH", # flake8-type-checking
 ]
+
+[tool.ruff.lint.flake8-type-checking]
+# dishka resolves FromDishka[T] annotations at runtime via get_type_hints(),
+# so types referenced in route handler signatures must be importable at runtime.
+runtime-evaluated-decorators = ["dishka.integrations.fastapi.FromDishka"]
+
+[tool.ruff.lint.per-file-ignores]
+# Route handlers use dishka FromDishka[T] annotations that are resolved at
+# runtime — imports for these types must stay outside TYPE_CHECKING blocks.
+"backend/api/*.py" = ["TC001", "TC002"]
+"backend/di.py" = ["TC001", "TC002", "TC003"]
 
 [tool.mypy]
 python_version = "3.11"
