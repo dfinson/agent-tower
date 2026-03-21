@@ -25,7 +25,8 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
-  const jobs = useStore((s) => Object.values(s.jobs));
+  const jobsMap = useStore((s) => s.jobs);
+  const jobs = useMemo(() => Object.values(jobsMap), [jobsMap]);
 
   // Ctrl/Cmd+K toggles the palette
   useEffect(() => {
