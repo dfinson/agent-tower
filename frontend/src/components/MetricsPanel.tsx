@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Cpu, Clock, Wrench, MessageSquare, Brain,
   AlertTriangle, ArrowDownUp, ChevronDown, ChevronRight,
@@ -327,7 +327,7 @@ function SortHeader({
 // ---------------------------------------------------------------------------
 
 export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRunning?: boolean }) {
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
   const [toolsCollapsed, setToolsCollapsed] = useState(true);
   const [llmCollapsed, setLlmCollapsed] = useState(true);
   const [llmMainExpanded, setLlmMainExpanded] = useState(false);
@@ -337,14 +337,28 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   const [toolSort, setToolSort] = useState<{ field: SortField; dir: SortDir }>({ field: "totalMs", dir: "desc" });
   const [checkpoints, setCheckpoints] = useState<SessionCheckpoint[]>([]);
 
-  // Fetch telemetry once on mount and again when the job stops running
+  // Fetch telemetry on mount and when jobId changes.
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     fetchJobTelemetry(jobId)
       .then((d) => { if (!cancelled) { setData(d); setLoading(false); } })
       .catch(() => { if (!cancelled) { setData({ available: false }); setLoading(false); } });
     return () => { cancelled = true; };
-  }, [jobId, isRunning]);
+  }, [jobId]);
+
+  // Re-fetch when the job transitions from running → stopped to get final telemetry.
+  const prevRunningRef = useRef(isRunning);
+  useEffect(() => {
+    if (prevRunningRef.current && !isRunning) {
+      setLoading(true);
+      fetchJobTelemetry(jobId)
+        .then((d) => setData(d))
+        .catch(() => setData({ available: false }))
+        .finally(() => setLoading(false));
+    }
+    prevRunningRef.current = isRunning;
+  }, [isRunning, jobId]);
 
   // Load agent_summary artifacts once on mount and when job stops
   useEffect(() => {
@@ -377,7 +391,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
     };
     loadCheckpoints();
     return () => { cancelled = true; };
-  }, [jobId, isRunning]);
+  }, [jobId]);
 
   const headerStats = data?.available
     ? `${formatTokens(data.totalTokens ?? 0)} tokens · ${data.toolCallCount ?? 0} tools · ${formatDuration(data.durationMs ?? 0)}`

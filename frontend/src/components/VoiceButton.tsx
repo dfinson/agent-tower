@@ -106,33 +106,34 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown }: P
           <label className="text-sm font-medium text-foreground">
             Prompt<span className="text-red-500 ml-0.5">*</span>
           </label>
-          <Textarea
-            value={value}
-            onChange={(e) => onChange(e.currentTarget.value)}
-            onBlur={onBlur}
-            onKeyDown={onKeyDown}
-            error={error}
-            placeholder="Describe the task you want the agent to perform…"
-            rows={6}
-            className="pr-12"
-          />
+          <div className="relative">
+            <Textarea
+              value={value}
+              onChange={(e) => onChange(e.currentTarget.value)}
+              onBlur={onBlur}
+              onKeyDown={onKeyDown}
+              error={error}
+              placeholder="Describe the task you want the agent to perform…"
+              rows={6}
+              className="pr-12"
+            />
+            <div className="absolute bottom-2 right-2" style={{ zIndex: 10 }}>
+              {state === "transcribing" ? (
+                <Spinner size="sm" />
+              ) : (
+                <Tooltip content="Voice input">
+                  <button
+                    type="button"
+                    onClick={handleToggle}
+                    className="h-9 w-9 rounded-full bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30 transition-colors"
+                  >
+                    <Mic size={18} />
+                  </button>
+                </Tooltip>
+              )}
+            </div>
+          </div>
           <p className="text-xs text-muted-foreground mt-1">Ctrl+Enter to submit</p>
-        </div>
-
-        <div className="absolute bottom-2 right-2" style={{ zIndex: 10 }}>
-          {state === "transcribing" ? (
-            <Spinner size="sm" />
-          ) : (
-            <Tooltip content="Voice input">
-              <button
-                type="button"
-                onClick={handleToggle}
-                className="h-9 w-9 rounded-full bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30 transition-colors"
-              >
-                <Mic size={18} />
-              </button>
-            </Tooltip>
-          )}
         </div>
       </div>
 

@@ -3,7 +3,7 @@ import { Routes, Route, Link, useNavigate } from "react-router-dom";
 import { Settings, History, TerminalSquare, Search } from "lucide-react";
 import { CommandPalette } from "./components/CommandPalette";
 import { useSSE } from "./hooks/useSSE";
-import { useStore, selectConnectionStatus, selectReconnectAttempt } from "./store";
+import { useStore, selectConnectionStatus } from "./store";
 import { DashboardScreen } from "./components/DashboardScreen";
 import { DotBadge } from "./components/ui/badge";
 import { Spinner } from "./components/ui/spinner";
@@ -64,12 +64,11 @@ class ErrorBoundary extends Component<
 
 function ConnectionStatusIndicator() {
   const status = useStore(selectConnectionStatus);
-  const attempt = useStore(selectReconnectAttempt);
-  const color = status === "connected" ? "green" : status === "reconnecting" ? "yellow" : "red";
+  const color = status === "connected" ? "green" : status === "disconnected" ? "red" : "yellow";
   const label =
-    status === "reconnecting"
-      ? `Reconnecting ${attempt}/${20}\u2026`
-      : status;
+    status === "connecting" ? "Connecting\u2026"
+    : status === "reconnecting" ? "Reconnecting\u2026"
+    : status;
   return (
     <DotBadge color={color} aria-live="polite" aria-label={`Connection status: ${label}`}>
       {label}
@@ -116,7 +115,7 @@ export function App() {
   }, [handleKeyDown]);
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen overflow-x-hidden">
       <header className="flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card">
         <Link to="/" className="no-underline flex items-center gap-3.5 hover:opacity-80 transition-opacity">
           <img src="/mark.png" alt="" className="h-8 w-8 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />

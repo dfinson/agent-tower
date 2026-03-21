@@ -24,6 +24,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
   const lastEventIdRef = useRef<string | null>(null);
   const attemptRef = useRef(0);
   const connectRef = useRef<(() => void) | null>(null);
+  const wasConnectedRef = useRef(false);
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -54,6 +55,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
 
       es.onopen = () => {
         attemptRef.current = 0;
+        wasConnectedRef.current = true;
         // Defer the Zustand update to a macrotask (setTimeout 0) rather than a
         // microtask (queueMicrotask).  React 18's useSyncExternalStore schedules
         // its own flush via queueMicrotask; if our Zustand set() fires in the
@@ -123,7 +125,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         }
 
         setTimeout(() => {
-          setConnectionStatus("reconnecting");
+          setConnectionStatus(wasConnectedRef.current ? "reconnecting" : "connecting");
           setReconnectAttempt(attemptRef.current);
         }, 0);
 
