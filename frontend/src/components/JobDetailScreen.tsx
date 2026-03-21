@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, GitBranch, BookOpen, TerminalSquare, ChevronDown } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, GitBranch, FolderGit2, TerminalSquare, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -394,7 +394,7 @@ export function JobDetailScreen() {
         </div>
 
         <div className="flex items-center gap-1.5 mb-3">
-          <BookOpen size={13} className="text-muted-foreground/70 shrink-0" />
+          <FolderGit2 size={13} className="text-muted-foreground/70 shrink-0" />
           <span className="text-sm text-muted-foreground font-mono">{job.repo.split("/").pop() ?? job.repo}</span>
         </div>
 
@@ -534,12 +534,13 @@ export function JobDetailScreen() {
         if (v === "terminal" && !jobTerminalSessionId) handleOpenJobTerminal();
       }} className="mb-4">
         <div className="flex items-center gap-2">
-          <TabsList className="flex-1 overflow-x-auto">
+          <TabsList className="overflow-x-auto">
             {isMobile ? (
               <>
                 <TabsTrigger value="live">Live</TabsTrigger>
                 <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
                 <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
+                {hasWorktree && <TabsTrigger value="terminal"><TerminalSquare size={13} className="mr-1.5" />Terminal</TabsTrigger>}
                 {hasArtifacts && <TabsTrigger value="artifacts">Artifacts</TabsTrigger>}
               </>
             ) : (
@@ -552,20 +553,6 @@ export function JobDetailScreen() {
               </>
             )}
           </TabsList>
-          {isMobile && hasWorktree && (
-            <Tooltip content="Open terminal">
-              <button
-                onClick={() => {
-                  if (!jobTerminalSessionId) handleOpenJobTerminal();
-                  useStore.setState({ terminalDrawerOpen: true });
-                }}
-                className="p-2.5 rounded-md hover:bg-accent text-muted-foreground"
-                aria-label="Open terminal"
-              >
-                <TerminalSquare className="h-4 w-4" />
-              </button>
-            </Tooltip>
-          )}
         </div>
       </Tabs>
 

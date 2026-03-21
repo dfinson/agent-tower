@@ -17,7 +17,7 @@ import { create } from "zustand";
 import type { DiffFileModel } from "../api/types";
 
 /** Connection status exposed to UI components. */
-export type ConnectionStatus = "connected" | "reconnecting" | "disconnected";
+export type ConnectionStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
 
 /** Minimal job shape matching JobResponse from the backend. */
 export interface JobSummary {
@@ -260,7 +260,7 @@ export const useStore = create<AppState>((set, get) => ({
   diffs: {},
   timelines: {},
   plans: {},
-  connectionStatus: "reconnecting",
+  connectionStatus: "connecting",
   reconnectAttempt: 0,
 
   // Terminal state
