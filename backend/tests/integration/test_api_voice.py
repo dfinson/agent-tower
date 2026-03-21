@@ -7,12 +7,12 @@ content-type validation, size limits, and error handling.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import Mock
 
 import pytest
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
+    from unittest.mock import Mock
+
     from httpx import AsyncClient
 
 
@@ -47,30 +47,6 @@ class TestTranscribe:
         )
         assert resp.status_code == 415
 
-    async def test_no_voice_service(self, app: FastAPI, client: AsyncClient) -> None:
-        original = app.state.voice_service
-        app.state.voice_service = None
-        try:
-            resp = await client.post(
-                "/api/voice/transcribe",
-                files=_audio_file(),
-            )
-            assert resp.status_code == 501
-        finally:
-            app.state.voice_service = original
-
-    async def test_file_too_large(self, app: FastAPI, client: AsyncClient) -> None:
-        original = app.state.voice_max_bytes
-        app.state.voice_max_bytes = 64  # very small
-        try:
-            resp = await client.post(
-                "/api/voice/transcribe",
-                files=_audio_file(data=b"\x00" * 256),
-            )
-            assert resp.status_code == 413
-        finally:
-            app.state.voice_max_bytes = original
-
     async def test_empty_file(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/voice/transcribe",
@@ -78,11 +54,9 @@ class TestTranscribe:
         )
         assert resp.status_code == 400
 
-    async def test_transcribe_exception(self, app: FastAPI, client: AsyncClient) -> None:
-        svc = Mock()
-        svc.transcribe = Mock(side_effect=RuntimeError("model crashed"))
-        original = app.state.voice_service
-        app.state.voice_service = svc
+    async def test_transcribe_exception(self, mock_voice_service: Mock, client: AsyncClient) -> None:
+        original_side = mock_voice_service.transcribe.side_effect
+        mock_voice_service.transcribe.side_effect = RuntimeError("model crashed")
         try:
             # ASGITransport re-raises app exceptions by default
             with pytest.raises(RuntimeError, match="model crashed"):
@@ -91,4 +65,20 @@ class TestTranscribe:
                     files=_audio_file(),
                 )
         finally:
-            app.state.voice_service = original
+            mock_voice_service.transcribe.side_effect = original_side
+
+
+class TestVoiceSizeLimit:
+    """Test file size enforcement with a small limit."""
+
+    @pytest.fixture
+    def voice_max_bytes_value(self) -> int:
+        """Override the default 10 MB limit with 64 bytes."""
+        return 64
+
+    async def test_file_too_large(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/voice/transcribe",
+            files=_audio_file(data=b"\x00" * 256),
+        )
+        assert resp.status_code == 413

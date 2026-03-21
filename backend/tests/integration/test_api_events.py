@@ -146,24 +146,3 @@ class TestSSEFiltering:
         """Last-Event-ID as request header is accepted without error."""
         r = await _raw_asgi_sse(app, headers={"Last-Event-ID": "0"})
         assert r["status"] == 200
-
-
-class TestSSEInfrastructureUnavailable:
-    """SSE returns 503 when infrastructure is not ready."""
-
-    @pytest.mark.asyncio
-    async def test_missing_sse_manager_returns_503(self, app: FastAPI) -> None:
-        """When sse_manager is missing from app.state, return 503."""
-        from httpx import ASGITransport
-        from httpx import AsyncClient as _AsyncClient
-
-        original = app.state.sse_manager
-        del app.state.sse_manager
-        try:
-            transport = ASGITransport(app=app)
-            async with _AsyncClient(transport=transport, base_url="http://test") as c:
-                resp = await c.get("/api/events")
-                assert resp.status_code == 503
-                assert "SSE infrastructure" in resp.json()["detail"]
-        finally:
-            app.state.sse_manager = original

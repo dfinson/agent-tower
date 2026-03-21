@@ -454,7 +454,7 @@ class JobService:
             MergeStatus.merged: Resolution.merged,
             MergeStatus.pr_created: Resolution.pr_created,
             MergeStatus.conflict: Resolution.conflict,
-            MergeStatus.skipped: Resolution.unresolved,
+            MergeStatus.skipped: Resolution.discarded if action == "discard" else Resolution.unresolved,
             MergeStatus.error: Resolution.unresolved,
         }
         resolution = status_map.get(result.status, Resolution.unresolved)

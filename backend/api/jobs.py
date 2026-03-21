@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import CPLConfig, load_config
+from backend.config import CPLConfig
+from backend.di import CachedModelsBySdk
 from backend.models.api_schemas import (
     ContinueJobRequest,
     CreateJobRequest,
@@ -28,46 +30,19 @@ from backend.models.api_schemas import (
     TranscriptPayload,
 )
 from backend.models.events import DomainEventKind
-from backend.services.git_service import GitService
+from backend.services.event_bus import EventBus
 from backend.services.job_service import JobService
+from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
+from backend.services.runtime_service import RuntimeService
+from backend.services.utility_session import UtilitySessionService
 
 if TYPE_CHECKING:
     from backend.models.domain import Job
-    from backend.services.merge_service import MergeService
-    from backend.services.runtime_service import RuntimeService
 
-from backend.api.deps import get_db_session
 from backend.models.domain import JobState, PermissionMode, Resolution
 
-router = APIRouter(tags=["jobs"])
-
-
-def _get_config() -> CPLConfig:
-    return load_config()
-
-
-def _get_job_service(
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    config: Annotated[CPLConfig, Depends(_get_config)],
-    request: Request,
-) -> JobService:
-    git_service = GitService(config)
-    # Pass naming service so title + branch are generated before worktree creation
-    naming = NamingService(request.app.state.utility_session)
-    return JobService.from_session(session, config, git_service=git_service, naming_service=naming)
-
-
-def _make_job_service(session: AsyncSession) -> JobService:
-    """Create a JobService from a session (no request context needed)."""
-    config = load_config()
-    return JobService.from_session(session, config)
-
-
-def _get_merge_service(request: Request) -> MergeService | None:
-    """Get MergeService from app state (may be None if not configured)."""
-    result: MergeService | None = request.app.state.merge_service
-    return result
+router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
 
 
 def _job_to_response(job: Job) -> JobResponse:
@@ -102,7 +77,7 @@ def _job_to_response(job: Job) -> JobResponse:
 @router.post("/jobs/suggest-names", response_model=SuggestNamesResponse)
 async def suggest_names(
     body: SuggestNamesRequest,
-    request: Request,
+    utility_session: FromDishka[UtilitySessionService],
 ) -> SuggestNamesResponse:
     """Generate a suggested title, branch name, and worktree name for a task description.
 
@@ -112,11 +87,7 @@ async def suggest_names(
     """
     from backend.services.naming_service import NamingError
 
-    utility = getattr(request.app.state, "utility_session", None)
-    if utility is None:
-        raise HTTPException(status_code=503, detail="Naming service not available")
-
-    naming = NamingService(utility)
+    naming = NamingService(utility_session)
     try:
         title, branch_name, worktree_name = await naming.generate(body.prompt)
     except NamingError as exc:
@@ -128,9 +99,9 @@ async def suggest_names(
 @router.post("/jobs", response_model=CreateJobResponse, status_code=201)
 async def create_job(
     body: CreateJobRequest,
-    svc: Annotated[JobService, Depends(_get_job_service)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    request: Request,
+    svc: FromDishka[JobService],
+    session: FromDishka[AsyncSession],
+    runtime_service: FromDishka[RuntimeService],
 ) -> CreateJobResponse:
     """Create a new job."""
     job = await svc.create_job(
@@ -153,8 +124,7 @@ async def create_job(
 
     # Hand off to RuntimeService for execution / queueing (skip if already failed)
     if job.state != JobState.failed:
-        runtime: RuntimeService = request.app.state.runtime_service
-        await runtime.start_or_enqueue(
+        await runtime_service.start_or_enqueue(
             job,
             permission_mode=body.permission_mode.value if body.permission_mode else None,
         )
@@ -175,7 +145,7 @@ async def create_job(
 
 @router.get("/jobs", response_model=JobListResponse)
 async def list_jobs(
-    svc: Annotated[JobService, Depends(_get_job_service)],
+    svc: FromDishka[JobService],
     state: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query()] = None,
@@ -202,7 +172,7 @@ async def list_jobs(
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
-    svc: Annotated[JobService, Depends(_get_job_service)],
+    svc: FromDishka[JobService],
 ) -> JobResponse:
     """Get full job detail."""
     job = await svc.get_job(job_id)
@@ -212,15 +182,14 @@ async def get_job(
 @router.post("/jobs/{job_id}/cancel", response_model=JobResponse)
 async def cancel_job(
     job_id: str,
-    svc: Annotated[JobService, Depends(_get_job_service)],
-    request: Request,
+    svc: FromDishka[JobService],
+    runtime_service: FromDishka[RuntimeService],
 ) -> JobResponse:
     """Cancel a running or queued job."""
     job = await svc.cancel_job(job_id)
 
     # Also cancel the runtime task if running
-    runtime: RuntimeService = request.app.state.runtime_service
-    await runtime.cancel(job_id)
+    await runtime_service.cancel(job_id)
 
     return _job_to_response(job)
 
@@ -228,9 +197,9 @@ async def cancel_job(
 @router.post("/jobs/{job_id}/rerun", response_model=CreateJobResponse, status_code=201)
 async def rerun_job(
     job_id: str,
-    svc: Annotated[JobService, Depends(_get_job_service)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    request: Request,
+    svc: FromDishka[JobService],
+    session: FromDishka[AsyncSession],
+    runtime_service: FromDishka[RuntimeService],
 ) -> CreateJobResponse:
     """Create a new job from an existing job's configuration."""
     job = await svc.rerun_job(job_id)
@@ -238,8 +207,7 @@ async def rerun_job(
     await session.commit()
 
     if job.state != JobState.failed:
-        runtime: RuntimeService = request.app.state.runtime_service
-        await runtime.start_or_enqueue(job)
+        await runtime_service.start_or_enqueue(job)
         job = await svc.get_job(job.id)
 
     return CreateJobResponse(
@@ -256,13 +224,12 @@ async def rerun_job(
 @router.post("/jobs/{job_id}/pause", status_code=204)
 async def pause_job(
     job_id: str,
-    svc: Annotated[JobService, Depends(_get_job_service)],
-    request: Request,
+    svc: FromDishka[JobService],
+    runtime_service: FromDishka[RuntimeService],
 ) -> None:
     """Send a silent pause instruction to the agent of a running job."""
     await svc.get_job(job_id)
-    runtime: RuntimeService = request.app.state.runtime_service
-    sent = await runtime.pause_job(job_id)
+    sent = await runtime_service.pause_job(job_id)
     if not sent:
         raise HTTPException(status_code=409, detail="Job is not currently running")
 
@@ -271,9 +238,9 @@ async def pause_job(
 async def continue_job(
     job_id: str,
     body: ContinueJobRequest,
-    svc: Annotated[JobService, Depends(_get_job_service)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    request: Request,
+    svc: FromDishka[JobService],
+    session: FromDishka[AsyncSession],
+    runtime_service: FromDishka[RuntimeService],
 ) -> CreateJobResponse:
     """Create a follow-up job with a new instruction on the same repo/config."""
     job = await svc.continue_job(job_id, body.instruction)
@@ -281,8 +248,7 @@ async def continue_job(
     await session.commit()
 
     if job.state != JobState.failed:
-        runtime: RuntimeService = request.app.state.runtime_service
-        await runtime.start_or_enqueue(job)
+        await runtime_service.start_or_enqueue(job)
         job = await svc.get_job(job.id)
 
     return CreateJobResponse(
@@ -300,29 +266,27 @@ async def continue_job(
 async def resume_job(
     job_id: str,
     body: ResumeJobRequest,
-    request: Request,
+    runtime_service: FromDishka[RuntimeService],
 ) -> JobResponse:
     """Resume a completed/failed/canceled job in-place with a new instruction."""
-    runtime: RuntimeService = request.app.state.runtime_service
-    job = await runtime.resume_job(job_id, body.instruction)
+    job = await runtime_service.resume_job(job_id, body.instruction)
     return _job_to_response(job)
 
 
 @router.get("/models", response_model=list[ModelInfoResponse])
 async def list_models(
-    request: Request,
-    sdk: Annotated[str | None, Query(description="SDK id (copilot | claude). Omit for default.")] = None,
+    cached_models_by_sdk: FromDishka[CachedModelsBySdk],
+    sdk: str | None = Query(default=None, description="SDK id (copilot | claude). Omit for default."),
 ) -> list[ModelInfoResponse]:
     """Return the model list for the requested SDK, cached at server startup."""
-    by_sdk: dict[str, list[dict[str, object]]] = getattr(request.app.state, "cached_models_by_sdk", {})
-    models = by_sdk.get(sdk, []) if sdk is not None else by_sdk.get("copilot", [])
+    models = cached_models_by_sdk.get(sdk, []) if sdk is not None else cached_models_by_sdk.get("copilot", [])
     return [ModelInfoResponse.model_validate(m) for m in models]
 
 
 @router.get("/jobs/{job_id}/logs", response_model=list[LogLinePayload])
 async def get_job_logs(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
+    svc: FromDishka[JobService],
     level: Annotated[str, Query(pattern="^(debug|info|warn|error)$")] = "debug",
     limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
 ) -> list[LogLinePayload]:
@@ -336,7 +300,6 @@ async def get_job_logs(
     """
     _level_order = {"debug": 0, "info": 1, "warn": 2, "error": 3}
     min_priority = _level_order.get(level, 0)
-    svc = _make_job_service(session)
     events = await svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=limit)
     return [
         LogLinePayload(
@@ -355,15 +318,15 @@ async def get_job_logs(
 @router.get("/jobs/{job_id}/diff", response_model=list[DiffFileModel])
 async def get_job_diff(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    request: Request,
+    svc: FromDishka[JobService],
+    event_bus: FromDishka[EventBus],
+    config: FromDishka[CPLConfig],
 ) -> list[DiffFileModel]:
     """Return the current diff for a job.
 
     For running jobs, calculates a fresh diff from the worktree.
     For completed/archived jobs, returns the last stored diff snapshot.
     """
-    svc = _make_job_service(session)
     job = await svc.get_job(job_id)
 
     # For active jobs with a worktree, calculate a fresh diff
@@ -373,10 +336,9 @@ async def get_job_diff(
         and job.worktree_path != job.repo
     ):
         from backend.services.diff_service import DiffService
+        from backend.services.git_service import GitService
 
-        config = load_config()
         git = GitService(config)
-        event_bus = request.app.state.event_bus
         ds = DiffService(git_service=git, event_bus=event_bus)
         try:
             return await ds.calculate_diff(job.worktree_path, job.base_ref)
@@ -400,11 +362,10 @@ async def get_job_diff(
 @router.get("/jobs/{job_id}/transcript", response_model=list[TranscriptPayload])
 async def get_job_transcript(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
+    svc: FromDishka[JobService],
+    limit: int = Query(default=2000, ge=1, le=5000),
 ) -> list[TranscriptPayload]:
     """Return historical transcript entries for a job from the event store."""
-    svc = _make_job_service(session)
     events = await svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=limit)
 
     # Build a turn_id → summary map from stored tool_group_summary events so
@@ -442,15 +403,14 @@ async def get_job_transcript(
 @router.get("/jobs/{job_id}/timeline", response_model=list[ProgressHeadlinePayload])
 async def get_job_timeline(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+    svc: FromDishka[JobService],
+    limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[ProgressHeadlinePayload]:
     """Return historical progress_headline milestones for a job.
 
     Events with ``replaces_count > 0`` retroactively collapse earlier entries,
     so the returned list is the final milestone timeline, not raw events.
     """
-    svc = _make_job_service(session)
     events = await svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=limit)
 
     # Replay events to reconstruct the collapsed milestone list
@@ -474,7 +434,7 @@ async def get_job_timeline(
 @router.get("/jobs/{job_id}/telemetry")
 async def get_job_telemetry(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
+    session: FromDishka[AsyncSession],
 ) -> dict[str, object]:
     """Get telemetry data for a job run.
 
@@ -498,19 +458,19 @@ async def get_job_telemetry(
 async def resolve_job(
     job_id: str,
     body: ResolveJobRequest,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    request: Request,
+    svc: FromDishka[JobService],
+    session: FromDishka[AsyncSession],
+    runtime_service: FromDishka[RuntimeService],
+    merge_service: FromDishka[MergeService],
+    event_bus: FromDishka[EventBus],
 ) -> ResolveJobResponse:
     """Resolve a succeeded job: merge, create PR, discard, or resolve with agent."""
-    svc = _make_job_service(session)
     job = await svc.resolve_job(job_id, body.action)
 
     # agent_merge: hand the conflict back to the agent to resolve
     if body.action == ResolutionAction.agent_merge:
         if job.resolution != Resolution.conflict:
             raise HTTPException(status_code=409, detail="agent_merge is only valid when resolution is 'conflict'")
-
-        runtime_service: RuntimeService = request.app.state.runtime_service
 
         # Retrieve conflict files from the latest merge_conflict event
         conflict_events = await svc.list_events_by_job(job_id, kinds=[DomainEventKind.merge_conflict])
@@ -537,8 +497,6 @@ async def resolve_job(
         await runtime_service.resume_job(job_id, conflict_prompt)
         return ResolveJobResponse(resolution="agent_merge")
 
-    merge_service: MergeService = request.app.state.merge_service
-    event_bus = request.app.state.event_bus
     resolution, pr_url, conflict_files_result = await svc.execute_resolve(
         job=job,
         action=body.action,
@@ -557,21 +515,21 @@ async def resolve_job(
 @router.post("/jobs/{job_id}/archive", status_code=204)
 async def archive_job(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    request: Request,
+    svc: FromDishka[JobService],
+    session: FromDishka[AsyncSession],
+    event_bus: FromDishka[EventBus],
 ) -> None:
     """Archive a completed job (hide from Kanban board)."""
-    svc = _make_job_service(session)
-    await svc.archive_job(job_id, event_bus=request.app.state.event_bus)
+    await svc.archive_job(job_id, event_bus=event_bus)
     await session.commit()
 
 
 @router.post("/jobs/{job_id}/unarchive", status_code=204)
 async def unarchive_job(
     job_id: str,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
+    svc: FromDishka[JobService],
+    session: FromDishka[AsyncSession],
 ) -> None:
     """Unarchive a job (show on Kanban board again)."""
-    svc = _make_job_service(session)
     await svc.unarchive_job(job_id)
     await session.commit()
