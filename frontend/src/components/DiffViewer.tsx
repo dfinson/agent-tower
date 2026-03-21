@@ -332,23 +332,21 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt, on
                   {/* Checkbox — visible when ask is active, disabled placeholder when not */}
                   {canAsk ? (
                     <Tooltip content="Select to ask about this file's changes">
-                      <label className="shrink-0 p-1 cursor-pointer">
-                        <button
-                          type="button"
-                          onClick={() => toggleFile(i)}
-                          className={cn(
-                            "w-5 h-5 rounded-[3px] border flex items-center justify-center transition-colors cursor-pointer",
-                            checked
-                              ? "bg-primary border-primary text-primary-foreground"
-                              : "border-muted-foreground/40 hover:border-muted-foreground",
-                          )}
-                        >
-                          {checked && <Check size={12} strokeWidth={3} />}
-                        </button>
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() => toggleFile(i)}
+                        className={cn(
+                          "shrink-0 w-5 h-5 md:w-3.5 md:h-3.5 rounded-[3px] border flex items-center justify-center transition-colors cursor-pointer",
+                          checked
+                            ? "bg-primary border-primary text-primary-foreground"
+                            : "border-muted-foreground/40 hover:border-muted-foreground",
+                        )}
+                      >
+                        {checked && <Check size={12} strokeWidth={3} />}
+                      </button>
                     </Tooltip>
                   ) : (
-                    <span className="shrink-0 w-3.5" />
+                    <span className="shrink-0 w-5 md:w-3.5" />
                   )}
                   <button
                     type="button"
