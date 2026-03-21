@@ -7,6 +7,7 @@ import { transcribeAudio } from "../api/client";
 import { Textarea } from "./ui/textarea";
 import { Spinner } from "./ui/spinner";
 import { Tooltip } from "./ui/tooltip";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 type RecordingState = "idle" | "recording" | "transcribing";
 
@@ -20,6 +21,7 @@ interface PromptWithVoiceProps {
 
 export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown }: PromptWithVoiceProps) {
   const [state, setState] = useState<RecordingState>("idle");
+  const isMobile = useIsMobile();
   const containerRef = useRef<HTMLDivElement>(null);
   const recordRef = useRef<ReturnType<typeof RecordPlugin.create> | null>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -113,7 +115,7 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown }: P
             onKeyDown={onKeyDown}
             error={error}
             placeholder="Describe the task you want the agent to perform…"
-            rows={6}
+            rows={isMobile ? 4 : 6}
             className="pr-12"
           />
           <p className="text-xs text-muted-foreground mt-1">Ctrl+Enter to submit</p>
