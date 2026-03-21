@@ -376,7 +376,7 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt, on
                 onChange={(e) => {
                   setAskMsg(e.currentTarget.value);
                   e.currentTarget.style.height = "auto";
-                  e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 160) + "px";
+                  e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, isMobile ? 240 : 160) + "px";
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !isMobile && !e.shiftKey) {
@@ -387,7 +387,7 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt, on
                 disabled={askSending || micState !== "idle"}
                 rows={1}
                 className="flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none pr-8 overflow-y-auto"
-                style={{ maxHeight: 160 }}
+                style={{ maxHeight: isMobile ? 240 : 160 }}
               />
               <div className="absolute right-2 bottom-1.5">
                 <MicButton
