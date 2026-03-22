@@ -156,7 +156,10 @@ class ClaudeAdapter(AgentAdapterInterface):
                         command=_shell_cmd[:200],
                     )
                     return PermissionResultDeny(
-                        message="git reset --hard requires operator approval but no approval infrastructure is available"
+                        message=(
+                            "git reset --hard requires operator approval"
+                            " but no approval infrastructure is available"
+                        )
                     )
 
                 description = (
