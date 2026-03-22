@@ -117,7 +117,7 @@ export function App() {
           }
         }
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+      if (e.altKey && e.key === "n") {
         e.preventDefault();
         navigate("/jobs/new");
       }
