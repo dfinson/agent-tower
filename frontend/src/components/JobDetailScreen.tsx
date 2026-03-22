@@ -220,10 +220,9 @@ export function JobDetailScreen() {
     setResolveLoading(action);
     try {
       const res = await resolveJob(jobId, action);
-      // Optimistically update the store so the card re-renders immediately
       useStore.setState((s) => {
         const existing = s.jobs[jobId];
-        if (!existing) return s;
+        if (!existing) return {};
         return {
           jobs: {
             ...s.jobs,
