@@ -196,8 +196,6 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editorRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const monacoRef = useRef<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const decorationsRef = useRef<any>(null);
 
   const diffs = useStore(selectJobDiffs(jobId));
@@ -234,9 +232,8 @@ export default function WorkspaceBrowser({ jobId }: Props) {
     coll.set(buildAddedDecorations(diffFile, totalLines));
   }, [selected, diffMap, fileContent]);
 
-  const handleEditorMount: OnMount = useCallback((ed, mc) => {
+  const handleEditorMount: OnMount = useCallback((ed) => {
     editorRef.current = ed;
-    monacoRef.current = mc;
     decorationsRef.current = ed.createDecorationsCollection([]);
     // Apply immediately if diff data is already available
     const diffFile = selected ? diffMap.get(selected) : undefined;
