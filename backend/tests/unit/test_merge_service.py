@@ -406,6 +406,10 @@ class TestFalsePositiveConflicts:
 
         # "Already applied" is not a real merge conflict — must be "error".
         assert result.status == "error", f"Expected error, got {result.status!r}"
+        assert result.error == (
+            "Cherry-pick stopped because one or more branch commits are already present on the "
+            "base branch; rebase the branch or create a PR"
+        )
         conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
         assert conflict_events == [], "No merge_conflict event should be published for already-applied commits"
 
