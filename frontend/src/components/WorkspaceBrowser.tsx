@@ -248,7 +248,6 @@ export default function WorkspaceBrowser({ jobId }: Props) {
       const totalLines = ed.getModel()?.getLineCount() ?? 0;
       decorationsRef.current.set(buildAddedDecorations(diffFile, totalLines));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
