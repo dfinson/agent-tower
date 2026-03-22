@@ -16,7 +16,7 @@ from backend.models.db import Base, JobRow
 from backend.models.domain import JobState, PermissionMode
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.metrics_repo import MetricsRepository
-from backend.services.telemetry import JobTelemetry, LLMCallRecord, QuotaSnapshot, TelemetryCollector, ToolCallRecord
+from backend.services.telemetry import QuotaSnapshot, TelemetryCollector
 
 
 @pytest.fixture
