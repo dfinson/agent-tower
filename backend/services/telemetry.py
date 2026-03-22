@@ -20,6 +20,7 @@ Contract:
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from dataclasses import dataclass, field, replace
 
@@ -139,6 +140,40 @@ class JobTelemetry:
         if self.context_window_size <= 0:
             return 0.0
         return min(1.0, self.current_context_tokens / self.context_window_size)
+
+    def to_snapshot(self) -> dict[str, object]:
+        """Serialize all cumulative metrics for persistent storage.
+
+        The snapshot captures the full accumulated state at the end of a
+        session so that it can be restored when the job is resumed after a
+        process restart.  Uses snake_case keys (different from to_dict()).
+        """
+        return {
+            "model": self.model,
+            "main_model": self.main_model,
+            # Capture the full duration including the current session
+            "duration_ms": self.duration_ms,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "total_cost": self.total_cost,
+            "compactions": self.compactions,
+            "tokens_compacted": self.tokens_compacted,
+            "tool_call_count": self.tool_call_count,
+            "total_tool_duration_ms": self.total_tool_duration_ms,
+            "tool_calls_raw": [dataclasses.asdict(tc) for tc in self.tool_calls[-_MAX_TOOL_CALLS:]],
+            "llm_call_count": self.llm_call_count,
+            "total_llm_duration_ms": self.total_llm_duration_ms,
+            "llm_calls_raw": [dataclasses.asdict(lc) for lc in self.llm_calls[-_MAX_LLM_CALLS:]],
+            "approval_count": self.approval_count,
+            "total_approval_wait_ms": self.total_approval_wait_ms,
+            "agent_messages": self.agent_messages,
+            "operator_messages": self.operator_messages,
+            "premium_requests": self.premium_requests,
+            "quota_snapshots_raw": {k: dataclasses.asdict(v) for k, v in self.quota_snapshots.items()},
+        }
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to API-friendly dict."""
@@ -262,6 +297,54 @@ class TelemetryCollector:
         tel = self._jobs.get(job_id)
         if tel:
             tel.end_time = time.monotonic()
+
+    def restore_from_snapshot(self, job_id: str, snapshot: dict[str, object]) -> None:
+        """Restore cumulative metrics from a persisted snapshot.
+
+        Called when resuming a job after a process restart, when in-memory
+        state was lost.  The freshly-created JobTelemetry entry (created by
+        start_job()) is back-filled with the accumulated totals from the
+        snapshot so that metrics continue to grow monotonically across all
+        sessions of a job.
+        """
+        tel = self._jobs.get(job_id)
+        if not tel:
+            return
+
+        # Scalar cumulative counters
+        tel.model = str(snapshot.get("model") or tel.model)
+        tel.main_model = str(snapshot.get("main_model") or tel.main_model)
+        tel.accumulated_duration_ms = float(snapshot.get("duration_ms", 0.0))
+        tel.input_tokens = int(snapshot.get("input_tokens", 0))
+        tel.output_tokens = int(snapshot.get("output_tokens", 0))
+        tel.total_tokens = int(snapshot.get("total_tokens", 0))
+        tel.cache_read_tokens = int(snapshot.get("cache_read_tokens", 0))
+        tel.cache_write_tokens = int(snapshot.get("cache_write_tokens", 0))
+        tel.total_cost = float(snapshot.get("total_cost", 0.0))
+        tel.compactions = int(snapshot.get("compactions", 0))
+        tel.tokens_compacted = int(snapshot.get("tokens_compacted", 0))
+        tel.tool_call_count = int(snapshot.get("tool_call_count", 0))
+        tel.total_tool_duration_ms = float(snapshot.get("total_tool_duration_ms", 0.0))
+        tel.llm_call_count = int(snapshot.get("llm_call_count", 0))
+        tel.total_llm_duration_ms = float(snapshot.get("total_llm_duration_ms", 0.0))
+        tel.approval_count = int(snapshot.get("approval_count", 0))
+        tel.total_approval_wait_ms = float(snapshot.get("total_approval_wait_ms", 0.0))
+        tel.agent_messages = int(snapshot.get("agent_messages", 0))
+        tel.operator_messages = int(snapshot.get("operator_messages", 0))
+        tel.premium_requests = float(snapshot.get("premium_requests", 0.0))
+
+        # Call history lists
+        raw_tools = snapshot.get("tool_calls_raw", [])
+        if isinstance(raw_tools, list):
+            tel.tool_calls = [ToolCallRecord(**tc) for tc in raw_tools]
+        raw_llm = snapshot.get("llm_calls_raw", [])
+        if isinstance(raw_llm, list):
+            tel.llm_calls = [LLMCallRecord(**lc) for lc in raw_llm]
+
+        # Quota snapshots
+        raw_quotas = snapshot.get("quota_snapshots_raw", {})
+        if isinstance(raw_quotas, dict):
+            tel.quota_snapshots = {k: QuotaSnapshot(**v) for k, v in raw_quotas.items()}
 
     def set_main_model(self, job_id: str, model: str) -> None:
         """Explicitly set the main agent's model (called when the SDK confirms the model).
