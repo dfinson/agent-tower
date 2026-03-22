@@ -1,4 +1,4 @@
-import { Component, type ReactNode, Suspense, lazy } from "react";
+import { Component, type ReactNode, Suspense, lazy, useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Routes, Route, Link, useNavigate } from "react-router-dom";
 import { Settings, History, TerminalSquare, Search } from "lucide-react";
