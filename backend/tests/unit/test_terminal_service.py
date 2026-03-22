@@ -220,6 +220,40 @@ class TestCreateSession:
         # Reader should be added for master FD
         mock_loop.add_reader.assert_called_once()
 
+    @patch("backend.services.terminal_service.asyncio.create_task")
+    @patch("backend.services.terminal_service.fcntl.fcntl", return_value=0)
+    @patch("backend.services.terminal_service.fcntl.ioctl")
+    @patch("backend.services.terminal_service.os.close")
+    @patch("backend.services.terminal_service.subprocess.Popen")
+    @patch("backend.services.terminal_service.pty.openpty", return_value=(10, 11))
+    @patch("backend.services.terminal_service.secrets.token_hex", return_value="deadbeef" * 4)
+    @patch("backend.services.terminal_service.os.path.isdir", return_value=True)
+    @patch("backend.services.terminal_service.os.path.isfile", return_value=True)
+    @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
+    def test_create_session_uses_prompt_label_for_bash_prompt(
+        self,
+        mock_detect: MagicMock,
+        mock_isfile: MagicMock,
+        mock_isdir: MagicMock,
+        mock_hex: MagicMock,
+        mock_openpty: MagicMock,
+        mock_popen: MagicMock,
+        mock_close: MagicMock,
+        mock_ioctl: MagicMock,
+        mock_fcntl: MagicMock,
+        mock_create_task: MagicMock,
+    ) -> None:
+        mock_proc = _make_mock_process()
+        mock_popen.return_value = mock_proc
+
+        svc = TerminalService()
+        svc._loop = MagicMock()
+
+        svc.create_session(cwd="/tmp", shell="/bin/bash", prompt_label="codeplane:job-1")
+
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["PROMPT_COMMAND"] == "PS1='codeplane:job-1 $ '"
+
     @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
     def test_create_session_max_sessions_exceeded(self, mock_detect: MagicMock) -> None:
         svc = TerminalService(max_sessions=1)
