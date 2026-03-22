@@ -5,6 +5,7 @@ import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.esm.js";
 import { transcribeAudio } from "../api/client";
 import { Textarea } from "./ui/textarea";
+import { Spinner } from "./ui/spinner";
 import { Tooltip } from "./ui/tooltip";
 import { useIsMobile } from "../hooks/useIsMobile";
 
@@ -107,16 +108,31 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown }: P
           <label className="text-sm font-medium text-foreground">
             Prompt<span className="text-red-500 ml-0.5">*</span>
           </label>
-          <Textarea
-            value={value}
-            onChange={(e) => onChange(e.currentTarget.value)}
-            onBlur={onBlur}
-            onKeyDown={onKeyDown}
-            error={error}
-            placeholder="Describe the task you want the agent to perform…"
-            rows={isMobile ? 4 : 6}
-            className="pr-12"
-          />
+          <div className="relative">
+            <Textarea
+              value={value}
+              onChange={(e) => onChange(e.currentTarget.value)}
+              onBlur={onBlur}
+              onKeyDown={onKeyDown}
+              error={error}
+              placeholder="Describe the task you want the agent to perform…"
+              rows={isMobile ? 4 : 6}
+              className="pr-12"
+            />
+            <div className="absolute bottom-3 right-3">
+              <Tooltip content={state === "transcribing" ? "Transcribing" : "Voice input"}>
+                <button
+                  type="button"
+                  onClick={handleToggle}
+                  disabled={state === "transcribing"}
+                  aria-label={state === "transcribing" ? "Transcribing audio" : "Voice input"}
+                  className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {state === "transcribing" ? <Spinner size="sm" /> : <Mic size={16} />}
+                </button>
+              </Tooltip>
+            </div>
+          </div>
           <p className="text-xs text-muted-foreground mt-1">Ctrl+Enter to submit</p>
         </div>
       </div>
@@ -256,6 +272,7 @@ export function MicButton({ onTranscript, onStateChange, waveformContainerRef }:
         type="button"
         onClick={handleClick}
         disabled={state === "transcribing"}
+        aria-label={state === "recording" ? "Stop recording" : state === "transcribing" ? "Transcribing audio" : "Voice input"}
         className={`h-6 w-6 rounded-full flex items-center justify-center transition-colors ${
           state === "recording"
             ? "bg-destructive text-destructive-foreground hover:bg-destructive/80"
