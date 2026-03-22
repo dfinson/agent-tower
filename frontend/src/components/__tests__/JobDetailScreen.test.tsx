@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { useStore } from "../../store";
 import type { JobSummary } from "../../store";
@@ -146,5 +146,27 @@ describe("JobDetailScreen", () => {
       expect(useStore.getState().jobs["job-1"]?.resolution).toBe("unresolved");
       expect(useStore.getState().jobs["job-1"]?.mergeStatus).toBe("not_merged");
     });
+  });
+
+  it("keeps the live transcript area on screen in desktop job views", async () => {
+    useStore.setState({
+      jobs: {
+        "job-1": makeJob({ state: "running", resolution: null }),
+      },
+    });
+
+    vi.mocked(fetchJob).mockResolvedValueOnce(makeJob({ state: "running", resolution: null }) as any);
+
+    render(
+      <MemoryRouter initialEntries={["/jobs/job-1"]}>
+        <Routes>
+          <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const transcriptPanel = await screen.findByTestId("transcript-panel");
+    expect(transcriptPanel.parentElement).toHaveClass("flex-1", "min-h-[22rem]");
+    expect(transcriptPanel.parentElement?.parentElement).toHaveClass("md:h-[calc(100vh-15rem)]", "md:min-h-[42rem]");
   });
 });
