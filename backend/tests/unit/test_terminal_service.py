@@ -827,3 +827,129 @@ class TestWindowsTerminalService:
 
         mock_ef.assert_called_once()
         assert "hello output" in session.scrollback
+
+    @pytest.mark.asyncio
+    @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
+    async def test_watch_exit_windows_polls_isalive(self, mock_detect: MagicMock) -> None:
+        """_watch_exit on Windows polls proc.isalive() until it returns False."""
+        svc = TerminalService()
+        session = self._make_win_session()
+        svc._sessions["win1"] = session
+
+        # isalive returns True once, then False to stop the poll
+        session.process.isalive.side_effect = [True, False]
+        session.process.exitstatus = 42
+
+        with patch("backend.services.terminal_service.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            with patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock, return_value=42):
+                await svc._watch_exit("win1")
+
+        assert "win1" not in svc.sessions
+
+    @pytest.mark.asyncio
+    @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
+    async def test_watch_exit_windows_notifies_clients(self, mock_detect: MagicMock) -> None:
+        """_watch_exit on Windows sends exit message to clients."""
+        svc = TerminalService()
+        session = self._make_win_session()
+        ws = AsyncMock()
+        session.clients.add(ws)
+        svc._sessions["win1"] = session
+
+        with patch("backend.services.terminal_service.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            with patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock, return_value=0):
+                await svc._watch_exit("win1")
+
+        ws.send_text.assert_called_once()
+        msg = json.loads(ws.send_text.call_args[0][0])
+        assert msg["type"] == "exit"
+        assert msg["code"] == 0
+
+    @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
+    @patch("backend.services.terminal_service.asyncio.create_task")
+    def test_create_session_windows_pwsh_prompt_injection(
+        self, mock_create_task: MagicMock, mock_detect: MagicMock
+    ) -> None:
+        """create_session on Windows injects prompt via -NoExit -Command argv for pwsh."""
+        mock_win_proc = _make_win_proc()
+        mock_win_proc_class = MagicMock()
+        mock_win_proc_class.spawn.return_value = mock_win_proc
+
+        with (
+            patch("backend.services.terminal_service.sys") as mock_sys,
+            patch("backend.services.terminal_service._WinPtyProcess", mock_win_proc_class, create=True),
+            patch("backend.services.terminal_service.os.path.isfile", return_value=True),
+            patch("backend.services.terminal_service.os.path.isdir", return_value=True),
+            patch("backend.services.terminal_service.secrets.token_hex", return_value="winhex1"),
+        ):
+            mock_sys.platform = "win32"
+            svc = TerminalService()
+            svc._loop = MagicMock()
+            session = svc.create_session(cwd="C:\\repos\\project", shell="pwsh")
+
+        assert session.master_fd == -1
+        spawn_call = mock_win_proc_class.spawn.call_args
+        argv = spawn_call[0][0]
+        assert argv[0] == "pwsh"
+        assert "-NoExit" in argv
+        assert "-Command" in argv
+        # The prompt function definition should be in the command string
+        assert any("function prompt" in str(a) for a in argv)
+
+    @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
+    @patch("backend.services.terminal_service.asyncio.create_task")
+    def test_create_session_windows_cmd_prompt_env(
+        self, mock_create_task: MagicMock, mock_detect: MagicMock
+    ) -> None:
+        """create_session on Windows sets PROMPT env var for cmd.exe."""
+        mock_win_proc = _make_win_proc()
+        mock_win_proc_class = MagicMock()
+        mock_win_proc_class.spawn.return_value = mock_win_proc
+
+        with (
+            patch("backend.services.terminal_service.sys") as mock_sys,
+            patch("backend.services.terminal_service._WinPtyProcess", mock_win_proc_class, create=True),
+            patch("backend.services.terminal_service.os.path.isfile", return_value=True),
+            patch("backend.services.terminal_service.os.path.isdir", return_value=True),
+            patch("backend.services.terminal_service.secrets.token_hex", return_value="winhex2"),
+        ):
+            mock_sys.platform = "win32"
+            svc = TerminalService()
+            svc._loop = MagicMock()
+            session = svc.create_session(cwd="C:\\repos\\project", shell="cmd.exe")
+
+        spawn_call = mock_win_proc_class.spawn.call_args
+        env_passed = spawn_call[1].get("env") or spawn_call[0][2] if len(spawn_call[0]) > 2 else spawn_call[1].get("env", {})
+        # Verify PROMPT is set in env passed to spawn
+        assert "PROMPT" in env_passed
+        assert env_passed["PROMPT"].startswith("…")
+
+    @pytest.mark.asyncio
+    @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
+    async def test_fd_double_close_protection(self, mock_detect: MagicMock) -> None:
+        """master_fd is set to -1 after closing so a second close attempt is a no-op."""
+        svc = TerminalService()
+        svc._loop = MagicMock()
+        session = _make_session(session_id="s1", master_fd=42)
+        session._exit_task = None
+        svc._sessions["s1"] = session
+
+        close_calls: list[int] = []
+        original_close = os.close
+
+        def _tracking_close(fd: int) -> None:
+            close_calls.append(fd)
+
+        with (
+            patch("backend.services.terminal_service.asyncio.to_thread", new_callable=AsyncMock),
+            patch("backend.services.terminal_service.os.close", side_effect=_tracking_close),
+        ):
+            # First cleanup — should close fd 42 and set master_fd = -1
+            await svc._cleanup_session(session)
+            # Second cleanup (simulates _watch_exit race) — fd is now -1, should not re-close
+            await svc._cleanup_session(session)
+
+        # fd 42 should have been closed exactly once
+        assert close_calls.count(42) == 1
