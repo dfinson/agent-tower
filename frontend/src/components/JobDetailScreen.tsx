@@ -18,7 +18,6 @@ import { Spinner } from "./ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { JobDetailSkeleton } from "./JobDetailSkeleton";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { cn } from "../lib/utils";
 import { Tooltip } from "./ui/tooltip";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 

@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { fetchWorkspaceFiles, fetchWorkspaceFile } from "../api/client";
 import { useStore, selectJobDiffs } from "../store";
-import type { DiffFileModel, DiffHunkModel } from "../api/types";
+import type { DiffFileModel } from "../api/types";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
