@@ -1,6 +1,7 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useMemo } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Folder, FolderOpen, FileCode, FilePlus2, FileEdit, FileMinus2, FileSymlink, ChevronRight, ChevronDown, ArrowLeft } from "lucide-react";
 import Editor from "@monaco-editor/react";
+import type { OnMount } from "@monaco-editor/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -150,6 +151,38 @@ interface Props {
   jobId: string;
 }
 
+/** Compute Monaco decoration ranges for added lines in the given diff file. */
+function buildAddedDecorations(
+  diffFile: DiffFileModel,
+  totalLines: number,
+): { range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }; options: { isWholeLine: boolean; className: string } }[] {
+  if (diffFile.status === "added") {
+    // Every line in the file is new
+    return Array.from({ length: totalLines }, (_, i) => ({
+      range: { startLineNumber: i + 1, startColumn: 1, endLineNumber: i + 1, endColumn: 1 },
+      options: { isWholeLine: true, className: "diff-added-line" },
+    }));
+  }
+
+  const decorations: ReturnType<typeof buildAddedDecorations> = [];
+  for (const hunk of diffFile.hunks) {
+    let newLine = hunk.newStart;
+    for (const line of hunk.lines) {
+      if (line.type === "addition") {
+        decorations.push({
+          range: { startLineNumber: newLine, startColumn: 1, endLineNumber: newLine, endColumn: 1 },
+          options: { isWholeLine: true, className: "diff-added-line" },
+        });
+        newLine++;
+      } else if (line.type === "context") {
+        newLine++;
+      }
+      // deletion lines don't exist in the new file — skip
+    }
+  }
+  return decorations;
+}
+
 export default function WorkspaceBrowser({ jobId }: Props) {
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -158,6 +191,12 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   const [fileLoading, setFileLoading] = useState(false);
   const isMobile = useIsMobile();
   const [mdMode, setMdMode] = useState<"preview" | "raw">("preview");
+
+  // Monaco editor ref + live decorations collection
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editorRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const decorationsRef = useRef<any>(null);
 
   const diffs = useStore(selectJobDiffs(jobId));
 
@@ -177,6 +216,34 @@ export default function WorkspaceBrowser({ jobId }: Props) {
     }
     return dirs;
   }, [diffs]);
+
+  // Re-apply diff decorations whenever the selected file or its content changes.
+  useEffect(() => {
+    const ed = editorRef.current;
+    const coll = decorationsRef.current;
+    if (!ed || !coll) return;
+
+    const diffFile = selected ? diffMap.get(selected) : undefined;
+    if (!diffFile) {
+      coll.set([]);
+      return;
+    }
+    const totalLines = ed.getModel()?.getLineCount() ?? 0;
+    coll.set(buildAddedDecorations(diffFile, totalLines));
+  }, [selected, diffMap, fileContent]);
+
+  const handleEditorMount: OnMount = useCallback((ed) => {
+    editorRef.current = ed;
+    decorationsRef.current = ed.createDecorationsCollection([]);
+    // Apply immediately if diff data is already available
+    const diffFile = selected ? diffMap.get(selected) : undefined;
+    if (diffFile) {
+      const totalLines = ed.getModel()?.getLineCount() ?? 0;
+      decorationsRef.current.set(buildAddedDecorations(diffFile, totalLines));
+    }
+  // selected and diffMap are intentionally captured at mount time
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     fetchWorkspaceFiles(jobId)
@@ -286,6 +353,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
                 value={fileContent}
                 language={guessLang(selected)}
                 theme="vs-dark"
+                onMount={handleEditorMount}
                 options={{
                   readOnly: true,
                   minimap: { enabled: false },
