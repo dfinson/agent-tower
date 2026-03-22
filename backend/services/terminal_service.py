@@ -37,8 +37,7 @@ if sys.platform == "win32":
         from winpty import PtyProcess as _WinPtyProcess
     except ImportError as _e:
         raise ImportError(
-            "pywinpty is required for terminal support on Windows. "
-            "Install it with: pip install pywinpty"
+            "pywinpty is required for terminal support on Windows. Install it with: pip install pywinpty"
         ) from _e
     _SIGWINCH: int | None = None
 else:
@@ -46,6 +45,7 @@ else:
     import pty
     import signal
     import termios
+
     _SIGWINCH = signal.SIGWINCH
 
 # ANSI sequences stripped from scrollback before replay to avoid garbled output
@@ -99,7 +99,7 @@ class PtySession:
 
     id: str
     master_fd: int  # -1 on Windows
-    process: Any    # subprocess.Popen (POSIX) | winpty.PtyProcess (Windows)
+    process: Any  # subprocess.Popen (POSIX) | winpty.PtyProcess (Windows)
     shell: str
     cwd: str
     job_id: str | None = None
@@ -312,7 +312,7 @@ class TerminalService:
 
         return PtySession(
             id=session_id,
-            master_fd=-1,   # not used on Windows
+            master_fd=-1,  # not used on Windows
             process=proc,
             shell=shell,
             cwd=cwd,
@@ -490,6 +490,7 @@ class TerminalService:
             # winpty.PtyProcess has no blocking wait(); poll isalive() in a thread.
             def _poll_until_dead() -> int:
                 import time
+
                 while session.process.isalive():
                     time.sleep(0.2)
                 return getattr(session.process, "exitstatus", None) or 0

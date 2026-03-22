@@ -83,9 +83,7 @@ class TestGetSettings:
         assert isinstance(data["verify"], bool)
 
     @pytest.mark.asyncio
-    async def test_returns_effective_default_verification_prompts(
-        self, client: AsyncClient, app: FastAPI
-    ) -> None:
+    async def test_returns_effective_default_verification_prompts(self, client: AsyncClient, app: FastAPI) -> None:
         app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.get("/api/settings")

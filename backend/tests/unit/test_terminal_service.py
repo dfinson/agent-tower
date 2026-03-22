@@ -903,9 +903,7 @@ class TestWindowsTerminalService:
 
     @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
     @patch("backend.services.terminal_service.asyncio.create_task")
-    def test_create_session_windows_cmd_prompt_env(
-        self, mock_create_task: MagicMock, mock_detect: MagicMock
-    ) -> None:
+    def test_create_session_windows_cmd_prompt_env(self, mock_create_task: MagicMock, mock_detect: MagicMock) -> None:
         """create_session on Windows sets PROMPT env var for cmd.exe."""
         mock_win_proc = _make_win_proc()
         mock_win_proc_class = MagicMock()

@@ -219,11 +219,7 @@ def validate_remote_provider(
     if provider is RemoteProvider.devtunnel:
         if shutil.which("devtunnel"):
             return None
-        return (
-            "ERROR: 'devtunnel' CLI not found.\n"
-            "  Install: https://aka.ms/devtunnels/cli\n"
-            "  Or run: cpl setup"
-        )
+        return "ERROR: 'devtunnel' CLI not found.\n  Install: https://aka.ms/devtunnels/cli\n  Or run: cpl setup"
 
     missing: list[str] = []
     if not cloudflare_hostname:
@@ -315,9 +311,7 @@ def _start_devtunnel(port: int) -> tuple[str, subprocess.Popen[str], str]:
     exists, region = _lookup_devtunnel(tunnel_name)
 
     if not exists:
-        create_result = _run_capture(
-            ["devtunnel", "create", tunnel_name, "--allow-anonymous", "--expiration", "30d"]
-        )
+        create_result = _run_capture(["devtunnel", "create", tunnel_name, "--allow-anonymous", "--expiration", "30d"])
         if create_result.returncode != 0:
             tunnel_name = f"{tunnel_name}-{secrets.token_hex(2)}"
             create_retry = _run_capture(
@@ -325,9 +319,7 @@ def _start_devtunnel(port: int) -> tuple[str, subprocess.Popen[str], str]:
             )
             if create_retry.returncode != 0:
                 raise TunnelStartError(
-                    create_retry.stderr.strip()
-                    or create_retry.stdout.strip()
-                    or "devtunnel create failed"
+                    create_retry.stderr.strip() or create_retry.stdout.strip() or "devtunnel create failed"
                 )
 
     _run_capture(["devtunnel", "port", "create", tunnel_name, "-p", str(port), "--protocol", "http"])

@@ -207,11 +207,11 @@ def test_restore_then_continue_accumulates_correctly() -> None:
 
     tel = fresh.get("job-1")
     assert tel is not None
-    assert tel.input_tokens == 400   # 300 + 100
+    assert tel.input_tokens == 400  # 300 + 100
     assert tel.output_tokens == 200  # 150 + 50
-    assert tel.total_tokens == 600   # 450 + 150
+    assert tel.total_tokens == 600  # 450 + 150
     assert tel.tool_call_count == 2  # 1 + 1
-    assert tel.llm_call_count == 2   # 1 + 1
+    assert tel.llm_call_count == 2  # 1 + 1
 
 
 def test_restore_noop_when_no_entry() -> None:

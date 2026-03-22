@@ -225,6 +225,7 @@ class TestStubRoutes:
         indefinitely rather than returning 503.  Assert by confirming the
         request hangs (TimeoutError) rather than failing immediately."""
         import asyncio
+
         with pytest.raises((asyncio.TimeoutError, TimeoutError)):
             await asyncio.wait_for(client.get("/api/events"), timeout=1.0)
 
