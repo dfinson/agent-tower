@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useMatch } from "react-router-dom";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { useStore } from "../store";
+import { formatJobTerminalLabel } from "../lib/terminalLabels";
 import {
   Search,
   Plus,
@@ -83,12 +84,12 @@ export function CommandPalette() {
         ? [
             {
               id: "terminal-job",
-              label: `Terminal — ${currentJob.branch || currentJob.worktreePath.split("/").pop() || currentJobId}`,
+              label: `Terminal — ${formatJobTerminalLabel(currentJob, currentJobId)}`,
               description: "Open new terminal in this job's worktree",
               icon: <TerminalSquare className="h-4 w-4" />,
               action: () => {
                 const { createTerminalSession } = useStore.getState();
-                const label = currentJob.branch || currentJob.worktreePath!.split("/").pop() || currentJobId;
+                const label = formatJobTerminalLabel(currentJob, currentJobId);
                 createTerminalSession({ cwd: currentJob.worktreePath!, label, jobId: currentJobId });
               },
               keywords: ["console", "shell", "cli", "worktree"],

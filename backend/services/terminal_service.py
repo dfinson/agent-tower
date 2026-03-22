@@ -14,6 +14,7 @@ import contextlib
 import os
 import re
 import secrets
+import shlex
 import shutil
 import struct
 import subprocess  # noqa: S404
@@ -48,6 +49,9 @@ else:
 
     _SIGWINCH = signal.SIGWINCH
 
+if sys.platform != "win32":
+    _WinPtyProcess = None
+
 # ANSI sequences stripped from scrollback before replay to avoid garbled output
 # on reconnect (borrowed from TermBeam's sanitizeForReplay).
 
@@ -67,6 +71,36 @@ def _sanitize_for_replay(buf: str) -> str:
     buf = _ALT_SCREEN_BARE_RE.sub("", buf)
     buf = _CLEAR_SCROLLBACK_RE.sub("", buf)
     return buf
+
+
+def _normalize_prompt_label(prompt_label: str | None) -> str | None:
+    """Normalize operator-provided prompt labels for shell injection."""
+    if prompt_label is None:
+        return None
+    label = prompt_label.strip()
+    return label or None
+
+
+def _powershell_single_quote(value: str) -> str:
+    """Return a PowerShell single-quoted string literal."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _shell_prompt_assignment(prompt_label: str | None, shell_name: str) -> str | None:
+    """Return a shell-specific compact prompt assignment when a label is provided."""
+    label = _normalize_prompt_label(prompt_label)
+    if label is None:
+        return None
+    escaped = shlex.quote(f"{label} $ ")
+    if shell_name == "bash":
+        return f"PS1={escaped}"
+    if shell_name in ("sh", "dash"):
+        return f"PS1={escaped}"
+    if shell_name == "zsh":
+        return f"PROMPT={escaped}"
+    if shell_name in ("pwsh", "powershell"):
+        return f"function prompt {{ {_powershell_single_quote(label + '> ')} }}"
+    return None
 
 
 def _detect_shell() -> str:
@@ -148,6 +182,7 @@ class TerminalService:
         cwd: str | None = None,
         shell: str | None = None,
         job_id: str | None = None,
+        prompt_label: str | None = None,
         cols: int = 120,
         rows: int = 30,
     ) -> PtySession:
@@ -173,9 +208,9 @@ class TerminalService:
         session_id = secrets.token_hex(16)
 
         if sys.platform == "win32":
-            session = self._create_session_windows(session_id, shell, cwd, job_id, cols, rows)
+            session = self._create_session_windows(session_id, shell, cwd, job_id, prompt_label, cols, rows)
         else:
-            session = self._create_session_posix(session_id, shell, cwd, job_id, cols, rows)
+            session = self._create_session_posix(session_id, shell, cwd, job_id, prompt_label, cols, rows)
 
         self._sessions[session_id] = session
 
@@ -205,6 +240,7 @@ class TerminalService:
         shell: str,
         cwd: str,
         job_id: str | None,
+        prompt_label: str | None,
         cols: int,
         rows: int,
     ) -> PtySession:
@@ -219,21 +255,22 @@ class TerminalService:
         env = {**os.environ, "TERM": "xterm-256color", "CODEPLANE_TERMINAL": "1"}
 
         shell_name = os.path.basename(shell)
+        prompt_assignment = _shell_prompt_assignment(prompt_label, shell_name)
         zdotdir: str | None = None
         if shell_name == "bash":
-            env["PROMPT_COMMAND"] = r'PS1="…$(basename "$PWD") \$ "'
+            env["PROMPT_COMMAND"] = prompt_assignment or r'PS1="…$(basename "$PWD") \$ "'
         elif shell_name in ("sh", "dash"):
             zdotdir = tempfile.mkdtemp(prefix="codeplane_sh_")
             env_script = os.path.join(zdotdir, ".shrc")
             with open(env_script, "w") as _f:
-                _f.write('PS1="…$(basename "$PWD") $ "\n')
+                _f.write((prompt_assignment or 'PS1="…$(basename "$PWD") $ "') + "\n")
             env["ENV"] = env_script
         elif shell_name == "zsh":
             zdotdir = tempfile.mkdtemp(prefix="codeplane_zsh_")
             real_zshrc = os.path.expanduser("~/.zshrc")
             zshrc_lines = [
                 f'[[ -f "{real_zshrc}" ]] && source "{real_zshrc}"\n',
-                'PROMPT="…%1~ %# "\n',
+                (prompt_assignment or 'PROMPT="…%1~ %# "') + "\n",
             ]
             with open(os.path.join(zdotdir, ".zshrc"), "w") as _f:
                 _f.writelines(zshrc_lines)
@@ -283,6 +320,7 @@ class TerminalService:
         shell: str,
         cwd: str,
         job_id: str | None,
+        prompt_label: str | None,
         cols: int,
         rows: int,
     ) -> PtySession:
@@ -291,19 +329,23 @@ class TerminalService:
 
         # Compact prompt injection per shell type.
         shell_name = os.path.basename(shell).lower().removesuffix(".exe")
+        prompt_assignment = _shell_prompt_assignment(prompt_label, shell_name)
 
         if shell_name in ("pwsh", "powershell"):
             # -NoExit keeps the shell interactive after running the -Command block.
             # We define a custom prompt() function that shows only the leaf dir.
-            prompt_fn = r"function prompt { '…' + (Split-Path -Leaf (Get-Location)) + '> ' }"
+            prompt_fn = prompt_assignment or r"function prompt { '…' + (Split-Path -Leaf (Get-Location)) + '> ' }"
             argv = [shell, "-NoExit", "-Command", prompt_fn]
         else:
             # cmd.exe: PROMPT env var supports $P (full path) but not basename.
             # Prefix with the ellipsis as a visual cue; full path is acceptable here.
-            env["PROMPT"] = "…$P$G "
+            env["PROMPT"] = f"{prompt_label}$G " if _normalize_prompt_label(prompt_label) else "…$P$G "
             argv = [shell]
 
-        proc = _WinPtyProcess.spawn(  # type: ignore[possibly-undefined]
+        if _WinPtyProcess is None:
+            raise RuntimeError("Windows PTY backend is unavailable")
+
+        proc = _WinPtyProcess.spawn(
             argv,
             dimensions=(rows, cols),
             env=env,
@@ -380,7 +422,7 @@ class TerminalService:
                 session.process.setwinsize(rows, cols)
             else:
                 winsize = struct.pack("HHHH", rows, cols, 0, 0)
-                fcntl.ioctl(session.master_fd, termios.TIOCSWINSZ, winsize)  # type: ignore[possibly-undefined]
+                fcntl.ioctl(session.master_fd, termios.TIOCSWINSZ, winsize)
                 if _SIGWINCH is not None:
                     os.kill(session.process.pid, _SIGWINCH)
         except OSError:

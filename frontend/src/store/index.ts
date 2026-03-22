@@ -767,6 +767,7 @@ export const useStore = create<AppState>((set, get) => ({
         body: JSON.stringify({
           cwd: opts?.cwd ?? null,
           jobId: opts?.jobId ?? null,
+          promptLabel: opts?.label ?? null,
         }),
       });
       if (!res.ok) {

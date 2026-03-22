@@ -581,6 +581,7 @@ class CreateTerminalSessionRequest(CamelModel):
     shell: str | None = None
     cwd: str | None = None
     job_id: str | None = None
+    prompt_label: str | None = None
 
 
 class CreateTerminalSessionResponse(CamelModel):

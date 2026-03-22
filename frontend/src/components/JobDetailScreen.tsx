@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
+import { formatJobTerminalLabel } from "../lib/terminalLabels";
 import { fetchJob, cancelJob, rerunJob, fetchJobTranscript, fetchJobTimeline, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts } from "../api/client";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
@@ -90,9 +91,9 @@ export function JobDetailScreen() {
 
   const handleOpenJobTerminal = useCallback(() => {
     if (!job?.worktreePath || !jobId) return;
-    const label = job.branch || job.worktreePath.split("/").pop() || jobId;
+    const label = formatJobTerminalLabel(job, jobId);
     createTerminalSession({ cwd: job.worktreePath, label, jobId });
-  }, [job?.worktreePath, job?.branch, jobId, createTerminalSession]);
+  }, [job, jobId, createTerminalSession]);
 
   // Open a job-scoped SSE connection for full event streaming (no suppression
   // even when >20 active jobs). Closed automatically when navigating away.

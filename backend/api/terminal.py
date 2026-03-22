@@ -65,6 +65,7 @@ async def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSes
             cwd=req.cwd,
             shell=req.shell,
             job_id=req.job_id,
+            prompt_label=req.prompt_label,
         )
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
