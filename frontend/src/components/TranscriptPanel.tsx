@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback, memo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Send, Bot, User, PauseCircle, ChevronDown, Brain, X,
   ShieldQuestion, CheckCircle2, XCircle as XCircleIcon,
@@ -10,7 +11,7 @@ import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useStore, selectJobTranscript, selectApprovals } from "../store";
 import type { TranscriptEntry, ApprovalRequest } from "../store";
-import { sendOperatorMessage, resumeJob, pauseJob, resolveApproval } from "../api/client";
+import { sendOperatorMessage, resumeJob, continueJob, pauseJob, resolveApproval } from "../api/client";
 import { MicButton } from "./VoiceButton";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
@@ -589,6 +590,8 @@ export function TranscriptPanel({
   interactive,
   pausable,
   jobState,
+  resolution,
+  archivedAt,
   prompt,
   promptTimestamp,
 }: {
@@ -596,9 +599,12 @@ export function TranscriptPanel({
   interactive?: boolean;
   pausable?: boolean;
   jobState?: string;
+  resolution?: string | null;
+  archivedAt?: string | null;
   prompt?: string;
   promptTimestamp?: string;
 }) {
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
   const rawEntries = useStore(selectJobTranscript(jobId));
   const allApprovals = useStore(selectApprovals);
@@ -659,13 +665,22 @@ export function TranscriptPanel({
   }, [displayItems.length, virtualizer]);
 
   const isTerminal = ["succeeded", "failed", "canceled"].includes(jobState ?? "");
+  const shouldCreateFollowUp =
+    isTerminal &&
+    (!!archivedAt || resolution === "merged" || resolution === "pr_created" || resolution === "discarded");
 
   const handleSend = useCallback(async () => {
     if (!msg.trim()) return;
     setSending(true);
     try {
       if (isTerminal) {
-        await resumeJob(jobId, msg.trim());
+        if (shouldCreateFollowUp) {
+          const nextJob = await continueJob(jobId, msg.trim());
+          toast.success("Follow-up job created");
+          navigate(`/jobs/${nextJob.id}`);
+        } else {
+          await resumeJob(jobId, msg.trim());
+        }
       } else {
         await sendOperatorMessage(jobId, msg.trim());
       }
@@ -675,7 +690,7 @@ export function TranscriptPanel({
     } finally {
       setSending(false);
     }
-  }, [jobId, msg, isTerminal]);
+  }, [jobId, msg, isTerminal, navigate, shouldCreateFollowUp]);
 
   const handlePause = useCallback(async () => {
     setPausing(true);

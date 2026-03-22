@@ -49,6 +49,7 @@ from backend.services.runtime_service import (
     RuntimeService,
     _AgentSession,
 )
+from backend.services.job_service import StateConflictError
 
 log = structlog.get_logger()
 
@@ -220,6 +221,7 @@ async def _create_db_job(
             sdk_session_id=job.sdk_session_id,
             model=job.model,
             resolution=job.resolution,
+            archived_at=job.archived_at,
             failure_reason=job.failure_reason,
             sdk=job.sdk,
             verify=job.verify,
@@ -708,6 +710,49 @@ class TestResumeFallback:
 
         await runtime.shutdown()
 
+    async def test_resume_rejects_when_missing_worktree_cannot_be_restored(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: CPLConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from pathlib import Path
+
+        from backend.services.git_service import GitError, GitService
+
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(FakeAgentAdapter()),
+            config=config,
+        )
+
+        job = _make_job(repo=config.repos[0], state=JobState.failed)
+        job.completed_at = datetime.now(UTC)
+        job.worktree_path = str(Path(config.repos[0]) / ".codeplane-worktrees" / job.id)
+        job.branch = "cpl/job-1"
+        await _create_db_job(session_factory, job)
+
+        async def _fail_reattach(self: GitService, repo_path: str, job_id: str, branch: str) -> str:
+            raise GitError("branch no longer exists", stderr="fatal: invalid reference")
+
+        monkeypatch.setattr(GitService, "reattach_worktree", _fail_reattach)
+
+        with pytest.raises(StateConflictError, match="worktree could not be restored"):
+            await runtime.resume_job(job.id, "continue")
+
+        async with session_factory() as session:
+            from backend.persistence.job_repo import JobRepository
+
+            repo = JobRepository(session)
+            row = await repo.get(job.id)
+            assert row is not None
+            assert row.state == JobState.failed
+            assert row.session_count == job.session_count
+
+        await runtime.shutdown()
+
     async def test_resume_falls_back_to_handoff_when_native_resume_errors_immediately(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -785,6 +830,70 @@ class TestResumeFallback:
             row = await repo.get(job.id)
             assert row is not None
             assert row.state == JobState.failed
+
+        await runtime.shutdown()
+
+    async def test_resume_rejects_resolved_merged_job(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: CPLConfig,
+    ) -> None:
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(FakeAgentAdapter()),
+            config=config,
+        )
+
+        job = _make_job(repo=config.repos[0], state=JobState.succeeded)
+        job.completed_at = datetime.now(UTC)
+        job.resolution = Resolution.merged
+        await _create_db_job(session_factory, job)
+
+        with pytest.raises(StateConflictError, match="create a follow-up job instead"):
+            await runtime.resume_job(job.id, "keep going")
+
+        async with session_factory() as session:
+            from backend.persistence.job_repo import JobRepository
+
+            repo = JobRepository(session)
+            row = await repo.get(job.id)
+            assert row is not None
+            assert row.state == JobState.succeeded
+            assert row.resolution == Resolution.merged
+
+        await runtime.shutdown()
+
+    async def test_resume_rejects_archived_job(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: CPLConfig,
+    ) -> None:
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(FakeAgentAdapter()),
+            config=config,
+        )
+
+        job = _make_job(repo=config.repos[0], state=JobState.failed)
+        job.completed_at = datetime.now(UTC)
+        job.archived_at = datetime.now(UTC)
+        await _create_db_job(session_factory, job)
+
+        with pytest.raises(StateConflictError, match="is archived"):
+            await runtime.resume_job(job.id, "try again")
+
+        async with session_factory() as session:
+            from backend.persistence.job_repo import JobRepository
+
+            repo = JobRepository(session)
+            row = await repo.get(job.id)
+            assert row is not None
+            assert row.state == JobState.failed
+            assert row.archived_at is not None
 
         await runtime.shutdown()
 

@@ -1330,6 +1330,7 @@ class RuntimeService:
 
         from backend.models.domain import TERMINAL_STATES
         from backend.persistence.job_repo import JobRepository
+        from backend.services.git_service import GitError, GitService
         from backend.services.job_service import JobNotFoundError, StateConflictError
 
         async with self._session_factory() as session:
@@ -1339,6 +1340,12 @@ class RuntimeService:
                 raise JobNotFoundError(f"Job {job_id} does not exist.")
             if job.state not in TERMINAL_STATES:
                 raise StateConflictError(f"Job {job_id} is not in a terminal state (current: {job.state}).")
+            if job.archived_at is not None:
+                raise StateConflictError(f"Job {job_id} is archived; create a follow-up job instead.")
+            if job.resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
+                raise StateConflictError(
+                    f"Job {job_id} is already resolved as {job.resolution!r}; create a follow-up job instead."
+                )
 
             previous_state = job.state
             previous_session_count = job.session_count
@@ -1357,17 +1364,22 @@ class RuntimeService:
             # Ensure worktree still exists; re-create from branch if missing
             if job.worktree_path and job.worktree_path != job.repo:
                 wt = Path(job.worktree_path)
-                if not wt.exists() and job.branch:
-                    from backend.services.git_service import GitService
-
+                if not wt.exists():
+                    if not job.branch:
+                        raise StateConflictError(
+                            f"Job {job_id} cannot be resumed because its worktree is missing and no branch is available "
+                            "to restore it."
+                        )
                     git = GitService(self._config)
                     try:
                         new_wt = await git.reattach_worktree(job.repo, job.id, job.branch)
                         await job_repo.update_worktree_path(job_id, new_wt)
                         job.worktree_path = new_wt
                         log.info("worktree_reattached", job_id=job_id, path=new_wt)
-                    except Exception:
-                        log.warning("worktree_reattach_failed", job_id=job_id, exc_info=True)
+                    except GitError as exc:
+                        raise StateConflictError(
+                            f"Job {job_id} cannot be resumed because its worktree could not be restored: {exc}"
+                        ) from exc
 
             new_session_count = job.session_count + 1
 

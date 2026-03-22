@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
-import { fetchJobDiff, sendOperatorMessage, resumeJob } from "../api/client";
+import { fetchJobDiff, sendOperatorMessage, resumeJob, continueJob } from "../api/client";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
@@ -113,23 +114,15 @@ function TruncatedPath({ path }: { path: string }) {
   );
 }
 
-/** Determine if the diff is "active" (agent can be asked) vs historical/resolved. */
-function computeAskState(
-  jobState?: string,
-  resolution?: string | null,
-  archivedAt?: string | null,
-): { canAsk: boolean; reason: string | null } {
-  if (archivedAt) return { canAsk: false, reason: "Archived" };
-  if (jobState === "failed") return { canAsk: false, reason: "Job failed" };
-  if (jobState === "canceled") return { canAsk: false, reason: "Job canceled" };
-  if (resolution === "merged") return { canAsk: false, reason: "Already merged" };
-  if (resolution === "discarded") return { canAsk: false, reason: "Changes discarded" };
-  if (resolution === "pr_created") return { canAsk: false, reason: "PR created" };
-  // Active: running, queued, succeeded+unresolved, succeeded+conflict
+/** Determine if the diff is askable; historical jobs create follow-up jobs. */
+function computeAskState(): { canAsk: boolean; reason: string | null } {
+  // Active jobs accept an operator message. Historical terminal jobs create
+  // a follow-up job instead of mutating the original job in place.
   return { canAsk: true, reason: null };
 }
 
 export default function DiffViewer({ jobId, jobState, resolution, archivedAt, onAskSent }: DiffViewerProps) {
+  const navigate = useNavigate();
   const diffs = useStore(selectJobDiffs(jobId));
   const isMobile = useIsMobile();
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -151,8 +144,11 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt, on
   const [checkedFiles, setCheckedFiles] = useState<Set<number>>(new Set());
   const [askMsg, setAskMsg] = useState("");
   const [askSending, setAskSending] = useState(false);
-  const { canAsk, reason: disabledReason } = computeAskState(jobState, resolution, archivedAt);
+  const { canAsk, reason: disabledReason } = computeAskState();
   const isTerminal = ["succeeded", "failed", "canceled"].includes(jobState ?? "");
+  const shouldCreateFollowUp =
+    isTerminal &&
+    (!!archivedAt || resolution === "merged" || resolution === "pr_created" || resolution === "discarded");
 
   // Voice input state
   const waveformContainerRef = useRef<HTMLDivElement>(null);
@@ -217,11 +213,19 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt, on
     setAskSending(true);
     try {
       if (isTerminal) {
-        await resumeJob(jobId, fullMessage);
+        if (shouldCreateFollowUp) {
+          const nextJob = await continueJob(jobId, fullMessage);
+          toast.success("Follow-up job created");
+          navigate(`/jobs/${nextJob.id}`);
+        } else {
+          await resumeJob(jobId, fullMessage);
+        }
       } else {
         await sendOperatorMessage(jobId, fullMessage);
       }
-      toast.success("Question sent to agent");
+      if (!shouldCreateFollowUp) {
+        toast.success("Question sent to agent");
+      }
       setAskMsg("");
       setCheckedFiles(new Set());
       onAskSent?.();
@@ -230,7 +234,7 @@ export default function DiffViewer({ jobId, jobState, resolution, archivedAt, on
     } finally {
       setAskSending(false);
     }
-  }, [jobId, askMsg, checkedFiles, diffs, isTerminal, onAskSent]);
+  }, [jobId, askMsg, checkedFiles, diffs, isTerminal, navigate, onAskSent, shouldCreateFollowUp]);
 
   const totalAdditions = diffs.reduce((sum, f) => sum + (f.additions ?? 0), 0);
   const totalDeletions = diffs.reduce((sum, f) => sum + (f.deletions ?? 0), 0);

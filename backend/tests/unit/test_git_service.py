@@ -108,20 +108,35 @@ class TestRunGit:
         assert exc_info.value.stderr == "error detail"
 
     @pytest.mark.asyncio
-    async def test_run_git_executable_not_found(self, git_service: GitService) -> None:
+    async def test_run_git_executable_not_found(self, git_service: GitService, tmp_path: Path) -> None:
         with (
-            patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError),
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError(2, "No such file or directory", "git"),
+            ),
             pytest.raises(GitError, match="git executable not found"),
         ):
-            await git_service._run_git("status", cwd="/repo")
+            await git_service._run_git("status", cwd=tmp_path)
 
     @pytest.mark.asyncio
-    async def test_run_git_os_error(self, git_service: GitService) -> None:
+    async def test_run_git_missing_working_directory(self, git_service: GitService) -> None:
+        missing_repo = "/missing/repo"
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError(2, "No such file or directory", missing_repo),
+            ),
+            pytest.raises(GitError, match="working directory does not exist"),
+        ):
+            await git_service._run_git("status", cwd=missing_repo)
+
+    @pytest.mark.asyncio
+    async def test_run_git_os_error(self, git_service: GitService, tmp_path: Path) -> None:
         with (
             patch("asyncio.create_subprocess_exec", side_effect=OSError("spawn failed")),
-            pytest.raises(GitError, match="git executable not found"),
+            pytest.raises(GitError, match="git failed to start"),
         ):
-            await git_service._run_git("status", cwd="/repo")
+            await git_service._run_git("status", cwd=tmp_path)
 
     @pytest.mark.asyncio
     async def test_run_git_sets_terminal_prompt_env(self, git_service: GitService) -> None:
@@ -780,7 +795,10 @@ class TestCloneRepo:
     async def test_clone_git_not_found(self, git_service: GitService, tmp_path: Path) -> None:
         target = tmp_path / "cloned"
         with (
-            patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError),
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError(2, "No such file or directory", "git"),
+            ),
             pytest.raises(GitError, match="git executable not found"),
         ):
             await git_service.clone_repo("https://example.com/repo.git", str(target))
