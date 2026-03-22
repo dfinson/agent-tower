@@ -82,14 +82,28 @@ export function JobDetailScreen() {
     if (!hasArtifacts && tab === "artifacts") setTab("live");
   }, [hasArtifacts, tab]);
 
-  // Open a new terminal session in the drawer, scoped to this job's worktree
+  // Open a new terminal session in the drawer, scoped to this job's worktree.
+  // Reuses the existing drawer tab if one was already created for this job.
   const createTerminalSession = useStore((s) => s.createTerminalSession);
+  const setActiveTerminalTab = useStore((s) => s.setActiveTerminalTab);
+  const terminalDrawerOpen = useStore((s) => s.terminalDrawerOpen);
+  const toggleTerminalDrawer = useStore((s) => s.toggleTerminalDrawer);
+  const terminalSessions = useStore((s) => s.terminalSessions);
 
   const handleOpenJobTerminal = useCallback(() => {
     if (!job?.worktreePath || !jobId) return;
+
+    // Reuse the existing session for this job instead of spawning a new one
+    const existing = Object.values(terminalSessions).find((s) => s.jobId === jobId);
+    if (existing) {
+      setActiveTerminalTab(existing.id);
+      if (!terminalDrawerOpen) toggleTerminalDrawer();
+      return;
+    }
+
     const label = job.branch || job.worktreePath.split("/").pop() || jobId;
     createTerminalSession({ cwd: job.worktreePath, label, jobId });
-  }, [job?.worktreePath, job?.branch, jobId, createTerminalSession]);
+  }, [job?.worktreePath, job?.branch, jobId, terminalSessions, setActiveTerminalTab, terminalDrawerOpen, toggleTerminalDrawer, createTerminalSession]);
 
   // Open a job-scoped SSE connection for full event streaming (no suppression
   // even when >20 active jobs). Closed automatically when navigating away.

@@ -78,6 +78,7 @@ class PtySession:
     scrollback: str = ""
     scrollback_limit: int = 500 * 1024  # bytes
     _exit_task: asyncio.Task | None = field(default=None, repr=False)  # type: ignore[type-arg]
+    _zdotdir: str | None = field(default=None, repr=False)  # temp dir for zsh ZDOTDIR, cleaned up on exit
 
     def append_scrollback(self, data: str) -> None:
         """Append data to the scrollback buffer, trimming if over limit."""
@@ -152,13 +153,30 @@ class TerminalService:
 
         # Set a compact prompt that shows only the immediate directory name.
         # We use the unicode ellipsis (…) so the prompt stays short on mobile.
+        # Setting PS1 directly in the environment is not reliable because
+        # interactive shells source ~/.bashrc / ~/.zshrc which reset PS1.
+        # We use shell-specific hooks that fire AFTER rc files are sourced.
         shell_name = os.path.basename(shell)
-        if shell_name == "zsh":
-            # %1~ = last 1 path component (home shown as ~), %# = % or # for root
-            env["PS1"] = "…%1~ %# "
-        elif shell_name in ("bash", "sh", "dash"):
-            # \W = basename of $PWD (home shown as ~), \$ = $ or # for root
-            env["PS1"] = r"…\W \$ "
+        zdotdir: str | None = None
+        if shell_name in ("bash", "sh", "dash"):
+            # PROMPT_COMMAND is evaluated before every prompt, after .bashrc,
+            # so it always overrides whatever PS1 the user's rc file set.
+            env["PROMPT_COMMAND"] = r'PS1="…$(basename "$PWD") \$ "'
+        elif shell_name == "zsh":
+            # For zsh, create a temp ZDOTDIR whose .zshrc sources the real
+            # ~/.zshrc then overrides PROMPT, ensuring our compact prompt
+            # survives user config without removing aliases or functions.
+            import tempfile
+
+            zdotdir = tempfile.mkdtemp(prefix="codeplane_zsh_")
+            real_zshrc = os.path.expanduser("~/.zshrc")
+            zshrc_lines = [
+                f'[[ -f "{real_zshrc}" ]] && source "{real_zshrc}"\n',
+                'PROMPT="…%1~ %# "\n',
+            ]
+            with open(os.path.join(zdotdir, ".zshrc"), "w") as _f:
+                _f.writelines(zshrc_lines)
+            env["ZDOTDIR"] = zdotdir
 
         try:
             proc = subprocess.Popen(  # noqa: S603
@@ -191,6 +209,7 @@ class TerminalService:
             cwd=cwd,
             job_id=job_id,
             scrollback_limit=self._scrollback_limit,
+            _zdotdir=zdotdir,
         )
         self._sessions[session_id] = session
 
@@ -378,3 +397,8 @@ class TerminalService:
         session.clients.clear()
 
         log.info("terminal_session_cleaned_up", session_id=session.id, pid=session.process.pid)
+
+        # Remove temp ZDOTDIR created for zsh compact-prompt injection
+        if session._zdotdir:
+            with contextlib.suppress(Exception):
+                shutil.rmtree(session._zdotdir, ignore_errors=True)
