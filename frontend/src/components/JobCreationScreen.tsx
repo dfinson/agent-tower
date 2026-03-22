@@ -55,7 +55,10 @@ export function JobCreationScreen() {
   // Resolve the active SDK — default to what the store says once it's loaded
   const activeSdk = sdk ?? defaultSdk ?? "copilot";
   const models = modelsBySdk[activeSdk] ?? [];
-  const modelsLoading = sdksLoading || (modelsLoadingBySdk[activeSdk] ?? (modelsBySdk[activeSdk] === undefined));
+  // Show loading only while SDKs are fetching OR while this SDK's model list is actively fetching.
+  // Avoids "stuck loading" if the SDK fetch fails (defaultSdk stays null) or if models were never
+  // requested for this SDK (modelsLoadingBySdk entry is undefined → falsy → not loading).
+  const modelsLoading = sdksLoading || modelsLoadingBySdk[activeSdk] === true;
 
   // Sync the selected model whenever the active SDK's model list becomes available
   useEffect(() => {

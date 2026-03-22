@@ -305,7 +305,9 @@ export const useStore = create<AppState>((set, get) => ({
   setReconnectAttempt: (attempt) => set({ reconnectAttempt: attempt }),
 
   initSdksAndModels: async () => {
-    set({ sdksLoading: true });
+    // No-op if already loaded or a fetch is already in-flight
+    const state = get();
+    if (state.sdks.length > 0 || !state.sdksLoading) return;
     try {
       const r = await fetchSDKs();
       set({ sdks: r.sdks, defaultSdk: r.default, sdksLoading: false });
