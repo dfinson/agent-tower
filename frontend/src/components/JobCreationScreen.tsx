@@ -138,7 +138,7 @@ export function JobCreationScreen() {
     let cancelled = false;
     fetchRepoDetail(repo)
       .then((detail) => {
-        if (!cancelled) setBaseRef(detail.currentBranch ?? detail.baseBranch ?? "");
+        if (!cancelled) setBaseRef((detail.currentBranch !== "HEAD" ? detail.currentBranch : null) ?? detail.baseBranch ?? "");
       })
       .catch(() => {
         toast.warning("Could not fetch repo details — set Base Reference manually if needed.");
@@ -206,7 +206,11 @@ export function JobCreationScreen() {
               placeholder="Select a repository…"
               items={repos}
               value={repo}
-              onChange={setRepo}
+              onChange={(newRepo) => {
+                setRepo(newRepo);
+                setBaseRef("");
+                setBaseRefEdited(false);
+              }}
               className="flex-1"
             />
             <Button
@@ -230,6 +234,8 @@ export function JobCreationScreen() {
                 return [...prev, { value: path, label }];
               });
               setRepo(path);
+              setBaseRef("");
+              setBaseRefEdited(false);
             }}
           />
 
