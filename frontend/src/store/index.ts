@@ -753,7 +753,6 @@ export const useStore = create<AppState>((set, get) => ({
       // Delete the session on the backend (fire-and-forget)
       fetch(`/api/terminal/sessions/${id}`, { method: "DELETE" }).catch((err) => console.error("Failed to delete terminal session", err));
       const remaining = Object.keys(rest);
-      const drawerSessions = Object.values(rest).filter((sess) => !sess.jobId);
       return {
         terminalSessions: rest,
         activeTerminalTab:
@@ -762,8 +761,8 @@ export const useStore = create<AppState>((set, get) => ({
               ? remaining[remaining.length - 1]
               : null
             : s.activeTerminalTab,
-        // Auto-close the drawer when no global sessions remain
-        terminalDrawerOpen: drawerSessions.length > 0 ? s.terminalDrawerOpen : false,
+        // Auto-close the drawer when no sessions remain
+        terminalDrawerOpen: remaining.length > 0 ? s.terminalDrawerOpen : false,
       };
     }),
 
