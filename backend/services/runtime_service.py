@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
+    from backend.persistence.job_repo import JobRepository
     from backend.services.adapter_registry import AdapterRegistry
     from backend.services.agent_adapter import AgentAdapterInterface
     from backend.services.approval_service import ApprovalService
