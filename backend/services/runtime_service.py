@@ -311,7 +311,22 @@ class RuntimeService:
         # Start telemetry tracking
         from backend.services.telemetry import collector as tel
 
+        had_in_memory = tel.get(job_id) is not None
         tel.start_job(job_id, model=config.model or "")
+
+        # If the process restarted (no in-memory state), restore the persisted
+        # snapshot so that cumulative metrics continue to accumulate correctly
+        # across all sessions of this job (covers both native-resume and handoff).
+        if not had_in_memory:
+            try:
+                async with self._session_factory() as session:
+                    from backend.persistence.metrics_repo import MetricsRepository
+
+                    snapshot = await MetricsRepository(session).load_snapshot(job_id)
+                if snapshot is not None:
+                    tel.restore_from_snapshot(job_id, snapshot)
+            except Exception:
+                log.warning("metrics_restore_failed", job_id=job_id, exc_info=True)
 
         # Resolve worktree_path and base_ref for diff calculations
         worktree_path: str | None = None
@@ -434,6 +449,18 @@ class RuntimeService:
             await self._fail_job(job_id, f"Execution error: {exc}")
         finally:
             tel.end_job(job_id)
+            # Persist cumulative metrics so they survive daemon restarts and
+            # are correctly carried forward on future resume sessions.
+            tel_snapshot = tel.get(job_id)
+            if tel_snapshot is not None:
+                try:
+                    async with self._session_factory() as session:
+                        from backend.persistence.metrics_repo import MetricsRepository
+
+                        await MetricsRepository(session).save_snapshot(job_id, tel_snapshot.to_snapshot())
+                        await session.commit()
+                except Exception:
+                    log.warning("metrics_persist_failed", job_id=job_id, exc_info=True)
             heartbeat_task.cancel()
             self._heartbeat_tasks.pop(job_id, None)
             if self._progress_tracking is not None:

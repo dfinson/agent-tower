@@ -97,3 +97,18 @@ class DiffSnapshotRow(Base):
     diff_json = Column(Text, nullable=False)  # JSON
 
     __table_args__ = (Index("idx_diff_snapshots_job_id", "job_id"),)
+
+
+class JobMetricsRow(Base):
+    """Persisted telemetry snapshot for a job.
+
+    Written at the end of every session so that cumulative metrics survive
+    daemon restarts and are available when a job is resumed.  Only one row
+    per job — upserted on each session end.
+    """
+
+    __tablename__ = "job_metrics"
+
+    job_id = Column(String, ForeignKey("jobs.id"), primary_key=True)
+    snapshot_json = Column(Text, nullable=False)  # JSON — see JobTelemetry.to_snapshot()
+    updated_at = Column(TZDateTime, nullable=False)
