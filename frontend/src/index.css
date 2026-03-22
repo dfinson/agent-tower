@@ -35,6 +35,8 @@
   a { text-decoration: none; color: inherit; }
 }
 
-/* Monaco diff line highlighting */
-.diff-add-line { background: rgba(16, 185, 129, 0.12) !important; }
-.diff-add-decoration { background: #10b981 !important; width: 3px !important; margin-left: 2px; }
+/* Monaco editor diff decorations for WorkspaceBrowser */
+.diff-added-line {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  border-left: 2px solid rgba(16, 185, 129, 0.6) !important;
+}

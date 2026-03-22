@@ -311,7 +311,22 @@ class RuntimeService:
         # Start telemetry tracking
         from backend.services.telemetry import collector as tel
 
+        had_in_memory = tel.get(job_id) is not None
         tel.start_job(job_id, model=config.model or "")
+
+        # If the process restarted (no in-memory state), restore the persisted
+        # snapshot so that cumulative metrics continue to accumulate correctly
+        # across all sessions of this job (covers both native-resume and handoff).
+        if not had_in_memory:
+            try:
+                async with self._session_factory() as session:
+                    from backend.persistence.metrics_repo import MetricsRepository
+
+                    snapshot = await MetricsRepository(session).load_snapshot(job_id)
+                if snapshot is not None:
+                    tel.restore_from_snapshot(job_id, snapshot)
+            except Exception:
+                log.warning("metrics_restore_failed", job_id=job_id, exc_info=True)
 
         # Resolve worktree_path and base_ref for diff calculations
         worktree_path: str | None = None
@@ -434,6 +449,18 @@ class RuntimeService:
             await self._fail_job(job_id, f"Execution error: {exc}")
         finally:
             tel.end_job(job_id)
+            # Persist cumulative metrics so they survive daemon restarts and
+            # are correctly carried forward on future resume sessions.
+            tel_snapshot = tel.get(job_id)
+            if tel_snapshot is not None:
+                try:
+                    async with self._session_factory() as session:
+                        from backend.persistence.metrics_repo import MetricsRepository
+
+                        await MetricsRepository(session).save_snapshot(job_id, tel_snapshot.to_snapshot())
+                        await session.commit()
+                except Exception:
+                    log.warning("metrics_persist_failed", job_id=job_id, exc_info=True)
             heartbeat_task.cancel()
             self._heartbeat_tasks.pop(job_id, None)
             if self._progress_tracking is not None:
@@ -1258,6 +1285,15 @@ class RuntimeService:
             if job.state not in TERMINAL_STATES:
                 raise StateConflictError(f"Job {job_id} is not in a terminal state (current: {job.state}).")
 
+            previous_state = job.state
+            previous_session_count = job.session_count
+            previous_completed_at = job.completed_at
+            previous_resolution = job.resolution
+            previous_failure_reason = job.failure_reason
+            previous_archived_at = job.archived_at
+            previous_merge_status = job.merge_status
+            previous_pr_url = job.pr_url
+
             # Ensure worktree still exists; re-create from branch if missing
             if job.worktree_path and job.worktree_path != job.repo:
                 wt = Path(job.worktree_path)
@@ -1293,7 +1329,34 @@ class RuntimeService:
             await job_repo.reset_for_resume(job_id, new_session_count)
             await session.commit()
 
-        # Publish session_resumed event
+        # Reload job and start execution
+        async with self._session_factory() as session:
+            job_repo = JobRepository(session)
+            job = await job_repo.get(job_id)
+        if job is None:
+            raise ValueError(f"Job {job_id} not found after resume reset")
+
+        try:
+            await self.start_or_enqueue(job, override_prompt=override_prompt, resume_sdk_session_id=resume_sdk_session_id)
+        except Exception:
+            async with self._session_factory() as session:
+                job_repo = JobRepository(session)
+                await job_repo.restore_after_failed_resume(
+                    job_id,
+                    previous_state=previous_state,
+                    previous_session_count=previous_session_count,
+                    completed_at=previous_completed_at,
+                    resolution=previous_resolution,
+                    failure_reason=previous_failure_reason,
+                    archived_at=previous_archived_at,
+                    merge_status=previous_merge_status,
+                    pr_url=previous_pr_url,
+                )
+                await session.commit()
+            raise
+
+        # Publish session_resumed only after startup succeeds so callers do not
+        # see a false-positive resume when task initialization fails.
         now = datetime.now(UTC)
         await self._event_bus.publish(
             DomainEvent(
@@ -1308,9 +1371,6 @@ class RuntimeService:
                 },
             )
         )
-        # Publish the operator's instruction as a transcript entry so it
-        # appears in the chat trace.  The echo-suppression registered in
-        # _start_job will prevent the SDK echo from duplicating it.
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
@@ -1326,14 +1386,6 @@ class RuntimeService:
                 },
             )
         )
-
-        # Reload job and start execution
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            job = await job_repo.get(job_id)
-        if job is None:
-            raise ValueError(f"Job {job_id} not found after resume reset")
-        await self.start_or_enqueue(job, override_prompt=override_prompt, resume_sdk_session_id=resume_sdk_session_id)
 
         async with self._session_factory() as session:
             job_repo = JobRepository(session)

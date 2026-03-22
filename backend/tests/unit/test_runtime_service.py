@@ -29,6 +29,7 @@ from backend.config import (
 from backend.models.db import Base
 from backend.models.domain import (
     Job,
+    Resolution,
     JobState,
     SessionConfig,
     SessionEvent,
@@ -586,6 +587,56 @@ class TestJobLifecycle:
 
 
 class TestResumeFallback:
+    async def test_resume_restores_terminal_state_when_startup_fails(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: CPLConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(FakeAgentAdapter()),
+            config=config,
+        )
+
+        published: list[DomainEvent] = []
+
+        async def _collect(event: DomainEvent) -> None:
+            published.append(event)
+
+        event_bus.subscribe(_collect)
+
+        job = _make_job(repo=config.repos[0], state=JobState.succeeded)
+        job.completed_at = datetime.now(UTC)
+        job.session_count = 4
+        job.resolution = Resolution.unresolved
+        await _create_db_job(session_factory, job)
+
+        async def _boom(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("startup failed")
+
+        monkeypatch.setattr(runtime, "start_or_enqueue", _boom)
+
+        with pytest.raises(RuntimeError, match="startup failed"):
+            await runtime.resume_job(job.id, "continue")
+
+        async with session_factory() as session:
+            from backend.persistence.job_repo import JobRepository
+
+            repo = JobRepository(session)
+            row = await repo.get(job.id)
+            assert row is not None
+            assert row.state == JobState.succeeded
+            assert row.session_count == 4
+            assert row.resolution == Resolution.unresolved
+            assert row.completed_at is not None
+
+        assert [event.kind for event in published] == []
+
+        await runtime.shutdown()
+
     async def test_resume_falls_back_to_handoff_when_native_resume_errors_immediately(
         self,
         session_factory: async_sessionmaker[AsyncSession],
