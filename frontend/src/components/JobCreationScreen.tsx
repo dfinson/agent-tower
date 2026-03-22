@@ -39,6 +39,7 @@ export function JobCreationScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [addRepoOpen, setAddRepoOpen] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("approval_required");
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [sdk, setSdk] = useState<string>("copilot");
   const [sdks, setSdks] = useState<SDKInfo[]>([]);
   const [defaultSdk, setDefaultSdk] = useState<string>("copilot");
@@ -83,8 +84,12 @@ export function JobCreationScreen() {
         setPermissionMode(settings.permissionMode as PermissionMode);
         setVerify(settings.verify);
         setSelfReview(settings.selfReview);
+        setSettingsLoaded(true);
       })
-      .catch(() => toast.error("Failed to load settings"));
+      .catch(() => {
+        toast.error("Failed to load settings");
+        setSettingsLoaded(true); // fall back to hardcoded defaults so the form is usable
+      });
     fetchRepos()
       .then((r) => {
         const items = r.items.map((p) => ({ value: p, label: p.split("/").pop() ?? p }));
@@ -227,7 +232,7 @@ export function JobCreationScreen() {
 
           <div className="flex flex-col gap-1.5">
             <Label>Permission Mode</Label>
-            <div className="flex gap-2">
+            <div className={`flex gap-2 transition-opacity ${!settingsLoaded ? "opacity-50 pointer-events-none" : ""}`}>
               {(
                 [
                   { value: "auto", label: "Full Auto", title: "Approve all operations within the worktree silently" },
