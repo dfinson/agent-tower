@@ -79,7 +79,7 @@ export function CommandPalette() {
         keywords: ["config", "preferences", "options"],
       },
       // Context-aware terminal entries: show job terminal first when inside a job view
-      ...(currentJob?.worktreePath && currentJobId
+      ...(currentJob?.worktreePath && !currentJob?.archivedAt && currentJobId
         ? [
             {
               id: "terminal-job",

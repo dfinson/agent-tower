@@ -156,18 +156,27 @@ class TerminalService:
         # Setting PS1 directly in the environment is not reliable because
         # interactive shells source ~/.bashrc / ~/.zshrc which reset PS1.
         # We use shell-specific hooks that fire AFTER rc files are sourced.
+        import tempfile
+
         shell_name = os.path.basename(shell)
         zdotdir: str | None = None
-        if shell_name in ("bash", "sh", "dash"):
+        if shell_name == "bash":
             # PROMPT_COMMAND is evaluated before every prompt, after .bashrc,
             # so it always overrides whatever PS1 the user's rc file set.
             env["PROMPT_COMMAND"] = r'PS1="…$(basename "$PWD") \$ "'
+        elif shell_name in ("sh", "dash"):
+            # POSIX sh/dash don't support PROMPT_COMMAND; use ENV instead.
+            # ENV is sourced on every interactive shell startup (after /etc/profile).
+            # We write a tiny script to a temp file and point ENV at it.
+            zdotdir = tempfile.mkdtemp(prefix="codeplane_sh_")
+            env_script = os.path.join(zdotdir, ".shrc")
+            with open(env_script, "w") as _f:
+                _f.write('PS1="…$(basename "$PWD") $ "\n')
+            env["ENV"] = env_script
         elif shell_name == "zsh":
             # For zsh, create a temp ZDOTDIR whose .zshrc sources the real
             # ~/.zshrc then overrides PROMPT, ensuring our compact prompt
             # survives user config without removing aliases or functions.
-            import tempfile
-
             zdotdir = tempfile.mkdtemp(prefix="codeplane_zsh_")
             real_zshrc = os.path.expanduser("~/.zshrc")
             zshrc_lines = [
@@ -192,6 +201,8 @@ class TerminalService:
         except OSError:
             os.close(master_fd)
             os.close(slave_fd)
+            if zdotdir:
+                shutil.rmtree(zdotdir, ignore_errors=True)
             raise
 
         # Parent no longer needs the slave FD
