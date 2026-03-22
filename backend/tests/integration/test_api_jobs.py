@@ -605,6 +605,24 @@ class TestJobResolution:
         assert data["resolution"] == "conflict"
         assert "src/main.py" in data["conflictFiles"]
 
+    async def test_resolve_error_returns_unresolved_with_error(
+        self,
+        client: AsyncClient,
+        seed_job: SeedJobFn,
+        mock_merge_service: AsyncMock,
+    ) -> None:
+        jid = await seed_job(state="succeeded", job_id="resolve-error")
+        mock_merge_service.resolve_job.return_value = FakeMergeResult(
+            status="error",
+            error="Cherry-pick failed without conflict markers; check git configuration or hooks",
+        )
+
+        resp = await client.post(f"/api/jobs/{jid}/resolve", json={"action": "smart_merge"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["resolution"] == "unresolved"
+        assert data["error"] == "Cherry-pick failed without conflict markers; check git configuration or hooks"
+
     async def test_resolve_with_agent_resumes_conflict_job(
         self,
         client: AsyncClient,

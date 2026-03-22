@@ -38,6 +38,7 @@ export interface JobSummary {
   mergeStatus?: string | null;
   worktreeName?: string | null;
   conflictFiles?: string[] | null;
+  resolutionError?: string | null;
   failureReason?: string | null;
   progressHeadline?: string | null;
   progressSummary?: string | null;
@@ -470,6 +471,7 @@ export const useStore = create<AppState>((set, get) => ({
           const resolution = payload.resolution as string;
           const prUrl = (payload.prUrl as string | null) ?? null;
           const conflictFiles = (payload.conflictFiles as string[] | null) ?? null;
+          const resolutionError = (payload.error as string | null) ?? null;
           const existing = state.jobs[jobId];
           if (existing) {
             return {
@@ -480,6 +482,7 @@ export const useStore = create<AppState>((set, get) => ({
                   resolution,
                   prUrl: prUrl ?? existing.prUrl,
                   conflictFiles,
+                  resolutionError,
                   updatedAt: (payload.timestamp as string) ?? existing.updatedAt,
                 },
               },

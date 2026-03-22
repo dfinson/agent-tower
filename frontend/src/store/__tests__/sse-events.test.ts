@@ -148,6 +148,18 @@ describe("dispatchSSEEvent — additional events", () => {
     expect(job.conflictFiles).toEqual(["a.ts", "b.ts"]);
   });
 
+  it("stores unresolved job_resolved errors", () => {
+    useStore.setState({ jobs: { "job-1": makeJob({ state: "succeeded" }) } });
+    useStore.getState().dispatchSSEEvent("job_resolved", {
+      jobId: "job-1",
+      resolution: "unresolved",
+      error: "Cherry-pick failed without conflict markers; check git configuration or hooks",
+    });
+    const job = selectJobs(useStore.getState())["job-1"]!;
+    expect(job.resolution).toBe("unresolved");
+    expect(job.resolutionError).toBe("Cherry-pick failed without conflict markers; check git configuration or hooks");
+  });
+
   it("ignores job_resolved for unknown job", () => {
     useStore.getState().dispatchSSEEvent("job_resolved", {
       jobId: "unknown",

@@ -520,7 +520,7 @@ async def resolve_job(
         await runtime_service.resume_job(job_id, conflict_prompt)
         return ResolveJobResponse(resolution="agent_merge")
 
-    resolution, pr_url, conflict_files_result = await svc.execute_resolve(
+    resolution, pr_url, conflict_files_result, error = await svc.execute_resolve(
         job=job,
         action=body.action,
         merge_service=merge_service,
@@ -532,6 +532,7 @@ async def resolve_job(
         resolution=resolution,
         pr_url=pr_url,
         conflict_files=conflict_files_result,
+        error=error,
     )
 
 
