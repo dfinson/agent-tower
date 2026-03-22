@@ -55,6 +55,8 @@ export function JobDetailScreen() {
     if (!el) return;
 
     const measure = () => {
+      // On desktop, let the page scroll naturally — no fixed height needed
+      if (window.innerWidth >= 768) { setLiveHeight(null); return; }
       const rect = el.getBoundingClientRect();
       const available = window.innerHeight - rect.top - 16; // 16px bottom margin
       setLiveHeight(Math.max(available, window.innerHeight * 0.6));
@@ -556,11 +558,11 @@ export function JobDetailScreen() {
       </Tabs>
 
       {tab === "live" && (
-        <div ref={liveContainerRef} className="flex flex-col" style={liveHeight ? { height: liveHeight } : { height: 'calc(100vh - 13rem)' }}>
-          <div className="flex-1 min-h-0">
+        <div ref={liveContainerRef} className="flex flex-col" style={liveHeight ? { height: liveHeight } : undefined}>
+          <div className="flex-1 min-h-0 md:flex-none md:min-h-[60vh]">
             <TranscriptPanel jobId={jobId} interactive jobState={job.state} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />
           </div>
-          <div className="overflow-y-auto max-h-[25vh] space-y-4 mt-4 shrink-0">
+          <div className="overflow-y-auto max-h-[35vh] space-y-4 mt-4 shrink-0 md:max-h-none md:overflow-visible md:pb-8">
             <PlanPanel jobId={jobId} />
             <ExecutionTimeline jobId={jobId} />
             <MetricsPanel jobId={jobId} isRunning={isRunning} />
