@@ -42,6 +42,21 @@ log = structlog.get_logger()
 
 _REF_PATTERN = re.compile(r"^[a-zA-Z0-9/_.-]+$")
 _PR_TITLE_MAX_PROMPT_LEN = 80
+_CHERRY_PICK_ALREADY_APPLIED_PATTERNS = (
+    "empty commit set passed",
+    "the previous cherry-pick is now empty",
+    "previous cherry-pick is now empty",
+    "patch contents already upstream",
+    "nothing to commit, working tree clean",
+)
+
+
+def _classify_cherry_pick_failure(exc: GitError) -> str:
+    """Map cherry-pick failures without conflict markers to a user-facing error."""
+    combined_message = "\n".join(part for part in (str(exc), exc.stderr) if part).lower()
+    if any(pattern in combined_message for pattern in _CHERRY_PICK_ALREADY_APPLIED_PATTERNS):
+        return "Cherry-pick stopped because one or more branch commits are already present on the base branch; rebase the branch or create a PR"
+    return "Cherry-pick failed without conflict markers; check git configuration or hooks"
 
 
 class MergeStatus(StrEnum):
@@ -697,7 +712,7 @@ class MergeService:
             commit_range = f"{base_ref}..{branch}"
             try:
                 await self._git.cherry_pick(commit_range, cwd=repo_path)
-            except GitError:
+            except GitError as exc:
                 # Check for actual conflict markers BEFORE aborting — abort removes them.
                 conflict_files = await self._git.get_conflict_files(cwd=repo_path)
                 await self._git.cherry_pick_abort(cwd=repo_path)
@@ -712,10 +727,11 @@ class MergeService:
                         job_id=job_id,
                         branch=branch,
                         commit_range=commit_range,
+                        stderr=exc.stderr,
                     )
                     return MergeResult(
                         status=MergeStatus.error,
-                        error="Cherry-pick failed without conflict markers; check git configuration or hooks",
+                        error=_classify_cherry_pick_failure(exc),
                     )
 
                 log.info("smart_merge_conflict_detected", job_id=job_id, branch=branch)
