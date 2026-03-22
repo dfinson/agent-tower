@@ -153,7 +153,7 @@ describe("JobDetailScreen", () => {
     });
   });
 
-  it("keeps the live transcript area on screen in desktop job views", async () => {
+  it("uses page scrolling for live panels outside the transcript", async () => {
     useStore.setState({
       jobs: {
         "job-1": makeJob({ state: "running", resolution: null }),
@@ -173,6 +173,8 @@ describe("JobDetailScreen", () => {
     const transcriptPanel = await screen.findByTestId("transcript-panel");
     expect(transcriptPanel.parentElement).toHaveClass("h-[80dvh]", "min-h-[22rem]");
     expect(transcriptPanel.parentElement?.parentElement).toHaveClass("flex", "flex-col", "gap-4");
+    expect(transcriptPanel.parentElement?.nextElementSibling).toHaveClass("space-y-4");
+    expect(transcriptPanel.parentElement?.nextElementSibling).not.toHaveClass("overflow-y-auto");
   });
 
   it("reconciles the canonical job after merge so resolution controls disappear", async () => {
@@ -247,6 +249,87 @@ describe("JobDetailScreen", () => {
       expect(useStore.getState().jobs["job-1"]?.resolution).toBe("unresolved");
       expect(screen.getByRole("button", { name: "Merge" })).toBeInTheDocument();
     });
+  });
+
+  it("surfaces unresolved smart-merge error details in the toast and banner", async () => {
+    useStore.setState({
+      jobs: {
+        "job-1": makeJob({ resolution: "unresolved", mergeStatus: "not_merged" }),
+      },
+    });
+
+    vi.mocked(fetchJob).mockResolvedValueOnce(
+      makeJob({ resolution: "unresolved", mergeStatus: "not_merged" }) as any,
+    );
+    vi.mocked(fetchJobDiff).mockResolvedValueOnce([
+      { path: "feature.ts", status: "modified", additions: 3, deletions: 1, hunks: [] },
+    ] as any);
+    vi.mocked(resolveJob).mockResolvedValueOnce({
+      resolution: "unresolved",
+      conflictFiles: null,
+      prUrl: null,
+      error: "Cherry-pick failed without conflict markers; check git configuration or hooks",
+    } as any);
+    vi.mocked(fetchJob).mockResolvedValueOnce(
+      makeJob({ resolution: "unresolved", mergeStatus: "not_merged", updatedAt: "2025-01-01T03:00:00Z" }) as any,
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/jobs/job-1"]}>
+        <Routes>
+          <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Merge" }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Cherry-pick failed without conflict markers; check git configuration or hooks");
+      expect(screen.getByText("Automatic merge failed: Cherry-pick failed without conflict markers; check git configuration or hooks")).toBeInTheDocument();
+      expect(useStore.getState().jobs["job-1"]?.resolutionError).toBe("Cherry-pick failed without conflict markers; check git configuration or hooks");
+    });
+  });
+
+  it("shows conflict resolution controls when merge metadata indicates a conflict", async () => {
+    vi.mocked(fetchJobDiff).mockResolvedValueOnce([
+      { path: "README.md", status: "modified", additions: 1, deletions: 1, hunks: [] },
+    ] as any);
+
+    useStore.setState({
+      jobs: {
+        "job-1": makeJob({
+          resolution: "unresolved",
+          mergeStatus: "conflict",
+          conflictFiles: ["README.md"],
+        }),
+      },
+      diffs: {
+        "job-1": [
+          { path: "README.md", status: "modified", additions: 1, deletions: 1, hunks: [] },
+        ],
+      },
+    } as any);
+
+    vi.mocked(fetchJob).mockResolvedValueOnce(
+      makeJob({
+        resolution: "unresolved",
+        mergeStatus: "conflict",
+        conflictFiles: ["README.md"],
+      }) as any,
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/jobs/job-1"]}>
+        <Routes>
+          <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Resolve with Agent" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Merge" })).not.toBeInTheDocument();
+    expect(screen.getByText("Merge conflict — user input required")).toBeInTheDocument();
   });
 
   it("resumes the existing failed job instead of rerunning a new one", async () => {

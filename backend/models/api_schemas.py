@@ -481,6 +481,7 @@ class ResolveJobResponse(CamelModel):
     resolution: Resolution | ResolutionAction
     pr_url: str | None = None
     conflict_files: list[str] | None = None
+    error: str | None = None
 
 
 class JobFailedPayload(CamelModel):
@@ -507,6 +508,7 @@ class JobResolvedPayload(CamelModel):
     resolution: Resolution
     pr_url: str | None = None
     conflict_files: list[str] | None = None
+    error: str | None = None
     timestamp: datetime
 
 

@@ -323,6 +323,7 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "resolution": ("resolution", Resolution.unresolved),
             "pr_url": ("pr_url", None),
             "conflict_files": ("conflict_files", None),
+            "error": ("error", None),
             "timestamp": ("timestamp", _TS_EVENT),
         },
     ),

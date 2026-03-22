@@ -456,10 +456,10 @@ class JobService:
         action: str,
         merge_service: Any,
         event_bus: Any | None = None,
-    ) -> tuple[str, str | None, list[str] | None]:
+    ) -> tuple[str, str | None, list[str] | None, str | None]:
         """Execute merge/PR/discard resolution and persist the outcome.
 
-        Returns (resolution, pr_url, conflict_files).
+        Returns (resolution, pr_url, conflict_files, error).
         """
         from backend.services.merge_service import MergeService
 
@@ -485,6 +485,15 @@ class JobService:
         }
         resolution = status_map.get(result.status, Resolution.unresolved)
 
+        if result.error:
+            log.warning(
+                "job_resolution_failed",
+                job_id=job.id,
+                action=action,
+                merge_status=str(result.status),
+                error=result.error,
+            )
+
         # Persist resolution
         await self._job_repo.update_resolution(job.id, resolution, pr_url=result.pr_url)
 
@@ -499,6 +508,8 @@ class JobService:
                 payload["pr_url"] = result.pr_url
             if result.conflict_files:
                 payload["conflict_files"] = result.conflict_files
+            if result.error:
+                payload["error"] = result.error
 
             await event_bus.publish(
                 DomainEvent(
@@ -510,7 +521,7 @@ class JobService:
                 )
             )
 
-        return resolution, result.pr_url, result.conflict_files
+        return resolution, result.pr_url, result.conflict_files, result.error
 
     async def archive_job(self, job_id: str, event_bus: Any | None = None) -> Job:
         """Archive a job (hide from Kanban board)."""

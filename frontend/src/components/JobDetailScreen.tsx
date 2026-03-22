@@ -211,6 +211,11 @@ export function JobDetailScreen() {
       const refreshedJob = action === "agent_merge"
         ? null
         : await fetchJob(jobId).catch(() => null);
+      const conflictLike =
+        res.resolution === "conflict" ||
+        (refreshedJob?.mergeStatus ?? null) === "conflict" ||
+        ((res.conflictFiles?.length ?? 0) > 0) ||
+        ((refreshedJob?.conflictFiles?.length ?? 0) > 0);
       useStore.setState((s) => {
         const existing = s.jobs[jobId];
         const baseJob = refreshedJob ? enrichJob(refreshedJob as JobSummary) : existing;
@@ -222,12 +227,14 @@ export function JobDetailScreen() {
               resolution: null,
               archivedAt: null,
               conflictFiles: res.conflictFiles ?? baseJob.conflictFiles,
+              resolutionError: null,
             }
           : {
               ...baseJob,
               resolution: res.resolution,
               prUrl: res.prUrl ?? baseJob.prUrl,
               conflictFiles: res.conflictFiles ?? baseJob.conflictFiles,
+              resolutionError: res.resolution === "unresolved" ? (res.error ?? null) : null,
               mergeStatus:
                 res.resolution === "merged"
                   ? "merged"
@@ -255,10 +262,10 @@ export function JobDetailScreen() {
         toast.success("PR created");
       } else if (res.resolution === "discarded") {
         toast.success("Discarded");
-      } else if (res.resolution === "conflict") {
+      } else if (conflictLike) {
         toast.error("Merge conflict detected");
       } else {
-        toast.error("Merge did not complete");
+        toast.error(res.error ?? "Merge did not complete");
       }
     } catch (e) { toast.error(String(e)); }
     finally { setResolveLoading(null); }
@@ -283,6 +290,14 @@ export function JobDetailScreen() {
   const canCancel = ["queued", "running", "waiting_for_approval"].includes(job.state);
   const canResume = job.state === "failed";
   const isRunning = job.state === "running";
+  const hasMergeConflict =
+    job.resolution === "conflict" ||
+    job.mergeStatus === "conflict" ||
+    ((job.conflictFiles?.length ?? 0) > 0);
+  const unresolvedResolutionError =
+    !hasMergeConflict && (job.resolution === "unresolved" || !job.resolution)
+      ? (job.resolutionError ?? null)
+      : null;
   const needsResolution =
     job.state === "succeeded" &&
     (job.resolution === "unresolved" || job.resolution === "conflict" || !job.resolution);
@@ -333,7 +348,7 @@ export function JobDetailScreen() {
             )}
             {needsResolution && hasChanges && (
               <>
-                {job.resolution !== "conflict" && (
+                {!hasMergeConflict && (
                   <Tooltip content="Ask the agent to merge changes onto the base branch">
                     <Button
                       size="sm"
@@ -348,7 +363,7 @@ export function JobDetailScreen() {
                     </Button>
                   </Tooltip>
                 )}
-                {job.resolution === "conflict" && (
+                {hasMergeConflict && (
                   <Tooltip content="Ask the agent to resolve the merge conflict">
                     <Button
                       size="sm"
@@ -494,7 +509,7 @@ export function JobDetailScreen() {
 
         {/* Success banner */}
         {job.state === "succeeded" && (() => {
-          const isConflict = job.resolution === "conflict";
+          const isConflict = hasMergeConflict;
           const isSignOff = job.resolution === "unresolved" || !job.resolution;
           return (
             <div className={`mt-3 rounded-md border p-3 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
@@ -521,6 +536,11 @@ export function JobDetailScreen() {
                         : "Completed with no changes to merge."
                     )}
                   </p>
+                  {unresolvedResolutionError && (
+                    <p className="text-sm mt-1 text-blue-300/90">
+                      Automatic merge failed: {unresolvedResolutionError}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -573,7 +593,7 @@ export function JobDetailScreen() {
           <div className="h-[80dvh] min-h-[22rem]">
             <TranscriptPanel jobId={jobId} sdk={job.sdk} interactive jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />
           </div>
-          <div className="overflow-y-auto max-h-[35vh] space-y-4 shrink-0 md:max-h-[18rem] md:pb-2">
+          <div className="space-y-4">
             <PlanPanel jobId={jobId} />
             <ExecutionTimeline jobId={jobId} />
             <MetricsPanel jobId={jobId} isRunning={isRunning} />
