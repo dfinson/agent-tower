@@ -497,10 +497,10 @@ class RuntimeService:
             tel_snapshot = tel.get(job_id)
             if tel_snapshot is not None:
                 try:
-                    from backend.persistence.metrics_repo import MetricsRepository as _MR
+                    from backend.persistence.metrics_repo import MetricsRepository
 
                     async with self._session_factory() as session:
-                        await _MR(session).save_snapshot(job_id, tel_snapshot.to_snapshot())
+                        await MetricsRepository(session).save_snapshot(job_id, tel_snapshot.to_snapshot())
                         await session.commit()
 
                     # Signal clients that final telemetry is available so the
@@ -1367,8 +1367,8 @@ class RuntimeService:
                 if not wt.exists():
                     if not job.branch:
                         raise StateConflictError(
-                            f"Job {job_id} cannot be resumed because its worktree is missing and no branch is available "
-                            "to restore it."
+                            f"Job {job_id} cannot be resumed because its worktree is missing "
+                            "and no branch is available to restore it."
                         )
                     git = GitService(self._config)
                     try:
@@ -1409,7 +1409,11 @@ class RuntimeService:
             raise ValueError(f"Job {job_id} not found after resume reset")
 
         try:
-            await self.start_or_enqueue(job, override_prompt=override_prompt, resume_sdk_session_id=resume_sdk_session_id)
+            await self.start_or_enqueue(
+                job,
+                override_prompt=override_prompt,
+                resume_sdk_session_id=resume_sdk_session_id,
+            )
         except Exception:
             async with self._session_factory() as session:
                 job_repo = JobRepository(session)

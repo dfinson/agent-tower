@@ -324,7 +324,11 @@ def _start_devtunnel(port: int) -> tuple[str, subprocess.Popen[str], str]:
                 ["devtunnel", "create", tunnel_name, "--allow-anonymous", "--expiration", "30d"]
             )
             if create_retry.returncode != 0:
-                raise TunnelStartError(create_retry.stderr.strip() or create_retry.stdout.strip() or "devtunnel create failed")
+                raise TunnelStartError(
+                    create_retry.stderr.strip()
+                    or create_retry.stdout.strip()
+                    or "devtunnel create failed"
+                )
 
     _run_capture(["devtunnel", "port", "create", tunnel_name, "-p", str(port), "--protocol", "http"])
     _, region = _lookup_devtunnel(tunnel_name)
