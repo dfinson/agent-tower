@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import WaveSurfer from "wavesurfer.js";
 import RecordPlugin from "wavesurfer.js/dist/plugins/record.esm.js";
 import { transcribeAudio } from "../api/client";
+import { cn } from "../lib/utils";
 import { Textarea } from "./ui/textarea";
 import { Spinner } from "./ui/spinner";
 import { Tooltip } from "./ui/tooltip";
@@ -112,10 +113,9 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown }: P
               onChange={(e) => onChange(e.currentTarget.value)}
               onBlur={onBlur}
               onKeyDown={onKeyDown}
-              error={error}
               placeholder="Describe the task you want the agent to perform…"
               rows={6}
-              className="pr-12"
+              className={cn("pr-12", error && "border-red-500 focus-visible:ring-red-500")}
             />
             <div className="absolute bottom-2 right-2" style={{ zIndex: 10 }}>
               {state === "transcribing" ? (
@@ -133,6 +133,7 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown }: P
               )}
             </div>
           </div>
+          {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
           <p className="text-xs text-muted-foreground mt-1">Ctrl+Enter to submit</p>
         </div>
       </div>
