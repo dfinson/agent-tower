@@ -671,7 +671,11 @@ class MergeService:
         lock = self._repo_locks.setdefault(repo_path, asyncio.Lock())
         async with lock:
             return await self._operator_smart_merge_locked(
-                job_id, repo_path, worktree_path, branch, base_ref,
+                job_id,
+                repo_path,
+                worktree_path,
+                branch,
+                base_ref,
             )
 
     async def _operator_smart_merge_locked(
