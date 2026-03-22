@@ -153,7 +153,7 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
 
   const reconnect = useCallback(() => {
     attemptRef.current = 0;
-    useStore.getState().setConnectionStatus("reconnecting");
+    useStore.getState().setConnectionStatus(wasConnectedRef.current ? "reconnecting" : "connecting");
     connectRef.current?.();
   }, []);
 

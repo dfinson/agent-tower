@@ -350,6 +350,11 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   // Re-fetch when the job transitions from running → stopped to get final telemetry.
   const prevRunningRef = useRef(isRunning);
   useEffect(() => {
+    // Reset ref when jobId changes so a new job doesn't incorrectly trigger a re-fetch.
+    prevRunningRef.current = isRunning;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId]);
+  useEffect(() => {
     if (prevRunningRef.current && !isRunning) {
       setLoading(true);
       fetchJobTelemetry(jobId)
