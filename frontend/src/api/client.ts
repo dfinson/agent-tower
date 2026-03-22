@@ -330,11 +330,11 @@ export function continueJob(
 
 export function resumeJob(
   jobId: string,
-  instruction: string,
+  instruction?: string,
 ): Promise<{ id: string; state: string; branch: string | null; worktreePath: string | null; createdAt: string; updatedAt: string }> {
   return request(`/jobs/${encodeURIComponent(jobId)}/resume`, {
     method: "POST",
-    body: JSON.stringify({ instruction }),
+    body: JSON.stringify(instruction?.trim() ? { instruction } : {}),
   });
 }
 

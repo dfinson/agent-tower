@@ -146,7 +146,7 @@ class SendMessageRequest(CamelModel):
 
 
 class ResumeJobRequest(CamelModel):
-    instruction: str = Field(min_length=1, max_length=50_000)
+    instruction: str | None = Field(default=None, max_length=50_000)
 
 
 class ContinueJobRequest(CamelModel):

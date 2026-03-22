@@ -420,10 +420,39 @@ class TestJobControl:
         )
         assert resp.status_code == 409
 
-    async def test_resume_missing_instruction(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
+    async def test_resume_missing_instruction(self, client: AsyncClient, seed_job: SeedJobFn, mock_runtime_service: AsyncMock) -> None:
         jid = await seed_job(state="failed", job_id="resume-bad")
+        fake_job = MagicMock()
+        fake_job.id = jid
+        fake_job.repo = "/test/repo"
+        fake_job.prompt = "Test prompt"
+        fake_job.title = None
+        fake_job.state = "running"
+        fake_job.base_ref = "main"
+        fake_job.worktree_path = "/tmp/wt"
+        fake_job.branch = "fix/branch"
+        fake_job.permission_mode = None
+        fake_job.created_at = datetime.now(UTC)
+        fake_job.updated_at = datetime.now(UTC)
+        fake_job.completed_at = None
+        fake_job.pr_url = None
+        fake_job.merge_status = None
+        fake_job.resolution = None
+        fake_job.archived_at = None
+        fake_job.failure_reason = None
+        fake_job.model = None
+        fake_job.worktree_name = None
+        fake_job.verify = None
+        fake_job.self_review = None
+        fake_job.max_turns = None
+        fake_job.verify_prompt = None
+        fake_job.self_review_prompt = None
+        mock_runtime_service.resume_job.return_value = fake_job
+
         resp = await client.post(f"/api/jobs/{jid}/resume", json={})
-        assert resp.status_code == 422
+        assert resp.status_code == 200
+        assert resp.json()["state"] == "running"
+        mock_runtime_service.resume_job.assert_called_once_with(jid, None)
 
     # ── Models ──
 

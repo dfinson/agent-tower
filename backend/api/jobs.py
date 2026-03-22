@@ -269,11 +269,11 @@ async def continue_job(
 @router.post("/jobs/{job_id}/resume", response_model=JobResponse)
 async def resume_job(
     job_id: str,
-    body: ResumeJobRequest,
     runtime_service: FromDishka[RuntimeService],
+    body: ResumeJobRequest | None = None,
 ) -> JobResponse:
-    """Resume a completed/failed/canceled job in-place with a new instruction."""
-    job = await runtime_service.resume_job(job_id, body.instruction)
+    """Resume a completed/failed/canceled job in-place, optionally with extra instruction."""
+    job = await runtime_service.resume_job(job_id, body.instruction if body is not None else None)
     return _job_to_response(job)
 
 

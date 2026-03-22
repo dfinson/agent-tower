@@ -277,13 +277,9 @@ describe("JobDetailScreen", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
-    fireEvent.change(await screen.findByPlaceholderText("Describe what should happen next"), {
-      target: { value: "Continue fixing the diff highlighting." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Resume Job" }));
 
     await waitFor(() => {
-      expect(resumeJob).toHaveBeenCalledWith("job-1", "Continue fixing the diff highlighting.");
+      expect(resumeJob).toHaveBeenCalledWith("job-1");
       expect(rerunJob).not.toHaveBeenCalled();
       expect(useStore.getState().jobs["job-1"]?.state).toBe("running");
     });
