@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from dishka.integrations.fastapi import ContainerMiddleware
+from dishka.integrations.fastapi import ContainerMiddleware  # type: ignore[attr-defined]
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

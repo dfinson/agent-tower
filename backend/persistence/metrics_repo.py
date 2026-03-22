@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy import select
 
@@ -32,8 +33,9 @@ class MetricsRepository(BaseRepository):
             )
             self._session.add(row)
         else:
-            row.snapshot_json = json.dumps(snapshot)
-            row.updated_at = now
+            any_row = cast("Any", row)
+            any_row.snapshot_json = json.dumps(snapshot)
+            any_row.updated_at = now
         await self._session.flush()
 
     async def load_snapshot(self, job_id: str) -> dict[str, object] | None:
@@ -42,4 +44,4 @@ class MetricsRepository(BaseRepository):
         row = result.scalar_one_or_none()
         if row is None:
             return None
-        return json.loads(str(row.snapshot_json))
+        return cast("dict[str, object]", json.loads(str(row.snapshot_json)))

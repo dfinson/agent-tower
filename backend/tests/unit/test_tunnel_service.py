@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
 from backend.services.tunnel_service import RemoteProvider, TunnelWatchdog, validate_remote_provider
+
+if TYPE_CHECKING:
+    import subprocess
+
+
+def _as_popen(proc: _FakeProc) -> subprocess.Popen[str]:
+    return cast("subprocess.Popen[str]", proc)
 
 
 class _FakeProc:
@@ -67,7 +75,7 @@ def test_watchdog_detects_dead_process() -> None:
     watchdog = TunnelWatchdog(
         tunnel_url="https://example.test",
         restart_command=["devtunnel", "host", "name"],
-        proc=_FakeProc(poll_result=1),
+        proc=_as_popen(_FakeProc(poll_result=1)),
         label="devtunnel",
     )
     assert watchdog._process_running() is False
@@ -80,7 +88,7 @@ def test_watchdog_restart_process_retries_until_healthy() -> None:
     watchdog = TunnelWatchdog(
         tunnel_url="https://example.test",
         restart_command=["devtunnel", "host", "name"],
-        proc=original_proc,
+        proc=_as_popen(original_proc),
         label="devtunnel",
     )
     watchdog._stop_event = threading.Event()
@@ -93,14 +101,14 @@ def test_watchdog_restart_process_retries_until_healthy() -> None:
 
     assert restarted is True
     assert original_proc.terminated is True
-    assert watchdog.proc is recovered_proc
+    assert watchdog.proc is _as_popen(recovered_proc)
 
 
 def test_watchdog_restart_process_gives_up_after_retries() -> None:
     watchdog = TunnelWatchdog(
         tunnel_url="https://example.test",
         restart_command=["devtunnel", "host", "name"],
-        proc=_FakeProc(poll_result=None),
+        proc=_as_popen(_FakeProc(poll_result=None)),
         label="devtunnel",
     )
     watchdog._stop_event = threading.Event()
@@ -110,4 +118,4 @@ def test_watchdog_restart_process_gives_up_after_retries() -> None:
         restarted = watchdog._restart_process()
 
     assert restarted is False
-    assert watchdog.proc is failed_procs[-1]
+    assert watchdog.proc is _as_popen(failed_procs[-1])

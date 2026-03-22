@@ -63,7 +63,7 @@ async def test_persist_event_retries_sqlite_lock(monkeypatch: pytest.MonkeyPatch
 
     await _persist_event_with_retry(
         event=_make_event(),
-        session_factory=_session_factory,  # type: ignore[arg-type]
+        session_factory=_session_factory,
         write_lock=asyncio.Lock(),
         retry_delay_s=0,
     )
@@ -94,7 +94,7 @@ async def test_persist_event_does_not_retry_non_lock_errors(monkeypatch: pytest.
     with pytest.raises(OperationalError, match="disk I/O error"):
         await _persist_event_with_retry(
             event=_make_event(),
-            session_factory=_session_factory,  # type: ignore[arg-type]
+            session_factory=_session_factory,
             write_lock=asyncio.Lock(),
             retry_delay_s=0,
         )
