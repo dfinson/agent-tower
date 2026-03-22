@@ -118,20 +118,29 @@ _HEARTBEAT_TIMEOUT_S = 300  # 5 minutes
 
 # Default prompts for post-completion verification and self-review turns
 DEFAULT_VERIFY_PROMPT = (
-    "Before this task is complete: identify and run this project's test suite, "
-    "linter, and type checker. If anything fails, fix it and re-run until "
-    "everything passes. Assume that any failure is caused by your changes — "
-    "do not dismiss failures as pre-existing or flaky. Also check that you "
-    "haven't made unrelated changes outside the scope of the original task; "
-    "revert any that you find. Report what you ran and the results."
+    "Check whether any source files or documentation were modified during this "
+    "task (e.g. `git diff --stat HEAD` or compare against the base ref). "
+    "If no files were modified — for example, the task was read-only or an "
+    "audit — skip this step entirely and report that there is nothing to verify. "
+    "Only if files were changed: identify and run this project's test suite, "
+    "linter, and type checker. Stop as soon as everything passes — you do not "
+    "need to exhaust the maximum number of allowed turns. If something fails, "
+    "fix it and re-run. Assume failures are caused by your changes; do not "
+    "dismiss them as pre-existing or flaky. Also check that you haven't made "
+    "unrelated changes outside the scope of the original task; revert any that "
+    "you find. Report what you ran and the results."
 )
 
 DEFAULT_SELF_REVIEW_PROMPT = (
-    "Review the changes you just made. Look at the full diff. Check for: "
-    "missed edge cases, incomplete implementations, leftover debug code, "
-    "broken imports, dead code, backwards-compatibility shims or fallback "
-    "paths that may no longer be needed, and inconsistencies with the "
-    "surrounding codebase. If you find issues, fix them."
+    "Check whether any source files or documentation were modified during this "
+    "task (e.g. `git diff --stat HEAD` or compare against the base ref). "
+    "If no files were modified — for example, the task was read-only or an "
+    "audit — skip this step entirely and report that there is nothing to review. "
+    "Only if files were changed: look at the full diff and check for missed edge "
+    "cases, incomplete implementations, leftover debug code, broken imports, dead "
+    "code, backwards-compatibility shims or fallback paths that may no longer be "
+    "needed, and inconsistencies with the surrounding codebase. If you find "
+    "issues, fix them."
 )
 
 
@@ -320,9 +329,7 @@ class RuntimeService:
             if job is None:
                 raise JobNotFoundError(f"Job {job_id} does not exist.")
             if job.state not in (JobState.running, JobState.waiting_for_approval):
-                raise StateConflictError(
-                    f"Job {job_id} is not active and cannot be recovered (current: {job.state})."
-                )
+                raise StateConflictError(f"Job {job_id} is not active and cannot be recovered (current: {job.state}).")
 
             previous_state = job.state
             previous_session_count = job.session_count
