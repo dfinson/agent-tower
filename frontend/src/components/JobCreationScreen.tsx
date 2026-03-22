@@ -86,7 +86,10 @@ export function JobCreationScreen() {
         setSelfReview(settings.selfReview);
         setSettingsLoaded(true);
       })
-      .catch(() => toast.error("Failed to load settings"));
+      .catch(() => {
+        toast.error("Failed to load settings");
+        setSettingsLoaded(true); // fall back to hardcoded defaults so the form is usable
+      });
     fetchRepos()
       .then((r) => {
         const items = r.items.map((p) => ({ value: p, label: p.split("/").pop() ?? p }));
