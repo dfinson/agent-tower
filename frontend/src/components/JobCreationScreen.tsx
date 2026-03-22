@@ -115,31 +115,35 @@ export function JobCreationScreen() {
       setBranch("");
       return;
     }
+    let cancelled = false;
     branchDebounceRef.current = setTimeout(() => {
       setBranchSuggesting(true);
       suggestNames(prompt)
         .then((names) => {
-          if (!branchEdited) setBranch(names.branchName);
+          if (!cancelled) setBranch(names.branchName);
         })
         .catch(() => {
           // silently ignore — user can type a branch name manually
         })
-        .finally(() => setBranchSuggesting(false));
+        .finally(() => { if (!cancelled) setBranchSuggesting(false); });
     }, 1500);
     return () => {
+      cancelled = true;
       if (branchDebounceRef.current) clearTimeout(branchDebounceRef.current);
     };
   }, [prompt, branchEdited]);
 
   useEffect(() => {
     if (!repo || baseRefEdited) return;
+    let cancelled = false;
     fetchRepoDetail(repo)
       .then((detail) => {
-        if (!baseRefEdited) setBaseRef(detail.currentBranch ?? detail.baseBranch ?? "");
+        if (!cancelled) setBaseRef(detail.currentBranch ?? detail.baseBranch ?? "");
       })
       .catch(() => {
-        // silently ignore — user can type a base ref manually
+        toast.warning("Could not fetch repo details — set Base Reference manually if needed.");
       });
+    return () => { cancelled = true; };
   }, [repo, baseRefEdited]);
 
   const handleSdkChange = useCallback((newSdk: string | null) => {
@@ -318,7 +322,7 @@ export function JobCreationScreen() {
                   value={baseRef}
                   onChange={(e) => {
                     setBaseRef(e.currentTarget.value);
-                    setBaseRefEdited(e.currentTarget.value !== "");
+                    setBaseRefEdited(true);
                   }}
                 />
               </div>
@@ -330,7 +334,7 @@ export function JobCreationScreen() {
                     value={branch}
                     onChange={(e) => {
                       setBranch(e.currentTarget.value);
-                      setBranchEdited(e.currentTarget.value !== "");
+                      setBranchEdited(true);
                     }}
                   />
                 </div>
