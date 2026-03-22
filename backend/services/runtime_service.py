@@ -15,7 +15,7 @@ import dataclasses
 import enum
 import re
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 
@@ -429,12 +429,13 @@ class RuntimeService:
                         raise ValueError(f"Job {job_id} not found before post-conflict merge")
 
                     log.info("job_attempting_post_conflict_merge", job_id=job_id)
-                    final_resolution, final_pr_url, _ = await svc.execute_resolve(
+                    resolved, final_pr_url, _ = await svc.execute_resolve(
                         job=current_job,
                         action="merge",
                         merge_service=self._merge_service,
                         event_bus=self._event_bus,
                     )
+                    final_resolution = cast("Resolution", resolved)
                 else:
                     from backend.persistence.job_repo import JobRepository
 

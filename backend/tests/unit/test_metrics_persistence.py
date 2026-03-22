@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from sqlalchemy import event as sa_event
@@ -148,7 +148,8 @@ def test_to_snapshot_captures_all_cumulative_fields() -> None:
     assert isinstance(snap["llm_calls_raw"], list)
     assert len(snap["llm_calls_raw"]) == 1
 
-    assert "premium" in snap["quota_snapshots_raw"]
+    quotas = cast("dict[str, object]", snap["quota_snapshots_raw"])
+    assert "premium" in quotas
 
 
 def test_restore_from_snapshot_replaces_fresh_entry() -> None:
@@ -194,7 +195,9 @@ def test_restore_from_snapshot_replaces_fresh_entry() -> None:
 def test_restore_then_continue_accumulates_correctly() -> None:
     """New session metrics add on top of the restored snapshot totals."""
     original = _make_collector_with_metrics()
-    snap = original.get("job-1").to_snapshot()
+    original_tel = original.get("job-1")
+    assert original_tel is not None
+    snap = original_tel.to_snapshot()
 
     # Resumed session in a fresh collector
     fresh = TelemetryCollector()

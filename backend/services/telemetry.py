@@ -20,13 +20,43 @@ Contract:
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import time
 from dataclasses import dataclass, field, replace
+from typing import Any, cast
 
 # Retention limits for call history lists
 _MAX_LLM_CALLS = 100
 _MAX_TOOL_CALLS = 200
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            return int(value)
+    return default
+
+
+def _as_float(value: object, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            return float(value)
+    return default
 
 
 @dataclass
@@ -312,39 +342,43 @@ class TelemetryCollector:
             return
 
         # Scalar cumulative counters
-        tel.model = str(snapshot.get("model") or tel.model)
-        tel.main_model = str(snapshot.get("main_model") or tel.main_model)
-        tel.accumulated_duration_ms = float(snapshot.get("duration_ms", 0.0))
-        tel.input_tokens = int(snapshot.get("input_tokens", 0))
-        tel.output_tokens = int(snapshot.get("output_tokens", 0))
-        tel.total_tokens = int(snapshot.get("total_tokens", 0))
-        tel.cache_read_tokens = int(snapshot.get("cache_read_tokens", 0))
-        tel.cache_write_tokens = int(snapshot.get("cache_write_tokens", 0))
-        tel.total_cost = float(snapshot.get("total_cost", 0.0))
-        tel.compactions = int(snapshot.get("compactions", 0))
-        tel.tokens_compacted = int(snapshot.get("tokens_compacted", 0))
-        tel.tool_call_count = int(snapshot.get("tool_call_count", 0))
-        tel.total_tool_duration_ms = float(snapshot.get("total_tool_duration_ms", 0.0))
-        tel.llm_call_count = int(snapshot.get("llm_call_count", 0))
-        tel.total_llm_duration_ms = float(snapshot.get("total_llm_duration_ms", 0.0))
-        tel.approval_count = int(snapshot.get("approval_count", 0))
-        tel.total_approval_wait_ms = float(snapshot.get("total_approval_wait_ms", 0.0))
-        tel.agent_messages = int(snapshot.get("agent_messages", 0))
-        tel.operator_messages = int(snapshot.get("operator_messages", 0))
-        tel.premium_requests = float(snapshot.get("premium_requests", 0.0))
+        tel.model = _as_str(snapshot.get("model"), tel.model) or tel.model
+        tel.main_model = _as_str(snapshot.get("main_model"), tel.main_model) or tel.main_model
+        tel.accumulated_duration_ms = _as_float(snapshot.get("duration_ms"))
+        tel.input_tokens = _as_int(snapshot.get("input_tokens"))
+        tel.output_tokens = _as_int(snapshot.get("output_tokens"))
+        tel.total_tokens = _as_int(snapshot.get("total_tokens"))
+        tel.cache_read_tokens = _as_int(snapshot.get("cache_read_tokens"))
+        tel.cache_write_tokens = _as_int(snapshot.get("cache_write_tokens"))
+        tel.total_cost = _as_float(snapshot.get("total_cost"))
+        tel.compactions = _as_int(snapshot.get("compactions"))
+        tel.tokens_compacted = _as_int(snapshot.get("tokens_compacted"))
+        tel.tool_call_count = _as_int(snapshot.get("tool_call_count"))
+        tel.total_tool_duration_ms = _as_float(snapshot.get("total_tool_duration_ms"))
+        tel.llm_call_count = _as_int(snapshot.get("llm_call_count"))
+        tel.total_llm_duration_ms = _as_float(snapshot.get("total_llm_duration_ms"))
+        tel.approval_count = _as_int(snapshot.get("approval_count"))
+        tel.total_approval_wait_ms = _as_float(snapshot.get("total_approval_wait_ms"))
+        tel.agent_messages = _as_int(snapshot.get("agent_messages"))
+        tel.operator_messages = _as_int(snapshot.get("operator_messages"))
+        tel.premium_requests = _as_float(snapshot.get("premium_requests"))
 
         # Call history lists
         raw_tools = snapshot.get("tool_calls_raw", [])
         if isinstance(raw_tools, list):
-            tel.tool_calls = [ToolCallRecord(**tc) for tc in raw_tools]
+            tel.tool_calls = [ToolCallRecord(**tc) for tc in raw_tools if isinstance(tc, dict)]
         raw_llm = snapshot.get("llm_calls_raw", [])
         if isinstance(raw_llm, list):
-            tel.llm_calls = [LLMCallRecord(**lc) for lc in raw_llm]
+            tel.llm_calls = [LLMCallRecord(**lc) for lc in raw_llm if isinstance(lc, dict)]
 
         # Quota snapshots
         raw_quotas = snapshot.get("quota_snapshots_raw", {})
         if isinstance(raw_quotas, dict):
-            tel.quota_snapshots = {k: QuotaSnapshot(**v) for k, v in raw_quotas.items()}
+            tel.quota_snapshots = {
+                str(key): QuotaSnapshot(**cast("dict[str, Any]", value))
+                for key, value in raw_quotas.items()
+                if isinstance(value, dict)
+            }
 
     def set_main_model(self, job_id: str, model: str) -> None:
         """Explicitly set the main agent's model (called when the SDK confirms the model).

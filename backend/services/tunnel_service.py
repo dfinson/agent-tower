@@ -17,6 +17,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 import structlog
 
@@ -67,7 +68,7 @@ class TunnelWatchdog:
         self.proc = proc
         self.label = label
         self._stop_event = __import__("threading").Event()
-        self._thread = None
+        self._thread: Any = None
 
     def start(self) -> None:
         import threading
