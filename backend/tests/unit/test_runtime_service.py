@@ -709,6 +709,36 @@ class TestResumeFallback:
 
         await runtime.shutdown()
 
+    async def test_resume_uses_default_instruction_when_none_is_provided(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+        config: CPLConfig,
+    ) -> None:
+        adapter = ResumeFallbackAdapter()
+        runtime = RuntimeService(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            adapter_registry=FakeAdapterRegistry(adapter),
+            config=config,
+        )
+
+        job = _make_job(repo=config.repos[0], state=JobState.failed)
+        job.prompt = "Fix session pool scaling for naming service"
+        job.session_count = 2
+        job.sdk_session_id = "stale-sdk-session"
+        job.completed_at = datetime.now(UTC)
+        await _create_db_job(session_factory, job)
+
+        await runtime.resume_job(job.id, None)
+        await asyncio.sleep(0.2)
+
+        assert len(adapter.configs) == 2
+        assert adapter.configs[0].prompt == "Continue the current task from where you left off and finish it."
+        assert "Continue the current task from where you left off and finish it." in adapter.configs[1].prompt
+
+        await runtime.shutdown()
+
     async def test_resume_rejects_when_missing_worktree_cannot_be_restored(
         self,
         session_factory: async_sessionmaker[AsyncSession],

@@ -106,6 +106,8 @@ _SERVER_RESTART_RECOVERY_INSTRUCTION = (
     "Do not start over or create a duplicate job."
 )
 
+_DEFAULT_RESUME_INSTRUCTION = "Continue the current task from where you left off and finish it."
+
 # Heartbeat configuration
 _HEARTBEAT_INTERVAL_S = 30
 _HEARTBEAT_WARNING_S = 90
@@ -142,6 +144,12 @@ def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
         return False
     role = str(event.payload.get("role", ""))
     return role != "operator"
+
+
+def _normalize_resume_instruction(instruction: str | None) -> str:
+    """Return a default continue instruction when the operator doesn't provide one."""
+    normalized = (instruction or "").strip()
+    return normalized or _DEFAULT_RESUME_INSTRUCTION
 
 
 class RuntimeService:
@@ -1486,7 +1494,7 @@ class RuntimeService:
                 raise JobNotFoundError(f"Job {job_id} does not exist.")
             return await self._build_resume_handoff_prompt_for_job(session, job, instruction, job.session_count)
 
-    async def resume_job(self, job_id: str, instruction: str) -> Job:
+    async def resume_job(self, job_id: str, instruction: str | None = None) -> Job:
         """Resume a terminal job in-place.
 
         Primary path: reconnect to the existing Copilot SDK session (full conversation history
@@ -1496,6 +1504,8 @@ class RuntimeService:
         from backend.models.domain import TERMINAL_STATES
         from backend.persistence.job_repo import JobRepository
         from backend.services.job_service import JobNotFoundError, StateConflictError
+
+        normalized_instruction = _normalize_resume_instruction(instruction)
 
         async with self._session_factory() as session:
             job_repo = JobRepository(session)
@@ -1532,14 +1542,14 @@ class RuntimeService:
             if job.sdk_session_id:
                 # Primary path: SDK native session resume — full history intact, no summarization cost.
                 log.info("resume_via_sdk_session", job_id=job_id, sdk_session_id=job.sdk_session_id)
-                override_prompt = instruction
+                override_prompt = normalized_instruction
                 resume_sdk_session_id: str | None = job.sdk_session_id
             else:
                 log.info("resume_via_summarization", job_id=job_id)
                 override_prompt = await self._build_resume_handoff_prompt_for_job(
                     session,
                     job,
-                    instruction,
+                    normalized_instruction,
                     new_session_count,
                 )
                 resume_sdk_session_id = None
@@ -1588,7 +1598,7 @@ class RuntimeService:
                 kind=DomainEventKind.session_resumed,
                 payload={
                     "session_number": new_session_count,
-                    "instruction": instruction,
+                    "instruction": normalized_instruction,
                     "timestamp": now.isoformat(),
                 },
             )
@@ -1604,7 +1614,7 @@ class RuntimeService:
                     "seq": 0,
                     "timestamp": now.isoformat(),
                     "role": "operator",
-                    "content": instruction,
+                    "content": normalized_instruction,
                 },
             )
         )
