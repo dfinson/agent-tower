@@ -57,6 +57,9 @@ class TunnelWatchdog:
     _CHECK_INTERVAL = 10
     _FAIL_THRESHOLD = 2
     _HTTP_TIMEOUT = 5
+    _RESTART_ATTEMPTS = 3
+    _RESTART_GRACE_PERIOD = 2
+    _RECOVERY_TIMEOUT = 15
 
     def __init__(self, *, tunnel_url: str, restart_command: list[str], proc: subprocess.Popen[str], label: str) -> None:
         self.tunnel_url = tunnel_url
@@ -87,24 +90,90 @@ class TunnelWatchdog:
         except Exception:
             return False
 
-    def _restart_process(self) -> None:
-        log.debug("tunnel_watchdog_restarting", provider=self.label)
+    def _process_running(self, proc: subprocess.Popen[str] | None = None) -> bool:
+        current = proc or self.proc
+        return current is not None and current.poll() is None
+
+    def _terminate_process(self, proc: subprocess.Popen[str] | None = None) -> None:
+        current = proc or self.proc
+        if current is None:
+            return
         try:
-            self.proc.terminate()
-            self.proc.wait(timeout=5)
+            current.terminate()
+            current.wait(timeout=5)
         except Exception:
             with contextlib.suppress(Exception):
-                self.proc.kill()
+                current.kill()
 
-        proc = subprocess.Popen(
-            self.restart_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
+    def _read_process_output(self, proc: subprocess.Popen[str]) -> str:
+        if proc.stdout is None:
+            return ""
+        with contextlib.suppress(Exception):
+            return proc.stdout.read().strip()
+        return ""
+
+    def _wait_for_recovery(self) -> bool:
+        deadline = time.monotonic() + self._RECOVERY_TIMEOUT
+        while time.monotonic() < deadline and not self._stop_event.is_set():
+            if not self._process_running():
+                return False
+            if self._health_ok():
+                return True
+            if self._stop_event.wait(timeout=1):
+                return False
+        return self._process_running() and self._health_ok()
+
+    def _restart_process(self) -> bool:
+        log.debug("tunnel_watchdog_restarting", provider=self.label)
+        last_error = "unknown restart failure"
+
+        for attempt in range(1, self._RESTART_ATTEMPTS + 1):
+            self._terminate_process()
+
+            proc = subprocess.Popen(
+                self.restart_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            self.proc = proc
+
+            if self._stop_event.wait(timeout=self._RESTART_GRACE_PERIOD):
+                return True
+
+            if not self._process_running(proc):
+                last_error = self._read_process_output(proc) or "tunnel process exited immediately"
+                log.warning(
+                    "tunnel_watchdog_restart_attempt_failed",
+                    provider=self.label,
+                    attempt=attempt,
+                    reason=last_error,
+                )
+                continue
+
+            if self._wait_for_recovery():
+                log.info(
+                    "tunnel_watchdog_restarted",
+                    provider=self.label,
+                    attempt=attempt,
+                )
+                return True
+
+            last_error = "tunnel did not recover before timeout"
+            log.warning(
+                "tunnel_watchdog_restart_attempt_timeout",
+                provider=self.label,
+                attempt=attempt,
+                timeout_seconds=self._RECOVERY_TIMEOUT,
+            )
+
+        log.error(
+            "tunnel_watchdog_restart_gave_up",
+            provider=self.label,
+            attempts=self._RESTART_ATTEMPTS,
+            last_error=last_error,
         )
-        time.sleep(2)
-        self.proc = proc
-        log.debug("tunnel_watchdog_restarted", provider=self.label)
+        return False
 
     def _run(self) -> None:
         if self._stop_event.wait(timeout=self._CHECK_INTERVAL):
@@ -113,7 +182,11 @@ class TunnelWatchdog:
         consecutive_failures = 0
 
         while not self._stop_event.is_set():
-            if self._health_ok():
+            if not self._process_running():
+                log.warning("tunnel_watchdog_process_exited", provider=self.label)
+                self._restart_process()
+                consecutive_failures = 0
+            elif self._health_ok():
                 consecutive_failures = 0
             else:
                 consecutive_failures += 1
