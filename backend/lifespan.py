@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from dishka import make_async_container
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, load_config
@@ -44,6 +45,9 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+_EVENT_PERSIST_MAX_ATTEMPTS = 3
+_EVENT_PERSIST_RETRY_DELAY_S = 0.05
+
 
 # ---------------------------------------------------------------------------
 # Helper dataclass to bundle core services for easy passing
@@ -71,18 +75,53 @@ def _init_event_infrastructure(
     """Create event bus and SSE manager with persist-then-broadcast wiring."""
     event_bus = EventBus()
     sse_manager = SSEManager()
+    persist_lock = asyncio.Lock()
 
     # Persist-then-broadcast subscriber: ensures event.db_id is set
     # (monotonic autoincrement) before SSE frames are built.
     async def _persist_and_broadcast(event: DomainEvent) -> None:
-        async with session_factory() as session:
-            repo = EventRepository(session)
-            await repo.append(event)
-            await session.commit()
+        await _persist_event_with_retry(
+            event=event,
+            session_factory=session_factory,
+            write_lock=persist_lock,
+        )
         await sse_manager.broadcast_domain_event(event)
 
     event_bus.subscribe(_persist_and_broadcast)
     return event_bus, sse_manager
+
+
+def _is_sqlite_lock_error(exc: OperationalError) -> bool:
+    return "database is locked" in str(exc).lower()
+
+
+async def _persist_event_with_retry(
+    *,
+    event: DomainEvent,
+    session_factory: async_sessionmaker[AsyncSession],
+    write_lock: asyncio.Lock,
+    max_attempts: int = _EVENT_PERSIST_MAX_ATTEMPTS,
+    retry_delay_s: float = _EVENT_PERSIST_RETRY_DELAY_S,
+) -> None:
+    async with write_lock:
+        for attempt in range(max_attempts):
+            async with session_factory() as session:
+                repo = EventRepository(session)
+                try:
+                    await repo.append(event)
+                    await session.commit()
+                    return
+                except OperationalError as exc:
+                    await session.rollback()
+                    if not _is_sqlite_lock_error(exc) or attempt == max_attempts - 1:
+                        raise
+                    log.warning(
+                        "event_persist_retrying_after_sqlite_lock",
+                        event_id=event.event_id,
+                        job_id=event.job_id,
+                        attempt=attempt + 1,
+                    )
+            await asyncio.sleep(retry_delay_s * (attempt + 1))
 
 
 async def _wire_core_services(

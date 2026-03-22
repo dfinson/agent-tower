@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, BookOpen, TerminalSquare } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -17,7 +17,6 @@ import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { JobDetailSkeleton } from "./JobDetailSkeleton";
-import { useIsMobile } from "../hooks/useIsMobile";
 import { Tooltip } from "./ui/tooltip";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 
@@ -44,7 +43,6 @@ export function JobDetailScreen() {
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
   const [hasArtifacts, setHasArtifacts] = useState(false);
-  const isMobile = useIsMobile();
 
   // Measure available height for the Live tab using ResizeObserver
   const liveContainerRef = useRef<HTMLDivElement>(null);
@@ -560,7 +558,7 @@ export function JobDetailScreen() {
       {tab === "live" && (
         <div ref={liveContainerRef} className="flex flex-col" style={liveHeight ? { height: liveHeight } : undefined}>
           <div className="flex-1 min-h-0 md:flex-none md:min-h-[60vh]">
-            <TranscriptPanel jobId={jobId} interactive jobState={job.state} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />
+            <TranscriptPanel jobId={jobId} interactive jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />
           </div>
           <div className="overflow-y-auto max-h-[35vh] space-y-4 mt-4 shrink-0 md:max-h-none md:overflow-visible md:pb-8">
             <PlanPanel jobId={jobId} />

@@ -110,7 +110,10 @@ class DiffService:
                 effective_base,
                 cwd=worktree_path,
             )
-        except Exception:
+        except Exception as exc:
+            if "working directory does not exist" in str(exc):
+                log.info("diff_skipped_missing_worktree", worktree=worktree_path, base_ref=base_ref)
+                return []
             log.warning("diff_git_failed", worktree=worktree_path, base_ref=base_ref, exc_info=True)
             return []
         if not raw.strip():

@@ -49,6 +49,7 @@ class GitService:
     async def _run_git(self, *args: str, cwd: str | Path) -> str:
         """Run a git command and return stdout. Raises GitError on failure."""
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        cwd_path = Path(cwd)
         try:
             proc = await asyncio.create_subprocess_exec(
                 "git",
@@ -58,8 +59,15 @@ class GitService:
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
             )
-        except (FileNotFoundError, OSError) as exc:
+        except FileNotFoundError as exc:
+            missing_cwd = exc.filename == str(cwd_path)
+            if not missing_cwd and exc.filename is None and not cwd_path.exists():
+                missing_cwd = True
+            if missing_cwd:
+                raise GitError(f"git working directory does not exist: {cwd_path}") from exc
             raise GitError("git executable not found. Ensure Git is installed and available on PATH.") from exc
+        except OSError as exc:
+            raise GitError(f"git failed to start: {exc}") from exc
         stdout_bytes, stderr_bytes = await proc.communicate()
         stdout = stdout_bytes.decode().strip()
         stderr = stderr_bytes.decode().strip()
