@@ -34,3 +34,9 @@
   ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
   a { text-decoration: none; color: inherit; }
 }
+
+/* Monaco editor diff decorations for WorkspaceBrowser */
+.diff-added-line {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  border-left: 2px solid rgba(16, 185, 129, 0.6) !important;
+}
