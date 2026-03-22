@@ -510,8 +510,10 @@ class TerminalService:
         if sys.platform != "win32" and self._loop:
             with contextlib.suppress(Exception):
                 self._loop.remove_reader(session.master_fd)
-            with contextlib.suppress(OSError):
-                os.close(session.master_fd)
+            if session.master_fd >= 0:
+                with contextlib.suppress(OSError):
+                    os.close(session.master_fd)
+                session.master_fd = -1
 
     async def _cleanup_session(self, session: PtySession) -> None:
         """Kill the process and release all resources for a session."""
@@ -534,8 +536,10 @@ class TerminalService:
                 await asyncio.to_thread(session.process.wait)
             except (OSError, ProcessLookupError):
                 pass
-            with contextlib.suppress(OSError):
-                os.close(session.master_fd)
+            if session.master_fd >= 0:
+                with contextlib.suppress(OSError):
+                    os.close(session.master_fd)
+                session.master_fd = -1
 
         msg = json.dumps({"type": "exit", "code": -1})
         for ws in list(session.clients):
