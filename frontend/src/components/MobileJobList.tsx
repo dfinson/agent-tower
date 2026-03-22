@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
-import { PlayCircle, CheckCircle2 } from "lucide-react";
+import { PlayCircle, CheckCircle2, Search } from "lucide-react";
 import { useStore, selectJobs, selectApprovals } from "../store";
 import type { JobSummary } from "../store";
 import { JobCard } from "./JobCard";
 import { cn } from "../lib/utils";
 import { KANBAN_COLUMNS } from "../constants/kanban";
 import type { KanbanColumn } from "../constants/kanban";
+import { Input } from "./ui/input";
 
 const TABS = [
   KANBAN_COLUMNS.IN_PROGRESS,
@@ -37,14 +38,36 @@ function filterForTab(jobs: Record<string, JobSummary>, tab: KanbanColumn): JobS
 
 export function MobileJobList() {
   const [tab, setTab] = useState<KanbanColumn>(KANBAN_COLUMNS.IN_PROGRESS);
+  const [query, setQuery] = useState("");
   const jobs = useStore(selectJobs);
   const approvals = useStore(selectApprovals);
   const pendingCount = Object.values(approvals).filter((a) => !a.resolvedAt).length;
 
-  const filtered = useMemo(() => filterForTab(jobs, tab), [jobs, tab]);
+  const filtered = useMemo(() => {
+    const tabJobs = filterForTab(jobs, tab);
+    if (!query.trim()) return tabJobs;
+    const q = query.trim().toLowerCase();
+    return tabJobs.filter(
+      (j) =>
+        (j.title ?? "").toLowerCase().includes(q) ||
+        j.id.toLowerCase().includes(q) ||
+        j.repo.toLowerCase().includes(q) ||
+        (j.branch ?? "").toLowerCase().includes(q) ||
+        j.prompt.toLowerCase().includes(q),
+    );
+  }, [jobs, tab, query]);
 
   return (
     <div className="sm:hidden">
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Filter active jobs…"
+          className="pl-8 h-8 text-sm"
+        />
+      </div>
       <div className="flex rounded-lg bg-muted p-1 mb-4 gap-0.5">
         {TABS.map((t) => {
           const label =
