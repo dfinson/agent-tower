@@ -25,12 +25,14 @@ vi.mock("./components/TerminalDrawer", () => ({
   TerminalDrawer: () => <div data-testid="terminal-drawer" />,
 }));
 
-function renderApp(route = "/") {
-  return render(
+async function renderApp(route = "/") {
+  const result = render(
     <MemoryRouter initialEntries={[route]}>
       <App />
     </MemoryRouter>,
   );
+  await screen.findByTestId("terminal-drawer");
+  return result;
 }
 
 beforeEach(() => {
@@ -42,58 +44,58 @@ beforeEach(() => {
 });
 
 describe("App", () => {
-  it("renders header with CodePlane branding", () => {
-    renderApp();
+  it("renders header with CodePlane branding", async () => {
+    await renderApp();
     expect(screen.getByText("CodePlane")).toBeInTheDocument();
   });
 
-  it("renders navigation links for settings and history", () => {
-    renderApp();
+  it("renders navigation links for settings and history", async () => {
+    await renderApp();
     expect(screen.getByTitle("Job History")).toBeInTheDocument();
     // Settings link is icon-only; find by href
     const settingsLink = document.querySelector('a[href="/settings"]');
     expect(settingsLink).toBeInTheDocument();
   });
 
-  it("shows connection status from store", () => {
+  it("shows connection status from store", async () => {
     useStore.setState({ connectionStatus: "connected" });
-    renderApp();
+    await renderApp();
     expect(screen.getByText("Connected")).toBeInTheDocument();
   });
 
-  it("shows reconnecting status", () => {
+  it("shows reconnecting status", async () => {
     useStore.setState({ connectionStatus: "reconnecting" });
-    renderApp();
+    await renderApp();
     expect(screen.getByText("Reconnecting\u2026")).toBeInTheDocument();
   });
 
-  it("routes / to DashboardScreen", () => {
-    renderApp("/");
+  it("routes / to DashboardScreen", async () => {
+    await renderApp("/");
     expect(screen.getByTestId("dashboard")).toBeInTheDocument();
   });
 
   it("routes /jobs/new to JobCreationScreen", async () => {
-    renderApp("/jobs/new");
+    await renderApp("/jobs/new");
     await waitFor(() => expect(screen.getByTestId("job-creation")).toBeInTheDocument());
   });
 
   it("routes /jobs/:jobId to JobDetailScreen", async () => {
-    renderApp("/jobs/job-42");
+    await renderApp("/jobs/job-42");
     await waitFor(() => expect(screen.getByTestId("job-detail")).toBeInTheDocument());
   });
 
   it("routes /settings to SettingsScreen", async () => {
-    renderApp("/settings");
+    await renderApp("/settings");
     await waitFor(() => expect(screen.getByTestId("settings")).toBeInTheDocument());
   });
 
   it("routes /history to HistoryScreen", async () => {
-    renderApp("/history");
+    await renderApp("/history");
     await waitFor(() => expect(screen.getByTestId("history")).toBeInTheDocument());
   });
 
-  it("toggles terminal drawer on button click", () => {
-    renderApp();
+  it("toggles terminal drawer on button click", async () => {
+    await renderApp();
     const btn = screen.getByTitle(/terminal/i);
     fireEvent.click(btn);
     expect(useStore.getState().terminalDrawerOpen).toBe(true);
@@ -101,23 +103,23 @@ describe("App", () => {
     expect(useStore.getState().terminalDrawerOpen).toBe(false);
   });
 
-  it("toggles terminal drawer on Ctrl+` shortcut", () => {
-    renderApp();
+  it("toggles terminal drawer on Ctrl+` shortcut", async () => {
+    await renderApp();
     expect(useStore.getState().terminalDrawerOpen).toBe(false);
     fireEvent.keyDown(window, { key: "`", ctrlKey: true });
     expect(useStore.getState().terminalDrawerOpen).toBe(true);
   });
 
-  it("renders terminal drawer component", () => {
-    renderApp();
+  it("renders terminal drawer component", async () => {
+    await renderApp();
     expect(screen.getByTestId("terminal-drawer")).toBeInTheDocument();
   });
 
-  it("shows session count in terminal button title", () => {
+  it("shows session count in terminal button title", async () => {
     useStore.setState({
       terminalSessions: { s1: {} as never, s2: {} as never },
     });
-    renderApp();
+    await renderApp();
     const btn = screen.getByTitle(/terminal.*2 sessions/i);
     expect(btn).toBeInTheDocument();
   });
