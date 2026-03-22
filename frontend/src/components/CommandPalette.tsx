@@ -115,7 +115,7 @@ export function CommandPalette() {
         description: `${job.state} · ${job.repo}`,
         icon: <ArrowRight className="h-4 w-4" />,
         action: () => navigate(`/jobs/${job.id}`),
-        keywords: [job.id, job.repo, job.state],
+        keywords: [job.id, job.repo, job.state, job.branch ?? "", job.prompt],
       })),
     [jobs, navigate],
   );
@@ -178,7 +178,7 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search jobs, navigate…"
+            placeholder="Search all jobs, navigate…"
             className="flex-1 bg-transparent border-0 outline-none px-3 py-3 text-sm placeholder:text-muted-foreground"
             autoFocus
           />

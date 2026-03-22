@@ -73,7 +73,7 @@ export function KanbanBoard() {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search jobs…"
+            placeholder="Filter active jobs…"
             className="pl-8 h-8 text-sm"
           />
         </div>
