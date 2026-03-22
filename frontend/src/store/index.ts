@@ -249,8 +249,6 @@ interface AppState {
   setTerminalDrawerHeight: (height: number) => void;
   setActiveTerminalTab: (id: string) => void;
   addTerminalSession: (session: TerminalSession) => void;
-  /** Register a job-scoped terminal without opening the global drawer. */
-  addJobTerminalSession: (session: TerminalSession) => void;
   removeTerminalSession: (id: string) => void;
   createTerminalSession: (opts?: { cwd?: string; jobId?: string; label?: string }) => void;
 }
@@ -739,11 +737,6 @@ export const useStore = create<AppState>((set, get) => ({
       terminalSessions: { ...s.terminalSessions, [session.id]: session },
       activeTerminalTab: session.id,
       terminalDrawerOpen: true,
-    })),
-
-  addJobTerminalSession: (session) =>
-    set((s) => ({
-      terminalSessions: { ...s.terminalSessions, [session.id]: session },
     })),
 
   removeTerminalSession: (id) =>
