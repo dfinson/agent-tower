@@ -497,8 +497,14 @@ class TestFalsePositiveConflicts:
             prompt="test",
         )
 
-        # Hook failure is treated as a conflict (conservative approach)
-        assert str(result.status) == "conflict", f"Expected conflict, got {result.status!r}"
+        assert str(result.status) == "error", f"Expected error, got {result.status!r}"
+        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        assert conflict_events == [], "No merge_conflict event should be published for non-conflict merge failures"
+
+        async with session_factory() as session:
+            job = await JobRepository(session).get("job-1")
+        assert job is not None
+        assert job.merge_status == "not_merged"
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +513,52 @@ class TestFalsePositiveConflicts:
 
 
 class TestOperatorMerge:
+    async def test_operator_merge_hook_failure_returns_error_not_conflict(
+        self,
+        tmp_path: Path,
+        session_factory: async_sessionmaker[AsyncSession],
+        event_bus: EventBus,
+    ) -> None:
+        """resolve_job(action='merge') hook failures must not persist merge_status=conflict."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_repo(repo)
+        _branch_with_change(repo, "cpl/job-1", "feature.py", "x = 1\n")
+
+        (repo / "other.py").write_text("# other\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "diverge main")
+        _add_failing_pre_merge_commit_hook(repo)
+
+        service = _make_service(event_bus, session_factory)
+        await _insert_job(session_factory, _make_job(str(repo)))
+
+        published: list[DomainEvent] = []
+
+        async def _collect(e: DomainEvent) -> None:
+            published.append(e)
+
+        event_bus.subscribe(_collect)
+
+        result = await service.resolve_job(
+            job_id="job-1",
+            action="merge",
+            repo_path=str(repo),
+            worktree_path=None,
+            branch="cpl/job-1",
+            base_ref="main",
+            prompt="test",
+        )
+
+        assert result.status == "error"
+        conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
+        assert conflict_events == []
+
+        async with session_factory() as session:
+            job = await JobRepository(session).get("job-1")
+        assert job is not None
+        assert job.merge_status == "not_merged"
+
     async def test_operator_merge_conflict_persists_merge_status(
         self,
         tmp_path: Path,
