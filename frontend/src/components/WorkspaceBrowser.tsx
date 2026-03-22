@@ -147,23 +147,6 @@ function isMarkdown(path: string): boolean {
   return path.split(".").pop()?.toLowerCase() === "md";
 }
 
-/** Maps 1-based new-file line numbers to "addition" for lines that were added in the diff. */
-function buildLineTypeMap(hunks: DiffHunkModel[]): Set<number> {
-  const additions = new Set<number>();
-  for (const hunk of hunks) {
-    let newLine = hunk.newStart;
-    for (const line of hunk.lines) {
-      if (line.type === "addition") {
-        additions.add(newLine);
-        newLine++;
-      } else if (line.type === "context") {
-        newLine++;
-      }
-      // deletion lines don't appear in the new file — don't advance newLine
-    }
-  }
-  return additions;
-}
 
 interface Props {
   jobId: string;
@@ -377,6 +360,15 @@ export default function WorkspaceBrowser({ jobId }: Props) {
                 theme="vs-dark"
                 onMount={handleEditorMount}
                 options={{
+                  readOnly: true,
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  fontSize: 13,
+                  lineNumbersMinChars: 3,
+                  glyphMargin: false,
+                  lineDecorationsWidth: 4,
+                  folding: true,
+                }}
               />
             )}
           </div>
