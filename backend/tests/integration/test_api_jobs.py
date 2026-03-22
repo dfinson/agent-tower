@@ -427,7 +427,10 @@ class TestJobControl:
         assert resp.status_code == 409
 
     async def test_resume_missing_instruction(
-        self, client: AsyncClient, seed_job: SeedJobFn, mock_runtime_service: AsyncMock
+        self,
+        client: AsyncClient,
+        seed_job: SeedJobFn,
+        mock_runtime_service: AsyncMock,
     ) -> None:
         jid = await seed_job(state="failed", job_id="resume-bad")
         fake_job = MagicMock()
