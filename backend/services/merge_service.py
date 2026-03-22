@@ -224,12 +224,17 @@ class MergeService:
         repo_path: str,
         branch: str,
         base_ref: str,
-    ) -> tuple[bool, list[str]]:
-        """Checkout base_ref, attempt merge, and handle conflicts.
+    ) -> tuple[bool | None, list[str], str | None]:
+        """Checkout base_ref, attempt merge, and classify the outcome.
 
-        Returns (merge_ok, conflict_files).
+        Returns ``(merge_ok, conflict_files, error)`` where:
+
+        * ``merge_ok is True`` means the merge succeeded.
+        * ``merge_ok is False`` means git reported a real merge conflict and
+          ``conflict_files`` lists the unmerged files.
+        * ``merge_ok is None`` means git merge failed for a non-conflict
+          reason (hooks, identity, locks, etc.) and ``error`` describes it.
         """
-        merge_ok = False
         try:
             await self._git.checkout(base_ref, cwd=repo_path)
             await self._git.merge(
@@ -237,14 +242,11 @@ class MergeService:
                 cwd=repo_path,
                 message=f"Merge {branch} (CodePlane {job_id})",
             )
-            merge_ok = True
-        except GitError:
-            log.info("merge_conflict_detected", job_id=job_id, branch=branch)
+            return True, [], None
+        except GitError as exc:
+            error = str(exc)
 
-        if merge_ok:
-            return True, []
-
-        # Merge failed — abort, collect conflict files
+        # Merge failed — abort, then classify whether it was a real conflict.
         await self._git.merge_abort(cwd=repo_path)
         conflict_files = await self._get_conflict_file_list(repo_path, branch, base_ref)
 
@@ -253,7 +255,12 @@ class MergeService:
         except GitError:
             log.warning("checkout_base_ref_failed", job_id=job_id, exc_info=True)
 
-        return False, conflict_files or []
+        if conflict_files is not None:
+            log.info("merge_conflict_detected", job_id=job_id, branch=branch, conflict_files=conflict_files)
+            return False, conflict_files, None
+
+        log.warning("merge_failed_without_conflicts", job_id=job_id, branch=branch, error=error)
+        return None, [], error
 
     async def _merge_in_worktree(
         self,
@@ -290,7 +297,7 @@ class MergeService:
         prompt: str,
     ) -> MergeResult:
         """Checkout + merge in the main worktree (caller handles stash/restore)."""
-        merge_ok, conflict_files = await self._checkout_and_merge(
+        merge_ok, conflict_files, error = await self._checkout_and_merge(
             job_id,
             repo_path,
             branch,
@@ -303,6 +310,10 @@ class MergeService:
             await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
             await self._update_merge_status(job_id, Resolution.merged)
             return MergeResult(status=MergeStatus.merged, strategy="merge")
+
+        if merge_ok is None:
+            await self._update_merge_status(job_id, "not_merged")
+            return MergeResult(status=MergeStatus.error, error=error or "Merge failed without conflict markers")
 
         await self._publish_merge_conflict(
             job_id,
@@ -599,7 +610,7 @@ class MergeService:
     ) -> MergeResult:
         """Operator merge using checkout (lock must be held)."""
         async with self._preserved_worktree(repo_path, job_id, "resolve"):
-            merge_ok, conflict_files = await self._checkout_and_merge(
+            merge_ok, conflict_files, error = await self._checkout_and_merge(
                 job_id,
                 repo_path,
                 branch,
@@ -612,6 +623,10 @@ class MergeService:
                 await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
                 await self._update_merge_status(job_id, Resolution.merged)
                 return MergeResult(status=MergeStatus.merged, strategy="merge")
+
+            if merge_ok is None:
+                await self._update_merge_status(job_id, "not_merged")
+                return MergeResult(status=MergeStatus.error, error=error or "Merge failed without conflict markers")
 
             await self._publish_merge_conflict(
                 job_id,

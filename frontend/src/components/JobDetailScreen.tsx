@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, GitBranch, BookOpen, TerminalSquare } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, BookOpen, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -128,12 +128,22 @@ export function JobDetailScreen() {
 
   useEffect(() => {
     if (!jobId) { setLoading(false); return; }
+    let cancelled = false;
     const existing = useStore.getState().jobs[jobId];
-    if (existing) { setLoading(false); return; }
+    if (existing) setLoading(false);
     fetchJob(jobId)
-      .then((f) => useStore.setState((s) => ({ jobs: { ...s.jobs, [f.id]: enrichJob(f as JobSummary) } })))
+      .then((f) => {
+        if (cancelled) return;
+        useStore.setState((s) => ({ jobs: { ...s.jobs, [f.id]: enrichJob(f as JobSummary) } }));
+      })
       .catch((err) => console.error("Failed to fetch job", err))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled && !existing) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [jobId]);
 
   // Load historical transcript from the backend event store.
