@@ -58,7 +58,7 @@ describe("App", () => {
   it("shows connection status from store", () => {
     useStore.setState({ connectionStatus: "connected" });
     renderApp();
-    expect(screen.getByText("connected")).toBeInTheDocument();
+    expect(screen.getByText("Connected")).toBeInTheDocument();
   });
 
   it("shows reconnecting status", () => {

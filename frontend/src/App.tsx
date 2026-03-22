@@ -68,7 +68,8 @@ function ConnectionStatusIndicator() {
   const label =
     status === "connecting" ? "Connecting\u2026"
     : status === "reconnecting" ? "Reconnecting\u2026"
-    : status;
+    : status === "connected" ? "Connected"
+    : "Disconnected";
   return (
     <DotBadge color={color} aria-live="polite" aria-label={`Connection status: ${label}`}>
       {label}
