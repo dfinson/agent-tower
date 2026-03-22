@@ -150,6 +150,16 @@ class TerminalService:
 
         env = {**os.environ, "TERM": "xterm-256color", "CODEPLANE_TERMINAL": "1"}
 
+        # Set a compact prompt that shows only the immediate directory name.
+        # We use the unicode ellipsis (…) so the prompt stays short on mobile.
+        shell_name = os.path.basename(shell)
+        if shell_name == "zsh":
+            # %1~ = last 1 path component (home shown as ~), %# = % or # for root
+            env["PS1"] = "…%1~ %# "
+        elif shell_name in ("bash", "sh", "dash"):
+            # \W = basename of $PWD (home shown as ~), \$ = $ or # for root
+            env["PS1"] = r"…\W \$ "
+
         try:
             proc = subprocess.Popen(  # noqa: S603
                 [shell],

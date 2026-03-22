@@ -43,9 +43,9 @@ export function TerminalDrawer() {
 
   const [maximized, setMaximized] = useState(false);
 
-  const sessionList = Object.values(terminalSessions).filter((s) => !s.jobId);
+  const sessionList = Object.values(terminalSessions);
 
-  // Auto-create a session when the drawer opens with no global sessions
+  // Auto-create a session when the drawer opens with no sessions at all
   useEffect(() => {
     if (terminalDrawerOpen && sessionList.length === 0) {
       createTerminalSession();

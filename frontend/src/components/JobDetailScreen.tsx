@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
-import { fetchJob, cancelJob, rerunJob, fetchJobTranscript, fetchJobTimeline, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, createTerminalSession } from "../api/client";
+import { fetchJob, cancelJob, rerunJob, fetchJobTranscript, fetchJobTimeline, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts } from "../api/client";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
 import { TranscriptPanel } from "./TranscriptPanel";
@@ -24,10 +24,6 @@ import { ConfirmDialog } from "./ui/confirm-dialog";
 const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazy(() => import("./DiffViewer"));
 const ArtifactViewer = lazy(() => import("./ArtifactViewer"));
-const TerminalPanel = lazy(() =>
-  import("./TerminalPanel").then((module) => ({ default: module.TerminalPanel })),
-);
-import { useStore as useTerminalStore } from "../store";
 
 const SKELETON_DELAY_MS = 500;
 
@@ -86,35 +82,14 @@ export function JobDetailScreen() {
     if (!hasArtifacts && tab === "artifacts") setTab("live");
   }, [hasArtifacts, tab]);
 
-  // Job-scoped terminal session
-  const [jobTerminalSessionId, setJobTerminalSessionId] = useState<string | null>(null);
-  const addJobTerminalSession = useTerminalStore((s) => s.addJobTerminalSession);
-  const terminalSessions = useTerminalStore((s) => s.terminalSessions);
+  // Open a new terminal session in the drawer, scoped to this job's worktree
+  const createTerminalSession = useStore((s) => s.createTerminalSession);
 
-  const handleOpenJobTerminal = useCallback(async () => {
+  const handleOpenJobTerminal = useCallback(() => {
     if (!job?.worktreePath || !jobId) return;
-
-    // Check if there's already a terminal session for this job
-    const existing = Object.values(terminalSessions).find((s) => s.jobId === jobId);
-    if (existing) {
-      setJobTerminalSessionId(existing.id);
-      return;
-    }
-
-    try {
-      const data = await createTerminalSession(job.worktreePath, jobId);
-      const session = {
-        id: data.id,
-        label: job.branch || jobId,
-        cwd: job.worktreePath,
-        jobId,
-      };
-      addJobTerminalSession(session);
-      setJobTerminalSessionId(data.id);
-    } catch (e) {
-      console.error("[terminal] Failed to create job terminal:", e);
-    }
-  }, [job?.worktreePath, job?.branch, jobId, terminalSessions, addJobTerminalSession]);
+    const label = job.branch || job.worktreePath.split("/").pop() || jobId;
+    createTerminalSession({ cwd: job.worktreePath, label, jobId });
+  }, [job?.worktreePath, job?.branch, jobId, createTerminalSession]);
 
   // Open a job-scoped SSE connection for full event streaming (no suppression
   // even when >20 active jobs). Closed automatically when navigating away.
@@ -552,8 +527,11 @@ export function JobDetailScreen() {
       )}
 
       <Tabs value={tab} onValueChange={(v) => {
+        if (v === "terminal") {
+          handleOpenJobTerminal();
+          return; // Open drawer, don't switch the in-page tab
+        }
         setTab(v);
-        if (v === "terminal" && !jobTerminalSessionId) handleOpenJobTerminal();
       }} className="mb-4">
         <div className="flex items-center gap-2">
           <TabsList className="overflow-x-auto">
@@ -607,21 +585,6 @@ export function JobDetailScreen() {
         <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
           <ArtifactViewer jobId={jobId} />
         </Suspense>
-      )}
-
-      {tab === "terminal" && hasWorktree && (
-        <div className="h-[32rem] rounded-lg overflow-hidden border border-border">
-          {jobTerminalSessionId ? (
-            <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-              <TerminalPanel sessionId={jobTerminalSessionId} />
-            </Suspense>
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              <Spinner />
-              <span className="ml-2">Starting terminal…</span>
-            </div>
-          )}
-        </div>
       )}
 
       <ConfirmDialog
