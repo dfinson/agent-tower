@@ -154,7 +154,7 @@ export function App() {
 
         <button
           onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
-          className="hidden sm:flex min-w-56 items-center justify-between gap-3 rounded-lg border border-border bg-background/70 px-4 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:text-foreground hover:bg-accent"
+          className="hidden sm:flex sm:w-72 md:w-96 items-center justify-between gap-3 rounded-lg border border-border bg-background/70 px-4 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:text-foreground hover:bg-accent"
         >
           <span className="flex items-center gap-2">
             <Search size={14} />
