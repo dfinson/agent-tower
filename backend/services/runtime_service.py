@@ -499,6 +499,7 @@ class RuntimeService:
         import time
 
         self._last_activity[job_id] = time.monotonic()
+        _job_wall_start = time.monotonic()  # captured here so adapter cleanup can't erase it
         heartbeat_task = asyncio.create_task(
             self._heartbeat_loop(job_id),
             name=f"heartbeat-{job_id}",
@@ -531,9 +532,8 @@ class RuntimeService:
                     branch_name = ""
                     sdk_name = ""
                     try:
-                        async with self._session_factory() as s2:
-                            svc = self._make_job_service(s2)
-                            job_for_tel = await svc.get_job(job_id)
+                        svc = self._make_job_service(session)
+                        job_for_tel = await svc.get_job(job_id)
                         if job_for_tel is not None:
                             repo_path = job_for_tel.repo or ""
                             branch_name = job_for_tel.branch or ""
@@ -749,9 +749,8 @@ class RuntimeService:
                     # Determine status from job state
                     status = "succeeded"
                     try:
-                        async with self._session_factory() as s2:
-                            svc = self._make_job_service(s2)
-                            job_final = await svc.get_job(job_id)
+                        svc = self._make_job_service(session)
+                        job_final = await svc.get_job(job_id)
                         if job_final is not None:
                             st = str(job_final.state)
                             if "fail" in st:
@@ -761,15 +760,8 @@ class RuntimeService:
                     except Exception:
                         pass
 
-                    # Best-effort duration from adapter start time
-                    duration = 0
-                    try:
-                        adapter = self._resolve_adapter(config.sdk)
-                        job_start = getattr(adapter, "_job_start_times", {}).get(job_id)
-                    except Exception:
-                        job_start = None
-                    if job_start is not None:
-                        duration = int((_time.monotonic() - job_start) * 1000)
+                    # Duration from wall-clock start captured at _run_job entry
+                    duration = int((_time.monotonic() - _job_wall_start) * 1000)
 
                     await TelemetrySummaryRepo(session).finalize(
                         job_id, status=status, duration_ms=duration,

@@ -488,6 +488,9 @@ class CopilotAdapter(AgentAdapterInterface):
 
         if post:
             tel.context_tokens_gauge.set(post, attrs)
+            self._schedule_db_write(self._db_write(
+                "set_context", job_id=job_id, current_tokens=post,
+            ))
 
     # --- Log emission ---
 

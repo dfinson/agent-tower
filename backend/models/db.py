@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase
 
 from backend.models.domain import PermissionMode
@@ -118,8 +118,8 @@ class JobTelemetrySummaryRow(Base):
     output_tokens = Column(Integer, nullable=False, default=0)
     cache_read_tokens = Column(Integer, nullable=False, default=0)
     cache_write_tokens = Column(Integer, nullable=False, default=0)
-    total_cost_usd = Column(Text, nullable=False, default="0.0")  # stored as text for precision
-    premium_requests = Column(Text, nullable=False, default="0.0")
+    total_cost_usd = Column(Float, nullable=False, default=0.0)
+    premium_requests = Column(Float, nullable=False, default=0.0)
     llm_call_count = Column(Integer, nullable=False, default=0)
     total_llm_duration_ms = Column(Integer, nullable=False, default=0)
     tool_call_count = Column(Integer, nullable=False, default=0)
