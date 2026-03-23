@@ -703,8 +703,18 @@ class RuntimeService:
                 merge_status=final_merge_status,
             )
         except asyncio.CancelledError:
-            log.info("job_canceled_by_task", job_id=job_id)
-            await self._handle_job_canceled(job_id, agent_session, worktree_path, base_ref)
+            if self._shutting_down:
+                # Server is shutting down — leave job state as-is so
+                # recover_on_startup picks it back up on next launch.
+                log.info("job_interrupted_by_shutdown", job_id=job_id)
+                await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+                try:
+                    await agent_session.abort()
+                except Exception:
+                    pass
+            else:
+                log.info("job_canceled_by_operator", job_id=job_id)
+                await self._handle_job_canceled(job_id, agent_session, worktree_path, base_ref)
         except Exception as exc:
             log.error("job_execution_failed", job_id=job_id, exc_info=True)
             # Finalize diff so changes are preserved even for crashed jobs
@@ -1573,12 +1583,6 @@ class RuntimeService:
                 raise JobNotFoundError(f"Job {job_id} does not exist.")
             if job.state not in TERMINAL_STATES:
                 raise StateConflictError(f"Job {job_id} is not in a terminal state (current: {job.state}).")
-            if job.archived_at is not None:
-                raise StateConflictError(f"Job {job_id} is archived; create a follow-up job instead.")
-            if job.resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
-                raise StateConflictError(
-                    f"Job {job_id} is already resolved as {job.resolution!r}; create a follow-up job instead."
-                )
 
             previous_state = job.state
             previous_session_count = job.session_count
@@ -1800,35 +1804,18 @@ class RuntimeService:
             await self.start_or_enqueue(job)
 
     async def shutdown(self) -> None:
-        """Gracefully shut down all running jobs."""
+        """Gracefully shut down all running jobs.
+
+        Jobs are left in their current state (running / waiting_for_approval)
+        so that ``recover_on_startup`` can pick them up on the next launch
+        instead of marking them as canceled (which confused users).
+        """
         self._shutting_down = True
         for job_id in list(self._tasks):
-            # Cancel with server_shutdown reason
             task = self._tasks.get(job_id)
             if task is not None:
                 task.cancel()
-                try:
-                    async with self._session_factory() as session:
-                        svc = self._make_job_service(session)
-                        current = await svc.get_job(job_id)
-                        if current and current.state not in (
-                            JobState.canceled,
-                            JobState.succeeded,
-                            JobState.failed,
-                        ):
-                            await svc.transition_state(job_id, JobState.canceled)
-                            await session.commit()
-                            await self._event_bus.publish(
-                                DomainEvent(
-                                    event_id=DomainEvent.make_event_id(),
-                                    job_id=job_id,
-                                    timestamp=datetime.now(UTC),
-                                    kind=DomainEventKind.job_canceled,
-                                    payload={"reason": "server_shutdown"},
-                                )
-                            )
-                except Exception:
-                    log.warning("shutdown_cancel_failed", job_id=job_id, exc_info=True)
+                log.info("shutdown_task_cancelled", job_id=job_id)
         # Wait briefly for tasks to complete
         tasks = list(self._tasks.values())
         if tasks:
