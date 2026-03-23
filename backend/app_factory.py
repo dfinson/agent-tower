@@ -84,6 +84,7 @@ def _configure_middleware(
         from backend.services.auth import (
             auth_middleware,
             authenticate_login_request,
+            authenticate_logout_request,
             is_request_authenticated,
             set_password,
         )
@@ -93,6 +94,7 @@ def _configure_middleware(
         from starlette.routing import Route
 
         app.routes.insert(0, Route("/api/auth/login", authenticate_login_request, methods=["POST"]))
+        app.routes.insert(1, Route("/api/auth/logout", authenticate_logout_request, methods=["POST"]))
 
         @app.middleware("http")
         async def _auth_gate(request: Request, call_next: Callable[..., Awaitable[Response]]) -> Response:
