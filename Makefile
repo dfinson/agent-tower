@@ -30,7 +30,8 @@ down: ## Gracefully pause sessions and stop the server
 	uv run cpl down
 
 restart: ## Restart the server (pause sessions, stop, then start)
-	uv run cpl restart
+	cd frontend && npm run build
+	uv run cpl restart --remote
 
 ci: lint format typecheck test ## Run full CI pipeline
 
