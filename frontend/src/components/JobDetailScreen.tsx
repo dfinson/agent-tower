@@ -294,9 +294,10 @@ export function JobDetailScreen() {
   const canResume = job.state === "failed";
   const isRunning = job.state === "running";
   const hasMergeConflict =
-    job.resolution === "conflict" ||
+    !["merged", "pr_created", "discarded"].includes(job.resolution ?? "") &&
+    (job.resolution === "conflict" ||
     job.mergeStatus === "conflict" ||
-    ((job.conflictFiles?.length ?? 0) > 0);
+    ((job.conflictFiles?.length ?? 0) > 0));
   const unresolvedResolutionError =
     !hasMergeConflict && (job.resolution === "unresolved" || !job.resolution)
       ? (job.resolutionError ?? null)
@@ -529,11 +530,13 @@ export function JobDetailScreen() {
                     {isConflict ? "Merge conflict — user input required" : isSignOff ? "Sign off required" : "Job succeeded"}
                   </p>
                   <p className={`text-sm mt-0.5 ${isConflict ? "text-amber-400" : isSignOff ? "text-blue-400" : "text-green-400"}`}>
-                    {job.resolution === "merged" && "Changes merged into base branch."}
-                    {job.resolution === "pr_created" && "Pull request created."}
-                    {job.resolution === "discarded" && (hasChanges ? "Changes discarded." : "Completed — no changes to merge.")}
-                    {isConflict && "Merge conflict detected. Resolve with the agent, create a PR to fix manually, or discard."}
-                    {isSignOff && (
+                    {isConflict
+                      ? "Merge conflict detected. Resolve with the agent, create a PR to fix manually, or discard."
+                      : job.resolution === "merged" ? "Changes merged into base branch."
+                      : job.resolution === "pr_created" ? "Pull request created."
+                      : job.resolution === "discarded" ? (hasChanges ? "Changes discarded." : "Completed — no changes to merge.")
+                      : null}
+                    {!isConflict && isSignOff && (
                       hasChanges
                         ? "Choose how to handle the changes: auto merge onto the main worktree, create a PR, or discard."
                         : "Completed with no changes to merge."
