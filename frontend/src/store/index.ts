@@ -587,7 +587,7 @@ export const useStore = create<AppState>((set, get) => ({
                 ...state.jobs,
                 [jobId]: {
                   ...existing,
-                  resolution: "merged",
+                  mergeStatus: "merged",
                   updatedAt: (payload.timestamp as string) ?? existing.updatedAt,
                 },
               },
@@ -607,7 +607,7 @@ export const useStore = create<AppState>((set, get) => ({
                 ...state.jobs,
                 [jobId]: {
                   ...existing,
-                  resolution: "conflict",
+                  mergeStatus: "conflict",
                   conflictFiles,
                   prUrl: prUrl ?? existing.prUrl,
                   updatedAt: (payload.timestamp as string) ?? existing.updatedAt,

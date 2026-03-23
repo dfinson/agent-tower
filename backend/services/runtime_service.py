@@ -603,11 +603,27 @@ class RuntimeService:
             resolution_event = None
 
             # Strategy completed normally → succeeded
+            #
+            # Commit the state transition BEFORE running merge resolution.
+            # Merge operations open their own sessions to persist merge_status
+            # and publish events — if the outer session is still uncommitted
+            # SQLite will deadlock on the jobs table write lock.
             async with self._session_factory() as session:
                 svc = self._make_job_service(session)
                 await svc.transition_state(job_id, JobState.succeeded)
+                if not post_conflict_merge_requested or self._merge_service is None:
+                    from backend.persistence.job_repo import JobRepository
 
-                if post_conflict_merge_requested and self._merge_service is not None:
+                    job_repo = JobRepository(session)
+                    await job_repo.update_resolution(job_id, final_resolution, pr_url=None)
+                    if post_conflict_merge_requested and self._merge_service is None:
+                        log.warning("post_conflict_merge_unavailable", job_id=job_id)
+                await session.commit()
+
+            # Merge resolution runs in its own session(s) — no lock contention.
+            if post_conflict_merge_requested and self._merge_service is not None:
+                async with self._session_factory() as session:
+                    svc = self._make_job_service(session)
                     current_job = await svc.get_job(job_id)
                     if current_job is None:
                         raise ValueError(f"Job {job_id} not found before post-conflict merge")
@@ -624,15 +640,7 @@ class RuntimeService:
                         resolved,
                         pr_url=final_pr_url,
                     )
-                else:
-                    from backend.persistence.job_repo import JobRepository
-
-                    job_repo = JobRepository(session)
-                    await job_repo.update_resolution(job_id, final_resolution, pr_url=None)
-                    if post_conflict_merge_requested and self._merge_service is None:
-                        log.warning("post_conflict_merge_unavailable", job_id=job_id)
-
-                await session.commit()
+                    await session.commit()
 
             if resolution_event is not None:
                 await self._event_bus.publish(resolution_event)
