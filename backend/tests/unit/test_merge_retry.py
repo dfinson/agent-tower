@@ -9,15 +9,12 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import event as sa_event
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobRow
-from backend.models.domain import Job, JobState
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
 
@@ -54,9 +51,7 @@ class TestMergeStatusRetry:
     """_update_merge_status retries on SQLite lock errors."""
 
     @pytest.mark.asyncio
-    async def test_direct_update_succeeds(
-        self, session_factory: async_sessionmaker[AsyncSession]
-    ) -> None:
+    async def test_direct_update_succeeds(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         """Normal merge status update works without retry."""
         async with session_factory() as session:
             repo = JobRepository(session)
@@ -70,9 +65,7 @@ class TestMergeStatusRetry:
         assert job.merge_status == "merged"
 
     @pytest.mark.asyncio
-    async def test_concurrent_merge_status_updates(
-        self, session_factory: async_sessionmaker[AsyncSession]
-    ) -> None:
+    async def test_concurrent_merge_status_updates(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         """Multiple concurrent merge_status updates are serialized by SQLite."""
         statuses = ["merged", "conflict", "not_merged", "merged", "conflict"]
 
@@ -92,9 +85,7 @@ class TestMergeStatusRetry:
         assert job.merge_status in statuses
 
     @pytest.mark.asyncio
-    async def test_merge_status_with_pr_url(
-        self, session_factory: async_sessionmaker[AsyncSession]
-    ) -> None:
+    async def test_merge_status_with_pr_url(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         """Merge status update with PR URL persists both fields."""
         async with session_factory() as session:
             repo = JobRepository(session)

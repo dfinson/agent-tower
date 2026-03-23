@@ -360,10 +360,8 @@ def _api_post(base_url: str, path: str) -> int:
         return 0
 
 
-def _pause_active_sessions(base_url: str, pause_wait: int) -> None:
-    """Pause all running agent sessions via the API, then wait for them to settle."""
-    import time
-
+def _pause_active_sessions(base_url: str) -> None:
+    """Fire pause signals to all running agent sessions via the API."""
     # Collect running jobs (paginated)
     running: list[dict[str, Any]] = []
     cursor: str | None = None
@@ -389,9 +387,6 @@ def _pause_active_sessions(base_url: str, pause_wait: int) -> None:
         mark = "✓" if ok else "✗"
         title = job.get("title") or "(untitled)"
         click.echo(f"    {mark}  {job['id'][:8]}… {title}")
-
-    click.echo(f"  Waiting {pause_wait}s for agents to reach a stopping point…")
-    time.sleep(pause_wait)
 
 
 def _stop_server(port: int, graceful_timeout: int = 15) -> bool:
@@ -431,15 +426,8 @@ def _stop_server(port: int, graceful_timeout: int = 15) -> bool:
 @cli.command()
 @click.option("--host", default=None, help="Server host (default: from config or 127.0.0.1)")
 @click.option("--port", default=None, type=int, help="Server port (default: from config or 8080)")
-@click.option(
-    "--pause-wait",
-    default=5,
-    type=int,
-    show_default=True,
-    help="Seconds to wait after pausing sessions before stopping the server",
-)
 @click.option("--force", is_flag=True, help="Skip session pausing; stop immediately")
-def down(host: str | None, port: int | None, pause_wait: int, force: bool) -> None:
+def down(host: str | None, port: int | None, force: bool) -> None:
     """Gracefully pause all active sessions and shut down the server."""
     config = load_config()
     host = host or config.server.host
@@ -454,7 +442,7 @@ def down(host: str | None, port: int | None, pause_wait: int, force: bool) -> No
     # Pause sessions unless --force
     if not force:
         click.echo("Pausing active sessions…")
-        _pause_active_sessions(base_url, pause_wait)
+        _pause_active_sessions(base_url)
     else:
         click.echo("Skipping session pause (--force).")
 
@@ -484,13 +472,6 @@ def down(host: str | None, port: int | None, pause_wait: int, force: bool) -> No
 @click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --remote)")
 @click.option("--tunnel-name", default=None, help="Dev Tunnel name (default: random, reused across restarts)")
 @click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
-@click.option(
-    "--pause-wait",
-    default=5,
-    type=int,
-    show_default=True,
-    help="Seconds to wait after pausing sessions before stopping",
-)
 @click.option("--force", is_flag=True, help="Skip session pausing on shutdown")
 def restart(
     host: str | None,
@@ -502,7 +483,6 @@ def restart(
     no_password: bool,
     tunnel_name: str | None,
     skip_preflight: bool,
-    pause_wait: int,
     force: bool,
 ) -> None:
     """Stop a running instance (if any) then start the server.
@@ -521,7 +501,7 @@ def restart(
     if _find_pids_on_port(port):
         click.echo("Stopping running instance…")
         if not force:
-            _pause_active_sessions(base_url, pause_wait)
+            _pause_active_sessions(base_url)
         if not _stop_server(port):
             click.secho("Failed to stop existing instance.", fg="red")
             raise SystemExit(1)

@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.services.tunnel_service import (
+    _CODEPLANE_TUNNEL_PREFIX,
     RemoteProvider,
     TunnelHandle,
     TunnelStartError,
     TunnelWatchdog,
-    _CODEPLANE_TUNNEL_PREFIX,
     _find_existing_codeplane_tunnel,
     _lookup_devtunnel,
     _start_output_drain,
@@ -30,7 +30,7 @@ def _as_popen(proc: _FakeProc) -> subprocess.Popen[str]:
 class _FakeProc:
     def __init__(self, *, poll_result: int | None = None, output: str = "") -> None:
         self._poll_result = poll_result
-        self.stdout = _FakeStdout(output)
+        self.stdout: _FakeStdout | None = _FakeStdout(output)
         self.terminated = False
         self.killed = False
 
@@ -430,8 +430,6 @@ class TestRestartBackoff:
         )
         watchdog._BACKOFF_BASE = 2
         wait_timeouts: list[float] = []
-
-        original_wait = watchdog._stop_event.wait
 
         def tracking_wait(timeout: float | None = None) -> bool:
             if timeout is not None:

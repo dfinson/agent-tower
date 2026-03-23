@@ -127,7 +127,10 @@ class TestUpCommand:
             result = runner.invoke(cli, ["up", "--host", "0.0.0.0", "--skip-preflight"])
             if result.exit_code == 0:
                 # The banner should contain "Password:" (auto-generated)
-                assert "password" in result.output.lower() or "auto-enabled" in (result.output + (result.stderr or "")).lower()
+                assert (
+                    "password" in result.output.lower()
+                    or "auto-enabled" in (result.output + (result.stderr or "")).lower()
+                )
 
     def test_up_host_0000_with_explicit_password_allowed(self) -> None:
         """--host 0.0.0.0 --password mypass should work without issue."""
