@@ -56,9 +56,9 @@ CODEPLANE_SYSTEM_PROMPT = (
     "framework. There is no human at a terminal. Do not enter plan mode or "
     "pause to present a plan for review. Proceed directly with task execution. "
     "Do NOT run git merge, git pull, git rebase, git cherry-pick, or "
-    "git reset --hard yourself. CodePlane manages branch merging and "
-    "integration automatically — running these commands outside its controls "
-    "can corrupt the managed worktree state."
+    "git reset --hard unless the operator explicitly instructs you to do so. "
+    "CodePlane manages branch merging and integration automatically — running "
+    "these commands on your own initiative can corrupt the managed worktree state."
 )
 
 
