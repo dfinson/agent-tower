@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import signal
 from pathlib import Path
+from typing import Any
 
 import click
 import structlog
@@ -328,7 +329,7 @@ def _find_pids_on_port(port: int) -> list[int]:
     return []
 
 
-def _api_get(base_url: str, path: str) -> tuple[int, dict | None]:
+def _api_get(base_url: str, path: str) -> tuple[int, dict[str, Any] | None]:
     """Perform a GET request. Returns (status, body | None)."""
     import json
     from urllib.error import URLError
@@ -354,7 +355,7 @@ def _api_post(base_url: str, path: str) -> int:
     req = Request(f"{base_url}{path}", method="POST", data=b"", headers={"Content-Length": "0"})
     try:
         with urlopen(req, timeout=5) as resp:  # noqa: S310
-            return resp.status
+            return int(resp.status)
     except (URLError, OSError):
         return 0
 
@@ -364,7 +365,7 @@ def _pause_active_sessions(base_url: str, pause_wait: int) -> None:
     import time
 
     # Collect running jobs (paginated)
-    running: list[dict] = []
+    running: list[dict[str, Any]] = []
     cursor: str | None = None
     while True:
         path = "/api/jobs?state=running&limit=100"
@@ -471,6 +472,18 @@ def down(host: str | None, port: int | None, pause_wait: int, force: bool) -> No
 @click.option("--host", default=None, help="Bind host (default: from config or 127.0.0.1)")
 @click.option("--port", default=None, type=int, help="Bind port (default: from config or 8080)")
 @click.option("--dev", is_flag=True, help="Dev mode: skip frontend build")
+@click.option("--remote", is_flag=True, help="Enable remote access via a tunnel provider")
+@click.option(
+    "--provider",
+    default="devtunnel",
+    type=click.Choice(["devtunnel", "cloudflare"], case_sensitive=False),
+    show_default=True,
+    help="Remote access provider (requires --remote)",
+)
+@click.option("--password", default=None, help="Set auth password (auto-generated with --remote)")
+@click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --remote)")
+@click.option("--tunnel-name", default=None, help="Dev Tunnel name (default: random, reused across restarts)")
+@click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
 @click.option(
     "--pause-wait",
     default=5,
@@ -479,14 +492,18 @@ def down(host: str | None, port: int | None, pause_wait: int, force: bool) -> No
     help="Seconds to wait after pausing sessions before stopping",
 )
 @click.option("--force", is_flag=True, help="Skip session pausing on shutdown")
-@click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
 def restart(
     host: str | None,
     port: int | None,
     dev: bool,
+    remote: bool,
+    provider: str,
+    password: str | None,
+    no_password: bool,
+    tunnel_name: str | None,
+    skip_preflight: bool,
     pause_wait: int,
     force: bool,
-    skip_preflight: bool,
 ) -> None:
     """Stop a running instance (if any) then start the server.
 
@@ -515,6 +532,14 @@ def restart(
     args = [sys.executable, "-m", "backend.cli", "up", "--host", host, "--port", str(port)]
     if dev:
         args.append("--dev")
+    if remote:
+        args.extend(["--remote", "--provider", provider])
+    if password:
+        args.extend(["--password", password])
+    if no_password:
+        args.append("--no-password")
+    if tunnel_name:
+        args.extend(["--tunnel-name", tunnel_name])
     if skip_preflight:
         args.append("--skip-preflight")
 
