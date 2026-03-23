@@ -350,7 +350,7 @@ export function AnalyticsScreen() {
         <StatCard
           icon={TrendingUp}
           label="Premium Req"
-          value={String(Math.round(overview.totalPremiumRequests))}
+          value={overview.unlimitedPremium ? "Unlimited" : String(Math.round(overview.totalPremiumRequests))}
         />
       </div>
 
