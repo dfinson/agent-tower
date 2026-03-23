@@ -421,9 +421,7 @@ class TestPBKDF2Hashing:
     def test_pbkdf2_derivation_matches(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _reset_auth_state(monkeypatch)
         auth.set_password("verify-me")
-        expected = hashlib.pbkdf2_hmac(
-            "sha256", b"verify-me", auth._password_salt, iterations=600_000
-        )
+        expected = hashlib.pbkdf2_hmac("sha256", b"verify-me", auth._password_salt, iterations=600_000)
         assert auth._password_hash == expected
 
     def test_check_password_with_no_salt_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:

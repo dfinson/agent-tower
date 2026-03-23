@@ -63,14 +63,14 @@ class TunnelHandle:
 class TunnelWatchdog:
     """Restart a tunnel host process when the remote relay stops forwarding."""
 
-    _CHECK_INTERVAL = 10
+    _CHECK_INTERVAL: float = 10
     _FAIL_THRESHOLD = 2
     _HTTP_TIMEOUT = 5
     _RESTART_ATTEMPTS = 3
     _RESTART_GRACE_PERIOD = 2
     _RECOVERY_TIMEOUT = 15
     _MAX_OUTPUT_BYTES = 64 * 1024  # 64 KB cap on captured process output
-    _GIVEUP_COOLDOWN = 60  # seconds before reattempting after all restart attempts fail
+    _GIVEUP_COOLDOWN: float = 60  # seconds before reattempting after all restart attempts fail
     _RELAY_CHECK_FREQUENCY = 5  # verify tunnel relay URL every N health checks
     _BACKOFF_BASE = 5  # exponential backoff base between restart attempts (seconds)
 
@@ -375,7 +375,8 @@ def _list_devtunnels() -> list[dict[str, Any]]:
         data = json.loads(list_result.stdout)
     except json.JSONDecodeError:
         return []
-    return data.get("tunnels", [])
+    result: list[dict[str, Any]] = data.get("tunnels", [])
+    return result
 
 
 def _lookup_devtunnel(tunnel_name: str) -> tuple[bool, str | None]:

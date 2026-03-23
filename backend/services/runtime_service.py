@@ -11,6 +11,7 @@ Progress tracking (headline milestones and plan extraction) is delegated to
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import enum
 import re
@@ -708,10 +709,8 @@ class RuntimeService:
                 # recover_on_startup picks it back up on next launch.
                 log.info("job_interrupted_by_shutdown", job_id=job_id)
                 await self._finalize_diff_safe(job_id, worktree_path, base_ref)
-                try:
+                with contextlib.suppress(Exception):
                     await agent_session.abort()
-                except Exception:
-                    pass
             else:
                 log.info("job_canceled_by_operator", job_id=job_id)
                 await self._handle_job_canceled(job_id, agent_session, worktree_path, base_ref)
