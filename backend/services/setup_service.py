@@ -499,7 +499,12 @@ def _get_env_persistence_instructions(var_name: str, value: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def verify_requirements(*, port: int | None = None, include_optional_dependencies: bool = True) -> list[CheckResult]:
+def verify_requirements(
+    *,
+    port: int | None = None,
+    include_optional_dependencies: bool = True,
+    preflight: bool = False,
+) -> list[CheckResult]:
     """Run all preflight checks and return structured results.
 
     Parameters
@@ -508,6 +513,9 @@ def verify_requirements(*, port: int | None = None, include_optional_dependencie
         If given, also checks whether the port is available.
     include_optional_dependencies:
         Whether to include optional tools like the Dev Tunnels CLI in the dependency list.
+    preflight:
+        When True (called before ``cpl up``), only check for conflicting
+        processes and port availability instead of reporting server health.
     """
     results: list[CheckResult] = []
 
@@ -567,41 +575,71 @@ def verify_requirements(*, port: int | None = None, include_optional_dependencie
 
     if port is not None:
         running, run_detail = _check_server_running("127.0.0.1", port)
-        if running:
-            results.append(
-                CheckResult(
-                    f"Server (:{port})",
-                    CheckStatus.passed,
-                    f"running — {run_detail}",
-                    category="env",
-                )
-            )
-        else:
-            results.append(
-                CheckResult(
-                    f"Server (:{port})",
-                    CheckStatus.warn,
-                    "not running",
-                    hint="Start with: cpl up",
-                    category="env",
-                )
-            )
 
-            # Only check port availability when CodePlane isn't running —
-            # otherwise we'd falsely report the port as "in use".
-            ok, detail = _check_port(port)
-            if ok:
-                results.append(CheckResult(f"Port {port}", CheckStatus.passed, detail, category="env"))
-            else:
+        if preflight:
+            # Preflight: we're about to start — only care about conflicts.
+            if running:
                 results.append(
                     CheckResult(
-                        f"Port {port}",
-                        CheckStatus.fail,
-                        detail,
-                        hint=f"Try: cpl up --port {port + 1}\n  Or: lsof -i :{port} | grep LISTEN",
+                        f"Server (:{port})",
+                        CheckStatus.warn,
+                        f"already running — {run_detail}",
+                        hint="Another instance may conflict. Stop it first: cpl down",
                         category="env",
                     )
                 )
+            else:
+                # Not running — expected; just check port is free.
+                ok, detail = _check_port(port)
+                if ok:
+                    results.append(CheckResult(f"Port {port}", CheckStatus.passed, detail, category="env"))
+                else:
+                    results.append(
+                        CheckResult(
+                            f"Port {port}",
+                            CheckStatus.fail,
+                            detail,
+                            hint=f"Try: cpl up --port {port + 1}\n  Or: lsof -i :{port} | grep LISTEN",
+                            category="env",
+                        )
+                    )
+        else:
+            # Doctor / status: report full server health.
+            if running:
+                results.append(
+                    CheckResult(
+                        f"Server (:{port})",
+                        CheckStatus.passed,
+                        f"running — {run_detail}",
+                        category="env",
+                    )
+                )
+            else:
+                results.append(
+                    CheckResult(
+                        f"Server (:{port})",
+                        CheckStatus.warn,
+                        "not running",
+                        hint="Start with: cpl up",
+                        category="env",
+                    )
+                )
+
+                # Only check port availability when CodePlane isn't running —
+                # otherwise we'd falsely report the port as "in use".
+                ok, detail = _check_port(port)
+                if ok:
+                    results.append(CheckResult(f"Port {port}", CheckStatus.passed, detail, category="env"))
+                else:
+                    results.append(
+                        CheckResult(
+                            f"Port {port}",
+                            CheckStatus.fail,
+                            detail,
+                            hint=f"Try: cpl up --port {port + 1}\n  Or: lsof -i :{port} | grep LISTEN",
+                            category="env",
+                        )
+                    )
 
     # --- Disk space ---
     try:
@@ -856,7 +894,7 @@ def validate_preflight(port: int) -> bool:
     On warnings, pauses to let the user fix issues or continue.
     """
     config = load_config()
-    results = verify_requirements(port=port, include_optional_dependencies=False)
+    results = verify_requirements(port=port, include_optional_dependencies=False, preflight=True)
 
     _console.print()
     _console.print("  [bold]Preflight[/bold]")
@@ -905,7 +943,7 @@ def validate_preflight(port: int) -> bool:
                 _remember_skipped_warning(w, config.runtime.default_sdk)
 
         # Re-check for any remaining hard failures after fixes
-        results = verify_requirements(port=port, include_optional_dependencies=False)
+        results = verify_requirements(port=port, include_optional_dependencies=False, preflight=True)
         if any(r.status == CheckStatus.fail for r in results):
             _console.print()
             _console.print("  [red bold]Cannot start — fix the errors above.[/red bold]")
