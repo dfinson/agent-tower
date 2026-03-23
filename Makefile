@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test run ci clean help
+.PHONY: install lint format typecheck test run down restart ci clean help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -25,6 +25,12 @@ test: ## Run backend and frontend tests with coverage
 run: ## Build frontend and start server with remote access
 	cd frontend && npm run build
 	uv run cpl up --remote
+
+down: ## Gracefully pause sessions and stop the server
+	uv run cpl down
+
+restart: ## Restart the server (pause sessions, stop, then start)
+	uv run cpl restart
 
 ci: lint format typecheck test ## Run full CI pipeline
 

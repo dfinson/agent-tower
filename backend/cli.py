@@ -1,11 +1,13 @@
 """CLI entry point for CodePlane (``cpl`` command group).
 
 Contains the Click command group and all sub-commands (up, version, setup,
-doctor) along with tunnel management and startup helpers.
+doctor, down, restart) along with tunnel management and startup helpers.
 """
 
 from __future__ import annotations
 
+import contextlib
+import signal
 from pathlib import Path
 
 import click
@@ -295,3 +297,228 @@ def doctor(as_json: bool) -> None:
     ok = diagnose_configuration(as_json=as_json)
     if not ok:
         raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# ``cpl down`` — gracefully stop the server
+# ---------------------------------------------------------------------------
+
+
+def _find_pids_on_port(port: int) -> list[int]:
+    """Return PIDs of processes listening on the given TCP port."""
+    import subprocess as _sp
+
+    # Try lsof first (most POSIX systems)
+    try:
+        result = _sp.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            return [int(p) for p in result.stdout.strip().splitlines() if p.strip().isdigit()]
+    except FileNotFoundError:
+        pass
+
+    # Fallback: ss (Linux)
+    try:
+        import re
+
+        result = _sp.run(["ss", "-tlnp", f"sport = :{port}"], capture_output=True, text=True)
+        return [int(p) for p in re.findall(r"pid=(\d+)", result.stdout)]
+    except Exception:  # noqa: BLE001
+        pass
+
+    return []
+
+
+def _api_get(base_url: str, path: str) -> tuple[int, dict | None]:
+    """Perform a GET request. Returns (status, body | None)."""
+    import json
+    from urllib.error import URLError
+    from urllib.request import Request, urlopen
+
+    req = Request(f"{base_url}{path}", method="GET")
+    try:
+        with urlopen(req, timeout=5) as resp:  # noqa: S310
+            raw = resp.read()
+            try:
+                return resp.status, json.loads(raw) if raw else None
+            except json.JSONDecodeError:
+                return resp.status, None
+    except (URLError, OSError):
+        return 0, None
+
+
+def _api_post(base_url: str, path: str) -> int:
+    """Perform a POST request with no body. Returns the status code (0 on error)."""
+    from urllib.error import URLError
+    from urllib.request import Request, urlopen
+
+    req = Request(f"{base_url}{path}", method="POST", data=b"", headers={"Content-Length": "0"})
+    try:
+        with urlopen(req, timeout=5) as resp:  # noqa: S310
+            return resp.status
+    except (URLError, OSError):
+        return 0
+
+
+def _pause_active_sessions(base_url: str, pause_wait: int) -> None:
+    """Pause all running agent sessions via the API, then wait for them to settle."""
+    import time
+
+    # Collect running jobs (paginated)
+    running: list[dict] = []
+    cursor: str | None = None
+    while True:
+        path = "/api/jobs?state=running&limit=100"
+        if cursor:
+            path += f"&cursor={cursor}"
+        status, body = _api_get(base_url, path)
+        if status != 200 or not body:
+            break
+        running.extend(body.get("items", []))
+        if not body.get("hasMore"):
+            break
+        cursor = body.get("cursor")
+
+    if not running:
+        click.echo("  No running sessions to pause.")
+        return
+
+    click.echo(f"  Pausing {len(running)} running session(s)…")
+    for job in running:
+        ok = _api_post(base_url, f"/api/jobs/{job['id']}/pause") == 204
+        mark = "✓" if ok else "✗"
+        title = job.get("title") or "(untitled)"
+        click.echo(f"    {mark}  {job['id'][:8]}… {title}")
+
+    click.echo(f"  Waiting {pause_wait}s for agents to reach a stopping point…")
+    time.sleep(pause_wait)
+
+
+def _stop_server(port: int, graceful_timeout: int = 15) -> bool:
+    """SIGTERM the server process, wait for exit, SIGKILL if needed. Returns True if stopped."""
+    import os
+    import time
+
+    pids = _find_pids_on_port(port)
+    if not pids:
+        click.echo("  No process found on that port — already stopped.")
+        return True
+
+    click.echo(f"  Sending SIGTERM to PID(s) {pids}…")
+    for pid in pids:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGTERM)
+
+    deadline = time.monotonic() + graceful_timeout
+    while time.monotonic() < deadline:
+        if not _find_pids_on_port(port):
+            click.secho("  Server stopped.", fg="green")
+            return True
+        time.sleep(0.5)
+
+    click.echo("  Graceful timeout reached — sending SIGKILL.")
+    for pid in _find_pids_on_port(port):
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+    time.sleep(1)
+    if _find_pids_on_port(port):
+        click.secho("  WARNING: process(es) still alive after SIGKILL.", fg="red")
+        return False
+    click.secho("  Server stopped.", fg="green")
+    return True
+
+
+@cli.command()
+@click.option("--host", default=None, help="Server host (default: from config or 127.0.0.1)")
+@click.option("--port", default=None, type=int, help="Server port (default: from config or 8080)")
+@click.option(
+    "--pause-wait",
+    default=5,
+    type=int,
+    show_default=True,
+    help="Seconds to wait after pausing sessions before stopping the server",
+)
+@click.option("--force", is_flag=True, help="Skip session pausing; stop immediately")
+def down(host: str | None, port: int | None, pause_wait: int, force: bool) -> None:
+    """Gracefully pause all active sessions and shut down the server."""
+    config = load_config()
+    host = host or config.server.host
+    port = port or config.server.port
+    base_url = f"http://{host}:{port}"
+
+    # Check if the server is even running
+    if not _find_pids_on_port(port):
+        click.echo("CodePlane is not running.")
+        return
+
+    # Pause sessions unless --force
+    if not force:
+        click.echo("Pausing active sessions…")
+        _pause_active_sessions(base_url, pause_wait)
+    else:
+        click.echo("Skipping session pause (--force).")
+
+    click.echo(f"Stopping CodePlane on port {port}…")
+    if not _stop_server(port):
+        raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# ``cpl restart`` — down (if running) then up
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--host", default=None, help="Bind host (default: from config or 127.0.0.1)")
+@click.option("--port", default=None, type=int, help="Bind port (default: from config or 8080)")
+@click.option("--dev", is_flag=True, help="Dev mode: skip frontend build")
+@click.option(
+    "--pause-wait",
+    default=5,
+    type=int,
+    show_default=True,
+    help="Seconds to wait after pausing sessions before stopping",
+)
+@click.option("--force", is_flag=True, help="Skip session pausing on shutdown")
+@click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
+def restart(
+    host: str | None,
+    port: int | None,
+    dev: bool,
+    pause_wait: int,
+    force: bool,
+    skip_preflight: bool,
+) -> None:
+    """Stop a running instance (if any) then start the server.
+
+    Active agent sessions are paused before shutdown and will be recovered
+    automatically on startup.
+    """
+    import sys
+
+    config = load_config()
+    host = host or config.server.host
+    port = port or config.server.port
+    base_url = f"http://{host}:{port}"
+
+    # --- Down phase ---
+    if _find_pids_on_port(port):
+        click.echo("Stopping running instance…")
+        if not force:
+            _pause_active_sessions(base_url, pause_wait)
+        if not _stop_server(port):
+            click.secho("Failed to stop existing instance.", fg="red")
+            raise SystemExit(1)
+    else:
+        click.echo("No running instance found — starting fresh.")
+
+    # --- Up phase (exec into ``cpl up`` so it owns the terminal) ---
+    args = [sys.executable, "-m", "backend.cli", "up", "--host", host, "--port", str(port)]
+    if dev:
+        args.append("--dev")
+    if skip_preflight:
+        args.append("--skip-preflight")
+
+    click.echo("Starting CodePlane…")
+    import os
+
+    os.execv(sys.executable, args)
