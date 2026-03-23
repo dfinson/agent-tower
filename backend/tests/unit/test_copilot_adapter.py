@@ -629,7 +629,9 @@ class TestEventTelemetry:
             mock_cr.add.assert_called_once_with(10, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"})
             mock_cw.add.assert_called_once_with(5, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"})
             mock_cost.add.assert_called_once_with(0.002, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o"})
-            mock_dur.record.assert_called_once_with(1500.0, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "is_subagent": False})
+            mock_dur.record.assert_called_once_with(
+                1500.0, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "is_subagent": False}
+            )
 
     @pytest.mark.asyncio
     async def test_assistant_usage_model_mismatch(self, adapter: CopilotAdapter) -> None:

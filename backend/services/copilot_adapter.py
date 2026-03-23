@@ -83,8 +83,8 @@ class CopilotAdapter(AgentAdapterInterface):
             return
         try:
             async with self._session_factory() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
                 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
 
                 if fn_name == "increment":
                     await TelemetrySummaryRepo(session).increment(**kwargs)
