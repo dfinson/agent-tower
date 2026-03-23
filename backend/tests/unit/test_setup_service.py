@@ -375,30 +375,42 @@ class TestFindCplProcesses:
     @patch("subprocess.run")
     @patch("os.getpid", return_value=9999)
     def test_finds_cpl_up_process(self, _mock_pid, mock_run, _mock_sys) -> None:
-        mock_run.return_value = type("R", (), {
-            "stdout": "  1234 uv run cpl up --host 127.0.0.1\n  5678 grep cpl\n",
-            "returncode": 0,
-        })()
+        mock_run.return_value = type(
+            "R",
+            (),
+            {
+                "stdout": "  1234 uv run cpl up --host 127.0.0.1\n  5678 grep cpl\n",
+                "returncode": 0,
+            },
+        )()
         pids = _find_cpl_processes()
         assert 1234 in pids
 
     @patch("platform.system", return_value="Linux")
     @patch("subprocess.run")
     def test_excludes_doctor_process(self, mock_run, _mock_sys) -> None:
-        mock_run.return_value = type("R", (), {
-            "stdout": "  9999 python -m backend.cli doctor\n",
-            "returncode": 0,
-        })()
+        mock_run.return_value = type(
+            "R",
+            (),
+            {
+                "stdout": "  9999 python -m backend.cli doctor\n",
+                "returncode": 0,
+            },
+        )()
         pids = _find_cpl_processes()
         assert 9999 not in pids
 
     @patch("platform.system", return_value="Linux")
     @patch("subprocess.run")
     def test_finds_cpl_restart_process(self, mock_run, _mock_sys) -> None:
-        mock_run.return_value = type("R", (), {
-            "stdout": "  4321 uv run cpl restart --remote\n",
-            "returncode": 0,
-        })()
+        mock_run.return_value = type(
+            "R",
+            (),
+            {
+                "stdout": "  4321 uv run cpl restart --remote\n",
+                "returncode": 0,
+            },
+        )()
         pids = _find_cpl_processes()
         assert 4321 in pids
 
@@ -419,10 +431,16 @@ class TestCheckServerRunning:
         import json
 
         body = json.dumps({"version": "1.0", "uptimeSeconds": 42, "activeJobs": 1, "queuedJobs": 0}).encode()
-        resp = type("Resp", (), {
-            "read": lambda self: body, "status": 200,
-            "__enter__": lambda s: s, "__exit__": lambda *a: None,
-        })()
+        resp = type(
+            "Resp",
+            (),
+            {
+                "read": lambda self: body,
+                "status": 200,
+                "__enter__": lambda s: s,
+                "__exit__": lambda *a: None,
+            },
+        )()
         mock_urlopen.return_value = resp
         running, detail = _check_server_running("127.0.0.1", 8080)
         assert running is True
