@@ -1,94 +1,4 @@
-# Contributing to CodePlane
-
-## Prerequisites
-
-- Python 3.11+
-- Node.js 20+
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Git
-
-## Setup
-
-```bash
-git clone https://github.com/dfinson/codeplane.git
-cd codeplane
-make install
-cp .env.sample .env          # optional — set CPL_TUNNEL_PASSWORD for tunnel auth
-```
-
-## Development
-
-```bash
-# Start server (builds frontend, starts Dev Tunnels)
-make run
-
-# Backend-only work (skip frontend build)
-uv run cpl up --dev
-
-# Start with custom port
-uv run cpl up --port 9090
-```
-
-The backend serves the built frontend from `frontend/dist/` on `http://localhost:8080`.
-
-## Code Quality
-
-```bash
-make lint        # ruff check + eslint
-make format      # ruff format (backend)
-make typecheck   # mypy + tsc
-make test        # pytest (70% coverage threshold) + vitest
-make ci          # all of the above
-```
-
-## Testing
-
-### Backend Tests
-
-```bash
-uv run pytest                              # run all tests
-uv run pytest backend/tests/unit/          # unit tests only
-uv run pytest backend/tests/integration/   # integration tests only
-uv run pytest -k "test_job_creation"       # run specific test by name
-uv run pytest --cov=backend --cov-report=term-missing  # with coverage
-```
-
-### Frontend Tests
-
-```bash
-cd frontend
-npm test                    # run vitest in watch mode
-npm run test:coverage       # run with coverage report
-```
-
-### E2E Tests
-
-```bash
-cd frontend
-npx playwright install --with-deps chromium  # first time only
-npx playwright test                          # run E2E tests
-```
-
-## Database Migrations
-
-Alembic manages schema migrations:
-
-```bash
-uv run alembic upgrade head                            # apply migrations
-uv run alembic revision --autogenerate -m "description" # create new
-```
-
-Migrations run automatically on `cpl up`.
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `CPL_TUNNEL_PASSWORD` | Password for Dev Tunnels remote access | _(none)_ |
-
-Additional configuration is managed via `config.yaml` and per-repo `.codeplane.yml` overrides. See [SPEC.md §10](SPEC.md) for details.
-
-## Project Structure
+# Project Structure
 
 ```
 codeplane/
@@ -127,7 +37,7 @@ codeplane/
 │   │   ├── permission_policy.py       #   Permission mode enforcement
 │   │   ├── platform_adapter.py        #   GitHub/Azure DevOps/GitLab
 │   │   ├── naming_service.py          #   AI-powered job naming
-│   │   ├── progress_tracking_service.py #  Agent progress tracking
+│   │   ├── progress_tracking_service.py # Agent progress tracking
 │   │   ├── summarization_service.py   #   AI summarization
 │   │   ├── retention_service.py       #   Job retention/cleanup
 │   │   ├── setup_service.py           #   First-time setup + doctor
@@ -147,7 +57,7 @@ codeplane/
 │   │   ├── approval_repo.py           #   Approval repository
 │   │   ├── artifact_repo.py           #   Artifact repository
 │   │   ├── event_repo.py              #   Event repository
-│   │   └── metrics_repo.py           #   Metrics repository
+│   │   └── metrics_repo.py            #   Metrics repository
 │   └── tests/                         # pytest (unit + integration)
 │       ├── unit/                      #   Fast isolated tests
 │       └── integration/               #   Tests with real DB + HTTP
@@ -158,38 +68,65 @@ codeplane/
 │       │   ├── types.ts               #   Friendly type aliases
 │       │   └── schema.d.ts            #   Generated from OpenAPI (gitignored)
 │       ├── components/                # React components
-│       ├── hooks/                     # Custom React hooks (SSE, mobile, etc.)
+│       │   ├── DashboardScreen.tsx     #   Main dashboard (Kanban + mobile list)
+│       │   ├── JobDetailScreen.tsx     #   Job detail with tabs
+│       │   ├── JobCreationScreen.tsx   #   Job creation form
+│       │   ├── HistoryScreen.tsx       #   Archived jobs browser
+│       │   ├── SettingsScreen.tsx      #   Settings + repo management
+│       │   ├── TranscriptPanel.tsx     #   AI conversation display
+│       │   ├── LogsPanel.tsx           #   Structured logs viewer
+│       │   ├── DiffViewer.tsx          #   Code diff display
+│       │   ├── ApprovalBanner.tsx      #   Approval request UI
+│       │   ├── TerminalDrawer.tsx      #   Terminal container
+│       │   ├── CommandPalette.tsx      #   Search overlay (⌘K)
+│       │   └── ...                    #   Many more components
+│       ├── hooks/                     # Custom React hooks
+│       │   ├── useSSE.ts              #   SSE connection management
+│       │   ├── useIsMobile.ts         #   Responsive breakpoint detection
+│       │   └── ...
 │       ├── lib/                       # Utilities
 │       └── store/                     # Zustand state management
+│           └── index.ts               #   Single store with all slices
 ├── alembic/                           # Database migrations
 ├── tools/
 │   └── dev_restart.py                 # Graceful server restart (preserves jobs)
-├── docs/                              # Documentation + assets
+├── docs/                              # Documentation site (MkDocs Material)
 ├── Makefile                           # Build / run / test targets
+├── mkdocs.yml                         # Documentation site configuration
 ├── .env.sample                        # Environment variable template
 ├── SPEC.md                            # Full product specification
+├── CONTRIBUTING.md                    # Contributing guide
+├── README.md                          # Project overview
+├── LICENSE                            # MIT license
 └── pyproject.toml                     # Python project + tool config
 ```
 
-## Conventions
+## Key Directories
 
-- **API routes** are thin — validate input, delegate to a service, return the result
-- **Database access** goes through repository classes in `persistence/` — never raw SQLAlchemy in services
-- **API schemas** — Pydantic models in `api_schemas.py` are the single source of truth; frontend types are generated from OpenAPI
-- **State management** — Zustand store is the single source of truth; components read via selectors
-- **Agent SDKs** are wrapped behind `AgentAdapterInterface` — never import SDK types outside the adapter. Both Copilot and Claude adapters follow this pattern
-- **Domain events** — All runtime activity is represented as domain events published to the internal event bus
-- **Strict typing** — mypy strict mode (backend), TypeScript strict mode (frontend)
-- **Linting** — ruff (backend), ESLint (frontend)
+### `backend/api/`
 
-## Commit Messages
+Thin FastAPI route handlers. Each file maps to a feature area. Handlers validate input via Pydantic, delegate to services, and return results.
 
-Use [conventional commits](https://www.conventionalcommits.org/):
+### `backend/services/`
 
-```
-feat: add job creation endpoint
-fix: handle worktree creation failure
-docs: update spec section 14
-test: add state machine transition tests
-chore: update dependencies
-```
+All business logic. The most important service is `RuntimeService`, which orchestrates the entire job execution lifecycle.
+
+### `backend/persistence/`
+
+Repository-pattern database access. Services never interact with SQLAlchemy sessions directly.
+
+### `backend/models/`
+
+Three model layers:
+
+- **`domain.py`** — Pure domain objects (Job, Approval, Artifact)
+- **`db.py`** — SQLAlchemy ORM models (database tables)
+- **`api_schemas.py`** — Pydantic models (API request/response contracts)
+
+### `frontend/src/store/`
+
+Single Zustand store managing all application state. Components read via selectors, never maintaining local copies of job state.
+
+### `frontend/src/api/`
+
+API client functions and type definitions. Types are generated from the backend's OpenAPI schema — never hand-write types that duplicate `schema.d.ts`.

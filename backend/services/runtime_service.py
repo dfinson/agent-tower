@@ -320,9 +320,7 @@ class RuntimeService:
             if job is None:
                 raise JobNotFoundError(f"Job {job_id} does not exist.")
             if job.state not in (JobState.running, JobState.waiting_for_approval):
-                raise StateConflictError(
-                    f"Job {job_id} is not active and cannot be recovered (current: {job.state})."
-                )
+                raise StateConflictError(f"Job {job_id} is not active and cannot be recovered (current: {job.state}).")
 
             previous_state = job.state
             previous_session_count = job.session_count

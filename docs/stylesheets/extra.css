@@ -1,0 +1,78 @@
+:root {
+  --md-primary-fg-color: #4f46e5;
+  --md-primary-bg-color: #ffffff;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #818cf8;
+}
+
+/* Hero section on home page */
+.md-typeset .hero {
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.md-typeset .hero h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.md-typeset .hero p.subtitle {
+  font-size: 1.25rem;
+  color: var(--md-default-fg-color--light);
+  margin-bottom: 2rem;
+}
+
+/* Feature grid */
+.md-typeset .feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.md-typeset .feature-card {
+  padding: 1.5rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+}
+
+.md-typeset .feature-card h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+/* Screenshot containers */
+.md-typeset .screenshot-desktop {
+  text-align: center;
+  margin: 1.5rem 0;
+}
+
+.md-typeset .screenshot-desktop img {
+  max-width: 100%;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+}
+
+.md-typeset .screenshot-mobile {
+  text-align: center;
+  margin: 1.5rem 0;
+}
+
+.md-typeset .screenshot-mobile img {
+  max-width: 300px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+}
+
+/* Keyboard shortcut table styling */
+.md-typeset .shortcut-table code {
+  background: var(--md-code-bg-color);
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}

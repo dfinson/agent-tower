@@ -1358,9 +1358,7 @@ class TestRecoveryCapacity:
             assert row.session_count == 2
 
         assert pending_entry[0] is not None
-        assert pending_entry[0].startswith(
-            "The CodePlane server restarted while this job was in progress."
-        )
+        assert pending_entry[0].startswith("The CodePlane server restarted while this job was in progress.")
         assert pending_entry[1] == f"sdk-{pending_job_id}"
 
 
