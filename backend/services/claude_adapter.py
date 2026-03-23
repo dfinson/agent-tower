@@ -108,8 +108,8 @@ class ClaudeAdapter(AgentAdapterInterface):
             return
         try:
             async with self._session_factory() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
                 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
 
                 if fn_name == "increment":
                     await TelemetrySummaryRepo(session).increment(**kwargs)
@@ -299,14 +299,11 @@ class ClaudeAdapter(AgentAdapterInterface):
         job_id = self._session_to_job.get(session_id)
 
         # Lock in the main model from the first AssistantMessage that carries one
-        if job_id and model:
-            from backend.services import telemetry as tel
-
-            if job_id not in self._job_main_models:
-                self._job_main_models[job_id] = model
-                self._schedule_db_write(
-                    self._db_write("set_model", job_id=job_id, model=model)
-                )
+        if job_id and model and job_id not in self._job_main_models:
+            self._job_main_models[job_id] = model
+            self._schedule_db_write(
+                self._db_write("set_model", job_id=job_id, model=model)
+            )
 
         for block in content_blocks:
             if isinstance(block, TextBlock):
@@ -422,7 +419,12 @@ class ClaudeAdapter(AgentAdapterInterface):
         if job_id:
             from backend.services import telemetry as tel
 
-            attrs = {"job_id": job_id, "sdk": "claude", "tool_name": tool_name, "success": success}
+            attrs: dict[str, str | bool | int | float] = {
+                "job_id": job_id,
+                "sdk": "claude",
+                "tool_name": tool_name,
+                "success": success,
+            }
             tel.tool_duration.record(duration_ms, attrs)
 
             self._schedule_db_write(self._db_write(
