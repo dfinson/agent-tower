@@ -67,6 +67,12 @@ class TestUpCommand:
         assert result.exit_code == 1
         assert "devtunnel" in result.output.lower()
 
+    def test_up_provider_without_remote_is_rejected(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["up", "--provider", "cloudflare", "--skip-preflight"])
+        assert result.exit_code == 1
+        assert "--provider requires --remote" in result.output
+
     def test_up_rejects_string_port(self) -> None:
         runner = CliRunner()
         result = runner.invoke(cli, ["up", "--port", "not_a_number"])
