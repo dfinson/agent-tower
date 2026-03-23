@@ -119,7 +119,6 @@ _HEARTBEAT_TIMEOUT_S = 300  # 5 minutes
 
 # Default prompts for post-completion verification and self-review turns
 DEFAULT_VERIFY_PROMPT = (
-DEFAULT_VERIFY_PROMPT = (
     "You are now running a post-task verification pass. "
     "Start with a single short sentence announcing this — e.g. 'Running lint and tests.' "
     "Then check whether any source files or documentation were modified during this "
