@@ -113,6 +113,14 @@ def up(
 
     remote_provider = RemoteProvider(provider) if remote else RemoteProvider.local
 
+    if not remote and provider != "devtunnel":
+        click.secho(
+            f"ERROR: --provider requires --remote (got --provider {provider} without --remote).",
+            fg="red",
+            err=True,
+        )
+        raise SystemExit(1)
+
     # Read credentials from .env (takes precedence) then OS environment
     import os
 
