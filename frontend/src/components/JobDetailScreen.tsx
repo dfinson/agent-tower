@@ -170,8 +170,9 @@ export function JobDetailScreen() {
     if (!jobId) return;
     const updated = await cancelJob(jobId);
     useStore.setState((s) => ({ jobs: { ...s.jobs, [updated.id]: updated } }));
-    toast.success("Job canceled");
-  }, [jobId]);
+    toast.success("Job canceled and archived");
+    navigate("/");
+  }, [jobId, navigate]);
 
   const handleResume = useCallback(async () => {
     if (!jobId) return;
@@ -629,9 +630,9 @@ export function JobDetailScreen() {
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}
         onConfirm={doCancelJob}
-        title="Cancel Job?"
-        description="This will stop the running agent. Any uncommitted work will remain in the worktree."
-        confirmLabel="Cancel Job"
+        title="Cancel & Archive Job?"
+        description="This will stop the running agent and archive the job. The worktree and branch will be cleaned up."
+        confirmLabel="Cancel & Archive"
       />
 
       <ConfirmDialog

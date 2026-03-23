@@ -4,13 +4,18 @@ import threading
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from backend.services.tunnel_service import (
     RemoteProvider,
     TunnelHandle,
+    TunnelStartError,
     TunnelWatchdog,
     _CODEPLANE_TUNNEL_PREFIX,
     _find_existing_codeplane_tunnel,
     _lookup_devtunnel,
+    _start_output_drain,
+    _wait_for_startup,
     validate_remote_provider,
 )
 
@@ -102,6 +107,7 @@ def test_watchdog_restart_process_retries_until_healthy() -> None:
         label="devtunnel",
     )
     watchdog._stop_event = threading.Event()
+    watchdog._BACKOFF_BASE = 0  # Skip backoff delay in tests
 
     with (
         patch("backend.services.tunnel_service.subprocess.Popen", side_effect=[failed_proc, recovered_proc]),
@@ -122,6 +128,7 @@ def test_watchdog_restart_process_gives_up_after_retries() -> None:
         label="devtunnel",
     )
     watchdog._stop_event = threading.Event()
+    watchdog._BACKOFF_BASE = 0  # Skip backoff delay in tests
     failed_procs = [_FakeProc(poll_result=1, output=f"failure {index}") for index in range(3)]
 
     with patch("backend.services.tunnel_service.subprocess.Popen", side_effect=failed_procs):
@@ -359,3 +366,219 @@ class TestCloudflareEnvVar:
         assert watchdog.restart_env == {"TUNNEL_TOKEN": "secret-token"}
         # The token should NOT be in the restart command
         assert "secret-token" not in watchdog.restart_command
+
+
+# ---------------------------------------------------------------------------
+# Stability fixes — stdout drain to prevent pipe deadlock
+# ---------------------------------------------------------------------------
+
+
+class TestOutputDrain:
+    def test_drain_runs_without_hanging(self) -> None:
+        """Verify drain thread starts and exits cleanly with a fake process."""
+        proc = _FakeProc(poll_result=None)
+        # Empty output means drain thread reads "" and exits immediately
+        _start_output_drain(_as_popen(proc))
+
+    def test_drain_skips_when_no_stdout(self) -> None:
+        proc = _FakeProc(poll_result=None)
+        proc.stdout = None
+        # Should not raise or start any thread
+        _start_output_drain(_as_popen(proc))
+
+
+# ---------------------------------------------------------------------------
+# Stability fixes — startup polling instead of fixed sleep
+# ---------------------------------------------------------------------------
+
+
+class TestWaitForStartup:
+    def test_raises_on_immediate_exit(self) -> None:
+        proc = _FakeProc(poll_result=1, output="crash info")
+        with pytest.raises(TunnelStartError, match="crash info"):
+            _wait_for_startup(_as_popen(proc), label="test", timeout=0.5)
+
+    def test_survives_if_process_stays_alive(self) -> None:
+        proc = _FakeProc(poll_result=None)
+        _wait_for_startup(_as_popen(proc), label="test", timeout=0.5)
+
+    def test_generic_message_when_no_output(self) -> None:
+        proc = _FakeProc(poll_result=1)
+        proc.stdout = None
+        with pytest.raises(TunnelStartError, match="test process exited during startup"):
+            _wait_for_startup(_as_popen(proc), label="test", timeout=0.5)
+
+
+# ---------------------------------------------------------------------------
+# Stability fixes — exponential backoff between restart attempts
+# ---------------------------------------------------------------------------
+
+
+class TestRestartBackoff:
+    def test_backoff_constants_defined(self) -> None:
+        assert TunnelWatchdog._BACKOFF_BASE == 5
+        assert TunnelWatchdog._GIVEUP_COOLDOWN == 60
+        assert TunnelWatchdog._RELAY_CHECK_FREQUENCY == 5
+
+    def test_backoff_waits_called_between_attempts(self) -> None:
+        """Verify _stop_event.wait is called with increasing backoff timeouts."""
+        watchdog = TunnelWatchdog(
+            tunnel_url="https://example.test",
+            restart_command=["echo"],
+            proc=_as_popen(_FakeProc(poll_result=None)),
+            label="test",
+        )
+        watchdog._BACKOFF_BASE = 2
+        wait_timeouts: list[float] = []
+
+        original_wait = watchdog._stop_event.wait
+
+        def tracking_wait(timeout: float | None = None) -> bool:
+            if timeout is not None:
+                wait_timeouts.append(timeout)
+            return False  # Not stopped, return immediately
+
+        failed_procs = [_FakeProc(poll_result=1) for _ in range(3)]
+
+        with (
+            patch("backend.services.tunnel_service.subprocess.Popen", side_effect=failed_procs),
+            patch.object(watchdog._stop_event, "wait", side_effect=tracking_wait),
+        ):
+            watchdog._restart_process()
+
+        # Attempt 1: grace(2s). Attempt 2: backoff(2s), grace(2s). Attempt 3: backoff(4s), grace(2s).
+        assert 2 in wait_timeouts  # backoff before attempt 2: 2 * 2^0 = 2
+        assert 4 in wait_timeouts  # backoff before attempt 3: 2 * 2^1 = 4
+
+
+# ---------------------------------------------------------------------------
+# Stability fixes — relay health check every N iterations
+# ---------------------------------------------------------------------------
+
+
+class TestRelayHealthCheck:
+    @patch("urllib.request.urlopen")
+    def test_health_ok_uses_tunnel_url_when_forced(self, mock_urlopen) -> None:
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        watchdog = TunnelWatchdog(
+            tunnel_url="https://cpl-abc-8080.usw2.devtunnels.ms",
+            restart_command=["echo"],
+            proc=_as_popen(_FakeProc(poll_result=None)),
+            label="devtunnel",
+            local_port=9090,
+        )
+        result = watchdog._health_ok(use_tunnel_url=True)
+        assert result is True
+        req = mock_urlopen.call_args[0][0]
+        assert "cpl-abc-8080.usw2.devtunnels.ms" in req.full_url
+        assert "127.0.0.1" not in req.full_url
+
+    @patch("urllib.request.urlopen")
+    def test_health_ok_defaults_to_localhost(self, mock_urlopen) -> None:
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        watchdog = TunnelWatchdog(
+            tunnel_url="https://cpl-abc-8080.usw2.devtunnels.ms",
+            restart_command=["echo"],
+            proc=_as_popen(_FakeProc(poll_result=None)),
+            label="devtunnel",
+            local_port=9090,
+        )
+        watchdog._health_ok(use_tunnel_url=False)
+        req = mock_urlopen.call_args[0][0]
+        assert "127.0.0.1:9090" in req.full_url
+
+
+# ---------------------------------------------------------------------------
+# Stability fixes — close() race with watchdog restart
+# ---------------------------------------------------------------------------
+
+
+class TestCloseRace:
+    def test_close_terminates_diverged_procs(self) -> None:
+        """When handle.proc and watchdog.proc diverge, both get terminated."""
+        original_proc = _FakeProc(poll_result=None)
+        restarted_proc = _FakeProc(poll_result=None)
+
+        watchdog = TunnelWatchdog(
+            tunnel_url="https://example.test",
+            restart_command=["echo"],
+            proc=_as_popen(restarted_proc),
+            label="test",
+        )
+        watchdog._stop_event.set()
+
+        handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://example.test",
+            proc=_as_popen(original_proc),
+            watchdog=watchdog,
+        )
+        handle.close()
+
+        assert original_proc.terminated
+        assert restarted_proc.terminated
+
+    def test_close_deduplicates_same_proc(self) -> None:
+        """When handle.proc and watchdog.proc are the same, no error."""
+        proc = _FakeProc(poll_result=None)
+
+        watchdog = TunnelWatchdog(
+            tunnel_url="https://example.test",
+            restart_command=["echo"],
+            proc=_as_popen(proc),
+            label="test",
+        )
+        watchdog._stop_event.set()
+
+        handle = TunnelHandle(
+            provider=RemoteProvider.devtunnel,
+            origin="https://example.test",
+            proc=_as_popen(proc),
+            watchdog=watchdog,
+        )
+        handle.close()
+        assert proc.terminated
+
+
+# ---------------------------------------------------------------------------
+# Stability fixes — cooldown after restart give-up
+# ---------------------------------------------------------------------------
+
+
+class TestGiveupCooldown:
+    def test_run_enters_cooldown_after_failed_restart(self) -> None:
+        """Verify the watchdog loop waits _GIVEUP_COOLDOWN seconds after give-up."""
+        proc = _FakeProc(poll_result=1)
+        watchdog = TunnelWatchdog(
+            tunnel_url="https://example.test",
+            restart_command=["echo"],
+            proc=_as_popen(proc),
+            label="test",
+        )
+        watchdog._GIVEUP_COOLDOWN = 0.05
+        watchdog._CHECK_INTERVAL = 0.05
+
+        call_count = 0
+
+        def mock_restart() -> bool:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                watchdog._stop_event.set()  # Stop after second attempt
+            return False
+
+        with patch.object(watchdog, "_restart_process", side_effect=mock_restart):
+            watchdog._run()
+
+        # Should have attempted restart at least twice (initial + after cooldown)
+        assert call_count >= 2
