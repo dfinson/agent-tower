@@ -21,6 +21,7 @@ import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
+  type TooltipValueType,
 } from "recharts";
 
 // ---------------------------------------------------------------------------
@@ -112,8 +113,8 @@ function CostTrendChart({ data }: { data: { date: string; cost: number; jobs: nu
         <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
         <RTooltip
           contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, fontSize: 12 }}
-          formatter={(v) => [formatUsd(Number(v)), "Cost"]}
-          labelFormatter={(l) => String(l)}
+          formatter={(v: TooltipValueType | undefined) => [formatUsd(Number(v ?? 0)), "Cost"]}
+          labelFormatter={(l: unknown) => String(l)}
         />
         <Area type="monotone" dataKey="cost" stroke="#6366f1" fill="url(#costGrad)" strokeWidth={2} />
       </AreaChart>
@@ -163,7 +164,7 @@ function ModelBreakdown({ models }: { models: AnalyticsModels["models"] }) {
           <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
           <RTooltip
             contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, fontSize: 12 }}
-            formatter={(v) => [formatUsd(Number(v)), "Cost"]}
+            formatter={(v: TooltipValueType | undefined) => [formatUsd(Number(v ?? 0)), "Cost"]}
           />
           <Bar dataKey="cost" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
         </BarChart>
