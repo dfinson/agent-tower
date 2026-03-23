@@ -1,7 +1,7 @@
 import { Component, type ReactNode, Suspense, useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Routes, Route, Link, useNavigate } from "react-router-dom";
-import { Settings, History, TerminalSquare, Search } from "lucide-react";
+import { Settings, History, TerminalSquare, Search, BarChart3 } from "lucide-react";
 import { CommandPalette } from "./components/CommandPalette";
 import { useSSE } from "./hooks/useSSE";
 import { useStore, selectConnectionStatus } from "./store";
@@ -22,6 +22,9 @@ const SettingsScreen = lazyRetry(() =>
 );
 const HistoryScreen = lazyRetry(() =>
   import("./components/HistoryScreen").then((module) => ({ default: module.HistoryScreen })),
+);
+const AnalyticsScreen = lazyRetry(() =>
+  import("./components/AnalyticsScreen").then((module) => ({ default: module.AnalyticsScreen })),
 );
 const TerminalDrawer = lazyRetry(() =>
   import("./components/TerminalDrawer").then((module) => ({ default: module.TerminalDrawer })),
@@ -175,6 +178,16 @@ export function App() {
               <TerminalSquare size={16} />
             </button>
           </Tooltip>
+          <Tooltip content="Analytics">
+            <Link
+              to="/analytics"
+              aria-label="Analytics"
+              title="Analytics"
+              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors no-underline"
+            >
+              <BarChart3 size={16} />
+            </Link>
+          </Tooltip>
           <Tooltip content="Job history">
             <Link
               to="/history"
@@ -205,6 +218,7 @@ export function App() {
               <Route path="/jobs/new" element={<JobCreationScreen />} />
               <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
               <Route path="/history" element={<HistoryScreen />} />
+              <Route path="/analytics" element={<AnalyticsScreen />} />
               <Route path="/settings" element={<SettingsScreen />} />
             </Routes>
           </Suspense>

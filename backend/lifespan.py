@@ -196,6 +196,7 @@ async def _wire_core_services(
     adapter_registry = AdapterRegistry(
         approval_service=approval_service,
         event_bus=event_bus,
+        session_factory=session_factory,
     )
     git_service = GitService(config)
     diff_service = DiffService(git_service=git_service, event_bus=event_bus)

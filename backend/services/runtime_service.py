@@ -512,27 +512,46 @@ class RuntimeService:
             if self._utility_session is not None:
                 await self._utility_session.notify_job_started()
 
-        # Start telemetry tracking — restore from DB snapshot first so
-        # accumulated metrics from prior sessions carry forward even after a
-        # backend restart.
-        from backend.services.telemetry import collector as tel
+        # Start telemetry tracking — init OTEL spans and SQLite summary row.
+        from backend.services import telemetry as tel
 
-        had_in_memory = tel.get(job_id) is not None
-        tel.start_job(job_id, model=config.model or "")
+        import time as _time
 
-        # If the process restarted (no in-memory state), restore the persisted
-        # snapshot so that cumulative metrics continue to accumulate correctly
-        # across all sessions of this job (covers both native-resume and handoff).
-        if not had_in_memory:
+        tel.start_job_span(job_id, sdk=config.sdk, model=config.model or "")
+
+        # Initialize the summary row in SQLite so event-driven upserts work.
+        # Fire-and-forget via a background task to avoid holding a write lock
+        # that could conflict with concurrent recovery transactions.
+        async def _init_telemetry_row() -> None:
             try:
                 async with self._session_factory() as session:
-                    from backend.persistence.metrics_repo import MetricsRepository
+                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
 
-                    snapshot = await MetricsRepository(session).load_snapshot(job_id)
-                if snapshot is not None:
-                    tel.restore_from_snapshot(job_id, snapshot)
+                    repo_path = ""
+                    branch_name = ""
+                    sdk_name = ""
+                    try:
+                        async with self._session_factory() as s2:
+                            svc = self._make_job_service(s2)
+                            job_for_tel = await svc.get_job(job_id)
+                        if job_for_tel is not None:
+                            repo_path = job_for_tel.repo or ""
+                            branch_name = job_for_tel.branch or ""
+                            sdk_name = job_for_tel.sdk or ""
+                    except Exception:
+                        pass
+                    await TelemetrySummaryRepo(session).init_job(
+                        job_id,
+                        sdk=sdk_name or "unknown",
+                        model=config.model or "",
+                        repo=repo_path,
+                        branch=branch_name,
+                    )
+                    await session.commit()
             except Exception:
-                log.warning("metrics_restore_failed", job_id=job_id, exc_info=True)
+                log.warning("telemetry_init_failed", job_id=job_id, exc_info=True)
+
+        asyncio.create_task(_init_telemetry_row())
 
         # Resolve worktree_path and base_ref for diff calculations
         worktree_path: str | None = None
@@ -720,34 +739,58 @@ class RuntimeService:
             await self._finalize_diff_safe(job_id, worktree_path, base_ref)
             await self._fail_job(job_id, f"Execution error: {exc}")
         finally:
-            tel.end_job(job_id)
-            # Persist cumulative metrics so they survive daemon restarts and
-            # are correctly carried forward on future resume sessions.
-            tel_snapshot = tel.get(job_id)
-            if tel_snapshot is not None:
-                try:
-                    from backend.persistence.metrics_repo import MetricsRepository
+            tel.end_job_span(job_id)
 
-                    async with self._session_factory() as session:
-                        await MetricsRepository(session).save_snapshot(job_id, tel_snapshot.to_snapshot())
-                        await session.commit()
+            # Finalize the summary row with terminal status and duration.
+            try:
+                async with self._session_factory() as session:
+                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
 
-                    # Signal clients that final telemetry is available so the
-                    # frontend re-fetches and shows the persisted cumulative totals.
-                    await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
-                            timestamp=datetime.now(UTC),
-                            kind=DomainEventKind.telemetry_updated,
-                            payload={"job_id": job_id},
-                        )
+                    # Determine status from job state
+                    status = "succeeded"
+                    try:
+                        async with self._session_factory() as s2:
+                            svc = self._make_job_service(s2)
+                            job_final = await svc.get_job(job_id)
+                        if job_final is not None:
+                            st = str(job_final.state)
+                            if "fail" in st:
+                                status = "failed"
+                            elif "cancel" in st:
+                                status = "cancelled"
+                    except Exception:
+                        pass
+
+                    # Best-effort duration from adapter start time
+                    duration = 0
+                    try:
+                        adapter = self._resolve_adapter(config.sdk)
+                        job_start = getattr(adapter, "_job_start_times", {}).get(job_id)
+                    except Exception:
+                        job_start = None
+                    if job_start is not None:
+                        duration = int((_time.monotonic() - job_start) * 1000)
+
+                    await TelemetrySummaryRepo(session).finalize(
+                        job_id, status=status, duration_ms=duration,
                     )
-                except Exception:
-                    log.warning("metrics_persist_failed", job_id=job_id, exc_info=True)
+                    await session.commit()
+
+                # Signal clients that final telemetry is available
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.telemetry_updated,
+                        payload={"job_id": job_id},
+                    )
+                )
+            except Exception:
+                log.warning("telemetry_finalize_failed", job_id=job_id, exc_info=True)
 
             # --- Store post-completion artifacts (telemetry, plan, approvals) ---
-            await self._store_post_completion_artifacts(job_id, tel_snapshot)
+            await self._store_post_completion_artifacts(job_id)
 
             heartbeat_task.cancel()
             self._heartbeat_tasks.pop(job_id, None)
@@ -759,7 +802,6 @@ class RuntimeService:
     async def _store_post_completion_artifacts(
         self,
         job_id: str,
-        tel_snapshot: Any | None,
     ) -> None:
         """Persist internal state (telemetry, plan, approvals) as downloadable artifacts."""
         try:
@@ -780,14 +822,19 @@ class RuntimeService:
 
                 artifact_svc = ArtifactService(ArtifactRepository(session))
 
-                # Telemetry report
-                if tel_snapshot is not None:
-                    try:
+                # Telemetry report – load from the persisted summary row
+                try:
+                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+
+                    summary = await TelemetrySummaryRepo(session).get(job_id)
+                    if summary is not None:
                         await artifact_svc.store_telemetry_report(
-                            job_id, tel_snapshot.to_dict(), slug=slug,
+                            job_id,
+                            summary,
+                            slug=slug,
                         )
-                    except Exception:
-                        log.debug("telemetry_artifact_failed", job_id=job_id, exc_info=True)
+                except Exception:
+                    log.debug("telemetry_artifact_failed", job_id=job_id, exc_info=True)
 
                 # Agent plan steps (from in-memory progress tracker)
                 if self._progress_tracking is not None:
@@ -817,7 +864,9 @@ class RuntimeService:
                             for a in approvals
                         ]
                         await artifact_svc.store_approval_history(
-                            job_id, approval_dicts, slug=slug,
+                            job_id,
+                            approval_dicts,
+                            slug=slug,
                         )
                 except Exception:
                     log.debug("approval_artifact_failed", job_id=job_id, exc_info=True)
