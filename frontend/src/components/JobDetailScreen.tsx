@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -21,6 +21,8 @@ import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { JobDetailSkeleton } from "./JobDetailSkeleton";
 import { Tooltip } from "./ui/tooltip";
 import { ConfirmDialog } from "./ui/confirm-dialog";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { cn } from "../lib/utils";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazyRetry(() => import("./DiffViewer"));
@@ -41,6 +43,7 @@ export function JobDetailScreen() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [tab, setTab] = useState("live");
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
@@ -572,8 +575,10 @@ export function JobDetailScreen() {
         <CompleteJobDialog job={job} open onClose={() => setCompleteOpen(false)} onArchived={() => navigate("/")} />
       )}
 
+      {/* Tab bar — desktop shows all tabs + terminal button; mobile shows 3 tabs + ••• overflow */}
       <Tabs value={tab} onValueChange={setTab} className="mb-4">
-        <div className="flex items-center gap-2">
+        {/* Desktop layout (hidden on mobile) */}
+        <div className="hidden sm:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
             <TabsTrigger value="live">Live</TabsTrigger>
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
@@ -594,6 +599,68 @@ export function JobDetailScreen() {
                 )}
               </button>
             </Tooltip>
+          )}
+        </div>
+
+        {/* Mobile layout: 3 primary tabs + ••• overflow menu (hidden on desktop) */}
+        <div className="flex sm:hidden items-center gap-2">
+          <TabsList>
+            <TabsTrigger value="live">Live</TabsTrigger>
+            <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
+            <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
+          </TabsList>
+
+          {(hasArtifacts || hasWorktree) && (
+            <PopoverPrimitive.Root open={overflowOpen} onOpenChange={setOverflowOpen}>
+              <PopoverPrimitive.Trigger asChild>
+                <button
+                  aria-label="More options"
+                  className={cn(
+                    "flex items-center justify-center w-9 h-9 rounded-md border text-xs font-medium transition-colors shrink-0",
+                    tab === "artifacts"
+                      ? "border-transparent bg-background text-foreground shadow"
+                      : "border-border text-muted-foreground hover:text-foreground hover:bg-accent",
+                  )}
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+              </PopoverPrimitive.Trigger>
+              <PopoverPrimitive.Portal>
+                <PopoverPrimitive.Content
+                  side="top"
+                  align="end"
+                  sideOffset={6}
+                  className="z-50 min-w-[140px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
+                >
+                  {hasArtifacts && (
+                    <button
+                      onClick={() => { setTab("artifacts"); setOverflowOpen(false); }}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
+                        tab === "artifacts"
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                    >
+                      <Package size={13} />
+                      Artifacts
+                    </button>
+                  )}
+                  {hasWorktree && (
+                    <button
+                      onClick={() => { handleOpenJobTerminal(); setOverflowOpen(false); }}
+                      className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <TerminalSquare size={13} />
+                      <span>Terminal</span>
+                      {jobTerminalCount > 0 && (
+                        <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>
+                      )}
+                    </button>
+                  )}
+                </PopoverPrimitive.Content>
+              </PopoverPrimitive.Portal>
+            </PopoverPrimitive.Root>
           )}
         </div>
       </Tabs>
