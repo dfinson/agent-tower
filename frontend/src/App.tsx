@@ -136,6 +136,7 @@ export function App() {
     [terminalDrawerOpen, toggleTerminalDrawer],
   );
   useHotkeys("alt+n", () => navigate("/jobs/new"), { preventDefault: true });
+  useHotkeys("alt+a", () => navigate("/analytics"), { preventDefault: true });
   useHotkeys("ctrl+comma,meta+comma", () => navigate("/settings"), {
     enableOnFormTags: true,
     preventDefault: true,
