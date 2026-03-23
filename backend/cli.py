@@ -154,11 +154,11 @@ def up(
         )
         raise SystemExit(1)
 
-    # Password priority: --password flag > CPL_TUNNEL_PASSWORD env/dotenv > auto-generate for tunnel
+    # Password priority: --password flag > CPL_DEVTUNNEL_PASSWORD env/dotenv > auto-generate for tunnel
     effective_password: str | None = password
 
     if not effective_password and not no_password:
-        env_pw = _env("CPL_TUNNEL_PASSWORD")
+        env_pw = _env("CPL_DEVTUNNEL_PASSWORD")
         if env_pw:
             effective_password = env_pw
 
