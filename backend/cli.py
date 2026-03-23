@@ -88,6 +88,7 @@ def _build_frontend() -> bool:
 )
 @click.option("--password", default=None, help="Set auth password (auto-generated with --remote)")
 @click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --remote)")
+@click.option("--tunnel-name", default=None, help="Dev Tunnel name (default: random, reused across restarts)")
 @click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
 def up(
     host: str | None,
@@ -97,6 +98,7 @@ def up(
     provider: str,
     password: str | None,
     no_password: bool,
+    tunnel_name: str | None,
     skip_preflight: bool,
 ) -> None:
     """Start the CodePlane server."""
@@ -130,6 +132,7 @@ def up(
 
     cloudflare_token = _env("CPL_CLOUDFLARE_TUNNEL_TOKEN")
     cloudflare_hostname = _env("CPL_CLOUDFLARE_HOSTNAME")
+    tunnel_name = tunnel_name or _env("CPL_DEVTUNNEL_NAME")
 
     if remote:
         error = validate_remote_provider(
@@ -171,15 +174,23 @@ def up(
     # Run Alembic migrations before starting the server
     run_migrations()
 
-    # Startup warning for 0.0.0.0 binding
-    if host == "0.0.0.0":  # noqa: S104
-        log.warning(
-            "binding_all_interfaces",
-            host=host,
-            message="Binding to 0.0.0.0 — no authentication is enforced. Use --remote for authenticated remote access.",
-        )
+    # Block unauthenticated binding on all interfaces
+    if host == "0.0.0.0" and no_password:  # noqa: S104
         click.secho(
-            "WARNING: Binding to 0.0.0.0 — no authentication is enforced.",
+            "ERROR: --host 0.0.0.0 with --no-password is not allowed. "
+            "Binding to all interfaces requires authentication.",
+            fg="red",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    # Auto-generate password when binding to all interfaces without one set
+    if host == "0.0.0.0" and not effective_password:  # noqa: S104
+        from backend.services.auth import generate_password as _gen_pw
+
+        effective_password = _gen_pw()
+        click.secho(
+            "WARNING: Binding to 0.0.0.0 — password auth auto-enabled.",
             fg="yellow",
             err=True,
         )
@@ -194,6 +205,7 @@ def up(
                 port=port,
                 cloudflare_token=cloudflare_token,
                 cloudflare_hostname=cloudflare_hostname,
+                tunnel_name=tunnel_name,
             )
         except TunnelStartError as exc:
             click.secho(f"ERROR: {exc}", fg="red", err=True)

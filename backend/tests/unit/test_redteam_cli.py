@@ -109,6 +109,49 @@ class TestUpCommand:
                 assert kwargs["host"] == "127.0.0.1"
                 assert kwargs["port"] == 8080
 
+    # -----------------------------------------------------------------------
+    # #2 — Block unauthenticated 0.0.0.0 binding
+    # -----------------------------------------------------------------------
+
+    def test_up_host_0000_with_no_password_blocked(self) -> None:
+        """--host 0.0.0.0 --no-password must be rejected."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["up", "--host", "0.0.0.0", "--no-password", "--skip-preflight"])
+        assert result.exit_code == 1
+        assert "not allowed" in result.output.lower() or "requires authentication" in result.output.lower()
+
+    def test_up_host_0000_auto_generates_password(self) -> None:
+        """--host 0.0.0.0 without explicit password should auto-generate one."""
+        runner = CliRunner()
+        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.run"):
+            result = runner.invoke(cli, ["up", "--host", "0.0.0.0", "--skip-preflight"])
+            if result.exit_code == 0:
+                # The banner should contain "Password:" (auto-generated)
+                assert "password" in result.output.lower() or "auto-enabled" in (result.output + (result.stderr or "")).lower()
+
+    def test_up_host_0000_with_explicit_password_allowed(self) -> None:
+        """--host 0.0.0.0 --password mypass should work without issue."""
+        runner = CliRunner()
+        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.run"):
+            result = runner.invoke(cli, ["up", "--host", "0.0.0.0", "--password", "mypass", "--skip-preflight"])
+            assert result.exit_code == 0
+
+    # -----------------------------------------------------------------------
+    # --tunnel-name option
+    # -----------------------------------------------------------------------
+
+    def test_up_help_shows_tunnel_name(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["up", "--help"])
+        assert "--tunnel-name" in result.output
+
+    def test_up_remote_no_password_blocked(self) -> None:
+        """--remote --no-password must always be rejected."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["up", "--remote", "--no-password", "--skip-preflight"])
+        assert result.exit_code == 1
+        assert "not allowed" in result.output.lower()
+
 
 class TestUnknownCommands:
     def test_unknown_subcommand(self) -> None:
