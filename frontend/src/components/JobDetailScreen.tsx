@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, lazy, Suspense } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare } from "lucide-react";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
 import { fetchJob, cancelJob, fetchJobTranscript, fetchJobTimeline, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob } from "../api/client";
+import { lazyRetry } from "../lib/lazyRetry";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
 import { TranscriptPanel } from "./TranscriptPanel";
@@ -21,9 +22,9 @@ import { JobDetailSkeleton } from "./JobDetailSkeleton";
 import { Tooltip } from "./ui/tooltip";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 
-const WorkspaceBrowser = lazy(() => import("./WorkspaceBrowser"));
-const DiffViewer = lazy(() => import("./DiffViewer"));
-const ArtifactViewer = lazy(() => import("./ArtifactViewer"));
+const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
+const DiffViewer = lazyRetry(() => import("./DiffViewer"));
+const ArtifactViewer = lazyRetry(() => import("./ArtifactViewer"));
 
 const SKELETON_DELAY_MS = 500;
 
