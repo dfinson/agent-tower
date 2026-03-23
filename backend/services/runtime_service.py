@@ -16,7 +16,7 @@ import dataclasses
 import enum
 import re
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import structlog
 
@@ -118,6 +118,7 @@ _HEARTBEAT_WARNING_S = 90
 _HEARTBEAT_TIMEOUT_S = 300  # 5 minutes
 
 # Default prompts for post-completion verification and self-review turns
+DEFAULT_VERIFY_PROMPT = (
 DEFAULT_VERIFY_PROMPT = (
     "You are now running a post-task verification pass. "
     "Start with a single short sentence announcing this — e.g. 'Running lint and tests.' "
@@ -511,9 +512,9 @@ class RuntimeService:
                 await self._utility_session.notify_job_started()
 
         # Start telemetry tracking — init OTEL spans and SQLite summary row.
-        from backend.services import telemetry as tel
-
         import time as _time
+
+        from backend.services import telemetry as tel
 
         tel.start_job_span(job_id, sdk=config.sdk, model=config.model or "")
 
@@ -761,7 +762,9 @@ class RuntimeService:
                     duration = int((_time.monotonic() - _job_wall_start) * 1000)
 
                     await TelemetrySummaryRepo(session).finalize(
-                        job_id, status=status, duration_ms=duration,
+                        job_id,
+                        status=status,
+                        duration_ms=duration,
                     )
                     await session.commit()
 
