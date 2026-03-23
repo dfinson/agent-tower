@@ -1,16 +1,15 @@
 import { Component, type ReactNode, Suspense, useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Routes, Route, Link, useNavigate } from "react-router-dom";
-import { Settings, History, TerminalSquare, Search, BarChart3 } from "lucide-react";
+import { Search } from "lucide-react";
 import { CommandPalette } from "./components/CommandPalette";
+import { NavMenuSlideout } from "./components/NavMenuSlideout";
 import { useSSE } from "./hooks/useSSE";
 import { useStore, selectConnectionStatus } from "./store";
 import { DashboardScreen } from "./components/DashboardScreen";
 import { DotBadge } from "./components/ui/badge";
 import { Spinner } from "./components/ui/spinner";
-import { Tooltip } from "./components/ui/tooltip";
 import { lazyRetry } from "./lib/lazyRetry";
-import { useIsMobile } from "./hooks/useIsMobile";
 
 const JobDetailScreen = lazyRetry(() =>
   import("./components/JobDetailScreen").then((module) => ({ default: module.JobDetailScreen })),
@@ -107,10 +106,8 @@ function RouteFallback() {
 export function App() {
   useSSE();
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
   const toggleTerminalDrawer = useStore((s) => s.toggleTerminalDrawer);
   const terminalDrawerOpen = useStore((s) => s.terminalDrawerOpen);
-  const sessionCount = useStore((s) => Object.keys(s.terminalSessions).length);
   const initSdksAndModels = useStore((s) => s.initSdksAndModels);
 
   useEffect(() => {
@@ -166,51 +163,9 @@ export function App() {
           <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-xs">⌘K</kbd>
         </button>
 
-        <div className="flex items-center gap-1 opacity-[0.78]">
+        <div className="flex items-center gap-1">
           <ConnectionStatusIndicator />
-          <Tooltip content={`Terminal${isMobile ? "" : ` (Ctrl+\`)`}${sessionCount > 0 ? ` — ${sessionCount} session${sessionCount > 1 ? "s" : ""}` : ""}`}>
-            <button
-              onClick={toggleTerminalDrawer}
-              aria-label="Toggle terminal"
-              title={`Terminal${isMobile ? "" : ` (Ctrl+\`)`}${sessionCount > 0 ? ` — ${sessionCount} session${sessionCount > 1 ? "s" : ""}` : ""}`}
-              className={`p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors ${
-                terminalDrawerOpen
-                  ? "text-foreground bg-accent"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
-              }`}
-            >
-              <TerminalSquare size={16} />
-            </button>
-          </Tooltip>
-          <Tooltip content="Analytics">
-            <Link
-              to="/analytics"
-              aria-label="Analytics"
-              title="Analytics"
-              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors no-underline"
-            >
-              <BarChart3 size={16} />
-            </Link>
-          </Tooltip>
-          <Tooltip content="Job history">
-            <Link
-              to="/history"
-              aria-label="Job history"
-              title="Job History"
-              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors no-underline"
-            >
-              <History size={16} />
-            </Link>
-          </Tooltip>
-          <Tooltip content={isMobile ? "Settings" : "Settings (⌘,)"}>
-            <Link
-              to="/settings"
-              aria-label={isMobile ? "Settings" : "Settings (⌘,)"}
-              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors no-underline"
-            >
-              <Settings size={16} />
-            </Link>
-          </Tooltip>
+          <NavMenuSlideout />
         </div>
       </header>
 
