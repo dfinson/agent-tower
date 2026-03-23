@@ -56,9 +56,6 @@ _HARD_GATED_SHELL_RE = re.compile(
 )
 
 
-# Read-only shell commands that are always safe.
-# Covers Unix (grep, ls, cat …), Windows cmd (dir, findstr, where …),
-# and PowerShell cmdlets (Get-ChildItem, Select-String …).
 # ---------------------------------------------------------------------------
 # Hard-blocked commands — always require explicit operator approval,
 # regardless of permission mode or trust level.
@@ -85,6 +82,11 @@ def is_git_reset_hard(command: str) -> bool:
     return bool(_GIT_RESET_HARD_RE.search(command))
 
 
+# ---------------------------------------------------------------------------
+# Read-only shell commands that are always safe.
+# Covers Unix (grep, ls, cat …), Windows cmd (dir, findstr, where …),
+# and PowerShell cmdlets (Get-ChildItem, Select-String …).
+# ---------------------------------------------------------------------------
 _READONLY_SHELL_RE = re.compile(
     r"^\s*("
     # Unix
