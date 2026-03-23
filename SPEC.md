@@ -2638,7 +2638,7 @@ If no heartbeat is received for a running session within 90 seconds:
 CodePlane uses **password-based authentication** for remote access and **localhost trust** for local access:
 
 1. **Localhost binding**: The backend binds to `127.0.0.1` by default, making it accessible only from the local machine. Localhost requests bypass password auth entirely.
-2. **Password auth for remote access**: When `--remote` is used, a password is required. It is set explicitly (`--password`, `CPL_TUNNEL_PASSWORD` env var / `.env`) or auto-generated. Remote clients must authenticate via the login page; sessions use httpOnly cookies with 24h expiry.
+2. **Password auth for remote access**: When `--remote` is used, a password is required. It is set explicitly (`--password`, `CPL_DEVTUNNEL_PASSWORD` env var / `.env`) or auto-generated. Remote clients must authenticate via the login page; sessions use httpOnly cookies with 24h expiry.
 3. **Tunnel relay transport**: Remote traffic reaches the server through a Dev Tunnel relay URL. Password authentication remains the application-level access control.
 
 This means:
