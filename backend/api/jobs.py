@@ -294,6 +294,7 @@ async def get_job_logs(
     svc: FromDishka[JobService],
     level: Annotated[str, Query(pattern="^(debug|info|warn|error)$")] = "debug",
     limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
+    session: Annotated[int | None, Query(ge=1, description="Filter to a specific session number (1-based)")] = None,
 ) -> list[LogLinePayload]:
     """Return historical log lines for a job, filtered by minimum severity.
 
@@ -302,22 +303,35 @@ async def get_job_logs(
     - ``info``   → info, warn, error
     - ``warn``   → warn, error
     - ``error``  → error only
+
+    ``session`` optionally restricts results to a single session number.
+    Session 1 is the initial run; subsequent numbers correspond to resume/
+    handoff sessions.  Omit to return logs from all sessions.
     """
     _level_order = {"debug": 0, "info": 1, "warn": 2, "error": 3}
     min_priority = _level_order.get(level, 0)
     events = await svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=limit)
-    return [
-        LogLinePayload(
-            job_id=event.job_id,
-            seq=event.payload.get("seq", 0),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-            level=event.payload.get("level", "info"),
-            message=event.payload.get("message", ""),
-            context=event.payload.get("context"),
+    lines = []
+    for event in events:
+        p = event.payload
+        event_level = p.get("level", "info")
+        if _level_order.get(event_level, 1) < min_priority:
+            continue
+        event_session = p.get("session_number")
+        if session is not None and event_session != session:
+            continue
+        lines.append(
+            LogLinePayload(
+                job_id=event.job_id,
+                seq=p.get("seq", 0),
+                timestamp=p.get("timestamp", event.timestamp),
+                level=event_level,
+                message=p.get("message", ""),
+                context=p.get("context"),
+                session_number=event_session,
+            )
         )
-        for event in events
-        if _level_order.get(event.payload.get("level", "info"), 1) >= min_priority
-    ]
+    return lines
 
 
 @router.get("/jobs/{job_id}/diff", response_model=list[DiffFileModel])

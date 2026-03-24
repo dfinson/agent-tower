@@ -469,7 +469,7 @@ class RuntimeService:
                 session_config = dataclasses.replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
 
             task = asyncio.create_task(
-                self._run_job(job.id, agent_session, session_config),
+                self._run_job(job.id, agent_session, session_config, session_number=job.session_count),
                 name=f"job-{job.id}",
             )
         except Exception:
@@ -493,6 +493,7 @@ class RuntimeService:
         job_id: str,
         agent_session: _AgentSession,
         config: SessionConfig,
+        session_number: int = 1,
     ) -> None:
         """Execute the agent session, translate events, and handle completion."""
         import time
@@ -576,6 +577,7 @@ class RuntimeService:
                 config,
                 worktree_path,
                 base_ref,
+                session_number=session_number,
             )
             session_id = result.session_id
             error_reason = result.error_reason
@@ -587,6 +589,7 @@ class RuntimeService:
                     config,
                     worktree_path,
                     base_ref,
+                    session_number=session_number,
                 )
                 session_id = result.session_id
                 error_reason = result.error_reason
@@ -634,7 +637,8 @@ class RuntimeService:
             await self._finalize_diff_safe(job_id, worktree_path, base_ref)
 
             # Run optional verify / self-review follow-up turns
-            await self._run_verify_review(job_id, config, session_id, worktree_path, base_ref)
+            await self._run_verify_review(job_id, config, session_id, worktree_path, base_ref,
+                                          session_number=session_number)
 
             final_resolution = Resolution.unresolved
             final_pr_url: str | None = None
@@ -864,6 +868,25 @@ class RuntimeService:
                 except Exception:
                     log.debug("approval_artifact_failed", job_id=job_id, exc_info=True)
 
+                # Agent log artifact — snapshot of all log_line_emitted events as
+                # a plain-text file, grouped by session for jobs with handoffs.
+                try:
+                    from backend.models.events import DomainEventKind as DomainEventKindAlias
+                    from backend.persistence.event_repo import EventRepository
+
+                    event_repo = EventRepository(session)
+                    log_events = await event_repo.list_by_job(
+                        job_id, [DomainEventKindAlias.log_line_emitted], limit=10000
+                    )
+                    if log_events:
+                        await artifact_svc.store_log_artifact(
+                            job_id,
+                            [e.payload for e in log_events],
+                            slug=slug,
+                        )
+                except Exception:
+                    log.debug("log_artifact_failed", job_id=job_id, exc_info=True)
+
                 await session.commit()
         except Exception:
             log.warning("post_completion_artifacts_failed", job_id=job_id, exc_info=True)
@@ -973,6 +996,7 @@ class RuntimeService:
         config: SessionConfig,
         worktree_path: str | None,
         base_ref: str | None,
+        session_number: int = 1,
     ) -> _SessionAttemptResult:
         """Try a fresh session after a failed resume."""
         import dataclasses
@@ -1002,6 +1026,7 @@ class RuntimeService:
             fallback_config,
             worktree_path,
             base_ref,
+            session_number=session_number,
         )
         return fallback_result
 
@@ -1122,6 +1147,7 @@ class RuntimeService:
         config: SessionConfig,
         worktree_path: str | None,
         base_ref: str | None,
+        session_number: int = 1,
     ) -> _SessionAttemptResult:
         session_id: str | None = None
         error_reason: str | None = None
@@ -1183,6 +1209,11 @@ class RuntimeService:
                 tool_intent = str(domain_event.payload.get("tool_intent") or "")
                 self._progress_tracking.feed_transcript(job_id, role, content, tool_intent)
 
+            # Tag log lines with the current session number so callers can filter
+            # by session when a job has been resumed one or more times.
+            if domain_event.kind == DomainEventKind.log_line_emitted:
+                domain_event.payload.setdefault("session_number", session_number)
+
             await self._event_bus.publish(domain_event)
 
         return _SessionAttemptResult(
@@ -1200,6 +1231,7 @@ class RuntimeService:
         resume_session_id: str | None,
         worktree_path: str | None,
         base_ref: str | None,
+        session_number: int = 1,
     ) -> tuple[str | None, str | None]:
         """Run a single follow-up agent turn (verify or self-review).
 
@@ -1249,6 +1281,9 @@ class RuntimeService:
                     self._session_ids[job_id] = new_session_id
                     await self._persist_sdk_session_id(job_id, new_session_id)
 
+                if domain_event.kind == DomainEventKind.log_line_emitted:
+                    domain_event.payload.setdefault("session_number", session_number)
+
                 await self._event_bus.publish(domain_event)
         except Exception:
             log.warning("followup_turn_failed", job_id=job_id, exc_info=True)
@@ -1263,6 +1298,7 @@ class RuntimeService:
         session_id: str | None,
         worktree_path: str | None,
         base_ref: str | None,
+        session_number: int = 1,
     ) -> None:
         """Run optional verify and self-review turns after the main agent session."""
         job: Job | None = None
@@ -1306,7 +1342,8 @@ class RuntimeService:
             for turn in range(1, max_turns + 1):
                 log.info("verify_turn_start", job_id=job_id, turn=turn, max_turns=max_turns)
                 new_sid, error = await self._run_followup_turn(
-                    job_id, verify_prompt, base_config, current_session_id, worktree_path, base_ref
+                    job_id, verify_prompt, base_config, current_session_id, worktree_path, base_ref,
+                    session_number=session_number,
                 )
                 if new_sid:
                     current_session_id = new_sid
@@ -1318,7 +1355,8 @@ class RuntimeService:
         if do_self_review:
             log.info("self_review_start", job_id=job_id)
             new_sid, error = await self._run_followup_turn(
-                job_id, self_review_prompt, base_config, current_session_id, worktree_path, base_ref
+                job_id, self_review_prompt, base_config, current_session_id, worktree_path, base_ref,
+                session_number=session_number,
             )
             if new_sid:
                 current_session_id = new_sid
