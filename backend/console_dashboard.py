@@ -241,6 +241,27 @@ class ConsoleDashboard:
             icon = _STATE_ICON.get(new_state, "?")
             self._recent_events.append((ts, f"{icon} {event.job_id}  → {new_state}"))
 
+        elif kind in (
+            DomainEventKind.job_succeeded,
+            DomainEventKind.job_failed,
+            DomainEventKind.job_canceled,
+        ):
+            # These dedicated terminal events are the authoritative signal that a
+            # job has finished — job_state_changed is NOT published for terminal
+            # transitions, so we must handle them here.
+            new_state = {
+                DomainEventKind.job_succeeded: "succeeded",
+                DomainEventKind.job_failed: "failed",
+                DomainEventKind.job_canceled: "canceled",
+            }[kind]
+            if event.job_id not in self._jobs:
+                self._jobs[event.job_id] = _JobRow(job_id=event.job_id, state=new_state)
+            else:
+                self._jobs[event.job_id].state = new_state
+            self._jobs[event.job_id].completed_at = time.monotonic()
+            icon = _STATE_ICON.get(new_state, "?")
+            self._recent_events.append((ts, f"{icon} {event.job_id}  → {new_state}"))
+
         elif kind == DomainEventKind.job_title_updated:
             title = event.payload.get("title")
             if title and event.job_id in self._jobs:
@@ -362,7 +383,7 @@ class ConsoleDashboard:
             err_title = f"[bold red]Errors — {', '.join(parts)}[/bold red]"
 
         if self._errors:
-            err_content: ConsoleRenderable = Text()
+            err_content = Text()
             for entry in self._errors:
                 err_content.append(f"{entry.timestamp}  ", style="dim")
                 err_content.append(f"{entry.logger_name}  ", style="dim cyan")
