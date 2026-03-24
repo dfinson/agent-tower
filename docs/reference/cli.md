@@ -23,7 +23,10 @@ uv run cpl up [options]
 | `--remote` | Enable Dev Tunnels for remote access | disabled |
 | `--dev` | Skip frontend build (backend-only development) | disabled |
 | `--port PORT` | Server port | `8080` |
-| `--password SECRET` | Tunnel authentication password | from `CPL_TUNNEL_PASSWORD` env var |
+| `--password SECRET` | Tunnel authentication password | from `CPL_DEVTUNNEL_PASSWORD` env var |
+| `--provider PROVIDER` | Tunnel provider (`devtunnel` or `cloudflare`) | `devtunnel` |
+| `--tunnel-name NAME` | Dev Tunnel name (reused across restarts) | random |
+| `--skip-preflight` | Skip preflight checks | disabled |
 
 **Examples:**
 
@@ -45,6 +48,36 @@ On startup, the server:
 3. Starts the FastAPI server
 4. Opens Dev Tunnels (if `--remote`)
 5. Marks any previously-running jobs as failed (restart recovery)
+
+### `cpl down`
+
+Gracefully stop the CodePlane server.
+
+```bash
+uv run cpl down [options]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--host HOST` | Server host | from config or `127.0.0.1` |
+| `--port PORT` | Server port | from config or `8080` |
+| `--force` | Skip session pausing; stop immediately | disabled |
+
+On shutdown, active sessions are paused for recovery on next start.
+
+### `cpl restart`
+
+Stop and restart the server, preserving sessions for recovery.
+
+```bash
+uv run cpl restart [options]
+```
+
+Accepts all `cpl up` options plus:
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--force` | Skip session pausing on shutdown | disabled |
 
 ### `cpl version`
 

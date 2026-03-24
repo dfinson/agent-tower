@@ -78,6 +78,7 @@ nav:
       - Remote Access: guide/remote-access.md
       - Command Palette: guide/command-palette.md
       - History: guide/history.md
+      - Analytics: guide/analytics.md
       - MCP Server: guide/mcp-server.md
   - Reference:
       - reference/index.md

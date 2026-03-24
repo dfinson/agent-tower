@@ -6,7 +6,10 @@ CodePlane can be configured through environment variables, a global config file,
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CPL_TUNNEL_PASSWORD` | Password for Dev Tunnels remote access | _(none — tunnel has no auth)_ |
+| `CPL_DEVTUNNEL_PASSWORD` | Password for Dev Tunnels remote access | _(auto-generated with --remote)_ |
+| `CPL_CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare Tunnel token | _(none)_ |
+| `CPL_CLOUDFLARE_HOSTNAME` | Cloudflare public hostname | _(none)_ |
+| `OTEL_EXPORTER_ENDPOINT` | OTLP exporter endpoint | _(none — local only)_ |
 
 Set these in your `.env` file (copied from `.env.sample`).
 

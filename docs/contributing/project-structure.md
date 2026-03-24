@@ -14,7 +14,8 @@ codeplane/
 │   │   ├── settings.py               #   Settings + repos + SDKs/models
 │   │   ├── terminal.py               #   Terminal session management
 │   │   ├── voice.py                   #   Voice transcription
-│   │   └── workspace.py              #   Workspace file browsing
+│   │   ├── workspace.py              #   Workspace file browsing
+│   │   └── analytics.py              #   Fleet-level analytics endpoints
 │   ├── mcp/                           # MCP orchestration server
 │   │   └── server.py                  #   MCP tool definitions
 │   ├── services/                      # Business logic

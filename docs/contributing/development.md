@@ -29,6 +29,15 @@ uv run cpl up --dev
 
 # Custom port
 uv run cpl up --port 9090
+
+# Cloudflare Tunnel
+uv run cpl up --remote --provider cloudflare
+
+# Stop server
+uv run cpl down
+
+# Restart (preserves sessions)
+uv run cpl restart
 ```
 
 The server runs on `http://localhost:8080` and serves the built frontend from `frontend/dist/`.

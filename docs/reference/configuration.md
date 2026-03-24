@@ -6,7 +6,11 @@ CodePlane is configured through environment variables, a global YAML config file
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CPL_TUNNEL_PASSWORD` | Password for Dev Tunnels remote access | _(none)_ |
+| `CPL_DEVTUNNEL_PASSWORD` | Password for Dev Tunnels remote access | _(auto-generated with --remote)_ |
+| `CPL_DEVTUNNEL_NAME` | Dev Tunnel name (reused across restarts) | _(random)_ |
+| `CPL_CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare Tunnel token | _(none)_ |
+| `CPL_CLOUDFLARE_HOSTNAME` | Cloudflare public hostname | _(none)_ |
+| `OTEL_EXPORTER_ENDPOINT` | OTLP exporter endpoint for metrics/traces | _(none — local only)_ |
 
 ## Global Config File
 
@@ -37,7 +41,7 @@ agent:
 ```yaml
 tunnel:
   enabled: false                # auto-enabled by --remote flag
-  password: ~                   # overridden by CPL_TUNNEL_PASSWORD
+  password: ~                   # overridden by CPL_DEVTUNNEL_PASSWORD
 ```
 
 ### Retention
@@ -63,6 +67,21 @@ heartbeat:
   interval_seconds: 30          # emit heartbeat every N seconds
   warn_after_seconds: 90        # warn if no heartbeat for N seconds
   fail_after_seconds: 300       # fail job if no heartbeat for N seconds
+```
+
+### Tunnel
+
+```yaml
+tunnel:
+  provider: devtunnel      # devtunnel | cloudflare
+  password: ~              # overridden by CPL_DEVTUNNEL_PASSWORD or --password
+```
+
+### OTEL Export
+
+```yaml
+# Optional: push metrics/traces to an external collector
+# Set OTEL_EXPORTER_ENDPOINT env var to enable
 ```
 
 ## Per-Repository Overrides

@@ -7,6 +7,8 @@ These work from anywhere in the CodePlane UI.
 | Shortcut | Action |
 |----------|--------|
 | `Alt+N` | Create new job |
+| `Alt+J` | Go to dashboard |
+| `Alt+A` | Open analytics |
 | `⌘K` / `Ctrl+K` | Open command palette |
 | `⌘,` / `Ctrl+,` | Open settings |
 | ``Ctrl+` `` | Toggle terminal drawer |
