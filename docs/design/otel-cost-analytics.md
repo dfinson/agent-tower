@@ -699,20 +699,20 @@ GROUP BY execution_phase;
 **Waste Detection:**
 
 ```sql
--- Jobs with highest retry/rework waste
+-- Jobs with highest retry waste
 SELECT
     s.job_id,
     s.total_cost_usd,
     a.retry_count,
-    a.rework_cost_usd,
-    ROUND(a.rework_cost_usd / NULLIF(s.total_cost_usd, 0) * 100, 1)
-        as waste_pct,
-    a.reasoning_loop_count,
-    a.compaction_reread_cost
+    a.retry_cost_usd,
+    ROUND(a.retry_cost_usd / NULLIF(s.total_cost_usd, 0) * 100, 1)
+        as retry_pct,
+    a.max_consecutive_llm_turns,
+    a.compaction_reread_tokens
 FROM job_telemetry_summary s
 JOIN job_cost_attribution a ON s.job_id = a.job_id
 WHERE s.completed_at > datetime('now', '-30 days')
-ORDER BY waste_pct DESC
+ORDER BY retry_pct DESC
 LIMIT 20;
 ```
 
