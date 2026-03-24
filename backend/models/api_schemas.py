@@ -95,6 +95,7 @@ class TranscriptRole(StrEnum):
     agent = "agent"
     operator = "operator"
     tool_call = "tool_call"
+    tool_running = "tool_running"
     reasoning = "reasoning"
     divider = "divider"
 
@@ -381,6 +382,7 @@ class TranscriptPayload(CamelModel):
     tool_intent: str | None = None  # role=tool_call: SDK-provided intent string
     tool_title: str | None = None  # role=tool_call: SDK-provided display title
     tool_display: str | None = None  # role=tool_call: deterministic per-tool label
+    tool_duration_ms: int | None = None  # role=tool_call: execution time in milliseconds
     tool_group_summary: str | None = None  # AI-generated summary for the tool group turn
 
 

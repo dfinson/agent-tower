@@ -399,6 +399,7 @@ async def get_job_transcript(
             tool_intent=event.payload.get("tool_intent"),
             tool_title=event.payload.get("tool_title"),
             tool_display=event.payload.get("tool_display"),
+            tool_duration_ms=event.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(event.payload.get("turn_id") or ""),
         )
         for event in events
@@ -503,6 +504,7 @@ async def get_job_snapshot(
             tool_intent=e.payload.get("tool_intent"),
             tool_title=e.payload.get("tool_title"),
             tool_display=e.payload.get("tool_display"),
+            tool_duration_ms=e.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
         )
         for e in transcript_events
