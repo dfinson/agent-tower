@@ -434,7 +434,7 @@ export const useStore = create<AppState>((set, get) => ({
             let approvals = state.approvals;
             if (newState !== "waiting_for_approval") {
               const staleIds = Object.keys(state.approvals).filter(
-                (id) => state.approvals[id].jobId === jobId && !state.approvals[id].resolvedAt,
+                (id) => state.approvals[id]?.jobId === jobId && !state.approvals[id]?.resolvedAt,
               );
               if (staleIds.length > 0) {
                 approvals = { ...state.approvals };
