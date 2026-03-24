@@ -433,18 +433,6 @@ class JobService:
             sdk=original.sdk,
         )
 
-    async def continue_job(self, job_id: str, instruction: str) -> Job:
-        """Create a follow-up job using a new instruction on the same repo/config."""
-        original = await self.get_job(job_id)
-        return await self.create_job(
-            repo=original.repo,
-            prompt=instruction,
-            base_ref=original.base_ref,
-            permission_mode=original.permission_mode,
-            model=original.model,
-            sdk=original.sdk,
-        )
-
     async def count_active_jobs(self) -> int:
         """Count currently active (non-terminal) jobs."""
         jobs = await self._job_repo.list(
@@ -576,9 +564,3 @@ class JobService:
             kind=DomainEventKind.job_archived,
             payload={},
         )
-
-    async def unarchive_job(self, job_id: str) -> Job:
-        """Unarchive a job (show on Kanban board again)."""
-        await self.get_job(job_id)
-        await self._job_repo.update_archived_at(job_id, None)
-        return await self.get_job(job_id)

@@ -156,6 +156,12 @@ class ResumeJobRequest(CamelModel):
 class ContinueJobRequest(CamelModel):
     instruction: str = Field(min_length=1, max_length=10_000)
 
+    @model_validator(mode="after")
+    def _validate_instruction_not_blank(self) -> ContinueJobRequest:
+        if not self.instruction.strip():
+            raise ValueError("Instruction must not be blank")
+        return self
+
 
 class ResolveApprovalRequest(CamelModel):
     resolution: ApprovalResolution

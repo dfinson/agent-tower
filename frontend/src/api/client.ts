@@ -506,12 +506,6 @@ export function archiveJob(jobId: string): Promise<void> {
   });
 }
 
-export function unarchiveJob(jobId: string): Promise<void> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/unarchive`, {
-    method: "POST",
-  });
-}
-
 // --- Voice ---
 
 export async function transcribeAudio(audio: Blob): Promise<string> {

@@ -243,18 +243,10 @@ async def pause_job(
 async def continue_job(
     job_id: str,
     body: ContinueJobRequest,
-    svc: FromDishka[JobService],
-    session: FromDishka[AsyncSession],
     runtime_service: FromDishka[RuntimeService],
 ) -> CreateJobResponse:
-    """Create a follow-up job with a new instruction on the same repo/config."""
-    job = await svc.continue_job(job_id, body.instruction)
-
-    await session.commit()
-
-    if job.state != JobState.failed:
-        await runtime_service.start_or_enqueue(job)
-        job = await svc.get_job(job.id)
+    """Create a follow-up job with a new instruction and parent-job handoff context."""
+    job = await runtime_service.create_followup_job(job_id, body.instruction)
 
     return CreateJobResponse(
         id=job.id,
@@ -790,8 +782,7 @@ async def archive_job(
 async def unarchive_job(
     job_id: str,
     svc: FromDishka[JobService],
-    session: FromDishka[AsyncSession],
 ) -> None:
-    """Unarchive a job (show on Kanban board again)."""
-    await svc.unarchive_job(job_id)
-    await session.commit()
+    """Archived jobs are final and cannot be returned to the active board."""
+    await svc.get_job(job_id)
+    raise HTTPException(status_code=409, detail="Archived jobs are complete; create a follow-up job instead.")

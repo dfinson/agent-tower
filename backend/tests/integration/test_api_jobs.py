@@ -330,19 +330,26 @@ class TestJobControl:
     async def test_continue_job(
         self,
         client: AsyncClient,
-        seed_job: SeedJobFn,
         mock_runtime_service: AsyncMock,
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="cont-1")
+        mock_runtime_service.create_followup_job.side_effect = None
+        mock_runtime_service.create_followup_job.return_value = MagicMock(
+            id="cont-2",
+            state="running",
+            title="Follow-up task",
+            branch="cpl/cont-2",
+            worktree_path="/tmp/cont-2",
+            sdk="copilot",
+            created_at=datetime.now(UTC),
+        )
         resp = await client.post(
-            f"/api/jobs/{jid}/continue",
+            "/api/jobs/cont-1/continue",
             json={"instruction": "Add tests"},
         )
         assert resp.status_code == 201
         data = resp.json()
-        # New follow-up job created
-        assert data["id"] != jid
-        mock_runtime_service.start_or_enqueue.assert_called()
+        assert data["id"] == "cont-2"
+        mock_runtime_service.create_followup_job.assert_awaited_once_with("cont-1", "Add tests")
 
     async def test_continue_not_found(self, client: AsyncClient) -> None:
         resp = await client.post(
@@ -354,6 +361,11 @@ class TestJobControl:
     async def test_continue_missing_instruction(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         jid = await seed_job(state="succeeded", job_id="cont-missing")
         resp = await client.post(f"/api/jobs/{jid}/continue", json={})
+        assert resp.status_code == 422
+
+    async def test_continue_blank_instruction(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
+        jid = await seed_job(state="succeeded", job_id="cont-blank")
+        resp = await client.post(f"/api/jobs/{jid}/continue", json={"instruction": "   "})
         assert resp.status_code == 422
 
     # ── Resume ──
@@ -695,17 +707,15 @@ class TestJobResolution:
 
     # ── Unarchive ──
 
-    async def test_unarchive_job(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
+    async def test_unarchive_job_returns_409(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         jid = await seed_job(
             state="succeeded",
             job_id="unarch-1",
             archived_at=datetime.now(UTC),
         )
         resp = await client.post(f"/api/jobs/{jid}/unarchive")
-        assert resp.status_code == 204
-
-        get_resp = await client.get(f"/api/jobs/{jid}")
-        assert get_resp.json()["archivedAt"] is None
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Archived jobs are complete; create a follow-up job instead."
 
     async def test_unarchive_not_found(self, client: AsyncClient) -> None:
         resp = await client.post("/api/jobs/ghost/unarchive")
