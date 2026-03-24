@@ -282,6 +282,7 @@ export function JobDetailScreen() {
   if (!jobId) return null;
 
   if (loading && showSkeleton) return <JobDetailSkeleton />;
+  if (loading) return null;
 
   if (!job) {
     return (
