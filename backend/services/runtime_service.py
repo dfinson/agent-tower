@@ -22,13 +22,13 @@ import structlog
 
 from backend.config import build_session_config
 from backend.models.domain import (
+    TERMINAL_STATES,
     Job,
     JobState,
     Resolution,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
-    TERMINAL_STATES,
 )
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.progress_tracking_service import ProgressTrackingService
@@ -1390,9 +1390,8 @@ class RuntimeService:
                         task.cancel()
                     return
 
-                if since_last >= _HEARTBEAT_WARNING_S:
-                    if job_id not in self._waiting_for_approval:
-                        log.warning("job_heartbeat_warning", job_id=job_id, idle_s=since_last)
+                if since_last >= _HEARTBEAT_WARNING_S and job_id not in self._waiting_for_approval:
+                    log.warning("job_heartbeat_warning", job_id=job_id, idle_s=since_last)
 
                 session_id = self._session_ids.get(job_id, "")
                 await self._event_bus.publish(
@@ -1618,19 +1617,17 @@ class RuntimeService:
         except Exception:
             log.warning("clear_sdk_session_id_failed", job_id=job_id, exc_info=True)
 
-    async def _build_resume_handoff_prompt_for_job(
+    async def _load_handoff_context_for_job(
         self,
         session: AsyncSession,
         job: Job,
-        instruction: str,
-        session_number: int,
-    ) -> str:
+    ) -> tuple[str | None, list[str]]:
         from pathlib import Path
 
         from backend.persistence.artifact_repo import ArtifactRepository
         from backend.persistence.event_repo import EventRepository
         from backend.services.artifact_service import ArtifactService
-        from backend.services.summarization_service import _build_resume_prompt, _extract_changed_files
+        from backend.services.summarization_service import _extract_changed_files
 
         artifact_repo = ArtifactRepository(session)
         artifact_svc = ArtifactService(artifact_repo)
@@ -1708,7 +1705,30 @@ class RuntimeService:
             except Exception:
                 log.warning("summary_read_failed", job_id=job.id, exc_info=True)
 
+        return summary_text, changed_files
+
+    async def _build_resume_handoff_prompt_for_job(
+        self,
+        session: AsyncSession,
+        job: Job,
+        instruction: str,
+        session_number: int,
+    ) -> str:
+        from backend.services.summarization_service import _build_resume_prompt
+
+        summary_text, changed_files = await self._load_handoff_context_for_job(session, job)
         return _build_resume_prompt(summary_text, changed_files, instruction, session_number, job.id, job.prompt)
+
+    async def _build_followup_handoff_prompt_for_job(
+        self,
+        session: AsyncSession,
+        job: Job,
+        instruction: str,
+    ) -> str:
+        from backend.services.summarization_service import _build_followup_prompt
+
+        summary_text, changed_files = await self._load_handoff_context_for_job(session, job)
+        return _build_followup_prompt(summary_text, changed_files, instruction, job.id, job.prompt)
 
     async def _build_resume_handoff_prompt(self, job_id: str, instruction: str) -> str:
         """Build the opaque handoff prompt used when native resume is unavailable."""
@@ -1721,6 +1741,48 @@ class RuntimeService:
             if job is None:
                 raise JobNotFoundError(f"Job {job_id} does not exist.")
             return await self._build_resume_handoff_prompt_for_job(session, job, instruction, job.session_count)
+
+    async def create_followup_job(self, job_id: str, instruction: str) -> Job:
+        """Create and start a new follow-up job with parent-job handoff context."""
+        from backend.models.domain import PermissionMode
+        from backend.services.job_service import JobNotFoundError
+
+        normalized_instruction = instruction.strip()
+        if not normalized_instruction:
+            raise ValueError("Follow-up instruction must not be empty")
+
+        async with self._session_factory() as session:
+            svc = self._make_job_service(session)
+            original = await svc.get_job(job_id)
+            if original is None:
+                raise JobNotFoundError(f"Job {job_id} does not exist.")
+
+            override_prompt = await self._build_followup_handoff_prompt_for_job(
+                session,
+                original,
+                normalized_instruction,
+            )
+            followup = await svc.create_job(
+                repo=original.repo,
+                prompt=normalized_instruction,
+                base_ref=original.base_ref,
+                permission_mode=original.permission_mode or PermissionMode.auto,
+                model=original.model,
+                sdk=original.sdk,
+                verify=original.verify,
+                self_review=original.self_review,
+                max_turns=original.max_turns,
+                verify_prompt=original.verify_prompt,
+                self_review_prompt=original.self_review_prompt,
+            )
+            await session.commit()
+
+        if followup.state != JobState.failed:
+            await self.start_or_enqueue(followup, override_prompt=override_prompt)
+            async with self._session_factory() as session:
+                followup = await self._make_job_service(session).get_job(followup.id)
+
+        return followup
 
     async def resume_job(self, job_id: str, instruction: str | None = None) -> Job:
         """Resume a terminal job in-place.

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
@@ -31,6 +33,7 @@ from backend.models.db import Base
 from backend.models.domain import (
     Job,
     JobState,
+    PermissionMode,
     Resolution,
     SessionConfig,
     SessionEvent,
@@ -237,6 +240,50 @@ async def _create_db_job(
         )
         session.add(row)
         await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_create_followup_job_uses_parent_handoff_context(runtime: RuntimeService) -> None:
+    parent = _make_job(job_id="parent", state=JobState.succeeded)
+    parent.permission_mode = PermissionMode.read_only
+    parent.model = "gpt-5.4"
+    parent.sdk = "claude"
+    parent.verify = True
+    parent.self_review = True
+    parent.max_turns = 4
+    parent.verify_prompt = "Verify this carefully"
+    parent.self_review_prompt = "Review your work"
+
+    child = _make_job(job_id="child", state=JobState.queued)
+    child.prompt = "Add regression coverage"
+
+    fake_service = SimpleNamespace(
+        get_job=AsyncMock(side_effect=[parent, child]),
+        create_job=AsyncMock(return_value=child),
+    )
+    runtime._make_job_service = lambda session: fake_service  # type: ignore[method-assign]
+    runtime._build_followup_handoff_prompt_for_job = AsyncMock(return_value="FOLLOWUP HANDOFF")  # type: ignore[method-assign]
+    runtime.start_or_enqueue = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    result = await runtime.create_followup_job("parent", "  Add regression coverage  ")
+
+    assert result is child
+    assert fake_service.get_job.await_args_list[0].args == ("parent",)
+    fake_service.create_job.assert_awaited_once_with(
+        repo=parent.repo,
+        prompt="Add regression coverage",
+        base_ref=parent.base_ref,
+        permission_mode=PermissionMode.read_only,
+        model="gpt-5.4",
+        sdk="claude",
+        verify=True,
+        self_review=True,
+        max_turns=4,
+        verify_prompt="Verify this carefully",
+        self_review_prompt="Review your work",
+    )
+    runtime.start_or_enqueue.assert_awaited_once_with(child, override_prompt="FOLLOWUP HANDOFF")
+    assert fake_service.get_job.await_args_list[1].args == ("child",)
 
 
 class ResumeFallbackAdapter(AgentAdapterInterface):
@@ -1550,10 +1597,8 @@ class TestHeartbeatWaitingForApproval:
             heartbeat_task = asyncio.create_task(runtime._heartbeat_loop(job.id))
             await asyncio.sleep(0.05)
             heartbeat_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
-            except asyncio.CancelledError:
-                pass
         finally:
             rs_mod._HEARTBEAT_INTERVAL_S = original_interval  # type: ignore[attr-defined]
 
@@ -1603,10 +1648,8 @@ class TestHeartbeatWaitingForApproval:
             heartbeat_task = asyncio.create_task(runtime._heartbeat_loop(job.id))
             await asyncio.sleep(0.05)
             heartbeat_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
-            except asyncio.CancelledError:
-                pass
         finally:
             rs_mod._HEARTBEAT_INTERVAL_S = original_interval  # type: ignore[attr-defined]
 
