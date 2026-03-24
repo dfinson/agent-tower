@@ -363,6 +363,7 @@ class LogLinePayload(CamelModel):
     level: LogLevel
     message: str
     context: dict[str, Any] | None = None
+    session_number: int | None = None
 
 
 class TranscriptPayload(CamelModel):
