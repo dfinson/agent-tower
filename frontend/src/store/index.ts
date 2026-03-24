@@ -92,6 +92,7 @@ export interface TranscriptEntry {
   toolIntent?: string;   // tool_call: SDK-provided intent string (deterministic label)
   toolTitle?: string;    // tool_call: SDK-provided display title
   toolDisplay?: string;  // tool_call: deterministic per-tool label (e.g. "$ ls -la", "Read src/main.py")
+  toolDurationMs?: number;  // tool_call: execution time in milliseconds
   // AI-generated group summary — patched in asynchronously via tool_group_summary SSE
   toolGroupSummary?: string;
 }
@@ -493,8 +494,27 @@ export const useStore = create<AppState>((set, get) => ({
             toolIntent: payload.toolIntent as string | undefined,
             toolTitle: payload.toolTitle as string | undefined,
             toolDisplay: payload.toolDisplay as string | undefined,
+            toolDurationMs: payload.toolDurationMs as number | undefined,
           };
           const existing = state.transcript[jobId] ?? [];
+
+          // When a tool_call arrives, replace any matching tool_running entry
+          // (same turnId + toolName) so the in-progress placeholder is superseded.
+          let base = existing;
+          if (entry.role === "tool_call" && entry.turnId) {
+            const before = base.length;
+            base = base.filter(
+              (e) => !(e.role === "tool_running" && e.turnId === entry.turnId && e.toolName === entry.toolName),
+            );
+            // If we filtered something, skip dedup — the tool_call replaces the tool_running
+            if (base.length < before) {
+              const updated = [...base, entry];
+              return {
+                transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
+              };
+            }
+          }
+
           // Deduplicate: two SSE connections (global + job-scoped) may deliver
           // the same event; skip if identical role+content+timestamp already present.
           if (existing.some((e) => e.timestamp === entry.timestamp && e.role === entry.role && e.content === entry.content)) {

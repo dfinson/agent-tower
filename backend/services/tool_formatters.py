@@ -305,6 +305,19 @@ _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
 }
 
 
+def _humanize_tool_name(name: str) -> str:
+    """Turn snake_case or camelCase tool names into human-readable labels.
+
+    ``search_code`` → ``"Search code"``, ``listAllFiles`` → ``"List all files"``.
+    """
+    import re
+
+    parts = re.sub(r"([a-z])([A-Z])", r"\1 \2", name).replace("_", " ").split()
+    if not parts:
+        return name
+    return parts[0].capitalize() + (" " + " ".join(p.lower() for p in parts[1:]) if len(parts) > 1 else "")
+
+
 def format_tool_display(
     tool_name: str,
     tool_args: str | None,
@@ -321,7 +334,7 @@ def format_tool_display(
     lookup_name = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
     formatter = _FORMATTERS.get(lookup_name)
     if formatter is None:
-        label = tool_name
+        label = _humanize_tool_name(lookup_name)
     else:
         args = _parse_args(tool_args)
         try:

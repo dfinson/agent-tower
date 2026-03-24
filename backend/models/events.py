@@ -72,6 +72,7 @@ class TranscriptPayloadDict(TypedDict, total=False):
     tool_intent: str | None
     tool_title: str | None
     tool_display: str | None
+    tool_duration_ms: int | None
 
 
 class DiffPayloadDict(TypedDict, total=False):

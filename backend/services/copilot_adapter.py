@@ -316,6 +316,7 @@ class CopilotAdapter(AgentAdapterInterface):
         # assistant.reasoning is intentionally NOT mapped — it duplicates
         # the reasoning_text already embedded in assistant.message.
         "tool.execution_complete": SessionEventKind.transcript,
+        "tool.execution_start": SessionEventKind.transcript,
         "session.workspace_file_changed": SessionEventKind.file_changed,
     }
 
@@ -671,6 +672,25 @@ class CopilotAdapter(AgentAdapterInterface):
                         "role": "operator",
                         "content": content,
                     }
+                elif kind_str == "tool.execution_start":
+                    tool_id = (data.tool_call_id or "") if data else ""
+                    buffered = self._tool_call_buffer.get(tool_id, {})
+                    tool_name = buffered.get("tool_name", "tool")
+                    # Drop SDK-internal tools from transcript
+                    if tool_name in ("report_intent",):
+                        return
+                    from backend.services.tool_formatters import format_tool_display
+
+                    event_payload = {
+                        "role": "tool_running",
+                        "content": tool_name,
+                        "tool_name": tool_name,
+                        "tool_args": buffered.get("tool_args"),
+                        "turn_id": buffered.get("turn_id") or (str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None),
+                        "tool_intent": buffered.get("tool_intent"),
+                        "tool_title": buffered.get("tool_title"),
+                        "tool_display": format_tool_display(tool_name, buffered.get("tool_args")),
+                    }
                 elif kind_str == "tool.execution_complete":
                     tool_id = (data.tool_call_id or "") if data else ""
                     buffered = self._tool_call_buffer.pop(tool_id, {})
@@ -699,6 +719,11 @@ class CopilotAdapter(AgentAdapterInterface):
                     tool_args_str = buffered.get("tool_args")
                     success = bool(data.success) if data and data.success is not None else True
                     tool_issue = extract_tool_issue(result_text) if not success else None
+                    # Compute tool execution duration
+                    import time as _time
+
+                    _start = self._tool_start_times.get(tool_id)
+                    dur_ms = int((_time.monotonic() - _start) * 1000) if _start is not None else None
                     event_payload = {
                         "role": "tool_call",
                         "content": tool_name,
@@ -716,6 +741,7 @@ class CopilotAdapter(AgentAdapterInterface):
                             tool_result=result_text or None,
                             tool_success=success,
                         ),
+                        "tool_duration_ms": dur_ms,
                     }
             else:
                 event_payload = payload if isinstance(payload, dict) else {}
