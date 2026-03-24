@@ -137,10 +137,10 @@ class ArtifactService:
     ) -> list[Artifact]:
         """Collect markdown files the agent created in its Copilot session-state folder.
 
-        Scans the top-level of ``{config_dir}/session-state/{sdk_session_id}/``
-        for ``*.md`` files and stores each one as a ``document`` artifact.
-        Subdirectories (e.g. ``checkpoints/``) are intentionally skipped to
-        avoid capturing auto-generated files.
+        Scans the top-level of ``{config_dir}/session-state/{sdk_session_id}/`` and
+        the ``files/`` subdirectory for ``*.md`` files, storing each as a ``document``
+        artifact.  Other subdirectories (e.g. ``checkpoints/``) are intentionally
+        skipped to avoid capturing auto-generated files.
         """
         collected: list[Artifact] = []
         base = config_dir if config_dir is not None else (Path.home() / ".copilot")
@@ -148,40 +148,51 @@ class ArtifactService:
         if not session_dir.is_dir():
             return collected
 
-        for entry in sorted(session_dir.iterdir()):
-            if not entry.is_file() or entry.is_symlink():
+        # Scan the top-level directory and the designated files/ subdirectory.
+        # Other subdirectories (e.g. checkpoints/) are intentionally skipped to
+        # avoid capturing auto-generated files.
+        scan_dirs = [session_dir, session_dir / "files"]
+        for scan_dir in scan_dirs:
+            if not scan_dir.is_dir():
                 continue
-            if entry.suffix.lower() != ".md":
-                continue
-            # Guard against symlink escape (resolved path must stay inside session_dir)
-            if not entry.resolve().is_relative_to(session_dir.resolve()):
-                log.warning("session_storage_artifact_outside_dir", path=str(entry))
-                continue
-            entry_size = entry.stat().st_size
-            if entry_size > _MAX_WORKSPACE_ARTIFACT_BYTES:
-                log.warning("session_storage_artifact_too_large", path=str(entry), size=entry_size)
-                continue
+            for entry in sorted(scan_dir.iterdir()):
+                if not entry.is_file() or entry.is_symlink():
+                    continue
+                if entry.suffix.lower() != ".md":
+                    continue
+                # Guard against symlink escape (resolved path must stay inside session_dir)
+                if not entry.resolve().is_relative_to(session_dir.resolve()):
+                    log.warning("session_storage_artifact_outside_dir", path=str(entry))
+                    continue
+                entry_size = entry.stat().st_size
+                if entry_size > _MAX_WORKSPACE_ARTIFACT_BYTES:
+                    log.warning("session_storage_artifact_too_large", path=str(entry), size=entry_size)
+                    continue
 
-            artifact_id = f"art-{uuid.uuid4().hex[:12]}"
-            disk_dir = _ARTIFACTS_BASE / job_id
-            disk_dir.mkdir(parents=True, exist_ok=True)
-            dest = disk_dir / f"{artifact_id}-{entry.name}"
-            dest.write_bytes(entry.read_bytes())
+                artifact_id = f"art-{uuid.uuid4().hex[:12]}"
+                disk_dir = _ARTIFACTS_BASE / job_id
+                disk_dir.mkdir(parents=True, exist_ok=True)
+                # Preserve the relative sub-path in the artifact name so that two
+                # files with the same filename in different directories remain
+                # distinguishable in the UI (e.g. "plan.md" vs "files/plan.md").
+                relative_name = str(entry.relative_to(session_dir))
+                dest = disk_dir / f"{artifact_id}-{entry.name}"
+                dest.write_bytes(entry.read_bytes())
 
-            mime = _guess_mime(entry.name)
-            art_type = _classify_artifact(entry.name)
-            artifact = Artifact(
-                id=artifact_id,
-                job_id=job_id,
-                name=entry.name,
-                type=art_type,
-                mime_type=mime,
-                size_bytes=dest.stat().st_size,
-                disk_path=str(dest),
-                phase=ExecutionPhase.post_completion,
-                created_at=datetime.now(UTC),
-            )
-            collected.append(await self._repo.create(artifact))
+                mime = _guess_mime(entry.name)
+                art_type = _classify_artifact(entry.name)
+                artifact = Artifact(
+                    id=artifact_id,
+                    job_id=job_id,
+                    name=relative_name,
+                    type=art_type,
+                    mime_type=mime,
+                    size_bytes=dest.stat().st_size,
+                    disk_path=str(dest),
+                    phase=ExecutionPhase.post_completion,
+                    created_at=datetime.now(UTC),
+                )
+                collected.append(await self._repo.create(artifact))
         return collected
 
     async def list_for_job(self, job_id: str) -> list[Artifact]:

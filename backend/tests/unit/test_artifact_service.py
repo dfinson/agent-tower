@@ -172,7 +172,8 @@ class TestCollectFromSessionStorage:
             mod._ARTIFACTS_BASE = orig_base
 
     @pytest.mark.asyncio
-    async def test_ignores_subdirectory_md_files(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
+    async def test_ignores_other_subdirectory_md_files(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
+        """checkpoints/ and other subdirs (except files/) must be skipped."""
         import backend.services.artifact_service as mod
 
         orig_base = mod._ARTIFACTS_BASE
@@ -188,6 +189,54 @@ class TestCollectFromSessionStorage:
             )
             assert len(result) == 1
             assert result[0].name == "plan.md"
+        finally:
+            mod._ARTIFACTS_BASE = orig_base
+
+    @pytest.mark.asyncio
+    async def test_collects_files_subdir_md_files(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
+        """files/ subdirectory is explicitly scanned; names are prefixed with 'files/'."""
+        import backend.services.artifact_service as mod
+
+        orig_base = mod._ARTIFACTS_BASE
+        mod._ARTIFACTS_BASE = tmp_path / "store"
+        try:
+            session_dir = tmp_path / ".copilot" / "session-state" / "sess-abc"
+            files_dir = session_dir / "files"
+            files_dir.mkdir(parents=True)
+            (session_dir / "plan.md").write_text("# Plan")
+            (files_dir / "dummy.md").write_text("# Dummy")
+            (files_dir / "notes.md").write_text("# Notes")
+
+            result = await artifact_service.collect_from_session_storage(
+                "job-1", "sess-abc", config_dir=tmp_path / ".copilot"
+            )
+            assert len(result) == 3
+            names = {a.name for a in result}
+            assert names == {"plan.md", "files/dummy.md", "files/notes.md"}
+            assert all(a.type == ArtifactType.document for a in result)
+        finally:
+            mod._ARTIFACTS_BASE = orig_base
+
+    @pytest.mark.asyncio
+    async def test_files_subdir_name_collision(self, artifact_service: ArtifactService, tmp_path: Path) -> None:
+        """Same filename in top-level and files/ produces two distinct artifacts."""
+        import backend.services.artifact_service as mod
+
+        orig_base = mod._ARTIFACTS_BASE
+        mod._ARTIFACTS_BASE = tmp_path / "store"
+        try:
+            session_dir = tmp_path / ".copilot" / "session-state" / "sess-abc"
+            files_dir = session_dir / "files"
+            files_dir.mkdir(parents=True)
+            (session_dir / "plan.md").write_text("# Top-level plan")
+            (files_dir / "plan.md").write_text("# Files plan")
+
+            result = await artifact_service.collect_from_session_storage(
+                "job-1", "sess-abc", config_dir=tmp_path / ".copilot"
+            )
+            assert len(result) == 2
+            names = {a.name for a in result}
+            assert names == {"plan.md", "files/plan.md"}
         finally:
             mod._ARTIFACTS_BASE = orig_base
 
