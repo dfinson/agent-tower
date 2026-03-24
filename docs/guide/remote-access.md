@@ -4,7 +4,9 @@ CodePlane can be accessed from any device — including your phone — via Dev T
 
 ## Enabling Remote Access
 
-Start the server with the `--remote` flag:
+CodePlane supports two tunnel providers for remote access.
+
+### Dev Tunnels (default)
 
 ```bash
 uv run cpl up --remote
@@ -16,22 +18,40 @@ Or with a password:
 uv run cpl up --remote --password your-secret
 ```
 
-Or use `make run` which enables remote access by default.
-
 The server will print a tunnel URL like:
 
 ```
 https://abc123.devtunnels.ms
 ```
 
-Open this URL on any device to access the CodePlane UI.
+### Cloudflare Tunnels
+
+For a stable, user-managed hostname:
+
+```bash
+uv run cpl up --remote --provider cloudflare
+```
+
+Prerequisites:
+
+1. Create a named tunnel at [Cloudflare Zero Trust](https://one.dash.cloudflare.com/)
+2. Route a public hostname to `localhost:8080`
+3. Set environment variables:
+
+```bash
+export CPL_CLOUDFLARE_TUNNEL_TOKEN=your-token
+export CPL_CLOUDFLARE_HOSTNAME=codeplane.yourdomain.com
+```
+
+Open your configured hostname on any device to access the UI.
 
 ## Security
 
 | Feature | Details |
 |---------|---------|
 | **HTTPS** | All tunnel traffic is encrypted end-to-end |
-| **Password protection** | Set `CPL_TUNNEL_PASSWORD` or use `--password` |
+| **Password protection** | Set `CPL_DEVTUNNEL_PASSWORD` or use `--password` (Dev Tunnels) |
+| **Cloudflare auth** | Managed via Cloudflare Zero Trust access policies |
 | **Localhost trust** | Direct access on `localhost` requires no password |
 
 !!! warning "Without a Password"

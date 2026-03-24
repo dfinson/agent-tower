@@ -43,6 +43,15 @@ In `approval_required` mode, the following operations prompt for approval:
 - Network requests (URLs)
 - MCP tool invocations (mutations)
 
+### Hard-Gated Commands
+
+Some commands **always** require explicit approval regardless of permission mode or trust grants:
+
+- **`git merge`**, **`git pull`**, **`git rebase`**, **`git cherry-pick`** — These bypass CodePlane's merge controls
+- **`git reset --hard`** — Destructive history rewrite
+
+Even if you've clicked "Trust Session", these commands will still prompt for approval. The operator must explicitly approve each one.
+
 ### Configuring Permission Mode
 
 Set the default in your global config:

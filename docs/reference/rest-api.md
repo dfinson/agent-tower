@@ -109,6 +109,17 @@ Valid actions: `merge`, `smart_merge`, `create_pr`, `discard`, `agent_merge`
 | `GET` | `/api/models` | List available models (query: `sdk`) |
 | `GET` | `/api/platforms/status` | Check auth status for all detected git hosting platforms |
 
+## Analytics
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/analytics/overview` | Aggregate analytics (query: `period` in days) |
+| `GET` | `/api/analytics/models` | Per-model cost and usage breakdown |
+| `GET` | `/api/analytics/tools` | Tool performance stats |
+| `GET` | `/api/analytics/repos` | Per-repo cost and usage breakdown |
+| `GET` | `/api/analytics/jobs` | Paginated job telemetry (query: `period`, `sdk`, `model`, `status`, `repo`, `sort`, `limit`, `offset`) |
+| `GET` | `/api/analytics/pricing` | Model pricing lookup from LiteLLM (query: `models`) |
+
 ## SSE Event Stream
 
 | Method | Path | Description |

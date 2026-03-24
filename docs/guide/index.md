@@ -63,6 +63,11 @@ Browse and restore archived jobs.
 </div>
 
 <div class="feature-card" markdown>
+### [Analytics](analytics.md)
+Fleet-level cost trends, model breakdown, and tool health.
+</div>
+
+<div class="feature-card" markdown>
 ### [MCP Server](mcp-server.md)
 Agent-to-agent orchestration via MCP tools.
 </div>

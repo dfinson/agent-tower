@@ -47,7 +47,8 @@ Services contain all business logic. Key services:
 | `PermissionPolicy` | Enforces permission modes (auto/read_only/approval_required) |
 | `PlatformAdapter` | GitHub, Azure DevOps, GitLab integrations |
 | `NamingService` | AI-powered job title generation |
-| `TunnelService` | Dev Tunnels lifecycle management |
+| `TunnelService` | Dev Tunnels and Cloudflare Tunnel management |
+| `AnalyticsService` | Fleet-level analytics aggregation |
 
 ### Repositories (`backend/persistence/`)
 
@@ -111,6 +112,15 @@ The FastAPI dependency provides a database session per request:
 - Auto-commit on success
 - Auto-rollback on exception
 - No manual session management in services
+
+## Telemetry
+
+CodePlane uses OpenTelemetry (OTEL) for metrics and tracing. The telemetry system:
+
+- **Always active** — In-memory metrics reader serves the analytics API
+- **Optional OTLP export** — Set `OTEL_EXPORTER_ENDPOINT` to push to Grafana/Jaeger/Prometheus
+- **Per-job spans** — Each job gets a root span with SDK, model, repo attributes
+- **Instruments** — Counters (tokens, cost, requests), histograms (LLM/tool latency), gauges (context window, quota)
 
 ## MCP Server
 

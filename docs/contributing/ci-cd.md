@@ -39,6 +39,16 @@ The CI pipeline runs three parallel jobs:
 
 CI uses concurrency groups per branch/PR, cancelling in-progress runs when new commits are pushed.
 
+## Model Pricing Updates
+
+A separate workflow updates model pricing data from LiteLLM:
+
+```bash
+python tools/update_model_pricing.py
+```
+
+This fetches current pricing from LiteLLM's public model database and updates `backend/data/model_pricing.json`.
+
 ## Releases
 
 Releases are triggered by pushing a version tag:

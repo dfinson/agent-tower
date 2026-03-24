@@ -21,6 +21,8 @@ Press `⌘K` (Mac) or `Ctrl+K` (Windows/Linux) from anywhere in the UI.
 | Shortcut | Action |
 |----------|--------|
 | `Alt+N` | Create new job |
+| `Alt+J` | Go to dashboard |
+| `Alt+A` | Open analytics |
 | `⌘K` / `Ctrl+K` | Open command palette |
 | `⌘,` / `Ctrl+,` | Open settings |
 | `` Ctrl+` `` | Toggle terminal drawer |

@@ -94,6 +94,7 @@ import type { Job, ApprovalRequest } from "../api/types";
 | `/jobs/new` | `JobCreationScreen` | Job creation form |
 | `/jobs/:id` | `JobDetailScreen` | Tabbed job detail view |
 | `/history` | `HistoryScreen` | Archived jobs browser |
+| `/analytics` | `AnalyticsScreen` | Fleet-level analytics dashboard |
 | `/settings` | `SettingsScreen` | Configuration UI |
 
 ### Responsive Design
@@ -108,6 +109,7 @@ The `useIsMobile()` hook detects viewports below 768px for component-level respo
 
 ### Global Components
 
+- **NavMenuSlideout** — Hamburger menu with navigation links
 - **TerminalDrawer** — Resizable terminal at bottom (`` Ctrl+` ``)
 - **CommandPalette** — Search overlay (⌘K)
 - **ConnectionStatusIndicator** — Real-time connection badge

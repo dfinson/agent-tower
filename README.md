@@ -36,11 +36,12 @@ Launch automated coding tasks against real repositories, watch everything the ag
 - **Workspace isolation** — Git worktrees for concurrent job execution
 - **Code review** — Syntax-highlighted diff viewer and workspace file browser
 - **Merge & PR** — Merge, smart merge, or create a pull request on job completion
-- **Remote access** — Dev Tunnels exposes the UI over HTTPS for phone/remote control
+- **Remote access** — Dev Tunnels or Cloudflare Tunnels expose the UI over HTTPS for phone/remote control
 - **Voice input** — Speak prompts and instructions into the browser (local Whisper transcription)
 - **Terminal sessions** — Integrated terminal with multi-tab support
 - **Command palette** — Quick navigation and job search with ⌘K / Ctrl+K
-- **Telemetry & metrics** — Token usage, costs, and execution metrics per job
+- **Telemetry & metrics** — OTEL-backed token usage, costs, and execution metrics per job
+- **Analytics dashboard** — Fleet-level analytics with cost trends, model breakdown, and tool health
 - **Job history** — Archive and browse completed jobs
 - **Agent plan tracking** — Visualize the agent's planned steps and progress
 - **Multi-SDK support** — Works with GitHub Copilot and Claude Code SDKs
@@ -55,11 +56,14 @@ Launch automated coding tasks against real repositories, watch everything the ag
 │          REST (commands/queries) + SSE (live)            │
 └────────────────────────┬─────────────────────────────────┘
                          │ HTTP / SSE / WebSocket
+              ┌──────────┴──────────┐
+         Dev Tunnels          Cloudflare
+              └──────────┬──────────┘
 ┌────────────────────────▼─────────────────────────────────┐
 │               FastAPI Backend (Python)                   │
 │  REST API · SSE · Job orchestration · MCP server         │
 │  Git service · Agent adapters · Approvals · Terminal     │
-│  Voice transcription · Telemetry · Merge service         │
+│  Voice · OTEL Telemetry · Merge · Analytics              │
 └────┬──────────┬──────────┬──────────┬──────────┬─────────┘
      │          │          │          │          │
 ┌────▼───┐ ┌───▼────┐ ┌───▼─────┐ ┌─▼──────┐ ┌─▼───────┐
@@ -91,14 +95,17 @@ uv run cpl up --dev           # skip frontend build (backend-only work)
 ## CLI
 
 ```bash
-uv run cpl up                           # start server on localhost:8080
-uv run cpl up --remote                  # enable Dev Tunnels for remote access
-uv run cpl up --dev                     # backend-only (skip frontend build)
-uv run cpl up --port 9090               # custom port
-uv run cpl up --remote --password SECRET # tunnel password
-uv run cpl version                      # show version
-uv run cpl setup                        # interactive first-time setup
-uv run cpl doctor                       # diagnose environment issues
+uv run cpl up                                    # start server on localhost:8080
+uv run cpl up --remote                           # enable Dev Tunnels for remote access
+uv run cpl up --remote --provider cloudflare     # use Cloudflare Tunnel instead
+uv run cpl up --dev                              # backend-only (skip frontend build)
+uv run cpl up --port 9090                        # custom port
+uv run cpl up --remote --password SECRET         # tunnel password
+uv run cpl down                                  # gracefully stop the server
+uv run cpl restart                               # stop and restart (preserves sessions)
+uv run cpl version                               # show version
+uv run cpl setup                                 # interactive first-time setup
+uv run cpl doctor                                # diagnose environment issues
 ```
 
 ## Development
@@ -118,6 +125,8 @@ The CI pipeline also runs Playwright E2E tests against the full stack.
 | Shortcut | Action |
 |----------|--------|
 | `Alt+N` | New job |
+| `Alt+J` | Go to dashboard |
+| `Alt+A` | Analytics |
 | `⌘K` / `Ctrl+K` | Command palette |
 | `⌘,` / `Ctrl+,` | Settings |
 | ``Ctrl+` `` | Toggle terminal |

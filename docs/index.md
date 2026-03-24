@@ -105,6 +105,10 @@ The agent adapter pattern means adding new SDKs is straightforward — each SDK 
 ```
 
 <div class="screenshot-desktop" markdown>
+![Analytics Dashboard](images/screenshots/desktop/analytics-dashboard.png)
+</div>
+
+<div class="screenshot-desktop" markdown>
 ![Diff Viewer](images/screenshots/desktop/job-diff-viewer.png)
 </div>
 

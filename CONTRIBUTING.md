@@ -27,6 +27,15 @@ uv run cpl up --dev
 
 # Start with custom port
 uv run cpl up --port 9090
+
+# Use Cloudflare Tunnel instead of Dev Tunnels
+uv run cpl up --remote --provider cloudflare
+
+# Stop server gracefully
+uv run cpl down
+
+# Restart server (preserves sessions)
+uv run cpl restart
 ```
 
 The backend serves the built frontend from `frontend/dist/` on `http://localhost:8080`.
@@ -84,7 +93,10 @@ Migrations run automatically on `cpl up`.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CPL_TUNNEL_PASSWORD` | Password for Dev Tunnels remote access | _(none)_ |
+| `CPL_DEVTUNNEL_PASSWORD` | Password for Dev Tunnels remote access | _(auto-generated with --remote)_ |
+| `CPL_CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare Tunnel token | _(none)_ |
+| `CPL_CLOUDFLARE_HOSTNAME` | Cloudflare public hostname | _(none)_ |
+| `OTEL_EXPORTER_ENDPOINT` | OTLP exporter endpoint | _(none — local only)_ |
 
 Additional configuration is managed via `config.yaml` and per-repo `.codeplane.yml` overrides. See [SPEC.md §10](SPEC.md) for details.
 
