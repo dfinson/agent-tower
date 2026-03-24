@@ -304,44 +304,12 @@ async def _init_optional_services(
         log.warning("copilot_model_cache_failed", error=str(exc))
     cached_models_by_sdk["copilot"] = copilot_models
 
-    # Claude models — only available when the CLI is authenticated
-    claude_models: list[dict[str, object]] = []
-    try:
-        import subprocess as _sp
-
-        _claude_result = await asyncio.to_thread(
-            lambda: _sp.run(
-                ["claude", "models", "--output-format", "json"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-        )
-        if _claude_result.returncode == 0 and _claude_result.stdout.strip():
-            import json as _json
-
-            _raw = _json.loads(_claude_result.stdout)
-            # Output may be a list of strings or a list of objects
-            if isinstance(_raw, list):
-                for entry in _raw:
-                    if isinstance(entry, str):
-                        claude_models.append({"id": entry, "name": entry})
-                    elif isinstance(entry, dict):
-                        claude_models.append(entry)
-            log.debug("claude_models_cached", count=len(claude_models))
-        else:
-            # Fallback: try plain text format (one model id per line)
-            for line in _claude_result.stdout.splitlines():
-                line = line.strip()
-                if line.startswith("claude-"):
-                    claude_models.append({"id": line, "name": line})
-            if claude_models:
-                log.debug("claude_models_cached_text", count=len(claude_models))
-            else:
-                log.debug("claude_models_unavailable", detail=_claude_result.stderr.strip()[:120])
-    except Exception as exc:
-        log.warning("claude_model_cache_failed", error=str(exc))
-    cached_models_by_sdk["claude"] = claude_models
+    # Claude Code models — the CLI supports exactly these three (/model in a session).
+    cached_models_by_sdk["claude"] = [
+        {"id": "claude-sonnet-4-6", "name": "Sonnet 4.6 (default)"},
+        {"id": "claude-opus-4-6", "name": "Opus 4.6"},
+        {"id": "claude-haiku-4-5", "name": "Haiku 4.5"},
+    ]
 
     # --- Voice service ---
     voice_service = VoiceService()
