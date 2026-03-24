@@ -78,7 +78,6 @@ def setup_logging(
     log_path = Path(log_file).expanduser().resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    console_int = _LOG_LEVEL_MAP.get(console_level.lower(), logging.INFO)
     shared_processors: list[structlog.typing.Processor] = [
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
@@ -123,6 +122,7 @@ def setup_logging(
             fallback_filter=_ConsoleNoiseFilter(),
         )
     else:
+        console_int = _LOG_LEVEL_MAP.get(console_level.lower(), logging.INFO)
         plain = logging.StreamHandler()
         plain.setLevel(console_int)
         plain.setFormatter(console_formatter)

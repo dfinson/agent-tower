@@ -41,6 +41,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from backend.models.events import DomainEventKind
+
 if TYPE_CHECKING:
     from backend.models.events import DomainEvent
 
@@ -167,6 +169,8 @@ class ConsoleDashboard:
 
     def start(self) -> None:
         """Activate the Rich Live display. Call after the startup banner."""
+        if self._live is not None:
+            return
         self._live = Live(
             _DashboardView(self),
             console=self._console,
@@ -221,8 +225,6 @@ class ConsoleDashboard:
     # ------------------------------------------------------------------
 
     def _apply_event(self, event: DomainEvent) -> None:
-        from backend.models.events import DomainEventKind
-
         ts = datetime.now(UTC).strftime("%H:%M:%S")
         kind = event.kind
 
