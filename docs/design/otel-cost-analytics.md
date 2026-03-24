@@ -287,23 +287,54 @@ The adapter maintains a running `ConversationLedger` — an append-only log of e
 message added to the conversation, with its exact token count computed at insertion
 time using the model-appropriate tokenizer:
 
-- **OpenAI/Copilot models:** `tiktoken` (the exact tokenizer used by the API)
-- **Claude models:** `anthropic`'s `count_tokens()` API or the published
-  tokenizer
+- **OpenAI/Copilot models:** `tiktoken` — the exact tokenizer the API uses,
+  available as a local Python library. Zero network calls. Exact match with
+  API-reported token counts.
+- **Claude models:** Anthropic's `POST /v1/messages/count_tokens` endpoint — a free,
+  rate-limited API call that accepts the full messages array and returns the exact
+  token count. There is no published local tokenizer for Claude models. Two options:
+  
+  1. **Per-message API call (precise):** Call `count_tokens` for each message as it's
+     added to the ledger. This is rate-limited (100-8000 RPM depending on usage tier)
+     and adds latency, but returns the exact count Anthropic would bill for. Anthropic
+     states the result "should be considered an estimate" due to potential system
+     optimization tokens, but these are not billed. For our purposes — understanding
+     relative composition — this is the ground truth.
+  
+  2. **Session-total delta (zero overhead):** The Claude Agent SDK's `ResultMessage`
+     provides session-total `input_tokens` and `output_tokens`. Since the adapter
+     captures the exact text of every message via transcript events, we can use a
+     character-to-token ratio calibrated from periodic `count_tokens` API samples.
+     However, this is a derived ratio, not a direct measurement. We would need to be
+     transparent that Claude per-segment breakdowns carry a calibration dependency.
 
-On each LLM completion event (`assistant.usage` / `ResultMessage`), the ledger
-produces the exact composition breakdown by summing tokens per message category. The
-SDK-reported `input_tokens` serves as the ground truth total — the ledger's sum
-should match it. Any discrepancy (from SDK-internal formatting overhead like role
-tags, separators, etc.) is recorded as `prompt_overhead_tokens` for full
-accountability.
+  **Recommendation:** Use option 1 (per-message API calls) for Claude. The rate
+  limits are generous enough for the message volume in a typical agent session
+  (dozens to low hundreds of messages). The `count_tokens` endpoint is free and the
+  latency is negligible compared to the LLM calls themselves. If rate limits become
+  a concern, batch messages and count them in groups.
 
-**Validation:** `prompt_system_tokens + prompt_history_tokens +
-prompt_tool_results_tokens + prompt_user_message_tokens + prompt_overhead_tokens`
-must equal the SDK-reported `input_tokens` for every turn. If it doesn't, the
-discrepancy is logged as a structured warning with the exact delta, and
-`prompt_overhead_tokens` absorbs the difference — making the breakdown
-fully accounted rather than silently lossy.
+**Copilot SDK per-turn validation:** The Copilot SDK emits `assistant.usage` events
+per LLM turn with exact `input_tokens` and `output_tokens`. The ledger's sum for
+that turn can be validated against this ground truth on every turn.
+
+**Claude SDK limitation:** The Claude Agent SDK's `ResultMessage` provides only
+session-total token counts, not per-turn. The ledger provides the only per-turn
+breakdown for Claude jobs. The session total from `ResultMessage` serves as an
+end-of-session reconciliation point — the ledger's cumulative input tokens should
+match the SDK's reported total. Any discrepancy is recorded.
+
+**Validation:**
+
+- **Copilot:** `prompt_system_tokens + prompt_history_tokens +
+  prompt_tool_results_tokens + prompt_user_message_tokens + prompt_overhead_tokens`
+  must equal the SDK-reported `input_tokens` for every turn (validated on each
+  `assistant.usage` event). Any discrepancy is logged as a structured warning.
+- **Claude:** The ledger's cumulative input token sum is reconciled against
+  `ResultMessage.usage.input_tokens` at session end. Per-turn breakdowns are
+  based on `count_tokens` API calls and are as accurate as that endpoint. The
+  `prompt_overhead_tokens` field absorbs any formatting delta between the sum of
+  individual message counts and the API-reported total.
 
 ### 5.3 Enriched Tool Call Tracking
 
@@ -1100,20 +1131,40 @@ class TokenCounter(Protocol):
     def count(self, text: str) -> int: ...
 
 class TiktokenCounter:
-    """For OpenAI/Copilot models. Uses the exact tokenizer the API uses."""
+    """For OpenAI/Copilot models. Uses the exact local tokenizer the API uses."""
     def __init__(self, model: str):
         self._enc = tiktoken.encoding_for_model(model)
     def count(self, text: str) -> int:
         return len(self._enc.encode(text))
 
-class AnthropicCounter:
-    """For Claude models. Uses Anthropic's token counting."""
+class AnthropicAPICounter:
+    """For Claude models. Uses Anthropic's count_tokens API endpoint.
+
+    This makes a network call to POST /v1/messages/count_tokens.
+    The endpoint is free but rate-limited (100-8000 RPM by tier).
+    It accepts a messages array and returns the total input token count.
+
+    We wrap single text strings as a minimal user message to get
+    per-segment counts. The API may include role-formatting overhead
+    per message; this is tracked and reconciled at session end.
+    """
     def __init__(self, model: str):
         self._model = model
-        self._client = anthropic.Anthropic()
-    def count(self, text: str) -> int:
-        return self._client.count_tokens(text, model=self._model)
+        self._client = anthropic.AsyncAnthropic()
+
+    async def count(self, text: str) -> int:
+        result = await self._client.messages.count_tokens(
+            model=self._model,
+            messages=[{"role": "user", "content": text}],
+        )
+        return result.input_tokens
 ```
+
+> **Note:** `AnthropicAPICounter.count()` is async because it makes a network call.
+> The `ConversationLedger` must account for this — either by awaiting the count
+> inline (acceptable since tool results arrive asynchronously anyway) or by
+> batching counts and resolving them before the next LLM turn. The `TiktokenCounter`
+> is synchronous and instant.
 
 ### 9.3 Retry Detection via Failed-Predecessor Lookup
 
@@ -1270,35 +1321,46 @@ def classify_tool(tool_name: str) -> str:
 
 ## Appendix C: Open Questions
 
-1. **Tokenizer availability for Copilot models:** `tiktoken` covers OpenAI models
-   precisely. For non-OpenAI models routed through Copilot (e.g., `claude-*` via
-   Copilot SDK), we need to verify that the correct tokenizer is available. If the
-   Copilot SDK routes to a model whose tokenizer we don't have, we record the
-   SDK-reported `input_tokens` total but cannot produce per-segment breakdowns for
-   those turns. This is a data availability gap, not an approximation — we report
-   what we can measure and flag what we can't.
+1. **Anthropic `count_tokens` rate limits in practice:** The Anthropic token counting
+   API is rate-limited at 100-8000 RPM depending on usage tier. A typical agent
+   session generates dozens to low hundreds of messages. This should be well within
+   limits, but we should monitor for rate limit errors during high-concurrency
+   scenarios (multiple concurrent Claude jobs) and implement graceful degradation:
+   if rate-limited, skip per-message counting for that turn and mark the turn's
+   composition breakdown as unavailable rather than guessing.
 
-2. **Subagent attribution:** Subagent costs are currently rolled into the parent job.
+2. **Copilot SDK routing non-OpenAI models:** When the Copilot SDK routes to a
+   non-OpenAI model (e.g., `claude-*` via Copilot), `tiktoken` may not have the
+   correct tokenizer. The Copilot SDK still reports per-turn `input_tokens` via
+   `assistant.usage` events, so we have the ground truth total. For per-segment
+   breakdown, we should detect the model family from the model name and use the
+   appropriate counter (`AnthropicAPICounter` for `claude-*` models, `tiktoken` for
+   `gpt-*`/`o1-*` models). If the model is unrecognized, we skip per-segment
+   breakdown and record only the SDK-reported total.
+
+3. **Subagent attribution:** Subagent costs are currently rolled into the parent job.
    Should we track them as separate cost centers or keep the current model? Separate
    tracking enables answering "is delegation cost-effective?"
 
-3. **Real-time vs. post-hoc:** The attribution pipeline (§7.1) runs post-job. Should
+4. **Real-time vs. post-hoc:** The attribution pipeline (§7.1) runs post-job. Should
    we compute partial attribution during long-running jobs for live dashboard
    updates? This adds complexity but enables operators to intervene on wasteful jobs.
 
-4. **Privacy of tool arguments:** Tool arguments may contain sensitive data (file
+5. **Privacy of tool arguments:** Tool arguments may contain sensitive data (file
    paths, command contents). The `tool_target` field should be sanitized — e.g.,
    extract only the filename, not the full path, for cross-job aggregation. Need to
    define sanitization rules.
 
-5. **Backfill:** Can we retroactively compute some enriched metrics for existing jobs?
+6. **Backfill:** Can we retroactively compute some enriched metrics for existing jobs?
    Tool categories and file access patterns can be derived from existing transcript
    events in the events table. Retry detection can be run over existing span data.
    Worth a one-time migration script that replays events through the new trackers.
 
-6. **Claude per-turn token counts:** The Claude SDK's `ResultMessage` provides total
-   session token counts but not per-turn breakdowns. The `AssistantMessage` events do
-   not include usage data. To get per-turn attribution for Claude, we would need to
-   either (a) use the Anthropic Messages API directly for token counting, or (b)
-   compute deltas from successive session-level totals (which the SDK does not
-   currently expose). This is a known limitation for Claude-based jobs.
+7. **Anthropic `count_tokens` accuracy disclaimer:** Anthropic's docs state that the
+   token count endpoint result "should be considered an estimate" because it may
+   include tokens added by Anthropic for system optimizations. However, these
+   system-added tokens are not billed. For cost analysis purposes, the count
+   represents what the API would report as `input_tokens` in the usage response.
+   We should validate this empirically: compare `count_tokens` sums against
+   `ResultMessage.usage.input_tokens` across several sessions and document the
+   observed delta range.
