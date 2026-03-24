@@ -195,7 +195,13 @@ def up(
     from backend.console_dashboard import ConsoleDashboard
 
     dashboard = ConsoleDashboard.create_if_tty(log_file_path=config.logging.file)
-    setup_logging(config.logging.file, console_level=config.logging.level, dashboard=dashboard)
+    setup_logging(
+        config.logging.file,
+        console_level=config.logging.level,
+        max_file_size_mb=config.logging.max_file_size_mb,
+        backup_count=config.logging.backup_count,
+        dashboard=dashboard,
+    )
 
     # Run Alembic migrations before starting the server
     run_migrations()

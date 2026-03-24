@@ -52,6 +52,8 @@ class _ConsoleNoiseFilter(logging.Filter):
 def setup_logging(
     log_file: str,
     console_level: str = "info",
+    max_file_size_mb: int = 50,
+    backup_count: int = 3,
     dashboard: ConsoleDashboard | None = None,
 ) -> None:
     """Configure structlog + stdlib logging.
@@ -59,7 +61,7 @@ def setup_logging(
     Strategy
     --------
     * **File handler** — always at DEBUG verbosity so every log line is
-      persisted.  Uses a rotating handler (10 MB × 5 backups).
+      persisted.  Uses a rotating handler (``max_file_size_mb`` × ``backup_count``).
     * **Console handler** — two modes:
 
       - *Plain mode* (``dashboard=None``): respects ``console_level`` from
@@ -101,11 +103,11 @@ def setup_logging(
         ],
     )
 
-    # File handler: DEBUG, rotating 10 MB × 5
+    # File handler: DEBUG, rotating per config
     file_handler = logging.handlers.RotatingFileHandler(
         log_path,
-        maxBytes=10 * 1024 * 1024,
-        backupCount=5,
+        maxBytes=max_file_size_mb * 1024 * 1024,
+        backupCount=backup_count,
         encoding="utf-8",
     )
     file_handler.setLevel(logging.DEBUG)
