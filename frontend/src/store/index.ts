@@ -405,13 +405,19 @@ export const useStore = create<AppState>((set, get) => ({
       );
       // Deduplicate transcript: remove tool_running entries whose tool has a
       // completed tool_call — both are persisted but only one should render.
-      const completedToolNames = new Set<string>();
+      // Use turnId-scoped keys when available to avoid false-positive removal
+      // of in-flight tool_running entries for the same tool name.
+      const completedCallKeys = new Set<string>();
       for (const e of snapshot.transcript) {
-        if (e.role === "tool_call" && e.toolName) completedToolNames.add(e.toolName);
+        if (e.role === "tool_call" && e.toolName) {
+          completedCallKeys.add(e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName);
+        }
       }
-      const deduped = snapshot.transcript.filter(
-        (e) => !(e.role === "tool_running" && e.toolName && completedToolNames.has(e.toolName)),
-      );
+      const deduped = snapshot.transcript.filter((e) => {
+        if (e.role !== "tool_running" || !e.toolName) return true;
+        const key = e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName;
+        return !completedCallKeys.has(key);
+      });
       return {
         jobs: { ...s.jobs, [jobId]: enrichJob(snapshot.job) },
         logs: { ...s.logs, [jobId]: snapshot.logs },

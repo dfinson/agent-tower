@@ -106,7 +106,7 @@ function buildDisplayItems(
       if (entry.role === "tool_call") {
         // Replace a matching in-progress placeholder, if present.
         const idx = turn.toolCalls.findIndex(
-          (e) => e.role === "tool_running" && e.toolName === entry.toolName,
+          (e) => e.role === "tool_running" && !!entry.toolName && e.toolName === entry.toolName,
         );
         if (idx >= 0) {
           turn.toolCalls[idx] = entry;
@@ -115,7 +115,7 @@ function buildDisplayItems(
         }
       } else {
         // tool_running: skip if a completed call for this tool already exists.
-        if (!turn.toolCalls.some((e) => e.role === "tool_call" && e.toolName === entry.toolName)) {
+        if (!entry.toolName || !turn.toolCalls.some((e) => e.role === "tool_call" && e.toolName === entry.toolName)) {
           turn.toolCalls.push(entry);
         }
       }
