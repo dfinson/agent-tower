@@ -18,7 +18,9 @@
 7. [Design: Derived Metrics & Analytics Engine](#7-design-derived-metrics--analytics-engine)
 8. [Design: Dashboard Views](#8-design-dashboard-views)
 9. [Implementation Approach](#9-implementation-approach)
-10. [Appendix: Metric Catalog](#appendix-a-metric-catalog)
+10. [Appendix A: Metric Catalog](#appendix-a-metric-catalog)
+11. [Appendix B: API Endpoints](#appendix-b-api-endpoints-proposed)
+12. [Appendix C: Open Questions](#appendix-c-open-questions)
 
 ---
 
@@ -119,14 +121,15 @@ Several pieces of data exist in the system but aren't connected to cost analysis
 | Data Source | Currently Stored | Not Connected to Cost |
 |-------------|-----------------|----------------------|
 | **Transcript entries** | Full agent/operator transcript in events table | Which transcript turns drove which LLM calls? |
-| **Tool call arguments** | Tool name only in spans | What file paths? What bash commands? What edit targets? |
-| **Diff snapshots** | Final unified diff per job | How much code was written vs. tokens spent? |
-| **Execution phases** | Phase change events emitted | Cost breakdown by phase (setup/reasoning/verification)? |
-| **Agent plans** | Plan steps with status | How much rework vs. linear progress? |
+| **Tool call arguments** | Tool name + `{"success": bool}` in span attrs_json; full args in TranscriptUpdated event payload only | What file paths? What bash commands? What edit targets? |
+| **Diff snapshots** | Table schema exists (`diff_snapshots`) but **never populated** — dead code | How much code was written vs. tokens spent? |
+| **Execution phases** | `ExecutionPhaseChanged` event defined and emitted, but **only for verification phase** — not all phases | Cost breakdown by phase (setup/reasoning/verification)? |
+| **Agent plans** | Plan steps with status (`AgentPlanUpdated` events) | How much rework vs. linear progress? |
 | **Progress headlines** | Headlines with replaces_count | How many pivots/restarts occurred? |
 | **Compaction events** | Count + tokens reclaimed | What was lost? Did it cause re-reads? |
-| **Approval wait time** | Metric defined but not recorded | Cost of idle time during approvals? |
-| **Model downgrades** | Event emitted | Cost saved vs. quality impact? |
+| **Approval wait time** | `cp.approvals` counter + `cp.approval.wait` histogram **defined but never incremented** — dead instruments | Cost of idle time during approvals? |
+| **Model downgrades** | Event emitted (`ModelDowngraded` with requested_model, actual_model) | Cost saved vs. quality impact? |
+| **Tool group summaries** | `ToolGroupSummary` event kind defined in enum but **never published** — dead code | Batch tool analysis per turn? |
 
 ### 2.3 Architectural Strengths
 
@@ -137,6 +140,28 @@ Several pieces of data exist in the system but aren't connected to cost analysis
 - **Span-level detail** per LLM/tool call is the right granularity for attribution.
 - **Transcript already captures tool arguments** (`tool_args` field in
   TranscriptUpdated payload) — this is rich data we're ignoring for analytics.
+  However, **span `attrs_json` is minimal**: tool spans only store
+  `{"success": bool}` — no args, no result text, no result size. Enriching
+  `attrs_json` is the primary instrumentation gap.
+- **Both SDKs provide tool arguments and results**: Copilot via
+  `tool.execution_start.arguments` and `tool.execution_complete`; Claude via
+  `ToolUseBlock.input` and `ToolResultBlock.content`. The data exists in the
+  pipeline — it just isn't persisted to spans.
+
+### 2.4 Dead Code & Unused Definitions
+
+The audit identified several definitions that exist in code but are non-functional:
+
+| Item | Type | Status | Impact |
+|------|------|--------|--------|
+| `cp.approvals` counter | OTel instrument | Defined in `telemetry.py:89`, never incremented | No approval count in metrics |
+| `cp.approval.wait` histogram | OTel instrument | Defined in `telemetry.py:94`, never recorded | No approval latency data |
+| `ToolGroupSummary` event | Domain event kind | Defined in `events.py:36` with payload type, never published | Dead code |
+| `diff_snapshots` table | DB table | Schema in migration `0001`, `DiffSnapshotRow` model exists, only delete code — never inserted | No diff data stored |
+
+These are relevant because the design doc proposes using diff data (§6.2
+`cost_per_diff_line`) and approval metrics — both require activating currently dead
+code paths before the cost analytics features can consume them.
 
 ---
 
@@ -210,15 +235,17 @@ strategic:
 | Gap | Blocking Questions | Difficulty | Approach |
 |-----|-------------------|------------|----------|
 | **Turn-level cost attribution** | 3.1, 3.2, 3.3 | Medium | Link LLM spans to transcript turn sequence numbers |
-| **Prompt composition breakdown** | 3.1 | Hard | Instrument adapter to capture prompt segment sizes |
-| **Tool call arguments** | 3.2 | Easy | Already in transcript; copy to span attrs |
-| **File access tracking** | 3.1, 3.2 | Medium | Parse tool args for file paths; deduplicate |
-| **Phase-tagged cost** | 3.3 | Medium | Tag each span with current execution phase |
+| **Prompt composition breakdown** | 3.1 | Hard | Instrument adapter to capture prompt segment sizes via local tokenizers (`tiktoken`, `anthropic-tokenizer` — neither currently a dependency) |
+| **Tool call arguments in spans** | 3.2 | Easy | Currently tool spans only store `{"success": bool}` in `attrs_json`. Tool args exist in TranscriptUpdated events — copy to span attrs at write time |
+| **Tool result size in spans** | 3.2 | Easy | Tool result text exists in adapter pipeline (both SDKs provide it). Compute `len(result_text)` and store in span attrs |
+| **File access tracking** | 3.1, 3.2 | Medium | Parse tool args for file paths; deduplicate per job |
+| **Phase-tagged cost** | 3.3 | Medium | Tag each span with current execution phase. Note: `ExecutionPhaseChanged` is currently only emitted for verification — must extend to all phases (setup, reasoning, finalization) |
 | **Retry/rework detection** | 3.3 | Medium | Deterministic: same (tool, target) pair where prior invocation failed |
 | **Post-compaction re-read cost** | 3.1, 3.3 | Hard | Track pre-compaction file set, detect re-reads |
 | **Task complexity features** | 3.4 | Medium | Extract features from prompt + repo at job start |
-| **Output efficiency** | 3.5 | Easy | Compute from existing: diff LOC / cost |
+| **Output efficiency** | 3.5 | Easy but blocked | Compute from diff LOC / cost. **Requires activating diff_snapshots** — table exists but is never populated (dead code) |
 | **Cross-job aggregation** | All | Medium | New query layer over existing tables |
+| **Activate dead OTel instruments** | 3.3 | Easy | `cp.approvals` counter and `cp.approval.wait` histogram are defined but never called — wire into approval flow |
 
 ---
 
@@ -374,10 +401,18 @@ file operations, extract the file path.
 **Concept:** Every span should know which execution phase it occurred in, enabling
 cost breakdown by lifecycle phase.
 
-The `ExecutionPhaseChanged` event is already emitted. We need to:
+The `ExecutionPhaseChanged` event is already defined and emitted — but **only for
+the verification phase** (published in `runtime_service.py:1295` with
+`{"phase": "verification"}`). To enable full lifecycle cost attribution, we need to:
 
-1. Track `current_phase` in the adapter as state.
-2. Stamp each LLM and tool span with the current phase.
+1. Emit `ExecutionPhaseChanged` for **all** phase transitions: `environment_setup` →
+   `agent_reasoning` → `verification` → `finalization` → `post_completion`.
+   Specifically, add emissions in `RuntimeService` at: workspace preparation
+   complete (`environment_setup`), agent session start (`agent_reasoning`),
+   verification start (already exists), finalization start (`finalization`).
+2. Track `current_phase` in the adapter as state (updated on each
+   `ExecutionPhaseChanged` event).
+3. Stamp each LLM and tool span with the current phase.
 
 **New span attribute:**
 
@@ -1008,36 +1043,88 @@ operator can judge significance.
 changes yet.
 
 **Changes:**
-1. Alembic migration: add columns to `job_telemetry_spans`, create
+1. Alembic migration (`alembic/versions/0008_cost_analytics_spans.py`): add columns
+   to `job_telemetry_spans`, create `job_file_access_log` table.
+2. `backend/services/runtime_service.py`: Activate dead OTel instruments — wire
+   `approvals_counter.add()` into approval flow and `approval_wait.record()` into
+   `ApprovalResolved` handling. (The instruments are defined in `telemetry.py` and
+   don't need changes — only the call sites in `runtime_service.py` are new.)
+3. `backend/persistence/telemetry_spans_repo.py` (`insert()` method, line 22):
+   Accept and store new columns (`turn_number`, `execution_phase`, `tool_category`,
+   `tool_target`, `result_size`, `is_retry`, `prior_failure_span_id`).
+4. `backend/services/copilot_adapter.py`:
+   - `_handle_usage_event()` (line 325): Track `turn_number` as adapter state,
+     increment on each usage event. Pass to span insert.
+   - `_handle_tool_start()` (line 454): Extract `tool_category` via
+     `classify_tool(tool_name)`, extract `tool_target` from `data.arguments`.
+   - `_handle_tool_end()` (line 487): Compute `result_size` from tool result text
+     (already available in adapter pipeline). Run `RetryTracker.record()`.
+     Currently span attrs only store `{"success": bool}` — enrich with
+     `tool_category`, `tool_target`, `result_size`, `is_retry`.
+   - Track `current_phase` state, updated via `ExecutionPhaseChanged` events.
+5. `backend/services/claude_adapter.py`:
+   - `_process_tool_use_block()` (line 388): Extract tool category and target from
+     `ToolUseBlock.input` dict. Buffer for later pairing with result.
+   - `_process_tool_result_block()` (line 443): Compute `result_size` from
+     `ToolResultBlock.content`. Run retry detection. Enrich span attrs.
+   - Track `turn_number` (increment on each `AssistantMessage`, not per content
+     block — one AssistantMessage = one LLM turn, which may contain multiple
+     TextBlock/ToolUseBlock content blocks).
+   - Track `current_phase` state.
+6. `backend/services/runtime_service.py`: Emit `ExecutionPhaseChanged` for all
+   phase transitions, not just verification. Add emissions at:
+   - Line ~520 (after workspace prep): `{"phase": "environment_setup"}`
+   - Line ~545 (agent session start): `{"phase": "agent_reasoning"}`
+   - Line ~1295 (existing): `{"phase": "verification"}`
+   - Line ~741 (finalization): `{"phase": "finalization"}`
+7. New file: `backend/persistence/file_access_repo.py` — repository for
    `job_file_access_log` table.
-2. `telemetry.py`: Accept new attributes in `record_llm_call()` and
-   `record_tool_call()`.
-3. `copilot_adapter.py` / `claude_adapter.py`: Track `turn_number` and
-   `current_phase` as adapter state. Extract `tool_category` and `tool_target` from
-   tool events. Detect retries.
-4. `telemetry_spans_repo.py`: Store new columns.
 
 **Validation:** Run jobs, verify spans have enriched attributes. Compare old vs. new
-query patterns.
+query patterns. Confirm tool spans now contain `tool_category`, `tool_target`,
+`result_size` instead of just `{"success": bool}`.
 
-#### Phase 2: Post-Job Attribution Pipeline
+#### Phase 2: Post-Job Attribution Pipeline + Prompt Composition
 
-**Scope:** Build the `job_cost_attribution` computation and store results. New
-analytics API endpoints.
+**Scope:** Build the `job_cost_attribution` computation, `ConversationLedger` for
+prompt composition breakdown, and new analytics API endpoints.
+
+**Dependencies to add** (via `uv add`):
+- `tiktoken` — local BPE tokenizer for OpenAI/Copilot models (~2 MB wheel)
+- `anthropic-tokenizer` — local Rust-compiled BPE tokenizer for Claude models
+  (~2.5 MB wheel)
 
 **Changes:**
 1. New service: `backend/services/cost_attribution.py` — reads spans + file access
    log, computes attribution, writes to `job_cost_attribution`.
-2. Hook into `RuntimeService._finalize_job()` to trigger attribution after job
-   completion.
-3. New Alembic migration: create `job_cost_attribution` table, extend
-   `job_telemetry_summary`.
-4. New API endpoints:
+2. New module: `backend/services/conversation_ledger.py` — `ConversationLedger`
+   class (§9.2) + `TiktokenCounter` / `ClaudeTokenCounter` + `make_counter()`.
+3. Integrate `ConversationLedger` into adapters:
+   - `copilot_adapter.py`: instantiate ledger at session start, call
+     `record_message()` on each transcript event, call `composition_at_turn()`
+     on each `assistant.usage` event (which provides per-turn `input_tokens`
+     ground truth for validation).
+   - `claude_adapter.py`: instantiate ledger at session start, call
+     `record_message()` on each content block. Use `ResultMessage.usage` for
+     end-of-session reconciliation (the only per-turn breakdown for Claude comes
+     from the local tokenizer).
+4. Hook into `RuntimeService._finalize_job()` (line ~741) to trigger attribution
+   after job completion.
+5. New Alembic migration (`alembic/versions/0009_cost_attribution.py`): create
+   `job_cost_attribution` table, extend `job_telemetry_summary` with new columns.
+6. Activate `diff_snapshots` table: create a new `DiffSnapshotRepo` (or add an
+   insert method to `JobRepo`, which already has
+   `delete_diff_snapshots_for_jobs()` at line 361) and call it from
+   `RuntimeService` at job completion (computing diff via `GitService`).
+   Currently the table schema and `DiffSnapshotRow` model exist but no code
+   ever inserts rows.
+7. New API endpoints in `backend/api/analytics.py`:
    - `GET /analytics/cost-drivers` — aggregated cost by tool category, phase, etc.
    - `GET /analytics/waste` — retry/rework metrics across jobs.
    - `GET /analytics/efficiency` — output efficiency, cache effectiveness.
    - `GET /jobs/{id}/cost-attribution` — per-job breakdown.
-5. Update `api_schemas.py` with response models.
+8. Update `backend/models/api_schemas.py` with response models (using `CamelModel`
+   base class per project convention).
 
 **Validation:** Run jobs, verify attribution phase costs sum to exactly the total job
 cost (they must — every LLM span belongs to exactly one phase). Verify prompt
@@ -1049,12 +1136,24 @@ log against transcript events.
 **Scope:** Build the four new dashboard views described in Section 8.
 
 **Changes:**
-1. New frontend API client functions for cost-driver endpoints.
-2. `CostDriversScreen.tsx` — fleet-level cost drivers view (Section 8.1).
-3. Enhanced `MetricsPanel.tsx` — per-job cost anatomy (Section 8.3).
-4. Enhanced `AnalyticsScreen.tsx` — tool deep-dive (Section 8.2) + fleet
-   intelligence (Section 8.4).
-5. Route additions in `App.tsx`.
+1. Regenerate TypeScript types: run OpenAPI schema generation after adding new API
+   endpoints. New types will appear in `frontend/src/api/schema.d.ts`. Add friendly
+   aliases in `frontend/src/api/types.ts`.
+2. New API client functions in `frontend/src/api/client.ts`:
+   `fetchCostDrivers()`, `fetchWasteMetrics()`, `fetchEfficiency()`,
+   `fetchJobCostAttribution(jobId)`, `fetchFleetIntelligence()`.
+3. `frontend/src/components/CostDriversScreen.tsx` — fleet-level cost drivers view
+   (Section 8.1). Charts: donut (phase breakdown), horizontal bar (tool category),
+   stacked bar (prompt composition), metrics cards (waste indicators).
+4. Enhanced `frontend/src/components/MetricsPanel.tsx` — per-job cost anatomy
+   (Section 8.3). Add phase breakdown, tool attribution, prompt composition, and
+   efficiency analysis panels. Data from `fetchJobCostAttribution(jobId)`.
+5. Enhanced `frontend/src/components/AnalyticsScreen.tsx` — tool deep-dive
+   (Section 8.2) + fleet intelligence (Section 8.4). Add drill-down per tool
+   (top arguments, retry chains, cost distribution).
+6. Route additions in `frontend/src/App.tsx` for new views.
+7. Update Zustand store (`frontend/src/store/index.ts`) if needed for new
+   cross-job analytics state.
 
 #### Phase 4: Statistical Analysis Engine
 
@@ -1273,6 +1372,74 @@ def classify_tool(tool_name: str) -> str:
     return TOOL_CATEGORIES.get(tool_name, "other")
 ```
 
+### 9.5 New Dependencies
+
+Both are local BPE tokenizers with zero network requirements. Install via `uv add`:
+
+| Package | Purpose | Size | Runtime Cost |
+|---------|---------|------|-------------|
+| `tiktoken` | OpenAI/Copilot model tokenization | ~2 MB wheel | ~1M tokens/sec, synchronous |
+| `anthropic-tokenizer` | Claude model tokenization | ~2.5 MB Rust wheel | ~1M tokens/sec, synchronous |
+
+Neither package is currently in `pyproject.toml`. No existing token counting code
+exists in the codebase — all token data currently comes from SDK-reported values.
+
+### 9.6 Concrete Change Map
+
+Summary of every file that must be modified or created, organized by phase:
+
+**Phase 1 — Enrich Span Data:**
+
+| Action | File | What Changes |
+|--------|------|-------------|
+| Create | `alembic/versions/0008_cost_analytics_spans.py` | Add columns to `job_telemetry_spans`, create `job_file_access_log` |
+| Create | `backend/persistence/file_access_repo.py` | New repo for `job_file_access_log` CRUD |
+| Modify | `backend/persistence/telemetry_spans_repo.py` | `insert()`: accept + store new columns |
+| Modify | `backend/services/copilot_adapter.py` | Track turn_number, phase, tool enrichment, retry detection |
+| Modify | `backend/services/claude_adapter.py` | Same as copilot adapter |
+| Modify | `backend/services/runtime_service.py` | Emit `ExecutionPhaseChanged` for all phases, wire approval metrics |
+| Create | `backend/services/retry_tracker.py` | `RetryTracker` class (§9.3) |
+| Create | `backend/services/tool_classifier.py` | `TOOL_CATEGORIES` dict + `classify_tool()` (§9.4) |
+
+**Phase 2 — Attribution Pipeline + Prompt Composition:**
+
+| Action | File | What Changes |
+|--------|------|-------------|
+| Create | `alembic/versions/0009_cost_attribution.py` | Create `job_cost_attribution`, extend `job_telemetry_summary` |
+| Create | `backend/services/cost_attribution.py` | Attribution pipeline (§7.1) |
+| Create | `backend/services/conversation_ledger.py` | `ConversationLedger` + token counters (§9.2) |
+| Modify | `backend/services/copilot_adapter.py` | Integrate ConversationLedger |
+| Modify | `backend/services/claude_adapter.py` | Integrate ConversationLedger |
+| Modify | `backend/services/runtime_service.py` | Trigger attribution on job completion, activate diff_snapshots |
+| Modify | `backend/persistence/telemetry_summary_repo.py` | Support new summary columns |
+| Create | `backend/persistence/cost_attribution_repo.py` | New repo for `job_cost_attribution` |
+| Modify | `backend/api/analytics.py` | New endpoints: cost-drivers, waste, efficiency |
+| Modify | `backend/api/jobs.py` | New endpoint: `/jobs/{id}/cost-attribution` |
+| Modify | `backend/models/api_schemas.py` | New response models |
+| Modify | `pyproject.toml` | Add `tiktoken`, `anthropic-tokenizer` dependencies |
+
+**Phase 3 — Dashboard Views:**
+
+| Action | File | What Changes |
+|--------|------|-------------|
+| Create | `frontend/src/components/CostDriversScreen.tsx` | New fleet-level cost view |
+| Modify | `frontend/src/components/MetricsPanel.tsx` | Per-job cost anatomy |
+| Modify | `frontend/src/components/AnalyticsScreen.tsx` | Tool deep-dive + fleet intelligence |
+| Modify | `frontend/src/api/client.ts` | New fetch functions |
+| Modify | `frontend/src/api/types.ts` | Friendly type aliases |
+| Modify | `frontend/src/App.tsx` | New route for CostDriversScreen |
+
+**Phase 4 — Statistical Analysis:**
+
+| Action | File | What Changes |
+|--------|------|-------------|
+| Create | `alembic/versions/0010_observations.py` | Create `observations` table |
+| Create | `backend/services/statistical_analysis.py` | SQL-based statistical computations |
+| Create | `backend/persistence/observations_repo.py` | New repo for observations |
+| Modify | `backend/api/analytics.py` | New endpoint: `/analytics/observations` |
+| Modify | `frontend/src/components/AnalyticsScreen.tsx` | Observation cards |
+| Modify | `frontend/src/components/MetricsPanel.tsx` | Per-job observations |
+
 ---
 
 ## Appendix A: Metric Catalog
@@ -1362,15 +1529,22 @@ def classify_tool(tool_name: str) -> str:
    and a `"claude" in model` check. We need to validate these model name strings
    against actual Copilot SDK events to ensure correct routing. **Verified facts:**
    tiktoken definitively does NOT support Claude model names — `encoding_for_model()`
-   raises `KeyError` for all `claude-*` variants tested.
+   raises `KeyError` for all `claude-*` variants tested. The Copilot adapter extracts
+   model name from `data.model` in `_handle_usage_event()` (line 337) — we need a
+   sample of actual values for Copilot-routed Claude calls.
 
 2. **Subagent attribution:** Subagent costs are currently rolled into the parent job.
    Should we track them as separate cost centers or keep the current model? Separate
-   tracking enables answering "is delegation cost-effective?"
+   tracking enables answering "is delegation cost-effective?" The current span table
+   already stores `is_subagent` in LLM span `attrs_json`, so per-span subagent
+   identification is already possible — we just need the attribution pipeline to
+   segment on it.
 
 3. **Real-time vs. post-hoc:** The attribution pipeline (§7.1) runs post-job. Should
    we compute partial attribution during long-running jobs for live dashboard
    updates? This adds complexity but enables operators to intervene on wasteful jobs.
+   **Recommendation:** Start post-hoc only (Phase 2). Add a "refresh attribution"
+   button for running jobs in Phase 3 that triggers on-demand computation.
 
 4. **Privacy of tool arguments:** Tool arguments may contain sensitive data (file
    paths, command contents). The `tool_target` field should be sanitized — e.g.,
@@ -1379,8 +1553,11 @@ def classify_tool(tool_name: str) -> str:
 
 5. **Backfill:** Can we retroactively compute some enriched metrics for existing jobs?
    Tool categories and file access patterns can be derived from existing transcript
-   events in the events table. Retry detection can be run over existing span data.
-   Worth a one-time migration script that replays events through the new trackers.
+   events in the events table (which store `tool_args`). Retry detection can be run
+   over existing span data. Worth a one-time migration script that replays events
+   through the new trackers. **Verified:** TranscriptUpdated events store `tool_args`
+   in their payload JSON — the event_repo `list_by_job()` method can retrieve them
+   for replay.
 
 6. **Local tokenizer accuracy vs. SDK-reported totals:** The `anthropic-tokenizer`
    package provides a local BPE tokenizer with 65K vocabulary. Our `overhead_tokens`
@@ -1390,4 +1567,21 @@ def classify_tool(tool_name: str) -> str:
    consistently small (< 5% of total), the local tokenizer is highly accurate. If
    large or variable, it may indicate the tokenizer vocabulary is stale relative to
    the model version — in which case we should pin a specific `anthropic-tokenizer`
-   version per Claude model generation.
+   version per Claude model generation. **Note:** For Claude, the SDK only provides
+   session-total tokens (via `ResultMessage.usage`), so the local tokenizer is the
+   **only** source of per-turn breakdown — making its accuracy critical.
+
+7. **Diff snapshot activation:** The `diff_snapshots` table exists in the schema
+   (migration `0001`) and has a `DiffSnapshotRow` model, but no code ever inserts
+   rows. Phase 2 requires activating this: compute the unified diff via `GitService`
+   at job completion and insert it. Currently, only `JobRepo.delete_diff_snapshots_for_jobs()`
+   exists (line 361 in `job_repo.py`) — we need either a new `DiffSnapshotRepo` with
+   an insert method, or an insert method added to `JobRepo`, plus a trigger in
+   `RuntimeService`.
+
+8. **ExecutionPhaseChanged coverage:** Currently only emitted for the verification
+   phase. Phase 1 (§9.1) already plans to add emissions for all phase transitions
+   in `RuntimeService`. This is a prerequisite — without it, most spans will have
+   no `execution_phase` value. The `RuntimeService` orchestration flow has clear
+   phase boundaries (workspace prep → agent start → verification → finalization)
+   where emissions can be added.
