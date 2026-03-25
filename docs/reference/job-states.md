@@ -19,29 +19,28 @@ Every job in CodePlane follows a state machine that governs its lifecycle.
               │          │           │
               ▼          ▼           ▼
     ┌─────────────┐ ┌────────┐ ┌──────────┐
-    │  waiting_   │ │succeed-│ │  failed   │
-    │for_approval │ │  ed    │ │          │
+    │  waiting_   │ │ review │ │  failed   │
+    │for_approval │ │        │ │           │
     └──────┬──────┘ └───┬────┘ └──────────┘
-           │            │          ▲
-    approve│     resolve │         │
-    /reject│            ▼         │
-           │     ┌──────────┐    │
-           └────▶│ running  │────┘
-                 └──────────┘
+           │            │
+    approve│     resolve│
+    /reject│            ▼
+           │     ┌───────────┐
+           └────▶│ completed │
+                 └───────────┘
 ```
 
 ## States
 
-| State | Description |
-|-------|-------------|
-| `queued` | Job created, waiting to start |
-| `running` | Agent is actively executing |
-| `waiting_for_approval` | Agent paused, waiting for operator to approve/reject an action |
-| `succeeded` | Agent completed the task successfully |
-| `failed` | Job failed due to error, cancellation, or timeout |
-| `canceled` | Job was canceled by the operator |
-| `resolved` | Job output was merged, PR created, or discarded |
-| `paused` | Job execution paused by operator |
+| State | Description | Terminal? |
+|-------|-------------|-----------|
+| `queued` | Job created, waiting to start | No |
+| `running` | Agent is actively executing | No |
+| `waiting_for_approval` | Agent paused, waiting for operator to approve/reject an action | No |
+| `review` | Agent completed successfully, awaiting operator review (merge/PR/discard) | No |
+| `completed` | Job resolved — changes merged, PR created, or discarded | Yes |
+| `failed` | Job failed due to error, timeout, or heartbeat loss | Yes |
+| `canceled` | Job was canceled by the operator | Yes |
 
 ## Valid Transitions
 
@@ -49,16 +48,18 @@ Every job in CodePlane follows a state machine that governs its lifecycle.
 |------|----|---------|
 | `queued` | `running` | Agent session starts |
 | `running` | `waiting_for_approval` | Agent requests permission for risky action |
-| `running` | `succeeded` | Agent completes task |
+| `running` | `review` | Agent completes task successfully |
 | `running` | `failed` | Error, timeout, or heartbeat loss |
 | `running` | `canceled` | Operator cancels |
-| `running` | `paused` | Operator pauses |
 | `waiting_for_approval` | `running` | Operator approves |
 | `waiting_for_approval` | `failed` | Operator rejects |
 | `waiting_for_approval` | `canceled` | Operator cancels |
-| `succeeded` | `resolved` | Operator resolves (merge/PR/discard) |
-| `failed` | `queued` | Operator reruns |
-| `paused` | `running` | Operator resumes |
+| `review` | `completed` | Operator resolves (merge/PR/discard) |
+| `review` | `running` | Operator creates follow-up job |
+| `review` | `canceled` | Operator cancels |
+| `completed` | `running` | Operator reruns |
+| `failed` | `running` | Operator reruns |
+| `canceled` | `running` | Operator reruns |
 
 ## Restart Recovery
 

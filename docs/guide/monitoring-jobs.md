@@ -128,4 +128,8 @@ While a job is running, you can:
 
 - **Send a message** — Type instructions in the transcript input
 - **Cancel** — Stop the job immediately
-- **Pause** — Pause execution (resume later with optional new instructions)
+- **Pause** — Forcefully pause execution (blocks all tool calls immediately, interrupts the current turn, sends a silent stop instruction to the agent)
+
+### Follow-Up Jobs
+
+From a job in the `review` state, you can create a **follow-up job** with a new instruction. The follow-up inherits the parent job's worktree and context, continuing where the previous job left off.

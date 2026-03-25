@@ -49,6 +49,7 @@ Services contain all business logic. Key services:
 | `NamingService` | AI-powered job title generation |
 | `TunnelService` | Dev Tunnels and Cloudflare Tunnel management |
 | `AnalyticsService` | Fleet-level analytics aggregation |
+| `ConsoleDashboard` | Rich live terminal dashboard (TTY-only, replaces log noise) |
 
 ### Repositories (`backend/persistence/`)
 

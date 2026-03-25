@@ -91,7 +91,7 @@ class AgentAdapterInterface(ABC):
         fall through).
         """
 
-    def pause_tools(self, session_id: str) -> None:
+    def pause_tools(self, session_id: str) -> None:  # noqa: B027
         """Block all tool execution for the given session.
 
         While paused, permission callbacks immediately deny every tool
@@ -99,7 +99,7 @@ class AgentAdapterInterface(ABC):
         to lift the block.
         """
 
-    def resume_tools(self, session_id: str) -> None:
+    def resume_tools(self, session_id: str) -> None:  # noqa: B027
         """Lift the tool block set by ``pause_tools``."""
 
     @abstractmethod

@@ -4,7 +4,7 @@ When a job completes successfully, you choose how to handle the agent's changes.
 
 ## Resolution Options
 
-Click the **Complete** button on a succeeded job to open the resolution dialog:
+When a job finishes successfully, it enters the **review** state. Click the **Complete** button to open the resolution dialog:
 
 <div class="screenshot-desktop" markdown>
 ![Complete Job Dialog](../images/screenshots/desktop/complete-job-dialog.png)
@@ -47,4 +47,4 @@ If a merge encounters conflicts, CodePlane detects them and displays the conflic
 
 ## After Resolution
 
-Once resolved, the job moves to the `resolved` state. You can then **archive** it to move it to history, keeping the dashboard clean.
+Once resolved, the job moves to the `completed` state. You can then **archive** it to move it to history, keeping the dashboard clean.

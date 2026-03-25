@@ -21,7 +21,7 @@ CodePlane exposes a REST API on the same port as the web UI (default `8080`). Al
 | `POST` | `/api/jobs/{job_id}/resolve` | Resolve a completed job (merge/PR/discard) |
 | `POST` | `/api/jobs/{job_id}/pause` | Pause a running job |
 | `POST` | `/api/jobs/{job_id}/resume` | Resume a paused job (optional instruction body) |
-| `POST` | `/api/jobs/{job_id}/continue` | Continue with new instruction |
+| `POST` | `/api/jobs/{job_id}/continue` | Create follow-up job with new instruction |
 | `POST` | `/api/jobs/{job_id}/archive` | Archive a job to history |
 | `POST` | `/api/jobs/{job_id}/unarchive` | Restore a job from history |
 | `POST` | `/api/jobs/{job_id}/suggest-names` | Get AI-suggested job titles |
@@ -51,7 +51,7 @@ Valid actions: `merge`, `smart_merge`, `create_pr`, `discard`, `agent_merge`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/jobs/{job_id}/logs` | Get structured logs (query: `level`, `limit`) |
+| `GET` | `/api/jobs/{job_id}/logs` | Get structured logs (query: `level`, `limit`, `session`) |
 | `GET` | `/api/jobs/{job_id}/transcript` | Get conversation transcript (query: `limit`) |
 | `GET` | `/api/jobs/{job_id}/timeline` | Get execution timeline (query: `limit`) |
 | `GET` | `/api/jobs/{job_id}/diff` | Get changed files with diffs |

@@ -38,6 +38,7 @@
 | `job-succeeded.png` | `/jobs/:id` | Completed job — success badge, final transcript, available actions |
 | `job-failed.png` | `/jobs/:id` | Failed job — error badge, error details in transcript |
 | `analytics-dashboard.png` | `/analytics` | Full analytics view — stat cards, cost trend chart, model breakdown, tool health, jobs table |
+| `console-dashboard.png` | Terminal (server running) | Rich console dashboard showing job table, recent events, connection info header, error panel |
 
 ## Mobile Screenshots
 
