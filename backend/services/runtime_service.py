@@ -68,6 +68,14 @@ class _AgentSession:
         if self._adapter and self._session_id:
             await self._adapter.interrupt_session(self._session_id)
 
+    def pause_tools(self) -> None:
+        if self._adapter and self._session_id:
+            self._adapter.pause_tools(self._session_id)
+
+    def resume_tools(self) -> None:
+        if self._adapter and self._session_id:
+            self._adapter.resume_tools(self._session_id)
+
     async def abort(self) -> None:
         if self._adapter and self._session_id:
             await self._adapter.abort_session(self._session_id)
@@ -1461,6 +1469,8 @@ class RuntimeService:
         agent_session = self._agent_sessions.get(job_id)
         if agent_session is None:
             return await self._resume_orphaned(job_id, message)
+        # Lift any tool block from a previous pause before sending.
+        agent_session.resume_tools()
         now = datetime.now(UTC)
         await agent_session.send_message(message)
         # Publish immediately so the operator message appears in the transcript
@@ -1539,9 +1549,10 @@ class RuntimeService:
     async def pause_job(self, job_id: str) -> bool:
         """Forcefully pause a running agent. Returns True if sent.
 
-        Interrupts the agent's current turn immediately, then sends a
-        follow-up message instructing it to wait.  The pause message is
-        never shown in the transcript.
+        Immediately blocks all tool execution for the session so the agent
+        cannot take further actions, interrupts the current turn (on SDKs
+        that support it), and sends a follow-up message instructing the
+        agent to wait.  The pause message is never shown in the transcript.
         """
         _pause_msg = (
             "Please stop what you are doing right now and wait. "
@@ -1551,6 +1562,8 @@ class RuntimeService:
         if agent_session is None:
             log.warning("pause_job_no_session", job_id=job_id)
             return False
+        # Block all tool calls immediately so the agent cannot act.
+        agent_session.pause_tools()
         # Interrupt the current turn so the agent stops immediately.
         try:
             await agent_session.interrupt()

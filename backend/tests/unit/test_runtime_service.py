@@ -68,6 +68,9 @@ class FakeAgentAdapter(AgentAdapterInterface):
     def __init__(self, delay: float = 0.1) -> None:
         self._delay = delay
         self._aborted: set[str] = set()
+        self._interrupted: set[str] = set()
+        self._messages: list[tuple[str, str]] = []  # (session_id, message)
+        self._paused: set[str] = set()
 
     async def create_session(self, config: SessionConfig) -> str:
         import uuid
@@ -104,7 +107,17 @@ class FakeAgentAdapter(AgentAdapterInterface):
             yield event
 
     async def send_message(self, session_id: str, message: str) -> None:
+        self._messages.append((session_id, message))
         log.debug("fake_adapter_message", session_id=session_id, message=message)
+
+    async def interrupt_session(self, session_id: str) -> None:
+        self._interrupted.add(session_id)
+
+    def pause_tools(self, session_id: str) -> None:
+        self._paused.add(session_id)
+
+    def resume_tools(self, session_id: str) -> None:
+        self._paused.discard(session_id)
 
     async def abort_session(self, session_id: str) -> None:
         self._aborted.add(session_id)
@@ -636,6 +649,66 @@ class TestJobLifecycle:
         result = await runtime.send_message("nonexistent-job", "hello")
         assert result is False
 
+    async def test_pause_job_no_session_returns_false(
+        self,
+        runtime: RuntimeService,
+    ) -> None:
+        """pause_job returns False when no agent session is running."""
+        result = await runtime.pause_job("nonexistent-job")
+        assert result is False
+
+    async def test_pause_job_blocks_tools_and_interrupts(
+        self,
+        runtime: RuntimeService,
+        adapter: FakeAgentAdapter,
+        session_factory: async_sessionmaker[AsyncSession],
+        config: CPLConfig,
+    ) -> None:
+        """pause_job blocks tools, interrupts the session, and sends the pause message."""
+        slow_adapter = FakeAgentAdapter(delay=5.0)
+        runtime._adapter_registry._fake = slow_adapter
+
+        job = _make_job(repo=config.repos[0])
+        await _create_db_job(session_factory, job)
+
+        await runtime.start_or_enqueue(job)
+        await asyncio.sleep(0.1)
+        assert runtime.running_count == 1
+
+        result = await runtime.pause_job(job.id)
+        assert result is True
+
+        # Adapter should have been interrupted
+        assert len(slow_adapter._interrupted) == 1
+        # Adapter should have been told to pause tools
+        assert len(slow_adapter._paused) == 1
+        # A pause message should have been sent
+        assert any("stop what you are doing" in msg for _, msg in slow_adapter._messages)
+
+    async def test_send_message_clears_pause(
+        self,
+        runtime: RuntimeService,
+        adapter: FakeAgentAdapter,
+        session_factory: async_sessionmaker[AsyncSession],
+        config: CPLConfig,
+    ) -> None:
+        """Sending a follow-up message after pause lifts the tool block."""
+        slow_adapter = FakeAgentAdapter(delay=5.0)
+        runtime._adapter_registry._fake = slow_adapter
+
+        job = _make_job(repo=config.repos[0])
+        await _create_db_job(session_factory, job)
+
+        await runtime.start_or_enqueue(job)
+        await asyncio.sleep(0.1)
+
+        await runtime.pause_job(job.id)
+        assert len(slow_adapter._paused) == 1
+
+        await runtime.send_message(job.id, "continue working")
+        # Tool block should be cleared
+        assert len(slow_adapter._paused) == 0
+
 
 class TestResumeFallback:
     async def test_conflict_resume_auto_merges_back_after_agent_success(
@@ -1157,6 +1230,20 @@ class TestAgentSession:
             break  # start but don't finish
 
         await session.abort()
+
+    async def test_pause_and_resume_tools(self) -> None:
+        adapter = FakeAgentAdapter(delay=0.0)
+        session = _AgentSession()
+        config = SessionConfig(workspace_path="/tmp", prompt="test")
+
+        async for _ in session.execute(config, adapter):
+            pass
+
+        session.pause_tools()
+        assert session.session_id in adapter._paused
+
+        session.resume_tools()
+        assert session.session_id not in adapter._paused
 
 
 # ---------------------------------------------------------------------------

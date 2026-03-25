@@ -91,6 +91,17 @@ class AgentAdapterInterface(ABC):
         fall through).
         """
 
+    def pause_tools(self, session_id: str) -> None:
+        """Block all tool execution for the given session.
+
+        While paused, permission callbacks immediately deny every tool
+        request so the agent cannot take actions.  Call ``resume_tools``
+        to lift the block.
+        """
+
+    def resume_tools(self, session_id: str) -> None:
+        """Lift the tool block set by ``pause_tools``."""
+
     @abstractmethod
     async def complete(self, prompt: str) -> str | None:
         """Non-agentic single-turn completion. Returns the full response text, or None on error."""
