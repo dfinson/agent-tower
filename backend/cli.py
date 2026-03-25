@@ -265,37 +265,49 @@ def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | Non
     url = tunnel_url or f"http://{host}:{port}"
 
     try:
-        from rich.console import Console
+        from rich.align import Align
+        from rich.console import Console, Group
         from rich.panel import Panel
+        from rich.text import Text
 
         console = Console()
-        lines = [f"[bold]Server:[/bold] http://{host}:{port}"]
+        lines = [f"[bold]Server:[/bold]   http://{host}:{port}"]
         if dev:
-            lines.append("[bold]Mode:[/bold]   Development (CORS enabled)")
+            lines.append("[bold]Mode:[/bold]     Development (CORS enabled)")
         if tunnel_url:
-            lines.append(f"[bold]Tunnel:[/bold] {tunnel_url}")
+            lines.append(f"[bold]Tunnel:[/bold]   {tunnel_url}")
         if password:
             lines.append(f"[bold]Password:[/bold] {password}")
-        console.print(Panel("\n".join(lines), title="[bold cyan]CodePlane[/bold cyan]", border_style="cyan"))
+
+        # Try to render a QR code inside the panel
+        qr_section: list[object] = []
+        try:
+            import io
+
+            import qrcode
+
+            qr = qrcode.QRCode(box_size=1, border=1)
+            qr.add_data(url)
+            qr.make(fit=True)
+            buf = io.StringIO()
+            qr.print_ascii(out=buf, invert=True)
+            qr_ascii = buf.getvalue().rstrip("\n")
+
+            qr_section.append(Text(""))
+            qr_section.append(Align.center(Text(qr_ascii)))
+            qr_section.append(Text(""))
+            qr_section.append(Align.center(Text.from_markup(f"Scan to open: [bold]{url}[/bold]")))
+        except ImportError:
+            log.debug("qrcode_not_installed", package="qrcode", exc_info=True)
+
+        body = Group(Text.from_markup("\n".join(lines)), *qr_section)
+        console.print(Panel(body, title="[bold cyan]CodePlane[/bold cyan]", border_style="cyan"))
     except ImportError:
         click.echo(f"CodePlane server: http://{host}:{port}")
         if tunnel_url:
             click.echo(f"Tunnel: {tunnel_url}")
         if password:
             click.echo(f"Password: {password}")
-
-    # Print QR code for the access URL
-    try:
-        import qrcode
-
-        qr = qrcode.QRCode(box_size=1, border=1)
-        qr.add_data(url)
-        qr.make(fit=True)
-        click.echo()
-        qr.print_ascii(invert=True)
-        click.echo(f"\n  Scan to open: {url}\n")
-    except ImportError:
-        log.debug("qrcode_not_installed", package="qrcode", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
