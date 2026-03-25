@@ -34,7 +34,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from rich.box import ROUNDED, SIMPLE_HEAVY
-from rich.console import Console, ConsoleRenderable
+from rich.console import Console, ConsoleRenderable, Group
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
@@ -151,11 +151,19 @@ class ConsoleDashboard:
         self._log_file_path = log_file_path
         self._server_url: str | None = None
         self._tunnel_url: str | None = None
+        self._password: str | None = None
 
-    def set_server_info(self, *, server_url: str | None = None, tunnel_url: str | None = None) -> None:
-        """Set server URLs for the dashboard header."""
+    def set_server_info(
+        self,
+        *,
+        server_url: str | None = None,
+        tunnel_url: str | None = None,
+        password: str | None = None,
+    ) -> None:
+        """Set server URLs and password for the dashboard header."""
         self._server_url = server_url
         self._tunnel_url = tunnel_url
+        self._password = password
 
     # ------------------------------------------------------------------
     # Factory
@@ -323,19 +331,23 @@ class ConsoleDashboard:
         m, s = divmod(rem, 60)
         uptime_str = f"{h}h {m}m" if h else f"{m}m {s}s"
         log_hint = f"  ·  logs → {self._log_file_path}" if self._log_file_path else ""
-        url_hint = ""
-        if self._tunnel_url:
-            url_hint = f"  ·  {self._tunnel_url}"
-        elif self._server_url:
-            url_hint = f"  ·  {self._server_url}"
-        header_text = Text.assemble(
+        line1 = Text.assemble(
             ("CodePlane", "bold cyan"),
             "  up ",
             (uptime_str, "green"),
-            (url_hint, "bold"),
+            (f"  ·  {self._server_url}" if self._server_url else "", "dim"),
             (log_hint, "dim"),
         )
-        header_panel = Panel(header_text, box=ROUNDED, padding=(0, 1))
+        details_parts: list[str] = []
+        if self._tunnel_url:
+            details_parts.append(f"🔗 {self._tunnel_url}")
+        if self._password:
+            details_parts.append(f"🔑 {self._password}")
+        if details_parts:
+            header_content = Group(line1, Text("  ·  ".join(details_parts)))
+        else:
+            header_content = line1
+        header_panel = Panel(header_content, box=ROUNDED, padding=(0, 1))
 
         # --- Jobs table ---
         active = [r for r in self._jobs.values() if r.state in _ACTIVE_STATES]
@@ -427,7 +439,7 @@ class ConsoleDashboard:
         # frame height predictable while adapting to the terminal size.
         term_h = self._console.size.height
         total = max(self._MIN_HEIGHT, min(self._MAX_HEIGHT, term_h - 2))
-        header_h = 3
+        header_h = 4 if (self._tunnel_url or self._password) else 3
         errors_h = 5
         body_h = total - header_h - errors_h
 

@@ -256,12 +256,12 @@ def up(
 
 
 # ---------------------------------------------------------------------------
-# Startup banner
+# Connection info (on-demand via ``cpl info``)
 # ---------------------------------------------------------------------------
 
 
-def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | None, password: str | None = None) -> None:
-    """Print a startup banner with server info."""
+def _print_connection_info(host: str, port: int, tunnel_url: str | None, password: str | None = None) -> None:
+    """Print connection details and QR code on demand."""
     url = tunnel_url or f"http://{host}:{port}"
 
     try:
@@ -272,14 +272,11 @@ def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | Non
 
         console = Console()
         lines = [f"[bold]Server:[/bold]   http://{host}:{port}"]
-        if dev:
-            lines.append("[bold]Mode:[/bold]     Development (CORS enabled)")
         if tunnel_url:
             lines.append(f"[bold]Tunnel:[/bold]   {tunnel_url}")
         if password:
             lines.append(f"[bold]Password:[/bold] {password}")
 
-        # Try to render a QR code inside the panel
         qr_section: list[object] = []
         try:
             import io
@@ -321,6 +318,16 @@ def version() -> None:
     from backend import __version__
 
     click.echo(f"cpl {__version__}")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Server host")
+@click.option("--port", "-p", default=8080, type=int, help="Server port")
+@click.option("--tunnel-url", default=None, help="Tunnel URL (auto-detected from config if omitted)")
+@click.option("--password", default=None, help="Access password")
+def info(host: str, port: int, tunnel_url: str | None, password: str | None) -> None:
+    """Print connection details and QR code."""
+    _print_connection_info(host=host, port=port, tunnel_url=tunnel_url, password=password)
 
 
 @cli.command()
