@@ -268,7 +268,7 @@ def up(
             dashboard.stop()
             _original_handle_exit(sig, frame)
 
-        server.handle_exit = _handle_exit_with_dashboard_stop  # type: ignore[assignment]
+        server.handle_exit = _handle_exit_with_dashboard_stop  # type: ignore[method-assign]
 
     try:
         server.run()

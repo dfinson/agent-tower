@@ -43,11 +43,13 @@ uv run cpl up --dev --port 9090
 
 On startup, the server:
 
-1. Runs database migrations (Alembic)
-2. Builds the frontend (unless `--dev`)
-3. Starts the FastAPI server
-4. Opens Dev Tunnels (if `--remote`)
-5. Marks any previously-running jobs as failed (restart recovery)
+1. Runs preflight checks (dependencies, SDK auth)
+2. Runs database migrations (Alembic)
+3. Builds the frontend (unless `--dev`)
+4. Starts the FastAPI server
+5. Opens tunnel (Dev Tunnels or Cloudflare, if `--remote`)
+6. Launches the Rich console dashboard (TTY only)
+7. Recovers previously-running jobs (marks as failed with restart reason)
 
 ### `cpl down`
 
@@ -100,6 +102,23 @@ Walks you through:
 - Registering your first repository
 - Selecting a default SDK
 - Configuring preferences
+
+### `cpl info`
+
+Print server connection details and QR code.
+
+```bash
+uv run cpl info [options]
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--host HOST` | Server host | `127.0.0.1` |
+| `--port PORT` | Server port | `8080` |
+| `--tunnel-url URL` | Tunnel URL | auto-detected |
+| `--password PWD` | Access password | — |
+
+Useful for retrieving the tunnel URL and QR code after the server is already running.
 
 ### `cpl doctor`
 

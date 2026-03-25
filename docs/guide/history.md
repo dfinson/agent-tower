@@ -22,6 +22,10 @@ Navigate to the **History** page from the main navigation:
 
 Click **Unarchive** on any archived job to restore it to the main dashboard. The job retains all its data — transcript, diffs, logs, and metrics.
 
+## Follow-Up Jobs
+
+From any job in the `review` state, you can create a **follow-up job** that continues in the same worktree with a new instruction. This lets you iterate on the agent's work without starting from scratch.
+
 ## Retention
 
 Archived jobs are kept according to your retention settings:

@@ -41,6 +41,7 @@ Launch automated coding tasks against real repositories, watch everything the ag
 - **Terminal sessions** — Integrated terminal with multi-tab support
 - **Command palette** — Quick navigation and job search with ⌘K / Ctrl+K
 - **Telemetry & metrics** — OTEL-backed token usage, costs, and execution metrics per job
+- **Rich console dashboard** — Live terminal dashboard showing job states, events, and errors
 - **Analytics dashboard** — Fleet-level analytics with cost trends, model breakdown, and tool health
 - **Job history** — Archive and browse completed jobs
 - **Agent plan tracking** — Visualize the agent's planned steps and progress
