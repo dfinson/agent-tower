@@ -506,7 +506,9 @@ class JobFailedPayload(CamelModel):
     timestamp: datetime
 
 
-class JobSucceededPayload(CamelModel):
+class JobReviewPayload(CamelModel):
+    """Emitted when the agent session exits cleanly and the job enters review."""
+
     job_id: str
     pr_url: str | None = None
     merge_status: str | None = None
@@ -516,6 +518,15 @@ class JobSucceededPayload(CamelModel):
     model_downgraded: bool = False
     requested_model: str | None = None
     actual_model: str | None = None
+    timestamp: datetime
+
+
+class JobCompletedPayload(CamelModel):
+    """Emitted when an operator resolves a review job to a final state."""
+
+    job_id: str
+    resolution: str | None = None
+    pr_url: str | None = None
     timestamp: datetime
 
 

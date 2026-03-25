@@ -138,9 +138,9 @@ test.describe("Cancel Running Job", () => {
     await expect(page.locator("button", { hasText: "Cancel" })).toBeVisible();
   });
 
-  test("cancel button is hidden for succeeded jobs", async ({ page }) => {
-    const succeededJob = makeJob({ state: "succeeded", resolution: "merged", completedAt: NOW });
-    await setupJobDetailMocks(page, succeededJob);
+  test("cancel button is hidden for completed jobs", async ({ page }) => {
+    const completedJob = makeJob({ state: "completed", resolution: "merged", completedAt: NOW });
+    await setupJobDetailMocks(page, completedJob);
 
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
@@ -284,9 +284,9 @@ test.describe("Archive Completed Job", () => {
     await expect(page.locator("button", { hasText: "Archive" })).toBeHidden();
   });
 
-  test("Complete & Archive button visible for resolved succeeded jobs", async ({ page }) => {
+  test("Complete & Archive button visible for resolved completed jobs", async ({ page }) => {
     const resolvedJob = makeJob({
-      state: "succeeded",
+      state: "completed",
       resolution: "merged",
       completedAt: NOW,
     });

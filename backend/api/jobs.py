@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated
 
 import structlog
@@ -708,7 +709,7 @@ async def resolve_job(
     merge_service: FromDishka[MergeService],
     event_bus: FromDishka[EventBus],
 ) -> ResolveJobResponse:
-    """Resolve a succeeded job: merge, create PR, discard, or resolve with agent."""
+    """Resolve a review job: merge, create PR, discard, or resolve with agent."""
     job = await svc.resolve_job(job_id, body.action)
 
     # agent_merge: hand the conflict back to the agent to resolve
@@ -747,6 +748,8 @@ async def resolve_job(
         merge_service=merge_service,
     )
     await session.commit()
+
+    # Publish job_resolved event (resolution details)
     await event_bus.publish(
         svc.build_job_resolved_event(
             job.id,
@@ -756,6 +759,24 @@ async def resolve_job(
             error=error,
         )
     )
+
+    # If the job transitioned to completed, publish the terminal event
+    if resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
+        from backend.models.events import DomainEvent
+
+        await event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job.id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.job_completed,
+                payload={
+                    "resolution": resolution,
+                    "merge_status": resolution,
+                    "pr_url": pr_url,
+                },
+            )
+        )
 
     return ResolveJobResponse(
         resolution=resolution,

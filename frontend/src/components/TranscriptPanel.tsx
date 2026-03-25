@@ -768,7 +768,7 @@ export function TranscriptPanel({
     }
   }, [displayItems.length, virtualizer]);
 
-  const isTerminal = ["succeeded", "failed", "canceled"].includes(jobState ?? "");
+  const isTerminal = ["review", "completed", "failed", "canceled"].includes(jobState ?? "");
 
   const handleSend = useCallback(async () => {
     if (!msg.trim()) return;
