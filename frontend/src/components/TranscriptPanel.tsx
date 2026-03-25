@@ -310,11 +310,18 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const shortPath = abbreviatePath(filePath);
       const range = startLine && endLine ? `lines ${startLine}–${endLine}` : null;
       return (
-        <div className="px-3 py-1.5 flex items-center gap-2 text-xs">
-          <Codicon name="file-code" size={11} className="text-blue-400/70 shrink-0" />
-          <span className="font-mono text-foreground/80">{shortPath}</span>
-          {range && <span className="text-muted-foreground">{range}</span>}
-          {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
+        <div className="font-mono text-xs">
+          <div className="px-3 py-1.5 flex items-center gap-2 border-b border-border/30">
+            <Codicon name="file-code" size={11} className="text-blue-400 shrink-0" />
+            <span className="text-foreground/80">{shortPath}</span>
+            {range && <span className="text-muted-foreground">{range}</span>}
+            {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
+          </div>
+          {entry.toolResult && (
+            <div className="px-3 py-1.5">
+              <TruncatedPayload content={entry.toolResult} maxLength={800} />
+            </div>
+          )}
         </div>
       );
     }
@@ -326,7 +333,7 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       return (
         <div className="px-3 py-1.5 text-xs">
           <div className="flex items-center gap-2">
-            <Codicon name="edit" size={11} className="text-amber-400/70 shrink-0" />
+            <Codicon name="edit" size={11} className="text-amber-400 shrink-0" />
             <span className="font-mono text-foreground/80">{shortPath}</span>
             <span className="text-muted-foreground">
               {entry.toolSuccess !== false ? "→ applied" : "→ failed"}
@@ -347,10 +354,17 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const query = (args.query ?? args.pattern ?? "") as string;
       const lines = countLines(entry.toolResult);
       return (
-        <div className="px-3 py-1.5 flex items-center gap-2 text-xs">
-          <Codicon name="search" size={11} className="text-blue-400/70 shrink-0" />
-          <span className="font-mono text-foreground/80">&ldquo;{query}&rdquo;</span>
-          {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
+        <div className="font-mono text-xs">
+          <div className="px-3 py-1.5 flex items-center gap-2 border-b border-border/30">
+            <Codicon name="search" size={11} className="text-blue-400 shrink-0" />
+            <span className="text-foreground/80">&ldquo;{query}&rdquo;</span>
+            {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
+          </div>
+          {entry.toolResult && (
+            <div className="px-3 py-1.5">
+              <TruncatedPayload content={entry.toolResult} maxLength={800} />
+            </div>
+          )}
         </div>
       );
     }
@@ -359,7 +373,7 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const filePath = (args.filePath ?? args.file_path ?? args.path ?? "") as string;
       return (
         <div className="px-3 py-1.5 flex items-center gap-2 text-xs">
-          <Codicon name="edit" size={11} className="text-green-400/70 shrink-0" />
+          <Codicon name="edit" size={11} className="text-green-400 shrink-0" />
           <span className="font-mono text-foreground/80">{abbreviatePath(filePath)}</span>
           <span className="text-muted-foreground">→ {toolName === "write" ? "written" : "created"}</span>
         </div>
@@ -373,11 +387,18 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
         ? `lines ${viewRange[0]}–${viewRange[1] === -1 ? "end" : viewRange[1]}`
         : null;
       return (
-        <div className="px-3 py-1.5 flex items-center gap-2 text-xs">
-          <Codicon name="file-code" size={11} className="text-blue-400/70 shrink-0" />
-          <span className="font-mono text-foreground/80">{abbreviatePath(path)}</span>
-          {range && <span className="text-muted-foreground">{range}</span>}
-          {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
+        <div className="font-mono text-xs">
+          <div className="px-3 py-1.5 flex items-center gap-2 border-b border-border/30">
+            <Codicon name="file-code" size={11} className="text-blue-400 shrink-0" />
+            <span className="text-foreground/80">{abbreviatePath(path)}</span>
+            {range && <span className="text-muted-foreground">{range}</span>}
+            {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
+          </div>
+          {entry.toolResult && (
+            <div className="px-3 py-1.5">
+              <TruncatedPayload content={entry.toolResult} maxLength={800} />
+            </div>
+          )}
         </div>
       );
     }
@@ -386,11 +407,18 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const searchPath = (args.path as string) ?? "";
       const lines = countLines(entry.toolResult);
       return (
-        <div className="px-3 py-1.5 flex items-center gap-2 text-xs">
-          <Codicon name="search" size={11} className="text-blue-400/70 shrink-0" />
-          <span className="font-mono text-foreground/80">{pattern}</span>
-          {searchPath && <span className="text-muted-foreground/60">in {abbreviatePath(searchPath)}</span>}
-          {lines != null && <span className="text-muted-foreground">→ {lines} files</span>}
+        <div className="font-mono text-xs">
+          <div className="px-3 py-1.5 flex items-center gap-2 border-b border-border/30">
+            <Codicon name="search" size={11} className="text-blue-400 shrink-0" />
+            <span className="text-foreground/80">{pattern}</span>
+            {searchPath && <span className="text-muted-foreground/60">in {abbreviatePath(searchPath)}</span>}
+            {lines != null && <span className="text-muted-foreground">→ {lines} files</span>}
+          </div>
+          {entry.toolResult && (
+            <div className="px-3 py-1.5">
+              <TruncatedPayload content={entry.toolResult} maxLength={800} />
+            </div>
+          )}
         </div>
       );
     }
@@ -400,13 +428,20 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const globFilter = (args.glob as string) ?? "";
       const lines = countLines(entry.toolResult);
       return (
-        <div className="px-3 py-1.5 flex items-center gap-2 text-xs">
-          <Codicon name="search" size={11} className="text-blue-400/70 shrink-0" />
-          <span className="font-mono text-foreground/80">&ldquo;{pattern}&rdquo;</span>
-          {(globFilter || searchPath) && (
-            <span className="text-muted-foreground/60">in {globFilter || abbreviatePath(searchPath)}</span>
+        <div className="font-mono text-xs">
+          <div className="px-3 py-1.5 flex items-center gap-2 border-b border-border/30">
+            <Codicon name="search" size={11} className="text-blue-400 shrink-0" />
+            <span className="text-foreground/80">&ldquo;{pattern}&rdquo;</span>
+            {(globFilter || searchPath) && (
+              <span className="text-muted-foreground/60">in {globFilter || abbreviatePath(searchPath)}</span>
+            )}
+            {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
+          </div>
+          {entry.toolResult && (
+            <div className="px-3 py-1.5">
+              <TruncatedPayload content={entry.toolResult} maxLength={800} />
+            </div>
           )}
-          {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
         </div>
       );
     }
@@ -458,10 +493,10 @@ function ToolDetail({ entry }: { entry: TranscriptEntry }) {
 
 function ToolIconGlyph({ icon, className }: { icon: ToolIconDef; className?: string }) {
   if (icon.kind === "codicon") {
-    return <Codicon name={icon.name} size={11} className={className} />;
+    return <Codicon name={icon.name} size={13} className={className} />;
   }
   const Icon = icon.icon;
-  return <Icon size={11} className={className} />;
+  return <Icon size={13} className={className} />;
 }
 
 function ToolStep({ entry, isActive }: {
@@ -483,7 +518,7 @@ function ToolStep({ entry, isActive }: {
         <ToolIconGlyph icon={icon} className={cn(
           failed ? "text-red-400"
             : (isActive || isRunning) ? "text-blue-400"
-            : "text-muted-foreground/50",
+            : "text-muted-foreground/80",
         )} />
       </div>
       <button
@@ -568,21 +603,17 @@ function RelativeTime({ ts, className }: { ts: string; className?: string }) {
 
 function AgentMessageBlock({ entry, isNew }: { entry: TranscriptEntry; isNew?: boolean }) {
   const content = entry.content.replace(/:$/, "");
-  const isLong = content.length > 300;
-  const shouldReveal = isNew && isLong;
-  const [revealed, setRevealed] = useState(shouldReveal ? 0 : content.length);
+  const [revealed, setRevealed] = useState(isNew ? 0 : content.length);
 
   useEffect(() => {
     if (revealed >= content.length) return;
     const id = requestAnimationFrame(() => {
-      setRevealed((prev) => Math.min(prev + 50, content.length));
+      setRevealed((prev) => Math.min(prev + 6, content.length));
     });
     return () => cancelAnimationFrame(id);
   }, [revealed, content.length]);
 
-  const visibleContent = shouldReveal && revealed < content.length
-    ? content.slice(0, revealed)
-    : content;
+  const visibleContent = revealed < content.length ? content.slice(0, revealed) : content;
 
   return (
     <div className="text-sm leading-relaxed">
