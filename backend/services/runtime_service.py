@@ -1806,7 +1806,7 @@ class RuntimeService:
         from backend.persistence.job_repo import JobRepository
         from backend.services.job_service import JobNotFoundError, StateConflictError
 
-        _RESUMABLE_STATES = TERMINAL_STATES | {JobState.review}
+        resumable_states = TERMINAL_STATES | {JobState.review}
         normalized_instruction = _normalize_resume_instruction(instruction)
 
         async with self._session_factory() as session:
@@ -1814,7 +1814,7 @@ class RuntimeService:
             job = await job_repo.get(job_id)
             if job is None:
                 raise JobNotFoundError(f"Job {job_id} does not exist.")
-            if job.state not in _RESUMABLE_STATES:
+            if job.state not in resumable_states:
                 raise StateConflictError(f"Job {job_id} is not in a resumable state (current: {job.state}).")
 
             previous_state = job.state

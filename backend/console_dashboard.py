@@ -343,10 +343,7 @@ class ConsoleDashboard:
             details_parts.append(f"🔗 {self._tunnel_url}")
         if self._password:
             details_parts.append(f"🔑 {self._password}")
-        if details_parts:
-            header_content = Group(line1, Text("  ·  ".join(details_parts)))
-        else:
-            header_content = line1
+        header_content = Group(line1, Text("  ·  ".join(details_parts))) if details_parts else line1
         header_panel = Panel(header_content, box=ROUNDED, padding=(0, 1))
 
         # --- Jobs table ---

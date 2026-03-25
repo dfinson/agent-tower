@@ -510,9 +510,9 @@ class JobService:
         await self._job_repo.update_resolution(job.id, resolution, pr_url=result.pr_url)
 
         # Transition review → completed for final resolutions
-        if resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
-            if job.state == JobState.review:
-                await self.transition_state(job.id, JobState.completed)
+        final_resolutions = (Resolution.merged, Resolution.pr_created, Resolution.discarded)
+        if resolution in final_resolutions and job.state == JobState.review:
+            await self.transition_state(job.id, JobState.completed)
 
         return resolution, result.pr_url, result.conflict_files, result.error
 
