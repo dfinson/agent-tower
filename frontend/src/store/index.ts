@@ -403,10 +403,19 @@ export const useStore = create<AppState>((set, get) => ({
       const streamingMessages = Object.fromEntries(
         Object.entries(s.streamingMessages).filter(([k]) => !k.startsWith(`${jobId}:`)),
       );
+      // Deduplicate transcript: remove tool_running entries whose tool has a
+      // completed tool_call — both are persisted but only one should render.
+      const completedToolNames = new Set<string>();
+      for (const e of snapshot.transcript) {
+        if (e.role === "tool_call" && e.toolName) completedToolNames.add(e.toolName);
+      }
+      const deduped = snapshot.transcript.filter(
+        (e) => !(e.role === "tool_running" && e.toolName && completedToolNames.has(e.toolName)),
+      );
       return {
         jobs: { ...s.jobs, [jobId]: enrichJob(snapshot.job) },
         logs: { ...s.logs, [jobId]: snapshot.logs },
-        transcript: { ...s.transcript, [jobId]: snapshot.transcript },
+        transcript: { ...s.transcript, [jobId]: deduped },
         diffs: { ...s.diffs, [jobId]: snapshot.diff },
         timelines: {
           ...s.timelines,
