@@ -18,7 +18,7 @@ const MOCK_JOB = {
   id: "job-1",
   title: "Test Job",
   prompt: "Add a feature",
-  state: "succeeded",
+  state: "completed",
   createdAt: NOW,
   updatedAt: NOW,
   completedAt: NOW,

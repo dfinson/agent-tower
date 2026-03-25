@@ -205,6 +205,8 @@ export interface AnalyticsOverview {
   period: number;
   totalJobs: number;
   succeeded: number;
+  review: number;
+  completed: number;
   failed: number;
   cancelled: number;
   running: number;

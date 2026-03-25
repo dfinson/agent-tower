@@ -303,10 +303,10 @@ test.describe("Model Downgrade Banner", () => {
   });
 });
 
-test.describe("Succeeded Job Display", () => {
-  test("succeeded + merged job shows success banner", async ({ page }) => {
+test.describe("Completed Job Display", () => {
+  test("completed + merged job shows success banner", async ({ page }) => {
     const mergedJob = makeJob({
-      state: "succeeded",
+      state: "completed",
       resolution: "merged",
       completedAt: NOW,
     });
@@ -315,13 +315,13 @@ test.describe("Succeeded Job Display", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.getByText("Job succeeded")).toBeVisible();
+    await expect(page.getByText("Job completed")).toBeVisible();
     await expect(page.getByText("Changes merged into base branch")).toBeVisible();
   });
 
-  test("succeeded + conflict shows merge conflict banner", async ({ page }) => {
+  test("review + conflict shows merge conflict banner", async ({ page }) => {
     const conflictJob = makeJob({
-      state: "succeeded",
+      state: "review",
       resolution: "conflict",
       completedAt: NOW,
     });

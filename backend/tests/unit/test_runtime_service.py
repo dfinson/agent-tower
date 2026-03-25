@@ -244,7 +244,7 @@ async def _create_db_job(
 
 @pytest.mark.asyncio
 async def test_create_followup_job_uses_parent_handoff_context(runtime: RuntimeService) -> None:
-    parent = _make_job(job_id="parent", state=JobState.succeeded)
+    parent = _make_job(job_id="parent", state=JobState.review)
     parent.permission_mode = PermissionMode.read_only
     parent.model = "gpt-5.4"
     parent.sdk = "claude"
@@ -481,12 +481,12 @@ class TestJobLifecycle:
         await runtime.start_or_enqueue(job)
         await asyncio.sleep(0.5)
 
-        # Should have log, transcript events + job_succeeded
+        # Should have log, transcript events + job_review
         # (diff_updated events now come from DiffService which requires a real git worktree)
         kinds = [e.kind for e in published]
         assert DomainEventKind.log_line_emitted in kinds
         assert DomainEventKind.transcript_updated in kinds
-        assert DomainEventKind.job_succeeded in kinds
+        assert DomainEventKind.job_review in kinds
 
     async def test_cancel_running_job(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
@@ -569,8 +569,8 @@ class TestJobLifecycle:
 
         event_bus.subscribe(_collect)
 
-        # Insert a succeeded job with no in-memory session
-        job = _make_job(repo=config.repos[0], state=JobState.succeeded)
+        # Insert a review job with no in-memory session
+        job = _make_job(repo=config.repos[0], state=JobState.review)
         await _create_db_job(session_factory, job)
 
         result = await runtime.send_message(job.id, "please continue")
@@ -617,14 +617,14 @@ class TestJobLifecycle:
         assert DomainEventKind.job_failed not in kinds
         assert DomainEventKind.session_resumed in kinds
 
-        # DB should end in a terminal state (succeeded after the resumed run)
+        # DB should end in review/failed/canceled after the resumed run
         async with session_factory() as session:
             from backend.persistence.job_repo import JobRepository
 
             repo = JobRepository(session)
             row = await repo.get(job.id)
             assert row is not None
-            assert row.state in (JobState.succeeded, JobState.failed, JobState.canceled)
+            assert row.state in (JobState.review, JobState.failed, JobState.canceled)
 
     async def test_send_message_returns_false_for_nonexistent_job(
         self,
@@ -675,7 +675,7 @@ class TestResumeFallback:
 
         event_bus.subscribe(_collect)
 
-        job = _make_job(repo=config.repos[0], state=JobState.succeeded)
+        job = _make_job(repo=config.repos[0], state=JobState.review)
         job.branch = "cpl/job-1"
         job.completed_at = datetime.now(UTC)
         job.resolution = Resolution.conflict
@@ -695,14 +695,14 @@ class TestResumeFallback:
             repo = JobRepository(session)
             row = await repo.get(job.id)
             assert row is not None
-            assert row.state == JobState.succeeded
+            assert row.state == JobState.completed
             assert row.resolution == Resolution.merged
             assert row.merge_status == Resolution.merged
 
-        succeeded_events = [event for event in published if event.kind == DomainEventKind.job_succeeded]
-        assert succeeded_events
-        assert succeeded_events[-1].payload["resolution"] == Resolution.merged
-        assert succeeded_events[-1].payload["merge_status"] == Resolution.merged
+        completed_events = [event for event in published if event.kind == DomainEventKind.job_completed]
+        assert completed_events
+        assert completed_events[-1].payload["resolution"] == Resolution.merged
+        assert completed_events[-1].payload["merge_status"] == Resolution.merged
 
         await runtime.shutdown()
 
@@ -727,7 +727,7 @@ class TestResumeFallback:
 
         event_bus.subscribe(_collect)
 
-        job = _make_job(repo=config.repos[0], state=JobState.succeeded)
+        job = _make_job(repo=config.repos[0], state=JobState.review)
         job.completed_at = datetime.now(UTC)
         job.session_count = 4
         job.resolution = Resolution.unresolved
@@ -747,7 +747,7 @@ class TestResumeFallback:
             repo = JobRepository(session)
             row = await repo.get(job.id)
             assert row is not None
-            assert row.state == JobState.succeeded
+            assert row.state == JobState.review
             assert row.session_count == 4
             assert row.resolution == Resolution.unresolved
             assert row.completed_at is not None
@@ -869,7 +869,7 @@ class TestResumeFallback:
             repo = JobRepository(session)
             row = await repo.get(job.id)
             assert row is not None
-            assert row.state == JobState.succeeded
+            assert row.state == JobState.review
             assert row.sdk_session_id == "resume-2"
 
         await runtime.shutdown()
@@ -923,7 +923,7 @@ class TestResumeFallback:
             config=config,
         )
 
-        job = _make_job(repo=config.repos[0], state=JobState.succeeded)
+        job = _make_job(repo=config.repos[0], state=JobState.completed)
         job.completed_at = datetime.now(UTC)
         job.resolution = Resolution.merged
         await _create_db_job(session_factory, job)
@@ -992,7 +992,7 @@ class TestRecovery:
             repo = JobRepository(session)
             row = await repo.get(job.id)
             assert row is not None
-            assert row.state == JobState.succeeded
+            assert row.state == JobState.review
 
         resumed_events = [e for e in published if e.kind == DomainEventKind.session_resumed]
         assert len(resumed_events) == 1
@@ -1043,7 +1043,7 @@ class TestRecovery:
             repo = JobRepository(session)
             row = await repo.get(job.id)
             assert row is not None
-            assert row.state == JobState.succeeded
+            assert row.state == JobState.review
 
 
 # ---------------------------------------------------------------------------
@@ -1495,10 +1495,10 @@ class TestErrorEventCausesFailure:
         await runtime.start_or_enqueue(job)
         await asyncio.sleep(0.5)
 
-        # Should have a job_failed event, NOT job_succeeded
+        # Should have a job_failed event, NOT job_review
         kinds = [e.kind for e in published]
         assert DomainEventKind.job_failed in kinds
-        assert DomainEventKind.job_succeeded not in kinds
+        assert DomainEventKind.job_review not in kinds
 
         # DB state should be failed
         from backend.models.db import JobRow

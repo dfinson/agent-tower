@@ -594,27 +594,27 @@ class RuntimeService:
                 session_id = result.session_id
                 error_reason = result.error_reason
 
-            # Model downgrade (from either attempt): finish diff, succeed with note, skip verify
+            # Model downgrade (from either attempt): finish diff, move to review with note, skip verify
             if result.downgrade is not None:
                 requested, actual = result.downgrade
                 await self._finalize_diff_safe(job_id, worktree_path, base_ref)
                 reason = f"Model downgraded: requested {requested} but received {actual}"
                 async with self._session_factory() as session:
                     svc = self._make_job_service(session)
-                    await svc.transition_state(job_id, JobState.succeeded, failure_reason=reason)
+                    await svc.transition_state(job_id, JobState.review, failure_reason=reason)
                     from backend.persistence.job_repo import JobRepository
 
                     job_repo = JobRepository(session)
                     await job_repo.update_resolution(job_id, Resolution.unresolved)
                     await session.commit()
 
-                self._set_progress_terminal_state(job_id, JobState.succeeded)
+                self._set_progress_terminal_state(job_id, JobState.review)
                 await self._event_bus.publish(
                     DomainEvent(
                         event_id=DomainEvent.make_event_id(),
                         job_id=job_id,
                         timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.job_succeeded,
+                        kind=DomainEventKind.job_review,
                         payload={
                             "resolution": Resolution.unresolved,
                             "model_downgraded": True,
@@ -623,7 +623,7 @@ class RuntimeService:
                         },
                     )
                 )
-                log.info("job_moved_to_signoff_model_downgrade", job_id=job_id)
+                log.info("job_moved_to_review_model_downgrade", job_id=job_id)
                 return
 
             if error_reason:
@@ -645,7 +645,7 @@ class RuntimeService:
             final_merge_status: str | None = None
             resolution_event = None
 
-            # Strategy completed normally → succeeded
+            # Strategy completed normally → review
             #
             # Commit the state transition BEFORE running merge resolution.
             # Merge operations open their own sessions to persist merge_status
@@ -653,7 +653,7 @@ class RuntimeService:
             # SQLite will deadlock on the jobs table write lock.
             async with self._session_factory() as session:
                 svc = self._make_job_service(session)
-                await svc.transition_state(job_id, JobState.succeeded)
+                await svc.transition_state(job_id, JobState.review)
                 if not post_conflict_merge_requested or self._merge_service is None:
                     from backend.persistence.job_repo import JobRepository
 
@@ -696,7 +696,7 @@ class RuntimeService:
                 final_pr_url = updated_job.pr_url
 
             if final_resolution == Resolution.unresolved:
-                log.info("job_awaiting_sign_off", job_id=job_id)
+                log.info("job_awaiting_review", job_id=job_id)
             else:
                 log.info(
                     "job_completed_with_resolution",
@@ -705,13 +705,22 @@ class RuntimeService:
                     merge_status=final_merge_status,
                 )
 
-            self._set_progress_terminal_state(job_id, JobState.succeeded)
+            # Determine final state — execute_resolve may have already
+            # transitioned review → completed for successful merges.
+            final_state = JobState.review
+            if final_resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
+                final_state = JobState.completed
+            final_event_kind = (
+                DomainEventKind.job_completed if final_state == JobState.completed else DomainEventKind.job_review
+            )
+
+            self._set_progress_terminal_state(job_id, final_state)
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
                     job_id=job_id,
                     timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.job_succeeded,
+                    kind=final_event_kind,
                     payload={
                         "resolution": final_resolution,
                         "merge_status": final_merge_status,
@@ -720,7 +729,7 @@ class RuntimeService:
                 )
             )
             log.info(
-                "job_succeeded",
+                final_event_kind.value,
                 job_id=job_id,
                 resolution=final_resolution,
                 merge_status=final_merge_status,
@@ -750,7 +759,7 @@ class RuntimeService:
                     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
 
                     # Determine status from job state
-                    status = "succeeded"
+                    status = "review"
                     try:
                         svc = self._make_job_service(session)
                         job_final = await svc.get_job(job_id)
@@ -760,6 +769,8 @@ class RuntimeService:
                                 status = "failed"
                             elif "cancel" in st:
                                 status = "cancelled"
+                            elif st == "completed":
+                                status = "completed"
                     except Exception:
                         pass
 
@@ -1490,7 +1501,7 @@ class RuntimeService:
             log.warning("send_message_job_not_found", job_id=job_id)
             return False
 
-        if job.state not in TERMINAL_STATES:
+        if job.state not in TERMINAL_STATES and job.state != JobState.review:
             # Orphaned non-terminal job — recover it in place.
             log.warning(
                 "send_message_orphaned_non_terminal",
@@ -1785,7 +1796,7 @@ class RuntimeService:
         return followup
 
     async def resume_job(self, job_id: str, instruction: str | None = None) -> Job:
-        """Resume a terminal job in-place.
+        """Resume a terminal or review job in-place.
 
         Primary path: reconnect to the existing Copilot SDK session (full conversation history
         intact, no summarization cost). Fallback: use LLM-generated session summary when the
@@ -1795,6 +1806,7 @@ class RuntimeService:
         from backend.persistence.job_repo import JobRepository
         from backend.services.job_service import JobNotFoundError, StateConflictError
 
+        _RESUMABLE_STATES = TERMINAL_STATES | {JobState.review}
         normalized_instruction = _normalize_resume_instruction(instruction)
 
         async with self._session_factory() as session:
@@ -1802,8 +1814,8 @@ class RuntimeService:
             job = await job_repo.get(job_id)
             if job is None:
                 raise JobNotFoundError(f"Job {job_id} does not exist.")
-            if job.state not in TERMINAL_STATES:
-                raise StateConflictError(f"Job {job_id} is not in a terminal state (current: {job.state}).")
+            if job.state not in _RESUMABLE_STATES:
+                raise StateConflictError(f"Job {job_id} is not in a resumable state (current: {job.state}).")
 
             previous_state = job.state
             previous_session_count = job.session_count

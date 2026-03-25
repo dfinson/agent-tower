@@ -17,7 +17,7 @@ function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
     id: "job-1",
     repo: "/repos/test",
     prompt: "Original archived task",
-    state: "succeeded",
+    state: "completed",
     baseRef: "main",
     worktreePath: null,
     branch: "fix/archived-task",
@@ -55,7 +55,7 @@ describe("HistoryScreen", () => {
     );
 
     await waitFor(() => {
-      expect(fetchJobs).toHaveBeenCalledWith({ state: "succeeded,failed,canceled", limit: 100, archived: true });
+      expect(fetchJobs).toHaveBeenCalledWith({ state: "review,completed,failed,canceled", limit: 100, archived: true });
     });
   });
 

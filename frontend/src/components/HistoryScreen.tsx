@@ -31,7 +31,7 @@ export function HistoryScreen() {
   // Load archived jobs on mount
   useEffect(() => {
     setLoading(true);
-    fetchJobs({ state: "succeeded,failed,canceled", limit: 100, archived: true } as Parameters<typeof fetchJobs>[0])
+    fetchJobs({ state: "review,completed,failed,canceled", limit: 100, archived: true } as Parameters<typeof fetchJobs>[0])
       .then((result) => {
         useStore.setState((state) => {
           const updated = { ...state.jobs };

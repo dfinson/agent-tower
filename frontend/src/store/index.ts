@@ -586,7 +586,7 @@ export const useStore = create<AppState>((set, get) => ({
           return null;
         }
 
-        case "job_succeeded": {
+        case "job_review": {
           const jobId = payload.jobId as string;
           const prUrl = (payload.prUrl as string | null) ?? null;
           const resolution = (payload.resolution as string | null) ?? null;
@@ -603,7 +603,7 @@ export const useStore = create<AppState>((set, get) => ({
                 ...state.jobs,
                 [jobId]: {
                   ...existing,
-                  state: "succeeded",
+                  state: "review",
                   ...(prUrl && { prUrl }),
                   ...(resolution && { resolution }),
                   ...(mergeStatus && { mergeStatus }),
@@ -612,6 +612,27 @@ export const useStore = create<AppState>((set, get) => ({
                 },
               },
               ...(finalPlan && { plans: { ...state.plans, [jobId]: finalPlan } }),
+            };
+          }
+          return null;
+        }
+
+        case "job_completed": {
+          const jobId = payload.jobId as string;
+          const resolution = (payload.resolution as string | null) ?? null;
+          const prUrl = (payload.prUrl as string | null) ?? null;
+          const existing = state.jobs[jobId];
+          if (existing) {
+            return {
+              jobs: {
+                ...state.jobs,
+                [jobId]: {
+                  ...existing,
+                  state: "completed",
+                  ...(resolution && { resolution }),
+                  ...(prUrl && { prUrl }),
+                },
+              },
             };
           }
           return null;
@@ -1039,7 +1060,7 @@ export const selectActiveJobs = (state: AppState): JobSummary[] =>
 
 /** Sign-off: everything that needs operator attention before archival.
  *  - waiting_for_approval
- *  - succeeded (any resolution) — not archived
+ *  - review (agent done, awaiting operator decision) — not archived
  */
 export const selectSignoffJobs = (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(
@@ -1047,7 +1068,7 @@ export const selectSignoffJobs = (state: AppState): JobSummary[] =>
       (j) =>
         !j.archivedAt &&
         (j.state === "waiting_for_approval" ||
-          j.state === "succeeded"),
+          j.state === "review"),
     ),
   );
 

@@ -54,7 +54,8 @@ _STATE_ICON: dict[str, str] = {
     "queued": "○",
     "running": "●",
     "waiting_for_approval": "⏸",
-    "succeeded": "✓",
+    "review": "⏳",
+    "completed": "✓",
     "failed": "✗",
     "canceled": "⊘",
 }
@@ -63,13 +64,14 @@ _STATE_STYLE: dict[str, str] = {
     "queued": "yellow",
     "running": "bold green",
     "waiting_for_approval": "bold magenta",
-    "succeeded": "dim green",
+    "review": "bold cyan",
+    "completed": "dim green",
     "failed": "red",
     "canceled": "dim",
 }
 
-_ACTIVE_STATES = frozenset({"queued", "running", "waiting_for_approval"})
-_TERMINAL_STATES = frozenset({"succeeded", "failed", "canceled"})
+_ACTIVE_STATES = frozenset({"queued", "running", "waiting_for_approval", "review"})
+_TERMINAL_STATES = frozenset({"completed", "failed", "canceled"})
 
 # How long completed jobs remain visible in the Jobs panel
 _COMPLETED_JOB_TTL_S = 60.0
@@ -258,15 +260,17 @@ class ConsoleDashboard:
             self._recent_events.append((ts, f"{icon} {event.job_id}  → {new_state}"))
 
         elif kind in (
-            DomainEventKind.job_succeeded,
+            DomainEventKind.job_review,
+            DomainEventKind.job_completed,
             DomainEventKind.job_failed,
             DomainEventKind.job_canceled,
         ):
-            # These dedicated terminal events are the authoritative signal that a
-            # job has finished — job_state_changed is NOT published for terminal
-            # transitions, so we must handle them here.
+            # These dedicated events are the authoritative signal that a
+            # job has changed state — job_state_changed is NOT published for
+            # these transitions, so we must handle them here.
             new_state = {
-                DomainEventKind.job_succeeded: "succeeded",
+                DomainEventKind.job_review: "review",
+                DomainEventKind.job_completed: "completed",
                 DomainEventKind.job_failed: "failed",
                 DomainEventKind.job_canceled: "canceled",
             }[kind]

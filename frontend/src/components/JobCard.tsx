@@ -114,7 +114,7 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
       )}
 
       {/* Success outcome */}
-      {job.state === "succeeded" && job.resolution && job.resolution !== "unresolved" && (
+      {(job.state === "review" || job.state === "completed") && job.resolution && job.resolution !== "unresolved" && (
         <div className="flex items-start gap-1.5 text-xs text-green-600 mb-2 rounded bg-green-500/10 px-2 py-1.5">
           <CheckCircle2 size={12} className="shrink-0 mt-0.5" />
           <span>

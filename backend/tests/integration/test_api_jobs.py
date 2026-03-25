@@ -142,7 +142,7 @@ class TestJobsCrud:
         seed_job: SeedJobFn,
         session_factory: async_sessionmaker[AsyncSession],
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="preview-1")
+        jid = await seed_job(state="review", job_id="preview-1")
         async with session_factory() as session:
             session.add(
                 EventRow(
@@ -166,11 +166,11 @@ class TestJobsCrud:
 
     async def test_list_jobs_state_filter(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         await seed_job(state="running", job_id="run-1")
-        await seed_job(state="succeeded", job_id="succ-1")
+        await seed_job(state="review", job_id="rev-1")
 
-        resp = await client.get("/api/jobs", params={"state": "succeeded"})
+        resp = await client.get("/api/jobs", params={"state": "review"})
         data = resp.json()
-        assert all(j["state"] == "succeeded" for j in data["items"])
+        assert all(j["state"] == "review" for j in data["items"])
 
     async def test_list_jobs_pagination(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         for i in range(3):
@@ -188,7 +188,7 @@ class TestJobsCrud:
 
     async def test_list_jobs_archived_filter(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         await seed_job(
-            state="succeeded",
+            state="completed",
             job_id="archived-1",
             archived_at=datetime.now(UTC),
         )
@@ -217,7 +217,7 @@ class TestJobsCrud:
         seed_job: SeedJobFn,
         session_factory: async_sessionmaker[AsyncSession],
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="get-preview-1")
+        jid = await seed_job(state="review", job_id="get-preview-1")
         async with session_factory() as session:
             session.add(
                 EventRow(
@@ -263,7 +263,7 @@ class TestJobsCrud:
         assert resp.json()["state"] == "canceled"
 
     async def test_cancel_already_terminal_job(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
-        jid = await seed_job(state="succeeded", job_id="cancel-term")
+        jid = await seed_job(state="completed", job_id="cancel-term")
         resp = await client.post(f"/api/jobs/{jid}/cancel")
         assert resp.status_code == 409
 
@@ -279,7 +279,7 @@ class TestJobsCrud:
         seed_job: SeedJobFn,
         mock_runtime_service: AsyncMock,
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="rerun-1")
+        jid = await seed_job(state="completed", job_id="rerun-1")
         resp = await client.post(f"/api/jobs/{jid}/rerun")
         assert resp.status_code == 201
         data = resp.json()
@@ -359,12 +359,12 @@ class TestJobControl:
         assert resp.status_code == 404
 
     async def test_continue_missing_instruction(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
-        jid = await seed_job(state="succeeded", job_id="cont-missing")
+        jid = await seed_job(state="review", job_id="cont-missing")
         resp = await client.post(f"/api/jobs/{jid}/continue", json={})
         assert resp.status_code == 422
 
     async def test_continue_blank_instruction(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
-        jid = await seed_job(state="succeeded", job_id="cont-blank")
+        jid = await seed_job(state="review", job_id="cont-blank")
         resp = await client.post(f"/api/jobs/{jid}/continue", json={"instruction": "   "})
         assert resp.status_code == 422
 
@@ -511,7 +511,7 @@ class TestJobData:
     # ── Diff ──
 
     async def test_diff_empty(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
-        jid = await seed_job(state="succeeded", job_id="diff-1")
+        jid = await seed_job(state="review", job_id="diff-1")
         resp = await client.get(f"/api/jobs/{jid}/diff")
         assert resp.status_code == 200
         assert resp.json() == []
@@ -564,7 +564,7 @@ class TestJobResolution:
         seed_job: SeedJobFn,
         mock_merge_service: AsyncMock,
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="resolve-merge")
+        jid = await seed_job(state="review", job_id="resolve-merge")
         mock_merge_service.resolve_job.return_value = FakeMergeResult(status="merged")
 
         resp = await client.post(f"/api/jobs/{jid}/resolve", json={"action": "merge"})
@@ -581,7 +581,7 @@ class TestJobResolution:
         seed_job: SeedJobFn,
         mock_merge_service: AsyncMock,
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="resolve-pr")
+        jid = await seed_job(state="review", job_id="resolve-pr")
         mock_merge_service.resolve_job.return_value = FakeMergeResult(
             status="pr_created",
             pr_url="https://github.com/test/repo/pull/1",
@@ -601,7 +601,7 @@ class TestJobResolution:
         seed_job: SeedJobFn,
         mock_merge_service: AsyncMock,
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="resolve-disc")
+        jid = await seed_job(state="review", job_id="resolve-disc")
         mock_merge_service.resolve_job.return_value = FakeMergeResult(status="skipped")
 
         resp = await client.post(f"/api/jobs/{jid}/resolve", json={"action": "discard"})
@@ -616,7 +616,7 @@ class TestJobResolution:
         seed_job: SeedJobFn,
         mock_merge_service: AsyncMock,
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="resolve-conf")
+        jid = await seed_job(state="review", job_id="resolve-conf")
         mock_merge_service.resolve_job.return_value = FakeMergeResult(
             status="conflict",
             conflict_files=["src/main.py", "README.md"],
@@ -634,7 +634,7 @@ class TestJobResolution:
         seed_job: SeedJobFn,
         mock_merge_service: AsyncMock,
     ) -> None:
-        jid = await seed_job(state="succeeded", job_id="resolve-error")
+        jid = await seed_job(state="review", job_id="resolve-error")
         mock_merge_service.resolve_job.return_value = FakeMergeResult(
             status="error",
             error="Cherry-pick failed without conflict markers; check git configuration or hooks",
@@ -653,7 +653,7 @@ class TestJobResolution:
         mock_runtime_service: AsyncMock,
     ) -> None:
         jid = await seed_job(
-            state="succeeded",
+            state="review",
             job_id="resolve-agent",
             branch="cpl/resolve-agent",
             resolution="conflict",
@@ -665,9 +665,9 @@ class TestJobResolution:
         assert resp.json()["resolution"] == "agent_merge"
         mock_runtime_service.resume_job.assert_called_once()
 
-    # ── Resolve: not succeeded → 409 ──
+    # ── Resolve: not review → 409 ──
 
-    async def test_resolve_not_succeeded(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
+    async def test_resolve_not_review(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         jid = await seed_job(state="running", job_id="resolve-running")
         resp = await client.post(f"/api/jobs/{jid}/resolve", json={"action": "merge"})
         assert resp.status_code == 409
@@ -681,14 +681,14 @@ class TestJobResolution:
     # ── Resolve: already resolved ──
 
     async def test_resolve_already_resolved(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
-        jid = await seed_job(state="succeeded", job_id="resolve-dup", resolution="merged")
+        jid = await seed_job(state="review", job_id="resolve-dup", resolution="merged")
         resp = await client.post(f"/api/jobs/{jid}/resolve", json={"action": "merge"})
         assert resp.status_code == 409
 
     # ── Archive ──
 
-    async def test_archive_succeeded_job(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
-        jid = await seed_job(state="succeeded", job_id="arch-1")
+    async def test_archive_completed_job(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
+        jid = await seed_job(state="completed", job_id="arch-1")
         resp = await client.post(f"/api/jobs/{jid}/archive")
         assert resp.status_code == 204
 
@@ -709,7 +709,7 @@ class TestJobResolution:
 
     async def test_unarchive_job_returns_409(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         jid = await seed_job(
-            state="succeeded",
+            state="completed",
             job_id="unarch-1",
             archived_at=datetime.now(UTC),
         )
