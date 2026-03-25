@@ -174,6 +174,12 @@ class ConsoleDashboard:
     def is_live_running(self) -> bool:
         return self._live is not None and self._live.is_started
 
+    # Minimum / maximum rendered height (rows).  The dashboard adapts to
+    # the terminal but stays within these bounds so the Rich Live cursor-up
+    # erasing is reliable and large terminals don't waste space.
+    _MIN_HEIGHT = 16
+    _MAX_HEIGHT = 50
+
     def start(self) -> None:
         """Activate the Rich Live display. Call after the startup banner."""
         if self._live is not None:
@@ -181,8 +187,8 @@ class ConsoleDashboard:
         self._live = Live(
             _DashboardView(self),
             console=self._console,
-            refresh_per_second=4,
-            screen=True,
+            refresh_per_second=2,
+            screen=False,
             auto_refresh=True,
             vertical_overflow="crop",
         )
@@ -409,12 +415,23 @@ class ConsoleDashboard:
 
         errors_panel = Panel(err_content, title=err_title, box=ROUNDED)
 
-        # --- Assemble: full-screen Layout so every section fits ---
-        root = Layout()
+        # --- Assemble with a fixed total height ---
+        # A stable height is critical: Rich Live (screen=False) uses
+        # cursor-up sequences to erase the previous frame.  If the height
+        # changes between renders, the old frame isn't fully erased and
+        # output stacks.  Clamping to [_MIN_HEIGHT, _MAX_HEIGHT] makes the
+        # frame height predictable while adapting to the terminal size.
+        term_h = self._console.size.height
+        total = max(self._MIN_HEIGHT, min(self._MAX_HEIGHT, term_h - 2))
+        header_h = 3
+        errors_h = 5
+        body_h = total - header_h - errors_h
+
+        root = Layout(size=total)
         root.split_column(
-            Layout(header_panel, name="header", size=3),
-            Layout(name="body"),
-            Layout(errors_panel, name="errors", size=5),
+            Layout(header_panel, name="header", size=header_h),
+            Layout(name="body", size=body_h),
+            Layout(errors_panel, name="errors", size=errors_h),
         )
         root["body"].split_row(
             Layout(jobs_panel, name="jobs", ratio=5),
