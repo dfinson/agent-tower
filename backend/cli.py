@@ -249,7 +249,12 @@ def up(
     app.state.dashboard = dashboard
 
     try:
-        uvicorn.run(app, host=host, port=port)
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="warning" if dashboard else "info",
+        )
     finally:
         if tunnel_handle is not None:
             tunnel_handle.close()
