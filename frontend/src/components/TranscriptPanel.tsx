@@ -102,8 +102,24 @@ function buildDisplayItems(
     }
     const turn = turns.get(turnId)!;
     if (entry.role === "reasoning") turn.reasoning = entry;
-    else if (entry.role === "tool_call" || entry.role === "tool_running") turn.toolCalls.push(entry);
-    else if (entry.role === "agent") turn.message = entry;
+    else if (entry.role === "tool_call" || entry.role === "tool_running") {
+      if (entry.role === "tool_call") {
+        // Replace a matching in-progress placeholder, if present.
+        const idx = turn.toolCalls.findIndex(
+          (e) => e.role === "tool_running" && e.toolName === entry.toolName,
+        );
+        if (idx >= 0) {
+          turn.toolCalls[idx] = entry;
+        } else {
+          turn.toolCalls.push(entry);
+        }
+      } else {
+        // tool_running: skip if a completed call for this tool already exists.
+        if (!turn.toolCalls.some((e) => e.role === "tool_call" && e.toolName === entry.toolName)) {
+          turn.toolCalls.push(entry);
+        }
+      }
+    } else if (entry.role === "agent") turn.message = entry;
   }
 
   // Interleave approvals at their chronological position
