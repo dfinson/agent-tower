@@ -414,14 +414,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     app.state.dishka_container = container
 
-    # Print the startup banner now that all services are ready, then
-    # activate the Rich live display so it takes over the console.
+    # Activate the Rich live display — connection info is shown
+    # persistently in the dashboard header (no one-shot banner).
     banner_args = getattr(app.state, "banner_args", None)
-    if banner_args:
-        from backend.cli import _print_startup_banner
-
-        _print_startup_banner(**banner_args)
-
     if dashboard is not None:
         if banner_args:
             host = banner_args.get("host", "127.0.0.1")
@@ -429,6 +424,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             dashboard.set_server_info(
                 server_url=f"http://{host}:{port}",
                 tunnel_url=banner_args.get("tunnel_url"),
+                password=banner_args.get("password"),
             )
         dashboard.start()
 
