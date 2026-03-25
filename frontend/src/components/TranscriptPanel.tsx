@@ -646,10 +646,12 @@ function AgentTurn({
   turn,
   sdk,
   isLast,
+  streamingText,
 }: {
   turn: AgentTurnData;
   sdk?: string;
   isLast?: boolean;
+  streamingText?: string;
 }) {
   const msg = turn.message;
   const intentLabel = extractReportIntent(turn.toolCalls);
@@ -669,7 +671,12 @@ function AgentTurn({
           <ToolStepList calls={turn.toolCalls} isActive={isActive} />
         )}
         {msg && <AgentMessageBlock entry={msg} isNew={isLast} />}
-        {isActive && (turn.reasoning || turn.toolCalls.length > 0) && (
+        {!msg && streamingText && (
+          <div className="text-sm leading-relaxed">
+            <AgentMarkdown content={streamingText} />
+          </div>
+        )}
+        {isActive && !streamingText && (turn.reasoning || turn.toolCalls.length > 0) && (
           <ActiveIndicator turn={turn} />
         )}
       </div>
@@ -786,6 +793,7 @@ export function TranscriptPanel({
   const isMobile = useIsMobile();
   const rawEntries = useStore(selectJobTranscript(jobId));
   const allApprovals = useStore(selectApprovals);
+  const streamingMessages = useStore((s) => s.streamingMessages);
   const jobApprovals = Object.values(allApprovals).filter((a) => a.jobId === jobId);
 
   const entries = useMemo<TranscriptEntry[]>(() => [
@@ -999,7 +1007,12 @@ export function TranscriptPanel({
                   )}
 
                   {item.type === "turn" && (
-                    <AgentTurn sdk={sdk} turn={item.turn} isLast={virtualRow.index === displayItems.length - 1} />
+                    <AgentTurn
+                      sdk={sdk}
+                      turn={item.turn}
+                      isLast={virtualRow.index === displayItems.length - 1}
+                      streamingText={streamingMessages[`${jobId}:${item.turn.key}`] ?? streamingMessages[`${jobId}:__default__`]}
+                    />
                   )}
 
                   {item.type === "approval" && (

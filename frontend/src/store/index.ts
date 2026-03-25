@@ -234,6 +234,10 @@ interface AppState {
   diffs: Record<string, DiffFileModel[]>; // keyed by jobId
   timelines: Record<string, TimelineEntry[]>; // keyed by jobId
   plans: Record<string, PlanStep[]>; // keyed by jobId
+  /** Accumulated streaming text for in-progress agent messages, keyed by
+   * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
+   * Cleared when the complete agent message arrives for that turn. */
+  streamingMessages: Record<string, string>;
   /** Monotonically-increasing counter per job, bumped on each telemetry_updated
    * SSE event. Components watching this trigger a telemetry re-fetch. */
   telemetryVersions: Record<string, number>; // keyed by jobId
@@ -301,6 +305,7 @@ export const useStore = create<AppState>((set, get) => ({
   diffs: {},
   timelines: {},
   plans: {},
+  streamingMessages: {},
   telemetryVersions: {},
   connectionStatus: "reconnecting",
   reconnectAttempt: 0,
@@ -478,11 +483,26 @@ export const useStore = create<AppState>((set, get) => ({
 
         case "transcript_update": {
           const jobId = payload.jobId as string;
+          const role = payload.role as string;
+
+          // agent_delta: accumulate streaming text per turn, don't add to transcript
+          if (role === "agent_delta") {
+            const turnId = (payload.turnId as string | undefined) ?? "__default__";
+            const key = `${jobId}:${turnId}`;
+            const delta = (payload.content as string) ?? "";
+            return {
+              streamingMessages: {
+                ...state.streamingMessages,
+                [key]: (state.streamingMessages[key] ?? "") + delta,
+              },
+            };
+          }
+
           const entry: TranscriptEntry = {
             jobId,
             seq: payload.seq as number,
             timestamp: payload.timestamp as string,
-            role: payload.role as string,
+            role,
             content: payload.content as string,
             title: payload.title as string | undefined,
             turnId: payload.turnId as string | undefined,
@@ -525,8 +545,20 @@ export const useStore = create<AppState>((set, get) => ({
             return null;
           }
           const updated = [...existing, entry];
+
+          // When a complete agent message arrives, clear streaming state for that turn.
+          let streamingMessages = state.streamingMessages;
+          if (entry.role === "agent" && entry.turnId) {
+            const key = `${jobId}:${entry.turnId}`;
+            if (key in streamingMessages) {
+              streamingMessages = { ...streamingMessages };
+              delete streamingMessages[key];
+            }
+          }
+
           return {
             transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
+            streamingMessages,
           };
         }
 
