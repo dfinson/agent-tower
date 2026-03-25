@@ -260,14 +260,14 @@ test.describe("Job Detail — Live Events", () => {
     await expect(cancelBtn).toBeVisible();
   });
 
-  test("shows tabs: Live, Files, Changes, Artifacts", async ({ page }) => {
+  test("shows tabs: Live, Files, Changes", async ({ page }) => {
     await page.goto("/jobs/job-1");
 
     await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByRole("tab", { name: "Live" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Files" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Changes" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Artifacts" })).toBeVisible();
+    // Artifacts tab only appears when the job has artifacts
   });
 });
 
