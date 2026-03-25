@@ -53,6 +53,7 @@ class CopilotAdapter(AgentAdapterInterface):
         self._sessions: dict[str, CopilotSession] = {}
         self._clients: dict[str, Any] = {}  # session_id → CopilotClient (owns CLI server process)
         self._session_to_job: dict[str, str] = {}  # session_id → job_id for telemetry
+        self._paused_sessions: set[str] = set()
         self._tool_start_times: dict[str, float] = {}  # tool_call_id → start monotonic
         # Buffers tool.execution_start data so we can emit a combined entry on complete
         self._tool_call_buffer: dict[str, dict[str, str]] = {}  # tool_call_id → {tool_name, tool_args, turn_id}
@@ -108,6 +109,7 @@ class CopilotAdapter(AgentAdapterInterface):
         Also stops the CopilotClient that owns the backing CLI server process
         to prevent leaked child processes from accumulating over time.
         """
+        self._paused_sessions.discard(session_id)
         job_id = self._session_to_job.pop(session_id, None)
         self._sessions.pop(session_id, None)
         self._queues.pop(session_id, None)
@@ -149,6 +151,10 @@ class CopilotAdapter(AgentAdapterInterface):
         kind_val = request.kind.value if request.kind else "unknown"
         mode = config.permission_mode
         sid = invocation.get("session_id", "")
+
+        # Paused — immediately deny all tools so the agent cannot act.
+        if sid in self._paused_sessions:
+            return _Result(kind="denied-interactively-by-user")
 
         # ----------------------------------------------------------------
         # Hard block: git reset --hard always requires explicit operator
@@ -932,6 +938,12 @@ class CopilotAdapter(AgentAdapterInterface):
             await session.send({"prompt": message, "mode": "immediate", "attachments": []})
         except Exception:
             log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
+
+    def pause_tools(self, session_id: str) -> None:
+        self._paused_sessions.add(session_id)
+
+    def resume_tools(self, session_id: str) -> None:
+        self._paused_sessions.discard(session_id)
 
     async def abort_session(self, session_id: str) -> None:
         session = self._sessions.get(session_id)

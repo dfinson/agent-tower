@@ -81,12 +81,14 @@ class ClaudeAdapter(AgentAdapterInterface):
         self._session_factory = session_factory
         self._job_start_times: dict[str, float] = {}
         self._job_main_models: dict[str, str] = {}
+        self._paused_sessions: set[str] = set()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _cleanup_session(self, session_id: str) -> None:
+        self._paused_sessions.discard(session_id)
         job_id = self._session_to_job.pop(session_id, None)
         client = self._clients.pop(session_id, None)
         self._queues.pop(session_id, None)
@@ -188,6 +190,10 @@ class ClaudeAdapter(AgentAdapterInterface):
             input_data: dict[str, Any],
             context: object,
         ) -> PermissionResultAllow | PermissionResultDeny:
+            # Paused — immediately deny all tools so the agent cannot act.
+            if session_id in self._paused_sessions:
+                return PermissionResultDeny(message="Session is paused — waiting for operator")
+
             mode = config.permission_mode
             job_id = self._session_to_job.get(session_id)
 
@@ -755,6 +761,12 @@ class ClaudeAdapter(AgentAdapterInterface):
             await client.interrupt()
         except Exception:
             log.warning("claude_interrupt_failed", session_id=session_id, exc_info=True)
+
+    def pause_tools(self, session_id: str) -> None:
+        self._paused_sessions.add(session_id)
+
+    def resume_tools(self, session_id: str) -> None:
+        self._paused_sessions.discard(session_id)
 
     async def abort_session(self, session_id: str) -> None:
         client = self._clients.get(session_id)
