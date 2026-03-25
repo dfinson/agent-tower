@@ -703,12 +703,17 @@ class CopilotAdapter(AgentAdapterInterface):
                         return
                     from backend.services.tool_formatters import format_tool_display
 
+                    turn_id = buffered.get("turn_id") or (
+                        str(data.turn_id)
+                        if data and hasattr(data, "turn_id") and data.turn_id
+                        else None
+                    )
                     event_payload = {
                         "role": "tool_running",
                         "content": tool_name,
                         "tool_name": tool_name,
                         "tool_args": buffered.get("tool_args"),
-                        "turn_id": buffered.get("turn_id") or (str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None),
+                        "turn_id": turn_id,
                         "tool_intent": buffered.get("tool_intent"),
                         "tool_title": buffered.get("tool_title"),
                         "tool_display": format_tool_display(tool_name, buffered.get("tool_args")),
