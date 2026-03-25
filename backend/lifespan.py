@@ -46,6 +46,31 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+
+def _print_qr_code(url: str) -> None:
+    """Print a QR code for *url* to the console (best-effort)."""
+    try:
+        import io
+
+        import qrcode
+        from rich.align import Align
+        from rich.console import Console
+        from rich.text import Text
+
+        qr = qrcode.QRCode(box_size=1, border=1)
+        qr.add_data(url)
+        qr.make(fit=True)
+        buf = io.StringIO()
+        qr.print_ascii(out=buf, invert=True)
+
+        console = Console(stderr=True)
+        console.print()
+        console.print(Align.center(Text(buf.getvalue().rstrip("\n"))))
+        console.print(Align.center(Text.from_markup(f"Scan to open: [bold]{url}[/bold]")))
+        console.print()
+    except ImportError:
+        pass
+
 _EVENT_PERSIST_MAX_ATTEMPTS = 3
 _EVENT_PERSIST_RETRY_DELAY_S = 0.05
 _DEAD_LETTER_RETRY_INTERVAL_S = 5.0
@@ -415,8 +440,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.dishka_container = container
 
     # Activate the Rich live display — connection info is shown
-    # persistently in the dashboard header (no one-shot banner).
+    # persistently in the dashboard header.  Print the QR code once
+    # before the live display takes over the terminal.
     banner_args = getattr(app.state, "banner_args", None)
+    if banner_args:
+        _print_qr_code(banner_args.get("tunnel_url") or f"http://{banner_args.get('host', '127.0.0.1')}:{banner_args.get('port', 8080)}")
     if dashboard is not None:
         if banner_args:
             host = banner_args.get("host", "127.0.0.1")

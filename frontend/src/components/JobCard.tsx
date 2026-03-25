@@ -66,7 +66,7 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
           <span className="text-sm font-semibold text-primary flex-1 min-w-0 break-words" title={job.id}>{job.id}</span>
         )}
         <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-          {job.resolution && <ResolutionBadge resolution={job.resolution} />}
+          {job.resolution && !(job.state === "review" && job.resolution === "unresolved") && <ResolutionBadge resolution={job.resolution} />}
           <StateBadge state={job.state} />
         </div>
       </div>
