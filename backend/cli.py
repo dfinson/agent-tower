@@ -248,29 +248,30 @@ def up(
     }
     app.state.dashboard = dashboard
 
-    # Install signal handlers that stop the Rich Live display before
-    # letting uvicorn handle shutdown.  Without this, the Live refresh
-    # thread keeps painting after Ctrl+C and the terminal appears stuck.
-    _prev_sigint = signal.getsignal(signal.SIGINT)
-    _prev_sigterm = signal.getsignal(signal.SIGTERM)
+    # Use uvicorn.Server directly so we can patch handle_exit to stop the
+    # Rich Live display the instant a signal is received.  uvicorn installs
+    # signal handlers via loop.add_signal_handler() which overrides any
+    # signal.signal() handlers we set beforehand, so the only reliable way
+    # to hook into the signal path is to wrap the Server's own callback.
+    uv_config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_level="warning" if dashboard else "info",
+    )
+    server = uvicorn.Server(uv_config)
 
-    def _stop_dashboard_and_reraise(signum: int, frame: Any) -> None:
-        if dashboard is not None:
+    if dashboard is not None:
+        _original_handle_exit = server.handle_exit
+
+        def _handle_exit_with_dashboard_stop(sig: int, frame: Any) -> None:
             dashboard.stop()
-        # Restore the previous handler and re-raise so uvicorn shuts down.
-        signal.signal(signum, _prev_sigint if signum == signal.SIGINT else _prev_sigterm)
-        signal.raise_signal(signum)
+            _original_handle_exit(sig, frame)
 
-    signal.signal(signal.SIGINT, _stop_dashboard_and_reraise)
-    signal.signal(signal.SIGTERM, _stop_dashboard_and_reraise)
+        server.handle_exit = _handle_exit_with_dashboard_stop  # type: ignore[assignment]
 
     try:
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            log_level="warning" if dashboard else "info",
-        )
+        server.run()
     finally:
         if dashboard is not None:
             dashboard.stop()
