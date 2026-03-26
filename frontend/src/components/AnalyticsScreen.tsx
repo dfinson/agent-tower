@@ -10,11 +10,13 @@ import {
   fetchAnalyticsTools,
   fetchAnalyticsRepos,
   fetchAnalyticsJobs,
+  fetchFleetCostDrivers,
   type AnalyticsOverview,
   type AnalyticsModels,
   type AnalyticsTools,
   type AnalyticsRepos,
   type AnalyticsJobs,
+  type FleetCostDriversResponse,
 } from "../api/client";
 import { Badge } from "./ui/badge";
 import { Spinner } from "./ui/spinner";
@@ -152,24 +154,51 @@ function JobStatusPie({ overview }: { overview: AnalyticsOverview }) {
 }
 
 function ModelBreakdown({ models }: { models: AnalyticsModels["models"] }) {
+  const [metric, setMetric] = useState<"cost" | "cost_per_job" | "cost_per_minute" | "cost_per_turn" | "cost_per_tool_call" | "cost_per_diff_line" | "cost_per_mtok">("cost");
   if (!models.length) return <p className="text-muted-foreground text-sm">No model data yet.</p>;
+
+  const metricLabel: Record<string, string> = {
+    cost: "Total Cost",
+    cost_per_job: "Cost / Job",
+    cost_per_minute: "Cost / Minute",
+    cost_per_turn: "Cost / Turn",
+    cost_per_tool_call: "Cost / Tool Call",
+    cost_per_diff_line: "Cost / Diff Line",
+    cost_per_mtok: "Cost / MTok",
+  };
+
   const chartData = models.slice(0, 8).map((m) => ({
     name: m.model || "unknown",
-    cost: Number(m.total_cost_usd) || 0,
+    value: Number(m[metric] ?? m.total_cost_usd) || 0,
     jobs: m.job_count,
   }));
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap gap-1.5 text-[11px]">
+        {(Object.keys(metricLabel) as Array<typeof metric>).map((k) => (
+          <button
+            key={k}
+            onClick={() => setMetric(k)}
+            className={`px-2 py-0.5 rounded-full border transition-colors ${
+              metric === k
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+            }`}
+          >
+            {metricLabel[k]}
+          </button>
+        ))}
+      </div>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
           <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#888" }} interval={0} angle={-20} textAnchor="end" height={50} />
-          <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
+          <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
           <RTooltip
             contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, fontSize: 12 }}
-            formatter={(v: TooltipValueType | undefined) => [formatUsd(Number(v ?? 0)), "Cost"]}
+            formatter={(v: TooltipValueType | undefined) => [formatUsd(Number(v ?? 0)), metricLabel[metric]]}
           />
-          <Bar dataKey="cost" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
       <div className="overflow-x-auto">
@@ -180,18 +209,19 @@ function ModelBreakdown({ models }: { models: AnalyticsModels["models"] }) {
               <th className="text-left py-1.5 px-2 font-medium">SDK</th>
               <th className="text-right py-1.5 px-2 font-medium">Jobs</th>
               <th className="text-right py-1.5 px-2 font-medium">Cost</th>
-              <th className="text-right py-1.5 px-2 font-medium">Tokens</th>
+              <th className="text-right py-1.5 px-2 font-medium">$/Job</th>
+              <th className="text-right py-1.5 px-2 font-medium">$/Min</th>
+              <th className="text-right py-1.5 px-2 font-medium">$/Turn</th>
               <th className="text-right py-1.5 px-2 font-medium">
                 <Tooltip content="Percentage of input tokens served from prompt cache — cached tokens are billed at a reduced rate.">
                   <span className="cursor-help border-b border-dotted border-muted-foreground/50">Cache</span>
                 </Tooltip>
               </th>
-              <th className="text-right py-1.5 px-2 font-medium">Avg Time</th>
             </tr>
           </thead>
           <tbody>
             {models.map((m, i) => {
-              const cacheRate = m.input_tokens ? ((m.cache_read_tokens / m.input_tokens) * 100) : 0;
+              const cacheRate = m.cache_hit_rate != null ? (Number(m.cache_hit_rate) * 100) : (m.input_tokens ? ((m.cache_read_tokens / m.input_tokens) * 100) : 0);
               return (
                 <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
                   <td className="py-1.5 px-2 font-mono">{m.model || "—"}</td>
@@ -200,9 +230,10 @@ function ModelBreakdown({ models }: { models: AnalyticsModels["models"] }) {
                   </td>
                   <td className="text-right py-1.5 px-2">{m.job_count}</td>
                   <td className="text-right py-1.5 px-2">{formatUsd(Number(m.total_cost_usd) || 0)}</td>
-                  <td className="text-right py-1.5 px-2">{formatTokens(m.total_tokens)}</td>
+                  <td className="text-right py-1.5 px-2">{formatUsd(Number(m.cost_per_job) || 0)}</td>
+                  <td className="text-right py-1.5 px-2">{formatUsd(Number(m.cost_per_minute) || 0)}</td>
+                  <td className="text-right py-1.5 px-2">{formatUsd(Number(m.cost_per_turn) || 0)}</td>
                   <td className="text-right py-1.5 px-2">{cacheRate.toFixed(0)}%</td>
-                  <td className="text-right py-1.5 px-2">{formatDuration(Number(m.avg_duration_ms) || 0)}</td>
                 </tr>
               );
             })}
@@ -443,6 +474,7 @@ export function AnalyticsScreen() {
   const [models, setModels] = useState<AnalyticsModels | null>(null);
   const [tools, setTools] = useState<AnalyticsTools | null>(null);
   const [repos, setRepos] = useState<AnalyticsRepos | null>(null);
+  const [fleetDrivers, setFleetDrivers] = useState<FleetCostDriversResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -456,13 +488,15 @@ export function AnalyticsScreen() {
       fetchAnalyticsModels(period),
       fetchAnalyticsTools(Math.max(period, 30)),
       fetchAnalyticsRepos(period),
+      fetchFleetCostDrivers(Math.max(period, 30)).catch(() => null),
     ])
-      .then(([o, m, t, r]) => {
+      .then(([o, m, t, r, fd]) => {
         if (cancelled) return;
         setOverview(o);
         setModels(m);
         setTools(t);
         setRepos(r);
+        setFleetDrivers(fd);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -615,6 +649,41 @@ export function AnalyticsScreen() {
         <h2 className="text-sm font-medium text-foreground mb-3">Tool Health</h2>
         {tools && <ToolHealth tools={tools.tools} />}
       </div>
+
+      {/* Fleet Cost Drivers */}
+      {fleetDrivers?.summary && fleetDrivers.summary.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-4">
+          <h2 className="text-sm font-medium text-foreground mb-3">Top Cost Drivers (Fleet)</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground border-b border-border">
+                  <th className="text-left py-1.5 px-2 font-medium">Dimension</th>
+                  <th className="text-left py-1.5 px-2 font-medium">Bucket</th>
+                  <th className="text-right py-1.5 px-2 font-medium">Total Cost</th>
+                  <th className="text-right py-1.5 px-2 font-medium">Calls</th>
+                  <th className="text-right py-1.5 px-2 font-medium">Jobs</th>
+                  <th className="text-right py-1.5 px-2 font-medium">Avg/Job</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fleetDrivers.summary.slice(0, 15).map((row, i) => (
+                  <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
+                    <td className="py-1.5 px-2">
+                      <Badge variant="outline" className="text-[10px]">{row.dimension}</Badge>
+                    </td>
+                    <td className="py-1.5 px-2 font-mono">{row.bucket}</td>
+                    <td className="text-right py-1.5 px-2">{formatUsd(Number(row.cost_usd) || 0)}</td>
+                    <td className="text-right py-1.5 px-2">{row.call_count}</td>
+                    <td className="text-right py-1.5 px-2">{(row as unknown as Record<string, unknown>).job_count as number ?? "—"}</td>
+                    <td className="text-right py-1.5 px-2">{formatUsd(Number((row as unknown as Record<string, unknown>).avg_cost_per_job) || 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
