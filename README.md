@@ -78,34 +78,38 @@ Launch automated coding tasks against real repositories, watch everything the ag
 > Requires Python 3.11+ and Node.js 20+.
 
 ```bash
-pip install git+https://github.com/dfinson/codeplane.git
-cpl up                        # start server (localhost:8080)
+git clone https://github.com/dfinson/codeplane.git
+cd codeplane
+uv sync
+cd frontend && npm ci && npm run build
+cd ..
+uv run cpl up                 # start server on localhost:8080
 ```
 
-Or from a cloned repo:
+Or from a cloned repo using the project helpers:
 
 ```bash
 git clone https://github.com/dfinson/codeplane.git
 cd codeplane
-make install                  # install backend + frontend dependencies
+make install                  # uv sync + npm ci
 make run                      # build frontend, start server with remote access
 ```
 
 ## CLI
 
 ```bash
-cpl up                                    # start server on localhost:8080
-cpl up --remote                           # enable Dev Tunnels for remote access
-cpl up --remote --provider cloudflare     # use Cloudflare Tunnel instead
-cpl up --dev                              # backend-only (skip frontend build)
-cpl up --port 9090                        # custom port
-cpl up --remote --password SECRET         # tunnel password
-cpl down                                  # gracefully stop the server
-cpl restart                               # stop and restart (preserves sessions)
-cpl info                                  # show connection details and QR code
-cpl version                               # show version
-cpl setup                                 # interactive first-time setup
-cpl doctor                                # diagnose environment issues
+uv run cpl up                                    # start server on localhost:8080
+uv run cpl up --remote                           # enable Dev Tunnels for remote access
+uv run cpl up --remote --provider cloudflare     # use Cloudflare Tunnel instead
+uv run cpl up --dev                              # backend-only (skip frontend build)
+uv run cpl up --port 9090                        # custom port
+uv run cpl up --remote --password SECRET         # tunnel password
+uv run cpl down                                  # gracefully stop the server
+uv run cpl restart                               # stop and restart (preserves sessions)
+uv run cpl info                                  # show connection details and QR code
+uv run cpl version                               # show version
+uv run cpl setup                                 # interactive first-time setup
+uv run cpl doctor                                # diagnose environment issues
 ```
 
 ## Development

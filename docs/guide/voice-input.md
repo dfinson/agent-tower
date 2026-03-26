@@ -11,14 +11,6 @@ CodePlane supports voice input for prompts and operator messages, using local Wh
 5. **faster-whisper** transcribes locally — no data leaves your machine
 6. The transcription appears in the text field for review and editing
 
-<div class="screenshot-desktop" markdown>
-![Voice Recording](../images/screenshots/desktop/voice-recording.png)
-</div>
-
-<div class="screenshot-mobile" markdown>
-![Mobile Voice](../images/screenshots/mobile/mobile-voice.png)
-</div>
-
 ## Where You Can Use Voice
 
 - **Job creation prompt** — Dictate the task description

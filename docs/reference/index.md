@@ -1,6 +1,6 @@
 # Reference
 
-Technical reference documentation for CodePlane.
+Use this section when you already know what feature you need and want the exact command, endpoint, schema, or state definition.
 
 | Reference | Description |
 |-----------|-------------|

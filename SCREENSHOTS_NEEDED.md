@@ -1,73 +1,86 @@
-# Screenshots Needed for Documentation
+# Docs Asset Checklist
 
-> Drop the actual screenshots into the paths listed below. The docs already reference them
-> by filename — once you replace the placeholders, everything renders automatically.
+Internal planning file for the minimum image set needed to make the docs look credible without turning screenshots into a second project.
 
-## How to Capture
+## Goal
 
-1. **Run the app** with 3–4 jobs in different states (running, succeeded, failed, waiting for approval)
-2. **Desktop**: Clean browser window, 1280×800 viewport, crop browser chrome, 2× retina
-3. **Mobile**: Chrome DevTools → Device Toolbar → iPhone 14 Pro (393×852), 2× retina
-4. **Consistency**: Use the same repos/prompts across all screenshots
+Show the product clearly with a small set of high-signal assets:
 
----
+- one strong hero shot
+- one running job shot
+- one review/diff shot
+- one analytics shot
+- one settings or setup shot
+- one mobile shot
 
-## Desktop Screenshots
+Everything else is optional unless a page is unreadable without it.
+
+## Capture Standard
+
+1. Run the app with realistic seeded data: at least one running job, one completed job, and one approval event.
+2. Desktop: 1280x800 viewport, cropped browser chrome, 2x scale.
+3. Mobile: iPhone 14 Pro viewport in DevTools, 2x scale.
+4. Keep prompts, repo names, and job titles consistent across captures.
+5. Prefer complete product scenes over cropped UI fragments.
+
+## Priority 1: Must Have
+
+These are enough to support the home page, quick start, and core workflow pages.
 
 **Directory:** `docs/images/screenshots/desktop/`
 
-| Filename | Page / View | What to Show |
+| Filename | Primary Use | What to Show |
 |----------|-------------|-------------|
-| `hero-dashboard.png` | Dashboard `/` | Kanban board with 3+ jobs across columns (In Progress, Awaiting Input, Failed). Full layout with header, hamburger menu, search. **This is the hero image for the homepage and README.** |
-| `job-creation.png` | `/jobs/new` | Empty creation form — prompt textarea, repo dropdown, SDK selector, model dropdown, voice button |
-| `job-creation-filled.png` | `/jobs/new` | Form filled with realistic prompt, repo selected, model chosen, ready to submit |
-| `job-running-transcript.png` | `/jobs/:id` Transcript tab | Running job with assistant messages, tool call groups (collapsed + expanded), progress headline |
-| `job-running-logs.png` | `/jobs/:id` Logs tab | Structured logs with mixed levels (debug/info/warn/error), level filter dropdown visible |
-| `job-running-timeline.png` | `/jobs/:id` Timeline tab | Execution timeline with active + completed stages |
-| `job-running-metrics.png` | `/jobs/:id` Metrics tab | Token usage bars, cost display, LLM calls, tool calls breakdown |
-| `job-running-plan.png` | `/jobs/:id` Plan tab | Agent plan with done/active/pending steps |
-| `job-diff-viewer.png` | `/jobs/:id` Diff tab | Multi-file diff with file list sidebar, syntax-highlighted content |
-| `job-workspace.png` | `/jobs/:id` Workspace | File browser showing directory tree and file content |
-| `approval-banner.png` | `/jobs/:id` with approval | Close-up of approval banner — approve/reject/trust buttons, permission request details |
-| `complete-job-dialog.png` | `/jobs/:id` Complete dialog | Resolution options: merge, smart merge, create PR, discard, agent merge |
-| `terminal-drawer.png` | Any page, terminal open | Terminal drawer at bottom with xterm.js, tab bar with 2+ sessions |
-| `command-palette.png` | Any page, ⌘K open | Command palette overlay with search input and job results |
-| `settings-page.png` | `/settings` | Settings showing repo list, SDK selection |
-| `history-page.png` | `/history` | Archived jobs with search/filter |
-| `voice-recording.png` | Job creation or transcript | Voice recording in progress — waveform visible, mic button red |
-| `job-succeeded.png` | `/jobs/:id` | Completed job — success badge, final transcript, available actions |
-| `job-failed.png` | `/jobs/:id` | Failed job — error badge, error details in transcript |
-| `analytics-dashboard.png` | `/analytics` | Full analytics view — stat cards, cost trend chart, model breakdown, tool health, jobs table |
-| `console-dashboard.png` | Terminal (server running) | Rich console dashboard showing job table, recent events, connection info header, error panel |
-
-## Mobile Screenshots
+| `hero-dashboard.png` | Home page, README | Main dashboard with multiple jobs in different states. This is the anchor visual. |
+| `job-running-transcript.png` | Home page, Monitoring docs | Active job with transcript, progress, and visible agent activity. |
+| `job-diff-viewer.png` | Code Review docs | Multi-file diff with file tree and readable syntax highlighting. |
+| `analytics-dashboard.png` | Analytics docs | Cost, usage, and model/tool breakdown in one convincing view. |
+| `settings-page.png` | Quick start, configuration docs | Repository registration and core settings visible. |
 
 **Directory:** `docs/images/screenshots/mobile/`
 
-| Filename | Page / View | What to Show |
+| Filename | Primary Use | What to Show |
 |----------|-------------|-------------|
-| `mobile-dashboard.png` | Dashboard `/` | Tab-based job list (In Progress / Awaiting / Failed), 2–3 job cards |
-| `mobile-dashboard-search.png` | Dashboard `/` | Search bar active with filtered results |
-| `mobile-job-creation.png` | `/jobs/new` | Compact creation form on mobile |
-| `mobile-job-transcript.png` | `/jobs/:id` | Running job transcript — messages, tool calls |
-| `mobile-job-approval.png` | `/jobs/:id` | Approval banner with stacked approve/reject buttons |
-| `mobile-job-diff.png` | `/jobs/:id` Diff tab | Scrollable syntax-highlighted diff |
-| `mobile-terminal.png` | Terminal open | Terminal drawer maximized (90vh) |
-| `mobile-settings.png` | `/settings` | Settings page on mobile |
-| `mobile-voice.png` | Voice recording | Waveform on mobile |
-| `mobile-complete-dialog.png` | Complete dialog | Merge/PR/discard dialog on mobile |
+| `mobile-dashboard.png` | Home page, remote access docs | Mobile dashboard with active jobs in a believable operator view. |
 
-## Architecture Diagrams (SVG — create or generate)
+## Priority 2: Nice to Have
 
-**Directory:** `docs/images/`
+Capture these only if they materially improve a page.
 
-| Filename | Content |
-|----------|---------|
-| `architecture-overview.svg` | Full system diagram: Browser → Tunnels → FastAPI → SQLite/Git/SDKs/Whisper |
-| `job-state-machine.svg` | State transitions: queued → running → succeeded/failed/canceled with all edges |
-| `event-flow.svg` | Domain Event → Event Bus → SSE Manager → Browser |
-| `approval-flow.svg` | Approval request → operator decision → agent continues |
+**Directory:** `docs/images/screenshots/desktop/`
 
----
+| Filename | Primary Use | What to Show |
+|----------|-------------|-------------|
+| `job-creation-filled.png` | Creating Jobs docs | Realistic prompt, repo, SDK, and model selected. |
+| `approval-banner.png` | Approvals docs | Clear approval request with approve/reject/trust controls. |
+| `complete-job-dialog.png` | Merging docs | Merge, smart merge, PR, and discard actions in one modal. |
+| `terminal-drawer.png` | Terminal docs | Terminal open with multiple tabs and useful command output. |
+| `command-palette.png` | Command Palette docs | Search overlay with real navigation results. |
 
-**Total: 20 desktop + 10 mobile + 4 diagrams = 34 images**
+**Directory:** `docs/images/screenshots/mobile/`
+
+| Filename | Primary Use | What to Show |
+|----------|-------------|-------------|
+| `mobile-job-transcript.png` | Monitoring docs | Running job transcript in compact mobile layout. |
+| `mobile-job-approval.png` | Approvals docs | Approval controls in a stacked mobile layout. |
+
+## Defer Unless Needed
+
+Do not spend time on exhaustive tab-by-tab captures unless a page genuinely needs them.
+
+- empty job creation form
+- separate logs, timeline, metrics, and plan screenshots
+- success and failure end-state screenshots
+- history page screenshot
+- voice recording screenshot
+- dashboard search screenshot
+- full architecture diagram backlog beyond one diagram with a clear docs use
+
+## Completion Standard
+
+The docs are in good shape when:
+
+- the home page has a strong hero plus one or two supporting shots
+- the core workflow pages have enough visuals to prove the product is real
+- no page feels dependent on a screenshot to explain basic behavior
+- we are not carrying a long public-facing image TODO list in the docs tree

@@ -6,10 +6,6 @@ The command palette provides quick navigation and search across all jobs.
 
 Press `⌘K` (Mac) or `Ctrl+K` (Windows/Linux) from anywhere in the UI.
 
-<div class="screenshot-desktop" markdown>
-![Command Palette](../images/screenshots/desktop/command-palette.png)
-</div>
-
 ## Features
 
 - **Search jobs** — Type to filter by job ID, title, repository, or branch

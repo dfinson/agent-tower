@@ -1,6 +1,8 @@
 # User Guide
 
-This guide covers every feature of CodePlane in detail. Pick a topic or read through sequentially.
+This guide is organized around the operator workflow: create work, supervise execution, intervene when needed, and decide how changes land.
+
+Read the core workflow pages in order if you want the shortest path to understanding how CodePlane is meant to be used.
 
 ## Core Workflow
 
@@ -34,6 +36,8 @@ Merge changes, create PRs, or discard when a job completes.
 </div>
 
 ## Additional Features
+
+These pages matter once the core loop is already familiar.
 
 <div class="feature-grid" markdown>
 

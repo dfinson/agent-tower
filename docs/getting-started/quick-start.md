@@ -5,7 +5,7 @@ Get your first coding job running in under 5 minutes.
 ## 1. Start the Server
 
 ```bash
-cpl up
+uv run cpl up
 ```
 
 Or from a cloned repo with the frontend built:
@@ -19,7 +19,7 @@ The server starts on `http://localhost:8080`. Open it in your browser.
 !!! tip "Development Mode"
     For backend-only work, skip the frontend build:
     ```bash
-    cpl up --dev
+    uv run cpl up --dev
     ```
 
 ## 2. Register a Repository
@@ -38,19 +38,11 @@ Navigate to **Settings** (`Ctrl+,`) and add a repository:
 
 Press `Alt+N` or click **New Job** to open the job creation form.
 
-<div class="screenshot-desktop" markdown>
-![Job Creation](../images/screenshots/desktop/job-creation.png)
-</div>
-
 1. **Write a prompt** — Describe the coding task (e.g., "Add input validation to the user registration endpoint")
 2. **Select a repository** — Choose the repo to work against
 3. **Choose an SDK** — Select Copilot or Claude
 4. **Pick a model** — Choose the AI model to use
 5. Click **Create Job**
-
-<div class="screenshot-desktop" markdown>
-![Job Creation Filled](../images/screenshots/desktop/job-creation-filled.png)
-</div>
 
 ## 4. Monitor Execution
 
@@ -69,10 +61,6 @@ The job detail view opens automatically. Watch the agent work in real time:
 
 If the agent tries to perform a risky action, you'll see an approval banner:
 
-<div class="screenshot-desktop" markdown>
-![Approval Banner](../images/screenshots/desktop/approval-banner.png)
-</div>
-
 Click **Approve** to let it proceed, **Reject** to block, or **Trust Session** to auto-approve all remaining requests for this job.
 
 ## 6. Review & Merge
@@ -89,10 +77,6 @@ Then choose a resolution:
 - **Smart Merge** — Cherry-pick only the agent's commits
 - **Create PR** — Open a pull request for team review
 - **Discard** — Delete the worktree and discard changes
-
-<div class="screenshot-desktop" markdown>
-![Complete Job Dialog](../images/screenshots/desktop/complete-job-dialog.png)
-</div>
 
 ## What's Next?
 

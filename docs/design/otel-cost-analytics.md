@@ -652,7 +652,7 @@ ALTER TABLE job_telemetry_summary ADD COLUMN total_turns INTEGER DEFAULT 0;
 
 ---
 
-## 7. Design: Derived Metrics & Analytics Engine
+## 7. Design: Derived Metrics & Analytics Engine { #7-design-derived-metrics--analytics-engine }
 
 ### 7.1 Post-Job Attribution Pipeline
 

@@ -1,6 +1,6 @@
 # Getting Started
 
-Welcome to CodePlane! This section will get you from zero to running your first coding job.
+This section takes you from a clean checkout to a first supervised agent run with the least amount of ceremony.
 
 ## What You'll Need
 
@@ -26,3 +26,12 @@ CodePlane runs as a local server on your machine. You interact with it through a
 4. **Review & merge** — When the agent finishes, review the changes and merge or create a PR
 
 The agent runs in a sandboxed worktree, so your working directory is never touched.
+
+## Recommended Path
+
+If you are evaluating CodePlane for the first time, use this order:
+
+1. Install the app and confirm `uv run cpl doctor` passes.
+2. Register one small local repository.
+3. Run a narrow prompt that changes one or two files.
+4. Watch the transcript, approvals, and diff before trying larger automation.

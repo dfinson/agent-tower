@@ -12,33 +12,30 @@ Ensure you have the following installed:
 
 ## Install
 
-Install CodePlane directly from GitHub:
-
-```bash
-pip install git+https://github.com/dfinson/codeplane.git
-```
-
-This installs the `cpl` command and all backend dependencies.
-
-!!! note "PyPI coming soon"
-    CodePlane will be published to PyPI in a future release. For now, install directly from GitHub.
-
-### Frontend (for UI)
-
-The frontend needs to be built separately:
-
-```bash
-git clone https://github.com/dfinson/codeplane.git
-cd codeplane/frontend
-npm ci && npm run build
-```
-
-Or use `make install` from the repo root to install everything at once:
+For development or evaluation, clone the repository and install dependencies from the root:
 
 ```bash
 git clone https://github.com/dfinson/codeplane.git
 cd codeplane
-make install    # pip install + npm ci
+uv sync
+cd frontend && npm ci
+```
+
+This matches the project's supported workflow: Python dependencies via `uv`, frontend dependencies via `npm ci`.
+
+### Frontend (for UI)
+
+Build the frontend before starting the full application:
+
+```bash
+cd frontend
+npm run build
+```
+
+Or use the repo helpers from the root:
+
+```bash
+make install
 ```
 
 ## Environment Setup
@@ -57,7 +54,7 @@ CPL_DEVTUNNEL_PASSWORD=your-secret-password
 ## Verify Installation
 
 ```bash
-cpl doctor
+uv run cpl doctor
 ```
 
 This checks that all dependencies are installed and configured correctly.
