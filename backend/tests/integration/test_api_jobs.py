@@ -101,6 +101,31 @@ class TestJobsCrud:
         resp = await client.post("/api/jobs", json=_create_body(repo="/not/allowed"))
         assert resp.status_code == 400
 
+    async def test_newly_registered_repo_immediately_usable(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: _resolve_repos must re-read config from disk on each call.
+
+        Before the fix, JobService._resolve_repos() checked the stale in-memory
+        CPLConfig singleton loaded at startup, so repos registered after startup
+        were invisible and job creation returned 400.
+        """
+        from backend.config import CPLConfig
+
+        shared_config = CPLConfig(repos=[])
+        monkeypatch.setattr("backend.services.job_service.load_config", lambda: shared_config)
+
+        # Repo not yet in the allowlist — must be rejected
+        resp = await client.post("/api/jobs", json=_create_body(repo="/new/repo"))
+        assert resp.status_code == 400
+
+        # Simulate what register_repo does (add to the shared config)
+        shared_config.repos.append("/new/repo")
+
+        # Job creation must now succeed without a server restart
+        resp = await client.post("/api/jobs", json=_create_body(repo="/new/repo"))
+        assert resp.status_code == 201
+
     async def test_create_job_missing_prompt(self, client: AsyncClient) -> None:
         resp = await client.post("/api/jobs", json={"repo": "/test/repo"})
         assert resp.status_code == 422
