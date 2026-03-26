@@ -739,7 +739,7 @@ class RuntimeService:
                         job_id=job_id,
                         strategy=self._config.completion.strategy,
                     )
-                    result = await self._merge_service.try_merge_back(
+                    merge_result = await self._merge_service.try_merge_back(
                         job_id=job_id,
                         repo_path=current_job.repo,
                         worktree_path=current_job.worktree_path,
@@ -754,11 +754,11 @@ class RuntimeService:
                         MergeStatus.skipped: Resolution.unresolved,
                         MergeStatus.error: Resolution.unresolved,
                     }
-                    _auto_resolution = cast("Resolution", _status_map.get(result.status, Resolution.unresolved))
+                    _auto_resolution = _status_map.get(merge_result.status, Resolution.unresolved)
                     final_resolution = _auto_resolution
 
                     job_repo = JobRepository(session)
-                    await job_repo.update_resolution(job_id, _auto_resolution, pr_url=result.pr_url)
+                    await job_repo.update_resolution(job_id, _auto_resolution, pr_url=merge_result.pr_url)
 
                     _terminal_resolutions = (Resolution.merged, Resolution.pr_created, Resolution.discarded)
                     if _auto_resolution in _terminal_resolutions:
@@ -766,7 +766,7 @@ class RuntimeService:
                         resolution_event = svc.build_job_resolved_event(
                             job_id,
                             _auto_resolution,
-                            pr_url=result.pr_url,
+                            pr_url=merge_result.pr_url,
                         )
 
                     await session.commit()

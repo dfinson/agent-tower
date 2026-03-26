@@ -103,9 +103,9 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         for bucket, allocated in allocations.items():
             _accumulate(
                 by_activity[bucket],
-                allocated["cost_usd"],
-                allocated["input_tokens"],
-                allocated["output_tokens"],
+                float(allocated["cost_usd"]),
+                int(allocated["input_tokens"]),
+                int(allocated["output_tokens"]),
                 call_count=1,
             )
 
