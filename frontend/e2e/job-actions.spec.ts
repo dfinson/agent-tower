@@ -118,11 +118,16 @@ test.describe("Cancel Running Job", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     const cancelBtn = page.locator("button", { hasText: "Cancel" });
     await expect(cancelBtn).toBeVisible();
     await cancelBtn.click();
+
+    // Cancel opens a confirmation dialog — confirm it
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.locator("button", { hasText: "Cancel & Archive" }).click();
 
     await page.waitForTimeout(500);
     expect(cancelCalled).toBe(true);
@@ -133,69 +138,46 @@ test.describe("Cancel Running Job", () => {
     await setupJobDetailMocks(page, queuedJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("button", { hasText: "Cancel" })).toBeVisible();
   });
 
-  test("cancel button is hidden for succeeded jobs", async ({ page }) => {
-    const succeededJob = makeJob({ state: "succeeded", resolution: "merged", completedAt: NOW });
-    await setupJobDetailMocks(page, succeededJob);
+  test("cancel button is hidden for completed jobs", async ({ page }) => {
+    const completedJob = makeJob({ state: "completed", resolution: "merged", completedAt: NOW });
+    await setupJobDetailMocks(page, completedJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("button", { hasText: "Cancel" })).toBeHidden();
   });
 });
 
 test.describe("Resume Failed Job", () => {
-  test("resume button calls POST /api/jobs/job-1/rerun", async ({ page }) => {
+  test("resume button calls POST /api/jobs/job-1/resume", async ({ page }) => {
     const failedJob = makeJob({ state: "failed", failureReason: "Out of memory" });
     await setupJobDetailMocks(page, failedJob);
 
-    let rerunCalled = false;
-    await page.route("**/api/jobs/job-1/rerun", async (route) => {
-      rerunCalled = true;
+    let resumeCalled = false;
+    await page.route("**/api/jobs/job-1/resume", async (route) => {
+      resumeCalled = true;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ id: "job-2" }),
+        body: JSON.stringify({ ...failedJob, state: "running", updatedAt: NOW }),
       });
-    });
-
-    // Mock the redirect target
-    await page.route("**/api/jobs/job-2", async (route) => {
-      if (route.request().method() !== "GET") return route.fallback();
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(makeJob({ id: "job-2", state: "queued" })),
-      });
-    });
-    await page.route("**/api/jobs/job-2/transcript*", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
-    });
-    await page.route("**/api/jobs/job-2/timeline*", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
-    });
-    await page.route("**/api/jobs/job-2/diff*", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
-    });
-    await page.route("**/api/jobs/job-2/approvals*", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     const resumeBtn = page.locator("button", { hasText: "Resume" });
     await expect(resumeBtn).toBeVisible();
     await resumeBtn.click();
 
-    // Should navigate to the new job
-    await expect(page).toHaveURL(/\/jobs\/job-2/, { timeout: 10_000 });
-    expect(rerunCalled).toBe(true);
+    await page.waitForTimeout(500);
+    expect(resumeCalled).toBe(true);
   });
 
   test("resume button is hidden for running jobs", async ({ page }) => {
@@ -203,7 +185,7 @@ test.describe("Resume Failed Job", () => {
     await setupJobDetailMocks(page, runningJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("button", { hasText: "Resume" })).toBeHidden();
   });
@@ -215,7 +197,7 @@ test.describe("Send Message to Running Job", () => {
     await setupJobDetailMocks(page, runningJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     // TranscriptPanel should have the message input when interactive=true
     const textarea = page.locator("textarea[placeholder*='Send']");
@@ -239,7 +221,7 @@ test.describe("Send Message to Running Job", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     const textarea = page.locator("textarea[placeholder*='Send']");
     await expect(textarea).toBeVisible({ timeout: 5_000 });
@@ -259,7 +241,7 @@ test.describe("Archive Completed Job", () => {
     await setupJobDetailMocks(page, failedJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("button", { hasText: "Archive" })).toBeVisible();
   });
@@ -269,7 +251,7 @@ test.describe("Archive Completed Job", () => {
     await setupJobDetailMocks(page, canceledJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("button", { hasText: "Archive" })).toBeVisible();
   });
@@ -279,21 +261,21 @@ test.describe("Archive Completed Job", () => {
     await setupJobDetailMocks(page, runningJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("button", { hasText: "Archive" })).toBeHidden();
   });
 
-  test("Complete & Archive button visible for resolved succeeded jobs", async ({ page }) => {
+  test("Complete & Archive button visible for resolved completed jobs", async ({ page }) => {
     const resolvedJob = makeJob({
-      state: "succeeded",
+      state: "completed",
       resolution: "merged",
       completedAt: NOW,
     });
     await setupJobDetailMocks(page, resolvedJob);
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("job-1")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
     await expect(page.locator("button", { hasText: "Complete & Archive" })).toBeVisible();
   });

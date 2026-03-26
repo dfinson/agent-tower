@@ -456,6 +456,75 @@ class ArtifactService:
         # Sort by creation time — names are no longer guaranteed to contain a numeric session ID.
         return max(snapshots, key=lambda a: a.created_at)
 
+    async def store_log_artifact(
+        self,
+        job_id: str,
+        log_events: list[dict[str, Any]],
+        *,
+        slug: str = "",
+    ) -> Artifact:
+        """Write agent log lines as a plain-text downloadable artifact.
+
+        ``log_events`` is a list of ``log_line_emitted`` event payloads, each
+        expected to have ``timestamp``, ``level``, ``message``,
+        ``session_number`` (optional), and ``context`` (optional) keys.
+
+        Lines are grouped by session_number so handoff boundaries are visible.
+        The resulting ``.log`` file is registered as a ``document`` artifact
+        with ``text/plain`` MIME type so the ArtifactViewer can preview it in-
+        browser and offer a download link.
+        """
+        import re as _re
+
+        tag = _re.sub(r"[^a-z0-9]+", "-", (slug or "").lower()).strip("-")[:40]
+        if not tag:
+            tag = job_id[:12]
+        name = f"{tag}-agent.log"
+
+        # Sort by sequence number (or timestamp as fallback).
+        # Events without session_number (legacy) are treated as session 1.
+        sorted_events = sorted(log_events, key=lambda e: (e.get("session_number") or 1, e.get("seq") or 0))
+
+        lines: list[str] = []
+        current_session: int | None = None
+        for evt in sorted_events:
+            sess_num = evt.get("session_number") or 1
+            if sess_num != current_session:
+                current_session = sess_num
+                lines.append(f"\n── session {sess_num} ──────────────────────────────────────\n")
+            ts = evt.get("timestamp", "")
+            if hasattr(ts, "isoformat"):
+                ts = ts.isoformat()
+            level = str(evt.get("level", "info")).upper().ljust(5)
+            message = evt.get("message", "")
+            ctx = evt.get("context")
+            ctx_str = ""
+            if ctx:
+                ctx_str = "  " + "  ".join(f"{k}={v}" for k, v in ctx.items())
+            lines.append(f"{ts}  {level}  {message}{ctx_str}\n")
+
+        content = f"# CodePlane agent log — job {job_id}\n" + "".join(lines)
+
+        artifact_id = f"art-{uuid.uuid4().hex[:12]}"
+        disk_dir = _ARTIFACTS_BASE / job_id
+        disk_dir.mkdir(parents=True, exist_ok=True)
+        disk_path = disk_dir / f"{artifact_id}-{name}"
+        disk_path.write_text(content, encoding="utf-8")
+
+        artifact = Artifact(
+            id=artifact_id,
+            job_id=job_id,
+            name=name,
+            type=ArtifactType.document,
+            mime_type="text/plain",
+            size_bytes=disk_path.stat().st_size,
+            disk_path=str(disk_path),
+            phase=ExecutionPhase.post_completion,
+            created_at=datetime.now(UTC),
+        )
+        log.info("log_artifact_stored", job_id=job_id, name=name, size=artifact.size_bytes)
+        return await self._repo.create(artifact)
+
     async def store_telemetry_report(
         self,
         job_id: str,

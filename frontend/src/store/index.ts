@@ -234,6 +234,10 @@ interface AppState {
   diffs: Record<string, DiffFileModel[]>; // keyed by jobId
   timelines: Record<string, TimelineEntry[]>; // keyed by jobId
   plans: Record<string, PlanStep[]>; // keyed by jobId
+  /** Accumulated streaming text for in-progress agent messages, keyed by
+   * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
+   * Cleared when the complete agent message arrives for that turn. */
+  streamingMessages: Record<string, string>;
   /** Monotonically-increasing counter per job, bumped on each telemetry_updated
    * SSE event. Components watching this trigger a telemetry re-fetch. */
   telemetryVersions: Record<string, number>; // keyed by jobId
@@ -301,6 +305,7 @@ export const useStore = create<AppState>((set, get) => ({
   diffs: {},
   timelines: {},
   plans: {},
+  streamingMessages: {},
   telemetryVersions: {},
   connectionStatus: "reconnecting",
   reconnectAttempt: 0,
@@ -394,10 +399,29 @@ export const useStore = create<AppState>((set, get) => ({
       const keptApprovals = Object.fromEntries(
         Object.entries(s.approvals).filter(([, a]) => a.jobId !== jobId),
       );
+      // Drop any in-flight streaming state for this job
+      const streamingMessages = Object.fromEntries(
+        Object.entries(s.streamingMessages).filter(([k]) => !k.startsWith(`${jobId}:`)),
+      );
+      // Deduplicate transcript: remove tool_running entries whose tool has a
+      // completed tool_call — both are persisted but only one should render.
+      // Use turnId-scoped keys when available to avoid false-positive removal
+      // of in-flight tool_running entries for the same tool name.
+      const completedCallKeys = new Set<string>();
+      for (const e of snapshot.transcript) {
+        if (e.role === "tool_call" && e.toolName) {
+          completedCallKeys.add(e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName);
+        }
+      }
+      const deduped = snapshot.transcript.filter((e) => {
+        if (e.role !== "tool_running" || !e.toolName) return true;
+        const key = e.turnId ? `${e.toolName}::${e.turnId}` : e.toolName;
+        return !completedCallKeys.has(key);
+      });
       return {
         jobs: { ...s.jobs, [jobId]: enrichJob(snapshot.job) },
         logs: { ...s.logs, [jobId]: snapshot.logs },
-        transcript: { ...s.transcript, [jobId]: snapshot.transcript },
+        transcript: { ...s.transcript, [jobId]: deduped },
         diffs: { ...s.diffs, [jobId]: snapshot.diff },
         timelines: {
           ...s.timelines,
@@ -407,6 +431,7 @@ export const useStore = create<AppState>((set, get) => ({
           ...keptApprovals,
           ...Object.fromEntries(snapshot.approvals.map((a) => [a.id, a])),
         },
+        streamingMessages,
       };
     });
   },
@@ -478,11 +503,26 @@ export const useStore = create<AppState>((set, get) => ({
 
         case "transcript_update": {
           const jobId = payload.jobId as string;
+          const role = payload.role as string;
+
+          // agent_delta: accumulate streaming text per turn, don't add to transcript
+          if (role === "agent_delta") {
+            const turnId = (payload.turnId as string | undefined) ?? "__default__";
+            const key = `${jobId}:${turnId}`;
+            const delta = (payload.content as string) ?? "";
+            return {
+              streamingMessages: {
+                ...state.streamingMessages,
+                [key]: (state.streamingMessages[key] ?? "") + delta,
+              },
+            };
+          }
+
           const entry: TranscriptEntry = {
             jobId,
             seq: payload.seq as number,
             timestamp: payload.timestamp as string,
-            role: payload.role as string,
+            role,
             content: payload.content as string,
             title: payload.title as string | undefined,
             turnId: payload.turnId as string | undefined,
@@ -499,14 +539,18 @@ export const useStore = create<AppState>((set, get) => ({
           const existing = state.transcript[jobId] ?? [];
 
           // When a tool_call arrives, replace any matching tool_running entry
-          // (same turnId + toolName) so the in-progress placeholder is superseded.
+          // (same toolName, and same turnId when both are present) so the
+          // in-progress placeholder is superseded.
           let base = existing;
-          if (entry.role === "tool_call" && entry.turnId) {
+          if (entry.role === "tool_call") {
             const before = base.length;
-            base = base.filter(
-              (e) => !(e.role === "tool_running" && e.turnId === entry.turnId && e.toolName === entry.toolName),
-            );
-            // If we filtered something, skip dedup — the tool_call replaces the tool_running
+            base = base.filter((e) => {
+              if (e.role !== "tool_running" || e.toolName !== entry.toolName) return true;
+              // If both entries have a turnId, they must match to be considered the same call.
+              if (entry.turnId && e.turnId && entry.turnId !== e.turnId) return true;
+              return false;
+            });
+            // If we replaced something, emit directly — no further dedup needed.
             if (base.length < before) {
               const updated = [...base, entry];
               return {
@@ -521,8 +565,20 @@ export const useStore = create<AppState>((set, get) => ({
             return null;
           }
           const updated = [...existing, entry];
+
+          // When a complete agent message arrives, clear streaming state for that turn.
+          let streamingMessages = state.streamingMessages;
+          if (entry.role === "agent") {
+            const key = entry.turnId ? `${jobId}:${entry.turnId}` : `${jobId}:__default__`;
+            if (key in streamingMessages) {
+              streamingMessages = { ...streamingMessages };
+              delete streamingMessages[key];
+            }
+          }
+
           return {
             transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
+            streamingMessages,
           };
         }
 
@@ -586,7 +642,7 @@ export const useStore = create<AppState>((set, get) => ({
           return null;
         }
 
-        case "job_succeeded": {
+        case "job_review": {
           const jobId = payload.jobId as string;
           const prUrl = (payload.prUrl as string | null) ?? null;
           const resolution = (payload.resolution as string | null) ?? null;
@@ -603,7 +659,7 @@ export const useStore = create<AppState>((set, get) => ({
                 ...state.jobs,
                 [jobId]: {
                   ...existing,
-                  state: "succeeded",
+                  state: "review",
                   ...(prUrl && { prUrl }),
                   ...(resolution && { resolution }),
                   ...(mergeStatus && { mergeStatus }),
@@ -612,6 +668,27 @@ export const useStore = create<AppState>((set, get) => ({
                 },
               },
               ...(finalPlan && { plans: { ...state.plans, [jobId]: finalPlan } }),
+            };
+          }
+          return null;
+        }
+
+        case "job_completed": {
+          const jobId = payload.jobId as string;
+          const resolution = (payload.resolution as string | null) ?? null;
+          const prUrl = (payload.prUrl as string | null) ?? null;
+          const existing = state.jobs[jobId];
+          if (existing) {
+            return {
+              jobs: {
+                ...state.jobs,
+                [jobId]: {
+                  ...existing,
+                  state: "completed",
+                  ...(resolution && { resolution }),
+                  ...(prUrl && { prUrl }),
+                },
+              },
             };
           }
           return null;
@@ -1039,7 +1116,8 @@ export const selectActiveJobs = (state: AppState): JobSummary[] =>
 
 /** Sign-off: everything that needs operator attention before archival.
  *  - waiting_for_approval
- *  - succeeded (any resolution) — not archived
+ *  - review (agent done, awaiting operator decision) — not archived
+ *  - completed (finished but not yet archived)
  */
 export const selectSignoffJobs = (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(
@@ -1047,7 +1125,8 @@ export const selectSignoffJobs = (state: AppState): JobSummary[] =>
       (j) =>
         !j.archivedAt &&
         (j.state === "waiting_for_approval" ||
-          j.state === "succeeded"),
+          j.state === "review" ||
+          j.state === "completed"),
     ),
   );
 

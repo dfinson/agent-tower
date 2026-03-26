@@ -26,7 +26,8 @@ function filterForTab(jobs: Record<string, JobSummary>, tab: KanbanColumn): JobS
           return (
             !j.archivedAt &&
             (j.state === "waiting_for_approval" ||
-              j.state === "succeeded" ||
+              j.state === "review" ||
+              j.state === "completed" ||
               j.state === "canceled")
           );
         case KANBAN_COLUMNS.FAILED:

@@ -101,19 +101,19 @@ describe("AppStore", () => {
 
       useStore.getState().dispatchSSEEvent("job_state_changed", {
         jobId: "job-1",
-        newState: "succeeded",
+        newState: "review",
         timestamp: "2025-01-01T01:00:00Z",
       });
 
       expect(selectJobs(useStore.getState())["job-1"]!.state).toBe(
-        "succeeded"
+        "review"
       );
     });
 
     it("ignores job_state_changed for unknown job", () => {
       useStore.getState().dispatchSSEEvent("job_state_changed", {
         jobId: "job-999",
-        newState: "succeeded",
+        newState: "review",
         timestamp: "2025-01-01T01:00:00Z",
       });
 
@@ -308,7 +308,7 @@ describe("AppStore", () => {
       useStore.setState({
         jobs: {
           "job-1": makeJob({
-            state: "succeeded",
+            state: "review",
             resolution: "discarded",
             conflictFiles: ["src/app.ts"],
             failureReason: "old failure",
@@ -348,7 +348,7 @@ describe("AppStore", () => {
       useStore.setState({
         jobs: {
           "job-1": makeJob({
-            state: "succeeded",
+            state: "review",
             resolution: "conflict",
             conflictFiles: ["a.ts"],
             modelDowngraded: true,

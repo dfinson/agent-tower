@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -53,13 +54,40 @@ def _extract_issue_from_json(value: Any) -> str | None:
     return None
 
 
+_WORKTREE_MARKER = "/.codeplane-worktrees/"
+
+
 def _short_path(path: str) -> str:
-    """Abbreviate long file paths to last two path components."""
+    """Return a display-friendly path.
+
+    For paths inside a CodePlane worktree, strips the absolute prefix up to
+    and including ``/.codeplane-worktrees/``, yielding ``…/<worktree>/<rest>``.
+    Falls back to the last two components for other absolute paths.
+    """
+    idx = path.find(_WORKTREE_MARKER)
+    if idx != -1:
+        return "…/" + path[idx + len(_WORKTREE_MARKER):]
     p = PurePosixPath(path)
     parts = p.parts
     if len(parts) <= 2:
         return str(p)
     return str(PurePosixPath(*parts[-2:]))
+
+
+def _trim_worktree_paths(text: str) -> str:
+    """Strip worktree path prefixes from an arbitrary string (e.g. a shell command).
+
+    Matches the absolute path up to and including ``/.codeplane-worktrees/``,
+    anchoring on the leading ``/`` so that option names like ``--flag=`` are
+    preserved:
+
+    ``cat /home/user/.codeplane-worktrees/my-branch/src/f.py``
+    → ``cat …/my-branch/src/f.py``
+
+    ``--path=/home/user/.codeplane-worktrees/branch/f.py``
+    → ``--path=…/branch/f.py``
+    """
+    return re.sub(r"/[^\s]*\.codeplane-worktrees/", "…/", text)
 
 
 # -- Formatter / hint factories for common patterns --------------------------
@@ -73,6 +101,7 @@ class _FmtSpec:
     prefix: str  # label prefix (e.g. "Create", "Grep")
     fallback: str  # returned when no arg found
     use_path: bool = False  # apply _short_path to the value
+    trim_paths: bool = False  # apply _trim_worktree_paths (for command strings)
     truncate: int = 0  # apply _truncate (0 = no truncation)
     quote: bool = False  # wrap value in double quotes
     separator: str = " "  # between prefix and value
@@ -86,6 +115,8 @@ def _build_formatter(spec: _FmtSpec) -> Callable[[ToolArgs], str]:
             v = args.get(k, "")
             if v:
                 display = _short_path(v) if spec.use_path else v
+                if spec.trim_paths:
+                    display = _trim_worktree_paths(display)
                 if spec.truncate:
                     display = _truncate(display, spec.truncate)
                 if spec.quote:
@@ -117,8 +148,9 @@ def _static_hint(ok: str, fail: str = "→ FAIL") -> Callable[[str, bool], str]:
 
 # Declarative specs for simple formatters
 _SIMPLE_SPECS: dict[str, _FmtSpec] = {
-    "bash": _FmtSpec(("command",), "$", "bash", truncate=55),
-    "run_in_terminal": _FmtSpec(("command",), "$", "Run command", truncate=55),
+    # ---- Copilot / generic snake_case tools ---------------------------------
+    "bash": _FmtSpec(("command",), "$", "bash", truncate=55, trim_paths=True),
+    "run_in_terminal": _FmtSpec(("command",), "$", "Run command", truncate=55, trim_paths=True),
     "create_file": _FmtSpec(("filePath", "file_path"), "Create", "Create file", use_path=True),
     "replace_string_in_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
     "grep_search": _FmtSpec(("query", "pattern"), "Grep:", "Grep search", truncate=40, quote=True),
@@ -130,10 +162,85 @@ _SIMPLE_SPECS: dict[str, _FmtSpec] = {
     "get_terminal_output": _FmtSpec(("id",), "Read terminal", "Read terminal"),
     "tool_search_tool_regex": _FmtSpec(("pattern",), "Find tools:", "Find tools", truncate=40, quote=True),
     "vscode_listCodeUsages": _FmtSpec(("symbol", "query"), "Usages:", "Find usages", truncate=45),
+    "glob": _FmtSpec(("pattern",), "Glob:", "Glob", truncate=50),
+    "grep": _FmtSpec(("pattern", "query"), "Grep:", "Grep", truncate=40, quote=True),
+    "write": _FmtSpec(("path",), "Write", "Write file", use_path=True),
+    "str_replace_based_edit_tool": _FmtSpec(("path",), "Edit", "Edit file", use_path=True),
+    # ---- Copilot-only tools missing from original registry ------------------
+    "web_search": _FmtSpec(("query",), "Search:", "Web search", truncate=40, quote=True),
+    "insert_edit_into_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "get_changed_files": _FmtSpec((), "", "Get changed files"),
+    "run_vs_code_task": _FmtSpec(("task",), "Run task:", "Run task", truncate=40),
+    "open_file": _FmtSpec(("filePath", "file_path"), "Open", "Open file", use_path=True),
+    # ---- Claude SDK PascalCase tools ----------------------------------------
+    "Bash": _FmtSpec(("command",), "$", "bash", truncate=55, trim_paths=True),
+    "Glob": _FmtSpec(("pattern",), "Glob:", "Glob", truncate=50),
+    "LS": _FmtSpec(("path",), "List", "List directory", use_path=True),
+    "Task": _FmtSpec(("description",), "Task:", "Run task", truncate=50),
+    "WebSearch": _FmtSpec(("query",), "Search:", "Web search", truncate=40, quote=True),
+    "TodoRead": _FmtSpec((), "", "Read todo list"),
+    "Think": _FmtSpec(("thought",), "Think:", "Think", truncate=55),
+    "NotebookRead": _FmtSpec(("notebook_path",), "Read", "Read notebook", use_path=True),
+    "NotebookEdit": _FmtSpec(("notebook_path",), "Edit", "Edit notebook", use_path=True),
+    "ListMcpResourceTemplates": _FmtSpec((), "", "List MCP resource templates"),
+    "ListMcpResources": _FmtSpec((), "", "List MCP resources"),
+    # Complex arg shapes (file_path first, path fallback) — kept here to
+    # co-locate with related PascalCase entries; registered via _build_formatter.
+    "Write": _FmtSpec(("file_path", "path"), "Write", "Write file", use_path=True),
+    "Edit": _FmtSpec(("file_path", "path"), "Edit", "Edit file", use_path=True),
+    "Grep": _FmtSpec(("pattern",), "Grep:", "Grep", truncate=40, quote=True),
 }
 
 
 # -- Complex formatters (not reducible to _FmtSpec) --------------------------
+
+
+def _fmt_multi_edit(args: ToolArgs) -> str:
+    """Formatter for Claude SDK's MultiEdit tool (edits: [{file_path, ...}])."""
+    edits = args.get("edits", [])
+    paths: set[str] = set()
+    for e in edits:
+        if isinstance(e, dict):
+            p = e.get("file_path", e.get("path", ""))
+            if p:
+                paths.add(_short_path(p))
+    if paths:
+        listed = ", ".join(sorted(paths)[:3])
+        suffix = "…" if len(paths) > 3 else ""
+        return f"Edit {listed}{suffix}"
+    count = len(edits) if isinstance(edits, list) else 0
+    return f"Edit {count} locations"
+
+
+def _fmt_computer(args: ToolArgs) -> str:
+    """Formatter for Claude SDK's Computer tool."""
+    action = str(args.get("action", ""))
+    if action == "screenshot":
+        return "Take screenshot"
+    if action == "key":
+        key = args.get("text", "")
+        return f"Key: {_truncate(key, 20)}" if key else "Press key"
+    if action == "type":
+        text = _truncate(args.get("text", ""), 30)
+        return f"Type: {text}" if text else "Type text"
+    if action in ("mouse_move", "left_click", "right_click", "double_click"):
+        coord = args.get("coordinate", [])
+        label = action.replace("_", " ").title()
+        if coord and len(coord) >= 2:
+            return f"{label} ({coord[0]}, {coord[1]})"
+        return label
+    if action:
+        return f"Computer: {_truncate(action, 30)}"
+    return "Computer action"
+
+
+def _fmt_read_mcp_resource(args: ToolArgs) -> str:
+    """Formatter for Claude SDK's ReadMcpResource tool."""
+    uri = args.get("uri", "")
+    if uri:
+        return f"Read MCP: {_truncate(uri, 50)}"
+    server = args.get("server_name", "")
+    return f"Read MCP resource ({server})" if server else "Read MCP resource"
 
 
 def _fmt_read_file(args: ToolArgs) -> str:
@@ -209,6 +316,20 @@ def _fmt_rename_symbol(args: ToolArgs) -> str:
     return "Rename symbol"
 
 
+def _fmt_view(args: ToolArgs) -> str:
+    path = args.get("path", "")
+    if not path:
+        return "View file"
+    short = _short_path(path)
+    view_range = args.get("view_range")
+    if isinstance(view_range, list) and len(view_range) >= 2:
+        start, end = view_range[0], view_range[1]
+        if end is not None and end != -1:
+            return f"View {short}:{start}-{end}"
+        return f"View {short}:{start}–end"
+    return f"View {short}"
+
+
 # -- Result hint formatters ---------------------------------------------------
 # Each takes the raw result string and returns a terse suffix like "→ 12 matches".
 
@@ -279,6 +400,15 @@ _FORMATTERS.update(
         "get_errors": _fmt_get_errors,
         "fetch_webpage": _fmt_fetch_webpage,
         "vscode_renameSymbol": _fmt_rename_symbol,
+        "view": _fmt_view,
+        # ---- Claude SDK PascalCase tools ------------------------------------
+        # Simple-spec tools above cover: Bash, Glob, LS, Task, WebSearch,
+        # TodoRead, Think, NotebookRead, NotebookEdit, Write, Edit, Grep, ListMcp*
+        "Read": _fmt_read_file,  # same shape as read_file
+        "MultiEdit": _fmt_multi_edit,
+        "WebFetch": _fmt_fetch_webpage,
+        "Computer": _fmt_computer,
+        "ReadMcpResource": _fmt_read_mcp_resource,
     }
 )
 
@@ -302,6 +432,34 @@ _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
     "memory": _hint_memory,
     "vscode_renameSymbol": _static_hint("→ renamed"),
     "vscode_listCodeUsages": _count_hint("usages", empty="→ none"),
+    "glob": _count_hint("files", empty="→ no matches"),
+    "grep": _count_hint("matches", empty="→ no matches"),
+    "view": _count_hint("lines", empty="→ empty"),
+    "write": _static_hint("→ written"),
+    "str_replace_based_edit_tool": _hint_replace_string,
+    # ---- Copilot-only tools -------------------------------------------------
+    "web_search": _count_hint("results", empty="→ no results"),
+    "insert_edit_into_file": _hint_replace_string,
+    "get_changed_files": _count_hint("files", empty="→ none"),
+    "run_vs_code_task": _static_hint("→ done"),
+    "open_file": _static_hint("→ opened"),
+    # ---- Claude SDK PascalCase tools ----------------------------------------
+    "Bash": _hint_bash,
+    "Read": _count_hint("lines", empty="→ empty"),
+    "Write": _static_hint("→ written"),
+    "Edit": _hint_replace_string,
+    "MultiEdit": _hint_multi_replace,
+    "Glob": _count_hint("files", empty="→ no matches"),
+    "Grep": _count_hint("matches", empty="→ no matches"),
+    "LS": _count_hint("entries", empty="→ empty"),
+    "Task": _hint_subagent,
+    "WebFetch": _hint_fetch_webpage,
+    "WebSearch": _count_hint("results", empty="→ no results"),
+    "TodoRead": _count_hint("items", empty="→ empty"),
+    "NotebookRead": _count_hint("lines", empty="→ empty"),
+    "NotebookEdit": _static_hint("→ applied"),
+    "Computer": _static_hint("→ done"),
+    "ReadMcpResource": _count_hint("lines", empty="→ empty"),
 }
 
 
@@ -310,8 +468,6 @@ def _humanize_tool_name(name: str) -> str:
 
     ``search_code`` → ``"Search code"``, ``listAllFiles`` → ``"List all files"``.
     """
-    import re
-
     parts = re.sub(r"([a-z])([A-Z])", r"\1 \2", name).replace("_", " ").split()
     if not parts:
         return name

@@ -51,6 +51,7 @@ dmypy.json
 frontend/node_modules/
 frontend/dist/
 frontend/coverage/
+backend/web/
 
 # IDE
 .idea/
@@ -117,3 +118,4 @@ __marimo__/
 scorecard.png
 .desloppify-observe-report*.txt
 *.tsbuildinfo
+site/

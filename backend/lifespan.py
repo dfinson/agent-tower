@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
+from backend.models.events import DomainEventKind
 from backend.persistence.database import create_engine, create_session_factory
 from backend.persistence.event_repo import EventRepository
 from backend.services.adapter_registry import AdapterRegistry
@@ -44,6 +46,32 @@ if TYPE_CHECKING:
     from backend.services.terminal_service import TerminalService
 
 log = structlog.get_logger()
+
+
+def _print_qr_code(url: str) -> None:
+    """Print a QR code for *url* to the console (best-effort)."""
+    try:
+        import io
+
+        import qrcode
+        from rich.align import Align
+        from rich.console import Console
+        from rich.text import Text
+
+        qr = qrcode.QRCode(box_size=1, border=1)
+        qr.add_data(url)
+        qr.make(fit=True)
+        buf = io.StringIO()
+        qr.print_ascii(out=buf, invert=True)
+
+        console = Console(stderr=True)
+        console.print()
+        console.print(Align.center(Text(buf.getvalue().rstrip("\n"))))
+        console.print(Align.center(Text.from_markup(f"Scan to open: [bold]{url}[/bold]")))
+        console.print()
+    except ImportError:
+        pass
+
 
 _EVENT_PERSIST_MAX_ATTEMPTS = 3
 _EVENT_PERSIST_RETRY_DELAY_S = 0.05
@@ -87,6 +115,13 @@ def _init_event_infrastructure(
     # Persist-then-broadcast subscriber: ensures event.db_id is set
     # (monotonic autoincrement) before SSE frames are built.
     async def _persist_and_broadcast(event: DomainEvent) -> None:
+        # agent_delta events are ephemeral streaming chunks — broadcast
+        # immediately without writing to DB (the complete agent message
+        # that follows is the canonical persisted record).
+        if event.kind == DomainEventKind.transcript_updated and event.payload.get("role") == "agent_delta":
+            await sse_manager.broadcast_domain_event(event)
+            return
+
         try:
             await _persist_event_with_retry(
                 event=event,
@@ -304,12 +339,16 @@ async def _init_optional_services(
         log.warning("copilot_model_cache_failed", error=str(exc))
     cached_models_by_sdk["copilot"] = copilot_models
 
-    # Claude Code models — the CLI supports exactly these three (/model in a session).
-    cached_models_by_sdk["claude"] = [
-        {"id": "claude-sonnet-4-6", "name": "Sonnet 4.6 (default)"},
-        {"id": "claude-opus-4-6", "name": "Opus 4.6"},
-        {"id": "claude-haiku-4-5", "name": "Haiku 4.5"},
-    ]
+    # Claude Code models — loaded from data/claude_models.json
+    _claude_models_path = Path(__file__).resolve().parent / "data" / "claude_models.json"
+    try:
+        import json as _json
+
+        cached_models_by_sdk["claude"] = _json.loads(_claude_models_path.read_text())
+        log.debug("claude_models_loaded", count=len(cached_models_by_sdk["claude"]))
+    except Exception as exc:
+        log.warning("claude_models_load_failed", error=str(exc))
+        cached_models_by_sdk["claude"] = []
 
     # --- Voice service ---
     voice_service = VoiceService()
@@ -372,6 +411,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus, sse_manager, dead_letter_task = _init_event_infrastructure(session_factory)
 
+    # Wire the console dashboard (present only when stderr is an interactive TTY)
+    # to the event bus so job state and progress updates appear in the live panel.
+    dashboard = getattr(app.state, "dashboard", None)
+    if dashboard is not None:
+        event_bus.subscribe(dashboard.handle_event)
+
     config = load_config()
     services = await _wire_core_services(session_factory, event_bus, config)
 
@@ -403,16 +448,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     app.state.dishka_container = container
 
-    # Print the startup banner now that all services are ready
+    # Activate the Rich live display — connection info is shown
+    # persistently in the dashboard header.  Print the QR code once
+    # before the live display takes over the terminal.
     banner_args = getattr(app.state, "banner_args", None)
     if banner_args:
-        from backend.cli import _print_startup_banner
-
-        _print_startup_banner(**banner_args)
+        tunnel_url = banner_args.get("tunnel_url")
+        local_url = f"http://{banner_args.get('host', '127.0.0.1')}:{banner_args.get('port', 8080)}"
+        _print_qr_code(tunnel_url or local_url)
+    if dashboard is not None:
+        if banner_args:
+            host = banner_args.get("host", "127.0.0.1")
+            port = banner_args.get("port", 8080)
+            dashboard.set_server_info(
+                server_url=f"http://{host}:{port}",
+                tunnel_url=banner_args.get("tunnel_url"),
+                password=banner_args.get("password"),
+            )
+        dashboard.start()
 
     yield
 
-    # Shutdown in reverse initialisation order
+    # Shutdown in reverse initialisation order.
+    # Stop the live dashboard first so subsequent log output prints cleanly.
+    if dashboard is not None:
+        dashboard.stop()
     await container.close()
     await optional.mcp_cleanup.__aexit__(None, None, None)
     optional.retention_task.cancel()
