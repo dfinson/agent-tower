@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
+from backend.models.events import DomainEventKind
 from backend.persistence.database import create_engine, create_session_factory
 from backend.persistence.event_repo import EventRepository
 from backend.services.adapter_registry import AdapterRegistry
@@ -117,10 +118,7 @@ def _init_event_infrastructure(
         # agent_delta events are ephemeral streaming chunks — broadcast
         # immediately without writing to DB (the complete agent message
         # that follows is the canonical persisted record).
-        if (
-            event.kind == DomainEventKind.transcript_updated
-            and event.payload.get("role") == "agent_delta"
-        ):
+        if event.kind == DomainEventKind.transcript_updated and event.payload.get("role") == "agent_delta":
             await sse_manager.broadcast_domain_event(event)
             return
 

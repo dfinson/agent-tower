@@ -183,7 +183,7 @@ def _fmt_multi_edit(args: ToolArgs) -> str:
 
 def _fmt_computer(args: ToolArgs) -> str:
     """Formatter for Claude SDK's Computer tool."""
-    action = args.get("action", "")
+    action = str(args.get("action", ""))
     if action == "screenshot":
         return "Take screenshot"
     if action == "key":
@@ -373,7 +373,7 @@ _FORMATTERS.update(
         # ---- Claude SDK PascalCase tools ------------------------------------
         # Simple-spec tools above cover: Bash, Glob, LS, Task, WebSearch,
         # TodoRead, Think, NotebookRead, NotebookEdit, Write, Edit, Grep, ListMcp*
-        "Read": _fmt_read_file,      # same shape as read_file
+        "Read": _fmt_read_file,  # same shape as read_file
         "MultiEdit": _fmt_multi_edit,
         "WebFetch": _fmt_fetch_webpage,
         "Computer": _fmt_computer,
