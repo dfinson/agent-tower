@@ -565,6 +565,18 @@ class RuntimeService:
 
         asyncio.create_task(_init_telemetry_row())
 
+        # Emit environment_setup phase
+        self._resolve_adapter(config.sdk).set_execution_phase(job_id, "environment_setup")
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.execution_phase_changed,
+                payload={"phase": "environment_setup"},
+            )
+        )
+
         # Resolve worktree_path and base_ref for diff calculations
         worktree_path: str | None = None
         base_ref: str | None = None
@@ -583,6 +595,18 @@ class RuntimeService:
         session_id: str | None = None
         error_reason: str | None = None
         try:
+            # Emit agent_reasoning phase before main session execution
+            self._resolve_adapter(config.sdk).set_execution_phase(job_id, "agent_reasoning")
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.execution_phase_changed,
+                    payload={"phase": "agent_reasoning"},
+                )
+            )
+
             result = await self._execute_session_attempt(
                 job_id,
                 agent_session,
@@ -766,6 +790,21 @@ class RuntimeService:
         finally:
             tel.end_job_span(job_id)
 
+            # Emit finalization phase
+            try:
+                self._resolve_adapter(config.sdk).set_execution_phase(job_id, "finalization")
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.execution_phase_changed,
+                        payload={"phase": "finalization"},
+                    )
+                )
+            except Exception:
+                pass
+
             # Finalize the summary row with terminal status and duration.
             try:
                 async with self._session_factory() as session:
@@ -796,6 +835,24 @@ class RuntimeService:
                         duration_ms=duration,
                     )
                     await session.commit()
+
+                # Run post-job cost attribution pipeline
+                try:
+                    async with self._session_factory() as session:
+                        from backend.services.cost_attribution import compute_attribution
+                        await compute_attribution(session, job_id)
+                        await session.commit()
+                except Exception:
+                    log.warning("cost_attribution_failed", job_id=job_id, exc_info=True)
+
+                # Run statistical analysis (fire-and-forget, non-blocking)
+                try:
+                    async with self._session_factory() as session:
+                        from backend.services.statistical_analysis import run_analysis
+                        await run_analysis(session)
+                        await session.commit()
+                except Exception:
+                    log.debug("statistical_analysis_failed", job_id=job_id, exc_info=True)
 
                 # Signal clients that final telemetry is available
                 await self._event_bus.publish(
@@ -1348,6 +1405,7 @@ class RuntimeService:
         )
 
         # Emit verification phase change
+        self._resolve_adapter(base_config.sdk).set_execution_phase(job_id, "verification")
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),

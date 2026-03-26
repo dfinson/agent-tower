@@ -138,6 +138,20 @@ class JobTelemetrySummaryRow(Base):
     current_context_tokens = Column(Integer, nullable=False, default=0)
     quota_json = Column(Text, nullable=True)
     updated_at = Column(TZDateTime, nullable=False)
+    # Cost analytics columns (migration 0009)
+    total_turns = Column(Integer, nullable=False, default=0, server_default="0")
+    retry_count = Column(Integer, nullable=False, default=0, server_default="0")
+    retry_cost_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
+    file_read_count = Column(Integer, nullable=False, default=0, server_default="0")
+    file_write_count = Column(Integer, nullable=False, default=0, server_default="0")
+    unique_files_read = Column(Integer, nullable=False, default=0, server_default="0")
+    file_reread_count = Column(Integer, nullable=False, default=0, server_default="0")
+    peak_turn_cost_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
+    avg_turn_cost_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
+    cost_first_half_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
+    cost_second_half_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
+    diff_lines_added = Column(Integer, nullable=False, default=0, server_default="0")
+    diff_lines_removed = Column(Integer, nullable=False, default=0, server_default="0")
 
 
 class JobTelemetrySpanRow(Base):
@@ -153,5 +167,88 @@ class JobTelemetrySpanRow(Base):
     duration_ms = Column(Text, nullable=False)
     attrs_json = Column(Text, nullable=False)
     created_at = Column(TZDateTime, nullable=False)
+    # Cost analytics columns (migration 0008)
+    tool_category = Column(String, nullable=True)
+    tool_target = Column(String, nullable=True)
+    turn_number = Column(Integer, nullable=True)
+    execution_phase = Column(String, nullable=True)
+    is_retry = Column(Boolean, nullable=True, default=False)
+    retries_span_id = Column(Integer, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    cache_read_tokens = Column(Integer, nullable=True)
+    cache_write_tokens = Column(Integer, nullable=True)
+    cost_usd = Column(Float, nullable=True)
+    tool_args_json = Column(Text, nullable=True)
+    result_size_bytes = Column(Integer, nullable=True)
 
-    __table_args__ = (Index("idx_spans_job", "job_id"),)
+    __table_args__ = (
+        Index("idx_spans_job", "job_id"),
+        Index("idx_spans_category", "tool_category"),
+        Index("idx_spans_turn", "job_id", "turn_number"),
+        Index("idx_spans_phase", "execution_phase"),
+    )
+
+
+class JobFileAccessRow(Base):
+    """Per-file read/write access log for cost analytics."""
+
+    __tablename__ = "job_file_access_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
+    file_path = Column(String, nullable=False)
+    access_type = Column(String, nullable=False)  # read / write
+    turn_number = Column(Integer, nullable=True)
+    span_id = Column(Integer, nullable=True)
+    byte_count = Column(Integer, nullable=True)
+    created_at = Column(TZDateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_file_access_job", "job_id"),
+        Index("idx_file_access_path", "file_path"),
+    )
+
+
+class CostAttributionRow(Base):
+    """Per-job cost breakdown by dimension (phase, tool category, turn)."""
+
+    __tablename__ = "job_cost_attribution"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
+    dimension = Column(String, nullable=False)
+    bucket = Column(String, nullable=False)
+    cost_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
+    input_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    output_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    call_count = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(TZDateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_attr_job", "job_id"),
+        Index("idx_attr_dimension", "dimension", "bucket"),
+    )
+
+
+class CostObservationRow(Base):
+    """Cross-job cost observation or anomaly."""
+
+    __tablename__ = "cost_observations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    category = Column(String, nullable=False)
+    severity = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    detail = Column(Text, nullable=False)
+    evidence_json = Column(Text, nullable=False)
+    job_count = Column(Integer, nullable=False, default=0, server_default="0")
+    total_waste_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
+    first_seen_at = Column(TZDateTime, nullable=False)
+    last_seen_at = Column(TZDateTime, nullable=False)
+    dismissed = Column(Boolean, nullable=False, default=False, server_default="0")
+
+    __table_args__ = (
+        Index("idx_obs_category", "category"),
+        Index("idx_obs_severity", "severity"),
+    )
