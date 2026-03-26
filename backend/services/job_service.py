@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from backend.config import load_config
 from backend.models.domain import (
     ACTIVE_STATES,
     TERMINAL_STATES,
@@ -104,9 +105,14 @@ class JobService:
         )
 
     def _resolve_repos(self) -> set[str]:
-        """Expand glob patterns and return the full set of allowed repo paths."""
+        """Expand glob patterns and return the full set of allowed repo paths.
+
+        Reads fresh from disk on every call so that repos registered after
+        app startup (via the settings API) are immediately visible.
+        """
+        fresh_repos = load_config().repos
         allowed: set[str] = set()
-        for pattern in self._config.repos:
+        for pattern in fresh_repos:
             expanded = Path(pattern).expanduser()
             if "*" in pattern or "?" in pattern:
                 for match in glob.glob(str(expanded), recursive=True):

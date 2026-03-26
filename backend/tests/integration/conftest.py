@@ -228,6 +228,7 @@ async def app(
     # -- config overrides (for non-dishka Depends still in settings.py) ----
     monkeypatch.setattr("backend.config.load_config", _test_config)
     monkeypatch.setattr("backend.api.settings._get_config", _test_config)
+    monkeypatch.setattr("backend.services.job_service.load_config", _test_config)
 
     # -- settings router git-service override ------------------------------
     application.dependency_overrides[settings._get_git_service] = lambda: mock_git_service

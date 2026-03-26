@@ -58,6 +58,12 @@ def config() -> CPLConfig:
     return cfg
 
 
+@pytest.fixture(autouse=True)
+def patch_job_service_load_config(monkeypatch: pytest.MonkeyPatch, config: CPLConfig) -> None:
+    """Patch job_service.load_config so _resolve_repos uses the test config."""
+    monkeypatch.setattr("backend.services.job_service.load_config", lambda: config)
+
+
 @pytest.fixture
 def event_bus() -> EventBus:
     return EventBus()
