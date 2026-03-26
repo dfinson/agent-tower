@@ -662,11 +662,13 @@ function AgentTurn({
   turn,
   sdk,
   isLast,
+  isJobLive,
   streamingText,
 }: {
   turn: AgentTurnData;
   sdk?: string;
   isLast?: boolean;
+  isJobLive?: boolean;
   streamingText?: string;
 }) {
   const msg = turn.message;
@@ -686,7 +688,7 @@ function AgentTurn({
         {turn.toolCalls.length > 0 && (
           <ToolStepList calls={turn.toolCalls} isActive={isActive} />
         )}
-        {msg && <AgentMessageBlock entry={msg} isNew={isLast} />}
+        {msg && <AgentMessageBlock entry={msg} isNew={isLast && isJobLive} />}
         {!msg && streamingText && (
           <div className="text-sm leading-relaxed">
             <AgentMarkdown content={streamingText} />
@@ -811,6 +813,8 @@ export function TranscriptPanel({
   const allApprovals = useStore(selectApprovals);
   const streamingMessages = useStore((s) => s.streamingMessages);
   const jobApprovals = Object.values(allApprovals).filter((a) => a.jobId === jobId);
+  // Only animate newly-arriving messages when the job is actively running.
+  const isJobLive = jobState === "running" || jobState === "waiting_for_approval";
 
   const entries = useMemo<TranscriptEntry[]>(() => [
     ...(prompt
@@ -1027,6 +1031,7 @@ export function TranscriptPanel({
                       sdk={sdk}
                       turn={item.turn}
                       isLast={virtualRow.index === displayItems.length - 1}
+                      isJobLive={isJobLive}
                       streamingText={(() => {
                         const byTurn = streamingMessages[`${jobId}:${item.turn.key}`];
                         if (byTurn !== undefined) return byTurn;

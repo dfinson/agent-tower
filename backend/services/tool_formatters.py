@@ -153,6 +153,11 @@ _SIMPLE_SPECS: dict[str, _FmtSpec] = {
     "NotebookEdit": _FmtSpec(("notebook_path",), "Edit", "Edit notebook", use_path=True),
     "ListMcpResourceTemplates": _FmtSpec((), "", "List MCP resource templates"),
     "ListMcpResources": _FmtSpec((), "", "List MCP resources"),
+    # Complex arg shapes (file_path first, path fallback) — kept here to
+    # co-locate with related PascalCase entries; registered via _build_formatter.
+    "Write": _FmtSpec(("file_path", "path"), "Write", "Write file", use_path=True),
+    "Edit": _FmtSpec(("file_path", "path"), "Edit", "Edit file", use_path=True),
+    "Grep": _FmtSpec(("pattern",), "Grep:", "Grep", truncate=40, quote=True),
 }
 
 
@@ -367,12 +372,9 @@ _FORMATTERS.update(
         "view": _fmt_view,
         # ---- Claude SDK PascalCase tools ------------------------------------
         # Simple-spec tools above cover: Bash, Glob, LS, Task, WebSearch,
-        # TodoRead, Think, NotebookRead, NotebookEdit, ListMcp*
+        # TodoRead, Think, NotebookRead, NotebookEdit, Write, Edit, Grep, ListMcp*
         "Read": _fmt_read_file,      # same shape as read_file
-        "Write": _build_formatter(_FmtSpec(("file_path", "path"), "Write", "Write file", use_path=True)),
-        "Edit": _build_formatter(_FmtSpec(("file_path", "path"), "Edit", "Edit file", use_path=True)),
         "MultiEdit": _fmt_multi_edit,
-        "Grep": _build_formatter(_FmtSpec(("pattern",), "Grep:", "Grep", truncate=40, quote=True)),
         "WebFetch": _fmt_fetch_webpage,
         "Computer": _fmt_computer,
         "ReadMcpResource": _fmt_read_mcp_resource,
