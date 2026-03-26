@@ -959,14 +959,7 @@ class CopilotAdapter(AgentAdapterInterface):
             return
         try:
             while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=300)
-                except TimeoutError:
-                    yield SessionEvent(
-                        kind=SessionEventKind.error,
-                        payload={"message": "Session timed out waiting for events"},
-                    )
-                    return
+                event = await queue.get()
                 if event is None:
                     return
                 yield event

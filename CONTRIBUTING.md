@@ -38,7 +38,7 @@ uv run cpl down
 uv run cpl restart
 ```
 
-The backend serves the built frontend from `frontend/dist/` on `http://localhost:8080`.
+The backend serves the built frontend from `backend/web/` on `http://localhost:8080`.
 
 ## Code Quality
 

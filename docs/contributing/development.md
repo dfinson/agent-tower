@@ -40,7 +40,7 @@ uv run cpl down
 uv run cpl restart
 ```
 
-The server runs on `http://localhost:8080` and serves the built frontend from `frontend/dist/`.
+The server runs on `http://localhost:8080` and serves the built frontend from `backend/web/`.
 
 ## Code Quality
 
