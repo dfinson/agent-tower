@@ -45,16 +45,24 @@ def _build_frontend() -> bool:
     import subprocess
 
     frontend_root = Path(__file__).resolve().parent.parent / "frontend"
+    dist = Path(__file__).resolve().parent / "web" / "index.html"
     package_json = frontend_root / "package.json"
     if not package_json.exists():
-        return False
+        return dist.exists()
 
-    dist = frontend_root / "dist" / "index.html"
-    src = frontend_root / "src"
+    src_roots = [
+        frontend_root / "src",
+        frontend_root / "public",
+    ]
+    source_files = [package_json, frontend_root / "package-lock.json", frontend_root / "index.html", frontend_root / "vite.config.ts"]
+    for root in src_roots:
+        if root.exists():
+            source_files.extend(path for path in root.rglob("*") if path.is_file())
+
     # Skip build if dist is up-to-date
-    if dist.exists() and src.exists():
+    if dist.exists() and source_files:
         dist_mtime = dist.stat().st_mtime
-        src_mtime = max(f.stat().st_mtime for f in src.rglob("*") if f.is_file())
+        src_mtime = max(path.stat().st_mtime for path in source_files if path.exists())
         if dist_mtime > src_mtime:
             return True
 
@@ -65,7 +73,7 @@ def _build_frontend() -> bool:
             subprocess.run(["npm", "ci"], cwd=str(frontend_root), check=True, capture_output=True, timeout=300)
         subprocess.run(["npm", "run", "build"], cwd=str(frontend_root), check=True, capture_output=True, timeout=300)
         click.secho("Frontend built.", fg="green")
-        return True
+        return dist.exists()
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         click.secho(f"Frontend build failed: {exc}", fg="yellow")
         click.echo("The API will still work, but there will be no web UI.")
