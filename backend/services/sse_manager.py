@@ -19,10 +19,11 @@ from backend.models.api_schemas import (
     ApprovalResponse,
     DiffUpdatePayload,
     JobArchivedPayload,
+    JobCompletedPayload,
     JobFailedPayload,
     JobResolvedPayload,
+    JobReviewPayload,
     JobStateChangedPayload,
-    JobSucceededPayload,
     JobTitleUpdatedPayload,
     LogLinePayload,
     MergeCompletedPayload,
@@ -56,7 +57,8 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.diff_updated: "diff_update",
     DomainEventKind.approval_requested: "approval_requested",
     DomainEventKind.approval_resolved: "approval_resolved",
-    DomainEventKind.job_succeeded: "job_succeeded",
+    DomainEventKind.job_review: "job_review",
+    DomainEventKind.job_completed: "job_completed",
     DomainEventKind.job_failed: "job_failed",
     DomainEventKind.job_canceled: "job_state_changed",
     DomainEventKind.job_state_changed: "job_state_changed",
@@ -77,7 +79,8 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
 # State implied by each domain event kind (for job_state_changed payloads)
 _KIND_TO_STATE: dict[DomainEventKind, str] = {
     DomainEventKind.job_created: JobState.running,
-    DomainEventKind.job_succeeded: JobState.succeeded,
+    DomainEventKind.job_review: JobState.review,
+    DomainEventKind.job_completed: JobState.completed,
     DomainEventKind.job_failed: JobState.failed,
     DomainEventKind.job_canceled: JobState.canceled,
 }
@@ -89,6 +92,15 @@ _SELECTIVE_SUPPRESSED: frozenset[str] = frozenset(
         "transcript_update",
         "diff_update",
         "session_heartbeat",
+    }
+)
+
+# Event types delivered only to job-scoped connections, never to global/dashboard.
+# These are high-frequency during execution and only relevant to a user viewing
+# a specific job's detail panel.
+_JOB_SCOPED_ONLY: frozenset[str] = frozenset(
+    {
+        "telemetry_updated",
     }
 )
 
@@ -181,8 +193,8 @@ def _build_job_state_changed(event: DomainEvent) -> str:
     ).model_dump_json(by_alias=True)
 
 
-def _build_job_succeeded(event: DomainEvent) -> str:
-    return JobSucceededPayload(
+def _build_job_review(event: DomainEvent) -> str:
+    return JobReviewPayload(
         job_id=event.job_id,
         pr_url=event.payload.get("pr_url"),
         merge_status=event.payload.get("merge_status"),
@@ -225,7 +237,7 @@ def _build_agent_plan_updated(event: DomainEvent) -> str:
 _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
     # --- Custom builders (non-trivial extraction) ---
     "job_state_changed": _build_job_state_changed,
-    "job_succeeded": _build_job_succeeded,
+    "job_review": _build_job_review,
     "progress_headline": _build_progress_headline,
     "agent_plan_updated": _build_agent_plan_updated,
     # --- Field-map builders (declarative) ---
@@ -324,6 +336,14 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "timestamp": ("timestamp", _TS_EVENT),
         },
     ),
+    "job_completed": (
+        JobCompletedPayload,
+        {
+            "resolution": ("resolution", None),
+            "pr_url": ("pr_url", None),
+            "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
     "job_resolved": (
         JobResolvedPayload,
         {
@@ -408,7 +428,7 @@ def _build_derived_state_frame(event: DomainEvent, sse_id: str | None) -> str | 
             new_state=new_state,
             timestamp=event.timestamp,
         )
-    elif event.kind in (DomainEventKind.job_succeeded, DomainEventKind.job_failed):
+    elif event.kind in (DomainEventKind.job_review, DomainEventKind.job_completed, DomainEventKind.job_failed):
         payload = JobStateChangedPayload(
             job_id=event.job_id,
             previous_state=None,
@@ -475,6 +495,10 @@ class SSEManager:
                     continue
                 # Scoped connections always get full streaming
                 await conn.send(frame)
+                continue
+
+            # Global connections: skip job-scoped-only events entirely
+            if sse_type in _JOB_SCOPED_ONLY:
                 continue
 
             # Global connections: apply selective streaming if needed

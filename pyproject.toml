@@ -50,6 +50,12 @@ cpl = "backend.main:cli"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+artifacts = ["backend/web/**"]
+
+[tool.hatch.build.hooks.custom]
+path = "tools/hatch_build.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]
 

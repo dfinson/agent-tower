@@ -190,6 +190,47 @@ class JobTelemetrySpanRow(Base):
     )
 
 
+class JobFileAccessRow(Base):
+    """Per-file read/write access log for cost analytics."""
+
+    __tablename__ = "job_file_access_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
+    file_path = Column(String, nullable=False)
+    access_type = Column(String, nullable=False)  # read / write
+    turn_number = Column(Integer, nullable=True)
+    span_id = Column(Integer, nullable=True)
+    byte_count = Column(Integer, nullable=True)
+    created_at = Column(TZDateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_file_access_job", "job_id"),
+        Index("idx_file_access_path", "file_path"),
+    )
+
+
+class CostAttributionRow(Base):
+    """Per-job cost breakdown by dimension (phase, tool category, turn)."""
+
+    __tablename__ = "job_cost_attribution"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
+    dimension = Column(String, nullable=False)
+    bucket = Column(String, nullable=False)
+    cost_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
+    input_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    output_tokens = Column(Integer, nullable=False, default=0, server_default="0")
+    call_count = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(TZDateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_attr_job", "job_id"),
+        Index("idx_attr_dimension", "dimension", "bucket"),
+    )
+
+
 class CostObservationRow(Base):
     """Cross-job cost observation or anomaly."""
 

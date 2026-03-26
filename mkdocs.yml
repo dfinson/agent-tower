@@ -1,0 +1,102 @@
+site_name: CodePlane
+site_description: Control plane for running and supervising coding agents
+site_url: https://dfinson.github.io/codeplane
+repo_url: https://github.com/dfinson/codeplane
+repo_name: dfinson/codeplane
+
+theme:
+  name: material
+  logo: images/mark.png
+  favicon: images/mark.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quick-start.md
+      - Configuration: getting-started/configuration.md
+  - User Guide:
+      - guide/index.md
+      - Creating Jobs: guide/creating-jobs.md
+      - Monitoring Jobs: guide/monitoring-jobs.md
+      - Approvals: guide/approvals.md
+      - Code Review: guide/code-review.md
+      - Merging: guide/merging.md
+      - Terminal: guide/terminal.md
+      - Voice Input: guide/voice-input.md
+      - Remote Access: guide/remote-access.md
+      - Command Palette: guide/command-palette.md
+      - History: guide/history.md
+      - Analytics: guide/analytics.md
+      - MCP Server: guide/mcp-server.md
+  - Reference:
+      - reference/index.md
+      - CLI: reference/cli.md
+      - REST API: reference/rest-api.md
+      - SSE Events: reference/sse-events.md
+      - Configuration: reference/configuration.md
+      - Job States: reference/job-states.md
+      - Keyboard Shortcuts: reference/keyboard-shortcuts.md
+  - Architecture:
+      - architecture/index.md
+      - Backend: architecture/backend.md
+      - Frontend: architecture/frontend.md
+      - Agent Adapters: architecture/agent-adapters.md
+      - Cloud-Native Design: architecture/cloud-native.md
+  - Contributing:
+      - contributing/index.md
+      - Development: contributing/development.md
+      - Project Structure: contributing/project-structure.md
+      - Conventions: contributing/conventions.md
+      - CI/CD: contributing/ci-cd.md

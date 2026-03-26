@@ -45,16 +45,24 @@ def _build_frontend() -> bool:
     import subprocess
 
     frontend_root = Path(__file__).resolve().parent.parent / "frontend"
+    dist = Path(__file__).resolve().parent / "web" / "index.html"
     package_json = frontend_root / "package.json"
     if not package_json.exists():
-        return False
+        return dist.exists()
 
-    dist = frontend_root / "dist" / "index.html"
-    src = frontend_root / "src"
+    src_roots = [
+        frontend_root / "src",
+        frontend_root / "public",
+    ]
+    source_files = [package_json, frontend_root / "package-lock.json", frontend_root / "index.html", frontend_root / "vite.config.ts"]
+    for root in src_roots:
+        if root.exists():
+            source_files.extend(path for path in root.rglob("*") if path.is_file())
+
     # Skip build if dist is up-to-date
-    if dist.exists() and src.exists():
+    if dist.exists() and source_files:
         dist_mtime = dist.stat().st_mtime
-        src_mtime = max(f.stat().st_mtime for f in src.rglob("*") if f.is_file())
+        src_mtime = max(path.stat().st_mtime for path in source_files if path.exists())
         if dist_mtime > src_mtime:
             return True
 
@@ -65,7 +73,7 @@ def _build_frontend() -> bool:
             subprocess.run(["npm", "ci"], cwd=str(frontend_root), check=True, capture_output=True, timeout=300)
         subprocess.run(["npm", "run", "build"], cwd=str(frontend_root), check=True, capture_output=True, timeout=300)
         click.secho("Frontend built.", fg="green")
-        return True
+        return dist.exists()
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         click.secho(f"Frontend build failed: {exc}", fg="yellow")
         click.echo("The API will still work, but there will be no web UI.")
@@ -189,8 +197,19 @@ def up(
     if not dev:
         _build_frontend()
 
-    # Configure logging before everything else so all startup messages are captured
-    setup_logging(config.logging.file, console_level=config.logging.level)
+    # Configure logging before everything else so all startup messages are captured.
+    # Create the Rich dashboard now (TTY check) so the log handler can be wired in
+    # setup_logging; the Live display itself only starts after the startup banner.
+    from backend.console_dashboard import ConsoleDashboard
+
+    dashboard = ConsoleDashboard.create_if_tty(log_file_path=config.logging.file)
+    setup_logging(
+        config.logging.file,
+        console_level=config.logging.level,
+        max_file_size_mb=config.logging.max_file_size_mb,
+        backup_count=config.logging.backup_count,
+        dashboard=dashboard,
+    )
 
     # Run Alembic migrations before starting the server
     run_migrations()
@@ -225,7 +244,9 @@ def up(
 
     app = create_app(dev=dev, tunnel_origin=tunnel_origin, password=effective_password)
 
-    # Stash banner info so lifespan can print it after services are ready
+    # Stash banner info so lifespan can print it after services are ready.
+    # Also stash the dashboard so lifespan can subscribe it to the EventBus
+    # and start the Live display after the banner.
     app.state.banner_args = {
         "host": host,
         "port": port,
@@ -233,55 +254,89 @@ def up(
         "tunnel_url": tunnel_origin,
         "password": effective_password,
     }
+    app.state.dashboard = dashboard
+
+    # Use uvicorn.Server directly so we can patch handle_exit to stop the
+    # Rich Live display the instant a signal is received.  uvicorn installs
+    # signal handlers via loop.add_signal_handler() which overrides any
+    # signal.signal() handlers we set beforehand, so the only reliable way
+    # to hook into the signal path is to wrap the Server's own callback.
+    uv_config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_level="warning" if dashboard else "info",
+    )
+    server = uvicorn.Server(uv_config)
+
+    if dashboard is not None:
+        _original_handle_exit = server.handle_exit
+
+        def _handle_exit_with_dashboard_stop(sig: int, frame: Any) -> None:
+            dashboard.stop()
+            _original_handle_exit(sig, frame)
+
+        server.handle_exit = _handle_exit_with_dashboard_stop  # type: ignore[method-assign]
 
     try:
-        uvicorn.run(app, host=host, port=port)
+        server.run()
     finally:
+        if dashboard is not None:
+            dashboard.stop()
         if tunnel_handle is not None:
             tunnel_handle.close()
 
 
 # ---------------------------------------------------------------------------
-# Startup banner
+# Connection info (on-demand via ``cpl info``)
 # ---------------------------------------------------------------------------
 
 
-def _print_startup_banner(host: str, port: int, dev: bool, tunnel_url: str | None, password: str | None = None) -> None:
-    """Print a startup banner with server info."""
+def _print_connection_info(host: str, port: int, tunnel_url: str | None, password: str | None = None) -> None:
+    """Print connection details and QR code on demand."""
     url = tunnel_url or f"http://{host}:{port}"
 
     try:
-        from rich.console import Console
+        from rich.align import Align
+        from rich.console import Console, Group
         from rich.panel import Panel
+        from rich.text import Text
 
         console = Console()
-        lines = [f"[bold]Server:[/bold] http://{host}:{port}"]
-        if dev:
-            lines.append("[bold]Mode:[/bold]   Development (CORS enabled)")
+        lines = [f"[bold]Server:[/bold]   http://{host}:{port}"]
         if tunnel_url:
-            lines.append(f"[bold]Tunnel:[/bold] {tunnel_url}")
+            lines.append(f"[bold]Tunnel:[/bold]   {tunnel_url}")
         if password:
             lines.append(f"[bold]Password:[/bold] {password}")
-        console.print(Panel("\n".join(lines), title="[bold cyan]CodePlane[/bold cyan]", border_style="cyan"))
+
+        qr_section: list[object] = []
+        try:
+            import io
+
+            import qrcode
+
+            qr = qrcode.QRCode(box_size=1, border=1)
+            qr.add_data(url)
+            qr.make(fit=True)
+            buf = io.StringIO()
+            qr.print_ascii(out=buf, invert=True)
+            qr_ascii = buf.getvalue().rstrip("\n")
+
+            qr_section.append(Text(""))
+            qr_section.append(Align.center(Text(qr_ascii)))
+            qr_section.append(Text(""))
+            qr_section.append(Align.center(Text.from_markup(f"Scan to open: [bold]{url}[/bold]")))
+        except ImportError:
+            log.debug("qrcode_not_installed", package="qrcode", exc_info=True)
+
+        body = Group(Text.from_markup("\n".join(lines)), *qr_section)  # type: ignore[arg-type]
+        console.print(Panel(body, title="[bold cyan]CodePlane[/bold cyan]", border_style="cyan"))
     except ImportError:
         click.echo(f"CodePlane server: http://{host}:{port}")
         if tunnel_url:
             click.echo(f"Tunnel: {tunnel_url}")
         if password:
             click.echo(f"Password: {password}")
-
-    # Print QR code for the access URL
-    try:
-        import qrcode
-
-        qr = qrcode.QRCode(box_size=1, border=1)
-        qr.add_data(url)
-        qr.make(fit=True)
-        click.echo()
-        qr.print_ascii(invert=True)
-        click.echo(f"\n  Scan to open: {url}\n")
-    except ImportError:
-        log.debug("qrcode_not_installed", package="qrcode", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +350,16 @@ def version() -> None:
     from backend import __version__
 
     click.echo(f"cpl {__version__}")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Server host")
+@click.option("--port", "-p", default=8080, type=int, help="Server port")
+@click.option("--tunnel-url", default=None, help="Tunnel URL (auto-detected from config if omitted)")
+@click.option("--password", default=None, help="Access password")
+def info(host: str, port: int, tunnel_url: str | None, password: str | None) -> None:
+    """Print connection details and QR code."""
+    _print_connection_info(host=host, port=port, tunnel_url=tunnel_url, password=password)
 
 
 @cli.command()

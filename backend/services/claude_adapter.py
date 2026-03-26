@@ -81,6 +81,9 @@ class ClaudeAdapter(AgentAdapterInterface):
         self._session_factory = session_factory
         self._job_start_times: dict[str, float] = {}
         self._job_main_models: dict[str, str] = {}
+        self._paused_sessions: set[str] = set()
+        # Debounce: last monotonic time a telemetry_updated SSE was fired per job
+        self._last_telemetry_broadcast: dict[str, float] = {}
         # Cost analytics: per-job turn counter, phase, retry tracker
         self._turn_counters: dict[str, int] = {}
         self._current_phases: dict[str, str] = {}
@@ -91,15 +94,19 @@ class ClaudeAdapter(AgentAdapterInterface):
     # ------------------------------------------------------------------
 
     def _cleanup_session(self, session_id: str) -> None:
+        self._paused_sessions.discard(session_id)
         job_id = self._session_to_job.pop(session_id, None)
-        self._clients.pop(session_id, None)
+        client = self._clients.pop(session_id, None)
         self._queues.pop(session_id, None)
         task = self._consumer_tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
+        if client is not None:
+            asyncio.ensure_future(self._disconnect_client(client))
         if job_id:
             self._job_start_times.pop(job_id, None)
             self._job_main_models.pop(job_id, None)
+            self._last_telemetry_broadcast.pop(job_id, None)
             self._turn_counters.pop(job_id, None)
             self._current_phases.pop(job_id, None)
             self._retry_trackers.pop(job_id, None)
@@ -108,6 +115,14 @@ class ClaudeAdapter(AgentAdapterInterface):
         """Update the current execution phase for cost analytics span tagging."""
         self._current_phases[job_id] = phase
 
+    @staticmethod
+    async def _disconnect_client(client: ClaudeSDKClient) -> None:
+        """Disconnect a ClaudeSDKClient, terminating its backing subprocess."""
+        try:
+            await asyncio.wait_for(client.disconnect(), timeout=10)
+        except Exception:
+            log.warning("claude_client_disconnect_failed", exc_info=True)
+
     def _schedule_db_write(self, coro: Any) -> None:  # noqa: ANN401
         """Schedule an async DB write from a synchronous or async context."""
         try:
@@ -115,6 +130,8 @@ class ClaudeAdapter(AgentAdapterInterface):
             loop.create_task(coro)
         except RuntimeError:
             pass  # No event loop — skip DB write
+
+    _TELEMETRY_BROADCAST_INTERVAL = 2.0  # seconds — debounce SSE broadcasts
 
     async def _db_write(self, fn_name: str, **kwargs: Any) -> None:
         """Execute a telemetry DB write in its own session."""
@@ -139,6 +156,36 @@ class ClaudeAdapter(AgentAdapterInterface):
                 await session.commit()
         except Exception:
             log.debug("telemetry_db_write_failed", fn=fn_name, exc_info=True)
+            return
+
+        # Broadcast a debounced telemetry_updated SSE for summary changes
+        if fn_name != "insert_span":
+            job_id = kwargs.get("job_id")
+            if job_id:
+                await self._maybe_broadcast_telemetry(job_id)
+
+    async def _maybe_broadcast_telemetry(self, job_id: str) -> None:
+        """Publish telemetry_updated if debounce interval has elapsed."""
+        import time as _time
+
+        from backend.models.events import DomainEvent, DomainEventKind
+
+        if self._event_bus is None:
+            return
+        now = _time.monotonic()
+        last = self._last_telemetry_broadcast.get(job_id, 0.0)
+        if now - last < self._TELEMETRY_BROADCAST_INTERVAL:
+            return
+        self._last_telemetry_broadcast[job_id] = now
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.telemetry_updated,
+                payload={"job_id": job_id},
+            )
+        )
 
     def _enqueue(self, session_id: str, event: SessionEvent) -> None:
         q = self._queues.get(session_id)
@@ -192,6 +239,10 @@ class ClaudeAdapter(AgentAdapterInterface):
             input_data: dict[str, Any],
             context: object,
         ) -> PermissionResultAllow | PermissionResultDeny:
+            # Paused — immediately deny all tools so the agent cannot act.
+            if session_id in self._paused_sessions:
+                return PermissionResultDeny(message="Session is paused — waiting for operator")
+
             mode = config.permission_mode
             job_id = self._session_to_job.get(session_id)
 
@@ -372,9 +423,7 @@ class ClaudeAdapter(AgentAdapterInterface):
         # Lock in the main model from the first AssistantMessage that carries one
         if job_id and model and job_id not in self._job_main_models:
             self._job_main_models[job_id] = model
-            self._schedule_db_write(
-                self._db_write("set_model", job_id=job_id, model=model)
-            )
+            self._schedule_db_write(self._db_write("set_model", job_id=job_id, model=model))
 
         for block in content_blocks:
             if isinstance(block, TextBlock):
@@ -790,14 +839,7 @@ class ClaudeAdapter(AgentAdapterInterface):
             return
         try:
             while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=300)
-                except TimeoutError:
-                    yield SessionEvent(
-                        kind=SessionEventKind.error,
-                        payload={"message": "Session timed out waiting for events"},
-                    )
-                    return
+                event = await queue.get()
                 if event is None:
                     return
                 yield event
@@ -814,6 +856,21 @@ class ClaudeAdapter(AgentAdapterInterface):
             await client.query(message)
         except Exception:
             log.warning("claude_send_message_failed", session_id=session_id, exc_info=True)
+
+    async def interrupt_session(self, session_id: str) -> None:
+        client = self._clients.get(session_id)
+        if client is None:
+            return
+        try:
+            await client.interrupt()
+        except Exception:
+            log.warning("claude_interrupt_failed", session_id=session_id, exc_info=True)
+
+    def pause_tools(self, session_id: str) -> None:
+        self._paused_sessions.add(session_id)
+
+    def resume_tools(self, session_id: str) -> None:
+        self._paused_sessions.discard(session_id)
 
     async def abort_session(self, session_id: str) -> None:
         client = self._clients.get(session_id)

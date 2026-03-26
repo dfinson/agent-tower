@@ -20,7 +20,7 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 _PRICING_PATH = Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
-_MODEL_PRICING: dict[str, dict] = {}
+_MODEL_PRICING: dict[str, dict[str, object]] = {}
 
 try:
     _MODEL_PRICING = json.loads(_PRICING_PATH.read_text())
@@ -34,6 +34,7 @@ except Exception:
 def _normalize_model_key(model: str) -> str:
     """Lowercase, collapse non-alnum to hyphens — matches LiteLLM keys."""
     import re
+
     return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]", "-", model.lower())).strip("-")
 
 
@@ -61,6 +62,8 @@ async def analytics_overview(
         "period": period,
         "totalJobs": agg.get("total_jobs", 0),
         "succeeded": agg.get("succeeded", 0),
+        "review": agg.get("review", 0),
+        "completed": agg.get("completed", 0),
         "failed": agg.get("failed", 0),
         "cancelled": agg.get("cancelled", 0),
         "running": agg.get("running", 0),
@@ -148,13 +151,13 @@ async def analytics_pricing(
         ...,
         description="Comma-separated model names to look up (e.g. 'claude-sonnet-4-6,claude-opus-4-5')",
     ),
-) -> dict[str, dict | None]:
+) -> dict[str, dict[str, object] | None]:
     """Return pricing info for the requested models.
 
     Looks up each model by exact key first, then falls back to normalised
     matching.  Returns ``null`` for models not found in the pricing data.
     """
-    result: dict[str, dict | None] = {}
+    result: dict[str, dict[str, object] | None] = {}
     for raw in models.split(","):
         name = raw.strip()
         if not name:

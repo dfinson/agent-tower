@@ -59,6 +59,18 @@ CODEPLANE_SYSTEM_PROMPT = (
     "git reset --hard unless the operator explicitly instructs you to do so. "
     "CodePlane manages branch merging and integration automatically — running "
     "these commands on your own initiative can corrupt the managed worktree state."
+    "\n\n"
+    "**FINAL MESSAGE LAW — NO EXCEPTIONS:**\n"
+    "When your work is complete and you are yielding control back to the user, "
+    "your LAST message MUST be a concise task summary covering: the original task, "
+    "every follow-up or change the user requested, and exactly what was done. "
+    "This is the ONLY content allowed in that final message. "
+    "**UNDER NO CIRCUMSTANCES** may your final message mention testing, linting, "
+    "formatting, code hygiene, build steps, or any other housekeeping activity "
+    "unless the user EXPLICITLY asked for it in the conversation. "
+    "Do NOT pad the summary with caveats, next steps, or offers to do more. "
+    "Write it as a tight 'what was done' recap so the user can read one message "
+    "and immediately know the full state of their request."
 )
 
 
@@ -81,6 +93,26 @@ class AgentAdapterInterface(ABC):
     @abstractmethod
     async def abort_session(self, session_id: str) -> None:
         """Abort the current message processing and destroy the session."""
+
+    async def interrupt_session(self, session_id: str) -> None:  # noqa: B027
+        """Interrupt the current turn without destroying the session.
+
+        After interruption the session remains alive and a new turn can be
+        started via ``send_message``.  The default implementation is a no-op
+        (adapters that don't support non-destructive interruption simply
+        fall through).
+        """
+
+    def pause_tools(self, session_id: str) -> None:  # noqa: B027
+        """Block all tool execution for the given session.
+
+        While paused, permission callbacks immediately deny every tool
+        request so the agent cannot take actions.  Call ``resume_tools``
+        to lift the block.
+        """
+
+    def resume_tools(self, session_id: str) -> None:  # noqa: B027
+        """Lift the tool block set by ``pause_tools``."""
 
     @abstractmethod
     async def complete(self, prompt: str) -> str | None:

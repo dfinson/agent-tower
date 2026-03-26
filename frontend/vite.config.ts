@@ -7,7 +7,8 @@ export default defineConfig({
     postcss: "./postcss.config.cjs",
   },
   build: {
-    outDir: "dist",
+    outDir: "../backend/web",
+    emptyOutDir: true,
     chunkSizeWarningLimit: 750,
     rollupOptions: {
       output: {

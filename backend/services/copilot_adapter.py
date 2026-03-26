@@ -51,7 +51,9 @@ class CopilotAdapter(AgentAdapterInterface):
     ) -> None:
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
         self._sessions: dict[str, CopilotSession] = {}
+        self._clients: dict[str, Any] = {}  # session_id → CopilotClient (owns CLI server process)
         self._session_to_job: dict[str, str] = {}  # session_id → job_id for telemetry
+        self._paused_sessions: set[str] = set()
         self._tool_start_times: dict[str, float] = {}  # tool_call_id → start monotonic
         # Buffers tool.execution_start data so we can emit a combined entry on complete
         self._tool_call_buffer: dict[str, dict[str, str]] = {}  # tool_call_id → {tool_name, tool_args, turn_id}
@@ -62,6 +64,8 @@ class CopilotAdapter(AgentAdapterInterface):
         self._job_start_times: dict[str, float] = {}
         # Per-job confirmed main model
         self._job_main_models: dict[str, str] = {}
+        # Debounce: last monotonic time a telemetry_updated SSE was fired per job
+        self._last_telemetry_broadcast: dict[str, float] = {}
         # Cost analytics: per-job turn counter, phase, retry tracker
         self._turn_counters: dict[str, int] = {}
         self._current_phases: dict[str, str] = {}
@@ -81,6 +85,8 @@ class CopilotAdapter(AgentAdapterInterface):
             loop.create_task(coro)
         except RuntimeError:
             pass  # No event loop — skip DB write (shouldn't happen in normal operation)
+
+    _TELEMETRY_BROADCAST_INTERVAL = 2.0  # seconds — debounce SSE broadcasts
 
     async def _db_write(self, fn_name: str, **kwargs: Any) -> None:
         """Execute a telemetry DB write in its own session."""
@@ -107,15 +113,54 @@ class CopilotAdapter(AgentAdapterInterface):
                 await session.commit()
         except Exception:
             log.debug("telemetry_db_write_failed", fn=fn_name, exc_info=True)
+            return
+
+        # Broadcast a debounced telemetry_updated SSE for summary changes
+        if fn_name != "insert_span":
+            job_id = kwargs.get("job_id")
+            if job_id:
+                await self._maybe_broadcast_telemetry(job_id)
+
+    async def _maybe_broadcast_telemetry(self, job_id: str) -> None:
+        """Publish telemetry_updated if debounce interval has elapsed."""
+        import time as _time
+
+        from backend.models.events import DomainEvent, DomainEventKind
+
+        if self._event_bus is None:
+            return
+        now = _time.monotonic()
+        last = self._last_telemetry_broadcast.get(job_id, 0.0)
+        if now - last < self._TELEMETRY_BROADCAST_INTERVAL:
+            return
+        self._last_telemetry_broadcast[job_id] = now
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.telemetry_updated,
+                payload={"job_id": job_id},
+            )
+        )
 
     def _cleanup_session(self, session_id: str) -> None:
-        """Remove session and queue references for a completed/aborted session."""
+        """Remove session and queue references for a completed/aborted session.
+
+        Also stops the CopilotClient that owns the backing CLI server process
+        to prevent leaked child processes from accumulating over time.
+        """
+        self._paused_sessions.discard(session_id)
         job_id = self._session_to_job.pop(session_id, None)
         self._sessions.pop(session_id, None)
         self._queues.pop(session_id, None)
+        client = self._clients.pop(session_id, None)
+        if client is not None:
+            asyncio.ensure_future(self._stop_client(client))
         if job_id:
             self._job_start_times.pop(job_id, None)
             self._job_main_models.pop(job_id, None)
+            self._last_telemetry_broadcast.pop(job_id, None)
             self._turn_counters.pop(job_id, None)
             self._current_phases.pop(job_id, None)
             self._retry_trackers.pop(job_id, None)
@@ -123,6 +168,20 @@ class CopilotAdapter(AgentAdapterInterface):
     def set_execution_phase(self, job_id: str, phase: str) -> None:
         """Update the current execution phase for cost analytics span tagging."""
         self._current_phases[job_id] = phase
+
+    @staticmethod
+    async def _stop_client(client: Any) -> None:  # noqa: ANN401
+        """Stop a CopilotClient, terminating its CLI server process."""
+        try:
+            await asyncio.wait_for(client.stop(), timeout=10)
+        except TimeoutError:
+            log.warning("copilot_client_stop_timeout_forcing")
+            with contextlib.suppress(Exception):
+                await client.force_stop()
+        except Exception:
+            log.warning("copilot_client_stop_failed", exc_info=True)
+            with contextlib.suppress(Exception):
+                await client.force_stop()
 
     async def _handle_permission_request(
         self,
@@ -141,6 +200,10 @@ class CopilotAdapter(AgentAdapterInterface):
         kind_val = request.kind.value if request.kind else "unknown"
         mode = config.permission_mode
         sid = invocation.get("session_id", "")
+
+        # Paused — immediately deny all tools so the agent cannot act.
+        if sid in self._paused_sessions:
+            return _Result(kind="denied-interactively-by-user")
 
         # ----------------------------------------------------------------
         # Hard block: git reset --hard always requires explicit operator
@@ -326,6 +389,7 @@ class CopilotAdapter(AgentAdapterInterface):
         "session.shutdown": SessionEventKind.done,
         "session.error": SessionEventKind.error,
         "assistant.message": SessionEventKind.transcript,
+        "assistant.streaming_delta": SessionEventKind.transcript,
         "user.message": SessionEventKind.transcript,
         # assistant.reasoning is intentionally NOT mapped — it duplicates
         # the reasoning_text already embedded in assistant.message.
@@ -743,6 +807,15 @@ class CopilotAdapter(AgentAdapterInterface):
                         "title": data.title if data else None,
                         "turn_id": data.turn_id if data else None,
                     }
+                elif kind_str == "assistant.streaming_delta":
+                    delta = (data.delta_content or "") if data else ""
+                    if not delta:
+                        return
+                    event_payload = {
+                        "role": "agent_delta",
+                        "content": delta,
+                        "turn_id": (str(data.turn_id) if data and data.turn_id else None),
+                    }
                 elif kind_str == "user.message":
                     content = (data.content or data.message or "") if data else ""
                     # SDK injects internal system_notification messages (e.g.
@@ -763,12 +836,15 @@ class CopilotAdapter(AgentAdapterInterface):
                         return
                     from backend.services.tool_formatters import format_tool_display
 
+                    turn_id = buffered.get("turn_id") or (
+                        str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None
+                    )
                     event_payload = {
                         "role": "tool_running",
                         "content": tool_name,
                         "tool_name": tool_name,
                         "tool_args": buffered.get("tool_args"),
-                        "turn_id": buffered.get("turn_id") or (str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None),
+                        "turn_id": turn_id,
                         "tool_intent": buffered.get("tool_intent"),
                         "tool_title": buffered.get("tool_title"),
                         "tool_display": format_tool_display(tool_name, buffered.get("tool_args")),
@@ -887,6 +963,7 @@ class CopilotAdapter(AgentAdapterInterface):
         queue: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         self._queues[session_id] = queue
         self._sessions[session_id] = session
+        self._clients[session_id] = client
 
         # Wire telemetry mapping before registering the callback so
         # no early SDK events are lost.
@@ -965,14 +1042,7 @@ class CopilotAdapter(AgentAdapterInterface):
             return
         try:
             while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=300)
-                except TimeoutError:
-                    yield SessionEvent(
-                        kind=SessionEventKind.error,
-                        payload={"message": "Session timed out waiting for events"},
-                    )
-                    return
+                event = await queue.get()
                 if event is None:
                     return
                 yield event
@@ -988,6 +1058,12 @@ class CopilotAdapter(AgentAdapterInterface):
             await session.send({"prompt": message, "mode": "immediate", "attachments": []})
         except Exception:
             log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
+
+    def pause_tools(self, session_id: str) -> None:
+        self._paused_sessions.add(session_id)
+
+    def resume_tools(self, session_id: str) -> None:
+        self._paused_sessions.discard(session_id)
 
     async def abort_session(self, session_id: str) -> None:
         session = self._sessions.get(session_id)
@@ -1010,6 +1086,7 @@ class CopilotAdapter(AgentAdapterInterface):
         tmp_session_id = str(uuid.uuid4())
         queue: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         self._queues[tmp_session_id] = queue
+        self._clients[tmp_session_id] = client
 
         async def _noop_permission(request: object, invocation: dict[str, str]) -> PermissionRequestResult:
             return _Result(kind="approved")

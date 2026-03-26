@@ -93,6 +93,7 @@ class WorkspaceEntryType(StrEnum):
 
 class TranscriptRole(StrEnum):
     agent = "agent"
+    agent_delta = "agent_delta"  # incremental text chunk streamed before the complete agent message
     operator = "operator"
     tool_call = "tool_call"
     tool_running = "tool_running"
@@ -155,6 +156,12 @@ class ResumeJobRequest(CamelModel):
 
 class ContinueJobRequest(CamelModel):
     instruction: str = Field(min_length=1, max_length=10_000)
+
+    @model_validator(mode="after")
+    def _validate_instruction_not_blank(self) -> ContinueJobRequest:
+        if not self.instruction.strip():
+            raise ValueError("Instruction must not be blank")
+        return self
 
 
 class ResolveApprovalRequest(CamelModel):
@@ -363,6 +370,7 @@ class LogLinePayload(CamelModel):
     level: LogLevel
     message: str
     context: dict[str, Any] | None = None
+    session_number: int | None = None
 
 
 class TranscriptPayload(CamelModel):
@@ -499,7 +507,9 @@ class JobFailedPayload(CamelModel):
     timestamp: datetime
 
 
-class JobSucceededPayload(CamelModel):
+class JobReviewPayload(CamelModel):
+    """Emitted when the agent session exits cleanly and the job enters review."""
+
     job_id: str
     pr_url: str | None = None
     merge_status: str | None = None
@@ -509,6 +519,15 @@ class JobSucceededPayload(CamelModel):
     model_downgraded: bool = False
     requested_model: str | None = None
     actual_model: str | None = None
+    timestamp: datetime
+
+
+class JobCompletedPayload(CamelModel):
+    """Emitted when an operator resolves a review job to a final state."""
+
+    job_id: str
+    resolution: str | None = None
+    pr_url: str | None = None
     timestamp: datetime
 
 
