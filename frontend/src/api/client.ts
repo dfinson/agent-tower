@@ -232,6 +232,18 @@ export interface AnalyticsModels {
     cache_read_tokens: number;
     avg_duration_ms: number;
     premium_requests: number;
+    // Normalized metrics (from enhanced cost_by_model)
+    total_turns?: number;
+    total_tool_calls?: number;
+    total_diff_lines?: number;
+    cost_per_job?: number;
+    cost_per_minute?: number;
+    cost_per_turn?: number;
+    cost_per_tool_call?: number;
+    cost_per_diff_line?: number;
+    cost_per_mtok?: number;
+    cache_hit_rate?: number;
+    [key: string]: unknown;
   }[];
 }
 
@@ -540,6 +552,86 @@ export async function createTerminalSession(
     method: "POST",
     body: JSON.stringify({ cwd, jobId }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Cost Analytics API
+// ---------------------------------------------------------------------------
+
+export interface CostDriversResponse {
+  jobId: string;
+  dimensions: Record<string, CostAttributionBucket[]>;
+}
+
+export interface CostAttributionBucket {
+  dimension: string;
+  bucket: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  call_count: number;
+}
+
+export interface FleetCostDriversResponse {
+  period: number;
+  summary?: CostAttributionBucket[];
+  dimension?: string;
+  buckets?: CostAttributionBucket[];
+}
+
+export interface FileAccessResponse {
+  jobId: string;
+  stats: {
+    total_accesses: number;
+    unique_files: number;
+    total_reads: number;
+    total_writes: number;
+    reread_count: number;
+  };
+  topFiles: Array<{
+    file_path: string;
+    access_count: number;
+    read_count: number;
+    write_count: number;
+    job_count?: number;
+  }>;
+}
+
+export interface TurnEconomicsResponse {
+  jobId: string;
+  totalTurns: number;
+  peakTurnCostUsd: number;
+  avgTurnCostUsd: number;
+  costFirstHalfUsd: number;
+  costSecondHalfUsd: number;
+  turnCurve: CostAttributionBucket[];
+}
+
+export function fetchCostDrivers(jobId: string): Promise<CostDriversResponse> {
+  return request(`/analytics/cost-drivers/${jobId}`);
+}
+
+export function fetchFleetCostDrivers(
+  period = 30,
+  dimension?: string,
+): Promise<FleetCostDriversResponse> {
+  const params = new URLSearchParams({ period: String(period) });
+  if (dimension) params.set("dimension", dimension);
+  return request(`/analytics/cost-drivers?${params}`);
+}
+
+export function fetchFileAccess(jobId: string): Promise<FileAccessResponse> {
+  return request(`/analytics/file-access/${jobId}`);
+}
+
+export function fetchFleetFileAccess(
+  period = 30,
+): Promise<{ period: number; topFiles: FileAccessResponse["topFiles"] }> {
+  return request(`/analytics/file-access?period=${period}`);
+}
+
+export function fetchTurnEconomics(jobId: string): Promise<TurnEconomicsResponse> {
+  return request(`/analytics/turn-economics/${jobId}`);
 }
 
 export { ApiError };
