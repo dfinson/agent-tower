@@ -56,6 +56,7 @@ Valid actions: `merge`, `smart_merge`, `create_pr`, `discard`, `agent_merge`
 | `GET` | `/api/jobs/{job_id}/timeline` | Get execution timeline (query: `limit`) |
 | `GET` | `/api/jobs/{job_id}/diff` | Get changed files with diffs |
 | `GET` | `/api/jobs/{job_id}/telemetry` | Get token usage and cost metrics |
+| `GET` | `/api/jobs/{job_id}/snapshot` | Full state hydration for a single job |
 
 ## Approvals
 

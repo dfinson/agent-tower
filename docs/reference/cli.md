@@ -144,6 +144,8 @@ The `Makefile` provides convenience targets:
 |--------|---------|
 | `make install` | `uv sync` + `cd frontend && npm ci` |
 | `make run` | Build frontend + `cpl up --remote` |
+| `make down` | Pause sessions + stop server |
+| `make restart` | Stop + restart server |
 | `make lint` | `ruff check` + `eslint` |
 | `make format` | `ruff format` |
 | `make typecheck` | `mypy` + `tsc` |

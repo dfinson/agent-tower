@@ -34,7 +34,8 @@ The server replays up to 500 recent events (within 5 minutes) on reconnection us
 | Event Type | Payload Fields | Description |
 |------------|---------------|-------------|
 | `job_state_changed` | `jobId`, `previousState`, `newState`, `timestamp` | Job transitioned to a new state |
-| `job_succeeded` | `jobId`, `timestamp` | Job completed successfully |
+| `job_review` | `jobId`, `timestamp` | Agent completed, job entered review state |
+| `job_completed` | `jobId`, `timestamp` | Job resolved (merged/PR/discarded) |
 | `job_failed` | `jobId`, `reason`, `timestamp` | Job execution failed |
 | `job_resolved` | `jobId`, `action`, `timestamp` | Job resolved (merged/PR/discarded) |
 | `job_archived` | `jobId`, `timestamp` | Job moved to history |
