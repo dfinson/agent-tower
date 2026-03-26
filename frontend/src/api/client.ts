@@ -207,15 +207,7 @@ export function fetchJobTelemetry(jobId: string): Promise<{
     resetDate: string;
   }>;
   costDrivers?: {
-    phase?: Array<{
-      dimension: string;
-      bucket: string;
-      costUsd: number;
-      inputTokens: number;
-      outputTokens: number;
-      callCount: number;
-    }>;
-    toolCategory?: Array<{
+    activity?: Array<{
       dimension: string;
       bucket: string;
       costUsd: number;

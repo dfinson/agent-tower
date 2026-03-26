@@ -716,8 +716,7 @@ async def get_job_telemetry(
         "operatorMessages": summary.get("operator_messages", 0),
         "premiumRequests": float(summary.get("premium_requests", 0)),
         "costDrivers": {
-            "phase": grouped_dimensions.get("phase", []),
-            "toolCategory": grouped_dimensions.get("tool_category", []),
+            "activity": grouped_dimensions.get("activity", []),
         },
         "turnEconomics": {
             "totalTurns": int(summary.get("total_turns", 0) or 0),
