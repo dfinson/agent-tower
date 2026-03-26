@@ -595,23 +595,32 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
   const failed = entry.toolSuccess === false;
 
   const args = parseArgs(entry.toolArgs);
-  const rawDescription = typeof args.description === "string" ? args.description
+
+  // Use toolDisplay (backend-truncated) for the collapsed label, consistent with ToolStep.
+  // Strip the tool prefix the backend formatter prepends (e.g. "Task: …" → "…").
+  const displaySource = entry.toolDisplay
+    ?? (typeof args.description === "string" ? args.description : null)
+    ?? (typeof args.prompt === "string" ? args.prompt : null)
+    ?? (typeof args.query === "string" ? args.query : null)
+    ?? entry.toolName
+    ?? "Sub-agent";
+  const label = displaySource.replace(/^(?:Task|Subagent|Search agent):\s*/i, "");
+
+  // Full prompt for the expanded card — only when args carry more detail than the truncated label.
+  const fullDescription = typeof args.description === "string" ? args.description
     : typeof args.prompt === "string" ? args.prompt
     : typeof args.query === "string" ? args.query
-    : entry.toolDisplay ?? entry.toolName ?? "Sub-agent";
-  // Strip the tool prefix that the backend formatter may prepend (e.g. "Task: do X" → "do X")
-  const label = rawDescription.replace(/^(?:Task|Subagent|Search agent):\s*/i, "");
-  // Show the full prompt in the expanded card only when there's more detail than the label
-  const fullPrompt = rawDescription.length > label.length + 8 ? rawDescription : null;
+    : null;
+  const fullPrompt = fullDescription && fullDescription.length > label.length + 4 ? fullDescription : null;
 
   const accentColor = failed ? "border-red-500/50" : "border-violet-500/40";
   const iconColor = failed ? "text-red-400"
-    : isRunning || isActive ? "text-violet-400 animate-pulse"
+    : isRunning || isActive ? "text-violet-400"
     : "text-violet-400/70";
 
   return (
     <div className="relative pl-5">
-      {/* Icon column */}
+      {/* Icon column — pulse lives here only, not duplicated on the icon */}
       <div className={cn(
         "absolute left-0 top-[3px] w-[15px] h-[15px] flex items-center justify-center",
         (isActive || isRunning) && "animate-pulse",
