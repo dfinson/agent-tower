@@ -10,10 +10,6 @@ After a job is resolved (merged, PR created, or discarded), click **Archive** to
 
 Navigate to the **History** page from the main navigation:
 
-<div class="screenshot-desktop" markdown>
-![History Page](../images/screenshots/desktop/history-page.png)
-</div>
-
 - **Search** — Filter archived jobs by title, ID, repo, or branch
 - **Sort** — Order by date, name, or status
 - **View details** — Click any archived job to see its full transcript, logs, diffs, and metrics

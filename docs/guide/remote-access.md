@@ -61,10 +61,6 @@ Open your configured hostname on any device to access the UI.
 
 The UI is fully responsive. On mobile devices:
 
-<div class="screenshot-mobile" markdown>
-![Mobile Dashboard](../images/screenshots/mobile/mobile-dashboard.png)
-</div>
-
 - **Dashboard** switches to a tab-based list view
 - **Terminal** drawer maximizes to full screen
 - **Forms** use compact layouts

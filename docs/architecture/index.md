@@ -1,6 +1,6 @@
 # Architecture
 
-CodePlane follows a clean separation between a Python backend and a React frontend, connected by REST and SSE.
+CodePlane is intentionally split into a control-plane backend and a reactive browser UI. The design favors operator visibility, explicit state transitions, and thin integration boundaries over hidden orchestration.
 
 ## System Overview
 
@@ -40,3 +40,7 @@ CodePlane follows a clean separation between a Python backend and a React fronte
 | [Frontend](frontend.md) | Zustand store, SSE client, and component structure |
 | [Agent Adapters](agent-adapters.md) | How Copilot and Claude SDKs are integrated |
 | [Cloud-Native Design](cloud-native.md) | Future architecture for Kubernetes deployment |
+
+## Design Notes
+
+The architecture pages describe the system as it exists. Draft proposals and forward-looking design work live in the separate **Design Notes** section of the docs so implementation detail and exploration do not get conflated.

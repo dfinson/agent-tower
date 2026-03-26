@@ -7,10 +7,6 @@ Jobs are the core unit of work in CodePlane. Each job runs a coding agent agains
 - Press `Alt+N` from anywhere in the UI
 - Or click the **+ New Job** button in the header
 
-<div class="screenshot-desktop" markdown>
-![Job Creation Form](../images/screenshots/desktop/job-creation.png)
-</div>
-
 ## Job Parameters
 
 ### Prompt
@@ -44,19 +40,11 @@ Select a specific model within the chosen SDK. The available models depend on yo
 
 Click the **microphone button** to dictate your prompt instead of typing:
 
-<div class="screenshot-desktop" markdown>
-![Voice Recording](../images/screenshots/desktop/voice-recording.png)
-</div>
-
 1. Click the mic button — it turns red while recording
 2. Speak your prompt naturally
 3. The audio is transcribed locally using Whisper — nothing leaves your machine
 4. The transcription appears in the prompt textarea for editing
 5. Press `Ctrl+Enter` to submit
-
-<div class="screenshot-mobile" markdown>
-![Mobile Voice Input](../images/screenshots/mobile/mobile-voice.png)
-</div>
 
 ## Submitting
 
@@ -64,10 +52,6 @@ Click **Create Job** or press `Ctrl+Enter`. The job enters the **queued** state 
 
 <div class="screenshot-desktop" markdown>
 ![Job Creation Filled](../images/screenshots/desktop/job-creation-filled.png)
-</div>
-
-<div class="screenshot-mobile" markdown>
-![Mobile Job Creation](../images/screenshots/mobile/mobile-job-creation.png)
 </div>
 
 ## What Happens Next

@@ -2,6 +2,8 @@
 
 CodePlane's approval system lets you gate risky agent operations behind operator approval, giving you control over what the agent can do.
 
+Use approvals to constrain blast radius, not to click through every action out of habit. If you are evaluating a new model, repository, or workflow, start stricter and relax once you understand the agent's behavior.
+
 ## How It Works
 
 When an agent attempts a risky action, the SDK's permission callback fires. Depending on the permission mode, CodePlane either auto-approves or prompts the operator.
@@ -10,10 +12,6 @@ If approval is required, a banner appears at the top of the job detail view:
 
 <div class="screenshot-desktop" markdown>
 ![Approval Banner](../images/screenshots/desktop/approval-banner.png)
-</div>
-
-<div class="screenshot-mobile" markdown>
-![Mobile Approval](../images/screenshots/mobile/mobile-job-approval.png)
 </div>
 
 ## Approval Actions
@@ -33,6 +31,8 @@ Configure how CodePlane handles agent permissions:
 | `auto` | SDK handles permissions automatically (default) |
 | `read_only` | Agent can only read files; all writes require approval |
 | `approval_required` | Every risky operation requires explicit operator approval |
+
+Recommended default while evaluating CodePlane: `approval_required`.
 
 ### What Triggers Approval?
 

@@ -2,16 +2,14 @@
 
 When a job completes successfully, you choose how to handle the agent's changes.
 
+This is the quality gate at the end of the workflow. A successful run is not the same thing as a safe merge.
+
 ## Resolution Options
 
 When a job finishes successfully, it enters the **review** state. Click the **Complete** button to open the resolution dialog:
 
 <div class="screenshot-desktop" markdown>
 ![Complete Job Dialog](../images/screenshots/desktop/complete-job-dialog.png)
-</div>
-
-<div class="screenshot-mobile" markdown>
-![Mobile Complete Dialog](../images/screenshots/mobile/mobile-complete-dialog.png)
 </div>
 
 | Option | Description |
@@ -28,6 +26,8 @@ When a job finishes successfully, it enters the **review** state. Click the **Co
 - **Smart Merge** uses cherry-pick to apply only the meaningful commits, skipping any setup or initialization commits
 
 Smart merge is useful when the worktree branch has diverged significantly from the base.
+
+Recommended default: review the diff first, prefer **Create PR** when humans besides the operator still need to inspect the change, and use **Smart Merge** when setup noise would pollute history.
 
 ## Pull Request Creation
 

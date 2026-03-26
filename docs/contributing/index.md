@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in contributing to CodePlane! This section covers everything you need to get started.
+This section is for contributors working in the repository, not operators using the product. Start here if you are changing backend services, frontend flows, or the docs themselves.
 
 ## Quick Links
 

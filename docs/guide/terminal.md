@@ -6,10 +6,6 @@ CodePlane includes an integrated terminal powered by xterm.js, giving you shell 
 
 Press `` Ctrl+` `` to toggle the terminal drawer, or click the terminal icon in the header.
 
-<div class="screenshot-desktop" markdown>
-![Terminal Drawer](../images/screenshots/desktop/terminal-drawer.png)
-</div>
-
 ## Features
 
 ### Multi-Tab Support
@@ -22,10 +18,6 @@ Create multiple terminal sessions with the **+** button. Each session runs indep
 ### Resizable Drawer
 
 Drag the top edge of the terminal drawer to resize it. On mobile, the drawer automatically maximizes to 90% of the viewport height.
-
-<div class="screenshot-mobile" markdown>
-![Mobile Terminal](../images/screenshots/mobile/mobile-terminal.png)
-</div>
 
 ### Tab Management
 

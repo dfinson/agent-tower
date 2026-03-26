@@ -9,20 +9,9 @@ theme:
   logo: images/mark.png
   favicon: images/mark.png
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
+    - scheme: slate
+      primary: black
+      accent: blue
   features:
     - navigation.instant
     - navigation.tracking
@@ -36,6 +25,9 @@ theme:
     - content.tabs.link
   icon:
     repo: fontawesome/brands/github
+
+extra:
+  generator: false
 
 extra_css:
   - stylesheets/extra.css
@@ -94,6 +86,9 @@ nav:
       - Frontend: architecture/frontend.md
       - Agent Adapters: architecture/agent-adapters.md
       - Cloud-Native Design: architecture/cloud-native.md
+  - Design Notes:
+      - Cloud-Native Proposal: cloud-native-design.md
+      - Cost Analytics Proposal: design/otel-cost-analytics.md
   - Contributing:
       - contributing/index.md
       - Development: contributing/development.md

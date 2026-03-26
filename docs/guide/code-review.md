@@ -10,10 +10,6 @@ The **Diff** tab shows all files modified by the agent with syntax-highlighted, 
 ![Diff Viewer](../images/screenshots/desktop/job-diff-viewer.png)
 </div>
 
-<div class="screenshot-mobile" markdown>
-![Mobile Diff](../images/screenshots/mobile/mobile-job-diff.png)
-</div>
-
 ### Features
 
 - **File list sidebar** — Browse all modified files
@@ -26,10 +22,6 @@ Diffs update in real time as the agent makes changes.
 ## Workspace Browser
 
 The **Workspace** view lets you browse the full file tree of the job's Git worktree:
-
-<div class="screenshot-desktop" markdown>
-![Workspace Browser](../images/screenshots/desktop/job-workspace.png)
-</div>
 
 - Navigate the directory tree
 - Click any file to view its content
