@@ -21,6 +21,7 @@
 10. [Appendix A: Metric Catalog](#appendix-a-metric-catalog)
 11. [Appendix B: API Endpoints](#appendix-b-api-endpoints-proposed)
 12. [Appendix C: Open Questions](#appendix-c-open-questions)
+13. [Appendix D: Normalized Model Comparison](#appendix-d-normalized-model-comparison)
 
 ---
 
@@ -1677,3 +1678,213 @@ Summary of every file that must be modified or created, organized by phase:
    no `execution_phase` value. The `RuntimeService` orchestration flow has clear
    phase boundaries (workspace prep → agent start → verification → finalization)
    where emissions can be added.
+
+---
+
+## Appendix D: Normalized Model Comparison
+
+> **Context:** This appendix is independent of the core cost-attribution design. It
+> addresses a standalone gap: the existing `/analytics/models` endpoint and
+> `ModelBreakdown` table in `AnalyticsScreen.tsx` show only raw totals (total cost,
+> total tokens, job count). There is no way to compare models on a normalized basis
+> — e.g., cost per job, cost per minute, cost per output token, or output efficiency.
+> An operator looking at "$45 on Sonnet vs. $12 on Opus" can't tell which model is
+> more cost-effective without knowing how many jobs each ran or what they produced.
+
+### D.1 Current State
+
+**Backend** (`telemetry_summary_repo.py:cost_by_model()`, line 314): Returns per-model
+aggregates grouped by `(model, sdk)`:
+
+| Field | Type | Normalization |
+|-------|------|---------------|
+| `model` | string | — |
+| `sdk` | string | — |
+| `job_count` | int | — |
+| `total_cost_usd` | float | Raw total |
+| `total_tokens` | int | Raw total |
+| `input_tokens` | int | Raw total |
+| `output_tokens` | int | Raw total |
+| `cache_read_tokens` | int | Raw total |
+| `avg_duration_ms` | float | Only normalized metric (average) |
+| `premium_requests` | float | Raw total |
+
+**Frontend** (`AnalyticsScreen.tsx:ModelBreakdown`, line 152): Renders a 7-column table.
+The only derived value is `cache_rate = cache_read_tokens / input_tokens`. Everything
+else is raw totals.
+
+### D.2 Proposed Normalized Metrics
+
+Add computed columns to the `/analytics/models` response. All are derivable from
+existing data — no new instrumentation needed, just SQL arithmetic.
+
+**Efficiency normalizations (per unit of work):**
+
+| Metric | Formula | What It Answers |
+|--------|---------|-----------------|
+| `cost_per_job` | `total_cost_usd / job_count` | Which model is cheapest per task? |
+| `cost_per_minute` | `total_cost_usd / (SUM(duration_ms) / 60000)` | Which model is cheapest per wall-clock minute? |
+| `cost_per_turn` | `total_cost_usd / SUM(total_turns)` | Which model burns least per conversation turn? |
+| `cost_per_1k_output_tokens` | `total_cost_usd / (output_tokens / 1000)` | Which model produces cheapest output? |
+| `tokens_per_second` | `(input_tokens + output_tokens) / (SUM(duration_ms) / 1000)` | Which model has highest throughput? |
+
+**Quality normalizations (per unit of outcome):**
+
+| Metric | Formula | What It Answers |
+|--------|---------|-----------------|
+| `cost_per_succeeded_job` | `total_cost_usd / succeeded_count` | Cost of successful outcomes only |
+| `success_rate` | `succeeded_count / job_count` | Does cheaper mean worse? |
+| `cost_per_diff_line` | `total_cost_usd / SUM(diff_lines_added + diff_lines_removed)` | Output efficiency per model (requires Phase 2 diff data) |
+| `avg_turns_per_job` | `SUM(total_turns) / job_count` | Does this model take more turns? |
+
+**Cache effectiveness:**
+
+| Metric | Formula | What It Answers |
+|--------|---------|-----------------|
+| `cache_hit_rate` | `cache_read_tokens / input_tokens` | Already computed on frontend |
+| `cache_savings_usd` | `cache_read_tokens × (input_price - cache_price) / 1M` | How much money did caching save? (requires pricing data join) |
+| `effective_input_price` | `total_cost_usd / ((input_tokens + output_tokens) / 1M)` | Actual blended price vs. list price |
+
+### D.3 Implementation
+
+**Option A: Backend-computed (recommended).** Extend `cost_by_model()` to compute
+normalized metrics in SQL. This keeps the frontend simple and ensures consistent
+calculations.
+
+```sql
+SELECT
+    model,
+    sdk,
+    COUNT(*) as job_count,
+    SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) as succeeded_count,
+    COALESCE(SUM(total_cost_usd), 0) as total_cost_usd,
+    COALESCE(SUM(input_tokens), 0) as input_tokens,
+    COALESCE(SUM(output_tokens), 0) as output_tokens,
+    COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+    COALESCE(SUM(duration_ms), 0) as total_duration_ms,
+    COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+    COALESCE(SUM(premium_requests), 0) as premium_requests,
+    COALESCE(SUM(total_turns), 0) as total_turns,
+    COALESCE(SUM(diff_lines_added + diff_lines_removed), 0) as total_diff_lines,
+
+    -- Per-job
+    ROUND(SUM(total_cost_usd) * 1.0 / NULLIF(COUNT(*), 0), 4) as cost_per_job,
+    ROUND(SUM(total_cost_usd) * 1.0
+        / NULLIF(SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END), 0), 4)
+        as cost_per_succeeded_job,
+
+    -- Per-time
+    ROUND(SUM(total_cost_usd) * 60000.0
+        / NULLIF(SUM(duration_ms), 0), 4) as cost_per_minute,
+
+    -- Per-token
+    ROUND(SUM(total_cost_usd) * 1000.0
+        / NULLIF(SUM(output_tokens), 0), 4) as cost_per_1k_output_tokens,
+
+    -- Per-turn
+    ROUND(SUM(total_cost_usd) * 1.0
+        / NULLIF(SUM(total_turns), 0), 4) as cost_per_turn,
+    ROUND(SUM(total_turns) * 1.0 / NULLIF(COUNT(*), 0), 1) as avg_turns_per_job,
+
+    -- Throughput
+    ROUND((SUM(input_tokens) + SUM(output_tokens)) * 1000.0
+        / NULLIF(SUM(duration_ms), 0), 1) as tokens_per_second,
+
+    -- Success rate
+    ROUND(SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) * 100.0
+        / NULLIF(COUNT(*), 0), 1) as success_rate
+
+FROM job_telemetry_summary
+WHERE created_at >= datetime('now', '-' || :period_days || ' days')
+    AND model != ''
+GROUP BY model, sdk
+ORDER BY total_cost_usd DESC;
+```
+
+Note: `cost_per_diff_line` and `cache_savings_usd` require joining to
+`job_cost_attribution` (for diff lines) and `model_pricing.json` (for per-token
+prices). These are best computed at the API layer after the main query, since
+pricing data lives in a JSON file, not in the database.
+
+**Option B: Frontend-computed.** Send raw totals and let the frontend derive
+normalizations. Simpler backend but duplicates logic if other consumers need the
+same calculations.
+
+**Recommendation:** Option A. The query is straightforward, and having normalized
+values server-side means any future consumer (CLI, export, alerts) gets them for
+free.
+
+### D.4 Frontend: Toggle-Based View
+
+Add a normalization toggle to the `ModelBreakdown` component. The toggle switches
+which column set is displayed in the table:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  MODEL COMPARISON  (last 30 days)                                   │
+│                                                                     │
+│  View: [Raw Totals] [Per Job ▾] [Per Minute] [Per 1K Output Tok]   │
+│                                                                     │
+│  Sort: [▼ Cost/Job]                                                 │
+├──────────────┬─────┬──────────┬──────────┬────────┬────────┬───────┤
+│ Model        │ Jobs│ Cost/Job │ $/Min    │ $/Turn │ Succ % │ Cache │
+├──────────────┼─────┼──────────┼──────────┼────────┼────────┼───────┤
+│ claude-sonnet│  84 │   $0.52  │  $0.041  │ $0.038 │   91%  │  42%  │
+│ gpt-5.4      │  47 │   $0.38  │  $0.035  │ $0.031 │   87%  │  28%  │
+│ claude-opus  │  18 │   $1.80  │  $0.092  │ $0.071 │   96%  │  45%  │
+│ gpt-5-mini   │  12 │   $0.08  │  $0.012  │ $0.007 │   72%  │  15%  │
+├──────────────┴─────┴──────────┴──────────┴────────┴────────┴───────┤
+│ Column sort on any header. Toggle switches all cost columns.        │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Toggle states:**
+
+| Toggle | Cost Column | Token Column | Time Column |
+|--------|-------------|-------------|-------------|
+| **Raw Totals** | Total $ | Total tokens | Avg duration |
+| **Per Job** | $/job | Tokens/job | Avg duration |
+| **Per Minute** | $/minute | Tokens/sec | Total minutes |
+| **Per 1K Output** | $/1K output tok | Output tokens | — |
+| **Per Turn** | $/turn | Tokens/turn | Avg turns/job |
+
+The toggle is purely a column-mapping switch — all data is already in the response.
+No additional API calls needed.
+
+### D.5 Model Efficiency Scatter Plot
+
+In addition to the table, add a scatter plot that makes model tradeoffs immediately
+visual:
+
+```
+  $/job ▲
+  $2.00 │                          ● claude-opus-4
+        │
+  $1.00 │
+        │         ● claude-sonnet-4
+  $0.50 │
+        │   ● gpt-5.4
+  $0.25 │
+        │
+  $0.10 │● gpt-5-mini
+        └───────────────────────────────────────► Success %
+         70%      80%      90%      95%     100%
+```
+
+Axes are configurable — the operator can swap X/Y between any two normalized metrics
+(cost/job, cost/turn, success rate, tokens/sec, cache rate, avg turns). This enables
+answering "which model gives me the best quality per dollar?" at a glance.
+
+### D.6 Changes Required
+
+| Scope | File | Change |
+|-------|------|--------|
+| Backend | `backend/persistence/telemetry_summary_repo.py` | Extend `cost_by_model()` query with normalized columns. Requires `total_turns` column (added in §6.4). |
+| Backend | `backend/api/analytics.py` | Update `/analytics/models` response schema to include new fields. Optionally compute `cache_savings_usd` by joining with `model_pricing.json`. |
+| Backend | `backend/models/api_schemas.py` | Add Pydantic response model for enriched model stats. |
+| Frontend | `frontend/src/components/AnalyticsScreen.tsx` | Add toggle state to `ModelBreakdown`. Map toggle → column set. Add scatter plot. |
+| Frontend | `frontend/src/api/types.ts` | Update type aliases for enriched model response. |
+
+**Dependencies:** The `total_turns` and `diff_lines_added`/`diff_lines_removed`
+columns on `job_telemetry_summary` are added in §6.4. The `cache_savings_usd`
+metric requires joining with `model_pricing.json` at the API layer.
