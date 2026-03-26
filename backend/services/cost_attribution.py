@@ -86,7 +86,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
             turn_contexts[int(turn)]["input_tokens"] += int(in_tok or 0)
             turn_contexts[int(turn)]["output_tokens"] += int(out_tok or 0)
 
-    for turn_num, context in turn_contexts.items():
+    for _turn_num, context in turn_contexts.items():
         weights = _derive_activity_weights(
             phase=context.get("phase"),
             tool_categories=context.get("tool_categories", []),

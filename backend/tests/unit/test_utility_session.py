@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Callable
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from backend.services.utility_session import (
     _SCALE_DOWN_IDLE_S,
