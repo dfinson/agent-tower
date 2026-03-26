@@ -1117,6 +1117,7 @@ export const selectActiveJobs = (state: AppState): JobSummary[] =>
 /** Sign-off: everything that needs operator attention before archival.
  *  - waiting_for_approval
  *  - review (agent done, awaiting operator decision) — not archived
+ *  - completed (finished but not yet archived)
  */
 export const selectSignoffJobs = (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(
@@ -1124,7 +1125,8 @@ export const selectSignoffJobs = (state: AppState): JobSummary[] =>
       (j) =>
         !j.archivedAt &&
         (j.state === "waiting_for_approval" ||
-          j.state === "review"),
+          j.state === "review" ||
+          j.state === "completed"),
     ),
   );
 
