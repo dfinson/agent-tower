@@ -141,12 +141,22 @@ class ArtifactService:
         the ``files/`` subdirectory for ``*.md`` files, storing each as a ``document``
         artifact.  Other subdirectories (e.g. ``checkpoints/``) are intentionally
         skipped to avoid capturing auto-generated files.
+
+        On subsequent sessions, existing document artifacts with the same name are
+        updated in-place rather than duplicated, so the artifacts panel shows one
+        entry per document across all handoffs.
         """
         collected: list[Artifact] = []
         base = config_dir if config_dir is not None else (Path.home() / ".copilot")
         session_dir = base / "session-state" / sdk_session_id
         if not session_dir.is_dir():
             return collected
+
+        # Pre-load existing document artifacts for this job so we can upsert by name.
+        existing_artifacts = await self._repo.list_for_job(job_id)
+        existing_docs_by_name = {
+            a.name: a for a in existing_artifacts if a.type == ArtifactType.document
+        }
 
         # Scan the top-level directory and the designated files/ subdirectory.
         # Other subdirectories (e.g. checkpoints/) are intentionally skipped to
@@ -169,13 +179,24 @@ class ArtifactService:
                     log.warning("session_storage_artifact_too_large", path=str(entry), size=entry_size)
                     continue
 
-                artifact_id = f"art-{uuid.uuid4().hex[:12]}"
-                disk_dir = _ARTIFACTS_BASE / job_id
-                disk_dir.mkdir(parents=True, exist_ok=True)
                 # Preserve the relative sub-path in the artifact name so that two
                 # files with the same filename in different directories remain
                 # distinguishable in the UI (e.g. "plan.md" vs "files/plan.md").
                 relative_name = str(entry.relative_to(session_dir))
+
+                # Upsert: overwrite the existing artifact's file if one already exists
+                # for this job with the same name, so sessions don't litter the panel.
+                existing_doc = existing_docs_by_name.get(relative_name)
+                if existing_doc is not None:
+                    dest = Path(existing_doc.disk_path)
+                    dest.write_bytes(entry.read_bytes())
+                    await self._repo.update_size_bytes(existing_doc.id, dest.stat().st_size)
+                    collected.append(existing_doc)
+                    continue
+
+                artifact_id = f"art-{uuid.uuid4().hex[:12]}"
+                disk_dir = _ARTIFACTS_BASE / job_id
+                disk_dir.mkdir(parents=True, exist_ok=True)
                 dest = disk_dir / f"{artifact_id}-{entry.name}"
                 dest.write_bytes(entry.read_bytes())
 
@@ -432,11 +453,28 @@ class ArtifactService:
         )
         return created
 
+    async def _get_first_artifact_by_type(
+        self,
+        job_id: str,
+        art_type: ArtifactType,
+        *,
+        name_suffix: str = "",
+    ) -> Artifact | None:
+        """Return the first (oldest) artifact of *art_type* for a job, or None.
+
+        When *name_suffix* is provided, only artifacts whose name ends with
+        that string are considered (used to disambiguate ``document`` entries
+        that map to different file kinds, e.g. ``agent.log``).
+        """
+        all_artifacts = await self._repo.list_for_job(job_id)
+        matches = [a for a in all_artifacts if a.type == art_type]
+        if name_suffix:
+            matches = [a for a in matches if a.name.endswith(name_suffix)]
+        return matches[0] if matches else None
+
     async def _get_session_log_artifact(self, job_id: str) -> Artifact | None:
         """Return the unified session_log artifact for a job, if one exists."""
-        all_artifacts = await self._repo.list_for_job(job_id)
-        logs = [a for a in all_artifacts if a.type == ArtifactType.session_log]
-        return logs[0] if logs else None
+        return await self._get_first_artifact_by_type(job_id, ArtifactType.session_log)
 
     async def get_session_log(self, job_id: str) -> Artifact | None:
         """Return the unified session log, or fall back to the latest session_snapshot."""
@@ -473,6 +511,10 @@ class ArtifactService:
         The resulting ``.log`` file is registered as a ``document`` artifact
         with ``text/plain`` MIME type so the ArtifactViewer can preview it in-
         browser and offer a download link.
+
+        Upserts: if a log artifact already exists for this job it is overwritten
+        with the full accumulated log so resumed sessions produce a single
+        cumulative document rather than one per session completion.
         """
         import re as _re
 
@@ -505,6 +547,17 @@ class ArtifactService:
 
         content = f"# CodePlane agent log — job {job_id}\n" + "".join(lines)
 
+        # Upsert: reuse existing log artifact if one exists so we don't accumulate
+        # one file per session completion.
+        existing = await self._get_first_artifact_by_type(job_id, ArtifactType.document, name_suffix="agent.log")
+        if existing is not None:
+            disk_path = Path(existing.disk_path)
+            disk_path.write_text(content, encoding="utf-8")
+            new_size = disk_path.stat().st_size
+            await self._repo.update_size_bytes(existing.id, new_size)
+            log.info("log_artifact_updated", job_id=job_id, name=existing.name, size=new_size)
+            return existing
+
         artifact_id = f"art-{uuid.uuid4().hex[:12]}"
         disk_dir = _ARTIFACTS_BASE / job_id
         disk_dir.mkdir(parents=True, exist_ok=True)
@@ -532,7 +585,21 @@ class ArtifactService:
         *,
         slug: str = "",
     ) -> Artifact:
-        """Persist the final telemetry snapshot as a downloadable artifact."""
+        """Persist the final telemetry snapshot as a downloadable artifact.
+
+        Upserts: if a telemetry report already exists for this job it is
+        overwritten in-place so resumed sessions accumulate into a single
+        artifact rather than creating one per session completion.
+        """
+        content = json.dumps(telemetry_dict, indent=2)
+
+        existing = await self._get_first_artifact_by_type(job_id, ArtifactType.telemetry_report)
+        if existing is not None:
+            disk_path = Path(existing.disk_path)
+            disk_path.write_text(content, encoding="utf-8")
+            await self._repo.update_size_bytes(existing.id, disk_path.stat().st_size)
+            return existing
+
         import re as _re
 
         tag = _re.sub(r"[^a-z0-9]+", "-", (slug or "").lower()).strip("-")[:40]
@@ -544,7 +611,7 @@ class ArtifactService:
         disk_dir = _ARTIFACTS_BASE / job_id
         disk_dir.mkdir(parents=True, exist_ok=True)
         disk_path = disk_dir / f"{artifact_id}-{name}"
-        disk_path.write_text(json.dumps(telemetry_dict, indent=2), encoding="utf-8")
+        disk_path.write_text(content, encoding="utf-8")
 
         artifact = Artifact(
             id=artifact_id,
@@ -569,9 +636,21 @@ class ArtifactService:
         """Persist the agent's execution plan steps as an artifact.
 
         Returns None if steps is empty (no plan was generated).
+
+        Upserts: if a plan artifact already exists for this job it is
+        overwritten in-place so resumed sessions keep a single up-to-date plan.
         """
         if not steps:
             return None
+
+        content = json.dumps({"steps": steps}, indent=2)
+
+        existing = await self._get_first_artifact_by_type(job_id, ArtifactType.agent_plan)
+        if existing is not None:
+            disk_path = Path(existing.disk_path)
+            disk_path.write_text(content, encoding="utf-8")
+            await self._repo.update_size_bytes(existing.id, disk_path.stat().st_size)
+            return existing
 
         import re as _re
 
@@ -584,10 +663,7 @@ class ArtifactService:
         disk_dir = _ARTIFACTS_BASE / job_id
         disk_dir.mkdir(parents=True, exist_ok=True)
         disk_path = disk_dir / f"{artifact_id}-{name}"
-        disk_path.write_text(
-            json.dumps({"steps": steps}, indent=2),
-            encoding="utf-8",
-        )
+        disk_path.write_text(content, encoding="utf-8")
 
         artifact = Artifact(
             id=artifact_id,
@@ -612,9 +688,21 @@ class ArtifactService:
         """Persist the approval request/resolution history as an artifact.
 
         Returns None if there were no approval requests during the job.
+
+        Upserts: if an approval history artifact already exists for this job it
+        is overwritten in-place so resumed sessions accumulate into one record.
         """
         if not approvals:
             return None
+
+        content = json.dumps({"approvals": approvals}, indent=2)
+
+        existing = await self._get_first_artifact_by_type(job_id, ArtifactType.approval_history)
+        if existing is not None:
+            disk_path = Path(existing.disk_path)
+            disk_path.write_text(content, encoding="utf-8")
+            await self._repo.update_size_bytes(existing.id, disk_path.stat().st_size)
+            return existing
 
         import re as _re
 
@@ -627,10 +715,7 @@ class ArtifactService:
         disk_dir = _ARTIFACTS_BASE / job_id
         disk_dir.mkdir(parents=True, exist_ok=True)
         disk_path = disk_dir / f"{artifact_id}-{name}"
-        disk_path.write_text(
-            json.dumps({"approvals": approvals}, indent=2),
-            encoding="utf-8",
-        )
+        disk_path.write_text(content, encoding="utf-8")
 
         artifact = Artifact(
             id=artifact_id,
