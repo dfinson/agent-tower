@@ -82,6 +82,8 @@ class ClaudeAdapter(AgentAdapterInterface):
         self._session_factory = session_factory
         self._job_start_times: dict[str, float] = {}
         self._job_main_models: dict[str, str] = {}
+        self._requested_models: dict[str, str] = {}
+        self._model_verified: dict[str, bool] = {}
         self._paused_sessions: set[str] = set()
         # Debounce: last monotonic time a telemetry_updated SSE was fired per job
         self._last_telemetry_broadcast: dict[str, float] = {}
@@ -107,6 +109,8 @@ class ClaudeAdapter(AgentAdapterInterface):
         if job_id:
             self._job_start_times.pop(job_id, None)
             self._job_main_models.pop(job_id, None)
+            self._requested_models.pop(job_id, None)
+            self._model_verified.pop(job_id, None)
             self._last_telemetry_broadcast.pop(job_id, None)
             self._turn_counters.pop(job_id, None)
             self._current_phases.pop(job_id, None)
@@ -427,6 +431,30 @@ class ClaudeAdapter(AgentAdapterInterface):
             self._job_main_models[job_id] = model
             self._schedule_db_write(self._db_write("set_model", job_id=job_id, model=model))
 
+            # Model downgrade/mismatch detection (mirrors CopilotAdapter behaviour)
+            if not self._model_verified.get(job_id):
+                self._model_verified[job_id] = True
+                requested = self._requested_models.get(job_id, "")
+                if requested and model != requested:
+                    log.error(
+                        "model_mismatch",
+                        requested=requested,
+                        actual=model,
+                        job_id=job_id,
+                    )
+                    self._enqueue(
+                        session_id,
+                        SessionEvent(
+                            kind=SessionEventKind.model_downgraded,
+                            payload={
+                                "requested_model": requested,
+                                "actual_model": model,
+                            },
+                        ),
+                    )
+                else:
+                    log.info("model_confirmed", model=model, job_id=job_id)
+
         for block in content_blocks:
             if isinstance(block, TextBlock):
                 text = block.text or ""
@@ -636,6 +664,19 @@ class ClaudeAdapter(AgentAdapterInterface):
                         )
                     )
 
+                # Emit file_changed events for successful writes so the runtime
+                # service can trigger diff recalculation (mirrors CopilotAdapter's
+                # session.workspace_file_changed handling).
+                if category == "file_write" and success:
+                    for fpath in paths:
+                        self._enqueue(
+                            session_id,
+                            SessionEvent(
+                                kind=SessionEventKind.file_changed,
+                                payload={"path": fpath},
+                            ),
+                        )
+
             self._schedule_db_write(
                 self._db_write(
                     "increment",
@@ -658,7 +699,12 @@ class ClaudeAdapter(AgentAdapterInterface):
                     name=tool_name,
                     started_at=round(offset, 2),
                     duration_ms=duration_ms,
-                    attrs={"success": success},
+                    attrs={
+                        "success": success,
+                        **({
+                            "error_snippet": result_text[:500],
+                        } if not success and result_text else {}),
+                    },
                     tool_category=category,
                     tool_target=target,
                     turn_number=turn_num,
@@ -785,6 +831,8 @@ class ClaudeAdapter(AgentAdapterInterface):
         if config.job_id:
             self._session_to_job[session_id] = config.job_id
             self._job_start_times.setdefault(config.job_id, time.monotonic())
+            if config.model:
+                self._requested_models[config.job_id] = config.model
 
         # Build options
         options = ClaudeCodeOptions(
@@ -819,9 +867,25 @@ class ClaudeAdapter(AgentAdapterInterface):
             client = ClaudeSDKClient(options)
             await client.connect(_prompt_to_stream(config.prompt))
         except Exception:
-            log.error("claude_session_create_failed", exc_info=True)
-            self._cleanup_session(session_id)
-            raise
+            if options.resume:
+                # Resume failed — fall back to a fresh session (mirrors CopilotAdapter behaviour)
+                log.warning(
+                    "claude_session_resume_failed_creating_new",
+                    resume_id=options.resume,
+                    exc_info=True,
+                )
+                options.resume = None
+                try:
+                    client = ClaudeSDKClient(options)
+                    await client.connect(_prompt_to_stream(config.prompt))
+                except Exception:
+                    log.error("claude_session_create_failed", exc_info=True)
+                    self._cleanup_session(session_id)
+                    raise
+            else:
+                log.error("claude_session_create_failed", exc_info=True)
+                self._cleanup_session(session_id)
+                raise
 
         self._clients[session_id] = client
 
@@ -909,18 +973,24 @@ class ClaudeAdapter(AgentAdapterInterface):
 
         collected: list[str] = []
         try:
-            async for message in query(prompt=prompt, options=options):
-                if isinstance(message, AssistantMessage):
-                    for block in getattr(message, "content", []) or []:
-                        if isinstance(block, TextBlock):
-                            text = block.text
-                            if text:
-                                collected.append(text)
-                elif isinstance(message, ResultMessage):
-                    result = getattr(message, "result", "")
-                    if result:
-                        collected.append(result)
-                    break
+
+            async def _run_query() -> None:
+                async for message in query(prompt=prompt, options=options):
+                    if isinstance(message, AssistantMessage):
+                        for block in getattr(message, "content", []) or []:
+                            if isinstance(block, TextBlock):
+                                text = block.text
+                                if text:
+                                    collected.append(text)
+                    elif isinstance(message, ResultMessage):
+                        result = getattr(message, "result", "")
+                        if result:
+                            collected.append(result)
+                        break
+
+            await asyncio.wait_for(_run_query(), timeout=180)
+        except TimeoutError:
+            log.warning("claude_complete_timeout", prompt_len=len(prompt))
         except Exception:
             log.error("claude_complete_failed", prompt_len=len(prompt), exc_info=True)
             return None

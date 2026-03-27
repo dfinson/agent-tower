@@ -253,7 +253,8 @@ function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
           <tr className="text-muted-foreground border-b border-border">
             <th className="text-left py-1.5 px-2 font-medium">Tool</th>
             <th className="text-right py-1.5 px-2 font-medium">Calls</th>
-            <th className="text-right py-1.5 px-2 font-medium">Failures</th>
+            <th className="text-right py-1.5 px-2 font-medium" title="Agent made a bad call (wrong args, typo, bad path)">Agent Err</th>
+            <th className="text-right py-1.5 px-2 font-medium" title="Tool itself failed (permission denied, I/O error, timeout)">Tool Err</th>
             <th className="text-right py-1.5 px-2 font-medium">Success</th>
             <th className="text-right py-1.5 px-2 font-medium">Avg</th>
             <th className="text-right py-1.5 px-2 font-medium">Total</th>
@@ -262,13 +263,22 @@ function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
         <tbody>
           {tools.map((t, i) => {
             const successRate = t.count > 0 ? ((t.count - (t.failure_count || 0)) / t.count * 100) : 100;
+            const agentErrors = (t as Record<string, unknown>).agent_error_count as number | undefined ?? 0;
+            const toolErrors = (t as Record<string, unknown>).tool_error_count as number | undefined ?? 0;
             return (
               <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
                 <td className="py-1.5 px-2 font-mono">{t.name}</td>
                 <td className="text-right py-1.5 px-2">{t.count}</td>
                 <td className="text-right py-1.5 px-2">
-                  {t.failure_count ? (
-                    <span className="text-red-400">{t.failure_count}</span>
+                  {agentErrors ? (
+                    <span className="text-yellow-400" title="Agent invoked tool incorrectly">{agentErrors}</span>
+                  ) : (
+                    <span className="text-muted-foreground">0</span>
+                  )}
+                </td>
+                <td className="text-right py-1.5 px-2">
+                  {toolErrors ? (
+                    <span className="text-red-400" title="Tool itself failed">{toolErrors}</span>
                   ) : (
                     <span className="text-muted-foreground">0</span>
                   )}
@@ -712,7 +722,7 @@ export function AnalyticsScreen() {
           icon={Wrench}
           label="Tool Calls"
           value={String(overview.totalToolCalls)}
-          sub={`${overview.toolSuccessRate}% success`}
+          sub={`${overview.toolSuccessRate}% success · ${overview.totalAgentErrors ?? 0} agent err · ${overview.totalToolErrors ?? 0} tool err`}
         />
         <StatCard
           icon={TrendingUp}

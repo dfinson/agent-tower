@@ -659,7 +659,12 @@ class CopilotAdapter(AgentAdapterInterface):
                 name=resolved_name,
                 started_at=round(offset, 2),
                 duration_ms=dur,
-                attrs={"success": success},
+                attrs={
+                    "success": success,
+                    **({
+                        "error_snippet": result_text[:500],
+                    } if not success and result_text else {}),
+                },
                 tool_category=category,
                 tool_target=target,
                 turn_number=turn_num,

@@ -86,6 +86,7 @@ class TelemetrySummaryRepo(BaseRepository):
         retry_cost_usd: float = 0.0,
         file_read_count: int = 0,
         file_write_count: int = 0,
+        agent_error_count: int = 0,
     ) -> None:
         """Atomically increment counters for a job.  Idempotent per field."""
         now = datetime.now(UTC).isoformat()
@@ -114,6 +115,7 @@ class TelemetrySummaryRepo(BaseRepository):
                     retry_cost_usd        = retry_cost_usd + :retry_cost_usd,
                     file_read_count       = file_read_count + :file_read_count,
                     file_write_count      = file_write_count + :file_write_count,
+                    agent_error_count     = agent_error_count + :agent_error_count,
                     updated_at            = :now
                 WHERE job_id = :job_id
             """),
@@ -141,6 +143,7 @@ class TelemetrySummaryRepo(BaseRepository):
                 "retry_cost_usd": retry_cost_usd,
                 "file_read_count": file_read_count,
                 "file_write_count": file_write_count,
+                "agent_error_count": agent_error_count,
                 "now": now,
             },
         )
@@ -325,6 +328,7 @@ class TelemetrySummaryRepo(BaseRepository):
                     COALESCE(SUM(premium_requests), 0) as total_premium_requests,
                     COALESCE(SUM(tool_call_count), 0) as total_tool_calls,
                     COALESCE(SUM(tool_failure_count), 0) as total_tool_failures,
+                    COALESCE(SUM(agent_error_count), 0) as total_agent_errors,
                     COALESCE(SUM(cache_read_tokens), 0) as total_cache_read,
                     COALESCE(SUM(input_tokens), 0) as total_input_tokens
                 FROM job_telemetry_summary
