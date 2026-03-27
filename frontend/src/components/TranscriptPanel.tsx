@@ -820,7 +820,7 @@ function ToolStepList({ calls, isActive }: { calls: TranscriptEntry[]; isActive:
   // Filter out report_intent — it's extracted as the intent label, not a visible tool step
   const visibleCalls = calls.filter((c) => c.toolName !== "report_intent");
   return (
-    <div className="relative ml-1">
+    <div className="relative sm:ml-1">
       <div className="absolute left-[7px] top-2 bottom-2 w-px border-l border-dotted border-border/60" />
       <div className="space-y-0.5">
         {visibleCalls.map((call, i) => isSubagentTool(call.toolName) ? (
@@ -933,7 +933,7 @@ function AgentTurn({
   const isActive = !!isLast && !msg;
 
   return (
-    <div className="flex gap-2 sm:gap-3 py-2">
+    <div className="flex gap-1.5 sm:gap-3 py-2">
       <div className="w-5 h-5 rounded-full bg-blue-900/50 flex items-center justify-center shrink-0 mt-0.5">
         <SdkIcon sdk={sdk} size={12} fallback={<Bot size={12} />} />
       </div>
@@ -1258,7 +1258,7 @@ export function TranscriptPanel({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div className="p-2 sm:p-3">
+                  <div className="p-1.5 sm:p-3">
                   {item.type === "divider" && (
                     <div className="flex items-center gap-3 py-1">
                       <div className="flex-1 h-px bg-border" />
