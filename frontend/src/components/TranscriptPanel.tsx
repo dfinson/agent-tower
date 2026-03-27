@@ -677,7 +677,7 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
     : "text-violet-400/70";
 
   return (
-    <div className="relative pl-5">
+    <div className="relative pl-4 sm:pl-5">
       {/* Icon column — pulse lives here only, not duplicated on the icon */}
       <div className={cn(
         "absolute left-0 top-[3px] w-[15px] h-[15px] flex items-center justify-center",
@@ -775,7 +775,7 @@ function ToolStep({ entry, isActive }: {
   const icon = resolveToolIcon(entry.toolName);
 
   return (
-    <div className="relative pl-5">
+    <div className="relative pl-4 sm:pl-5">
       <div className={cn(
         "absolute left-0 top-[3px] w-[15px] h-[15px] flex items-center justify-center",
         (isActive || isRunning) && "animate-pulse",
@@ -933,7 +933,7 @@ function AgentTurn({
   const isActive = !!isLast && !msg;
 
   return (
-    <div className="flex gap-3 py-2">
+    <div className="flex gap-2 sm:gap-3 py-2">
       <div className="w-5 h-5 rounded-full bg-blue-900/50 flex items-center justify-center shrink-0 mt-0.5">
         <SdkIcon sdk={sdk} size={12} fallback={<Bot size={12} />} />
       </div>
@@ -1183,7 +1183,7 @@ export function TranscriptPanel({
   return (
     <div className="flex flex-col h-full overflow-hidden rounded-lg border border-border bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border shrink-0">
         <span className="text-sm font-semibold text-muted-foreground">Transcript</span>
         <div className="flex items-center gap-2">
           {searchOpen ? (
@@ -1258,7 +1258,7 @@ export function TranscriptPanel({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div className="p-3">
+                  <div className="p-2 sm:p-3">
                   {item.type === "divider" && (
                     <div className="flex items-center gap-3 py-1">
                       <div className="flex-1 h-px bg-border" />
