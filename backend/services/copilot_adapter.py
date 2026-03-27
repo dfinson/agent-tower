@@ -850,11 +850,12 @@ class CopilotAdapter(AgentAdapterInterface):
                             "tool_intent": None,
                             "tool_title": None,
                             "tool_display": None,
+                            "tool_display_full": None,
                             "tool_duration_ms": None,
                         }
                         queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
                         return
-                    from backend.services.tool_formatters import format_tool_display
+                    from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
                     turn_id = buffered.get("turn_id") or (
                         str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None
@@ -868,6 +869,7 @@ class CopilotAdapter(AgentAdapterInterface):
                         "tool_intent": buffered.get("tool_intent"),
                         "tool_title": buffered.get("tool_title"),
                         "tool_display": format_tool_display(tool_name, buffered.get("tool_args")),
+                        "tool_display_full": format_tool_display_full(tool_name, buffered.get("tool_args")),
                     }
                 elif kind_str == "tool.execution_complete":
                     tool_id = (data.tool_call_id or "") if data else ""
@@ -892,7 +894,7 @@ class CopilotAdapter(AgentAdapterInterface):
                                 result_text = str(parts)
                         if not result_text and data.partial_output:
                             result_text = data.partial_output
-                    from backend.services.tool_formatters import extract_tool_issue, format_tool_display
+                    from backend.services.tool_formatters import extract_tool_issue, format_tool_display, format_tool_display_full
 
                     tool_args_str = buffered.get("tool_args")
                     success = bool(data.success) if data and data.success is not None else True
@@ -914,6 +916,12 @@ class CopilotAdapter(AgentAdapterInterface):
                         "tool_intent": buffered.get("tool_intent"),
                         "tool_title": buffered.get("tool_title"),
                         "tool_display": format_tool_display(
+                            tool_name,
+                            tool_args_str,
+                            tool_result=result_text or None,
+                            tool_success=success,
+                        ),
+                        "tool_display_full": format_tool_display_full(
                             tool_name,
                             tool_args_str,
                             tool_result=result_text or None,

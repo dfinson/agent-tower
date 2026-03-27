@@ -1324,6 +1324,8 @@ export interface components {
             toolTitle?: string | null;
             /** Tooldisplay */
             toolDisplay?: string | null;
+            /** Tooldisplayfull */
+            toolDisplayFull?: string | null;
             /** Toolgroupsummary */
             toolGroupSummary?: string | null;
         };

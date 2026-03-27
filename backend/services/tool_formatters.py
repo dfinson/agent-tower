@@ -107,8 +107,12 @@ class _FmtSpec:
     separator: str = " "  # between prefix and value
 
 
-def _build_formatter(spec: _FmtSpec) -> Callable[[ToolArgs], str]:
-    """Build a formatter function from a declarative spec."""
+def _build_formatter(spec: _FmtSpec, no_truncate: bool = False) -> Callable[[ToolArgs], str]:
+    """Build a formatter function from a declarative spec.
+
+    When *no_truncate* is True the ``truncate`` field on *spec* is ignored,
+    yielding a display string that is only path-trimmed, not length-capped.
+    """
 
     def fmt(args: ToolArgs) -> str:
         for k in spec.keys:
@@ -117,7 +121,7 @@ def _build_formatter(spec: _FmtSpec) -> Callable[[ToolArgs], str]:
                 display = _short_path(v) if spec.use_path else v
                 if spec.trim_paths:
                     display = _trim_worktree_paths(display)
-                if spec.truncate:
+                if spec.truncate and not no_truncate:
                     display = _truncate(display, spec.truncate)
                 if spec.quote:
                     display = f'"{display}"'
@@ -414,6 +418,15 @@ _FORMATTERS.update(
     }
 )
 
+# Untruncated variant — same path-trimming as _FORMATTERS but no char limit.
+# Used by format_tool_display_full so the frontend can apply CSS-based responsive
+# truncation instead of a hardcoded character cap.
+# Complex formatters (the .update() block above) don't truncate, so they're shared.
+_FORMATTERS_FULL: dict[str, Callable[[ToolArgs], str]] = {
+    name: _build_formatter(spec, no_truncate=True) for name, spec in _SIMPLE_SPECS.items()
+}
+_FORMATTERS_FULL.update({k: v for k, v in _FORMATTERS.items() if k not in _FORMATTERS_FULL})
+
 _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
     "bash": _hint_bash,
     "run_in_terminal": _hint_bash,
@@ -501,6 +514,38 @@ def format_tool_display(
             label = tool_name
 
     # Append result hint when result is available
+    if tool_result is not None:
+        hint_fn = _RESULT_HINTS.get(lookup_name)
+        if hint_fn is not None:
+            with contextlib.suppress(Exception):
+                label = f"{label} {hint_fn(tool_result, tool_success)}"
+
+    return label
+
+
+def format_tool_display_full(
+    tool_name: str,
+    tool_args: str | None,
+    tool_result: str | None = None,
+    tool_success: bool = True,
+) -> str:
+    """Like :func:`format_tool_display` but without character truncation.
+
+    The returned label has worktree paths collapsed (``…/<branch>/…``) but is
+    not capped at a fixed character count, so the frontend can apply CSS-based
+    responsive truncation that adapts to the available viewport width.
+    """
+    lookup_name = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
+    formatter = _FORMATTERS_FULL.get(lookup_name)
+    if formatter is None:
+        label = _humanize_tool_name(lookup_name)
+    else:
+        args = _parse_args(tool_args)
+        try:
+            label = formatter(args)
+        except Exception:
+            label = tool_name
+
     if tool_result is not None:
         hint_fn = _RESULT_HINTS.get(lookup_name)
         if hint_fn is not None:
