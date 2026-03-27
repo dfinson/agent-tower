@@ -92,6 +92,7 @@ export interface TranscriptEntry {
   toolIntent?: string;   // tool_call: SDK-provided intent string (deterministic label)
   toolTitle?: string;    // tool_call: SDK-provided display title
   toolDisplay?: string;  // tool_call: deterministic per-tool label (e.g. "$ ls -la", "Read src/main.py")
+  toolDisplayFull?: string;  // tool_call: same label without char truncation (for CSS-based responsive truncation)
   toolDurationMs?: number;  // tool_call: execution time in milliseconds
   // AI-generated group summary — patched in asynchronously via tool_group_summary SSE
   toolGroupSummary?: string;
@@ -534,6 +535,7 @@ export const useStore = create<AppState>((set, get) => ({
             toolIntent: payload.toolIntent as string | undefined,
             toolTitle: payload.toolTitle as string | undefined,
             toolDisplay: payload.toolDisplay as string | undefined,
+            toolDisplayFull: payload.toolDisplayFull as string | undefined,
             toolDurationMs: payload.toolDurationMs as number | undefined,
           };
           const existing = state.transcript[jobId] ?? [];
