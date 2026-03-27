@@ -390,7 +390,8 @@ class TranscriptPayload(CamelModel):
     tool_issue: str | None = None  # role=tool_call: short issue summary when attention is needed
     tool_intent: str | None = None  # role=tool_call: SDK-provided intent string
     tool_title: str | None = None  # role=tool_call: SDK-provided display title
-    tool_display: str | None = None  # role=tool_call: deterministic per-tool label
+    tool_display: str | None = None  # role=tool_call: deterministic per-tool label (char-capped)
+    tool_display_full: str | None = None  # role=tool_call: same label without char truncation (for CSS-based truncation)
     tool_duration_ms: int | None = None  # role=tool_call: execution time in milliseconds
     tool_group_summary: str | None = None  # AI-generated summary for the tool group turn
 

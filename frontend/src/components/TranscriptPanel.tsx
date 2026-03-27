@@ -652,9 +652,10 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
 
   const args = parseArgs(entry.toolArgs);
 
-  // Use toolDisplay (backend-truncated) for the collapsed label, consistent with ToolStep.
-  // Strip the tool prefix the backend formatter prepends (e.g. "Task: …" → "…").
-  const displaySource = entry.toolDisplay
+  // Prefer the untruncated label for responsive CSS truncation; fall back to
+  // char-capped toolDisplay for older entries that predate toolDisplayFull.
+  const displaySource = entry.toolDisplayFull
+    ?? entry.toolDisplay
     ?? (typeof args.description === "string" ? args.description : null)
     ?? (typeof args.prompt === "string" ? args.prompt : null)
     ?? (typeof args.query === "string" ? args.query : null)
@@ -691,9 +692,9 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
         onClick={() => !isRunning && setExpanded(!expanded)}
         className={cn("w-full text-left group", isRunning && "cursor-default")}
       >
-        <div className="flex items-baseline gap-2 py-0.5">
+        <div className="flex items-baseline gap-2 py-0.5 min-w-0">
           <span className={cn(
-            "text-xs font-mono",
+            "text-xs font-mono truncate min-w-0 flex-1",
             failed ? "text-red-400"
               : isRunning || isActive ? "text-violet-400"
               : "text-foreground/80",
@@ -701,12 +702,12 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
             {label}{isRunning ? "…" : ""}
           </span>
           {entry.toolDurationMs != null && (
-            <span className="text-[10px] text-muted-foreground/60">
+            <span className="text-[10px] text-muted-foreground/60 shrink-0">
               {formatDuration(entry.toolDurationMs)}
             </span>
           )}
           {failed && entry.toolIssue && (
-            <span className="text-[10px] text-red-400 truncate max-w-[200px]">
+            <span className="text-[10px] text-red-400 truncate max-w-[200px] shrink-0">
               {entry.toolIssue}
             </span>
           )}
@@ -771,7 +772,9 @@ function ToolStep({ entry, isActive }: {
   const [expanded, setExpanded] = useState(false);
   const failed = entry.toolSuccess === false;
   const isRunning = entry.role === "tool_running";
-  const label = entry.toolDisplay ?? entry.toolName ?? entry.content;
+  // Prefer the untruncated label so CSS handles responsive ellipsing; fall back
+  // to the char-capped toolDisplay for entries that predate toolDisplayFull.
+  const label = entry.toolDisplayFull ?? entry.toolDisplay ?? entry.toolName ?? entry.content;
   const icon = resolveToolIcon(entry.toolName);
 
   return (
@@ -790,9 +793,9 @@ function ToolStep({ entry, isActive }: {
         onClick={() => !isRunning && setExpanded(!expanded)}
         className={cn("w-full text-left group", isRunning && "cursor-default")}
       >
-        <div className="flex items-baseline gap-2 py-0.5">
+        <div className="flex items-baseline gap-2 py-0.5 min-w-0">
           <span className={cn(
-            "text-xs font-mono",
+            "text-xs font-mono truncate min-w-0 flex-1",
             failed ? "text-red-400"
               : (isActive || isRunning) ? "text-blue-400"
               : "text-foreground/80",
@@ -800,12 +803,12 @@ function ToolStep({ entry, isActive }: {
             {label}{isRunning ? "…" : ""}
           </span>
           {entry.toolDurationMs != null && (
-            <span className="text-[10px] text-muted-foreground/60">
+            <span className="text-[10px] text-muted-foreground/60 shrink-0">
               {formatDuration(entry.toolDurationMs)}
             </span>
           )}
           {failed && entry.toolIssue && (
-            <span className="text-[10px] text-red-400 truncate max-w-[200px]">
+            <span className="text-[10px] text-red-400 truncate max-w-[200px] shrink-0">
               {entry.toolIssue}
             </span>
           )}
