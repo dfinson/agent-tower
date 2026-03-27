@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Callable
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
@@ -55,17 +55,7 @@ def _resolve_tool_display(payload: dict[str, Any]) -> str | None:
     payload, which causes the frontend to fall back to the raw tool name
     (e.g. just "Edit" instead of "Edit src/app.py").
     """
-    stored = payload.get("tool_display")
-    if stored is not None:
-        return stored
-    tool_name: str | None = payload.get("tool_name")
-    if not tool_name:
-        return None
-    tool_args: str | None = payload.get("tool_args")
-    tool_result_raw: str | None = payload.get("tool_result")
-    tool_result = tool_result_raw or None  # normalise empty string → None
-    tool_success: bool = payload.get("tool_success") is not False
-    return format_tool_display(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success)
+    return _resolve_display_field(payload, "tool_display", format_tool_display)
 
 
 def _resolve_tool_display_full(payload: dict[str, Any]) -> str | None:
@@ -74,17 +64,24 @@ def _resolve_tool_display_full(payload: dict[str, Any]) -> str | None:
     Recomputes tool_display_full from args when absent (e.g. events stored
     before this field was introduced).
     """
-    stored = payload.get("tool_display_full")
+    return _resolve_display_field(payload, "tool_display_full", format_tool_display_full)
+
+
+def _resolve_display_field(
+    payload: dict[str, Any],
+    field: str,
+    formatter: Callable[..., str],
+) -> str | None:
+    stored = payload.get(field)
     if stored is not None:
         return stored
     tool_name: str | None = payload.get("tool_name")
     if not tool_name:
         return None
     tool_args: str | None = payload.get("tool_args")
-    tool_result_raw: str | None = payload.get("tool_result")
-    tool_result = tool_result_raw or None
+    tool_result = payload.get("tool_result") or None  # normalise empty string → None
     tool_success: bool = payload.get("tool_success") is not False
-    return format_tool_display_full(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success)
+    return formatter(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success)
 
 
 def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) -> JobResponse:
