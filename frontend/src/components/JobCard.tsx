@@ -20,7 +20,7 @@ function elapsed(createdAt: string): string {
 function ResolutionBadge({ resolution }: { resolution: string }) {
   const styles: Record<string, string> = {
     unresolved: "bg-amber-500/15 text-amber-600 border-amber-500/30",
-    conflict: "bg-red-500/15 text-red-600 border-red-500/30",
+    conflict: "bg-orange-500/15 text-orange-600 border-orange-500/30",
     merged: "bg-green-500/15 text-green-600 border-green-500/30",
     pr_created: "bg-blue-500/15 text-blue-600 border-blue-500/30",
     discarded: "bg-muted text-muted-foreground border-border",
@@ -115,8 +115,10 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
 
       {/* Success outcome */}
       {(job.state === "review" || job.state === "completed") && job.resolution && job.resolution !== "unresolved" && (
-        <div className="flex items-start gap-1.5 text-xs text-green-600 mb-2 rounded bg-green-500/10 px-2 py-1.5">
-          <CheckCircle2 size={12} className="shrink-0 mt-0.5" />
+        <div className={`flex items-start gap-1.5 text-xs mb-2 rounded px-2 py-1.5 ${job.resolution === "conflict" ? "text-orange-600 bg-orange-500/10" : "text-green-600 bg-green-500/10"}`}>
+          {job.resolution === "conflict"
+            ? <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+            : <CheckCircle2 size={12} className="shrink-0 mt-0.5" />}
           <span>
             {job.resolution === "merged" && "Changes merged into base branch"}
             {job.resolution === "pr_created" && "Pull request created"}
@@ -128,7 +130,7 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
 
       {/* Conflict file list */}
       {job.resolution === "conflict" && job.conflictFiles && job.conflictFiles.length > 0 && (
-        <div className="text-xs text-red-500 mb-2">
+        <div className="text-xs text-orange-600 mb-2">
           <span className="font-medium">Conflicts in {job.conflictFiles.length} file{job.conflictFiles.length > 1 ? "s" : ""}:</span>
           <span className="ml-1">{job.conflictFiles.slice(0, 3).join(", ")}{job.conflictFiles.length > 3 ? "…" : ""}</span>
         </div>

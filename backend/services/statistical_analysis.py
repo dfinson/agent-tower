@@ -80,7 +80,7 @@ async def _analyse_file_rereads(session: AsyncSession, repo: ObservationsRepo) -
 
 
 async def _analyse_tool_failures(session: AsyncSession, repo: ObservationsRepo) -> int:
-    """Find tools with high failure rates."""
+    """Find tools with high failure rates, distinguishing agent errors from tool errors."""
     result = await session.execute(
         text("""
             SELECT
@@ -89,6 +89,8 @@ async def _analyse_tool_failures(session: AsyncSession, repo: ObservationsRepo) 
                 SUM(CASE WHEN json_extract(attrs_json, '$.success') = 0
                          OR json_extract(attrs_json, '$.success') = 'false'
                     THEN 1 ELSE 0 END) as failures,
+                SUM(CASE WHEN error_kind = 'agent_error' THEN 1 ELSE 0 END) as agent_errors,
+                SUM(CASE WHEN error_kind = 'tool_error' THEN 1 ELSE 0 END) as tool_errors,
                 COUNT(DISTINCT job_id) as job_count
             FROM job_telemetry_spans
             WHERE span_type = 'tool'
@@ -104,24 +106,76 @@ async def _analyse_tool_failures(session: AsyncSession, repo: ObservationsRepo) 
     count = 0
     for r in rows:
         failure_rate = r["failures"] / r["total_calls"] * 100
-        await repo.upsert(
-            category="tool_failure",
-            severity="critical" if failure_rate >= 50 else "warning",
-            title=f"High failure rate: {r['name']} ({failure_rate:.0f}%)",
-            detail=(
-                f"Tool '{r['name']}' failed {r['failures']}/{r['total_calls']} times "
-                f"({failure_rate:.1f}%) across {r['job_count']} jobs."
-            ),
-            evidence={
-                "tool_name": r["name"],
-                "total_calls": r["total_calls"],
-                "failures": r["failures"],
-                "failure_rate_pct": round(failure_rate, 1),
-                "job_count": r["job_count"],
-            },
-            job_count=r["job_count"],
-        )
-        count += 1
+        agent_errors = r["agent_errors"] or 0
+        tool_errors = r["tool_errors"] or 0
+        # Distinguish: high agent-error rate is a different observation than high tool-error rate
+        if tool_errors > 0:
+            tool_error_rate = tool_errors / r["total_calls"] * 100
+            await repo.upsert(
+                category="tool_failure",
+                severity="critical" if tool_error_rate >= 50 else "warning",
+                title=f"Tool errors: {r['name']} ({tool_error_rate:.0f}% tool failures)",
+                detail=(
+                    f"Tool '{r['name']}' had {tool_errors} genuine tool failures out of "
+                    f"{r['total_calls']} calls ({tool_error_rate:.1f}%). "
+                    f"Additionally {agent_errors} failures were agent errors (bad args/typos). "
+                    f"Across {r['job_count']} jobs."
+                ),
+                evidence={
+                    "tool_name": r["name"],
+                    "total_calls": r["total_calls"],
+                    "failures": r["failures"],
+                    "agent_errors": agent_errors,
+                    "tool_errors": tool_errors,
+                    "failure_rate_pct": round(failure_rate, 1),
+                    "tool_error_rate_pct": round(tool_error_rate, 1),
+                    "job_count": r["job_count"],
+                },
+                job_count=r["job_count"],
+            )
+            count += 1
+        elif agent_errors > 0:
+            await repo.upsert(
+                category="agent_error",
+                severity="info" if failure_rate < 50 else "warning",
+                title=f"Agent errors: {r['name']} ({failure_rate:.0f}% bad calls)",
+                detail=(
+                    f"Tool '{r['name']}' had {agent_errors} agent errors (bad args, typos, "
+                    f"wrong paths) out of {r['total_calls']} calls ({failure_rate:.1f}%). "
+                    f"These are not tool failures — the agent invoked the tool incorrectly. "
+                    f"Across {r['job_count']} jobs."
+                ),
+                evidence={
+                    "tool_name": r["name"],
+                    "total_calls": r["total_calls"],
+                    "failures": r["failures"],
+                    "agent_errors": agent_errors,
+                    "tool_errors": 0,
+                    "failure_rate_pct": round(failure_rate, 1),
+                    "job_count": r["job_count"],
+                },
+                job_count=r["job_count"],
+            )
+            count += 1
+        else:
+            await repo.upsert(
+                category="tool_failure",
+                severity="critical" if failure_rate >= 50 else "warning",
+                title=f"High failure rate: {r['name']} ({failure_rate:.0f}%)",
+                detail=(
+                    f"Tool '{r['name']}' failed {r['failures']}/{r['total_calls']} times "
+                    f"({failure_rate:.1f}%) across {r['job_count']} jobs."
+                ),
+                evidence={
+                    "tool_name": r["name"],
+                    "total_calls": r["total_calls"],
+                    "failures": r["failures"],
+                    "failure_rate_pct": round(failure_rate, 1),
+                    "job_count": r["job_count"],
+                },
+                job_count=r["job_count"],
+            )
+            count += 1
     return count
 
 
