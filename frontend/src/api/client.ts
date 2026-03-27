@@ -267,6 +267,8 @@ export interface AnalyticsOverview {
   totalPremiumRequests: number;
   totalToolCalls: number;
   totalToolFailures: number;
+  totalAgentErrors: number;
+  totalToolErrors: number;
   toolSuccessRate: number;
   cacheHitRate: number;
   costTrend: { date: string; cost: number; jobs: number }[];
@@ -308,6 +310,8 @@ export interface AnalyticsTools {
     avg_duration_ms: number;
     total_duration_ms: number;
     failure_count: number;
+    agent_error_count: number;
+    tool_error_count: number;
   }[];
 }
 

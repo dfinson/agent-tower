@@ -37,7 +37,7 @@ from backend.services.job_service import JobService, ProgressPreview
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
-from backend.services.tool_formatters import format_tool_display
+from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 from backend.services.utility_session import UtilitySessionService
 
 if TYPE_CHECKING:
@@ -68,6 +68,25 @@ def _resolve_tool_display(payload: dict[str, Any]) -> str | None:
     return format_tool_display(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success)
 
 
+def _resolve_tool_display_full(payload: dict[str, Any]) -> str | None:
+    """Like _resolve_tool_display but returns the untruncated label.
+
+    Recomputes tool_display_full from args when absent (e.g. events stored
+    before this field was introduced).
+    """
+    stored = payload.get("tool_display_full")
+    if stored is not None:
+        return stored
+    tool_name: str | None = payload.get("tool_name")
+    if not tool_name:
+        return None
+    tool_args: str | None = payload.get("tool_args")
+    tool_result_raw: str | None = payload.get("tool_result")
+    tool_result = tool_result_raw or None
+    tool_success: bool = payload.get("tool_success") is not False
+    return format_tool_display_full(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success)
+
+
 def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) -> JobResponse:
     """Map a domain Job to a JobResponse."""
     return JobResponse(
@@ -96,6 +115,7 @@ def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) 
         max_turns=job.max_turns,
         verify_prompt=job.verify_prompt,
         self_review_prompt=job.self_review_prompt,
+        parent_job_id=job.parent_job_id,
     )
 
 
@@ -268,7 +288,10 @@ async def continue_job(
     runtime_service: FromDishka[RuntimeService],
 ) -> CreateJobResponse:
     """Create a follow-up job with a new instruction and parent-job handoff context."""
-    job = await runtime_service.create_followup_job(job_id, body.instruction)
+    try:
+        job = await runtime_service.create_followup_job(job_id, body.instruction)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return CreateJobResponse(
         id=job.id,
@@ -427,6 +450,7 @@ async def get_job_transcript(
             tool_intent=event.payload.get("tool_intent"),
             tool_title=event.payload.get("tool_title"),
             tool_display=_resolve_tool_display(event.payload),
+            tool_display_full=_resolve_tool_display_full(event.payload),
             tool_duration_ms=event.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(event.payload.get("turn_id") or ""),
         )
@@ -532,6 +556,7 @@ async def get_job_snapshot(
             tool_intent=e.payload.get("tool_intent"),
             tool_title=e.payload.get("tool_title"),
             tool_display=_resolve_tool_display(e.payload),
+            tool_display_full=_resolve_tool_display_full(e.payload),
             tool_duration_ms=e.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
         )
