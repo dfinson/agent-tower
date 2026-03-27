@@ -37,6 +37,7 @@ from backend.services.job_service import JobService, ProgressPreview
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
+from backend.services.tool_formatters import format_tool_display
 from backend.services.utility_session import UtilitySessionService
 
 if TYPE_CHECKING:
@@ -45,6 +46,25 @@ if TYPE_CHECKING:
 from backend.models.domain import JobState, PermissionMode, Resolution
 
 router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
+
+
+def _resolve_tool_display(payload: dict) -> str | None:  # type: ignore[type-arg]
+    """Return tool_display from payload, recomputing it from args if missing.
+
+    Stored events pre-dating the tool_display field have no value in their
+    payload, which causes the frontend to fall back to the raw tool name
+    (e.g. just "Edit" instead of "Edit src/app.py").
+    """
+    stored = payload.get("tool_display")
+    if stored is not None:
+        return stored  # type: ignore[return-value]
+    tool_name: str | None = payload.get("tool_name")
+    if not tool_name:
+        return None
+    tool_args: str | None = payload.get("tool_args")
+    tool_result: str | None = payload.get("tool_result")
+    tool_success: bool = payload.get("tool_success", True)
+    return format_tool_display(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success)
 
 
 def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) -> JobResponse:
@@ -405,7 +425,7 @@ async def get_job_transcript(
             tool_issue=event.payload.get("tool_issue"),
             tool_intent=event.payload.get("tool_intent"),
             tool_title=event.payload.get("tool_title"),
-            tool_display=event.payload.get("tool_display"),
+            tool_display=_resolve_tool_display(event.payload),
             tool_duration_ms=event.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(event.payload.get("turn_id") or ""),
         )
@@ -510,7 +530,7 @@ async def get_job_snapshot(
             tool_issue=e.payload.get("tool_issue"),
             tool_intent=e.payload.get("tool_intent"),
             tool_title=e.payload.get("tool_title"),
-            tool_display=e.payload.get("tool_display"),
+            tool_display=_resolve_tool_display(e.payload),
             tool_duration_ms=e.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
         )
