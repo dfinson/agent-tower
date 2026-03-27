@@ -56,6 +56,8 @@ async def analytics_overview(
 
     total_tools = agg.get("total_tool_calls", 0) or 0
     total_failures = agg.get("total_tool_failures", 0) or 0
+    total_agent_errors = agg.get("total_agent_errors", 0) or 0
+    total_tool_errors = total_failures - total_agent_errors
     tool_success_rate = ((total_tools - total_failures) / total_tools * 100) if total_tools else 100
 
     return {
@@ -73,6 +75,8 @@ async def analytics_overview(
         "totalPremiumRequests": float(agg.get("total_premium_requests", 0) or 0),
         "totalToolCalls": total_tools,
         "totalToolFailures": total_failures,
+        "totalAgentErrors": total_agent_errors,
+        "totalToolErrors": max(0, total_tool_errors),
         "toolSuccessRate": round(tool_success_rate, 1),
         "cacheHitRate": round(cache_rate, 1),
         "costTrend": cost_trend,
