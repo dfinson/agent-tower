@@ -36,12 +36,14 @@ import {
 // ---------------------------------------------------------------------------
 
 function formatUsd(n: number): string {
+  if (n == null || isNaN(n)) return "$0.00";
   if (n < 0.01) return `$${n.toFixed(4)}`;
   if (n < 1) return `$${n.toFixed(3)}`;
   return `$${n.toFixed(2)}`;
 }
 
 function formatDuration(ms: number): string {
+  if (ms == null || isNaN(ms)) return "0ms";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -165,8 +167,8 @@ function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
         <div className="pt-2 border-t border-border">
           <div className="flex items-center justify-between text-xs mb-1">
             <span className="text-muted-foreground">Copilot Quota</span>
-            <span className={quotaInfo.pct > 80 ? "text-red-400 font-medium" : "text-foreground"}>
-              {quotaInfo.pct.toFixed(0)}% used
+            <span className={(quotaInfo.pct ?? 0) > 80 ? "text-red-400 font-medium" : "text-foreground"}>
+              {(quotaInfo.pct ?? 0).toFixed(0)}% used
             </span>
           </div>
           <div className="h-1.5 rounded-full bg-border overflow-hidden">
@@ -358,8 +360,8 @@ function ModelComparison({
                     </Tooltip>
                   ) : <span className="text-muted-foreground">—</span>}
                 </td>
-                <td className="text-right py-1.5 px-2">{Math.round(m.avgDiffLines)}</td>
-                <td className="text-right py-1.5 px-2">{(m.cacheHitRate * 100).toFixed(0)}%</td>
+                <td className="text-right py-1.5 px-2">{Math.round(m.avgDiffLines ?? 0)}</td>
+                <td className="text-right py-1.5 px-2">{((m.cacheHitRate ?? 0) * 100).toFixed(0)}%</td>
               </tr>
             ))}
           </tbody>
