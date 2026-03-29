@@ -481,7 +481,7 @@ class RuntimeService:
                 session_config = dataclasses.replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
 
             task = asyncio.create_task(
-                self._run_job(job.id, agent_session, session_config, session_number=job.session_count),
+                self._run_job_guarded(job.id, agent_session, session_config, session_number=job.session_count),
                 name=f"job-{job.id}",
             )
         except Exception:
@@ -499,6 +499,33 @@ class RuntimeService:
         # echo of the initial prompt is discarded (shown via the synthetic entry).
         self._echo_suppress.setdefault(job.id, set()).add(session_config.prompt)
         log.info("job_started", job_id=job.id)
+
+    async def _run_job_guarded(
+        self,
+        job_id: str,
+        agent_session: _AgentSession,
+        config: SessionConfig,
+        session_number: int = 1,
+    ) -> None:
+        """Wrapper that guarantees ``_cleanup_job_state`` runs even when
+        ``CancelledError`` hits before the inner try/except in ``_run_job``."""
+        try:
+            await self._run_job(job_id, agent_session, config, session_number=session_number)
+        except asyncio.CancelledError:
+            if self._shutting_down:
+                log.info("shutdown_task_cancelled", job_id=job_id)
+            else:
+                log.info("job_state_changed", job_id=job_id, new_state="canceled")
+        finally:
+            log.debug("_run_job_guarded_finally", job_id=job_id, in_tasks=job_id in self._tasks)
+            # The inner _run_job finally handles cleanup in the normal case.
+            # This catches the case where CancelledError hit during setup,
+            # before the inner try was entered.
+            if job_id in self._tasks:
+                heartbeat = self._heartbeat_tasks.pop(job_id, None)
+                if heartbeat:
+                    heartbeat.cancel()
+                await self._cleanup_job_state(job_id)
 
     async def _run_job(
         self,
