@@ -263,6 +263,52 @@ async def turn_economics_for_job(
 
 
 # ---------------------------------------------------------------------------
+# Scorecard / Redesigned Analytics
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/scorecard")
+async def analytics_scorecard(
+    session: FromDishka[AsyncSession],
+    period: Annotated[int, Query(ge=1, le=365)] = 7,
+) -> dict[str, object]:
+    """Top-level scorecard: budget per SDK, activity with resolution, quota, cost trend."""
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+
+    data = await TelemetrySummaryRepo(session).scorecard(period_days=period)
+    return {"period": period, **data}
+
+
+@router.get("/analytics/model-comparison")
+async def analytics_model_comparison(
+    session: FromDishka[AsyncSession],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+    repo: str | None = None,
+) -> dict[str, object]:
+    """Per-model comparison with resolution data joined from jobs table."""
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+
+    rows = await TelemetrySummaryRepo(session).model_comparison(
+        period_days=period, repo=repo
+    )
+    return {"period": period, "repo": repo, "models": rows}
+
+
+@router.get("/analytics/job-context/{job_id}")
+async def analytics_job_context(
+    job_id: str,
+    session: FromDishka[AsyncSession],
+) -> dict[str, object]:
+    """Per-job context: metrics + repo comparison + noteworthy flags."""
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+
+    data = await TelemetrySummaryRepo(session).job_context(job_id)
+    if data is None:
+        return {"error": "Job telemetry not found"}
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Statistical Observations
 # ---------------------------------------------------------------------------
 

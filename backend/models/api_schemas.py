@@ -735,3 +735,95 @@ class NormalizedModelMetrics(CamelModel):
     cost_per_diff_line: float = 0.0
     cost_per_mtok: float = 0.0
     cache_hit_rate: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Scorecard / Redesigned Analytics
+# ---------------------------------------------------------------------------
+
+
+class ScorecardBudget(CamelModel):
+    sdk: str
+    total_cost_usd: float = 0.0
+    premium_requests: int = 0
+    job_count: int = 0
+    avg_cost_per_job: float = 0.0
+    avg_duration_ms: float = 0.0
+
+
+class ScorecardActivity(CamelModel):
+    total_jobs: int = 0
+    running: int = 0
+    in_review: int = 0
+    merged: int = 0
+    pr_created: int = 0
+    discarded: int = 0
+    failed: int = 0
+    cancelled: int = 0
+
+
+class ScorecardResponse(CamelModel):
+    activity: ScorecardActivity
+    budget: list[ScorecardBudget] = []
+    quota_json: str | None = None
+    cost_trend: list[dict[str, object]] = []
+
+
+class ModelComparisonRow(CamelModel):
+    model: str
+    sdk: str
+    job_count: int = 0
+    avg_cost: float = 0.0
+    avg_duration_ms: float = 0.0
+    total_cost_usd: float = 0.0
+    premium_requests: int = 0
+    merged: int = 0
+    pr_created: int = 0
+    discarded: int = 0
+    failed: int = 0
+    avg_verify_turns: float | None = None
+    verify_job_count: int = 0
+    avg_diff_lines: float = 0.0
+    cache_hit_rate: float = 0.0
+    cost_per_job: float = 0.0
+    cost_per_minute: float = 0.0
+    cost_per_turn: float = 0.0
+    cost_per_tool_call: float = 0.0
+
+
+class ModelComparisonResponse(CamelModel):
+    period: int
+    repo: str | None = None
+    models: list[ModelComparisonRow] = []
+
+
+class JobContextFlag(CamelModel):
+    type: str
+    message: str
+
+
+class JobContextJob(CamelModel):
+    cost: float = 0.0
+    duration_ms: float = 0.0
+    diff_lines_added: int = 0
+    diff_lines_removed: int = 0
+    sdk: str = ""
+    model: str = ""
+    total_turns: int = 0
+    peak_turn_cost_usd: float = 0.0
+    avg_turn_cost_usd: float = 0.0
+    cost_first_half_usd: float = 0.0
+    cost_second_half_usd: float = 0.0
+
+
+class JobContextRepoAvg(CamelModel):
+    job_count: int = 0
+    avg_cost: float = 0.0
+    avg_duration_ms: float = 0.0
+    avg_diff_lines: float = 0.0
+
+
+class JobContextResponse(CamelModel):
+    job: JobContextJob
+    repo_avg: JobContextRepoAvg | None = None
+    flags: list[JobContextFlag] = []
