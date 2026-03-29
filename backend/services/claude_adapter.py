@@ -396,6 +396,13 @@ class ClaudeAdapter(AgentAdapterInterface):
             SystemMessage,
         )
 
+        # Guard against SDK message-parse failures for unknown event types
+        # (e.g. rate_limit_event in SDK ≤0.0.25).
+        try:
+            from claude_code_sdk._errors import MessageParseError
+        except ImportError:
+            MessageParseError = None  # type: ignore[assignment,misc]
+
         seq = [0]
         queue = self._queues.get(session_id)
         if queue is None:
@@ -418,6 +425,19 @@ class ClaudeAdapter(AgentAdapterInterface):
         except asyncio.CancelledError:
             log.info("claude_consumer_cancelled", session_id=session_id)
         except Exception as exc:
+            # SDK ≤0.0.25 throws MessageParseError on unknown event types like
+            # rate_limit_event.  Swallow it and retry the message stream so the
+            # session can continue rather than crash.
+            if MessageParseError is not None and isinstance(exc, MessageParseError):
+                log.warning(
+                    "claude_unknown_message_type",
+                    session_id=session_id,
+                    error=str(exc),
+                )
+                # Re-enter the consumer — the SDK may have more messages.
+                await self._consume_messages(session_id, client)
+                return
+
             stderr_snippet = self._read_session_stderr(session_id)
             log.error(
                 "claude_consumer_error",
