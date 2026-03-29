@@ -243,7 +243,7 @@ function CacheEfficiencyBar({ inputTokens, cacheReadTokens, pricing, outputToken
   outputTokens?: number;
   actualCost?: number;
 }) {
-  const rate = inputTokens > 0 ? (cacheReadTokens / inputTokens) * 100 : 0;
+  const rate = Math.min(100, inputTokens > 0 ? (cacheReadTokens / inputTokens) * 100 : 0);
   const color = rate >= 60 ? "text-green-400" : rate >= 30 ? "text-yellow-400" : "text-red-400";
   const barColor = rate >= 60 ? "bg-green-500" : rate >= 30 ? "bg-yellow-500" : "bg-red-500";
 
@@ -692,12 +692,13 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                       )}
                     </div>
                     <div>
-                      <p className="text-sm font-bold tabular-nums">{formatDuration(jobContext.job.durationMs)}</p>
+                      <p className="text-sm font-bold tabular-nums">{jobContext.job.durationMs ? formatDuration(jobContext.job.durationMs) : "—"}</p>
                       <p className="text-muted-foreground">Duration</p>
-                      {jobContext.repoAvg && (
+                      {jobContext.repoAvg && jobContext.repoAvg.avgDurationMs > 0 && (
                         <p className="text-[10px] text-muted-foreground/70">avg {formatDuration(jobContext.repoAvg.avgDurationMs)}</p>
                       )}
                     </div>
+                    {(jobContext.job.diffLinesAdded + jobContext.job.diffLinesRemoved > 0 || (jobContext.repoAvg && jobContext.repoAvg.avgDiffLines > 0)) && (
                     <div>
                       <p className="text-sm font-bold tabular-nums">{jobContext.job.diffLinesAdded + jobContext.job.diffLinesRemoved}</p>
                       <p className="text-muted-foreground">Diff Lines</p>
@@ -705,6 +706,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                         <p className="text-[10px] text-muted-foreground/70">avg {Math.round(jobContext.repoAvg.avgDiffLines)}</p>
                       )}
                     </div>
+                    )}
                   </div>
                   {jobContext.flags.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
@@ -805,7 +807,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                         <CompactStat label="Cache Read" value={formatTokens(data.cacheReadTokens ?? 0)} />
                         <CompactStat label="Cache Write" value={formatTokens(data.cacheWriteTokens ?? 0)} />
-                        <CompactStat label="Input Reuse" value={`${((data.inputTokens ?? 0) > 0 ? ((data.cacheReadTokens ?? 0) / (data.inputTokens ?? 0)) * 100 : 0).toFixed(0)}%`} />
+                        <CompactStat label="Input Reuse" value={`${Math.min(100, (data.inputTokens ?? 0) > 0 ? ((data.cacheReadTokens ?? 0) / (data.inputTokens ?? 0)) * 100 : 0).toFixed(0)}%`} />
                       </div>
                       <CacheEfficiencyBar
                         inputTokens={data.inputTokens ?? 0}
