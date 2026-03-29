@@ -64,6 +64,12 @@ class _FakeSystemMessage:
     pass
 
 
+class _FakeUserMessage:
+    def __init__(self, content: Any = None, parent_tool_use_id: str | None = None) -> None:
+        self.content = content
+        self.parent_tool_use_id = parent_tool_use_id
+
+
 class _FakeAssistantMessage:
     def __init__(self, content: list[Any] | None = None, model: str = "claude-sonnet-4-20250514") -> None:
         self.content = content or []
@@ -131,6 +137,7 @@ def _build_fake_sdk_module() -> ModuleType:
     mod.ToolUseBlock = _FakeToolUseBlock
     mod.ToolResultBlock = _FakeToolResultBlock
     mod.SystemMessage = _FakeSystemMessage
+    mod.UserMessage = _FakeUserMessage
     mod.AssistantMessage = _FakeAssistantMessage
     mod.ResultMessage = _FakeResultMessage
     mod.ClaudeCodeOptions = _FakeClaudeCodeOptions

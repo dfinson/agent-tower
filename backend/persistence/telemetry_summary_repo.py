@@ -561,7 +561,7 @@ class TelemetrySummaryRepo(BaseRepository):
                 FROM job_telemetry_summary
                 WHERE repo = :repo
                     AND job_id != :job_id
-                    AND status IN ('review', 'completed')
+                    AND status = 'completed'
             """),
             {"repo": repo, "job_id": job_id},
         )

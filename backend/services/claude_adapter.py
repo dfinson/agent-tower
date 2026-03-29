@@ -394,6 +394,7 @@ class ClaudeAdapter(AgentAdapterInterface):
             AssistantMessage,
             ResultMessage,
             SystemMessage,
+            UserMessage,
         )
 
         # Guard against SDK message-parse failures for unknown event types
@@ -416,11 +417,14 @@ class ClaudeAdapter(AgentAdapterInterface):
                 elif isinstance(message, AssistantMessage):
                     self._process_assistant_message(session_id, message, seq)
 
+                elif isinstance(message, UserMessage):
+                    self._process_user_message(session_id, message, seq)
+
                 elif isinstance(message, ResultMessage):
                     self._process_result_message(session_id, message, seq)
                     break
 
-                # UserMessage, StreamEvent, TaskStartedMessage etc. are logged but not
+                # StreamEvent, TaskStartedMessage etc. are logged but not
                 # forwarded as transcript events (they are internal SDK bookkeeping).
         except asyncio.CancelledError:
             log.info("claude_consumer_cancelled", session_id=session_id)
@@ -460,6 +464,28 @@ class ClaudeAdapter(AgentAdapterInterface):
             if queue is not None:
                 queue.put_nowait(None)
 
+    def _process_user_message(
+        self,
+        session_id: str,
+        message: object,
+        seq: list[int],
+    ) -> None:
+        """Handle a UserMessage — extract ToolResultBlocks for telemetry/transcript."""
+        from claude_code_sdk import ToolResultBlock
+
+        content = getattr(message, "content", None)
+        job_id = self._session_to_job.get(session_id)
+
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, ToolResultBlock):
+                    self._process_tool_result_block(session_id, block, seq, job_id)
+        elif isinstance(content, str) and content.strip() and job_id:
+            # Human / operator follow-up message
+            self._schedule_db_write(
+                self._db_write("increment", job_id=job_id, operator_messages=1)
+            )
+
     def _process_assistant_message(
         self,
         session_id: str,
@@ -475,6 +501,20 @@ class ClaudeAdapter(AgentAdapterInterface):
 
         # Each AssistantMessage starts a new turn for grouping
         self._current_turn_id = str(uuid.uuid4())
+
+        # Each AssistantMessage = one LLM call / turn
+        if job_id:
+            turn_num = self._turn_counters.get(job_id, 0) + 1
+            self._turn_counters[job_id] = turn_num
+            self._schedule_db_write(
+                self._db_write(
+                    "increment",
+                    job_id=job_id,
+                    llm_call_count=1,
+                    total_turns=1,
+                    agent_messages=1,
+                )
+            )
 
         # Lock in the main model from the first AssistantMessage that carries one
         if job_id and model and job_id not in self._job_main_models:
@@ -807,15 +847,11 @@ class ClaudeAdapter(AgentAdapterInterface):
                     cache_read_tokens=int(cache_read),
                     cache_write_tokens=int(cache_write),
                     total_cost_usd=float(total_cost_usd),
-                    llm_call_count=1,
                     total_llm_duration_ms=int(duration_ms),
-                    total_turns=1,
                 )
             )
 
-            # Advance turn counter
-            turn_num = self._turn_counters.get(job_id, 0) + 1
-            self._turn_counters[job_id] = turn_num
+            turn_num = self._turn_counters.get(job_id, 0)
             current_phase = self._current_phases.get(job_id, "agent_reasoning")
 
             job_start = self._job_start_times.get(job_id, time.monotonic())
