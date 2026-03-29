@@ -623,6 +623,7 @@ class SSEManager:
                     progress_headline=progress_by_job.get(j.id, (None, None))[0],
                     progress_summary=progress_by_job.get(j.id, (None, None))[1],
                     model=j.model,
+                    sdk=j.sdk,
                 )
                 for j in fetched_jobs
             ]
