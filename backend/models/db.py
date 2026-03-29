@@ -153,6 +153,7 @@ class JobTelemetrySummaryRow(Base):
     cost_second_half_usd = Column(Float, nullable=False, default=0.0, server_default="0.0")
     diff_lines_added = Column(Integer, nullable=False, default=0, server_default="0")
     diff_lines_removed = Column(Integer, nullable=False, default=0, server_default="0")
+    agent_error_count = Column(Integer, nullable=False, default=0, server_default="0")
 
 
 class JobTelemetrySpanRow(Base):
@@ -182,6 +183,7 @@ class JobTelemetrySpanRow(Base):
     cost_usd = Column(Float, nullable=True)
     tool_args_json = Column(Text, nullable=True)
     result_size_bytes = Column(Integer, nullable=True)
+    error_kind = Column(String, nullable=True)
 
     __table_args__ = (
         Index("idx_spans_job", "job_id"),
