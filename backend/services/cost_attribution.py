@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from backend.models.api_schemas import ExecutionPhase
+from backend.services.tool_classifier import classify_tool
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +33,8 @@ _TOOL_CATEGORY_ACTIVITY = {
     "browser": "search_discovery",
     "shell": "command_execution",
     "agent": "delegation",
-    "other": "other_tools",
+    "system": "reasoning",
+    "other": "misc",
 }
 
 
@@ -73,7 +75,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
             spans_missing_phase += 1
 
         if span.get("span_type") == "tool":
-            cat = span.get("tool_category") or "other"
+            cat = classify_tool(span.get("name") or "") or "other"
             turn = span.get("turn_number")
             if turn is not None:
                 turn_contexts[int(turn)]["tool_categories"].append(cat)

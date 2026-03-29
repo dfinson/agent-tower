@@ -584,18 +584,23 @@ class TelemetrySummaryRepo(BaseRepository):
 
         return {
             "job": {
-                "cost": job_row.get("total_cost_usd", 0),
-                "durationMs": job_row.get("duration_ms", 0),
-                "diffLinesAdded": job_row.get("diff_lines_added", 0),
-                "diffLinesRemoved": job_row.get("diff_lines_removed", 0),
-                "sdk": job_row.get("sdk", ""),
-                "model": job_row.get("model", ""),
-                "totalTurns": job_row.get("total_turns", 0),
-                "peakTurnCostUsd": job_row.get("peak_turn_cost_usd", 0),
-                "avgTurnCostUsd": job_row.get("avg_turn_cost_usd", 0),
+                "cost": float(job_row.get("total_cost_usd") or 0),
+                "durationMs": float(job_row.get("duration_ms") or 0),
+                "diffLinesAdded": int(job_row.get("diff_lines_added") or 0),
+                "diffLinesRemoved": int(job_row.get("diff_lines_removed") or 0),
+                "sdk": job_row.get("sdk") or "",
+                "model": job_row.get("model") or "",
+                "totalTurns": int(job_row.get("total_turns") or 0),
+                "peakTurnCostUsd": float(job_row.get("peak_turn_cost_usd") or 0),
+                "avgTurnCostUsd": float(job_row.get("avg_turn_cost_usd") or 0),
                 "costFirstHalfUsd": cost_first,
                 "costSecondHalfUsd": cost_second,
             },
-            "repoAvg": avg_row if (avg_row.get("job_count") or 0) >= 3 else None,
+            "repoAvg": {
+                "jobCount": int(avg_row.get("job_count") or 0),
+                "avgCost": float(avg_row.get("avg_cost") or 0),
+                "avgDurationMs": float(avg_row.get("avg_duration_ms") or 0),
+                "avgDiffLines": float(avg_row.get("avg_diff_lines") or 0),
+            } if (avg_row.get("job_count") or 0) >= 3 else None,
             "flags": flags,
         }

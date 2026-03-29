@@ -485,6 +485,50 @@ function RepoBreakdown({ repos }: { repos: AnalyticsRepos["repos"] }) {
 // Tool Health
 // ---------------------------------------------------------------------------
 
+const toolDescriptions: Record<string, string> = {
+  bash: "Shell command execution (cd, git, make, etc.)",
+  view: "Read file contents at a path",
+  edit: "Replace text in an existing file",
+  Edit: "Replace text in an existing file (Claude)",
+  MultiEdit: "Apply multiple edits to a file in one call (Claude)",
+  create: "Create a new file with content",
+  grep: "Search file contents by pattern",
+  grep_search: "Search file contents by pattern",
+  glob: "Find files matching a glob pattern",
+  rg: "Ripgrep — fast regex search across files",
+  sql: "Execute a SQL query",
+  read_bash: "Read output from a running shell session",
+  write_bash: "Send input to a running shell session",
+  stop_bash: "Terminate a running shell session",
+  task: "Delegate a subtask to another agent",
+  Task: "Delegate a subtask to another agent (Claude)",
+  web_fetch: "Fetch a URL and return its contents",
+  WebFetch: "Fetch a URL and return its contents (Claude)",
+  read_agent: "Read output from a running sub-agent",
+  apply_patch: "Apply a unified diff patch to files",
+  skill: "Invoke a registered skill by name",
+  report_intent: "Declare the agent's intended next action",
+  store_memory: "Save a note to persistent memory",
+  memory: "Read/write persistent memory across sessions",
+  manage_todo_list: "Track tasks in a structured todo list",
+  replace_string_in_file: "Find and replace text in a file",
+  multi_replace_string_in_file: "Batch find-and-replace across files",
+  run_in_terminal: "Run a command in a persistent terminal",
+  get_terminal_output: "Read output from a background terminal",
+  semantic_search: "Natural language search across the codebase",
+  file_search: "Find files by glob pattern",
+  list_dir: "List directory contents",
+  read_file: "Read file contents at a path",
+  Read: "Read file contents (Claude)",
+  search_subagent: "Launch a fast codebase exploration agent",
+  runSubagent: "Launch a subagent for a complex task",
+  vscode_listCodeUsages: "Find all references to a symbol",
+  tool_search_tool_regex: "Search available tools by regex",
+  get_changed_files: "List files changed in git",
+  fetch_webpage: "Fetch and render a web page",
+  Computer: "Claude desktop automation tool",
+};
+
 function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
   if (!tools.length) return <p className="text-muted-foreground text-sm">No tool data yet.</p>;
   return (
@@ -514,9 +558,12 @@ function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
           {tools.map((t, i) => {
             const failures = t.failure_count || 0;
             const successRate = t.count > 0 ? ((t.count - failures) / t.count * 100) : 100;
+            const desc = toolDescriptions[t.name];
             return (
               <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
-                <td className="py-1.5 px-2 font-mono">{t.name}</td>
+                <td className="py-1.5 px-2 font-mono">
+                  {desc ? <Tooltip content={desc}><span className="cursor-help border-b border-dotted border-muted-foreground/50">{t.name}</span></Tooltip> : t.name}
+                </td>
                 <td className="text-right py-1.5 px-2">{t.count}</td>
                 <td className="text-right py-1.5 px-2">
                   {failures ? <span className="text-red-400">{failures}</span> : <span className="text-muted-foreground">0</span>}
@@ -546,7 +593,6 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
 
   const activityLabels: Record<string, string> = {
     command_execution: "Command Execution",
-    other_tools: "Other Tools",
     code_reading: "Code Reading",
     verification: "Verification",
     reasoning: "Reasoning",
@@ -555,6 +601,21 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
     search_discovery: "Search & Discovery",
     setup: "Setup",
     wrap_up: "Wrap-up",
+    misc: "Miscellaneous",
+    other_tools: "Miscellaneous",
+  };
+  const activityDescriptions: Record<string, string> = {
+    command_execution: "LLM cost for turns where the agent ran shell commands (bash, terminal, sql)",
+    code_reading: "LLM cost for turns where the agent read files (view, read_file, cat)",
+    verification: "LLM cost for turns spent running tests or verifying changes",
+    reasoning: "LLM cost for turns with no tool calls — pure thinking and planning",
+    code_changes: "LLM cost for turns where the agent edited or created files",
+    delegation: "LLM cost for turns where the agent delegated to sub-agents",
+    search_discovery: "LLM cost for turns where the agent searched code or fetched URLs",
+    setup: "LLM cost for environment setup at the start of a job",
+    wrap_up: "LLM cost for finalization and cleanup at the end of a job",
+    misc: "LLM cost for turns using tools not yet classified into a specific activity",
+    other_tools: "LLM cost for turns using tools not yet classified into a specific activity",
   };
 
   const activityRows = useMemo(
@@ -590,15 +651,20 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
                 </tr>
               </thead>
               <tbody>
-                {activityRows.map((row, i) => (
+                {activityRows.map((row, i) => {
+                  const label = activityLabels[row.bucket] || row.bucket;
+                  const desc = activityDescriptions[row.bucket];
+                  return (
                   <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
-                    <td className="py-1.5 px-2">{activityLabels[row.bucket] || row.bucket}</td>
+                    <td className="py-1.5 px-2">
+                      {desc ? <Tooltip content={desc}><span className="cursor-help border-b border-dotted border-muted-foreground/50">{label}</span></Tooltip> : label}
+                    </td>
                     <td className="text-right py-1.5 px-2">{formatUsd(Number(row.cost_usd) || 0)}</td>
                     <td className="text-right py-1.5 px-2">{row.call_count}</td>
                     <td className="text-right py-1.5 px-2">{row.job_count ?? "—"}</td>
                     <td className="text-right py-1.5 px-2">{formatUsd(Number(row.avg_cost_per_job) || 0)}</td>
                   </tr>
-                ))}
+                  );})}
               </tbody>
             </table>
           </div>
