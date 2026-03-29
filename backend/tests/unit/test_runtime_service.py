@@ -16,7 +16,7 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Callable
     from pathlib import Path
 
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -255,6 +255,21 @@ async def _create_db_job(
         await session.commit()
 
 
+async def _wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout: float = 5.0,
+    interval: float = 0.05,
+    msg: str = "",
+) -> None:
+    """Poll *predicate* every *interval* seconds; raise if *timeout* expires."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while not predicate():
+        if asyncio.get_event_loop().time() >= deadline:
+            raise AssertionError(msg or f"Condition not met within {timeout}s")
+        await asyncio.sleep(interval)
+
+
 @pytest.mark.asyncio
 async def test_create_followup_job_uses_parent_handoff_context(runtime: RuntimeService) -> None:
     parent = _make_job(job_id="parent", state=JobState.review)
@@ -353,10 +368,8 @@ class TestCapacityAndQueueing:
         await _create_db_job(session_factory, job)
 
         await runtime.start_or_enqueue(job)
-        # Give the asyncio task time to start and finish
-        await asyncio.sleep(0.3)
         # The FakeAgentAdapter finishes fast (delay=0), so the job should complete
-        assert runtime.running_count == 0  # completed
+        await _wait_until(lambda: runtime.running_count == 0, msg="job did not complete")
 
     async def test_enqueue_when_at_capacity(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
@@ -494,7 +507,10 @@ class TestJobLifecycle:
         await _create_db_job(session_factory, job)
 
         await runtime.start_or_enqueue(job)
-        await asyncio.sleep(0.5)
+        await _wait_until(
+            lambda: any(e.kind == DomainEventKind.job_review for e in published),
+            msg="job_review event not published",
+        )
 
         # Should have log, transcript events + job_review
         # (diff_updated events now come from DiffService which requires a real git worktree)
@@ -514,12 +530,11 @@ class TestJobLifecycle:
         await _create_db_job(session_factory, job)
 
         await runtime.start_or_enqueue(job)
-        await asyncio.sleep(0.1)
-        assert runtime.running_count == 1
+        await _wait_until(lambda: runtime.running_count == 1, msg="job did not start")
+        await asyncio.sleep(0.2)  # let task progress past setup
 
         await runtime.cancel(job.id)
-        await asyncio.sleep(0.3)
-        assert runtime.running_count == 0
+        await _wait_until(lambda: runtime.running_count == 0, msg="job did not stop after cancel")
 
     async def test_cancel_queued_job(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
@@ -625,8 +640,12 @@ class TestJobLifecycle:
         result = await runtime.send_message(job.id, "retry please")
         assert result is True
 
-        # Give the resumed task time to run
-        await asyncio.sleep(0.5)
+        # Wait for the resumed task to finish
+        await _wait_until(
+            lambda: any(e.kind == DomainEventKind.session_resumed for e in published),
+            msg="session_resumed event not published",
+        )
+        await _wait_until(lambda: runtime.running_count == 0, msg="resumed job did not finish")
 
         kinds = [e.kind for e in published]
         assert DomainEventKind.job_failed not in kinds
@@ -674,8 +693,8 @@ class TestJobLifecycle:
         await _create_db_job(session_factory, job)
 
         await runtime.start_or_enqueue(job)
-        await asyncio.sleep(0.1)
-        assert runtime.running_count == 1
+        await _wait_until(lambda: runtime.running_count == 1, msg="job did not start")
+        await asyncio.sleep(0.2)  # let task progress past setup
 
         result = await runtime.pause_job(job.id)
         assert result is True
@@ -702,7 +721,8 @@ class TestJobLifecycle:
         await _create_db_job(session_factory, job)
 
         await runtime.start_or_enqueue(job)
-        await asyncio.sleep(0.1)
+        await _wait_until(lambda: runtime.running_count == 1, msg="job did not start")
+        await asyncio.sleep(0.2)  # let task progress past setup
 
         await runtime.pause_job(job.id)
         assert len(slow_adapter._paused) == 1
@@ -760,7 +780,10 @@ class TestResumeFallback:
         resumed = await runtime.resume_job(job.id, "resolve the merge conflict")
         assert resumed.state == JobState.running
 
-        await asyncio.sleep(0.2)
+        await _wait_until(
+            lambda: any(e.kind == DomainEventKind.job_completed for e in published),
+            msg="job_completed event not published",
+        )
 
         merge_service.resolve_job.assert_awaited_once()
 
@@ -853,7 +876,7 @@ class TestResumeFallback:
         await _create_db_job(session_factory, job)
 
         await runtime.resume_job(job.id, None)
-        await asyncio.sleep(0.2)
+        await _wait_until(lambda: len(adapter.configs) >= 2, msg="adapter did not receive 2 configs")
 
         assert len(adapter.configs) == 2
         assert adapter.configs[0].prompt == "Continue the current task from where you left off and finish it."
@@ -928,7 +951,7 @@ class TestResumeFallback:
         resumed = await runtime.resume_job(job.id, "continue")
         assert resumed.state == JobState.running
 
-        await asyncio.sleep(0.2)
+        await _wait_until(lambda: len(adapter.configs) >= 2, msg="adapter did not receive 2 configs")
 
         assert len(adapter.configs) == 2
         assert adapter.configs[0].resume_sdk_session_id == "stale-sdk-session"
@@ -970,7 +993,8 @@ class TestResumeFallback:
         await _create_db_job(session_factory, job)
 
         await runtime.resume_job(job.id, "resume")
-        await asyncio.sleep(0.2)
+        await _wait_until(lambda: len(adapter.configs) >= 1, msg="adapter did not receive config")
+        await _wait_until(lambda: runtime.running_count == 0, msg="job did not finish")
 
         assert len(adapter.configs) == 1
 
@@ -1059,7 +1083,10 @@ class TestRecovery:
         await _create_db_job(session_factory, job)
 
         await runtime.recover_on_startup()
-        await asyncio.sleep(0.5)
+        await _wait_until(
+            lambda: any(e.kind == DomainEventKind.job_review for e in published),
+            msg="job_review event not published after recovery",
+        )
 
         async with session_factory() as session:
             from backend.persistence.job_repo import JobRepository
@@ -1109,7 +1136,7 @@ class TestRecovery:
         await _create_db_job(session_factory, job)
 
         await runtime.recover_on_startup()
-        await asyncio.sleep(0.5)
+        await _wait_until(lambda: runtime.running_count == 0, msg="recovered job did not finish")
 
         # The queued job should have been started and completed (fast adapter)
         async with session_factory() as session:
@@ -1137,8 +1164,8 @@ class TestShutdown:
         await _create_db_job(session_factory, job)
 
         await runtime.start_or_enqueue(job)
-        await asyncio.sleep(0.1)
-        assert runtime.running_count == 1
+        await _wait_until(lambda: runtime.running_count == 1, msg="job did not start")
+        await asyncio.sleep(0.2)  # let task progress past setup
 
         await runtime.shutdown()
         # After shutdown, tasks should be cleaned up
@@ -1417,7 +1444,8 @@ class TestConcurrencyGuards:
         await _create_db_job(session_factory, job)
 
         await runtime.start_or_enqueue(job)
-        await asyncio.sleep(0.1)
+        await _wait_until(lambda: runtime.running_count == 1, msg="job did not start")
+        await asyncio.sleep(0.2)  # let task progress past setup
 
         # Transition to canceled via DB directly (simulating route handler)
         async with session_factory() as session:
@@ -1428,7 +1456,7 @@ class TestConcurrencyGuards:
         # Now cancel via runtime — the CancelledError handler should see
         # that the job is already canceled and skip the transition
         await runtime.cancel(job.id)
-        await asyncio.sleep(0.3)
+        await _wait_until(lambda: runtime.running_count == 0, msg="job did not stop after cancel")
 
         # Should complete without errors
         assert runtime.running_count == 0
@@ -1582,7 +1610,10 @@ class TestErrorEventCausesFailure:
         await _create_db_job(session_factory, job)
 
         await runtime.start_or_enqueue(job)
-        await asyncio.sleep(0.5)
+        await _wait_until(
+            lambda: any(e.kind == DomainEventKind.job_failed for e in published),
+            msg="job_failed event not published",
+        )
 
         # Should have a job_failed event, NOT job_review
         kinds = [e.kind for e in published]
