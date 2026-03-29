@@ -33,14 +33,14 @@ We use the two demo repos: **demo-issue-tracker-api** (Python/FastAPI) and
 | # | Repo | SDK | Prompt | Target state | Notes |
 |---|------|-----|--------|--------------|-------|
 | 1 | demo-issue-tracker-api | copilot | "Add input validation to the create ticket endpoint and cover it with tests" | **completed** → archive | Provides diff content for diff viewer shot |
-| 2 | demo-support-dashboard | claude | "Add inline validation to the create ticket form with error messages" | **completed** | Shows Claude SDK in the mix |
-| 3 | demo-issue-tracker-api | copilot | "Exclude archived tickets from the default list response and update the OpenAPI docs" | **review** | Stays in review for merge GIF |
-| 4 | demo-support-dashboard | copilot | "Fix ticket search so it matches customer email as well as subject" | **completed** → archive | Background volume |
+| 2 | demo-support-dashboard | claude | "Add a priority badge column to the ticket table with color-coded labels" | **completed** | Shows Claude SDK in the mix |
+| 3 | demo-issue-tracker-api | copilot | "Add pagination to the ticket list endpoint with limit and offset query params" | **review** | Stays in review for merge GIF |
+| 4 | demo-support-dashboard | copilot | "Add a dark mode toggle that persists the preference in localStorage" | **completed** → archive | Background volume |
 | 5 | demo-issue-tracker-api | claude | "Tighten error handling around ticket archival — return proper 404/409 codes" | **review** | Second review-state job visible on dashboard |
 | 6 | demo-support-dashboard | copilot | "Persist the selected status filter in the URL query string" | **running** | Live job #1 for transcript streaming capture |
 | 7 | demo-issue-tracker-api | copilot | "Add customer email search to the ticket list endpoint and add tests" | **running** | Live job #2 — shows concurrent execution |
-| 8 | demo-support-dashboard | claude | "Improve the empty state copy and illustration for filtered results with zero matches" | **running** (approval_required) | Triggers approval banner for capture |
-| 9 | demo-issue-tracker-api | copilot | "Add pagination to the ticket list endpoint with limit/offset query params" | **queued** | Shows queue when at capacity |
+| 8 | demo-support-dashboard | claude | "Add keyboard shortcut hints to the search input and status filter" | **running** (approval_required) | Triggers approval banner for capture |
+| 9 | demo-issue-tracker-api | copilot | "Return 409 Conflict when archiving an already-archived ticket and add a test" | **queued** | Shows queue when at capacity |
 | 10 | demo-support-dashboard | copilot | "Add a loading skeleton to the ticket list while the API request is in flight" | **queued** | Second queued job |
 
 **State distribution on dashboard at capture time:**
