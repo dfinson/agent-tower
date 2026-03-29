@@ -652,9 +652,10 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
 
   const args = parseArgs(entry.toolArgs);
 
-  // Use toolDisplay (backend-truncated) for the collapsed label, consistent with ToolStep.
-  // Strip the tool prefix the backend formatter prepends (e.g. "Task: …" → "…").
-  const displaySource = entry.toolDisplay
+  // Prefer the untruncated label for responsive CSS truncation; fall back to
+  // char-capped toolDisplay for older entries that predate toolDisplayFull.
+  const displaySource = entry.toolDisplayFull
+    ?? entry.toolDisplay
     ?? (typeof args.description === "string" ? args.description : null)
     ?? (typeof args.prompt === "string" ? args.prompt : null)
     ?? (typeof args.query === "string" ? args.query : null)
@@ -677,7 +678,7 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
     : "text-violet-400/70";
 
   return (
-    <div className="relative pl-5">
+    <div className="relative pl-4 sm:pl-5">
       {/* Icon column — pulse lives here only, not duplicated on the icon */}
       <div className={cn(
         "absolute left-0 top-[3px] w-[15px] h-[15px] flex items-center justify-center",
@@ -691,9 +692,9 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
         onClick={() => !isRunning && setExpanded(!expanded)}
         className={cn("w-full text-left group", isRunning && "cursor-default")}
       >
-        <div className="flex items-baseline gap-2 py-0.5">
+        <div className="flex items-baseline gap-2 py-0.5 min-w-0">
           <span className={cn(
-            "text-xs font-mono",
+            "text-xs font-mono truncate min-w-0 flex-1",
             failed ? "text-red-400"
               : isRunning || isActive ? "text-violet-400"
               : "text-foreground/80",
@@ -701,12 +702,12 @@ function SubAgentStep({ entry, isActive }: { entry: TranscriptEntry; isActive: b
             {label}{isRunning ? "…" : ""}
           </span>
           {entry.toolDurationMs != null && (
-            <span className="text-[10px] text-muted-foreground/60">
+            <span className="text-[10px] text-muted-foreground/60 shrink-0">
               {formatDuration(entry.toolDurationMs)}
             </span>
           )}
           {failed && entry.toolIssue && (
-            <span className="text-[10px] text-red-400 truncate max-w-[200px]">
+            <span className="text-[10px] text-red-400 truncate max-w-[200px] shrink-0">
               {entry.toolIssue}
             </span>
           )}
@@ -771,11 +772,13 @@ function ToolStep({ entry, isActive }: {
   const [expanded, setExpanded] = useState(false);
   const failed = entry.toolSuccess === false;
   const isRunning = entry.role === "tool_running";
-  const label = entry.toolDisplay ?? entry.toolName ?? entry.content;
+  // Prefer the untruncated label so CSS handles responsive ellipsing; fall back
+  // to the char-capped toolDisplay for entries that predate toolDisplayFull.
+  const label = entry.toolDisplayFull ?? entry.toolDisplay ?? entry.toolName ?? entry.content;
   const icon = resolveToolIcon(entry.toolName);
 
   return (
-    <div className="relative pl-5">
+    <div className="relative pl-4 sm:pl-5">
       <div className={cn(
         "absolute left-0 top-[3px] w-[15px] h-[15px] flex items-center justify-center",
         (isActive || isRunning) && "animate-pulse",
@@ -790,9 +793,9 @@ function ToolStep({ entry, isActive }: {
         onClick={() => !isRunning && setExpanded(!expanded)}
         className={cn("w-full text-left group", isRunning && "cursor-default")}
       >
-        <div className="flex items-baseline gap-2 py-0.5">
+        <div className="flex items-baseline gap-2 py-0.5 min-w-0">
           <span className={cn(
-            "text-xs font-mono",
+            "text-xs font-mono truncate min-w-0 flex-1",
             failed ? "text-red-400"
               : (isActive || isRunning) ? "text-blue-400"
               : "text-foreground/80",
@@ -800,12 +803,12 @@ function ToolStep({ entry, isActive }: {
             {label}{isRunning ? "…" : ""}
           </span>
           {entry.toolDurationMs != null && (
-            <span className="text-[10px] text-muted-foreground/60">
+            <span className="text-[10px] text-muted-foreground/60 shrink-0">
               {formatDuration(entry.toolDurationMs)}
             </span>
           )}
           {failed && entry.toolIssue && (
-            <span className="text-[10px] text-red-400 truncate max-w-[200px]">
+            <span className="text-[10px] text-red-400 truncate max-w-[200px] shrink-0">
               {entry.toolIssue}
             </span>
           )}
@@ -820,7 +823,7 @@ function ToolStepList({ calls, isActive }: { calls: TranscriptEntry[]; isActive:
   // Filter out report_intent — it's extracted as the intent label, not a visible tool step
   const visibleCalls = calls.filter((c) => c.toolName !== "report_intent");
   return (
-    <div className="relative ml-1">
+    <div className="relative sm:ml-1">
       <div className="absolute left-[7px] top-2 bottom-2 w-px border-l border-dotted border-border/60" />
       <div className="space-y-0.5">
         {visibleCalls.map((call, i) => isSubagentTool(call.toolName) ? (
@@ -933,7 +936,7 @@ function AgentTurn({
   const isActive = !!isLast && !msg;
 
   return (
-    <div className="flex gap-3 py-2">
+    <div className="flex gap-1.5 sm:gap-3 py-2">
       <div className="w-5 h-5 rounded-full bg-blue-900/50 flex items-center justify-center shrink-0 mt-0.5">
         <SdkIcon sdk={sdk} size={12} fallback={<Bot size={12} />} />
       </div>
@@ -1183,7 +1186,7 @@ export function TranscriptPanel({
   return (
     <div className="flex flex-col h-full overflow-hidden rounded-lg border border-border bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border shrink-0">
         <span className="text-sm font-semibold text-muted-foreground">Transcript</span>
         <div className="flex items-center gap-2">
           {searchOpen ? (
@@ -1258,7 +1261,7 @@ export function TranscriptPanel({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div className="p-3">
+                  <div className="p-1.5 sm:p-3">
                   {item.type === "divider" && (
                     <div className="flex items-center gap-3 py-1">
                       <div className="flex-1 h-px bg-border" />

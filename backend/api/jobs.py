@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any, Callable
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
@@ -37,6 +37,7 @@ from backend.services.job_service import JobService, ProgressPreview
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
+from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 from backend.services.utility_session import UtilitySessionService
 
 if TYPE_CHECKING:
@@ -45,6 +46,42 @@ if TYPE_CHECKING:
 from backend.models.domain import JobState, PermissionMode, Resolution
 
 router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
+
+
+def _resolve_tool_display(payload: dict[str, Any]) -> str | None:
+    """Return tool_display from payload, recomputing it from args if missing.
+
+    Stored events pre-dating the tool_display field have no value in their
+    payload, which causes the frontend to fall back to the raw tool name
+    (e.g. just "Edit" instead of "Edit src/app.py").
+    """
+    return _resolve_display_field(payload, "tool_display", format_tool_display)
+
+
+def _resolve_tool_display_full(payload: dict[str, Any]) -> str | None:
+    """Like _resolve_tool_display but returns the untruncated label.
+
+    Recomputes tool_display_full from args when absent (e.g. events stored
+    before this field was introduced).
+    """
+    return _resolve_display_field(payload, "tool_display_full", format_tool_display_full)
+
+
+def _resolve_display_field(
+    payload: dict[str, Any],
+    field: str,
+    formatter: Callable[..., str],
+) -> str | None:
+    stored = payload.get(field)
+    if stored is not None:
+        return stored
+    tool_name: str | None = payload.get("tool_name")
+    if not tool_name:
+        return None
+    tool_args: str | None = payload.get("tool_args")
+    tool_result = payload.get("tool_result") or None  # normalise empty string → None
+    tool_success: bool = payload.get("tool_success") is not False
+    return formatter(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success)
 
 
 def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) -> JobResponse:
@@ -75,6 +112,7 @@ def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) 
         max_turns=job.max_turns,
         verify_prompt=job.verify_prompt,
         self_review_prompt=job.self_review_prompt,
+        parent_job_id=job.parent_job_id,
     )
 
 
@@ -247,7 +285,10 @@ async def continue_job(
     runtime_service: FromDishka[RuntimeService],
 ) -> CreateJobResponse:
     """Create a follow-up job with a new instruction and parent-job handoff context."""
-    job = await runtime_service.create_followup_job(job_id, body.instruction)
+    try:
+        job = await runtime_service.create_followup_job(job_id, body.instruction)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return CreateJobResponse(
         id=job.id,
@@ -405,7 +446,8 @@ async def get_job_transcript(
             tool_issue=event.payload.get("tool_issue"),
             tool_intent=event.payload.get("tool_intent"),
             tool_title=event.payload.get("tool_title"),
-            tool_display=event.payload.get("tool_display"),
+            tool_display=_resolve_tool_display(event.payload),
+            tool_display_full=_resolve_tool_display_full(event.payload),
             tool_duration_ms=event.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(event.payload.get("turn_id") or ""),
         )
@@ -510,7 +552,8 @@ async def get_job_snapshot(
             tool_issue=e.payload.get("tool_issue"),
             tool_intent=e.payload.get("tool_intent"),
             tool_title=e.payload.get("tool_title"),
-            tool_display=e.payload.get("tool_display"),
+            tool_display=_resolve_tool_display(e.payload),
+            tool_display_full=_resolve_tool_display_full(e.payload),
             tool_duration_ms=e.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
         )

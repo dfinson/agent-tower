@@ -481,7 +481,7 @@ class RuntimeService:
                 session_config = dataclasses.replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
 
             task = asyncio.create_task(
-                self._run_job(job.id, agent_session, session_config, session_number=job.session_count),
+                self._run_job_guarded(job.id, agent_session, session_config, session_number=job.session_count),
                 name=f"job-{job.id}",
             )
         except Exception:
@@ -499,6 +499,33 @@ class RuntimeService:
         # echo of the initial prompt is discarded (shown via the synthetic entry).
         self._echo_suppress.setdefault(job.id, set()).add(session_config.prompt)
         log.info("job_started", job_id=job.id)
+
+    async def _run_job_guarded(
+        self,
+        job_id: str,
+        agent_session: _AgentSession,
+        config: SessionConfig,
+        session_number: int = 1,
+    ) -> None:
+        """Wrapper that guarantees ``_cleanup_job_state`` runs even when
+        ``CancelledError`` hits before the inner try/except in ``_run_job``."""
+        try:
+            await self._run_job(job_id, agent_session, config, session_number=session_number)
+        except asyncio.CancelledError:
+            if self._shutting_down:
+                log.info("shutdown_task_cancelled", job_id=job_id)
+            else:
+                log.info("job_state_changed", job_id=job_id, new_state="canceled")
+        finally:
+            log.debug("_run_job_guarded_finally", job_id=job_id, in_tasks=job_id in self._tasks)
+            # The inner _run_job finally handles cleanup in the normal case.
+            # This catches the case where CancelledError hit during setup,
+            # before the inner try was entered.
+            if job_id in self._tasks:
+                heartbeat = self._heartbeat_tasks.pop(job_id, None)
+                if heartbeat:
+                    heartbeat.cancel()
+                await self._cleanup_job_state(job_id)
 
     async def _run_job(
         self,
@@ -722,54 +749,6 @@ class RuntimeService:
                     )
                     await session.commit()
 
-            elif self._merge_service is not None and self._config.completion.strategy != "manual":
-                # Initial auto-resolution: apply the configured completion strategy
-                # (auto_merge or pr_only) without waiting for operator action.
-                from backend.persistence.job_repo import JobRepository
-                from backend.services.merge_service import MergeStatus
-
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    current_job = await svc.get_job(job_id)
-                    if current_job is None:
-                        raise ValueError(f"Job {job_id} not found before auto-resolution")
-
-                    log.info(
-                        "job_attempting_auto_resolution",
-                        job_id=job_id,
-                        strategy=self._config.completion.strategy,
-                    )
-                    merge_result = await self._merge_service.try_merge_back(
-                        job_id=job_id,
-                        repo_path=current_job.repo,
-                        worktree_path=current_job.worktree_path,
-                        branch=current_job.branch,
-                        base_ref=current_job.base_ref,
-                        prompt=current_job.prompt,
-                    )
-                    _status_map = {
-                        MergeStatus.merged: Resolution.merged,
-                        MergeStatus.pr_created: Resolution.pr_created,
-                        MergeStatus.conflict: Resolution.conflict,
-                        MergeStatus.skipped: Resolution.unresolved,
-                        MergeStatus.error: Resolution.unresolved,
-                    }
-                    _auto_resolution = _status_map.get(merge_result.status, Resolution.unresolved)
-                    final_resolution = _auto_resolution
-
-                    job_repo = JobRepository(session)
-                    await job_repo.update_resolution(job_id, _auto_resolution, pr_url=merge_result.pr_url)
-
-                    _terminal_resolutions = (Resolution.merged, Resolution.pr_created, Resolution.discarded)
-                    if _auto_resolution in _terminal_resolutions:
-                        await svc.transition_state(job_id, JobState.completed)
-                        resolution_event = svc.build_job_resolved_event(
-                            job_id,
-                            _auto_resolution,
-                            pr_url=merge_result.pr_url,
-                        )
-
-                    await session.commit()
 
             if resolution_event is not None:
                 await self._event_bus.publish(resolution_event)
@@ -894,6 +873,19 @@ class RuntimeService:
                         await session.commit()
                 except Exception:
                     log.warning("cost_attribution_failed", job_id=job_id, exc_info=True)
+
+                # Batch-classify tool errors via cheap LLM call
+                if self._utility_session is not None:
+                    try:
+                        async with self._session_factory() as session:
+                            from backend.services.tool_error_classifier import classify_tool_errors_batch
+
+                            await classify_tool_errors_batch(
+                                session, job_id, self._utility_session.complete
+                            )
+                            await session.commit()
+                    except Exception:
+                        log.debug("tool_error_classification_failed", job_id=job_id, exc_info=True)
 
                 # Run statistical analysis (fire-and-forget, non-blocking)
                 try:
@@ -1901,9 +1893,12 @@ class RuntimeService:
             return await self._build_resume_handoff_prompt_for_job(session, job, instruction, job.session_count)
 
     async def create_followup_job(self, job_id: str, instruction: str) -> Job:
-        """Create and start a new follow-up job with parent-job handoff context."""
+        """Create and start a new follow-up job with parent-job handoff context.
+
+        Raises ValueError if the parent job has already been merged — once merged,
+        the work is in the base branch and a follow-up must be started as a fresh job.
+        """
         from backend.models.domain import PermissionMode
-        from backend.services.job_service import JobNotFoundError
 
         normalized_instruction = instruction.strip()
         if not normalized_instruction:
@@ -1912,8 +1907,20 @@ class RuntimeService:
         async with self._session_factory() as session:
             svc = self._make_job_service(session)
             original = await svc.get_job(job_id)
-            if original is None:
-                raise JobNotFoundError(f"Job {job_id} does not exist.")
+
+            # Block follow-ups on already-merged jobs — the work is already in the
+            # base branch, so a new job should be started from scratch instead.
+            _merged_resolutions = (Resolution.merged, Resolution.pr_created)
+            if original.resolution in _merged_resolutions:
+                raise ValueError(
+                    f"Job {job_id} has already been merged (resolution={original.resolution.value}). "
+                    "Start a new job instead of creating a follow-up."
+                )
+
+            # Build a naming context hint so the LLM can produce a name that
+            # reflects both the new instruction AND its follow-up relationship.
+            parent_label = original.title or original.id
+            parent_job_context = f"This is a follow-up task continuing work from '{parent_label}' (parent job: {original.id})."
 
             override_prompt = await self._build_followup_handoff_prompt_for_job(
                 session,
@@ -1932,6 +1939,8 @@ class RuntimeService:
                 max_turns=original.max_turns,
                 verify_prompt=original.verify_prompt,
                 self_review_prompt=original.self_review_prompt,
+                parent_job_id=original.id,
+                parent_job_context=parent_job_context,
             )
             await session.commit()
 

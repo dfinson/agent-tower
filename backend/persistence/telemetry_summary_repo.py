@@ -86,6 +86,7 @@ class TelemetrySummaryRepo(BaseRepository):
         retry_cost_usd: float = 0.0,
         file_read_count: int = 0,
         file_write_count: int = 0,
+        agent_error_count: int = 0,
     ) -> None:
         """Atomically increment counters for a job.  Idempotent per field."""
         now = datetime.now(UTC).isoformat()
@@ -114,6 +115,7 @@ class TelemetrySummaryRepo(BaseRepository):
                     retry_cost_usd        = retry_cost_usd + :retry_cost_usd,
                     file_read_count       = file_read_count + :file_read_count,
                     file_write_count      = file_write_count + :file_write_count,
+                    agent_error_count     = agent_error_count + :agent_error_count,
                     updated_at            = :now
                 WHERE job_id = :job_id
             """),
@@ -141,6 +143,7 @@ class TelemetrySummaryRepo(BaseRepository):
                 "retry_cost_usd": retry_cost_usd,
                 "file_read_count": file_read_count,
                 "file_write_count": file_write_count,
+                "agent_error_count": agent_error_count,
                 "now": now,
             },
         )
@@ -325,6 +328,7 @@ class TelemetrySummaryRepo(BaseRepository):
                     COALESCE(SUM(premium_requests), 0) as total_premium_requests,
                     COALESCE(SUM(tool_call_count), 0) as total_tool_calls,
                     COALESCE(SUM(tool_failure_count), 0) as total_tool_failures,
+                    COALESCE(SUM(agent_error_count), 0) as total_agent_errors,
                     COALESCE(SUM(cache_read_tokens), 0) as total_cache_read,
                     COALESCE(SUM(input_tokens), 0) as total_input_tokens
                 FROM job_telemetry_summary
@@ -420,3 +424,178 @@ class TelemetrySummaryRepo(BaseRepository):
             """),
         )
         return [dict(r) for r in result.mappings().all()]
+
+    # ------------------------------------------------------------------
+    # Scorecard / resolution-joined queries
+    # ------------------------------------------------------------------
+
+    async def scorecard(self, *, period_days: int = 7) -> dict[str, Any]:
+        """Budget per SDK, activity with resolution, quota, cost trend.
+
+        Joins ``jobs`` table for resolution data that telemetry_summary lacks.
+        """
+        activity = await self._session.execute(
+            text(f"""
+                SELECT
+                    COUNT(*) as total_jobs,
+                    SUM(CASE WHEN j.state = 'running' THEN 1 ELSE 0 END) as running,
+                    SUM(CASE WHEN j.state = 'review' THEN 1 ELSE 0 END) as in_review,
+                    SUM(CASE WHEN j.resolution = 'merged' THEN 1 ELSE 0 END) as merged,
+                    SUM(CASE WHEN j.resolution = 'pr_created' THEN 1 ELSE 0 END) as pr_created,
+                    SUM(CASE WHEN j.resolution = 'discarded' THEN 1 ELSE 0 END) as discarded,
+                    SUM(CASE WHEN j.state = 'failed' THEN 1 ELSE 0 END) as failed,
+                    SUM(CASE WHEN j.state = 'canceled' THEN 1 ELSE 0 END) as cancelled
+                FROM jobs j
+                WHERE j.created_at >= datetime('now', '-{int(period_days)} days')
+            """),
+        )
+        activity_row = dict(activity.mappings().first() or {})
+
+        budget = await self._session.execute(
+            text(f"""
+                SELECT
+                    t.sdk,
+                    COALESCE(SUM(t.total_cost_usd), 0) as total_cost_usd,
+                    COALESCE(SUM(t.premium_requests), 0) as premium_requests,
+                    COUNT(*) as job_count,
+                    COALESCE(AVG(t.total_cost_usd), 0) as avg_cost_per_job,
+                    COALESCE(AVG(t.duration_ms), 0) as avg_duration_ms
+                FROM job_telemetry_summary t
+                WHERE t.created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY t.sdk
+            """),
+        )
+        budget_rows = [dict(r) for r in budget.mappings().all()]
+
+        quota_row = await self._session.execute(
+            text("""
+                SELECT quota_json
+                FROM job_telemetry_summary
+                WHERE sdk = 'copilot' AND quota_json IS NOT NULL AND quota_json != ''
+                ORDER BY updated_at DESC
+                LIMIT 1
+            """),
+        )
+        quota_json_raw = None
+        qr = quota_row.mappings().first()
+        if qr:
+            quota_json_raw = qr.get("quota_json")
+
+        cost_trend = await self.cost_by_day(period_days=period_days)
+
+        return {
+            "activity": activity_row,
+            "budget": budget_rows,
+            "quotaJson": quota_json_raw,
+            "costTrend": cost_trend,
+        }
+
+    async def model_comparison(
+        self, *, period_days: int = 30, repo: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Per-model stats joined with resolution data from jobs table."""
+        repo_filter = ""
+        params: dict[str, Any] = {}
+        if repo:
+            repo_filter = "AND j.repo = :repo"
+            params["repo"] = repo
+
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    t.model,
+                    t.sdk,
+                    COUNT(*) as job_count,
+                    COALESCE(AVG(t.total_cost_usd), 0) as avg_cost,
+                    COALESCE(AVG(t.duration_ms), 0) as avg_duration_ms,
+                    COALESCE(SUM(t.total_cost_usd), 0) as total_cost_usd,
+                    COALESCE(SUM(t.premium_requests), 0) as premium_requests,
+                    SUM(CASE WHEN j.resolution = 'merged' THEN 1 ELSE 0 END) as merged,
+                    SUM(CASE WHEN j.resolution = 'pr_created' THEN 1 ELSE 0 END) as pr_created,
+                    SUM(CASE WHEN j.resolution = 'discarded' THEN 1 ELSE 0 END) as discarded,
+                    SUM(CASE WHEN j.state = 'failed' THEN 1 ELSE 0 END) as failed,
+                    AVG(CASE WHEN j.verify = 1 THEN t.total_turns ELSE NULL END) as avg_verify_turns,
+                    SUM(CASE WHEN j.verify = 1 THEN 1 ELSE 0 END) as verify_job_count,
+                    COALESCE(AVG(t.diff_lines_added + t.diff_lines_removed), 0) as avg_diff_lines,
+                    CASE WHEN SUM(t.input_tokens) > 0
+                        THEN COALESCE(SUM(t.cache_read_tokens), 0) * 1.0 / SUM(t.input_tokens)
+                        ELSE 0 END as cache_hit_rate,
+                    CASE WHEN COUNT(*) > 0
+                        THEN COALESCE(SUM(t.total_cost_usd), 0) / COUNT(*)
+                        ELSE 0 END as cost_per_job,
+                    CASE WHEN SUM(t.duration_ms) > 0
+                        THEN COALESCE(SUM(t.total_cost_usd), 0) / (SUM(t.duration_ms) / 60000.0)
+                        ELSE 0 END as cost_per_minute,
+                    CASE WHEN SUM(t.total_turns) > 0
+                        THEN COALESCE(SUM(t.total_cost_usd), 0) / SUM(t.total_turns)
+                        ELSE 0 END as cost_per_turn,
+                    CASE WHEN SUM(t.tool_call_count) > 0
+                        THEN COALESCE(SUM(t.total_cost_usd), 0) / SUM(t.tool_call_count)
+                        ELSE 0 END as cost_per_tool_call
+                FROM job_telemetry_summary t
+                JOIN jobs j ON j.id = t.job_id
+                WHERE t.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND t.model != ''
+                    {repo_filter}
+                GROUP BY t.model, t.sdk
+                ORDER BY COUNT(*) DESC
+            """),
+            params,
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def job_context(self, job_id: str) -> dict[str, Any] | None:
+        """Job telemetry plus comparison against repo averages."""
+        job_row = await self.get(job_id)
+        if not job_row:
+            return None
+
+        repo = job_row.get("repo", "")
+        repo_avg = await self._session.execute(
+            text("""
+                SELECT
+                    COUNT(*) as job_count,
+                    COALESCE(AVG(total_cost_usd), 0) as avg_cost,
+                    COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+                    COALESCE(AVG(diff_lines_added + diff_lines_removed), 0) as avg_diff_lines
+                FROM job_telemetry_summary
+                WHERE repo = :repo
+                    AND job_id != :job_id
+                    AND status IN ('review', 'completed')
+            """),
+            {"repo": repo, "job_id": job_id},
+        )
+        avg_row = dict(repo_avg.mappings().first() or {})
+
+        flags: list[dict[str, str]] = []
+        cost_first = job_row.get("cost_first_half_usd") or 0
+        cost_second = job_row.get("cost_second_half_usd") or 0
+        if cost_first > 0 and cost_second > 1.5 * cost_first:
+            pct = round(cost_second / (cost_first + cost_second) * 100)
+            flags.append({"type": "turn_escalation", "message": f"Cost escalation: {pct}% of spend in second half of turns"})
+
+        reread_count = job_row.get("file_reread_count") or 0
+        if reread_count > 10:
+            flags.append({"type": "high_rereads", "message": f"High file re-reads: {reread_count} re-reads detected"})
+
+        tool_failures = job_row.get("tool_failure_count") or 0
+        if tool_failures > 0:
+            flags.append({"type": "tool_failures", "message": f"{tool_failures} tool failure{'s' if tool_failures > 1 else ''} during this job"})
+
+        return {
+            "job": {
+                "cost": job_row.get("total_cost_usd", 0),
+                "durationMs": job_row.get("duration_ms", 0),
+                "diffLinesAdded": job_row.get("diff_lines_added", 0),
+                "diffLinesRemoved": job_row.get("diff_lines_removed", 0),
+                "sdk": job_row.get("sdk", ""),
+                "model": job_row.get("model", ""),
+                "totalTurns": job_row.get("total_turns", 0),
+                "peakTurnCostUsd": job_row.get("peak_turn_cost_usd", 0),
+                "avgTurnCostUsd": job_row.get("avg_turn_cost_usd", 0),
+                "costFirstHalfUsd": cost_first,
+                "costSecondHalfUsd": cost_second,
+            },
+            "repoAvg": avg_row if (avg_row.get("job_count") or 0) >= 3 else None,
+            "flags": flags,
+        }

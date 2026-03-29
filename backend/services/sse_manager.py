@@ -268,6 +268,7 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "tool_intent": ("tool_intent", None),
             "tool_title": ("tool_title", None),
             "tool_display": ("tool_display", None),
+            "tool_display_full": ("tool_display_full", None),
             "tool_duration_ms": ("tool_duration_ms", None),
         },
     ),

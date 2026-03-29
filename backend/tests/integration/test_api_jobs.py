@@ -408,6 +408,7 @@ class TestJobControl:
         fake_job.prompt = "Test prompt"
         fake_job.title = None
         fake_job.state = "running"
+        fake_job.sdk = "copilot"
         fake_job.base_ref = "main"
         fake_job.worktree_path = "/tmp/wt"
         fake_job.branch = "fix/branch"
@@ -427,6 +428,7 @@ class TestJobControl:
         fake_job.max_turns = None
         fake_job.verify_prompt = None
         fake_job.self_review_prompt = None
+        fake_job.parent_job_id = None
         mock_runtime_service.resume_job.return_value = fake_job
 
         resp = await client.post(
@@ -476,6 +478,7 @@ class TestJobControl:
         fake_job.prompt = "Test prompt"
         fake_job.title = None
         fake_job.state = "running"
+        fake_job.sdk = "copilot"
         fake_job.base_ref = "main"
         fake_job.worktree_path = "/tmp/wt"
         fake_job.branch = "fix/branch"
@@ -495,6 +498,7 @@ class TestJobControl:
         fake_job.max_turns = None
         fake_job.verify_prompt = None
         fake_job.self_review_prompt = None
+        fake_job.parent_job_id = None
         mock_runtime_service.resume_job.return_value = fake_job
 
         resp = await client.post(f"/api/jobs/{jid}/resume", json={})

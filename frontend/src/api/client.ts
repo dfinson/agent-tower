@@ -267,6 +267,8 @@ export interface AnalyticsOverview {
   totalPremiumRequests: number;
   totalToolCalls: number;
   totalToolFailures: number;
+  totalAgentErrors: number;
+  totalToolErrors: number;
   toolSuccessRate: number;
   cacheHitRate: number;
   costTrend: { date: string; cost: number; jobs: number }[];
@@ -308,6 +310,8 @@ export interface AnalyticsTools {
     avg_duration_ms: number;
     total_duration_ms: number;
     failure_count: number;
+    agent_error_count: number;
+    tool_error_count: number;
   }[];
 }
 
@@ -684,6 +688,143 @@ export function fetchFleetFileAccess(
 
 export function fetchTurnEconomics(jobId: string): Promise<TurnEconomicsResponse> {
   return request(`/analytics/turn-economics/${jobId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Scorecard / Redesigned Analytics
+// ---------------------------------------------------------------------------
+
+export interface ScorecardBudget {
+  sdk: string;
+  totalCostUsd: number;
+  premiumRequests: number;
+  jobCount: number;
+  avgCostPerJob: number;
+  avgDurationMs: number;
+}
+
+export interface ScorecardActivity {
+  totalJobs: number;
+  running: number;
+  inReview: number;
+  merged: number;
+  prCreated: number;
+  discarded: number;
+  failed: number;
+  cancelled: number;
+}
+
+export interface ScorecardResponse {
+  period: number;
+  activity: ScorecardActivity;
+  budget: ScorecardBudget[];
+  quotaJson: string | null;
+  costTrend: { date: string; cost: number; jobs: number }[];
+}
+
+export interface ModelComparisonRow {
+  model: string;
+  sdk: string;
+  jobCount: number;
+  avgCost: number;
+  avgDurationMs: number;
+  totalCostUsd: number;
+  premiumRequests: number;
+  merged: number;
+  prCreated: number;
+  discarded: number;
+  failed: number;
+  avgVerifyTurns: number | null;
+  verifyJobCount: number;
+  avgDiffLines: number;
+  cacheHitRate: number;
+  costPerJob: number;
+  costPerMinute: number;
+  costPerTurn: number;
+  costPerToolCall: number;
+}
+
+export interface ModelComparisonResponse {
+  period: number;
+  repo: string | null;
+  models: ModelComparisonRow[];
+}
+
+export interface JobContextFlag {
+  type: string;
+  message: string;
+}
+
+export interface JobContextResponse {
+  job: {
+    cost: number;
+    durationMs: number;
+    diffLinesAdded: number;
+    diffLinesRemoved: number;
+    sdk: string;
+    model: string;
+    totalTurns: number;
+    peakTurnCostUsd: number;
+    avgTurnCostUsd: number;
+    costFirstHalfUsd: number;
+    costSecondHalfUsd: number;
+  };
+  repoAvg: {
+    jobCount: number;
+    avgCost: number;
+    avgDurationMs: number;
+    avgDiffLines: number;
+  } | null;
+  flags: JobContextFlag[];
+}
+
+export interface Observation {
+  id: number;
+  category: string;
+  severity: string;
+  title: string;
+  detail: string;
+  evidence: Record<string, unknown>;
+  job_count: number;
+  total_waste_usd: number;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface ObservationsResponse {
+  observations: Observation[];
+}
+
+export function fetchScorecard(period = 7): Promise<ScorecardResponse> {
+  return request(`/analytics/scorecard?period=${period}`);
+}
+
+export function fetchModelComparison(
+  period = 30,
+  repo?: string,
+): Promise<ModelComparisonResponse> {
+  const params = new URLSearchParams({ period: String(period) });
+  if (repo) params.set("repo", repo);
+  return request(`/analytics/model-comparison?${params}`);
+}
+
+export function fetchJobContext(jobId: string): Promise<JobContextResponse> {
+  return request(`/analytics/job-context/${jobId}`);
+}
+
+export function fetchObservations(
+  category?: string,
+  severity?: string,
+): Promise<ObservationsResponse> {
+  const params = new URLSearchParams();
+  if (category) params.set("category", category);
+  if (severity) params.set("severity", severity);
+  const qs = params.toString();
+  return request(`/analytics/observations${qs ? `?${qs}` : ""}`);
+}
+
+export function dismissObservation(observationId: number): Promise<{ status: string }> {
+  return request(`/analytics/observations/${observationId}/dismiss`, { method: "POST" });
 }
 
 export { ApiError };

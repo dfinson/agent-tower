@@ -119,6 +119,5 @@ class AgentAdapterInterface(ABC):
         """Non-agentic single-turn completion. Returns the full response text, or None on error."""
         return None
 
-    def set_execution_phase(self, job_id: str, phase: str) -> None:
+    def set_execution_phase(self, job_id: str, phase: str) -> None:  # noqa: B027
         """Update the current execution phase for a job (used by cost analytics)."""
-        raise NotImplementedError
