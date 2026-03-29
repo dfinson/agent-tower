@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BarChart3, DollarSign, Clock, Wrench, GitBranch,
   ChevronUp, ChevronDown, ChevronRight, AlertTriangle,
@@ -150,9 +151,13 @@ function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
               <span className="text-muted-foreground">{b.jobCount} jobs</span>
             </div>
             <div className="flex items-center gap-3">
-              <Tooltip content={`Average ${formatUsd(b.avgCostPerJob)} per job, ${formatDuration(b.avgDurationMs)} avg duration`}>
-                <span className="cursor-help text-foreground">{formatUsd(b.totalCostUsd)}</span>
-              </Tooltip>
+              {b.totalCostUsd > 0 || b.avgCostPerJob > 0 ? (
+                <Tooltip content={`Average ${formatUsd(b.avgCostPerJob)} per job, ${formatDuration(b.avgDurationMs)} avg duration`}>
+                  <span className="cursor-help text-foreground">{formatUsd(b.totalCostUsd)}</span>
+                </Tooltip>
+              ) : (
+                <span className="text-muted-foreground italic">No usage data</span>
+              )}
               {b.premiumRequests > 0 && (
                 <Tooltip content="Premium requests consumed from your Copilot entitlement this period">
                   <span className="cursor-help text-muted-foreground">{b.premiumRequests} reqs</span>
@@ -322,15 +327,6 @@ function ModelComparison({
                 <Tooltip content="Jobs whose output was discarded"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Discarded</span></Tooltip>
               </th>
               <th className="text-right py-1.5 px-2 font-medium">Failed</th>
-              <th className="text-right py-1.5 px-2 font-medium">
-                <Tooltip content="Avg turns for verify-enabled jobs"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Verify</span></Tooltip>
-              </th>
-              <th className="text-right py-1.5 px-2 font-medium">
-                <Tooltip content="Avg lines changed per job"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Diff</span></Tooltip>
-              </th>
-              <th className="text-right py-1.5 px-2 font-medium">
-                <Tooltip content="Input tokens served from cache"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Cache</span></Tooltip>
-              </th>
             </tr>
           </thead>
           <tbody>
@@ -344,24 +340,19 @@ function ModelComparison({
                 </td>
                 <td className="text-right py-1.5 px-2">{m.jobCount}</td>
                 <td className="text-right py-1.5 px-2">
-                  <Tooltip content={`Total: ${formatUsd(m.totalCostUsd)} · ${formatUsd(m.costPerMinute)}/min · ${formatUsd(m.costPerTurn)}/turn`}>
-                    <span className="cursor-help">{formatUsd(m.avgCost)}</span>
-                  </Tooltip>
+                  {m.totalCostUsd > 0 || m.avgCost > 0 ? (
+                    <Tooltip content={`Total: ${formatUsd(m.totalCostUsd)} · ${formatUsd(m.costPerMinute)}/min · ${formatUsd(m.costPerTurn)}/turn`}>
+                      <span className="cursor-help">{formatUsd(m.avgCost)}</span>
+                    </Tooltip>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </td>
                 <td className="text-right py-1.5 px-2">{formatDuration(m.avgDurationMs)}</td>
                 <td className="text-right py-1.5 px-2">{m.merged > 0 ? <span className="text-green-400">{m.merged}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2">{m.prCreated > 0 ? <span className="text-cyan-400">{m.prCreated}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2">{m.discarded > 0 ? <span className="text-yellow-400">{m.discarded}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2">{m.failed > 0 ? <span className="text-red-400">{m.failed}</span> : <span className="text-muted-foreground">0</span>}</td>
-                <td className="text-right py-1.5 px-2">
-                  {m.avgVerifyTurns != null && m.verifyJobCount > 0 ? (
-                    <Tooltip content={`Based on ${m.verifyJobCount} jobs with verify enabled`}>
-                      <span className="cursor-help">{m.avgVerifyTurns.toFixed(1)}</span>
-                    </Tooltip>
-                  ) : <span className="text-muted-foreground">—</span>}
-                </td>
-                <td className="text-right py-1.5 px-2">{Math.round(m.avgDiffLines ?? 0)}</td>
-                <td className="text-right py-1.5 px-2">{((m.cacheHitRate ?? 0) * 100).toFixed(0)}%</td>
               </tr>
             ))}
           </tbody>
@@ -502,12 +493,24 @@ function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
         <thead>
           <tr className="text-muted-foreground border-b border-border">
             <th className="text-left py-1.5 px-2 font-medium">Tool</th>
-            <th className="text-right py-1.5 px-2 font-medium">Calls</th>
-            <th className="text-right py-1.5 px-2 font-medium" title="Agent made a bad call">Agent Err</th>
-            <th className="text-right py-1.5 px-2 font-medium" title="Tool itself failed">Tool Err</th>
-            <th className="text-right py-1.5 px-2 font-medium">Success</th>
-            <th className="text-right py-1.5 px-2 font-medium">Avg</th>
-            <th className="text-right py-1.5 px-2 font-medium">Total</th>
+            <th className="text-right py-1.5 px-2 font-medium">
+              <Tooltip content="Total number of times this tool was called"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Calls</span></Tooltip>
+            </th>
+            <th className="text-right py-1.5 px-2 font-medium">
+              <Tooltip content="Agent called the tool with invalid arguments or in an incorrect context"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Agent Err</span></Tooltip>
+            </th>
+            <th className="text-right py-1.5 px-2 font-medium">
+              <Tooltip content="The tool itself returned an error or timed out"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Tool Err</span></Tooltip>
+            </th>
+            <th className="text-right py-1.5 px-2 font-medium">
+              <Tooltip content="Percentage of calls that completed without errors"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Success</span></Tooltip>
+            </th>
+            <th className="text-right py-1.5 px-2 font-medium">
+              <Tooltip content="Average time per call"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Avg Time</span></Tooltip>
+            </th>
+            <th className="text-right py-1.5 px-2 font-medium">
+              <Tooltip content="Total cumulative time spent in this tool"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Total Time</span></Tooltip>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -546,18 +549,37 @@ function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
 // ---------------------------------------------------------------------------
 
 function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriversResponse }) {
-  const [dimension, setDimension] = useState<"phase" | "tool_category" | "turn">("phase");
+  const [dimension, setDimension] = useState<"phase" | "tool_category">("phase");
   const summary = useMemo(() => fleetDrivers.summary ?? [], [fleetDrivers.summary]);
+
+  const phaseLabels: Record<string, string> = {
+    agent_reasoning: "Reasoning",
+    verification: "Verification",
+    environment_setup: "Setup",
+    finalization: "Wrap-up",
+    post_completion: "Post-completion",
+    unknown: "Unattributed",
+  };
+  const toolCategoryLabels: Record<string, string> = {
+    file_read: "File Reading",
+    file_write: "File Writing",
+    file_search: "File Search",
+    shell: "Shell Commands",
+    agent: "Sub-agents",
+    other: "Other",
+  };
+  const bucketLabels = dimension === "phase" ? phaseLabels : toolCategoryLabels;
+
   const dimensionRows = useMemo(
     () => summary.filter((row) => row.dimension === dimension).sort((a, b) => b.cost_usd - a.cost_usd).slice(0, 8),
     [summary, dimension],
   );
-  const labelMap: Record<typeof dimension, string> = { phase: "Phase", tool_category: "Tool Category", turn: "Turn" };
+  const labelMap: Record<typeof dimension, string> = { phase: "Phase", tool_category: "Tool Category" };
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1.5 text-[11px]">
-        {(["phase", "tool_category", "turn"] as const).map((key) => (
+        {(["phase", "tool_category"] as const).map((key) => (
           <button
             key={key}
             onClick={() => setDimension(key)}
@@ -574,7 +596,7 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
       {dimensionRows.length > 0 ? (
         <>
           <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={dimensionRows.map((row) => ({ name: row.bucket, cost: row.cost_usd }))} margin={{ top: 5, right: 10, left: 0, bottom: 40 }}>
+            <BarChart data={dimensionRows.map((row) => ({ name: bucketLabels[row.bucket] || row.bucket, cost: row.cost_usd }))} margin={{ top: 5, right: 10, left: 0, bottom: 40 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#888" }} interval={0} angle={-20} textAnchor="end" height={55} />
               <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
@@ -589,7 +611,7 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-muted-foreground border-b border-border">
-                  <th className="text-left py-1.5 px-2 font-medium">Bucket</th>
+                  <th className="text-left py-1.5 px-2 font-medium">{labelMap[dimension]}</th>
                   <th className="text-right py-1.5 px-2 font-medium">Cost</th>
                   <th className="text-right py-1.5 px-2 font-medium">Calls</th>
                   <th className="text-right py-1.5 px-2 font-medium">Jobs</th>
@@ -599,7 +621,7 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
               <tbody>
                 {dimensionRows.map((row, i) => (
                   <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
-                    <td className="py-1.5 px-2 font-mono">{row.bucket}</td>
+                    <td className="py-1.5 px-2">{bucketLabels[row.bucket] || row.bucket}</td>
                     <td className="text-right py-1.5 px-2">{formatUsd(Number(row.cost_usd) || 0)}</td>
                     <td className="text-right py-1.5 px-2">{row.call_count}</td>
                     <td className="text-right py-1.5 px-2">{row.job_count ?? "—"}</td>
@@ -638,6 +660,7 @@ function SortHeader({ label, field, current, desc, onSort }: {
 }
 
 function JobsTable({ period }: { period: number }) {
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState<AnalyticsJobs["jobs"]>([]);
   const [sortField, setSortField] = useState<SortField>("completed_at");
   const [sortDesc, setSortDesc] = useState(true);
@@ -682,7 +705,7 @@ function JobsTable({ period }: { period: number }) {
             const statusColor = STATUS_COLORS[j.status] || "#666";
             const when = j.completed_at || j.created_at;
             return (
-              <tr key={j.job_id} className="border-b border-border/50 hover:bg-accent/30">
+              <tr key={j.job_id} className="border-b border-border/50 hover:bg-accent/30 cursor-pointer" onClick={() => navigate(`/jobs/${j.job_id}`)}>
                 <td className="py-1.5 px-2 font-mono text-muted-foreground" title={j.job_id}>{shortId}</td>
                 <td className="py-1.5 px-2 truncate max-w-[120px]" title={j.repo}>{repoName}</td>
                 <td className="py-1.5 px-2"><Badge variant="outline" className="text-[10px]">{j.model || "—"}</Badge></td>
