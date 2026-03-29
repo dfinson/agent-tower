@@ -148,6 +148,7 @@ def _job_to_response(job: Job) -> McpToolResult:
         archived_at=job.archived_at,
         failure_reason=job.failure_reason,
         model=job.model,
+        sdk=job.sdk,
         worktree_name=job.worktree_name,
         verify=job.verify,
         self_review=job.self_review,
@@ -279,6 +280,7 @@ def _register_job_tool(mcp: FastMCP) -> None:
                         updated_at=j.updated_at,
                         completed_at=j.completed_at,
                         pr_url=j.pr_url,
+                        sdk=j.sdk,
                     )
                     for j in jobs
                 ],

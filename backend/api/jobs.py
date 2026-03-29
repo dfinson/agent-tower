@@ -106,6 +106,7 @@ def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) 
         progress_headline=progress_preview.headline if progress_preview is not None else None,
         progress_summary=progress_preview.summary if progress_preview is not None else None,
         model=job.model,
+        sdk=job.sdk,
         worktree_name=job.worktree_name,
         verify=job.verify,
         self_review=job.self_review,
