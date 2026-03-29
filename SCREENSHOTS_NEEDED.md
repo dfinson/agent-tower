@@ -80,6 +80,7 @@ GIFs are the right format here because the value is seeing the *flow*, not a sin
 | `mobile-dashboard.png` | index.md (mobile callout), guide.md § Remote Access | Dashboard with active jobs, stacked card layout. |
 | `mobile-job-transcript.png` | guide.md § Remote Access | Running job transcript in compact mobile layout, agent activity visible. |
 | `mobile-approval.png` | guide.md § Remote Access | Approval prompt with tap targets clearly visible. |
+| `mobile-voice-input.gif` | guide.md § Voice Input / Remote Access | GIF (~5 sec): tap mic → waveform visualizer animates → tap stop → transcribed text appears in textarea. The scrolling waveform on a phone screen is visually striking and impossible to convey with a still image. |
 
 ---
 
@@ -103,7 +104,6 @@ Explicitly deferred — don't capture these unless a doc page is added that requ
 - Empty/blank state screenshots (onboarding wizard handles this)
 - Separate logs and timeline tab captures (text descriptions suffice)
 - History page (one line of docs, no visual needed)
-- Voice recording UI (niche, text description is adequate)
 - Architecture diagrams beyond the existing ASCII art (it's clear enough)
 - Per-SDK setup screenshots (SDK docs handle their own onboarding)
 
