@@ -691,6 +691,7 @@ function JobsTable({ period }: { period: number }) {
           <tr className="text-muted-foreground border-b border-border">
             <th className="text-left py-1.5 px-2 font-medium">Job</th>
             <th className="text-left py-1.5 px-2 font-medium">Repo</th>
+            <th className="text-left py-1.5 px-2 font-medium">Agent</th>
             <th className="text-left py-1.5 px-2 font-medium">Model</th>
             <th className="text-left py-1.5 px-2 font-medium">Status</th>
             <SortHeader label="Cost" field="total_cost_usd" current={sortField} desc={sortDesc} onSort={handleSort} />
@@ -708,6 +709,7 @@ function JobsTable({ period }: { period: number }) {
               <tr key={j.job_id} className="border-b border-border/50 hover:bg-accent/30 cursor-pointer" onClick={() => navigate(`/jobs/${j.job_id}`)}>
                 <td className="py-1.5 px-2 font-mono text-muted-foreground" title={j.job_id}>{shortId}</td>
                 <td className="py-1.5 px-2 truncate max-w-[120px]" title={j.repo}>{repoName}</td>
+                <td className="py-1.5 px-2"><Badge variant="outline" className="text-[10px]">{j.sdk}</Badge></td>
                 <td className="py-1.5 px-2"><Badge variant="outline" className="text-[10px]">{j.model || "—"}</Badge></td>
                 <td className="py-1.5 px-2">
                   <span className="inline-flex items-center gap-1">
