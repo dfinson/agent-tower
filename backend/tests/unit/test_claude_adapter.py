@@ -87,6 +87,9 @@ class _FakeResultMessage:
 
 
 class _FakeClaudeCodeOptions:
+    resume: Any = None
+    mcp_servers: Any = None
+
     def __init__(self, **kwargs: Any) -> None:
         for k, v in kwargs.items():
             setattr(self, k, v)
