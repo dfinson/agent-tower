@@ -11,41 +11,70 @@ import json
 from typing import Any
 
 TOOL_CATEGORIES: dict[str, str] = {
-    # file_read
+    # file_read — reading file contents
     "read_file": "file_read",
     "view": "file_read",
     "cat": "file_read",
     "Read": "file_read",
     "readFile": "file_read",
-    # file_write
+    "open_file": "file_read",
+    "get_file_contents": "file_read",
+    # file_write — creating or editing files
     "edit_file": "file_write",
+    "edit": "file_write",
     "create_file": "file_write",
     "write_file": "file_write",
+    "write": "file_write",
     "Edit": "file_write",
+    "MultiEdit": "file_write",
     "editFile": "file_write",
     "create": "file_write",
-    # file_search
+    "replace_string_in_file": "file_write",
+    "multi_replace_string_in_file": "file_write",
+    "str_replace_based_edit_tool": "file_write",
+    "insert_edit_into_file": "file_write",
+    "apply_patch": "file_write",
+    "create_or_update_file": "file_write",
+    "delete_file": "file_write",
+    # file_search — searching and navigating the codebase
     "grep": "file_search",
+    "grep_search": "file_search",
     "glob": "file_search",
     "find": "file_search",
+    "rg": "file_search",
     "ripgrep": "file_search",
     "search": "file_search",
+    "semantic_search": "file_search",
     "codeSearch": "file_search",
     "listDir": "file_search",
-    # shell
+    "list_dir": "file_search",
+    "file_search": "file_search",
+    "vscode_listCodeUsages": "file_search",
+    "tool_search_tool_regex": "file_search",
+    # shell — running commands in a terminal
     "bash": "shell",
     "terminal": "shell",
     "exec": "shell",
     "runCommand": "shell",
-    # git
+    "run_in_terminal": "shell",
+    "get_terminal_output": "shell",
+    "read_bash": "shell",
+    "write_bash": "shell",
+    "stop_bash": "shell",
+    "sql": "shell",
+    # git — version control operations
     "git_diff": "git",
     "git_status": "git",
     "git_log": "git",
-    # browser
+    "get_changed_files": "git",
+    # browser — web fetches and browsing
     "fetch_url": "browser",
     "web_search": "browser",
+    "web_fetch": "browser",
     "WebFetch": "browser",
-    # agent
+    "fetch_webpage": "browser",
+    "ReadMcpResource": "browser",
+    # agent — delegation to sub-agents
     "task": "agent",
     "subagent": "agent",
     "Agent": "agent",
@@ -53,6 +82,13 @@ TOOL_CATEGORIES: dict[str, str] = {
     "search_subagent": "agent",
     "skill": "agent",
     "Task": "agent",
+    "read_agent": "agent",
+    # system — agent-internal bookkeeping
+    "report_intent": "system",
+    "store_memory": "system",
+    "manage_todo_list": "system",
+    "memory": "system",
+    "Computer": "system",
 }
 
 
