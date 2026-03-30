@@ -735,7 +735,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               <div className={cn("grid grid-cols-2 gap-3", (data.totalCost ?? 0) > 0 ? "sm:grid-cols-5" : "sm:grid-cols-4")}>
                 <StatCard icon={<Clock size={14} />} label="Duration" value={formatDuration(data.durationMs ?? 0)} color="text-blue-400" />
                 <StatCard icon={<Cpu size={14} />} label="Tokens" value={formatTokens(data.totalTokens ?? 0)} color="text-violet-400" />
-                <StatCard icon={<Brain size={14} />} label="LLM Calls" value={String(data.llmCallCount ?? 0)} color="text-blue-400" />
+                <StatCard icon={<Brain size={14} />} label={data.sdk === "claude" ? "Turns" : "LLM Calls"} value={String(data.llmCallCount ?? 0)} color="text-blue-400" />
                 <StatCard icon={<Wrench size={14} />} label="Tools" value={`${data.toolCallCount ?? 0}${fails ? ` (${fails} fail)` : ""}`} color="text-yellow-400" />
                 {(data.totalCost ?? 0) > 0 && (
                   <Tooltip content={data.sdk === "copilot" ? "API-equivalent cost — your actual charge is through your Copilot subscription" : data.sdk === "claude" ? "API-equivalent cost — if using Claude Max, this reflects usage value, not your subscription charge" : "Total API-equivalent cost for this job"}>
@@ -1023,9 +1023,9 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   >
                     {llmCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                     <Brain size={12} className="text-violet-400" />
-                    LLM Calls
+                    {data.sdk === "claude" ? "Turns" : "LLM Calls"}
                     <span className="text-muted-foreground font-normal ml-1">
-                      ({data.llmCallCount ?? 0} calls, {formatDuration(data.totalLlmDurationMs ?? 0)})
+                      ({data.llmCallCount ?? 0} {data.sdk === "claude" ? "turns" : "calls"}, {formatDuration(data.totalLlmDurationMs ?? 0)})
                     </span>
                   </button>
 
@@ -1044,7 +1044,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                             <span className="font-mono text-xs text-muted-foreground">{data.mainModel || data.model}</span>
                           )}
                           <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
-                            <span>{mainCalls.reduce((s, c) => s + (c.callCount ?? 1), 0)} calls</span>
+                            <span>{mainCalls.reduce((s, c) => s + (c.callCount ?? 1), 0)} {data.sdk === "claude" ? "turns" : "calls"}</span>
                             <span>{formatTokens(mainTotals.inputTokens)} in</span>
                             <span>{formatTokens(mainTotals.outputTokens)} out</span>
                             {mainTotals.cacheReadTokens > 0 && <span>{formatTokens(mainTotals.cacheReadTokens)} cache</span>}
@@ -1060,6 +1060,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                 <th className="px-2 py-1.5 text-right font-medium">In</th>
                                 <th className="px-2 py-1.5 text-right font-medium">Out</th>
                                 <th className="px-2 py-1.5 text-right font-medium">Cache</th>
+                                {data.sdk === "claude" && <th className="px-2 py-1.5 text-right font-medium">Turns</th>}
                                 <th className="px-2 py-1.5 text-right font-medium">Duration</th>
                               </tr>
                             </thead>
@@ -1072,6 +1073,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                   <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
                                     {lc.cacheReadTokens > 0 ? formatTokens(lc.cacheReadTokens) : "—"}
                                   </td>
+                                  {data.sdk === "claude" && <td className="px-2 py-1.5 text-right tabular-nums">{lc.callCount ?? 1}</td>}
                                   <td className="px-2 py-1.5 text-right tabular-nums">{formatDuration(lc.durationMs)}</td>
                                 </tr>
                               ))}
