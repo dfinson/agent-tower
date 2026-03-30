@@ -114,7 +114,7 @@ export function NavMenuSlideout() {
             <Settings size={15} className="shrink-0" />
             <span className="flex-1 text-left font-medium">Settings</span>
             <kbd className="hidden sm:inline rounded border border-border px-1.5 py-0.5 font-mono text-xs text-muted-foreground/70">
-              {modKey},
+              {modKey}+,
             </kbd>
           </button>
 

@@ -162,7 +162,7 @@ export function App() {
             <Search size={14} />
             <span>Search or navigate...</span>
           </span>
-          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-xs">{modKey}K</kbd>
+          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-xs">{modKey}+K</kbd>
         </button>
 
         <div className="flex items-center gap-1">
