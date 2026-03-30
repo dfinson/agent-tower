@@ -356,6 +356,7 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
     }
     case "replace_string_in_file":
     case "str_replace_based_edit_tool":
+    case "str_replace_editor":
     case "Edit":
     case "insert_edit_into_file": {
       const filePath = (args.filePath ?? args.file_path ?? args.path ?? "") as string;
@@ -588,7 +589,7 @@ function hasStructuredRenderer(toolName?: string): boolean {
     "bash", "run_in_terminal", "Bash",
     "read_file", "Read",
     "replace_string_in_file", "multi_replace_string_in_file", "str_replace_based_edit_tool",
-    "Edit", "insert_edit_into_file", "MultiEdit",
+    "str_replace_editor", "Edit", "insert_edit_into_file", "MultiEdit",
     "create_file", "write", "Write",
     "view",
     "glob", "Glob",
