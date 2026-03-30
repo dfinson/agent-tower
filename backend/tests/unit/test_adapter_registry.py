@@ -130,7 +130,7 @@ class TestClaudeAdapterPermissions:
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
-            permission_mode=PermissionMode.auto,
+            permission_mode=PermissionMode.full_auto,
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Bash", {"command": "rm -rf /"}, None)
@@ -144,7 +144,7 @@ class TestClaudeAdapterPermissions:
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
-            permission_mode=PermissionMode.read_only,
+            permission_mode=PermissionMode.observe_only,
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Read", {"file_path": "test.py"}, None)
@@ -158,7 +158,7 @@ class TestClaudeAdapterPermissions:
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
-            permission_mode=PermissionMode.read_only,
+            permission_mode=PermissionMode.observe_only,
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Edit", {"file_path": "test.py"}, None)
@@ -172,7 +172,7 @@ class TestClaudeAdapterPermissions:
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
-            permission_mode=PermissionMode.approval_required,
+            permission_mode=PermissionMode.review_and_approve,
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Glob", {"pattern": "**/*.py"}, None)
@@ -197,7 +197,7 @@ class TestClaudeAdapterPermissions:
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
-            permission_mode=PermissionMode.approval_required,
+            permission_mode=PermissionMode.review_and_approve,
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Bash", {"command": "make test"}, None)
@@ -220,7 +220,7 @@ class TestClaudeAdapterPermissions:
         config = SessionConfig(
             workspace_path="/tmp/test",
             prompt="test",
-            permission_mode=PermissionMode.approval_required,
+            permission_mode=PermissionMode.review_and_approve,
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
         result = await callback("Bash", {"command": "rm -rf /"}, None)

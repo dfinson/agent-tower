@@ -104,7 +104,7 @@ beforeEach(() => {
   vi.mocked(fetchRepoDetail).mockResolvedValue({ currentBranch: "main", baseBranch: "main" } as any);
   vi.mocked(fetchSettings).mockResolvedValue({
     maxConcurrentJobs: 2,
-    permissionMode: "auto",
+    permissionMode: "full_auto",
     autoPush: true,
     cleanupWorktree: true,
     deleteBranchAfterMerge: true,

@@ -183,7 +183,7 @@ def _make_config(**overrides: Any) -> SessionConfig:
         "workspace_path": "/tmp/workspace",
         "prompt": "hello world",
         "job_id": "job-1",
-        "permission_mode": PermissionMode.auto,
+        "permission_mode": PermissionMode.full_auto,
     }
     defaults.update(overrides)
     return SessionConfig(**defaults)
@@ -1381,7 +1381,7 @@ class TestHandlePermissionRequestGitResetHard:
     @pytest.mark.asyncio
     async def test_git_reset_hard_requires_approval_in_auto_mode(self) -> None:
         adapter, approval_service = self._make_adapter_with_approval()
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
 
         approval = MagicMock()
         approval.id = "apr-1"
@@ -1403,7 +1403,7 @@ class TestHandlePermissionRequestGitResetHard:
         """Trust grant must NOT bypass the git reset --hard block."""
         adapter, approval_service = self._make_adapter_with_approval()
         approval_service.is_trusted = MagicMock(return_value=True)  # trusted job
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
 
         approval = MagicMock()
         approval.id = "apr-trust"
@@ -1422,7 +1422,7 @@ class TestHandlePermissionRequestGitResetHard:
     @pytest.mark.asyncio
     async def test_git_reset_hard_rejected_by_operator(self) -> None:
         adapter, approval_service = self._make_adapter_with_approval()
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
 
         approval = MagicMock()
         approval.id = "apr-2"
@@ -1439,7 +1439,7 @@ class TestHandlePermissionRequestGitResetHard:
     @pytest.mark.asyncio
     async def test_git_reset_hard_denied_when_no_infra(self) -> None:
         adapter = CopilotAdapter(approval_service=None)
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
 
         result = await adapter._handle_permission_request(
             self._make_request("git reset --hard HEAD"),
@@ -1452,7 +1452,7 @@ class TestHandlePermissionRequestGitResetHard:
     async def test_normal_shell_in_auto_mode_not_affected(self) -> None:
         """Regular shell commands in auto mode still go through normal path."""
         adapter, approval_service = self._make_adapter_with_approval()
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
 
         result = await adapter._handle_permission_request(
             self._make_request("git status"),
@@ -1479,7 +1479,7 @@ class TestPauseTools:
         adapter.set_job_id(self._SESSION_ID, "job-pause")
         adapter.pause_tools(self._SESSION_ID)
 
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
 
         for kind in ("shell", "write", "url"):
             request = _FakePermissionRequest(kind=kind, full_command_text="echo hello")
@@ -1499,7 +1499,7 @@ class TestPauseTools:
         adapter.pause_tools(self._SESSION_ID)
         adapter.resume_tools(self._SESSION_ID)
 
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
         request = _FakePermissionRequest(kind="shell", full_command_text="echo hello")
         result = await adapter._handle_permission_request(
             request,

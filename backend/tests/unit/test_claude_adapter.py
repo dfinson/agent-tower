@@ -180,7 +180,7 @@ def _make_config(**overrides: Any) -> SessionConfig:
         "workspace_path": "/tmp/workspace",
         "prompt": "hello",
         "job_id": "job-1",
-        "permission_mode": PermissionMode.auto,
+        "permission_mode": PermissionMode.full_auto,
     }
     defaults.update(overrides)
     return SessionConfig(**defaults)
@@ -221,13 +221,13 @@ class TestSummarizeToolInput:
 
 class TestPermissionModeMap:
     def test_auto_maps_to_bypass(self) -> None:
-        assert _PERMISSION_MODE_MAP[PermissionMode.auto] == "bypassPermissions"
+        assert _PERMISSION_MODE_MAP[PermissionMode.full_auto] == "bypassPermissions"
 
     def test_read_only_maps_to_plan(self) -> None:
-        assert _PERMISSION_MODE_MAP[PermissionMode.read_only] == "plan"
+        assert _PERMISSION_MODE_MAP[PermissionMode.observe_only] == "plan"
 
     def test_approval_required_maps_to_default(self) -> None:
-        assert _PERMISSION_MODE_MAP[PermissionMode.approval_required] == "default"
+        assert _PERMISSION_MODE_MAP[PermissionMode.review_and_approve] == "default"
 
 
 class TestHiddenTools:
@@ -324,7 +324,7 @@ class TestEnqueueLog:
 class TestBuildCanUseTool:
     @pytest.mark.asyncio
     async def test_auto_mode_approves(self, adapter: ClaudeAdapter) -> None:
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         result = await callback("Bash", {"command": "rm -rf /"}, None)
@@ -333,7 +333,7 @@ class TestBuildCanUseTool:
 
     @pytest.mark.asyncio
     async def test_read_only_allows_read_tools(self, adapter: ClaudeAdapter) -> None:
-        config = _make_config(permission_mode=PermissionMode.read_only)
+        config = _make_config(permission_mode=PermissionMode.observe_only)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         for tool in ("Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch"):
@@ -342,7 +342,7 @@ class TestBuildCanUseTool:
 
     @pytest.mark.asyncio
     async def test_read_only_denies_write_tools(self, adapter: ClaudeAdapter) -> None:
-        config = _make_config(permission_mode=PermissionMode.read_only)
+        config = _make_config(permission_mode=PermissionMode.observe_only)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         result = await callback("Edit", {"file_path": "/tmp/foo"}, None)
@@ -351,7 +351,7 @@ class TestBuildCanUseTool:
 
     @pytest.mark.asyncio
     async def test_approval_required_auto_approves_reads(self, adapter: ClaudeAdapter) -> None:
-        config = _make_config(permission_mode=PermissionMode.approval_required)
+        config = _make_config(permission_mode=PermissionMode.review_and_approve)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         for tool in ("Read", "Glob", "Grep"):
@@ -361,7 +361,7 @@ class TestBuildCanUseTool:
     @pytest.mark.asyncio
     async def test_approval_required_no_infra_approves(self, adapter: ClaudeAdapter) -> None:
         """When no approval service is configured, fall back to auto-approve."""
-        config = _make_config(permission_mode=PermissionMode.approval_required)
+        config = _make_config(permission_mode=PermissionMode.review_and_approve)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         result = await callback("Bash", {"command": "ls"}, None)
@@ -371,7 +371,7 @@ class TestBuildCanUseTool:
     @pytest.mark.asyncio
     async def test_paused_session_denies_all_tools(self, adapter: ClaudeAdapter) -> None:
         """When a session is paused, all tool calls are immediately denied."""
-        config = _make_config(permission_mode=PermissionMode.auto)
+        config = _make_config(permission_mode=PermissionMode.full_auto)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         adapter.pause_tools("sess-1")
@@ -397,7 +397,7 @@ class TestBuildCanUseTool:
 
         adapter = ClaudeAdapter(approval_service=approval_svc)
         adapter._session_to_job["sess-1"] = "job-1"
-        config = _make_config(permission_mode=PermissionMode.approval_required)
+        config = _make_config(permission_mode=PermissionMode.review_and_approve)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
@@ -425,7 +425,7 @@ class TestBuildCanUseTool:
         adapter._session_to_job["sess-1"] = "job-1"
         adapter._queues["sess-1"] = asyncio.Queue()
 
-        config = _make_config(permission_mode=PermissionMode.approval_required)
+        config = _make_config(permission_mode=PermissionMode.review_and_approve)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         result = await callback("Edit", {"file_path": "/x"}, None)
@@ -440,7 +440,7 @@ class TestBuildCanUseTool:
         adapter = ClaudeAdapter(approval_service=approval_svc)
         adapter._session_to_job["sess-1"] = "job-1"
 
-        config = _make_config(permission_mode=PermissionMode.approval_required)
+        config = _make_config(permission_mode=PermissionMode.review_and_approve)
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         result = await callback("Bash", {"command": "rm -rf /"}, None)

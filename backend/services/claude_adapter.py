@@ -341,11 +341,11 @@ class ClaudeAdapter(AgentAdapterInterface):
                 return PermissionResultAllow()
 
             # AUTO — approve everything
-            if mode == PermissionMode.auto:
+            if mode == PermissionMode.full_auto:
                 return PermissionResultAllow()
 
             # READ_ONLY — only allow read-type tools
-            if mode == PermissionMode.read_only:
+            if mode == PermissionMode.observe_only:
                 read_tools = {"Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch"}
                 if tool_name in read_tools:
                     return PermissionResultAllow()

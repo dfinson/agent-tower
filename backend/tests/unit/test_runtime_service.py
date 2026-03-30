@@ -273,7 +273,7 @@ async def _wait_until(
 @pytest.mark.asyncio
 async def test_create_followup_job_uses_parent_handoff_context(runtime: RuntimeService) -> None:
     parent = _make_job(job_id="parent", state=JobState.review)
-    parent.permission_mode = PermissionMode.read_only
+    parent.permission_mode = PermissionMode.observe_only
     parent.model = "gpt-5.4"
     parent.sdk = "claude"
     parent.verify = True
@@ -301,7 +301,7 @@ async def test_create_followup_job_uses_parent_handoff_context(runtime: RuntimeS
         repo=parent.repo,
         prompt="Add regression coverage",
         base_ref=parent.base_ref,
-        permission_mode=PermissionMode.read_only,
+        permission_mode=PermissionMode.observe_only,
         model="gpt-5.4",
         sdk="claude",
         verify=True,

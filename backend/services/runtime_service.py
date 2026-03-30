@@ -1932,7 +1932,7 @@ class RuntimeService:
                 repo=original.repo,
                 prompt=normalized_instruction,
                 base_ref=original.base_ref,
-                permission_mode=original.permission_mode or PermissionMode.auto,
+                permission_mode=original.permission_mode or PermissionMode.full_auto,
                 model=original.model,
                 sdk=original.sdk,
                 verify=original.verify,
