@@ -170,6 +170,7 @@ _SIMPLE_SPECS: dict[str, _FmtSpec] = {
     "grep": _FmtSpec(("pattern", "query"), "Grep:", "Grep", truncate=40, quote=True),
     "write": _FmtSpec(("path",), "Write", "Write file", use_path=True),
     "str_replace_based_edit_tool": _FmtSpec(("path",), "Edit", "Edit file", use_path=True),
+    "str_replace_editor": _FmtSpec(("path",), "Edit", "Edit file", use_path=True),
     # ---- Copilot-only tools missing from original registry ------------------
     "web_search": _FmtSpec(("query",), "Search:", "Web search", truncate=40, quote=True),
     "insert_edit_into_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
@@ -489,6 +490,7 @@ _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
     "view": _count_hint("lines", empty="→ empty"),
     "write": _static_hint("→ written"),
     "str_replace_based_edit_tool": _hint_replace_string,
+    "str_replace_editor": _hint_replace_string,
     # ---- Copilot-only tools -------------------------------------------------
     "web_search": _count_hint("results", empty="→ no results"),
     "insert_edit_into_file": _hint_replace_string,
@@ -519,6 +521,7 @@ _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
 _RESULT_HINTS_WITH_ARGS: dict[str, Callable[[str, bool, str | None], str]] = {
     "replace_string_in_file": _hint_edit_with_args,
     "str_replace_based_edit_tool": _hint_edit_with_args,
+    "str_replace_editor": _hint_edit_with_args,
     "Edit": _hint_edit_with_args,
     "insert_edit_into_file": _hint_edit_with_args,
     "multi_replace_string_in_file": _hint_multi_edit_with_args,

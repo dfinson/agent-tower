@@ -35,6 +35,7 @@ TOOL_CATEGORIES: dict[str, str] = {
     "replace_string_in_file": "file_write",
     "multi_replace_string_in_file": "file_write",
     "str_replace_based_edit_tool": "file_write",
+    "str_replace_editor": "file_write",
     "insert_edit_into_file": "file_write",
     "apply_patch": "file_write",
     "create_or_update_file": "file_write",
