@@ -166,7 +166,11 @@ Press `Alt+A` to open the analytics dashboard — aggregate costs, token usage, 
 
 ### MCP Server
 
-CodePlane exposes an [MCP](https://modelcontextprotocol.io/) server at `http://localhost:8080/mcp`. External agents can create jobs, handle approvals, browse workspaces, and manage repositories programmatically.
+CodePlane exposes an [MCP](https://modelcontextprotocol.io/) server at `http://localhost:8080/mcp`, enabling agent-to-agent orchestration. External agents can create and monitor jobs, handle approvals, browse worktrees, and manage repos programmatically — 7 tools in total.
+
+CodePlane also discovers MCP servers (from `.vscode/mcp.json` or global config) and makes them available to the agent during job execution. See [Configuration > MCP Server Discovery](configuration.md#mcp-server-discovery) for setup details.
+
+Full tool reference: [MCP Server](reference/mcp-server.md).
 
 ---
 
