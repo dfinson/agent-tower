@@ -157,6 +157,7 @@ _SIMPLE_SPECS: dict[str, _FmtSpec] = {
     "run_in_terminal": _FmtSpec(("command",), "$", "Run command", truncate=55, trim_paths=True),
     "create_file": _FmtSpec(("filePath", "file_path"), "Create", "Create file", use_path=True),
     "replace_string_in_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "edit": _FmtSpec(("path", "file_path"), "Edit", "Edit file", use_path=True),
     "grep_search": _FmtSpec(("query", "pattern"), "Grep:", "Grep search", truncate=40, quote=True),
     "semantic_search": _FmtSpec(("query",), "Search:", "Semantic search", truncate=40, quote=True),
     "file_search": _FmtSpec(("query", "pattern"), "Find:", "File search", truncate=40, quote=True),
@@ -520,6 +521,7 @@ _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
 # richer information (e.g. line counts for edit tools).
 _RESULT_HINTS_WITH_ARGS: dict[str, Callable[[str, bool, str | None], str]] = {
     "replace_string_in_file": _hint_edit_with_args,
+    "edit": _hint_edit_with_args,
     "str_replace_based_edit_tool": _hint_edit_with_args,
     "str_replace_editor": _hint_edit_with_args,
     "Edit": _hint_edit_with_args,
