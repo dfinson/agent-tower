@@ -363,6 +363,43 @@ def _hint_multi_replace(result: str, success: bool) -> str:
     return "→ applied"
 
 
+def _hint_edit_with_args(result: str, success: bool, tool_args: str | None = None) -> str:
+    """Edit hint showing line count derived from oldString/newString."""
+    if not success:
+        return "→ FAIL: no match"
+    args = _parse_args(tool_args)
+    old = args.get("oldString", args.get("old_str", args.get("old_string", "")))
+    new = args.get("newString", args.get("new_str", args.get("new_string", "")))
+    if isinstance(old, str) and isinstance(new, str) and (old or new):
+        old_n = len(old.splitlines()) if old else 0
+        new_n = len(new.splitlines()) if new else 0
+        changed = max(old_n, new_n)
+        if changed:
+            return f"→ {changed} lines"
+    return "→ applied"
+
+
+def _hint_multi_edit_with_args(result: str, success: bool, tool_args: str | None = None) -> str:
+    """Multi-edit hint showing total line count across all replacements."""
+    if not success:
+        return "→ partial FAIL"
+    args = _parse_args(tool_args)
+    replacements = args.get("replacements", args.get("edits", []))
+    total = 0
+    if isinstance(replacements, list):
+        for r in replacements:
+            if not isinstance(r, dict):
+                continue
+            old = r.get("oldString", r.get("old_string", r.get("old_str", "")))
+            new = r.get("newString", r.get("new_string", r.get("new_str", "")))
+            old_n = len(old.splitlines()) if isinstance(old, str) and old else 0
+            new_n = len(new.splitlines()) if isinstance(new, str) and new else 0
+            total += max(old_n, new_n)
+    if total:
+        return f"→ {total} lines"
+    return "→ applied"
+
+
 def _hint_get_errors(result: str, success: bool) -> str:
     n = _count_lines(result)
     return "→ clean" if n == 0 else f"→ {n} diagnostics"
@@ -477,6 +514,17 @@ _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
     "ReadMcpResource": _count_hint("lines", empty="→ empty"),
 }
 
+# Hint functions that also receive tool_args (third parameter) to compute
+# richer information (e.g. line counts for edit tools).
+_RESULT_HINTS_WITH_ARGS: dict[str, Callable[[str, bool, str | None], str]] = {
+    "replace_string_in_file": _hint_edit_with_args,
+    "str_replace_based_edit_tool": _hint_edit_with_args,
+    "Edit": _hint_edit_with_args,
+    "insert_edit_into_file": _hint_edit_with_args,
+    "multi_replace_string_in_file": _hint_multi_edit_with_args,
+    "MultiEdit": _hint_multi_edit_with_args,
+}
+
 
 def _humanize_tool_name(name: str) -> str:
     """Turn snake_case or camelCase tool names into human-readable labels.
@@ -515,10 +563,15 @@ def format_tool_display(
 
     # Append result hint when result is available
     if tool_result is not None:
-        hint_fn = _RESULT_HINTS.get(lookup_name)
-        if hint_fn is not None:
+        hint_args_fn = _RESULT_HINTS_WITH_ARGS.get(lookup_name)
+        if hint_args_fn is not None:
             with contextlib.suppress(Exception):
-                label = f"{label} {hint_fn(tool_result, tool_success)}"
+                label = f"{label} {hint_args_fn(tool_result, tool_success, tool_args)}"
+        else:
+            hint_fn = _RESULT_HINTS.get(lookup_name)
+            if hint_fn is not None:
+                with contextlib.suppress(Exception):
+                    label = f"{label} {hint_fn(tool_result, tool_success)}"
 
     return label
 
@@ -547,10 +600,15 @@ def format_tool_display_full(
             label = tool_name
 
     if tool_result is not None:
-        hint_fn = _RESULT_HINTS.get(lookup_name)
-        if hint_fn is not None:
+        hint_args_fn = _RESULT_HINTS_WITH_ARGS.get(lookup_name)
+        if hint_args_fn is not None:
             with contextlib.suppress(Exception):
-                label = f"{label} {hint_fn(tool_result, tool_success)}"
+                label = f"{label} {hint_args_fn(tool_result, tool_success, tool_args)}"
+        else:
+            hint_fn = _RESULT_HINTS.get(lookup_name)
+            if hint_fn is not None:
+                with contextlib.suppress(Exception):
+                    label = f"{label} {hint_fn(tool_result, tool_success)}"
 
     return label
 
