@@ -12,11 +12,11 @@ hide:
 
 # CodePlane
 
-<span class="eyebrow">Control plane for coding agents</span>
+<span class="eyebrow">Coding agents, without the session</span>
 
-**Launch a coding task, supervise every action in real time, and decide what lands.**
+**Launch a task. Walk away. Land the code when you're ready.**
 
-CodePlane gives you deep, continuous visibility into a single agent run — not a summary after the fact. You see the reasoning, the tool calls, the diffs, and the costs as they happen. Nothing gets merged without your sign-off.
+CodePlane runs coding agents headless — no VS Code session required. Kick off work from a browser, check in from your phone, and review the results on your own schedule. Full visibility when you want it, out of your way when you don't.
 
 <div class="hero-actions" markdown>
 [Quick Start](quick-start.md){ .md-button .md-button--primary }
