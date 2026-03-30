@@ -60,6 +60,7 @@ nav:
   - Reference:
       - CLI: reference/cli.md
       - REST API: reference/rest-api.md
+      - MCP Server: reference/mcp-server.md
       - SSE Events: reference/sse-events.md
       - Job States: reference/job-states.md
       - Keyboard Shortcuts: reference/keyboard-shortcuts.md

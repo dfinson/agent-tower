@@ -110,6 +110,55 @@ Both env vars are required. The hostname should point at the tunnel you created 
 |----------|-------------|---------|
 | `OTEL_EXPORTER_ENDPOINT` | OTLP endpoint for exporting metrics/traces | — (local only) |
 
+## MCP Server Discovery
+
+When a job starts, CodePlane discovers MCP servers to make available to the agent. Servers are merged from two sources (repo-level wins on name conflicts):
+
+1. **Repo-level:** `.vscode/mcp.json` in the repository (VS Code / Copilot convention)
+2. **Global:** `tools.mcp` in `~/.codeplane/config.yaml`
+
+### Global config example
+
+```yaml
+tools:
+  mcp:
+    github:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+    postgres:
+      command: uvx
+      args: ["mcp-postgres"]
+      env:
+        DATABASE_URL: "${DATABASE_URL}"
+```
+
+### Repo-level example (`.vscode/mcp.json`)
+
+```json
+{
+  "servers": {
+    "github": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"]
+    }
+  }
+}
+```
+
+### Disabling servers per-repo
+
+Add a `.codeplane.yml` file to the repository root:
+
+```yaml
+tools:
+  mcp:
+    disabled:
+      - postgres
+```
+
+This prevents the `postgres` MCP server from starting for jobs in this repo, even if it's defined globally.
+
 ## UI Settings
 
 Additional preferences are available in **Settings** (`Ctrl+,`): registered repositories, default agent, and model preferences.

@@ -6,6 +6,7 @@ Lookup documentation for specific commands, endpoints, events, and states.
 |-----------|-------------|
 | [CLI](cli.md) | `cpl` commands and options |
 | [REST API](rest-api.md) | All HTTP endpoints |
+| [MCP Server](mcp-server.md) | MCP tools for agent-to-agent orchestration |
 | [SSE Events](sse-events.md) | Server-Sent Event types and payload schemas |
 | [Job States](job-states.md) | Job state machine and valid transitions |
 | [Keyboard Shortcuts](keyboard-shortcuts.md) | All keyboard shortcuts |
