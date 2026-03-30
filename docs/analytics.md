@@ -1,3 +1,8 @@
+---
+hide:
+  - navigation
+---
+
 # Analytics & Cost Tracking
 
 CodePlane tracks every token, tool call, and dollar across all jobs — giving you fleet-wide visibility into what your coding agents cost and how they perform. Open the analytics dashboard with **Alt+A**.
