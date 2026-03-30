@@ -16,7 +16,7 @@ hide:
 
 **No IDE. No terminal. Just a prompt.**
 
-CodePlane orchestrates coding agents headless on your workstation. Start work, talk through the diffs, and merge when you're ready.
+CodePlane orchestrates coding agents headless on your workstation. Start work, talk through the diffs, and merge when you're ready. Track every token and dollar, and let other agents orchestrate jobs through the built-in MCP server.
 
 <div class="hero-actions" markdown>
 [Quick Start](quick-start.md){ .md-button }
