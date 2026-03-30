@@ -5,8 +5,6 @@ hide:
 
 # Usage Guide
 
-This page covers the core CodePlane workflow: create a job, supervise the run, handle approvals, review changes, and decide how they land.
-
 ## Creating Jobs
 
 Jobs are the core unit of work. Each job runs an agent against a repository in an isolated Git worktree.
