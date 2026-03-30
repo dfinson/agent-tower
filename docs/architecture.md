@@ -31,26 +31,7 @@ If the agent CLIs work on your machine, CodePlane can use them. Run `cpl doctor`
 
 ## High-Level Architecture
 
-```
-┌─────────────────────────────────────────────┐
-│              Your Browser (UI)              │
-│         REST commands + live SSE stream      │
-└──────────────────────┬──────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────┐
-│           CodePlane Server (Python)          │
-│                                              │
-│  Job orchestration · Approval gating         │
-│  Git worktree management · Diff generation   │
-│  SSE broadcasting · Telemetry · Merge/PR     │
-└──┬───────────┬───────────┬──────────────────┘
-   │           │           │
-┌──▼──┐   ┌───▼────┐  ┌───▼─────────┐
-│ Git │   │ SQLite │  │ Agent CLIs  │
-│     │   │  (DB)  │  │ Copilot /   │
-│     │   │        │  │ Claude Code │
-└─────┘   └────────┘  └─────────────┘
-```
+![High-Level Architecture](images/architecture-overview.png)
 
 **You → Browser → CodePlane → Agent CLI → Repository**
 
