@@ -70,28 +70,6 @@ Monitor the reliability and latency of every tool your agents use.
 
 ---
 
-## Per-Job Cost Drill-Down
-
----
-
-## Observations
-
-CodePlane runs statistical analysis across your job history and surfaces anomalies automatically.
-
-![Observations](images/screenshots/desktop/analytics-observations.png)
-
-| Category | Trigger | Severity |
-|----------|---------|----------|
-| **File reread hotspot** | Same file read ≥10 times across ≥3 jobs | Warning (Critical at ≥50) |
-| **Tool failure pattern** | Tool failure rate ≥20% over 30 days | Warning (Critical at ≥50%) |
-| **Turn cost escalation** | Second-half cost >2× first-half (≥6 turns) | Warning |
-| **Retry waste** | Retries costing more than original attempts | Warning |
-| **Phase imbalance** | Verification phase consuming more than reasoning | Info |
-
-Each observation shows the affected job count and estimated waste in USD — helping you decide where to optimize prompts, tooling, or model selection.
-
----
-
 ## Token & Cache Metrics
 
 Every job tracks token usage in detail:
