@@ -611,6 +611,14 @@ class ApprovalResponse(CamelModel):
 class ArtifactType(str, Enum):
     diff_snapshot = "diff_snapshot"
     agent_summary = "agent_summary"
+    session_snapshot = "session_snapshot"
+    session_log = "session_log"
+    agent_plan = "agent_plan"
+    telemetry_report = "telemetry_report"
+    approval_history = "approval_history"
+    document = "document"
+    server_log = "server_log"       # §20.5 — server-side structlog per job session
+    cli_log = "cli_log"             # §20.5 — agent process stderr/stdout per session
     custom = "custom"
 
 class ArtifactResponse(CamelModel):
@@ -622,6 +630,7 @@ class ArtifactResponse(CamelModel):
     size_bytes: int
     phase: ExecutionPhase
     created_at: datetime
+    session_number: int | None = None   # §20.5 — which session produced this artifact
 
 class ArtifactListResponse(CamelModel):
     items: list[ArtifactResponse]
@@ -1665,7 +1674,7 @@ Sections:
 | **Job Metadata Header** | Job ID, repo, branch, state badge, started/completed timestamps |
 | **Approval Banner** | Shown only in `waiting_for_approval` state. Displays description, proposed action, and Approve/Reject buttons |
 | **Transcript Panel** | Scrolling list of agent reasoning messages and operator injections. Auto-scrolls to bottom on new entries |
-| **Logs Panel** | Raw log output with level filtering (debug/info/warn/error). Virtualized list |
+| **Logs Panel** | Raw log output with level filtering (debug/info/warn/error). Virtualized list. After session ends, enriched with server-side and CLI log artifacts (see §20.5) |
 | **Diff Viewer** | Per-file diffs with syntax highlighting, additions/deletions counts, and hunk navigation |
 | **Workspace Browser** | File tree of the worktree. Click a file to view its contents |
 | **Artifact Viewer** | List of collected artifacts with type badges and download links. Always visible as a tab; shows an empty state when no artifacts are collected yet |
@@ -2647,6 +2656,163 @@ If no heartbeat is received for a running session within 90 seconds:
 2. The backend logs a warning: `log.warning("session_unresponsive", job_id=job_id, last_heartbeat=...)`
 3. After 5 minutes without a heartbeat, the backend auto-cancels the job with `reason: "heartbeat_timeout"` and transitions it to `failed`
 4. The operator can rerun the job if desired
+
+### 20.5 Session-Scoped Log Artifacts
+
+Live `log_line` SSE events provide real-time log streaming during a running session.
+Once a session ends, those events remain queryable via `GET /api/jobs/{job_id}/logs`,
+but the result is limited to the domain events that were published to the internal
+event bus — essentially the "application layer" view.
+
+Many operationally useful logs never reach the event bus:
+
+- **Server-side request logs** — full structlog output for a job's lifecycle
+  (adapter calls, git operations, workspace setup, teardown, error traces).
+- **CLI / agent SDK stderr** — raw output from the agent process, including
+  SDK debug messages, retry traces, and crash diagnostics.
+
+Session-scoped log artifacts capture these richer log streams and persist them
+as downloadable artifacts attached to the job.
+
+#### 20.5.1 New Artifact Types
+
+Two new `ArtifactType` values:
+
+| Type | Description |
+|---|---|
+| `server_log` | Server-side structlog output scoped to a single job session |
+| `cli_log` | Raw stderr/stdout captured from the agent SDK process for a session |
+
+Both are plain-text files (`text/plain`) stored under the standard artifact
+path `~/.codeplane/artifacts/{job_id}/`.
+
+#### 20.5.2 Server Log Collection
+
+The backend already writes all log output to `~/.codeplane/logs/server.log`.
+Per-job server log artifacts add **job-scoped extraction** on top of that:
+
+1. **During execution**, every structlog record that carries a `job_id` context
+   field is _also_ appended to an in-memory ring buffer keyed by `(job_id, session_number)`.
+   The buffer is bounded at **10 MB** per session to prevent runaway memory use.
+2. **On session end** (any terminal state transition — `completed`, `failed`, `canceled`),
+   the buffer is flushed to disk as a `server_log` artifact.
+3. **Format**: One JSON object per line (JSON Lines / `.jsonl`), preserving all
+   structlog fields. This keeps the artifact machine-parseable while remaining
+   human-readable.
+4. **Fallback**: If the in-memory buffer was evicted (e.g. after an OOM restart),
+   the collector falls back to scanning `server.log` for lines matching the
+   `job_id`. This is best-effort and may be incomplete if log rotation has
+   already discarded the relevant segment.
+
+Ring buffer configuration:
+
+| Parameter | Config key | Default |
+|---|---|---|
+| Max buffer per session | `logging.job_log_buffer_mb` | 10 |
+| Enable job log artifact | `logging.collect_job_logs` | `true` |
+
+#### 20.5.3 CLI / Agent Process Log Collection
+
+When the adapter spawns or communicates with an agent SDK process, stderr and
+stdout output that is _not_ parsed into structured domain events (transcript,
+tool calls, etc.) is captured as the **CLI log**:
+
+1. **During execution**, the adapter tees process stderr/stdout into a
+   per-session temporary file under `~/.codeplane/tmp/{job_id}/`.
+2. **On session end**, the temp file is promoted to a `cli_log` artifact.
+   If the file is empty (agent produced no unstructured output), no artifact
+   is created.
+3. **Format**: Raw text, preserving ANSI escape codes. The frontend renders
+   these with a monospace viewer and optional ANSI-stripping toggle.
+4. **Size cap**: The temp file is truncated (tail-kept) at **50 MB**.
+
+#### 20.5.4 Multi-Session Jobs
+
+Jobs that are resumed or handed off produce multiple sessions. Each session
+generates its own `server_log` and `cli_log` artifact, named with the session
+number suffix:
+
+- `server-log-session-1.jsonl`
+- `server-log-session-2.jsonl`
+- `cli-log-session-1.txt`
+- `cli-log-session-2.txt`
+
+The `session_number` is stored in the artifact's metadata (a new optional field
+on `ArtifactResponse`) so the frontend can group and label them.
+
+#### 20.5.5 REST API
+
+No new endpoints. Log artifacts are served through the existing artifact
+endpoints:
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/jobs/{job_id}/artifacts` | Returns all artifacts; filter client-side by `type` |
+| `GET` | `/api/artifacts/{artifact_id}` | Download the log file |
+
+A new optional query parameter on the list endpoint:
+
+```
+GET /api/jobs/{job_id}/artifacts?type=server_log,cli_log
+```
+
+Accepts a comma-separated list of `ArtifactType` values. When provided, only
+artifacts matching one of the listed types are returned. Omit to return all
+types (backward-compatible).
+
+#### 20.5.6 Schema Changes
+
+**`ArtifactType` enum** — add two values:
+
+```python
+class ArtifactType(StrEnum):
+    # ... existing ...
+    server_log = "server_log"
+    cli_log = "cli_log"
+```
+
+**`ArtifactResponse`** — add optional session metadata:
+
+```python
+class ArtifactResponse(CamelModel):
+    # ... existing fields ...
+    session_number: int | None = None   # which session produced this artifact
+```
+
+**`LogLinePayload`** — add optional `source` discriminator:
+
+```python
+class LogLinePayload(CamelModel):
+    # ... existing fields ...
+    source: Literal["event_bus", "server_log", "cli_log"] | None = None
+```
+
+This allows the Logs Panel to merge live SSE log lines with lines loaded from
+log artifacts and show the provenance of each entry.
+
+#### 20.5.7 Frontend: Enhanced Logs Panel
+
+The Logs Panel (§14.2) gains the following capabilities:
+
+| Feature | Description |
+|---|---|
+| **Source tabs** | Three sub-tabs: _Live_ (existing SSE log lines), _Server Log_ (from `server_log` artifact), _CLI Output_ (from `cli_log` artifact). Default: Live while job is running; Server Log once job completes |
+| **Session selector** | Dropdown to pick a session number when multiple sessions exist. Defaults to the latest session |
+| **Artifact availability** | Server Log and CLI Output tabs are disabled with a "Collecting…" badge while the job is still running. They become available once the session ends and artifacts are persisted |
+| **Full-text search** | A search input filters visible log lines by substring match (case-insensitive). Applied client-side over the loaded log content |
+| **Download button** | Each artifact tab includes a download button that fetches the raw file via `GET /api/artifacts/{id}` |
+| **ANSI rendering** | CLI Output tab renders ANSI escape codes for colored output. A toggle strips codes for plain-text viewing |
+| **Level filtering** | Existing level filter (debug/info/warn/error) continues to work on the Live tab. Server Log tab applies the same filter over the parsed JSON Lines. CLI Output tab has no level filter (raw text) |
+
+The Live tab behavior is unchanged from the current implementation — SSE
+`log_line` events streamed in real time, merged with historical fetch on
+reconnect.
+
+#### 20.5.8 Retention
+
+Log artifacts follow the same retention policy as all other artifacts
+(§16.4): deleted after `retention.artifact_retention_days` (default 30 days).
+The global `server.log` file rotation (§20.2) is independent and unaffected.
 
 ---
 

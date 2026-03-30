@@ -79,10 +79,20 @@ The job detail view shows live updates:
 
 ## Handle Approvals
 
-If the agent attempts a risky action (file writes, shell commands), you'll see an approval prompt. Choose:
+Whether the agent pauses for approval depends on the **permission mode**:
+
+| Mode | Behavior |
+|------|----------|
+| `full_auto` | Everything is auto-approved — no prompts (default) |
+| `review_and_approve` | Reads are auto-approved; file writes, shell commands, and network access pause for your approval |
+| `observe_only` | Reads only — all writes and mutations are blocked |
+
+You can set the mode per-job, per-repo (`.codeplane.yml`), or globally — see [Configuration](configuration.md).
+
+When an approval prompt appears, choose:
 
 - **Approve** — allow this action
-- **Reject** — block it
+- **Reject** — block it; the agent may try an alternative
 - **Trust Session** — auto-approve all remaining actions for this job
 
 ## Review & Merge

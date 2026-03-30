@@ -29,7 +29,7 @@ const effectiveSelfReviewPrompt = "Review the changes you just made. Look at the
 
 const defaultSettings = {
   maxConcurrentJobs: 2,
-  permissionMode: "auto",
+  permissionMode: "full_auto",
   autoPush: true,
   cleanupWorktree: true,
   deleteBranchAfterMerge: true,

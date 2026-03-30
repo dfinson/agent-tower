@@ -1105,7 +1105,7 @@ export interface components {
          * PermissionMode
          * @enum {string}
          */
-        PermissionMode: "auto" | "read_only" | "approval_required";
+        PermissionMode: "full_auto" | "observe_only" | "review_and_approve";
         /** PlatformStatusListResponse */
         PlatformStatusListResponse: {
             /** Items */
