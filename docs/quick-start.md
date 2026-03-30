@@ -49,7 +49,7 @@ cpl info                           # prints URL + QR code
 A password is always required for remote access — one is generated automatically unless you set it with `--password` or the `CPL_DEVTUNNEL_PASSWORD` env var. See [Configuration > Remote Access](configuration.md#remote-access) for Cloudflare Tunnels and other options.
 
 !!! tip "First-time setup"
-    Run `cpl setup` for an interactive walkthrough that registers your first repository and sets preferences.
+    The first time `cpl up` is run, `cpl setup` will be triggered automatically — it walks you through registering your first repository and setting preferences.
 
 ## Register a Repository
 
