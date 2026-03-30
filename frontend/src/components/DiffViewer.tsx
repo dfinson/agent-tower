@@ -171,6 +171,22 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
   const waveformContainerRef = useRef<HTMLDivElement>(null);
   const [micState, setMicState] = useState<"idle" | "recording" | "transcribing">("idle");
 
+  // Monaco editor refs for glyph-margin hunk checkboxes
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const diffEditorRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const monacoRef = useRef<any>(null);
+  const decorationIdsRef = useRef<string[]>([]);
+  const [hunkLineRanges, setHunkLineRanges] = useState<{ startLine: number; endLine: number }[]>([]);
+
+  // Refs so the glyph-margin click handler always reads current state
+  const checkedHunksRef = useRef(checkedHunks);
+  checkedHunksRef.current = checkedHunks;
+  const selectedIdxRef = useRef(selectedIdx);
+  selectedIdxRef.current = selectedIdx;
+  const hunkLineRangesRef = useRef(hunkLineRanges);
+  hunkLineRangesRef.current = hunkLineRanges;
+
   // Fetch historical diff from API on mount (for completed jobs / page refresh)
   useEffect(() => {
     fetchJobDiff(jobId)
@@ -190,20 +206,24 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
     if (!selectedFile) return;
     setLoading(true);
 
-    const additions = selectedFile.hunks
-      ?.flatMap((h: { lines?: { type: string; content: string }[] }) =>
-        (h.lines ?? []).filter((l: { type: string }) => l.type !== "deletion").map((l: { content: string }) => l.content),
-      )
-      .join("\n") ?? "";
+    const modifiedParts: string[] = [];
+    const originalParts: string[] = [];
+    const ranges: { startLine: number; endLine: number }[] = [];
+    let lineOffset = 1;
 
-    const deletions = selectedFile.hunks
-      ?.flatMap((h: { lines?: { type: string; content: string }[] }) =>
-        (h.lines ?? []).filter((l: { type: string }) => l.type !== "addition").map((l: { content: string }) => l.content),
-      )
-      .join("\n") ?? "";
+    for (const h of selectedFile.hunks) {
+      const lines = h.lines ?? [];
+      const nonDel = lines.filter((l) => l.type !== "deletion");
+      const nonAdd = lines.filter((l) => l.type !== "addition");
+      ranges.push({ startLine: lineOffset, endLine: lineOffset + Math.max(nonDel.length - 1, 0) });
+      lineOffset += nonDel.length;
+      modifiedParts.push(...nonDel.map((l) => l.content));
+      originalParts.push(...nonAdd.map((l) => l.content));
+    }
 
-    setOriginal(deletions);
-    setModified(additions);
+    setOriginal(originalParts.join("\n"));
+    setModified(modifiedParts.join("\n"));
+    setHunkLineRanges(ranges);
     setLoading(false);
   }, [selectedFile]);
 
@@ -234,6 +254,70 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
       return next;
     });
   }, []);
+
+  // Inject CSS for glyph-margin checkbox icons (runs once)
+  useEffect(() => {
+    const id = "hunk-cb-styles";
+    if (document.getElementById(id)) return;
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent = [
+      ".hunk-cb-unchecked, .hunk-cb-checked { cursor: pointer !important; }",
+      ".hunk-cb-unchecked {",
+      "  background: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Crect x='2' y='2' width='12' height='12' rx='2' stroke='rgba(140,140,160,0.5)' stroke-width='1.5'/%3E%3C/svg%3E\") center center / 14px no-repeat;",
+      "}",
+      ".hunk-cb-checked {",
+      "  background: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Crect x='1' y='1' width='14' height='14' rx='2' fill='%230e639c'/%3E%3Cpath d='M4.5 8L7 10.5L11.5 5.5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") center center / 14px no-repeat;",
+      "}",
+    ].join("\n");
+    document.head.appendChild(style);
+    return () => { style.remove(); };
+  }, []);
+
+  // Sync glyph-margin decorations whenever selection or file changes
+  useEffect(() => {
+    const editor = diffEditorRef.current;
+    const m = monacoRef.current;
+    if (!editor || !m) return;
+    const modifiedEditor = editor.getModifiedEditor();
+    if (!canAsk || hunkLineRanges.length === 0) {
+      decorationIdsRef.current = modifiedEditor.deltaDecorations(decorationIdsRef.current, []);
+      return;
+    }
+    const newDecorations = hunkLineRanges.map((range, hi) => ({
+      range: new m.Range(range.startLine, 1, range.startLine, 1),
+      options: {
+        glyphMarginClassName: checkedHunks.has(hunkKey(selectedIdx, hi))
+          ? "hunk-cb-checked"
+          : "hunk-cb-unchecked",
+        glyphMarginHoverMessage: { value: "Toggle hunk selection" },
+      },
+    }));
+    decorationIdsRef.current = modifiedEditor.deltaDecorations(decorationIdsRef.current, newDecorations);
+  }, [selectedIdx, checkedHunks, hunkLineRanges, canAsk]);
+
+  // DiffEditor mount handler — wires the glyph-margin click listener
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleEditorMount = useCallback((editor: any, monaco: any) => {
+    diffEditorRef.current = editor;
+    monacoRef.current = monaco;
+    const modifiedEditor = editor.getModifiedEditor();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    modifiedEditor.onMouseDown((e: any) => {
+      if (e.target.type !== monaco.editor.MouseTargetType.GLYPH_MARGIN) return;
+      const lineNumber = e.target.position?.lineNumber;
+      if (lineNumber == null) return;
+      const ranges = hunkLineRangesRef.current;
+      const fi = selectedIdxRef.current;
+      for (let hi = 0; hi < ranges.length; hi++) {
+        const r = ranges[hi];
+        if (r && lineNumber >= r.startLine && lineNumber <= r.endLine) {
+          toggleHunk(fi, hi);
+          break;
+        }
+      }
+    });
+  }, [toggleHunk]);
 
   const handleAskSend = useCallback(async () => {
     if (!askMsg.trim() || checkedHunks.size === 0) return;
@@ -370,41 +454,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
                       </span>
                     </button>
                   </div>
-                  {/* Per-hunk checkboxes — shown inline when file has multiple hunks */}
-                  {canAsk && file.hunks.length > 1 && (
-                    <div className="flex flex-col border-l-2 border-primary/20 ml-4 md:ml-3">
-                      {file.hunks.map((hunk, hi) => {
-                        const hunkChecked = checkedHunks.has(hunkKey(i, hi));
-                        const start = hunk.newStart;
-                        const end = hunk.newStart + hunk.newLines - 1;
-                        const label = start === end ? `L${start}` : `L${start}–${end}`;
-                        const adds = hunk.lines.filter((l) => l.type === "addition").length;
-                        const dels = hunk.lines.filter((l) => l.type === "deletion").length;
-                        return (
-                          <div
-                            key={hi}
-                            className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:bg-accent/30 transition-colors"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => toggleHunk(i, hi)}
-                              className={cn(
-                                "shrink-0 w-4 h-4 md:w-3 md:h-3 rounded-[2px] border flex items-center justify-center transition-colors cursor-pointer",
-                                hunkChecked
-                                  ? "bg-primary border-primary text-primary-foreground"
-                                  : "border-muted-foreground/40 hover:border-muted-foreground",
-                              )}
-                            >
-                              {hunkChecked && <Check size={10} strokeWidth={3} />}
-                            </button>
-                            <span className="font-mono">{label}</span>
-                            {adds > 0 && <span className="text-green-400/70">+{adds}</span>}
-                            {dels > 0 && <span className="text-red-400/70">-{dels}</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -431,6 +480,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
               modified={modified}
               language={guessLanguage(selectedFile.path)}
               theme="vs-dark"
+              onMount={handleEditorMount}
               options={{
                 readOnly: true,
                 minimap: { enabled: false },
@@ -438,7 +488,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
                 scrollBeyondLastLine: false,
                 fontSize: isMobile ? 12 : 13,
                 lineNumbersMinChars: 3,
-                glyphMargin: false,
+                glyphMargin: canAsk,
                 lineDecorationsWidth: 4,
                 folding: true,
               }}
