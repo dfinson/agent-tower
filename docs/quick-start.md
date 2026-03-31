@@ -68,6 +68,10 @@ The agent starts working in an isolated Git worktree. Your working directory is 
 ![Create Job](images/screenshots/desktop/create-job-flow.gif)
 </div>
 
+<div class="screenshot-mobile" markdown>
+![Create Job — Mobile](images/screenshots/mobile/create-job-flow.gif)
+</div>
+
 ## Watch It Run
 
 The job detail view shows live updates:
@@ -79,6 +83,10 @@ The job detail view shows live updates:
 
 <div class="screenshot-desktop" markdown>
 ![Running Job](images/screenshots/desktop/transcript-streaming.gif)
+</div>
+
+<div class="screenshot-mobile" markdown>
+![Running Job — Mobile](images/screenshots/mobile/transcript-streaming.gif)
 </div>
 
 ## Handle Approvals
@@ -105,6 +113,10 @@ When the agent finishes, review the diff:
 
 <div class="screenshot-desktop" markdown>
 ![Diff Viewer](images/screenshots/desktop/job-diff-viewer.gif)
+</div>
+
+<div class="screenshot-mobile" markdown>
+![Diff Viewer — Mobile](images/screenshots/mobile/job-diff-viewer.gif)
 </div>
 
 Then resolve the job:

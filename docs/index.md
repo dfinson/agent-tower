@@ -16,7 +16,9 @@ hide:
 
 **No IDE. No terminal. Just a prompt.**
 
-CodePlane orchestrates coding agents headless on your workstation. Start work, talk through the diffs, and merge when you're ready. Track every token and dollar, and let other agents orchestrate jobs through the built-in MCP server.
+CodePlane orchestrates coding agents headless on your workstation — from your desktop, phone, or tablet. Start work, talk through the diffs, and merge when you're ready. Track every token and dollar, and let other agents orchestrate jobs through the built-in MCP server.
+
+:material-cellphone-link:{ .lg .middle } **Mobile-first. Supervise from anywhere.**
 
 <div class="hero-actions" markdown>
 [Quick Start](quick-start.md){ .md-button }
@@ -28,6 +30,10 @@ CodePlane orchestrates coding agents headless on your workstation. Start work, t
 
 <div class="screenshot-desktop" markdown>
 ![CodePlane Dashboard](images/screenshots/desktop/hero-dashboard.png)
+</div>
+
+<div class="screenshot-mobile" markdown>
+![CodePlane Dashboard — Mobile](images/screenshots/mobile/hero-dashboard.png)
 </div>
 
 ## The Core Loop
@@ -70,8 +76,8 @@ Launch jobs with a prompt and model selection. Each job runs in its own Git work
 </div>
 
 <div class="feature-card" markdown>
-### :material-cellphone-link: Headless & Remote
-No editor required. CodePlane runs as a standalone server — kick off a task, close your laptop, and pick it up from your phone. Approve actions, review diffs, and send messages from any browser via Dev Tunnels or Cloudflare Tunnels.
+### :material-cellphone-link: Mobile-First & Remote
+No editor required. CodePlane runs as a standalone server — kick off a task from your phone, close your laptop, and supervise from anywhere. The entire UI is optimized for touch: approve actions, review diffs, send messages, and create jobs — all from a mobile browser. Connect via Dev Tunnels or Cloudflare Tunnels.
 </div>
 
 <div class="feature-card" markdown>
