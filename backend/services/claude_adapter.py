@@ -1074,27 +1074,21 @@ class ClaudeAdapter(AgentAdapterInterface):
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await consumer
 
-            # Fire-and-forget the SDK client disconnect.  The anyio cancel-scope
-            # teardown inside client.disconnect() propagates CancelledError into
-            # the asyncio event loop's connection pool, corrupting SQLAlchemy
-            # sessions in OTHER tasks (including the _run_job task that needs to
-            # do DB transitions).  By fire-and-forgetting, the cancel scope
-            # teardown happens in an isolated task whose CancelledError cannot
-            # infect anything.  The CLI subprocess will terminate when its
-            # stdin closes or when the process exits naturally.
+            # Terminate the CLI subprocess directly via the transport.
+            # We MUST NOT call client.disconnect() because it invokes
+            # Query.close() → _tg.cancel_scope.cancel(), which injects
+            # CancelledError into EVERY SQLAlchemy connection via anyio's
+            # greenlet adapter — even connections in other asyncio tasks.
+            # transport.close() cleanly shuts down the subprocess (close
+            # stdin, terminate process, wait) without touching cancel scopes.
             client = self._clients.get(session_id)
             if client is not None:
-
-                async def _do_disconnect(c: object = client, sid: str = session_id) -> None:
+                transport = getattr(client, "_transport", None)
+                if transport is not None:
                     try:
-                        await c.disconnect()  # type: ignore[union-attr]
+                        await transport.close()
                     except (Exception, asyncio.CancelledError):
-                        log.debug("claude_client_disconnect_inner_error", session_id=sid, exc_info=True)
-
-                asyncio.create_task(
-                    _do_disconnect(),
-                    name=f"claude-dc-{session_id[:8]}",
-                )
+                        log.debug("claude_transport_close_error", session_id=session_id, exc_info=True)
             self._cleanup_session(session_id)
 
     async def send_message(self, session_id: str, message: str) -> None:
@@ -1132,14 +1126,14 @@ class ClaudeAdapter(AgentAdapterInterface):
         except (Exception, asyncio.CancelledError):
             log.warning("claude_abort_interrupt_failed", session_id=session_id, exc_info=True)
 
-        # Fire-and-forget disconnect (see stream_events comment for rationale)
-        async def _do_disconnect(c: object = client, sid: str = session_id) -> None:
+        # Directly close the transport to kill the subprocess.
+        # MUST NOT call client.disconnect() — see stream_events comment.
+        transport = getattr(client, "_transport", None)
+        if transport is not None:
             try:
-                await c.disconnect()  # type: ignore[union-attr]
+                await transport.close()
             except (Exception, asyncio.CancelledError):
-                log.debug("claude_abort_disconnect_inner", session_id=sid, exc_info=True)
-
-        asyncio.create_task(_do_disconnect(), name=f"claude-abort-dc-{session_id[:8]}")
+                log.debug("claude_abort_transport_close_error", session_id=session_id, exc_info=True)
         self._cleanup_session(session_id)
 
     async def complete(self, prompt: str) -> str | None:
