@@ -1074,32 +1074,27 @@ class ClaudeAdapter(AgentAdapterInterface):
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await consumer
 
-            # Run client.disconnect() in a SEPARATE asyncio task.  The anyio
-            # cancel-scope teardown inside disconnect() calls task.cancel() on
-            # whichever task hosts the scope.  Running in a separate task
-            # isolates this so the _run_job task never receives a spurious
-            # CancelledError that cascades through all error handlers.
+            # Fire-and-forget the SDK client disconnect.  The anyio cancel-scope
+            # teardown inside client.disconnect() propagates CancelledError into
+            # the asyncio event loop's connection pool, corrupting SQLAlchemy
+            # sessions in OTHER tasks (including the _run_job task that needs to
+            # do DB transitions).  By fire-and-forgetting, the cancel scope
+            # teardown happens in an isolated task whose CancelledError cannot
+            # infect anything.  The CLI subprocess will terminate when its
+            # stdin closes or when the process exits naturally.
             client = self._clients.get(session_id)
             if client is not None:
 
                 async def _do_disconnect(c: object = client, sid: str = session_id) -> None:
                     try:
-                        await c.disconnect()  # type: ignore[attr-defined]
+                        await c.disconnect()  # type: ignore[union-attr]
                     except (Exception, asyncio.CancelledError):
-                        log.warning("claude_client_disconnect_inner_error", session_id=sid, exc_info=True)
+                        log.debug("claude_client_disconnect_inner_error", session_id=sid, exc_info=True)
 
-                dc_task = asyncio.create_task(
+                asyncio.create_task(
                     _do_disconnect(),
                     name=f"claude-dc-{session_id[:8]}",
                 )
-                try:
-                    await asyncio.wait_for(asyncio.shield(dc_task), timeout=10)
-                except (TimeoutError, asyncio.CancelledError, Exception):
-                    log.warning("claude_client_stream_disconnect_failed", session_id=session_id, exc_info=True)
-                    if not dc_task.done():
-                        dc_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError, Exception):
-                            await dc_task
             self._cleanup_session(session_id)
 
     async def send_message(self, session_id: str, message: str) -> None:
@@ -1134,11 +1129,18 @@ class ClaudeAdapter(AgentAdapterInterface):
             return
         try:
             await client.interrupt()
-            await client.disconnect()
         except (Exception, asyncio.CancelledError):
-            log.warning("claude_abort_failed", session_id=session_id, exc_info=True)
-        finally:
-            self._cleanup_session(session_id)
+            log.warning("claude_abort_interrupt_failed", session_id=session_id, exc_info=True)
+
+        # Fire-and-forget disconnect (see stream_events comment for rationale)
+        async def _do_disconnect(c: object = client, sid: str = session_id) -> None:
+            try:
+                await c.disconnect()  # type: ignore[union-attr]
+            except (Exception, asyncio.CancelledError):
+                log.debug("claude_abort_disconnect_inner", session_id=sid, exc_info=True)
+
+        asyncio.create_task(_do_disconnect(), name=f"claude-abort-dc-{session_id[:8]}")
+        self._cleanup_session(session_id)
 
     async def complete(self, prompt: str) -> str | None:
         """Single-turn completion using the Claude Agent SDK."""
