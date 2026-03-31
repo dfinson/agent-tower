@@ -173,18 +173,42 @@ def is_password_auth_enabled() -> bool:
     return _password_hash is not None
 
 
+# Rate limiting for WebSocket auth failures (mirrors login rate limiter)
+_ws_auth_attempts: dict[str, list[float]] = defaultdict(list)
+
+
+def _is_ws_rate_limited(ip: str) -> bool:
+    """Check if an IP has exceeded the WebSocket auth rate limit."""
+    now = time.monotonic()
+    attempts = _ws_auth_attempts[ip]
+    _ws_auth_attempts[ip] = [t for t in attempts if now - t < _RATE_LIMIT_WINDOW]
+    return len(_ws_auth_attempts[ip]) >= _RATE_LIMIT_MAX
+
+
+def _record_ws_attempt(ip: str) -> None:
+    _ws_auth_attempts[ip].append(time.monotonic())
+
+
 def check_websocket_auth(*, client_host: str | None, cookies: dict[str, str]) -> bool:
     """Validate authentication for a WebSocket connection.
 
     Mirrors the HTTP middleware logic: if password auth is not enabled
     everyone is allowed; localhost is trusted; otherwise a valid
     ``cpl_session`` cookie is required.
+
+    Failed attempts are rate-limited at 5/min per IP (same as login).
     """
     if not is_password_auth_enabled():
         return True
     if client_host and client_host in LOCALHOST_ADDRS:
         return True
-    return is_valid_token(cookies.get(COOKIE_NAME))
+    ip = client_host or "unknown"
+    if _is_ws_rate_limited(ip):
+        return False
+    valid = is_valid_token(cookies.get(COOKIE_NAME))
+    if not valid:
+        _record_ws_attempt(ip)
+    return valid
 
 
 _LOGIN_HTML_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "login.html"
@@ -282,7 +306,7 @@ async def authenticate_login_request(request: Request) -> Response:
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        samesite="lax",
+        samesite="strict",
         secure=_is_https_request(request),
         max_age=86400,  # 24 hours
         path="/",

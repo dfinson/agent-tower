@@ -19,8 +19,12 @@ if TYPE_CHECKING:
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
+# WebM magic bytes prefix for realistic test data
+_WEBM_MAGIC = b"\x1a\x45\xdf\xa3"
+
+
 def _audio_file(
-    data: bytes = b"\x00" * 128,
+    data: bytes = _WEBM_MAGIC + b"\x00" * 124,
     content_type: str = "audio/webm",
     filename: str = "clip.webm",
 ) -> dict[str, tuple[str, bytes, str]]:
@@ -79,6 +83,6 @@ class TestVoiceSizeLimit:
     async def test_file_too_large(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/voice/transcribe",
-            files=_audio_file(data=b"\x00" * 256),
+            files=_audio_file(data=_WEBM_MAGIC + b"\x00" * 256),
         )
         assert resp.status_code == 413

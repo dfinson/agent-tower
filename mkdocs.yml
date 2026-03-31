@@ -59,6 +59,7 @@ nav:
   - MCP Server: mcp-server.md
   - How It Works: architecture.md
   - Configuration: configuration.md
+  - Security: security.md
   - Reference:
       - CLI: reference/cli.md
       - REST API: reference/rest-api.md
