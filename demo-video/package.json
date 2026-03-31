@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render": "remotion render src/index.ts CodePlaneDemo out/codeplane-demo.mp4",
-    "render:4k": "remotion render src/index.ts CodePlaneDemo out/codeplane-demo.mp4 --codec h264 --image-format jpeg --scale 1",
+    "render": "remotion render src/index.ts CodePlaneDemo out/codeplane-demo.mp4 --concurrency 2",
+    "render:4k": "remotion render src/index.ts CodePlaneDemo out/codeplane-demo.mp4 --codec h264 --image-format jpeg --concurrency 2",
     "preview": "remotion preview src/index.ts"
   },
   "keywords": [],
