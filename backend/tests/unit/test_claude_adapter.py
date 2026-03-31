@@ -101,6 +101,16 @@ class _FakeClaudeCodeOptions:
             setattr(self, k, v)
 
 
+class _FakeTransport:
+    """Fake transport for _FakeClaudeSDKClient."""
+
+    def __init__(self) -> None:
+        self._closed = False
+
+    async def close(self) -> None:
+        self._closed = True
+
+
 class _FakeClaudeSDKClient:
     """Fake client whose receive_messages() yields injected messages."""
 
@@ -110,6 +120,7 @@ class _FakeClaudeSDKClient:
         self.connected = False
         self._interrupted = False
         self._disconnected = False
+        self._transport = _FakeTransport()
 
     async def connect(self, prompt_stream: Any) -> None:
         self.connected = True
@@ -860,11 +871,9 @@ class TestAbortSession:
         adapter._session_to_job["sess-1"] = "job-1"
 
         await adapter.abort_session("sess-1")
-        # disconnect is fire-and-forget — let the event loop run the task
-        await asyncio.sleep(0)
 
         assert client._interrupted
-        assert client._disconnected
+        assert client._transport._closed
         assert "sess-1" not in adapter._clients
 
     @pytest.mark.asyncio
