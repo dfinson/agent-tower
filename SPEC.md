@@ -2856,13 +2856,13 @@ CodePlane uses **password-based authentication** for remote access and **localho
 
 1. **Localhost binding**: The backend binds to `127.0.0.1` by default, making it accessible only from the local machine. Localhost requests bypass password auth entirely.
 2. **Password auth for remote access**: When `--remote` is used, a password is required. It is set explicitly (`--password`, `CPL_DEVTUNNEL_PASSWORD` env var / `.env`) or auto-generated. Remote clients must authenticate via the login page; sessions use httpOnly cookies with 24h expiry.
-3. **Tunnel relay transport**: Remote traffic reaches the server through a Dev Tunnel relay URL. Password authentication remains the application-level access control.
+3. **Private tunnel relay**: Remote traffic reaches the server through a private Dev Tunnel that requires the tunnel owner's Microsoft account login. Only the authenticated tunnel owner can reach the URL; the CodePlane password provides a second authentication layer.
 
 This means:
 
 - Local access requires no credentials
-- Remote access requires the password printed in the operator's terminal
-- Dev Tunnels provides the HTTPS relay path; application access is still gated by password auth
+- Remote access requires Microsoft login (tunnel owner) **and** the password printed in the operator's terminal
+- Dev Tunnels provides the HTTPS relay path with owner-only access; application access is additionally gated by password auth
 - Rate limiting (5 attempts/min/IP) protects the login endpoint against brute-force
 - If the server is intentionally bound to `0.0.0.0` (e.g., for LAN access), a startup warning is emitted noting that no authentication is enforced
 

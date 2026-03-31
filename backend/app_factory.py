@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from dishka.integrations.fastapi import ContainerMiddleware  # type: ignore[attr-defined]
 from fastapi import FastAPI
@@ -30,10 +31,19 @@ from backend.services.job_service import JobNotFoundError, RepoNotAllowedError, 
 
 _FRONTEND_DIR = Path(__file__).resolve().parent / "web"
 
+# Allowed WebSocket origins — populated during middleware configuration so the
+# terminal WS endpoint can validate the Origin header.
+_allowed_ws_origins: set[str] = set()
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def get_allowed_ws_origins() -> set[str]:
+    """Return the set of allowed origins for WebSocket connections."""
+    return _allowed_ws_origins
 
 
 def _configure_middleware(
@@ -43,7 +53,12 @@ def _configure_middleware(
     tunnel_origin: str | None,
     password: str | None,
 ) -> None:
-    """Configure CORS and authentication middleware.
+    """Configure security headers, CORS, and authentication middleware.
+
+    **Security headers**: a lightweight ``@app.middleware("http")`` adds
+    standard hardening headers (``X-Content-Type-Options``,
+    ``X-Frame-Options``, ``Content-Security-Policy``, ``Referrer-Policy``,
+    ``Cache-Control``) to every response.
 
     **Auth model**: when *password* is provided (tunnel mode or explicit
     ``--password``), an HTTP middleware gate is installed that protects every
@@ -70,14 +85,53 @@ def _configure_middleware(
     if tunnel_origin:
         origins.append(tunnel_origin)
 
+    # Populate allowed WS origins — localhost variants are always allowed;
+    # configured CORS origins are added so the terminal WS endpoint can
+    # validate the Origin header on upgrade requests.
+    _allowed_ws_origins.clear()
+    _allowed_ws_origins.update(origins)
+    _allowed_ws_origins.add("http://localhost:8080")
+    _allowed_ws_origins.add("http://127.0.0.1:8080")
+
     if origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=origins,
             allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+            allow_headers=["Content-Type", "Authorization", "Last-Event-ID"],
         )
+
+    # --- Security headers middleware ---
+    csp_parts = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+    ]
+    if dev:
+        # Allow Vite HMR WebSocket and hot-update fetches
+        csp_parts.append("connect-src 'self' ws://localhost:5173 http://localhost:5173")
+    if tunnel_origin:
+        parsed = urlparse(tunnel_origin)
+        ws_scheme = "wss" if parsed.scheme == "https" else "ws"
+        ws_origin = f"{ws_scheme}://{parsed.netloc}"
+        csp_parts.append(f"connect-src 'self' {ws_origin} {tunnel_origin}")
+    csp_value = "; ".join(csp_parts)
+
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next: Callable[..., Awaitable[Response]]) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = csp_value
+        # Don't override Cache-Control for SSE or static assets that set their own
+        if "Cache-Control" not in response.headers:
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     # Password auth — enabled when password is provided (tunnel mode or explicit)
     if password:

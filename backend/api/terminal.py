@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -16,7 +17,7 @@ from backend.models.api_schemas import (
     TerminalAskResponse,
     TerminalSessionInfo,
 )
-from backend.services.auth import check_websocket_auth
+from backend.services.auth import LOCALHOST_ADDRS, check_websocket_auth
 
 if TYPE_CHECKING:
     from backend.services.terminal_service import TerminalService
@@ -153,6 +154,22 @@ async def terminal_ws(ws: WebSocket) -> None:
             { "type": "error", "message": "..." }
     """
     client_host = ws.client.host if ws.client else None
+
+    # --- Origin validation ---
+    # Reject cross-origin WebSocket connections to prevent malicious pages from
+    # connecting to a local CodePlane instance.
+    origin = ws.headers.get("origin")
+    if origin:
+        parsed = urlparse(origin)
+        origin_host = parsed.hostname or ""
+        if origin_host not in LOCALHOST_ADDRS:
+            from backend.app_factory import get_allowed_ws_origins
+
+            if origin not in get_allowed_ws_origins():
+                log.warning("terminal_ws_origin_rejected", origin=origin, client=client_host)
+                await ws.close(code=1008, reason="Origin not allowed")
+                return
+
     if not check_websocket_auth(client_host=client_host, cookies=ws.cookies):
         await ws.close(code=1008, reason="Authentication required")
         return

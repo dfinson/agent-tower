@@ -3,7 +3,7 @@
 Supports three runtime modes:
 
 - ``local`` — no remote ingress
-- ``devtunnel`` — zero-config remote access for OSS users
+- ``devtunnel`` — private tunnel for OSS users (requires Microsoft login)
 - ``cloudflare`` — user-managed stable ingress via a named Cloudflare tunnel
 """
 
@@ -427,11 +427,12 @@ def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str,
             exists, region = False, None
 
     if not exists:
-        create_result = _run_capture(["devtunnel", "create", tunnel_name, "--allow-anonymous", "--expiration", "30d"])
+        create_result = _run_capture(["devtunnel", "create", tunnel_name, "--expiration", "30d"])
         if create_result.returncode != 0:
-            raise TunnelStartError(
-                create_result.stderr.strip() or create_result.stdout.strip() or "devtunnel create failed"
-            )
+            msg = create_result.stderr.strip() or create_result.stdout.strip() or "devtunnel create failed"
+            if "not logged in" in msg.lower() or "login required" in msg.lower():
+                msg += "\n\nDev Tunnels require a Microsoft account. Run:\n  devtunnel user login"
+            raise TunnelStartError(msg)
 
     _run_capture(["devtunnel", "port", "create", tunnel_name, "-p", str(port), "--protocol", "http"])
     _, region = _lookup_devtunnel(tunnel_name)
