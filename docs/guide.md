@@ -121,9 +121,9 @@ If a merge encounters conflicts, CodePlane shows the conflicting files. You can 
 
 After resolution, the job moves to `completed`. Archive it to move it to history and keep the dashboard clean.
 
-### Follow-Up Jobs
+### Resume with Instructions
 
-From a job in the `review` state, create a **follow-up job** that continues in the same worktree with a new prompt. This lets you iterate without starting over.
+From a job in the `review` state, send follow-up instructions to **resume the same job** — it transitions back to `running` in the same worktree with your new prompt. This lets you iterate on the agent's work without starting over.
 
 ---
 
