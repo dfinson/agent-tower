@@ -1087,7 +1087,7 @@ class RuntimeService:
             return
         # Only force-fail jobs that are truly in-flight.  'review' and
         # terminal states are fine.
-        _STUCK_STATES = frozenset({JobState.running, JobState.waiting_for_approval})
+        stuck_states = frozenset({JobState.running, JobState.waiting_for_approval})
         # Clear any pending task-level cancellation so the DB transition
         # below is not immediately interrupted.
         _cur = asyncio.current_task()
@@ -1097,7 +1097,7 @@ class RuntimeService:
             async with self._session_factory() as session:
                 svc = self._make_job_service(session)
                 job = await svc.get_job(job_id)
-                if job is not None and job.state in _STUCK_STATES:
+                if job is not None and job.state in stuck_states:
                     log.error(
                         "ensure_terminal_state_forcing_failure",
                         job_id=job_id,
