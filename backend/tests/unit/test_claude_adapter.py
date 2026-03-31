@@ -860,6 +860,8 @@ class TestAbortSession:
         adapter._session_to_job["sess-1"] = "job-1"
 
         await adapter.abort_session("sess-1")
+        # disconnect is fire-and-forget — let the event loop run the task
+        await asyncio.sleep(0)
 
         assert client._interrupted
         assert client._disconnected
