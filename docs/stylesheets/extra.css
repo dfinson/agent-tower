@@ -273,6 +273,10 @@ body {
   margin: 1.8rem 0;
 }
 
+.md-typeset .screenshot-mobile {
+  display: none;
+}
+
 .md-typeset .screenshot-desktop img,
 .md-typeset .screenshot-mobile img {
   display: block;
@@ -286,6 +290,16 @@ body {
 .md-typeset .screenshot-mobile img {
   max-width: 24rem;
   margin-inline: auto;
+}
+
+@media screen and (max-width: 44.9844em) {
+  .md-typeset .screenshot-desktop {
+    display: none;
+  }
+
+  .md-typeset .screenshot-mobile {
+    display: block;
+  }
 }
 
 .md-typeset table:not([class]) {
