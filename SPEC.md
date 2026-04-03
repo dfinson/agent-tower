@@ -1051,7 +1051,7 @@ CodePlane supports two remote-access tunnel providers: **Dev Tunnels** (default)
 - Ingress routing must be configured in the Cloudflare dashboard or API before first use
 - DNS must point at the tunnel (CNAME to `{tunnel-id}.cfargotunnel.com`, proxied)
 - Password auth is always enabled — same as Dev Tunnels
-- **Important:** Unlike Dev Tunnels, Cloudflare Tunnels have **no built-in identity gate** at the relay level. Anyone who discovers the hostname can reach the CodePlane login page. To add an identity layer, configure Cloudflare Access (Zero Trust) with an email OTP or SSO policy on the hostname. See [Security §21.1](#211-authentication) for details.
+- **Important:** Unlike Dev Tunnels, Cloudflare Tunnels have **no built-in identity gate** at the relay level. CodePlane requires a [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) application on the hostname and refuses to start without one. Email OTP is the simplest identity provider; SSO and mTLS are also supported. See [Security §21.1](#211-authentication) for details.
 
 ### 7.2 Startup
 
@@ -2929,7 +2929,7 @@ Both tunnel providers enforce HTTPS and require password authentication. The key
 - Remote clients connect through the operator's custom hostname (e.g., `codeplane.example.com`)
 - The tunnel relay itself has no built-in identity gate, so CodePlane **requires** a Cloudflare Access application on the hostname
 - The server probes the hostname at startup and refuses to serve if no Access redirect is detected
-- Configure an Access application with an email OTP, SSO, or mTLS policy before starting
+- Configure a [Cloudflare Access application](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-app/) with an identity policy (email OTP, SSO, or mTLS) before starting
 - HTTPS is enforced by Cloudflare's edge
 
 **Common to both:**
