@@ -86,56 +86,23 @@ After startup, run `cpl info` to print the tunnel URL and a QR code you can scan
 Use Cloudflare Tunnels when you want a stable public hostname (e.g., `codeplane.yourdomain.com`) instead of the auto-provisioned Dev Tunnels URL.
 
 !!! danger "Cloudflare Access is required"
-    Unlike Dev Tunnels (which requires Microsoft account login at the relay), Cloudflare Tunnels have **no identity gate by default**. CodePlane will refuse to start unless a Cloudflare Access application is configured on the hostname. See step 4 below — it is not optional.
+    Cloudflare Tunnels have no identity gate by default. CodePlane will **refuse to start** unless it detects a [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) application on the hostname.
 
-#### Step 1: Install cloudflared
+**Prerequisites:**
 
-```bash
-# macOS
-brew install cloudflared
+1. Install [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+2. [Create a named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/) and route a public hostname to `http://localhost:8080`
+3. [Create a Cloudflare Access application](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-app/) on that hostname with an identity policy. Email OTP is the simplest option; SSO and mTLS are also supported.
 
-# Linux (Debian/Ubuntu)
-curl -L https://pkg.cloudflare.com/cloudflared-linux-amd64.deb -o cloudflared.deb
-sudo dpkg -i cloudflared.deb
-
-# Or see: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-```
-
-#### Step 2: Create a Named Tunnel
-
-In the [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) → **Networks** → **Tunnels**:
-
-1. Click **Create a tunnel** → choose **Cloudflared** connector
-2. Name it (e.g., `codeplane`)
-3. Copy the tunnel token — this goes in `CPL_CLOUDFLARE_TUNNEL_TOKEN`
-4. Under **Public Hostnames**, add a route:
-   - **Subdomain**: your chosen subdomain (e.g., `codeplane`)
-   - **Domain**: select your Cloudflare-managed domain
-   - **Service**: `http://localhost:8080`
-
-This creates the DNS record and ingress route automatically.
-
-#### Step 3: Configure and Start
+**Start CodePlane:**
 
 ```bash
-# Add to your .env file or shell profile:
-export CPL_CLOUDFLARE_TUNNEL_TOKEN=eyJhIjo...   # tunnel token from step 2
+export CPL_CLOUDFLARE_TUNNEL_TOKEN=eyJhIjo...      # from tunnel setup
 export CPL_CLOUDFLARE_HOSTNAME=codeplane.yourdomain.com
-
-# Start CodePlane
 cpl up --remote --provider cloudflare
 ```
 
-#### Step 4: Add Cloudflare Access (Required)
-
-CodePlane requires an identity gate on Cloudflare hostnames (equivalent to Dev Tunnels' Microsoft login). The server will refuse to start if this is not configured.
-
-1. In the Zero Trust dashboard → **Access** → **Applications** → **Add an application**
-2. Choose **Self-hosted**, set the domain to your `CPL_CLOUDFLARE_HOSTNAME`
-3. Create a policy with **Email OTP** as the identity provider — allow only your email address
-4. Save
-
-Now visitors must verify their email before reaching the CodePlane login page. This gives you two-factor security: Cloudflare identity **+** CodePlane password.
+At startup, CodePlane probes the hostname for a Cloudflare Access gate. If none is detected, the server exits with an error.
 
 ### All Remote Options
 

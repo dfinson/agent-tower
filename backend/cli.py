@@ -88,8 +88,8 @@ def _build_frontend() -> bool:
 def _cloudflare_access_enabled(tunnel_origin: str) -> bool:
     """Probe the tunnel hostname to detect a Cloudflare Access gate.
 
-    Makes a single unauthenticated request. If the response is a redirect
-    to ``*.cloudflareaccess.com``, Cloudflare Access is active. Returns
+    Makes a single unauthenticated request. If the response contains a
+    ``CF-Access-Domain`` header, Cloudflare Access is active. Returns
     False if no Access gate is detected or if the probe is inconclusive.
     """
     import time
@@ -102,19 +102,18 @@ def _cloudflare_access_enabled(tunnel_origin: str) -> bool:
     try:
         req = urllib.request.Request(f"{tunnel_origin}/api/health", method="HEAD")
         req.add_header("User-Agent", "cpl-preflight/1.0")
-        # Build an opener without HTTPRedirectHandler so redirects raise HTTPError
-        opener = urllib.request.build_opener(
-            urllib.request.HTTPHandler,
-            urllib.request.HTTPSHandler,
-        )
-        response = opener.open(req, timeout=10)
-        # Got through without redirect → no Access gate
+        response = urllib.request.urlopen(req, timeout=10)  # noqa: S310
+        # Cloudflare Access intercepts and serves its login page with this header
+        if response.headers.get("CF-Access-Domain"):
+            return True
         return False
     except urllib.error.HTTPError as exc:
+        # A redirect to cloudflareaccess.com or a response with CF-Access-Domain
         location = exc.headers.get("Location", "")
-        if exc.code in (301, 302, 303, 307) and "cloudflareaccess.com" in location:
+        if "cloudflareaccess.com" in location:
             return True
-        # 401/403 from the app itself → no Access gate (app-level auth, not Cloudflare)
+        if exc.headers.get("CF-Access-Domain"):
+            return True
         return False
     except Exception:
         # Network error, timeout — probe inconclusive, fail closed
