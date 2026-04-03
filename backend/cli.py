@@ -85,6 +85,42 @@ def _build_frontend() -> bool:
         return False
 
 
+def _cloudflare_access_enabled(tunnel_origin: str) -> bool:
+    """Probe the tunnel hostname to detect a Cloudflare Access gate.
+
+    Makes a single unauthenticated request. If the response is a redirect
+    to ``*.cloudflareaccess.com``, Cloudflare Access is active. Returns
+    False if no Access gate is detected or if the probe is inconclusive.
+    """
+    import time
+    import urllib.request
+    import urllib.error
+
+    # Give cloudflared a moment to register with the edge
+    time.sleep(2)
+
+    try:
+        req = urllib.request.Request(f"{tunnel_origin}/api/health", method="HEAD")
+        req.add_header("User-Agent", "cpl-preflight/1.0")
+        # Build an opener without HTTPRedirectHandler so redirects raise HTTPError
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPHandler,
+            urllib.request.HTTPSHandler,
+        )
+        response = opener.open(req, timeout=10)
+        # Got through without redirect → no Access gate
+        return False
+    except urllib.error.HTTPError as exc:
+        location = exc.headers.get("Location", "")
+        if exc.code in (301, 302, 303, 307) and "cloudflareaccess.com" in location:
+            return True
+        # 401/403 from the app itself → no Access gate (app-level auth, not Cloudflare)
+        return False
+    except Exception:
+        # Network error, timeout — probe inconclusive, fail closed
+        return False
+
+
 # ---------------------------------------------------------------------------
 # ``cpl up`` — start the server
 # ---------------------------------------------------------------------------
@@ -175,16 +211,6 @@ def up(
             click.secho(error, fg="red", err=True)
             raise SystemExit(1)
 
-        if remote_provider is RemoteProvider.cloudflare:
-            click.secho(
-                "WARNING: Cloudflare Tunnels have no built-in identity gate.\n"
-                "  Anyone who discovers the hostname can reach the login page.\n"
-                "  Recommendation: add a Cloudflare Access policy (email OTP or SSO)\n"
-                "  on this hostname. See: https://codeplane.dev/configuration/#cloudflare-tunnels",
-                fg="yellow",
-                err=True,
-            )
-
     # Password priority: --password flag > CPL_PASSWORD env/dotenv > auto-generate for remote
     effective_password: str | None = password
 
@@ -256,6 +282,19 @@ def up(
             click.secho(f"ERROR: {exc}", fg="red", err=True)
             raise SystemExit(1) from exc
         tunnel_origin = tunnel_handle.origin
+
+        if remote_provider is RemoteProvider.cloudflare and tunnel_origin:
+            if not _cloudflare_access_enabled(tunnel_origin):
+                tunnel_handle.close()
+                click.secho(
+                    "ERROR: No Cloudflare Access gate detected on this hostname.\n"
+                    "  CodePlane refuses to serve over Cloudflare without an identity layer.\n"
+                    "  Add a Cloudflare Access application with an email OTP or SSO policy,\n"
+                    "  then try again. See: https://codeplane.dev/configuration/#cloudflare-tunnels",
+                    fg="red",
+                    err=True,
+                )
+                raise SystemExit(1)
 
     app = create_app(dev=dev, tunnel_origin=tunnel_origin, password=effective_password)
 

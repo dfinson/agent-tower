@@ -2873,14 +2873,13 @@ CodePlane uses **password-based authentication** for remote access and **localho
 | Provider | Relay Identity Gate | Effect |
 |----------|-------------------|--------|
 | **Dev Tunnels** | Microsoft account login (tunnel owner only) | Two-factor by default: MS identity + CodePlane password |
-| **Cloudflare Tunnels** | None by default | Password-only unless Cloudflare Access is configured |
-| **Cloudflare + Access** | Email OTP, SSO, or mTLS via Cloudflare Zero Trust | Two-factor: Cloudflare identity + CodePlane password |
+| **Cloudflare Tunnels** | Email OTP, SSO, or mTLS via Cloudflare Zero Trust (required) | Two-factor: Cloudflare identity + CodePlane password |
 
 This means:
 
 - Local access requires no credentials
 - Remote via Dev Tunnels requires Microsoft login **and** the CodePlane password — two independent auth layers out of the box
-- Remote via Cloudflare requires **only** the CodePlane password unless the operator configures Cloudflare Access on the hostname — a startup warning is emitted to make this explicit
+- Remote via Cloudflare requires Cloudflare Access on the hostname — the server refuses to start without a detected Access gate, ensuring two-factor auth
 - Rate limiting (5 attempts/min/IP) protects the login endpoint against brute-force
 - If the server is intentionally bound to `0.0.0.0` (e.g., for LAN access), a startup warning is emitted noting that no authentication is enforced
 
@@ -2928,10 +2927,10 @@ Both tunnel providers enforce HTTPS and require password authentication. The key
 **Cloudflare Tunnels:**
 
 - Remote clients connect through the operator's custom hostname (e.g., `codeplane.example.com`)
-- The tunnel relay itself has **no identity gate** — anyone who discovers the hostname reaches the CodePlane login page
-- To add an identity gate, configure a Cloudflare Access application on the hostname with an email OTP, SSO, or mTLS policy
+- The tunnel relay itself has no built-in identity gate, so CodePlane **requires** a Cloudflare Access application on the hostname
+- The server probes the hostname at startup and refuses to serve if no Access redirect is detected
+- Configure an Access application with an email OTP, SSO, or mTLS policy before starting
 - HTTPS is enforced by Cloudflare's edge
-- A startup warning is emitted when `--provider cloudflare` is used, noting the single-factor security posture and recommending Cloudflare Access
 
 **Common to both:**
 

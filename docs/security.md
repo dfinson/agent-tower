@@ -23,8 +23,7 @@ The risk depends on how you run CodePlane. There are four access modes:
 |------|---------|-----------------|-------------|------|
 | **Localhost** (default) | `cpl up` | Local processes only | Auto-password (optional) | ✅ Low |
 | **Dev Tunnels** | `cpl up --remote` | Tunnel owner only | Microsoft login + password | ✅ Low |
-| **Cloudflare + Access** | `cpl up --remote --provider cloudflare` | Cloudflare Access policy | Identity gate (OTP/SSO) + password | ✅ Low |
-| **Cloudflare (no Access)** | `cpl up --remote --provider cloudflare` | Anyone who knows the hostname | Password only | ⚠️ Medium |
+| **Cloudflare Tunnels** | `cpl up --remote --provider cloudflare` | Cloudflare Access policy | Identity gate (OTP/SSO) + password | ✅ Low |
 | **All interfaces** | `cpl up --host 0.0.0.0` | Any device on your network | Password required | ⚠️ Medium |
 
 ### Safe Defaults
@@ -35,7 +34,7 @@ Out of the box, CodePlane is configured conservatively:
 - ✅ **Password auto-generated** — remote access always requires a password, regardless of provider
 - ✅ **Dangerous combos blocked** — `--host 0.0.0.0 --no-password` is rejected at startup; `--remote --no-password` is also rejected
 - ✅ **Dev Tunnels identity gate** — `--remote` with the default provider creates a Dev Tunnel that requires Microsoft account login (tunnel-owner only); the URL is unguessable and access is gated by both MS auth and the CodePlane password
-- ⚠️ **Cloudflare Tunnels** — `--remote --provider cloudflare` has **no built-in identity gate** at the relay level. A startup warning is emitted recommending Cloudflare Access. See [Configuration > Cloudflare Tunnels](configuration.md#cloudflare-tunnels) for setup details
+- ✅ **Cloudflare Tunnels** — `--remote --provider cloudflare` requires a Cloudflare Access application on the hostname. The server refuses to start without one, ensuring two-factor auth (Cloudflare identity + CodePlane password). See [Configuration > Cloudflare Tunnels](configuration.md#cloudflare-tunnels) for setup
 - ✅ **Worktree isolation** — agents operate in a dedicated Git worktree, never on your main branch
 - ✅ **Approval system** — destructive Git commands always require operator approval
 - ✅ **Secure cookies** — httpOnly, SameSite=Strict, Secure (when over HTTPS)
