@@ -85,8 +85,8 @@ After startup, run `cpl info` to print the tunnel URL and a QR code you can scan
 
 Use Cloudflare Tunnels when you want a stable public hostname (e.g., `codeplane.yourdomain.com`) instead of the auto-provisioned Dev Tunnels URL.
 
-!!! warning "Security: No built-in identity gate"
-    Unlike Dev Tunnels (which requires Microsoft account login at the relay), Cloudflare Tunnels have **no identity gate by default**. Anyone who discovers your hostname can reach the CodePlane login page. We strongly recommend adding Cloudflare Access — see step 4 below.
+!!! danger "Cloudflare Access is required"
+    Unlike Dev Tunnels (which requires Microsoft account login at the relay), Cloudflare Tunnels have **no identity gate by default**. CodePlane will refuse to start unless a Cloudflare Access application is configured on the hostname. See step 4 below — it is not optional.
 
 #### Step 1: Install cloudflared
 
@@ -126,9 +126,9 @@ export CPL_CLOUDFLARE_HOSTNAME=codeplane.yourdomain.com
 cpl up --remote --provider cloudflare
 ```
 
-#### Step 4: Add Cloudflare Access (Recommended)
+#### Step 4: Add Cloudflare Access (Required)
 
-To add an identity gate (equivalent to Dev Tunnels' Microsoft login):
+CodePlane requires an identity gate on Cloudflare hostnames (equivalent to Dev Tunnels' Microsoft login). The server will refuse to start if this is not configured.
 
 1. In the Zero Trust dashboard → **Access** → **Applications** → **Add an application**
 2. Choose **Self-hosted**, set the domain to your `CPL_CLOUDFLARE_HOSTNAME`
