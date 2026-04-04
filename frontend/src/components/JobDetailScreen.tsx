@@ -6,7 +6,8 @@ import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobTimeline, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobTimeline, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSteps } from "../api/client";
+import { StepListView } from "./StepListView";
 import { lazyRetry } from "../lib/lazyRetry";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
@@ -44,6 +45,7 @@ export function JobDetailScreen() {
   const [discardOpen, setDiscardOpen] = useState(false);
   const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [tab, setTab] = useState("live");
+  const [stepViewMode, setStepViewMode] = useState<"steps" | "raw">("steps");
   const [overflowOpen, setOverflowOpen] = useState(false);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
@@ -160,6 +162,15 @@ export function JobDetailScreen() {
 
   // Load diff data: on mount and when job state changes (e.g. reaches terminal state).
   const jobState = job?.state;
+  useEffect(() => {
+    if (!jobId) return;
+    fetchJobSteps(jobId)
+      .then((steps) => {
+        useStore.setState((s) => ({ steps: { ...s.steps, [jobId]: steps } }));
+      })
+      .catch((err) => console.error("Failed to fetch job steps", err));
+  }, [jobId]);
+
   useEffect(() => {
     if (!jobId) return;
     fetchJobDiff(jobId)
@@ -697,9 +708,39 @@ export function JobDetailScreen() {
 
       {tab === "live" && (
         <div className="flex flex-col gap-4">
-          <div className="h-[80dvh] min-h-[22rem]">
-            <TranscriptPanel jobId={jobId} sdk={job.sdk} interactive jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />
+          {/* Steps / Raw toggle */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setStepViewMode("steps")}
+              className={cn(
+                "text-xs px-2.5 py-1 rounded-md transition-colors",
+                stepViewMode === "steps"
+                  ? "bg-accent text-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Steps
+            </button>
+            <button
+              onClick={() => setStepViewMode("raw")}
+              className={cn(
+                "text-xs px-2.5 py-1 rounded-md transition-colors",
+                stepViewMode === "raw"
+                  ? "bg-accent text-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Raw
+            </button>
           </div>
+
+          {stepViewMode === "steps" ? (
+            <StepListView job={job} />
+          ) : (
+            <div className="h-[80dvh] min-h-[22rem]">
+              <TranscriptPanel jobId={jobId} sdk={job.sdk} interactive jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />
+            </div>
+          )}
           <div className="space-y-4">
             <PlanPanel jobId={jobId} />
             <ExecutionTimeline jobId={jobId} />
