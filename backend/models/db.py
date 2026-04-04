@@ -90,6 +90,7 @@ class ArtifactRow(Base):
     size_bytes = Column(Integer, nullable=False)
     disk_path = Column(String, nullable=False)
     phase = Column(String, nullable=False)
+    step_id = Column(String(36), nullable=True)
     created_at = Column(TZDateTime, nullable=False)
 
 
@@ -102,6 +103,32 @@ class DiffSnapshotRow(Base):
     diff_json = Column(Text, nullable=False)  # JSON
 
     __table_args__ = (Index("idx_diff_snapshots_job_id", "job_id"),)
+
+
+class StepRow(Base):
+    __tablename__ = "steps"
+
+    id = Column(String(36), primary_key=True)
+    job_id = Column(String(36), ForeignKey("jobs.id", ondelete="CASCADE"), index=True, nullable=False)
+    step_number = Column(Integer, nullable=False)
+    turn_id = Column(String(36), nullable=True)
+    intent = Column(Text, nullable=False, default="")
+    title = Column(String(60), nullable=True)
+    status = Column(String(20), nullable=False, default="running")
+    trigger = Column(String(30), nullable=False)
+    tool_count = Column(Integer, nullable=False, default=0)
+    agent_message = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    start_sha = Column(String(40), nullable=True)
+    end_sha = Column(String(40), nullable=True)
+    files_read = Column(Text, nullable=True)    # JSON array
+    files_written = Column(Text, nullable=True)  # JSON array
+
+    __table_args__ = (
+        Index("ix_steps_job_number", "job_id", "step_number"),
+    )
 
 
 class JobTelemetrySummaryRow(Base):

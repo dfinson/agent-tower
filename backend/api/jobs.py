@@ -26,10 +26,14 @@ from backend.models.api_schemas import (
     ResolutionAction,
     ResolveJobRequest,
     ResolveJobResponse,
+    RestoreRequest,
     ResumeJobRequest,
+    StepDiffPayload,
+    StepPayload,
     SuggestNamesRequest,
     SuggestNamesResponse,
     TranscriptPayload,
+    TranscriptSearchResult,
 )
 from backend.models.events import DomainEventKind
 from backend.services.event_bus import EventBus
@@ -456,6 +460,140 @@ async def get_job_transcript(
         )
         for event in events
     ]
+
+
+@router.get("/jobs/{job_id}/steps", response_model=list[StepPayload])
+async def get_job_steps(
+    job_id: str,
+    session: FromDishka[AsyncSession],
+) -> list[StepPayload]:
+    """Return all steps for a job, ordered by step_number."""
+    import json as _json
+    from sqlalchemy import select as _select
+
+    from backend.models.db import StepRow
+
+    result = await session.execute(
+        _select(StepRow).where(StepRow.job_id == job_id).order_by(StepRow.step_number).limit(200)
+    )
+    rows = list(result.scalars().all())
+    out = []
+    for row in rows:
+        out.append(StepPayload(
+            step_id=str(row.id),
+            step_number=int(row.step_number),
+            job_id=job_id,
+            turn_id=str(row.turn_id) if row.turn_id else None,
+            intent=str(row.intent),
+            title=str(row.title) if row.title else None,
+            status=str(row.status),
+            trigger=str(row.trigger),
+            tool_count=int(row.tool_count),
+            agent_message=str(row.agent_message) if row.agent_message else None,
+            duration_ms=int(row.duration_ms) if row.duration_ms is not None else None,
+            started_at=row.started_at,
+            completed_at=row.completed_at,
+            files_read=_json.loads(str(row.files_read)) if row.files_read else None,
+            files_written=_json.loads(str(row.files_written)) if row.files_written else None,            start_sha=str(row.start_sha) if row.start_sha else None,
+            end_sha=str(row.end_sha) if row.end_sha else None,
+        ))
+    return out
+
+
+@router.get("/jobs/{job_id}/steps/{step_id}/diff", response_model=StepDiffPayload)
+async def get_step_diff(
+    job_id: str,
+    step_id: str,
+    session: FromDishka[AsyncSession],
+    svc: FromDishka[JobService],
+    config: FromDishka[CPLConfig],
+    event_bus: FromDishka[EventBus],
+) -> StepDiffPayload:
+    """Return the Git diff for a specific step."""
+    from sqlalchemy import select as _select
+
+    from backend.models.db import StepRow
+    from backend.services.git_service import GitService
+
+    result = await session.execute(_select(StepRow).where(StepRow.id == step_id))
+    step = result.scalar_one_or_none()
+    if not step or not step.start_sha or not step.end_sha:
+        return StepDiffPayload(step_id=step_id, diff="", files_changed=0)
+    if step.start_sha == step.end_sha:
+        return StepDiffPayload(step_id=step_id, diff="", files_changed=0)
+
+    job = await svc.get_job(job_id)
+    if not job.worktree_path:
+        return StepDiffPayload(step_id=step_id, diff="", files_changed=0)
+
+    git = GitService(config)
+    diff_text = await git.diff_range(str(step.start_sha), str(step.end_sha), cwd=job.worktree_path)
+    files_changed = diff_text.count("\ndiff --git ") + (1 if diff_text.startswith("diff --git ") else 0)
+    return StepDiffPayload(step_id=step_id, diff=diff_text, files_changed=files_changed)
+
+
+@router.get("/jobs/{job_id}/transcript/search", response_model=list[TranscriptSearchResult])
+async def search_transcript(
+    job_id: str,
+    session: FromDishka[AsyncSession],
+    q: str = Query(..., min_length=2, max_length=200),
+    roles: list[str] | None = Query(None),
+    step_id: str | None = None,
+    limit: int = Query(50, le=200),
+) -> list[TranscriptSearchResult]:
+    """Full-text search within a job's transcript events."""
+    from backend.models.api_schemas import TranscriptRole
+    from backend.persistence.event_repo import EventRepository
+
+    _valid_roles = {r.value for r in TranscriptRole}
+    if roles:
+        roles = [r for r in roles if r in _valid_roles]
+
+    event_repo = EventRepository(session)
+    events = await event_repo.search_transcript(job_id, q, roles=roles, step_id=step_id, limit=limit)
+    results = []
+    for evt in events:
+        p = evt.payload
+        results.append(TranscriptSearchResult(
+            seq=int(p.get("seq", 0)),
+            role=str(p.get("role", "")),
+            content=str(p.get("content", "")),
+            tool_name=str(p.get("tool_name")) if p.get("tool_name") else None,
+            step_id=str(p.get("step_id")) if p.get("step_id") else None,
+            step_number=int(p.get("step_number")) if p.get("step_number") is not None else None,
+            timestamp=evt.timestamp,
+        ))
+    return results
+
+
+@router.post("/jobs/{job_id}/restore")
+async def restore_to_sha(
+    job_id: str,
+    body: RestoreRequest,
+    svc: FromDishka[JobService],
+    config: FromDishka[CPLConfig],
+) -> dict:
+    """Reset the job's worktree to a specific commit SHA.
+
+    Destructive — requires frontend confirmation dialog.
+    Blocked while the agent is actively running.
+    """
+    from fastapi import HTTPException
+
+    from backend.services.git_service import GitService
+
+    job = await svc.get_job(job_id)
+    if job.state in ("running", "agent_running"):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot restore while the agent is running. Cancel the job first.",
+        )
+    if not job.worktree_path:
+        raise HTTPException(status_code=404, detail="Job has no worktree.")
+
+    git = GitService(config)
+    await git.reset_hard(body.sha, cwd=job.worktree_path)
+    return {"restored": True, "sha": body.sha}
 
 
 @router.get("/jobs/{job_id}/timeline", response_model=list[ProgressHeadlinePayload])

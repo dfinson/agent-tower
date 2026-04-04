@@ -33,6 +33,8 @@ from backend.models.api_schemas import (
     SessionHeartbeatPayload,
     SessionResumedPayload,
     SnapshotPayload,
+    StepPayload,
+    StepTitlePayload,
     TelemetryUpdatedPayload,
     ToolGroupSummaryPayload,
     TranscriptPayload,
@@ -74,6 +76,10 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.tool_group_summary: "tool_group_summary",
     DomainEventKind.agent_plan_updated: "agent_plan_updated",
     DomainEventKind.telemetry_updated: "telemetry_updated",
+    # Step system — low-frequency, must NOT be in _SELECTIVE_SUPPRESSED or _JOB_SCOPED_ONLY
+    DomainEventKind.step_started: "step_started",
+    DomainEventKind.step_completed: "step_completed",
+    DomainEventKind.step_title_generated: "step_title",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -270,6 +276,8 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "tool_display": ("tool_display", None),
             "tool_display_full": ("tool_display_full", None),
             "tool_duration_ms": ("tool_duration_ms", None),
+            "step_id": ("step_id", None),
+            "step_number": ("step_number", None),
         },
     ),
     "diff_update": (
@@ -389,6 +397,57 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
         TelemetryUpdatedPayload,
         {
             "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
+    "step_started": (
+        StepPayload,
+        {
+            "step_id": ("step_id", ""),
+            "step_number": ("step_number", 0),
+            "turn_id": ("turn_id", None),
+            "intent": ("intent", ""),
+            "title": ("title", None),
+            "status": ("status", "running"),
+            "trigger": ("trigger", ""),
+            "tool_count": ("tool_count", 0),
+            "agent_message": ("agent_message", None),
+            "duration_ms": ("duration_ms", None),
+            "started_at": ("started_at", _TS_FALLBACK),
+            "completed_at": ("completed_at", None),
+            "files_read": ("files_read", None),
+            "files_written": ("files_written", None),
+            "start_sha": ("start_sha", None),
+            "end_sha": ("end_sha", None),
+            "artifact_count": ("artifact_count", 0),
+        },
+    ),
+    "step_completed": (
+        StepPayload,
+        {
+            "step_id": ("step_id", ""),
+            "step_number": ("step_number", 0),
+            "turn_id": ("turn_id", None),
+            "intent": ("intent", ""),
+            "title": ("title", None),
+            "status": ("status", "completed"),
+            "trigger": ("trigger", ""),
+            "tool_count": ("tool_count", 0),
+            "agent_message": ("agent_message", None),
+            "duration_ms": ("duration_ms", None),
+            "started_at": ("started_at", _TS_FALLBACK),
+            "completed_at": ("completed_at", None),
+            "files_read": ("files_read", None),
+            "files_written": ("files_written", None),
+            "start_sha": ("start_sha", None),
+            "end_sha": ("end_sha", None),
+            "artifact_count": ("artifact_count", 0),
+        },
+    ),
+    "step_title": (
+        StepTitlePayload,
+        {
+            "step_id": ("step_id", ""),
+            "title": ("title", ""),
         },
     ),
 }

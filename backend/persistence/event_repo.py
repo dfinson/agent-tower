@@ -108,3 +108,33 @@ class EventRepository(BaseRepository):
                 str(payload.get("summary", "")).strip(),
             )
         return previews
+
+    async def search_transcript(
+        self,
+        job_id: str,
+        query: str,
+        roles: list[str] | None = None,
+        step_id: str | None = None,
+        limit: int = 50,
+    ) -> list[DomainEvent]:
+        """Full-text search within a job's transcript events."""
+        from sqlalchemy import or_
+
+        stmt = (
+            select(EventRow)
+            .where(
+                EventRow.job_id == job_id,
+                EventRow.kind == DomainEventKind.transcript_updated.value,
+            )
+        )
+        if roles:
+            role_conditions = [EventRow.payload.contains(f'"role": "{r}"') for r in roles]
+            stmt = stmt.where(or_(*role_conditions))
+        if step_id:
+            stmt = stmt.where(EventRow.payload.contains(f'"step_id": "{step_id}"'))
+
+        like_pattern = f"%{query}%"
+        stmt = stmt.where(EventRow.payload.ilike(like_pattern))
+        stmt = stmt.order_by(EventRow.id).limit(limit)
+        result = await self._session.execute(stmt)
+        return [self._to_domain(row) for row in result.scalars().all()]

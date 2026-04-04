@@ -404,6 +404,8 @@ class TranscriptPayload(CamelModel):
     tool_display_full: str | None = None  # role=tool_call: same label, no char truncation (CSS-based)
     tool_duration_ms: int | None = None  # role=tool_call: execution time in milliseconds
     tool_group_summary: str | None = None  # AI-generated summary for the tool group turn
+    step_id: str | None = None
+    step_number: int | None = None
 
 
 class ToolGroupSummaryPayload(CamelModel):
@@ -837,3 +839,53 @@ class JobContextResponse(CamelModel):
     job: JobContextJob
     repo_avg: JobContextRepoAvg | None = None
     flags: list[JobContextFlag] = []
+
+
+class StepPayload(CamelModel):
+    """Step data for REST API and SSE."""
+    step_id: str
+    step_number: int
+    job_id: str
+    turn_id: str | None = None
+    intent: str
+    title: str | None = None
+    status: str
+    trigger: str
+    tool_count: int = 0
+    agent_message: str | None = None
+    duration_ms: int | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
+    files_read: list[str] | None = None
+    files_written: list[str] | None = None
+    start_sha: str | None = None
+    end_sha: str | None = None
+    artifact_count: int = 0
+
+
+class StepTitlePayload(CamelModel):
+    """SSE payload for step title generation."""
+    step_id: str
+    title: str
+
+
+class StepDiffPayload(CamelModel):
+    """Response for step-scoped Git diff."""
+    step_id: str
+    diff: str
+    files_changed: int
+
+
+class TranscriptSearchResult(CamelModel):
+    """A transcript event matching a search query."""
+    seq: int
+    role: str
+    content: str
+    tool_name: str | None = None
+    step_id: str | None = None
+    step_number: int | None = None
+    timestamp: datetime
+
+
+class RestoreRequest(CamelModel):
+    sha: str
