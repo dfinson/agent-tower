@@ -22,6 +22,7 @@ from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMax
 from backend.models.events import DomainEventKind
 from backend.persistence.database import create_engine, create_session_factory
 from backend.persistence.event_repo import EventRepository
+from backend.persistence.step_repo import StepRepository
 from backend.services.adapter_registry import AdapterRegistry
 from backend.services.approval_service import ApprovalService
 from backend.services.diff_service import DiffService
@@ -32,6 +33,9 @@ from backend.services.platform_adapter import PlatformRegistry
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
 from backend.services.sse_manager import SSEManager
+from backend.services.step_persistence import StepPersistenceSubscriber
+from backend.services.step_title_generator import StepTitleGenerator, _StepTitleSubscriber
+from backend.services.step_tracker import StepTracker
 from backend.services.summarization_service import SummarizationService
 from backend.services.utility_session import UtilitySessionService
 from backend.services.voice_service import VoiceService
@@ -184,6 +188,12 @@ def _init_event_infrastructure(
                     )
 
     event_bus.subscribe(_persist_and_broadcast)
+
+    # Step persistence subscriber — persists step_started/step_completed events
+    step_repo = StepRepository(session_factory)
+    step_persistence = StepPersistenceSubscriber(step_repo)
+    event_bus.subscribe(step_persistence)
+
     retry_task = asyncio.create_task(_dead_letter_retry_loop(), name="dead-letter-retry")
     return event_bus, sse_manager, retry_task
 
@@ -268,7 +278,20 @@ async def _wire_core_services(
         summarization_service=summarization_service,
         platform_registry=platform_registry,
         utility_session=utility_session,
+        step_tracker=StepTracker(
+            event_bus=event_bus,
+            git_service=git_service,
+        ),
     )
+
+    # Step title generator — wired as an event bus subscriber
+    step_repo = StepRepository(session_factory)
+    step_title_gen = StepTitleGenerator(
+        utility_session=utility_session,
+        event_bus=event_bus,
+        step_repo=step_repo,
+    )
+    event_bus.subscribe(_StepTitleSubscriber(step_title_gen))
 
     # Recover orphaned jobs from a previous crash
     await runtime_service.recover_on_startup()

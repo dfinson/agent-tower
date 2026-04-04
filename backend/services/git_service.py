@@ -157,6 +157,9 @@ class GitService:
         """Resolve a ref to its full commit SHA."""
         return await self._run_git("rev-parse", ref, cwd=cwd)
 
+    async def reset_hard(self, sha: str, *, cwd: str | Path) -> None:
+        await self._run_git("reset", "--hard", sha, cwd=cwd)
+
     async def update_ref(self, ref: str, new_value: str, *, cwd: str | Path) -> None:
         """Update a ref (e.g. refs/heads/main) to point at *new_value*."""
         await self._run_git("update-ref", ref, new_value, cwd=cwd)

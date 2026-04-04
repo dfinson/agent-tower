@@ -38,6 +38,9 @@ class DomainEventKind(StrEnum):
     agent_plan_updated = "AgentPlanUpdated"
     execution_phase_changed = "ExecutionPhaseChanged"
     telemetry_updated = "TelemetryUpdated"
+    step_started = "StepStarted"
+    step_completed = "StepCompleted"
+    step_title_generated = "StepTitleGenerated"
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +77,8 @@ class TranscriptPayloadDict(TypedDict, total=False):
     tool_title: str | None
     tool_display: str | None
     tool_duration_ms: int | None
+    step_id: str | None
+    step_number: int | None
 
 
 class DiffPayloadDict(TypedDict, total=False):
@@ -190,6 +195,31 @@ class TelemetryUpdatedPayloadDict(TypedDict, total=False):
     job_id: str
 
 
+class StepStartedPayloadDict(TypedDict, total=False):
+    step_id: str
+    step_number: int
+    turn_id: str | None
+    intent: str
+    trigger: str
+
+
+class StepCompletedPayloadDict(TypedDict, total=False):
+    step_id: str
+    status: str
+    tool_count: int
+    duration_ms: int
+    has_summary: bool
+    files_read: list[str]
+    files_written: list[str]
+    start_sha: str | None
+    end_sha: str | None
+
+
+class StepTitlePayloadDict(TypedDict, total=False):
+    step_id: str
+    title: str
+
+
 # Union of all known payload shapes.  Used as the DomainEvent.payload type so
 # consumers get useful type information.  The ``dict[str, Any]`` fallback
 # covers event kinds whose payload is not yet formally typed.
@@ -215,6 +245,9 @@ EventPayload = (
     | AgentPlanUpdatedPayloadDict
     | ExecutionPhasePayloadDict
     | TelemetryUpdatedPayloadDict
+    | StepStartedPayloadDict
+    | StepCompletedPayloadDict
+    | StepTitlePayloadDict
     | dict[str, Any]
 )
 

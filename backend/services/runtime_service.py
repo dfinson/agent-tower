@@ -32,6 +32,7 @@ from backend.models.domain import (
 )
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.progress_tracking_service import ProgressTrackingService
+from backend.services.step_tracker import StepTracker
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -201,6 +202,7 @@ class RuntimeService:
         summarization_service: SummarizationService | None = None,
         platform_registry: PlatformRegistry | None = None,
         utility_session: UtilitySessionService | None = None,
+        step_tracker: StepTracker | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
@@ -212,6 +214,7 @@ class RuntimeService:
         self._summarization_service = summarization_service
         self._platform_registry = platform_registry
         self._utility_session = utility_session
+        self._step_tracker = step_tracker
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._agent_sessions: dict[str, _AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
@@ -638,6 +641,9 @@ class RuntimeService:
         except Exception:
             log.warning("diff_job_lookup_failed", job_id=job_id, exc_info=True)
 
+        if worktree_path and self._step_tracker is not None:
+            self._step_tracker.register_worktree(job_id, worktree_path)
+
         session_id: str | None = None
         error_reason: str | None = None
         try:
@@ -798,6 +804,7 @@ class RuntimeService:
             )
 
             self._set_progress_terminal_state(job_id, final_state)
+            await self._set_step_terminal_state(job_id, final_state)
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
@@ -1044,6 +1051,11 @@ class RuntimeService:
         if self._progress_tracking is not None:
             self._progress_tracking.set_terminal_state(job_id, outcome)
 
+    async def _set_step_terminal_state(self, job_id: str, outcome: str) -> None:
+        """Forward terminal outcome to the step tracker."""
+        if self._step_tracker is not None:
+            await self._step_tracker.on_job_terminal(job_id, outcome)
+
     async def _cleanup_job_state(self, job_id: str) -> None:
         """Remove all per-job in-memory state and trigger post-job hooks."""
         # Last-resort guard: if the job is still non-terminal after all error
@@ -1052,6 +1064,8 @@ class RuntimeService:
 
         if self._progress_tracking is not None:
             self._progress_tracking.cleanup(job_id)
+        if self._step_tracker is not None:
+            self._step_tracker.cleanup(job_id)
         self._tasks.pop(job_id, None)
         self._agent_sessions.pop(job_id, None)
         self._last_activity.pop(job_id, None)
@@ -1108,6 +1122,7 @@ class RuntimeService:
                     )
                     await session.commit()
                     self._set_progress_terminal_state(job_id, JobState.failed)
+                    await self._set_step_terminal_state(job_id, JobState.failed)
                     await self._event_bus.publish(
                         DomainEvent(
                             event_id=DomainEvent.make_event_id(),
@@ -1234,6 +1249,7 @@ class RuntimeService:
                     await svc.transition_state(job_id, JobState.canceled)
                     await session.commit()
                     self._set_progress_terminal_state(job_id, JobState.canceled)
+                    await self._set_step_terminal_state(job_id, JobState.canceled)
                     await self._event_bus.publish(
                         DomainEvent(
                             event_id=DomainEvent.make_event_id(),
@@ -1401,6 +1417,16 @@ class RuntimeService:
                     if tool_name in ("manage_todo_list", "TodoWrite"):
                         await self._ingest_native_plan(job_id, domain_event.payload)
 
+            # Step tracking — annotate transcript events with step_id/step_number
+            if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
+                role = domain_event.payload.get("role", "")
+                if role != "agent_delta":
+                    await self._step_tracker.on_transcript_event(job_id, domain_event)
+                    current = self._step_tracker.current_step(job_id)
+                    if current:
+                        domain_event.payload["step_id"] = current.step_id
+                        domain_event.payload["step_number"] = current.step_number
+
             # Tag log lines with the current session number so callers can filter
             # by session when a job has been resumed one or more times.
             if domain_event.kind == DomainEventKind.log_line_emitted:
@@ -1502,6 +1528,16 @@ class RuntimeService:
 
                 if domain_event.kind == DomainEventKind.log_line_emitted:
                     domain_event.payload.setdefault("session_number", session_number)
+
+                # Step tracking for follow-up turns
+                if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
+                    role = domain_event.payload.get("role", "")
+                    if role != "agent_delta":
+                        await self._step_tracker.on_transcript_event(job_id, domain_event)
+                        current = self._step_tracker.current_step(job_id)
+                        if current:
+                            domain_event.payload["step_id"] = current.step_id
+                            domain_event.payload["step_number"] = current.step_number
 
                 await self._event_bus.publish(domain_event)
         except Exception:
@@ -1658,21 +1694,26 @@ class RuntimeService:
         await agent_session.send_message(message)
         # Publish immediately so the operator message appears in the transcript
         # without waiting for the SDK to echo it back.
-        await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=now,
-                kind=DomainEventKind.transcript_updated,
-                payload={
-                    "job_id": job_id,
-                    "seq": 0,
-                    "timestamp": now.isoformat(),
-                    "role": "operator",
-                    "content": message,
-                },
-            )
+        operator_event = DomainEvent(
+            event_id=DomainEvent.make_event_id(),
+            job_id=job_id,
+            timestamp=now,
+            kind=DomainEventKind.transcript_updated,
+            payload={
+                "job_id": job_id,
+                "seq": 0,
+                "timestamp": now.isoformat(),
+                "role": "operator",
+                "content": message,
+            },
         )
+        if self._step_tracker is not None:
+            await self._step_tracker.on_transcript_event(job_id, operator_event)
+            current = self._step_tracker.current_step(job_id)
+            if current:
+                operator_event.payload["step_id"] = current.step_id
+                operator_event.payload["step_number"] = current.step_number
+        await self._event_bus.publish(operator_event)
         # Suppress the SDK echo so the same content is not published twice.
         self._echo_suppress.setdefault(job_id, set()).add(message)
         return True
