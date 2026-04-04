@@ -127,8 +127,6 @@ _DEFAULT_RESUME_INSTRUCTION = "Continue the current task from where you left off
 
 # Heartbeat configuration
 _HEARTBEAT_INTERVAL_S = 30
-_HEARTBEAT_WARNING_S = 90
-_HEARTBEAT_TIMEOUT_S = 300  # 5 minutes
 
 # Default prompts for post-completion verification and self-review turns
 DEFAULT_VERIFY_PROMPT = (
@@ -1601,9 +1599,7 @@ class RuntimeService:
         await self._finalize_diff_safe(job_id, worktree_path, base_ref)
 
     async def _heartbeat_loop(self, job_id: str) -> None:
-        """Emit periodic heartbeats; timeout based on time since last activity."""
-        import time
-
+        """Emit periodic heartbeats for session health display."""
         try:
             while True:
                 await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
@@ -1611,20 +1607,6 @@ class RuntimeService:
                 last = self._last_activity.get(job_id)
                 if last is None:
                     return
-                since_last = time.monotonic() - last
-
-                if since_last >= _HEARTBEAT_TIMEOUT_S:
-                    if job_id in self._waiting_for_approval:
-                        continue
-                    log.warning("job_heartbeat_timeout", job_id=job_id, idle_s=since_last)
-                    await self._fail_job(job_id, "heartbeat_timeout")
-                    task = self._tasks.get(job_id)
-                    if task:
-                        task.cancel()
-                    return
-
-                if since_last >= _HEARTBEAT_WARNING_S and job_id not in self._waiting_for_approval:
-                    log.warning("job_heartbeat_warning", job_id=job_id, idle_s=since_last)
 
                 session_id = self._session_ids.get(job_id, "")
                 await self._event_bus.publish(
