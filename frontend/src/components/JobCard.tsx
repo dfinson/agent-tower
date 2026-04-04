@@ -1,10 +1,11 @@
 import { memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { GitBranch, AlertTriangle, XCircle, ArrowDownCircle, FolderGit2, CheckCircle2 } from "lucide-react";
-import { useStore, selectJobTimeline } from "../store";
+import { useStore, selectJobTimeline, selectJobTranscript } from "../store";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
+import { useViewStateStore } from "../store/viewStateStore";
 
 function elapsed(createdAt: string): string {
   const ms = Date.now() - new Date(createdAt).getTime();
@@ -44,6 +45,9 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   const navigate = useNavigate();
   const repoName = job.repo.split("/").pop() ?? job.repo;
   const timeline = useStore(selectJobTimeline(job.id));
+  const transcript = useStore(selectJobTranscript(job.id));
+  const lastSeenSeq = useViewStateStore((s) => s.lastSeenSeq[job.id]);
+  const hasUnread = lastSeenSeq != null && transcript.some((e) => (e.seq ?? 0) > lastSeenSeq);
   const latestTimelineEntry = timeline[timeline.length - 1];
   const activeTimelineEntry = timeline.find((entry) => entry.active) ?? latestTimelineEntry;
   const previewHeadline = job.state === "running"
@@ -66,6 +70,9 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
           <span className="text-sm font-semibold text-primary flex-1 min-w-0 break-words" title={job.id}>{job.id}</span>
         )}
         <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+          {hasUnread && (
+            <span className="inline-block w-2 h-2 rounded-full bg-blue-500 shrink-0" title="New activity since last visit" />
+          )}
           {job.resolution && !(job.state === "review" && job.resolution === "unresolved") && <ResolutionBadge resolution={job.resolution} />}
           <StateBadge state={job.state} />
         </div>
