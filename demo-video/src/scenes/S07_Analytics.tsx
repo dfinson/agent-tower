@@ -1,34 +1,105 @@
 /**
- * S07 — Analytics: scorecard + model comparison.
- * Cross-fades between top analytics view and scrolled-to model table.
+ * S07 — Mobile: quick 3-beat phone montage.
+ *
+ * Three phone frames slide in sequentially, each showing a different beat:
+ *   1. Dashboard (overview)
+ *   2. Approval (approve from phone)
+ *   3. Job detail (see the diff)
+ *
+ * This tells a story: "You're away from your desk. You still have full control."
  */
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, interpolate } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Inter";
-import { C, SCENES } from "../constants";
+import { C, SCENES, PHONE } from "../constants";
 
 const { fontFamily } = loadFont("normal", { weights: ["500"] });
 
-export const S07_Analytics: React.FC = () => {
+const PhoneFrame: React.FC<{
+  src: string;
+  x: number;
+  y: number;
+  opacity: number;
+  label?: string;
+  labelOpacity?: number;
+}> = ({ src, x, y, opacity, label, labelOpacity = 0 }) => (
+  <div
+    style={{
+      position: "absolute",
+      left: x,
+      top: y,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 24,
+      opacity,
+    }}
+  >
+    <div
+      style={{
+        width: PHONE.width,
+        height: PHONE.height,
+        borderRadius: PHONE.radius,
+        border: `${PHONE.bezel}px solid #2a2a30`,
+        background: "#111",
+        overflow: "hidden",
+        boxShadow: "0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)",
+      }}
+    >
+      <Img
+        src={staticFile(src)}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          objectPosition: "top",
+        }}
+      />
+    </div>
+    {label && (
+      <span
+        style={{
+          fontSize: 28,
+          color: C.muted,
+          fontWeight: 500,
+          opacity: labelOpacity,
+          letterSpacing: "0.02em",
+        }}
+      >
+        {label}
+      </span>
+    )}
+  </div>
+);
+
+export const S07_Mobile: React.FC = () => {
   const frame = useCurrentFrame();
-  const dur = SCENES.analytics;
-  const half = Math.floor(dur / 2);
+  const dur = SCENES.mobile;
+  const centerY = (2160 - PHONE.height) / 2 - 20;
 
   // Title
-  const titleOpacity = interpolate(frame, [0, 15, 55, 70], [0, 1, 1, 0], {
+  const titleOpacity = interpolate(frame, [0, 15, 75, 95], [0, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
 
-  // First half: analytics-top
-  const img1Opacity = interpolate(frame, [10, 30, half - 10, half + 5], [0, 1, 1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-  const img1Scale = interpolate(frame, [10, half], [1.05, 1], { extrapolateRight: "clamp" });
+  // Phone 1 — Dashboard (left) slides up
+  const p1Y = interpolate(frame, [30, 65], [centerY + 100, centerY], { extrapolateRight: "clamp" });
+  const p1Opacity = interpolate(frame, [30, 60], [0, 1], { extrapolateRight: "clamp" });
+  const p1LabelOpacity = interpolate(frame, [65, 80], [0, 1], { extrapolateRight: "clamp" });
 
-  // Second half: analytics-models
-  const img2Opacity = interpolate(frame, [half - 5, half + 15], [0, 1], { extrapolateRight: "clamp" });
-  const img2Scale = interpolate(frame, [half, dur], [1.05, 1], { extrapolateRight: "clamp" });
+  // Phone 2 — Approval (center) slides up with delay
+  const p2Y = interpolate(frame, [60, 95], [centerY + 100, centerY], { extrapolateRight: "clamp" });
+  const p2Opacity = interpolate(frame, [60, 90], [0, 1], { extrapolateRight: "clamp" });
+  const p2LabelOpacity = interpolate(frame, [95, 110], [0, 1], { extrapolateRight: "clamp" });
+
+  // Phone 3 — Job detail (right) slides up with delay
+  const p3Y = interpolate(frame, [90, 125], [centerY + 100, centerY], { extrapolateRight: "clamp" });
+  const p3Opacity = interpolate(frame, [90, 120], [0, 1], { extrapolateRight: "clamp" });
+  const p3LabelOpacity = interpolate(frame, [125, 140], [0, 1], { extrapolateRight: "clamp" });
+
+  // Horizontal positions: 3 phones evenly spaced
+  const totalWidth = PHONE.width * 3 + 200; // 200px gaps
+  const startX = (3840 - totalWidth) / 2;
 
   return (
     <AbsoluteFill style={{ backgroundColor: C.bg, fontFamily }}>
@@ -36,13 +107,11 @@ export const S07_Analytics: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          top: 0,
+          top: 80,
           left: 0,
           right: 0,
-          bottom: 0,
           display: "flex",
           justifyContent: "center",
-          alignItems: "center",
           zIndex: 2,
           pointerEvents: "none",
           opacity: titleOpacity,
@@ -50,66 +119,42 @@ export const S07_Analytics: React.FC = () => {
       >
         <h2
           style={{
-            fontSize: 64,
+            fontSize: 72,
             fontWeight: 500,
             color: C.white,
-            textAlign: "center",
-            lineHeight: 1.4,
             textShadow: "0 4px 40px rgba(0,0,0,0.9)",
             letterSpacing: "-0.02em",
           }}
         >
-          Know what it costs{"\n"}and what it{"'"}s worth.
+          From your phone. From anywhere.
         </h2>
       </div>
 
-      {/* Analytics top */}
-      <div
-        style={{
-          position: "absolute",
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          overflow: "hidden",
-          opacity: img1Opacity,
-        }}
-      >
-        <Img
-          src={staticFile("captures/analytics-top.png")}
-          style={{
-            width: "94%",
-            borderRadius: 20,
-            boxShadow: "0 30px 100px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)",
-            transform: `scale(${img1Scale})`,
-          }}
-        />
-      </div>
-
-      {/* Analytics models */}
-      <div
-        style={{
-          position: "absolute",
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          overflow: "hidden",
-          opacity: img2Opacity,
-        }}
-      >
-        <Img
-          src={staticFile("captures/analytics-models.png")}
-          style={{
-            width: "94%",
-            borderRadius: 20,
-            boxShadow: "0 30px 100px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)",
-            transform: `scale(${img2Scale})`,
-          }}
-        />
-      </div>
+      {/* Three phones */}
+      <PhoneFrame
+        src="captures/dashboard-mobile.png"
+        x={startX}
+        y={p1Y}
+        opacity={p1Opacity}
+        label="Overview"
+        labelOpacity={p1LabelOpacity}
+      />
+      <PhoneFrame
+        src="captures/job-mobile.png"
+        x={startX + PHONE.width + 100}
+        y={p2Y}
+        opacity={p2Opacity}
+        label="Supervise"
+        labelOpacity={p2LabelOpacity}
+      />
+      <PhoneFrame
+        src="captures/dashboard-mobile.png"
+        x={startX + (PHONE.width + 100) * 2}
+        y={p3Y}
+        opacity={p3Opacity}
+        label="Approve"
+        labelOpacity={p3LabelOpacity}
+      />
     </AbsoluteFill>
   );
 };

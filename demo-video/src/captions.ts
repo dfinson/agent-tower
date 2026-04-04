@@ -1,17 +1,21 @@
 /**
- * Sparse, prominent scene titles.
- * Used as large overlay text — not rolling captions.
+ * Narrative-driven scene titles.
+ * Each title is tied to a story beat, not a feature bullet.
  */
 
 import { SCENES, TRANSITION_FRAMES } from "./constants";
 
 interface Title {
   text: string;
+  /** Sub-text shown below the main title */
+  sub?: string;
   startFrame: number;
   endFrame: number;
+  /** Position: 'center' (default), 'bottom', 'top' */
+  position?: "center" | "bottom" | "top";
 }
 
-// Compute scene start frames accounting for transitions
+// Compute the absolute start frame for scene at `index`
 function sceneStart(index: number): number {
   const keys = Object.keys(SCENES) as (keyof typeof SCENES)[];
   let frame = 0;
@@ -22,44 +26,54 @@ function sceneStart(index: number): number {
 }
 
 const S = SCENES;
-const keys = Object.keys(S) as (keyof typeof S)[];
 
 export const titles: Title[] = [
+  // S01 — Cold open: no title, the typing IS the content
+
+  // S02 — Scale reveal
   {
-    text: "You run 5 agents across 3 repos.\nWhere does the work stand?",
-    startFrame: sceneStart(0) + 30,
-    endFrame: sceneStart(0) + S.opening - 10,
+    text: "One view. Every agent. Every repo.",
+    startFrame: sceneStart(1) + 15,
+    endFrame: sceneStart(1) + 100,
+    position: "top",
   },
-  {
-    text: "Every coding agent is a black box.",
-    startFrame: sceneStart(1) + 10,
-    endFrame: sceneStart(1) + S.problem - 10,
-  },
-  {
-    text: "See everything. Across every agent.",
-    startFrame: sceneStart(2) + 10,
-    endFrame: sceneStart(2) + 60,
-  },
+
+  // S03 — Supervise
   {
     text: "Watch it think. Watch it build.",
+    startFrame: sceneStart(2) + 10,
+    endFrame: sceneStart(2) + 80,
+  },
+
+  // S04 — Gate
+  {
+    text: "You stay in control.",
     startFrame: sceneStart(3) + 10,
-    endFrame: sceneStart(3) + 60,
+    endFrame: sceneStart(3) + 70,
   },
+
+  // S05 — Review
   {
-    text: "Stay in the loop\nwithout breaking flow.",
+    text: "Review every change before it lands.",
+    startFrame: sceneStart(4) + 10,
+    endFrame: sceneStart(4) + 80,
+  },
+
+  // S06 — Cost + Scale
+  {
+    text: "Know what it costs.",
     startFrame: sceneStart(5) + 10,
-    endFrame: sceneStart(5) + 60,
+    endFrame: sceneStart(5) + 70,
   },
+
+  // S07 — Mobile
   {
-    text: "Know what it costs\nand what it's worth.",
+    text: "From your phone. From anywhere.",
     startFrame: sceneStart(6) + 10,
-    endFrame: sceneStart(6) + 60,
+    endFrame: sceneStart(6) + 80,
   },
-  {
-    text: "Full visibility from anywhere.",
-    startFrame: sceneStart(7) + 10,
-    endFrame: sceneStart(7) + 60,
-  },
+
+  // S08 — CTA: handled inline by the closing scene
 ];
 
 export function getTitleAtFrame(frame: number): Title | null {
