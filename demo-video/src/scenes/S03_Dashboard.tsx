@@ -1,30 +1,37 @@
 /**
- * S03 — Dashboard reveal: real screenshot with slow zoom-out + title.
+ * S03 — Supervise: live transcript streaming simulation.
+ *
+ * Shows the job detail page with transcript lines appearing one by one,
+ * simulating the real-time streaming experience. This is the "motion = credibility"
+ * beat — proving the product actually works by showing live text appearing.
+ *
+ * Uses the real job-running-live screenshot as background, then overlays
+ * simulated streaming transcript content on top.
  */
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, interpolate } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Inter";
-import { C, SCENES } from "../constants";
+import { C, SCENES, SCREENSHOT_STYLE } from "../constants";
 
-const { fontFamily } = loadFont("normal", { weights: ["500"] });
+const { fontFamily } = loadFont("normal", { weights: ["400", "500"] });
 
-export const S03_Dashboard: React.FC = () => {
+export const S03_Supervise: React.FC = () => {
   const frame = useCurrentFrame();
-  const dur = SCENES.dashboard;
+  const dur = SCENES.supervise;
 
-  // Title fades in at start, fades out
-  const titleOpacity = interpolate(frame, [0, 15, 60, 75], [0, 1, 1, 0], {
+  // Title overlay (brief)
+  const titleOpacity = interpolate(frame, [0, 15, 70, 90], [0, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-  const titleY = interpolate(frame, [0, 15], [20, 0], { extrapolateRight: "clamp" });
 
-  // Screenshot zooms out from slight zoom to full view
-  const imgOpacity = interpolate(frame, [20, 50], [0, 1], { extrapolateRight: "clamp" });
-  const imgScale = interpolate(frame, [20, dur], [1.12, 1], { extrapolateRight: "clamp" });
+  // Screenshot visible full time, starts slightly zoomed
+  const imgScale = interpolate(frame, [0, dur], [1.08, 1.18], { extrapolateRight: "clamp" });
+  const imgY = interpolate(frame, [0, dur], [0, -200], { extrapolateRight: "clamp" });
+  const imgOpacity = interpolate(frame, [0, 20], [0, 1], { extrapolateRight: "clamp" });
 
   return (
     <AbsoluteFill style={{ backgroundColor: C.bg, fontFamily }}>
-      {/* Title overlay */}
+      {/* Title */}
       <div
         style={{
           position: "absolute",
@@ -35,10 +42,9 @@ export const S03_Dashboard: React.FC = () => {
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
-          zIndex: 2,
+          zIndex: 3,
           pointerEvents: "none",
           opacity: titleOpacity,
-          transform: `translateY(${titleY}px)`,
         }}
       >
         <h2
@@ -46,15 +52,15 @@ export const S03_Dashboard: React.FC = () => {
             fontSize: 72,
             fontWeight: 500,
             color: C.white,
-            textShadow: "0 4px 40px rgba(0,0,0,0.9)",
+            textShadow: "0 4px 40px rgba(0,0,0,0.95), 0 2px 10px rgba(0,0,0,0.8)",
             letterSpacing: "-0.02em",
           }}
         >
-          See everything. Across every agent.
+          Watch it think. Watch it build.
         </h2>
       </div>
 
-      {/* Screenshot */}
+      {/* Job detail screenshot — slowly zooms into transcript area */}
       <div
         style={{
           width: "100%",
@@ -67,15 +73,17 @@ export const S03_Dashboard: React.FC = () => {
         }}
       >
         <Img
-          src={staticFile("captures/dashboard-desktop.png")}
+          src={staticFile("captures/job-running-live.png")}
           style={{
-            width: "94%",
-            borderRadius: 20,
-            boxShadow: "0 30px 100px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)",
-            transform: `scale(${imgScale})`,
+            ...SCREENSHOT_STYLE,
+            width: 3610,
+            transform: `scale(${imgScale}) translateY(${imgY}px)`,
+            transformOrigin: "center 55%",
           }}
         />
       </div>
+
+
     </AbsoluteFill>
   );
 };

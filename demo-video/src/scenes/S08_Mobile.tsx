@@ -1,110 +1,147 @@
 /**
- * S08 — Mobile showcase: real mobile screenshots in phone frames.
- * Dashboard (left) and job detail (right), side by side.
+ * S08 — CTA: Logo + pip install + GitHub URL.
+ *
+ * Clean, actionable closing. No fluff.
+ * Staggered reveal: logo → tagline → install command → GitHub URL.
  */
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, interpolate } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Inter";
-import { C, SCENES, PHONE } from "../constants";
+import { loadFont as loadMono } from "@remotion/google-fonts/RobotoMono";
+import { C, SCENES } from "../constants";
 
-const { fontFamily } = loadFont("normal", { weights: ["500"] });
+const { fontFamily } = loadFont("normal", { weights: ["400", "600"] });
+const { fontFamily: monoFamily } = loadMono("normal", { weights: ["400"], subsets: ["latin"] });
 
-const PhoneFrame: React.FC<{
-  src: string;
-  x: number;
-  y: number;
-  opacity: number;
-}> = ({ src, x, y, opacity }) => (
-  <div
-    style={{
-      position: "absolute",
-      left: x,
-      top: y,
-      width: PHONE.width,
-      height: PHONE.height,
-      borderRadius: PHONE.radius,
-      border: `${PHONE.bezel}px solid #2a2a30`,
-      background: "#111",
-      overflow: "hidden",
-      boxShadow: "0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)",
-      opacity,
-    }}
-  >
-    <Img
-      src={staticFile(src)}
-      style={{
-        width: "100%",
-        height: "100%",
-        objectFit: "cover",
-        objectPosition: "top",
-      }}
-    />
-  </div>
-);
-
-export const S08_Mobile: React.FC = () => {
+export const S08_CTA: React.FC = () => {
   const frame = useCurrentFrame();
-  const dur = SCENES.mobile;
+  const dur = SCENES.cta;
 
-  // Title
-  const titleOpacity = interpolate(frame, [0, 15, 55, 70], [0, 1, 1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+  // Logo
+  const logoOpacity = interpolate(frame, [0, 25], [0, 1], { extrapolateRight: "clamp" });
+  const logoScale = interpolate(frame, [0, 25], [0.9, 1], { extrapolateRight: "clamp" });
 
-  // Phone 1 (dashboard) slides in from left
-  const phone1X = interpolate(frame, [20, 50], [1100, 1300], { extrapolateRight: "clamp" });
-  const phone1Opacity = interpolate(frame, [20, 45], [0, 1], { extrapolateRight: "clamp" });
+  // Tagline
+  const tagOpacity = interpolate(frame, [30, 50], [0, 1], { extrapolateRight: "clamp" });
+  const tagY = interpolate(frame, [30, 50], [15, 0], { extrapolateRight: "clamp" });
 
-  // Phone 2 (job detail) slides in from right
-  const phone2X = interpolate(frame, [35, 65], [2200, 2100], { extrapolateRight: "clamp" });
-  const phone2Opacity = interpolate(frame, [35, 60], [0, 1], { extrapolateRight: "clamp" });
+  // Install command
+  const cmdOpacity = interpolate(frame, [55, 75], [0, 1], { extrapolateRight: "clamp" });
+  const cmdY = interpolate(frame, [55, 75], [15, 0], { extrapolateRight: "clamp" });
 
-  const centerY = (2160 - PHONE.height) / 2;
+  // GitHub URL
+  const urlOpacity = interpolate(frame, [80, 100], [0, 1], { extrapolateRight: "clamp" });
+
+  // "Open source" badge
+  const badgeOpacity = interpolate(frame, [95, 115], [0, 1], { extrapolateRight: "clamp" });
 
   return (
-    <AbsoluteFill style={{ backgroundColor: C.bg, fontFamily }}>
-      {/* Title */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          zIndex: 2,
-          pointerEvents: "none",
-          opacity: titleOpacity,
-        }}
-      >
-        <h2
+    <AbsoluteFill
+      style={{
+        backgroundColor: C.bg,
+        justifyContent: "center",
+        alignItems: "center",
+        fontFamily,
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 50 }}>
+        {/* Logo */}
+        <div
           style={{
-            fontSize: 72,
-            fontWeight: 500,
-            color: C.white,
-            textShadow: "0 4px 40px rgba(0,0,0,0.9)",
-            letterSpacing: "-0.02em",
+            display: "flex",
+            alignItems: "center",
+            gap: 40,
+            opacity: logoOpacity,
+            transform: `scale(${logoScale})`,
           }}
         >
-          Full visibility from anywhere.
-        </h2>
-      </div>
+          <Img src={staticFile("mark.png")} style={{ width: 120, height: 120 }} />
+          <span style={{ fontSize: 80, fontWeight: 600, color: C.white, letterSpacing: "-0.02em" }}>
+            CodePlane
+          </span>
+        </div>
 
-      {/* Phone frames */}
-      <PhoneFrame
-        src="captures/dashboard-mobile.png"
-        x={phone1X}
-        y={centerY}
-        opacity={phone1Opacity}
-      />
-      <PhoneFrame
-        src="captures/job-mobile.png"
-        x={phone2X}
-        y={centerY}
-        opacity={phone2Opacity}
-      />
+        {/* Tagline */}
+        <p
+          style={{
+            fontSize: 44,
+            color: C.muted,
+            textAlign: "center",
+            opacity: tagOpacity,
+            transform: `translateY(${tagY}px)`,
+            margin: 0,
+          }}
+        >
+          A control plane for your coding agents.
+        </p>
+
+        {/* Install command */}
+        <div
+          style={{
+            opacity: cmdOpacity,
+            transform: `translateY(${cmdY}px)`,
+            marginTop: 20,
+          }}
+        >
+          <div
+            style={{
+              background: C.card,
+              border: `1px solid ${C.border}`,
+              borderRadius: 16,
+              padding: "24px 56px",
+              display: "flex",
+              alignItems: "center",
+              gap: 20,
+            }}
+          >
+            <span style={{ fontSize: 36, color: C.muted, fontFamily: monoFamily }}>$</span>
+            <span style={{ fontSize: 36, color: C.fg, fontFamily: monoFamily }}>
+              pip install codeplane
+            </span>
+          </div>
+        </div>
+
+        {/* GitHub URL */}
+        <p
+          style={{
+            fontSize: 38,
+            color: C.primary,
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+            opacity: urlOpacity,
+            margin: 0,
+            marginTop: 10,
+          }}
+        >
+          github.com/dfinson/codeplane
+        </p>
+
+        {/* Open source badge */}
+        <div
+          style={{
+            opacity: badgeOpacity,
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 30,
+              color: C.green,
+              fontWeight: 600,
+              border: `1px solid ${C.green}`,
+              borderRadius: 12,
+              padding: "8px 24px",
+              letterSpacing: "0.03em",
+            }}
+          >
+            Open Source
+          </span>
+          <span style={{ fontSize: 30, color: C.muted }}>
+            MIT License
+          </span>
+        </div>
+      </div>
     </AbsoluteFill>
   );
 };

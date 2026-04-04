@@ -1,28 +1,47 @@
 /**
- * S06 — Approval flow: job detail with approval banner visible.
- * Shows the real approval banner with Approve/Reject buttons.
+ * S06 — Cost + Scale: analytics scorecard cross-fading to dashboard completion.
+ *
+ * First half: analytics page with cost and model data.
+ * Second half: quick cut back to the dashboard — our job has moved to "Completed"
+ * column, closing the narrative loop.
  */
 import { AbsoluteFill, Img, staticFile, useCurrentFrame, interpolate } from "remotion";
 import { loadFont } from "@remotion/google-fonts/Inter";
-import { C, SCENES } from "../constants";
+import { C, SCENES, SCREENSHOT_STYLE } from "../constants";
 
-const { fontFamily } = loadFont("normal", { weights: ["500"] });
+const { fontFamily } = loadFont("normal", { weights: ["500", "600"] });
 
-export const S06_Approval: React.FC = () => {
+export const S06_CostScale: React.FC = () => {
   const frame = useCurrentFrame();
-  const dur = SCENES.approval;
+  const dur = SCENES.costScale;
+  const half = Math.floor(dur * 0.55); // Slightly more time on analytics
 
   // Title
-  const titleOpacity = interpolate(frame, [0, 15, 55, 70], [0, 1, 1, 0], {
+  const titleOpacity = interpolate(frame, [0, 15, 60, 80], [0, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
 
-  // Screenshot
-  const imgOpacity = interpolate(frame, [10, 35], [0, 1], { extrapolateRight: "clamp" });
-  const imgScale = interpolate(frame, [10, dur], [1.06, 1], { extrapolateRight: "clamp" });
-  // Slowly zoom toward the approval area (upper portion)
-  const imgY = interpolate(frame, [60, dur], [0, -40], { extrapolateRight: "clamp" });
+  // Analytics screenshot — first half
+  const img1Opacity = interpolate(frame, [5, 25, half - 15, half], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const img1Scale = interpolate(frame, [5, half], [1.06, 1], { extrapolateRight: "clamp" });
+
+  // Dashboard screenshot — second half (completion loop)
+  const img2Opacity = interpolate(frame, [half - 5, half + 15], [0, 1], {
+    extrapolateRight: "clamp",
+  });
+  const img2Scale = interpolate(frame, [half, dur], [1.04, 1], { extrapolateRight: "clamp" });
+
+  // "Completed" badge overlay on dashboard
+  const completedBadgeOpacity = interpolate(
+    frame,
+    [half + 40, half + 60],
+    [0, 1],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+  );
 
   return (
     <AbsoluteFill style={{ backgroundColor: C.bg, fontFamily }}>
@@ -44,40 +63,95 @@ export const S06_Approval: React.FC = () => {
       >
         <h2
           style={{
-            fontSize: 64,
+            fontSize: 72,
             fontWeight: 500,
             color: C.white,
-            textAlign: "center",
-            lineHeight: 1.4,
-            textShadow: "0 4px 40px rgba(0,0,0,0.9)",
+            textShadow: "0 4px 40px rgba(0,0,0,0.95), 0 2px 10px rgba(0,0,0,0.8)",
             letterSpacing: "-0.02em",
           }}
         >
-          Stay in the loop{"\n"}without breaking flow.
+          Know what it costs.
         </h2>
       </div>
 
-      {/* Approval screenshot */}
+      {/* Analytics page */}
       <div
         style={{
+          position: "absolute",
           width: "100%",
           height: "100%",
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
           overflow: "hidden",
-          opacity: imgOpacity,
+          opacity: img1Opacity,
         }}
       >
         <Img
-          src={staticFile("captures/job-approval.png")}
+          src={staticFile("captures/analytics-top.png")}
           style={{
-            width: "94%",
-            borderRadius: 20,
-            boxShadow: "0 30px 100px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)",
-            transform: `scale(${imgScale}) translateY(${imgY}px)`,
+            ...SCREENSHOT_STYLE,
+            width: 3610,
+            transform: `scale(${img1Scale})`,
           }}
         />
+      </div>
+
+      {/* Dashboard — completion loop */}
+      <div
+        style={{
+          position: "absolute",
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          overflow: "hidden",
+          opacity: img2Opacity,
+        }}
+      >
+        <Img
+          src={staticFile("captures/dashboard-desktop.png")}
+          style={{
+            ...SCREENSHOT_STYLE,
+            width: 3610,
+            transform: `scale(${img2Scale})`,
+          }}
+        />
+      </div>
+
+      {/* "Task completed" narrative closer */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 160,
+          left: 0,
+          right: 0,
+          display: "flex",
+          justifyContent: "center",
+          zIndex: 3,
+          opacity: completedBadgeOpacity,
+          pointerEvents: "none",
+        }}
+      >
+        <div
+          style={{
+            background: "rgba(15, 17, 23, 0.9)",
+            backdropFilter: "blur(20px)",
+            border: `1px solid ${C.green}`,
+            borderRadius: 16,
+            padding: "20px 48px",
+            display: "flex",
+            alignItems: "center",
+            gap: 20,
+            fontSize: 36,
+          }}
+        >
+          <span style={{ color: C.green, fontSize: 40 }}>✓</span>
+          <span style={{ color: C.fg, fontWeight: 500 }}>
+            Prompt to merged — one workflow
+          </span>
+        </div>
       </div>
     </AbsoluteFill>
   );
