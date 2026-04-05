@@ -224,6 +224,7 @@ class StepTracker:
                 "tool_count": state.tool_count,
                 "duration_ms": duration_ms,
                 "has_summary": state.last_agent_message is not None,
+                "agent_message": state.last_agent_message,
                 "files_read": state.files_read[:20],
                 "files_written": state.files_written[:20],
                 "start_sha": state.start_sha,

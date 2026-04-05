@@ -58,6 +58,9 @@ class CopilotAdapter(AgentAdapterInterface):
         self._tool_start_times: dict[str, float] = {}  # tool_call_id → start monotonic
         # Buffers tool.execution_start data so we can emit a combined entry on complete
         self._tool_call_buffer: dict[str, dict[str, str]] = {}  # tool_call_id → {tool_name, tool_args, turn_id}
+        # Synthesized turn_id for step tracking when the SDK doesn't provide one.
+        # Rotated on assistant.message to mark turn boundaries.
+        self._fallback_turn_ids: dict[str, str] = {}  # job_id → current fallback turn_id
         self._approval_service = approval_service
         self._event_bus = event_bus
         self._session_factory = session_factory
@@ -71,6 +74,25 @@ class CopilotAdapter(AgentAdapterInterface):
         self._turn_counters: dict[str, int] = {}
         self._current_phases: dict[str, str] = {}
         self._retry_trackers: dict[str, RetryTracker] = {}
+
+    def _get_turn_id(self, job_id: str, data: Any) -> str:
+        """Return the SDK turn_id or synthesize a fallback for step tracking."""
+        import uuid as _uuid
+
+        sdk_turn = (str(data.turn_id) if hasattr(data, "turn_id") and data.turn_id else "") if data else ""
+        if sdk_turn:
+            return sdk_turn
+        tid = self._fallback_turn_ids.get(job_id)
+        if not tid:
+            tid = str(_uuid.uuid4())
+            self._fallback_turn_ids[job_id] = tid
+        return tid
+
+    def _rotate_turn_id(self, job_id: str) -> None:
+        """Generate a new fallback turn_id after an assistant.message completes a turn."""
+        import uuid as _uuid
+
+        self._fallback_turn_ids[job_id] = str(_uuid.uuid4())
 
     def set_job_id(self, session_id: str, job_id: str) -> None:
         """Associate a session with a job for telemetry routing."""
@@ -572,7 +594,7 @@ class CopilotAdapter(AgentAdapterInterface):
         self._tool_call_buffer[tool_id] = {
             "tool_name": t_name_display,
             "tool_args": args_str or "",
-            "turn_id": str(data.turn_id) if hasattr(data, "turn_id") and data.turn_id else "",
+            "turn_id": self._get_turn_id(job_id, data),
             "tool_intent": tool_intent or tool_description,
             "tool_title": tool_title,
         }
@@ -795,6 +817,7 @@ class CopilotAdapter(AgentAdapterInterface):
         payload: dict[str, object],
         queue: asyncio.Queue[SessionEvent | None],
         session_id: str,
+        job_id: str | None = None,
     ) -> None:
         """Map SDK events to SessionEvent entries and push onto the queue."""
         kind = self._SDK_KIND_MAP.get(kind_str)
@@ -810,12 +833,17 @@ class CopilotAdapter(AgentAdapterInterface):
                     # calls themselves are separate transcript events.
                     if not content.strip():
                         return
+                    turn_id = self._get_turn_id(job_id, data) if job_id else (data.turn_id if data else None)
                     event_payload = {
                         "role": "agent",
                         "content": content,
                         "title": data.title if data else None,
-                        "turn_id": data.turn_id if data else None,
+                        "turn_id": turn_id,
                     }
+                    # Rotate the turn_id after an assistant.message — the next
+                    # set of events belongs to a new agent turn.
+                    if job_id:
+                        self._rotate_turn_id(job_id)
                 elif kind_str == "assistant.streaming_delta":
                     delta = (data.delta_content or "") if data else ""
                     if not delta:
@@ -823,7 +851,7 @@ class CopilotAdapter(AgentAdapterInterface):
                     event_payload = {
                         "role": "agent_delta",
                         "content": delta,
-                        "turn_id": (str(data.turn_id) if data and data.turn_id else None),
+                        "turn_id": self._get_turn_id(job_id, data) if job_id else (str(data.turn_id) if data and data.turn_id else None),
                     }
                 elif kind_str == "user.message":
                     content = (data.content or data.message or "") if data else ""
@@ -1071,7 +1099,7 @@ class CopilotAdapter(AgentAdapterInterface):
             self._emit_log_event(kind_str, data, requested_model, queue, log_seq)
 
             # --- Bridge to SessionEvent queue ---
-            self._bridge_to_session_queue(kind_str, data, payload, queue, session_id)
+            self._bridge_to_session_queue(kind_str, data, payload, queue, session_id, job_id=job_id)
 
         session.on(_on_event)
         # Send initial prompt

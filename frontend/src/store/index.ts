@@ -118,6 +118,7 @@ export interface Step {
   startSha: string | null;
   endSha: string | null;
   artifactCount: number;
+  agentMessage: string | null;
 }
 
 export interface TimelineEntry {
@@ -657,6 +658,7 @@ export const useStore = create<AppState>((set, get) => ({
             startSha: null,
             endSha: null,
             artifactCount: 0,
+            agentMessage: null,
           };
           return { steps: { ...get().steps, [jobId]: [...existing, newStep] } };
         }
@@ -675,6 +677,7 @@ export const useStore = create<AppState>((set, get) => ({
                       toolCount: payload.toolCount as number,
                       durationMs: (payload.durationMs as number | null) ?? null,
                       completedAt: new Date().toISOString(),
+                      agentMessage: (payload.agentMessage as string | null) ?? s.agentMessage ?? null,
                       filesRead: (payload.filesRead as string[] | null) ?? null,
                       filesWritten: (payload.filesWritten as string[] | null) ?? null,
                       startSha: (payload.startSha as string | null) ?? null,

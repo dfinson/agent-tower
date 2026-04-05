@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, Suspense } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
@@ -34,6 +34,8 @@ const SKELETON_DELAY_MS = 500;
 export function JobDetailScreen() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const targetStepId = searchParams.get("step");
   const jobs = useStore(selectJobs);
   const job: JobSummary | undefined = jobId ? jobs[jobId] : undefined;
   const [loading, setLoading] = useState(!job);
@@ -735,7 +737,11 @@ export function JobDetailScreen() {
           </div>
 
           {stepViewMode === "steps" ? (
-            <StepListView job={job} />
+            <StepListView
+              job={job}
+              targetStepId={targetStepId}
+              onViewDiff={() => setTab("diff")}
+            />
           ) : (
             <div className="h-[80dvh] min-h-[22rem]">
               <TranscriptPanel jobId={jobId} sdk={job.sdk} interactive jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />

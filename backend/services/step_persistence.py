@@ -52,6 +52,7 @@ class StepPersistenceSubscriber:
             status=p["status"],
             tool_count=p.get("tool_count", 0),
             duration_ms=p.get("duration_ms"),
+            agent_message=p.get("agent_message"),
             completed_at=event.timestamp,
             start_sha=p.get("start_sha"),
             end_sha=p.get("end_sha"),
