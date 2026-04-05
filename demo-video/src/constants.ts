@@ -2,25 +2,25 @@
  * Timing, colors, and layout constants for the CodePlane demo video.
  *
  * Composition: 3840×2160 at 30 fps.
- * Target duration: ~45 seconds.
+ * Target duration: ~75 seconds.
  */
 
 export const FPS = 30;
 export const WIDTH = 3840;
 export const HEIGHT = 2160;
-export const TRANSITION_FRAMES = 12;
+export const TRANSITION_FRAMES = 10;
 
 // Scene durations in frames
 export const SCENES = {
-  opening: 120,        // 4.0s — logo + hook question
-  problem: 90,         // 3.0s — "every agent is a black box"
-  dashboard: 210,      // 7.0s — real dashboard screenshot
-  liveExecution: 210,  // 7.0s — running job transcript
-  planDiff: 180,       // 6.0s — plan tab + diff viewer
-  approval: 150,       // 5.0s — approval flow
-  analytics: 180,      // 6.0s — analytics scorecard + models
-  mobile: 150,         // 5.0s — mobile showcase
-  closing: 120,        // 4.0s — logo + URL
+  opening: 210,        //  7.0s — real video: job creation
+  problem: 90,         //  3.0s — "every agent is a black box"
+  dashboard: 240,      //  8.0s — zoom out to full Kanban dashboard
+  liveExecution: 390,  // 13.0s — live transcript streaming
+  planDiff: 390,       // 13.0s — diff viewer with pan
+  approval: 150,       //  5.0s — real video: approval click
+  analytics: 300,      // 10.0s — analytics + dashboard loop
+  mobile: 300,         // 10.0s — phone montage
+  closing: 240,        //  8.0s — logo + pip install + GitHub URL
 } as const;
 
 export const TOTAL_FRAMES = Object.values(SCENES).reduce((a, b) => a + b, 0)
@@ -42,8 +42,8 @@ export const C = {
 
 // Phone frame dimensions for mobile scene (iPhone 14 Pro proportions)
 export const PHONE = {
-  width: 440,
-  height: 900,
-  radius: 48,
-  bezel: 8,
+  width: 560,
+  height: 1140,
+  radius: 56,
+  bezel: 10,
 } as const;
