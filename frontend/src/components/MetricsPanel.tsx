@@ -1134,6 +1134,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
 function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
   const [metrics, setMetrics] = useState<SisterSessionMetrics | null>(null);
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     fetchSisterSessionMetrics()
       .then(setMetrics)
@@ -1143,17 +1144,34 @@ function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
   const jobMetrics = metrics?.jobs?.[jobId];
   if (!jobMetrics || jobMetrics.callCount === 0) return null;
 
+  const latencyColor = jobMetrics.avgLatencyMs > 5000
+    ? "text-red-400"
+    : jobMetrics.avgLatencyMs > 2000
+      ? "text-yellow-400"
+      : "text-green-400";
+
   return (
-    <div>
-      <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-2">
-        <Brain size={12} className="text-purple-400" />
-        Sister Session (Utility LLM)
-      </h4>
-      <div className="grid grid-cols-3 gap-2">
-        <CompactStat label="Calls" value={String(jobMetrics.callCount)} />
-        <CompactStat label="Avg Latency" value={`${jobMetrics.avgLatencyMs}ms`} />
-        <CompactStat label="Total Time" value={formatDuration(jobMetrics.totalLatencyMs)} />
-      </div>
+    <div className="rounded-md border border-border overflow-hidden">
+      <button
+        className="flex w-full items-center gap-2 px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+        onClick={() => setExpanded((c) => !c)}
+      >
+        {expanded ? <ChevronDown size={11} className="text-muted-foreground shrink-0" /> : <ChevronRight size={11} className="text-muted-foreground shrink-0" />}
+        <Brain size={12} className="text-purple-400 shrink-0" />
+        <span className="text-xs font-medium text-foreground">Sister Session</span>
+        <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
+          <span>{jobMetrics.callCount} calls</span>
+          <span className={latencyColor}>{formatDuration(jobMetrics.avgLatencyMs)} avg</span>
+          <span>{formatDuration(jobMetrics.totalLatencyMs)}</span>
+        </span>
+      </button>
+      {expanded && (
+        <div className="px-3 py-2 grid grid-cols-3 gap-2">
+          <CompactStat label="Calls" value={String(jobMetrics.callCount)} />
+          <CompactStat label="Avg Latency" value={formatDuration(jobMetrics.avgLatencyMs)} warn={jobMetrics.avgLatencyMs > 5000} />
+          <CompactStat label="Total Time" value={formatDuration(jobMetrics.totalLatencyMs)} />
+        </div>
+      )}
     </div>
   );
 }

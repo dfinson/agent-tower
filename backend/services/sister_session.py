@@ -75,32 +75,45 @@ class SisterSession:
 
     def __init__(self, adapter: AgentAdapterInterface) -> None:
         self._adapter = adapter
-        self._lock = asyncio.Lock()
+        self._prime_once = asyncio.Event()
+        self._prime_lock = asyncio.Lock()
         self._primed = False
         self.created_at: float = time.monotonic()
-        # Metrics
+        # Metrics — only accessed via += after each call, safe under GIL
         self.call_count: int = 0
         self.total_latency_ms: float = 0.0
         self.last_call_at: float | None = None
 
-    async def complete(self, prompt: str, timeout: float = 30.0) -> str:
-        """Send *prompt* to the adapter and return the response text."""
-        async with self._lock:
-            effective = prompt
-            if not self._primed:
-                effective = f"{_UTILITY_SYSTEM_PROMPT}\n\n{prompt}"
-                self._primed = True
+    async def _ensure_primed(self, prompt: str) -> str:
+        """Prepend system prompt on the very first call, then let all
+        subsequent calls proceed without any lock contention."""
+        if self._primed:
+            return prompt
+        async with self._prime_lock:
+            # Double-check after acquiring
+            if self._primed:
+                return prompt
+            self._primed = True
+            return f"{_UTILITY_SYSTEM_PROMPT}\n\n{prompt}"
 
-            t0 = time.monotonic()
-            result = await asyncio.wait_for(
-                self._adapter.complete(effective),
-                timeout=timeout,
-            )
-            elapsed_ms = (time.monotonic() - t0) * 1000
-            self.call_count += 1
-            self.total_latency_ms += elapsed_ms
-            self.last_call_at = time.monotonic()
-            return result or ""
+    async def complete(self, prompt: str, timeout: float = 30.0) -> str:
+        """Send *prompt* to the adapter and return the response text.
+
+        Calls are fully concurrent after the first (which injects the
+        system prompt).  The underlying adapter.complete() is responsible
+        for its own thread/connection safety.
+        """
+        effective = await self._ensure_primed(prompt)
+        t0 = time.monotonic()
+        result = await asyncio.wait_for(
+            self._adapter.complete(effective),
+            timeout=timeout,
+        )
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        self.call_count += 1
+        self.total_latency_ms += elapsed_ms
+        self.last_call_at = time.monotonic()
+        return result or ""
 
 
 class SisterSessionManager:
