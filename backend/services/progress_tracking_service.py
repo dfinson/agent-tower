@@ -9,6 +9,7 @@ concern from the core job execution lifecycle.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -638,8 +639,12 @@ class _ProgressSubscriber:
         if sister is None:
             return
 
-        result = await self._svc.generate_headline_on_step(job_id, sister)
-        await self._svc.generate_plan_on_step(job_id, sister)
+        # Headline and plan generation are independent — run in parallel.
+        # Group emission depends on headline result, so we await both first.
+        result, _ = await asyncio.gather(
+            self._svc.generate_headline_on_step(job_id, sister),
+            self._svc.generate_plan_on_step(job_id, sister),
+        )
 
         step_ids = self._current_group_steps.get(job_id, [])
         if not step_ids:
