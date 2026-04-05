@@ -74,6 +74,25 @@ export function fetchHealth(): Promise<HealthResponse> {
   return request("/health");
 }
 
+export interface SisterSessionMetrics {
+  global: {
+    totalCalls: number;
+    avgLatencyMs: number;
+    activeJobs: number;
+    poolSize: number;
+    warmTokens: number;
+  };
+  jobs: Record<string, {
+    callCount: number;
+    avgLatencyMs: number;
+    totalLatencyMs: number;
+  }>;
+}
+
+export function fetchSisterSessionMetrics(): Promise<SisterSessionMetrics> {
+  return request("/sister-sessions/metrics");
+}
+
 // --- Jobs ---
 
 export function fetchJobs(params?: {

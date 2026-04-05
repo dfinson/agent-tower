@@ -5,6 +5,8 @@ import { useStore, selectStepEntries } from "../store";
 import type { Step } from "../store";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { StepHeader } from "./StepHeader";
+import { AgentMarkdown } from "./AgentMarkdown";
+import { FilesTouchedChips } from "./FilesTouchedChips";
 import { Sheet } from "./ui/sheet";
 
 /* ---------- ToolCallRow (expandable) ---------- */
@@ -157,17 +159,24 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         </div>
       )}
 
-      {/* Completed: show agent summary */}
+      {/* Completed: show agent summary (collapsed = clamp, expanded = full markdown) */}
       {agentMessage && step.status !== "running" && (
         <div
           className={cn(
             "mt-2 text-sm text-foreground/90 leading-relaxed",
-            isMobile ? "line-clamp-2" : "line-clamp-3",
+            !expanded && (isMobile ? "line-clamp-2" : "line-clamp-3"),
           )}
         >
-          {agentMessage.content}
+          {expanded ? (
+            <AgentMarkdown content={agentMessage.content} />
+          ) : (
+            agentMessage.content
+          )}
         </div>
       )}
+
+      {/* Expanded: file chips */}
+      {!isMobile && expanded && <FilesTouchedChips step={step} />}
 
       {/* Expanded: tool call list */}
       {!isMobile && expanded && toolCalls.length > 0 && (
@@ -194,9 +203,10 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={step.title || step.intent}>
           {agentMessage && (
             <div className="text-sm text-foreground/90 leading-relaxed mb-4">
-              {agentMessage.content}
+              <AgentMarkdown content={agentMessage.content} />
             </div>
           )}
+          <FilesTouchedChips step={step} />
           {step.startSha && step.endSha && step.startSha !== step.endSha && (
             <button
               onClick={() => { setSheetOpen(false); onViewDiff?.(step); }}

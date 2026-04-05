@@ -105,7 +105,7 @@ class StepTitleGenerator:
         elif sister is not None:
             title = await self._generate_title(ctx, sister, event.payload.get("agent_message"))
         else:
-            title = _strip_to_title(ctx.intent) if ctx.intent else "Working"
+            title = _strip_to_title(ctx.intent) if ctx.intent else "Completed work"
 
         await self._step_repo.set_title(step_id, title)
 
@@ -123,14 +123,16 @@ class StepTitleGenerator:
         intents_text = "; ".join(ctx.tool_intents[:3]) if ctx.tool_intents else ""
 
         prompt = (
-            "Generate a 3-6 word title for this coding step. "
-            "Use present participle (e.g. 'Fixing auth validation'). "
-            "No period. No articles.\n\n"
+            "Generate a short 3-6 word activity title for this coding step. "
+            "Write like a concise activity log entry — past tense for completed work "
+            "(e.g. 'Fixed auth validation', 'Added user search endpoint', 'Refactored database queries'). "
+            "Be specific about WHAT was done, not generic. "
+            "No period. No leading articles (a/an/the).\n\n"
         )
         if ctx.intent and ctx.intent not in ("Continuing work", "Starting work"):
             prompt += f"Original request: {ctx.intent[:100]}\n"
         if agent_message:
-            prompt += f"Agent said: {agent_message[:200]}\n"
+            prompt += f"Agent summary: {agent_message[:200]}\n"
         if tools_text:
             prompt += f"Tools used: {tools_text}\n"
         if intents_text:

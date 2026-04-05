@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from backend import __version__
 from backend.models.api_schemas import HealthResponse, HealthStatus
 from backend.services.job_service import JobService
+from backend.services.sister_session import SisterSessionManager
 
 router = APIRouter(tags=["health"], route_class=DishkaRoute)
 
@@ -33,3 +34,11 @@ async def health(
         active_jobs=active,
         queued_jobs=queued,
     )
+
+
+@router.get("/sister-sessions/metrics")
+async def sister_session_metrics(
+    sister_sessions: FromDishka[SisterSessionManager],
+) -> dict:
+    """Return sister session metrics (global + per-job)."""
+    return sister_sessions.get_metrics()

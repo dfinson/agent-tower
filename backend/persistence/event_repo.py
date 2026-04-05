@@ -118,7 +118,7 @@ class EventRepository(BaseRepository):
         limit: int = 50,
     ) -> list[DomainEvent]:
         """Full-text search within a job's transcript events."""
-        from sqlalchemy import or_
+        from sqlalchemy import func, or_
 
         stmt = (
             select(EventRow)
@@ -133,8 +133,18 @@ class EventRepository(BaseRepository):
         if step_id:
             stmt = stmt.where(EventRow.payload.contains(f'"step_id": "{step_id}"'))
 
+        # Search only content-bearing fields, not the entire JSON payload
         like_pattern = f"%{query}%"
-        stmt = stmt.where(EventRow.payload.ilike(like_pattern))
+        content_field = func.json_extract(EventRow.payload, "$.content")
+        tool_name_field = func.json_extract(EventRow.payload, "$.tool_name")
+        tool_display_field = func.json_extract(EventRow.payload, "$.tool_display")
+        stmt = stmt.where(
+            or_(
+                content_field.ilike(like_pattern),
+                tool_name_field.ilike(like_pattern),
+                tool_display_field.ilike(like_pattern),
+            )
+        )
         stmt = stmt.order_by(EventRow.id).limit(limit)
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]

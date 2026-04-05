@@ -203,6 +203,7 @@ class RuntimeService:
         platform_registry: PlatformRegistry | None = None,
         sister_sessions: SisterSessionManager | None = None,
         step_tracker: StepTracker | None = None,
+        progress_tracking: ProgressTrackingService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
@@ -231,12 +232,7 @@ class RuntimeService:
         # Contents to suppress when the SDK echoes them back (already published locally)
         self._echo_suppress: dict[str, set[str]] = {}
         # Progress tracking (headline milestones + plan extraction)
-        self._progress_tracking: ProgressTrackingService | None = None
-        if sister_sessions is not None:
-            self._progress_tracking = ProgressTrackingService(
-                sister_sessions=sister_sessions,
-                event_bus=event_bus,
-            )
+        self._progress_tracking = progress_tracking
 
     def _resolve_adapter(self, sdk: str) -> AgentAdapterInterface:
         """Resolve the adapter for a given SDK via the registry."""

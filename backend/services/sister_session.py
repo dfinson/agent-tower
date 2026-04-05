@@ -78,6 +78,10 @@ class SisterSession:
         self._lock = asyncio.Lock()
         self._primed = False
         self.created_at: float = time.monotonic()
+        # Metrics
+        self.call_count: int = 0
+        self.total_latency_ms: float = 0.0
+        self.last_call_at: float | None = None
 
     async def complete(self, prompt: str, timeout: float = 30.0) -> str:
         """Send *prompt* to the adapter and return the response text."""
@@ -87,10 +91,15 @@ class SisterSession:
                 effective = f"{_UTILITY_SYSTEM_PROMPT}\n\n{prompt}"
                 self._primed = True
 
+            t0 = time.monotonic()
             result = await asyncio.wait_for(
                 self._adapter.complete(effective),
                 timeout=timeout,
             )
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            self.call_count += 1
+            self.total_latency_ms += elapsed_ms
+            self.last_call_at = time.monotonic()
             return result or ""
 
 
@@ -126,6 +135,10 @@ class SisterSessionManager:
         self._jobs: dict[str, SisterSession] = {}
 
         self._bg_tasks: list[asyncio.Task[None]] = []
+
+        # Global metrics (accumulated from closed sessions)
+        self._global_call_count: int = 0
+        self._global_latency_ms: float = 0.0
 
     @property
     def model(self) -> str:
@@ -235,6 +248,9 @@ class SisterSessionManager:
         """Remove the session binding for a finished job."""
         session = self._jobs.pop(job_id, None)
         if session is not None:
+            # Accumulate into global metrics before dropping
+            self._global_call_count += session.call_count
+            self._global_latency_ms += session.total_latency_ms
             log.debug("sister_session_closed", job_id=job_id)
 
     # -- Non-job one-shot (Completable protocol) -----------------------------
@@ -264,6 +280,33 @@ class SisterSessionManager:
                 self._pool.append(session)
 
     # -- Background tasks ----------------------------------------------------
+
+    def get_metrics(self) -> dict:
+        """Return global + per-job sister session metrics."""
+        # Live metrics from active job sessions
+        active_calls = sum(s.call_count for s in self._jobs.values())
+        active_latency = sum(s.total_latency_ms for s in self._jobs.values())
+        total_calls = self._global_call_count + active_calls
+        total_latency = self._global_latency_ms + active_latency
+
+        per_job = {}
+        for job_id, session in self._jobs.items():
+            per_job[job_id] = {
+                "callCount": session.call_count,
+                "avgLatencyMs": round(session.total_latency_ms / session.call_count, 1) if session.call_count else 0,
+                "totalLatencyMs": round(session.total_latency_ms, 1),
+            }
+
+        return {
+            "global": {
+                "totalCalls": total_calls,
+                "avgLatencyMs": round(total_latency / total_calls, 1) if total_calls else 0,
+                "activeJobs": len(self._jobs),
+                "poolSize": len(self._pool),
+                "warmTokens": len(self._warm),
+            },
+            "jobs": per_job,
+        }
 
     async def _orphan_reaper(self) -> None:
         """Close warm sessions that were never adopted."""

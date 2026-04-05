@@ -4,7 +4,7 @@ import {
   AlertTriangle, ArrowDownUp, ChevronDown, ChevronRight,
   BarChart3, BookOpen, CheckCircle, XCircle, Zap, TrendingUp,
 } from "lucide-react";
-import { fetchJobTelemetry, fetchArtifacts, fetchArtifactContent, fetchJobContext, type JobContextResponse } from "../api/client";
+import { fetchJobTelemetry, fetchArtifacts, fetchArtifactContent, fetchJobContext, fetchSisterSessionMetrics, type JobContextResponse, type SisterSessionMetrics } from "../api/client";
 import { Badge } from "./ui/badge";
 import { Progress } from "./ui/progress";
 import { Spinner } from "./ui/spinner";
@@ -1121,10 +1121,39 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   )}
                 </div>
               )}
+
+              {/* Sister session (utility LLM) metrics for this job */}
+              <SisterSessionJobMetrics jobId={jobId} />
             </>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
+  const [metrics, setMetrics] = useState<SisterSessionMetrics | null>(null);
+  useEffect(() => {
+    fetchSisterSessionMetrics()
+      .then(setMetrics)
+      .catch(() => {});
+  }, [jobId]);
+
+  const jobMetrics = metrics?.jobs?.[jobId];
+  if (!jobMetrics || jobMetrics.callCount === 0) return null;
+
+  return (
+    <div>
+      <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-2">
+        <Brain size={12} className="text-purple-400" />
+        Sister Session (Utility LLM)
+      </h4>
+      <div className="grid grid-cols-3 gap-2">
+        <CompactStat label="Calls" value={String(jobMetrics.callCount)} />
+        <CompactStat label="Avg Latency" value={`${jobMetrics.avgLatencyMs}ms`} />
+        <CompactStat label="Total Time" value={formatDuration(jobMetrics.totalLatencyMs)} />
+      </div>
     </div>
   );
 }

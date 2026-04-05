@@ -1,13 +1,22 @@
 import { CheckCircle, ChevronRight, Loader2, XCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { Step } from "../store";
-import { FilesTouchedChips } from "./FilesTouchedChips";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000) return "just now";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 interface StepHeaderProps {
@@ -35,11 +44,12 @@ export function StepHeader({ step, expanded, onToggle, hideChevron }: StepHeader
 
       <span className="text-sm font-medium truncate flex-1">{displayTitle}</span>
 
-      <FilesTouchedChips step={step} />
-
       <span className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
         {step.toolCount > 0 && <span>{step.toolCount} tools</span>}
-        {step.durationMs != null && <span>{formatDuration(step.durationMs)}</span>}
+        {step.durationMs != null && (
+          <span className="tabular-nums">{formatDuration(step.durationMs)}</span>
+        )}
+        <span className="tabular-nums">{relativeTime(step.startedAt)}</span>
       </span>
 
       {!hideChevron && (
