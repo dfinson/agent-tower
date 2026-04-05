@@ -256,10 +256,12 @@ async def _wire_core_services(
     )
 
     # --- Sister session manager (per-job dedicated utility sessions) ---
+    utility_adapter = adapter_registry.get_adapter(config.runtime.default_sdk)
     sister_sessions = SisterSessionManager(
+        adapter=utility_adapter,
         model=config.runtime.utility_model,
     )
-    log.debug("sister_sessions_starting", model=config.runtime.utility_model)
+    log.debug("sister_sessions_starting", model=config.runtime.utility_model, sdk=config.runtime.default_sdk)
     await sister_sessions.start()
 
     summarization_service = SummarizationService(
