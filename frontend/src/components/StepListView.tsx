@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, ListChecks, ChevronRight, Send, User, ShieldQuestion, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../lib/utils";
-import { useStore, selectJobSteps, selectActiveStep, selectStepGroups, selectSteplessEntries, selectJobApprovals } from "../store";
+import { useStore, selectJobSteps, selectActiveStep, selectStepGroups, selectJobTranscript, selectApprovals } from "../store";
 import type { JobSummary, Step, StepGroup, TranscriptEntry, ApprovalRequest } from "../store";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { StepContainer } from "./StepContainer";
@@ -26,8 +26,17 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
   const steps = useStore(selectJobSteps(jobId));
   const activeStep = useStore(selectActiveStep(jobId));
   const stepGroups = useStore(selectStepGroups(jobId));
-  const steplessEntries = useStore(selectSteplessEntries(jobId));
-  const approvals = useStore(selectJobApprovals(jobId));
+  const allTranscript = useStore(selectJobTranscript(jobId));
+  const allApprovals = useStore(selectApprovals);
+
+  const steplessEntries = useMemo(
+    () => allTranscript.filter((e) => !e.stepId && (e.role === "operator" || e.role === "divider")),
+    [allTranscript],
+  );
+  const approvals = useMemo(
+    () => Object.values(allApprovals).filter((a) => a.jobId === jobId),
+    [allApprovals, jobId],
+  );
   const isMobile = useIsMobile();
   const activeStepRef = useRef<HTMLDivElement | null>(null);
   const listTopRef = useRef<HTMLDivElement | null>(null);
