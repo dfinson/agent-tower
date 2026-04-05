@@ -34,6 +34,7 @@ from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
 from backend.services.sse_manager import SSEManager
 from backend.services.step_persistence import StepPersistenceSubscriber
+from backend.services.progress_tracking_service import ProgressTrackingService, _ProgressSubscriber
 from backend.services.step_title_generator import StepTitleGenerator, _StepTitleSubscriber
 from backend.services.step_tracker import StepTracker
 from backend.services.summarization_service import SummarizationService
@@ -269,6 +270,13 @@ async def _wire_core_services(
         adapter=sister_sessions,
     )
 
+    # Progress tracking (headline milestones + plan extraction)
+    progress_tracking = ProgressTrackingService(
+        sister_sessions=sister_sessions,
+        event_bus=event_bus,
+    )
+    event_bus.subscribe(_ProgressSubscriber(progress_tracking))
+
     runtime_service = RuntimeService(
         session_factory=session_factory,
         event_bus=event_bus,
@@ -284,6 +292,7 @@ async def _wire_core_services(
             event_bus=event_bus,
             git_service=git_service,
         ),
+        progress_tracking=progress_tracking,
     )
 
     # Step title generator — wired as an event bus subscriber

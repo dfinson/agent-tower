@@ -88,7 +88,8 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
       case "errors": return step.status === "failed";
       case "tools": return step.toolCount > 0;
       case "agent": return step.agentMessage != null;
-      case "approvals": return false;
+      case "files": return (step.filesWritten ?? []).length > 0;
+      case "running": return step.status === "running";
       default: return true;
     }
   }, []);
@@ -102,6 +103,10 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
     if (toolSteps > 0) chips.push({ key: "tools", label: "Tool calls" });
     const agentSteps = steps.filter((s) => s.agentMessage != null).length;
     if (agentSteps > 0) chips.push({ key: "agent", label: "Agent messages" });
+    const fileSteps = steps.filter((s) => (s.filesWritten ?? []).length > 0).length;
+    if (fileSteps > 0) chips.push({ key: "files", label: "File changes", count: fileSteps });
+    const runningSteps = steps.filter((s) => s.status === "running").length;
+    if (runningSteps > 0) chips.push({ key: "running", label: "Running", count: runningSteps });
     return chips;
   }, [steps]);
 

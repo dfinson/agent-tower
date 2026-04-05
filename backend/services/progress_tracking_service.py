@@ -544,3 +544,28 @@ class ProgressTrackingService:
                     )
         except Exception:
             log.debug("plan_extraction_failed", job_id=job_id, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Event bus subscriber — triggers headline + plan generation on step boundaries
+# ---------------------------------------------------------------------------
+
+
+class _ProgressSubscriber:
+    """EventBus subscriber that dispatches step_completed events to ProgressTrackingService."""
+
+    def __init__(self, service: ProgressTrackingService) -> None:
+        self._svc = service
+
+    async def __call__(self, event: DomainEvent) -> None:
+        if event.kind != DomainEventKind.step_completed:
+            return
+        if event.payload.get("status") == "canceled":
+            return
+
+        sister = self._svc._sister_sessions.get(event.job_id)
+        if sister is None:
+            return
+
+        await self._svc.generate_headline_on_step(event.job_id, sister)
+        await self._svc.generate_plan_on_step(event.job_id, sister)

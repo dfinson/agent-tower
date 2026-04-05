@@ -13,7 +13,7 @@ interface SearchResult {
   timestamp: string;
 }
 
-export type FilterChipKey = "errors" | "tools" | "agent" | "approvals";
+export type FilterChipKey = "errors" | "tools" | "agent" | "files" | "running";
 
 interface FilterChipDisplay {
   key: FilterChipKey;
