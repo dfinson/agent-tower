@@ -1,23 +1,58 @@
-import { useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "../lib/utils";
 import { useStore, selectJobSteps, selectActiveStep } from "../store";
-import type { JobSummary } from "../store";
+import type { JobSummary, Step } from "../store";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { StepContainer } from "./StepContainer";
 import { StepSearchBar } from "./StepSearchBar";
+import type { FilterChipKey } from "./StepSearchBar";
 import { ResumeBanner } from "./ResumeBanner";
 
 interface StepListViewProps {
   job: JobSummary;
+  /** Step ID to auto-scroll and expand on mount (from deep link) */
+  targetStepId?: string | null;
+  /** Called when user clicks "View changes in this step" */
+  onViewDiff?: (step: { stepId: string; startSha: string | null; endSha: string | null }) => void;
 }
 
-export function StepListView({ job }: StepListViewProps) {
+export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProps) {
   const jobId = job.id;
   const steps = useStore(selectJobSteps(jobId));
   const activeStep = useStore(selectActiveStep(jobId));
   const isMobile = useIsMobile();
   const activeStepRef = useRef<HTMLDivElement | null>(null);
   const listTopRef = useRef<HTMLDivElement | null>(null);
+  const stepRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const isRunning = job.state === "running" || job.state === "agent_running";
+
+  // Expanded step tracking (supports external triggers from search/deep links)
+  const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(new Set());
+
+  const toggleStep = useCallback((stepId: string) => {
+    setExpandedStepIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(stepId)) next.delete(stepId);
+      else next.add(stepId);
+      return next;
+    });
+  }, []);
+
+  const scrollToStep = useCallback((stepId: string) => {
+    const el = stepRefs.current.get(stepId);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  // Deep link: auto-scroll and expand target step
+  useEffect(() => {
+    if (!targetStepId || steps.length === 0) return;
+    const match = steps.find((s) => s.stepId === targetStepId);
+    if (match) {
+      setExpandedStepIds((prev) => new Set(prev).add(targetStepId));
+      // Defer scroll to allow render
+      requestAnimationFrame(() => scrollToStep(targetStepId));
+    }
+  }, [targetStepId, steps, scrollToStep]);
 
   const scrollToActiveStep = () => {
     activeStepRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -27,11 +62,41 @@ export function StepListView({ job }: StepListViewProps) {
     listTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const scrollToLastError = useCallback(() => {
+    const failed = [...steps].reverse().find((s) => s.status === "failed");
+    if (failed) {
+      setExpandedStepIds((prev) => new Set(prev).add(failed.stepId));
+      requestAnimationFrame(() => scrollToStep(failed.stepId));
+    }
+  }, [steps, scrollToStep]);
+
+  const handleSearchSelect = useCallback((result: { stepId: string | null }) => {
+    if (!result.stepId) return;
+    setExpandedStepIds((prev) => new Set(prev).add(result.stepId!));
+    requestAnimationFrame(() => scrollToStep(result.stepId!));
+  }, [scrollToStep]);
+
+  const hasErrors = steps.some((s) => s.status === "failed");
+
+  // Filter chips: track active filter and compute which steps match
+  const [activeFilter, setActiveFilter] = useState<FilterChipKey | null>(null);
+
+  const stepMatchesFilter = useCallback((step: Step, filter: FilterChipKey | null): boolean => {
+    if (!filter) return true;
+    switch (filter) {
+      case "errors": return step.status === "failed";
+      case "tools": return step.toolCount > 0;
+      case "agent": return step.agentMessage != null;
+      case "approvals": return false; // TODO: requires transcript entry check
+      default: return true;
+    }
+  }, []);
+
   return (
     <div className="relative flex flex-col">
       <div ref={listTopRef} />
 
-      <StepSearchBar jobId={jobId} />
+      <StepSearchBar jobId={jobId} onSelect={handleSearchSelect} activeFilter={activeFilter} onFilterChange={setActiveFilter} />
 
       <ResumeBanner jobId={jobId} onJumpToFirst={scrollToTop} />
 
@@ -44,19 +109,30 @@ export function StepListView({ job }: StepListViewProps) {
       <div className="flex flex-col">
         {steps.map((step) => {
           const isActive = step.stepId === activeStep?.stepId;
+          const dimmed = activeFilter != null && !stepMatchesFilter(step, activeFilter);
           return (
             <div
               key={step.stepId}
               data-step-id={step.stepId}
-              ref={isActive ? activeStepRef : undefined}
+              ref={(el) => {
+                if (el) stepRefs.current.set(step.stepId, el);
+                if (isActive) activeStepRef.current = el;
+              }}
+              className={cn(dimmed && "opacity-40 transition-opacity")}
             >
-              <StepContainer step={step} isActive={isActive} />
+              <StepContainer
+                step={step}
+                isActive={isActive}
+                expanded={expandedStepIds.has(step.stepId)}
+                onToggle={() => toggleStep(step.stepId)}
+                onViewDiff={onViewDiff}
+              />
             </div>
           );
         })}
       </div>
 
-      {/* Jump to current step */}
+      {/* Jump-to quick actions */}
       {isRunning && activeStep && (
         isMobile ? (
           <button
@@ -74,6 +150,14 @@ export function StepListView({ job }: StepListViewProps) {
             >
               Jump to current step
             </button>
+            {hasErrors && (
+              <button
+                onClick={scrollToLastError}
+                className="text-xs text-destructive/80 hover:text-destructive"
+              >
+                Jump to last error
+              </button>
+            )}
           </div>
         )
       )}

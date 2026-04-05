@@ -209,6 +209,7 @@ class StepCompletedPayloadDict(TypedDict, total=False):
     tool_count: int
     duration_ms: int
     has_summary: bool
+    agent_message: str | None
     files_read: list[str]
     files_written: list[str]
     start_sha: str | None

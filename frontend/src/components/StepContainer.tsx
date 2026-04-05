@@ -1,18 +1,27 @@
 import { useMemo, useState } from "react";
+import { GitBranch } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useStore, selectStepEntries } from "../store";
 import type { Step } from "../store";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { StepHeader } from "./StepHeader";
+import { Sheet } from "./ui/sheet";
 
 interface StepContainerProps {
   step: Step;
   isActive: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
+  onViewDiff?: (step: Step) => void;
 }
 
-export function StepContainer({ step, isActive }: StepContainerProps) {
+export function StepContainer({ step, isActive, expanded: externalExpanded, onToggle: externalToggle, onViewDiff }: StepContainerProps) {
   const isMobile = useIsMobile();
-  const [expanded, setExpanded] = useState(false);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const expanded = externalExpanded ?? localExpanded;
+  const toggleExpanded = externalToggle ?? (() => setLocalExpanded((v) => !v));
 
   const stepEntries = useStore(selectStepEntries(step.jobId, step.stepId));
 
@@ -38,6 +47,14 @@ export function StepContainer({ step, isActive }: StepContainerProps) {
     : `${step.jobId}:__default__`;
   const streamingText = useStore((s) => s.streamingMessages[streamingKey]);
 
+  const handleToggle = () => {
+    if (isMobile) {
+      setSheetOpen(true);
+    } else {
+      toggleExpanded();
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -53,7 +70,7 @@ export function StepContainer({ step, isActive }: StepContainerProps) {
       <StepHeader
         step={step}
         expanded={expanded}
-        onToggle={() => setExpanded((v) => !v)}
+        onToggle={handleToggle}
         hideChevron={isMobile}
       />
 
@@ -110,6 +127,61 @@ export function StepContainer({ step, isActive }: StepContainerProps) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Expanded: step diff button */}
+      {!isMobile && expanded && step.startSha && step.endSha && step.startSha !== step.endSha && (
+        <button
+          onClick={() => onViewDiff?.(step)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-2"
+        >
+          <GitBranch size={12} />
+          View changes in this step
+        </button>
+      )}
+
+      {/* Mobile: bottom sheet with full step details */}
+      {isMobile && (
+        <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={step.title || step.intent}>
+          {agentMessage && (
+            <div className="text-sm text-foreground/90 leading-relaxed mb-4">
+              {agentMessage.content}
+            </div>
+          )}
+          {step.startSha && step.endSha && step.startSha !== step.endSha && (
+            <button
+              onClick={() => { setSheetOpen(false); onViewDiff?.(step); }}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-3"
+            >
+              <GitBranch size={12} />
+              View changes in this step
+            </button>
+          )}
+          {toolCalls.length > 0 && (
+            <div className="space-y-1 border-t pt-3">
+              {toolCalls.map((tc) => (
+                <div
+                  key={`${tc.seq}-${tc.toolName}`}
+                  className="flex items-start gap-2 text-xs text-muted-foreground"
+                >
+                  <span className="shrink-0 mt-0.5">
+                    {tc.toolSuccess === false ? "✗" : "✓"}
+                  </span>
+                  <span className="font-mono text-foreground/80 truncate flex-1">
+                    {tc.toolDisplay || tc.toolName}
+                  </span>
+                  {tc.toolDurationMs != null && (
+                    <span className="shrink-0">
+                      {tc.toolDurationMs < 1000
+                        ? `${tc.toolDurationMs}ms`
+                        : `${(tc.toolDurationMs / 1000).toFixed(1)}s`}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Sheet>
       )}
     </div>
   );
