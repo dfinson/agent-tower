@@ -214,7 +214,7 @@ def up(
     effective_password: str | None = password
 
     if not effective_password and not no_password:
-        env_pw = _env("CPL_PASSWORD")
+        env_pw = _env("CPL_PASSWORD") or _env("CPL_DEVTUNNEL_PASSWORD")
         if env_pw:
             effective_password = env_pw
 
