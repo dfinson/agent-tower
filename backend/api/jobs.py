@@ -556,7 +556,11 @@ async def get_step_diff(
     git = GitService(config)
     diff_text = await git.diff_range(str(step.start_sha), str(step.end_sha), cwd=job.worktree_path)
     files_changed = diff_text.count("\ndiff --git ") + (1 if diff_text.startswith("diff --git ") else 0)
-    return StepDiffPayload(step_id=step_id, diff=diff_text, files_changed=files_changed)
+
+    from backend.services.diff_service import DiffService
+    changed_files = DiffService._parse_unified_diff(diff_text)
+
+    return StepDiffPayload(step_id=step_id, diff=diff_text, files_changed=files_changed, changed_files=changed_files)
 
 
 @router.get("/jobs/{job_id}/transcript/search", response_model=list[TranscriptSearchResult])

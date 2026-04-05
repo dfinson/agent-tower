@@ -156,7 +156,7 @@ export function fetchTranscriptSearch(
   return request(`/jobs/${encodeURIComponent(jobId)}/transcript/search?${params}`);
 }
 
-export function fetchStepDiff(jobId: string, stepId: string): Promise<{ stepId: string; diff: string; filesChanged: number }> {
+export function fetchStepDiff(jobId: string, stepId: string): Promise<{ stepId: string; diff: string; filesChanged: number; changedFiles: import("./types").DiffFileModel[] }> {
   return request(`/jobs/${encodeURIComponent(jobId)}/steps/${encodeURIComponent(stepId)}/diff`);
 }
 

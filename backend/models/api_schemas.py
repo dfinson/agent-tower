@@ -884,6 +884,7 @@ class StepDiffPayload(CamelModel):
     step_id: str
     diff: str
     files_changed: int
+    changed_files: list[DiffFileModel] = []
 
 
 class TranscriptSearchResult(CamelModel):
