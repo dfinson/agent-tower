@@ -10,6 +10,7 @@ concern from the core job execution lifecycle.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,15 @@ if TYPE_CHECKING:
     from backend.services.sister_session import SisterSession, SisterSessionManager
 
 log = structlog.get_logger()
+
+
+@dataclass
+class HeadlineResult:
+    """Result of a headline generation attempt."""
+    emitted: bool = False
+    headline: str = ""
+    headline_past: str = ""
+    replace_last: int = 0
 
 # ---------------------------------------------------------------------------
 # Truncation limits
@@ -357,13 +367,13 @@ class ProgressTrackingService:
         self,
         job_id: str,
         sister: SisterSession,
-    ) -> bool:
+    ) -> HeadlineResult:
         """Generate a headline milestone on a step boundary.
 
         Called by the step-completed event handler.  Uses the buffered
         transcript data and the job's sister session for the LLM call.
 
-        Returns True if a new headline was emitted (phase boundary).
+        Returns a ``HeadlineResult`` with details about what happened.
         """
         import json as _json
 
@@ -379,7 +389,7 @@ class ProgressTrackingService:
             intents_buf.clear()
 
         if not recent_msgs and not recent_intents:
-            return False
+            return HeadlineResult()
 
         parts = []
         for msg in recent_msgs:
@@ -418,7 +428,7 @@ class ProgressTrackingService:
 
             if parsed.get("defer"):
                 log.debug("headline_deferred", job_id=job_id)
-                return False
+                return HeadlineResult()
             else:
                 headline = str(parsed.get("present", "")).strip().strip('"').strip(".")
                 headline_past = str(parsed.get("past", "")).strip().strip('"').strip(".")
@@ -450,11 +460,16 @@ class ProgressTrackingService:
                             },
                         )
                     )
-                    return True
-            return False
+                    return HeadlineResult(
+                        emitted=True,
+                        headline=headline,
+                        headline_past=headline_past,
+                        replace_last=replace_last,
+                    )
+            return HeadlineResult()
         except Exception:
             log.debug("headline_generation_failed", job_id=job_id, exc_info=True)
-            return False
+            return HeadlineResult()
 
     # -- Event-driven plan extraction ----------------------------------------
 
@@ -561,15 +576,49 @@ class _ProgressSubscriber:
     """EventBus subscriber that dispatches step_completed events to ProgressTrackingService.
 
     Also tracks step groups: steps that belong to the same headline phase
-    are clustered together and emitted as ``step_group_updated`` events
-    when a new headline marks a phase boundary.
+    are clustered together and emitted as ``step_group_updated`` events.
+
+    Groups update **retroactively**:
+    - On every step_completed, the *open* group is re-emitted with the latest
+      step IDs so the frontend sees it grow in real time.
+    - When a new headline fires, the open group is *closed* and a new one starts.
+    - When ``replace_last > 0`` (headline consolidation), the last N closed groups
+      are merged into the current one — the headline retroactively covers a wider
+      span of steps.
     """
 
     def __init__(self, service: ProgressTrackingService) -> None:
         self._svc = service
-        # Per-job group state: current group's step IDs and group counter
+        # Per-job group state
         self._current_group_steps: dict[str, list[str]] = {}
         self._group_counter: dict[str, int] = {}
+        # Closed groups kept for merge-on-replace_last
+        self._closed_groups: dict[str, list[dict]] = {}  # job_id → [{groupId, headline, stepIds}]
+        # Current open group headline (from last emitted headline, or empty)
+        self._current_headline: dict[str, str] = {}
+        self._current_headline_past: dict[str, str] = {}
+
+    def _next_group_id(self, job_id: str) -> str:
+        counter = self._group_counter.get(job_id, 0) + 1
+        self._group_counter[job_id] = counter
+        return f"g-{counter}"
+
+    async def _emit_group(self, job_id: str, group_id: str, headline: str,
+                          headline_past: str, step_ids: list[str]) -> None:
+        await self._svc._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.step_group_updated,
+                payload={
+                    "group_id": group_id,
+                    "headline": headline,
+                    "headline_past": headline_past,
+                    "step_ids": list(step_ids),
+                },
+            )
+        )
 
     async def __call__(self, event: DomainEvent) -> None:
         # Accumulate step IDs as they start
@@ -584,37 +633,70 @@ class _ProgressSubscriber:
         if event.payload.get("status") == "canceled":
             return
 
-        sister = self._svc._sister_sessions.get(event.job_id)
+        job_id = event.job_id
+        sister = self._svc._sister_sessions.get(job_id)
         if sister is None:
             return
 
-        headline_emitted = await self._svc.generate_headline_on_step(event.job_id, sister)
-        await self._svc.generate_plan_on_step(event.job_id, sister)
+        result = await self._svc.generate_headline_on_step(job_id, sister)
+        await self._svc.generate_plan_on_step(job_id, sister)
 
-        # On phase boundary: close the current group and emit it
-        if headline_emitted:
-            step_ids = self._current_group_steps.get(event.job_id, [])
-            if step_ids:
-                counter = self._group_counter.get(event.job_id, 0) + 1
-                self._group_counter[event.job_id] = counter
-                history = self._svc._headline_history.get(event.job_id, [])
-                headline = history[-1] if history else ""
-                headline_past = self._svc._headline_last_text.get(event.job_id, headline)
+        step_ids = self._current_group_steps.get(job_id, [])
+        if not step_ids:
+            return
 
-                await self._svc._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=event.job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.step_group_updated,
-                        payload={
-                            "group_id": f"g-{counter}",
-                            "headline": headline,
-                            "headline_past": headline_past,
-                            "step_ids": list(step_ids),
-                        },
-                    )
-                )
+        if result.emitted:
+            # --- Phase boundary: close the current open group ---
 
-            # Start a new group
-            self._current_group_steps[event.job_id] = []
+            if result.replace_last > 0:
+                # Merge: absorb step IDs from the last N closed groups
+                closed = self._closed_groups.get(job_id, [])
+                merge_count = min(result.replace_last, len(closed))
+                merged_step_ids: list[str] = []
+                merged_group_id: str | None = None
+                for grp in closed[-merge_count:]:
+                    if merged_group_id is None:
+                        merged_group_id = grp["group_id"]  # reuse earliest group's ID
+                    merged_step_ids.extend(grp["step_ids"])
+                # Remove the merged groups from closed list
+                if merge_count > 0:
+                    self._closed_groups[job_id] = closed[:-merge_count]
+
+                # Combine: merged old groups + current open group
+                all_step_ids = merged_step_ids + step_ids
+                gid = merged_group_id or self._next_group_id(job_id)
+                await self._emit_group(job_id, gid, result.headline, result.headline_past, all_step_ids)
+
+                # Record as closed
+                self._closed_groups.setdefault(job_id, []).append({
+                    "group_id": gid,
+                    "headline": result.headline,
+                    "step_ids": all_step_ids,
+                })
+            else:
+                # New phase — close current group as-is
+                gid = self._next_group_id(job_id)
+                await self._emit_group(job_id, gid, result.headline, result.headline_past, step_ids)
+
+                self._closed_groups.setdefault(job_id, []).append({
+                    "group_id": gid,
+                    "headline": result.headline,
+                    "step_ids": list(step_ids),
+                })
+
+            # Update headline and reset accumulator
+            self._current_headline[job_id] = result.headline
+            self._current_headline_past[job_id] = result.headline_past
+            self._current_group_steps[job_id] = []
+
+        else:
+            # --- No phase boundary: re-emit the open group so frontend sees it grow ---
+            headline = self._current_headline.get(job_id, "")
+            headline_past = self._current_headline_past.get(job_id, "")
+            if headline and len(step_ids) > 1:
+                # Only emit open-group updates when there's a known headline
+                # and more than one step (first step alone isn't informative).
+                # Use the NEXT group counter so the ID will match the eventual
+                # closed group — the frontend replaces by groupId.
+                next_counter = self._group_counter.get(job_id, 0) + 1
+                await self._emit_group(job_id, f"g-{next_counter}", headline, headline_past, step_ids)
