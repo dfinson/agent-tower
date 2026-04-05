@@ -4,7 +4,7 @@ import { useStore, selectJobTimeline } from "../store";
 
 export function ExecutionTimeline({ jobId }: { jobId: string }) {
   const timeline = useStore(selectJobTimeline(jobId));
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   // Nothing to show
   if (timeline.length === 0) return null;

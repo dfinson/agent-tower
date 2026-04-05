@@ -95,11 +95,13 @@ class StepTitleGenerator:
         if event.payload.get("status") == "canceled":
             return
 
-        # Skip LLM for trivial steps or already-short intents
-        if ctx.intent and len(ctx.intent) <= 50 and not ctx.intent.startswith(("Can you", "Please", "I need")):
+        # Skip LLM for trivial steps or already-short intents that are descriptive
+        # (vague/short intents like "view" or "Continuing work" must go through LLM)
+        is_vague = not ctx.intent or len(ctx.intent) < 15 or ctx.intent in ("Continuing work", "Starting work")
+        if not is_vague and ctx.intent and len(ctx.intent) <= 50 and not ctx.intent.startswith(("Can you", "Please", "I need")):
             title = _strip_to_title(ctx.intent)
         else:
-            title = await self._generate_title(ctx)
+            title = await self._generate_title(ctx, event.payload.get("agent_message"))
 
         await self._step_repo.set_title(step_id, title)
 
@@ -111,7 +113,7 @@ class StepTitleGenerator:
             payload={"step_id": step_id, "title": title},
         ))
 
-    async def _generate_title(self, ctx: _TitleContext) -> str:
+    async def _generate_title(self, ctx: _TitleContext, agent_message: str | None = None) -> str:
         """Call cheap model to generate a concise title."""
         tools_text = ", ".join(ctx.tool_names[:6]) if ctx.tool_names else ""
         intents_text = "; ".join(ctx.tool_intents[:3]) if ctx.tool_intents else ""
@@ -120,8 +122,11 @@ class StepTitleGenerator:
             "Generate a 3-6 word title for this coding step. "
             "Use present participle (e.g. 'Fixing auth validation'). "
             "No period. No articles.\n\n"
-            f"Original request: {ctx.intent[:100]}\n"
         )
+        if ctx.intent and ctx.intent not in ("Continuing work", "Starting work"):
+            prompt += f"Original request: {ctx.intent[:100]}\n"
+        if agent_message:
+            prompt += f"Agent said: {agent_message[:200]}\n"
         if tools_text:
             prompt += f"Tools used: {tools_text}\n"
         if intents_text:

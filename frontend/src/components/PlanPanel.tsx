@@ -18,7 +18,7 @@ function StepIcon({ status }: { status: PlanStep["status"] }) {
 
 export function PlanPanel({ jobId }: { jobId: string }) {
   const steps = useStore(selectJobPlan(jobId));
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const hasActiveWork = steps.some((s) => s.status === "active" || s.status === "pending");
   if (steps.length === 0 || !hasActiveWork) return null;
