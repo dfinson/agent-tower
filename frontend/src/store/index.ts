@@ -1331,3 +1331,14 @@ export const selectStepGroups = (jobId: string) => (state: AppState) =>
 const EMPTY_STEP_ENTRIES: TranscriptEntry[] = [];
 export const selectStepEntries = (jobId: string, stepId: string) => (state: AppState) =>
   state.transcriptByStep[jobId]?.[stepId] ?? EMPTY_STEP_ENTRIES;
+
+/** Operator/divider entries that have no step_id — appear as interstitials between steps. */
+export const selectSteplessEntries = (jobId: string) => (state: AppState) => {
+  const all = state.transcript[jobId] ?? EMPTY_TRANSCRIPT;
+  return all.filter((e) => !e.stepId && (e.role === "operator" || e.role === "divider"));
+};
+
+/** Approvals scoped to a job — for inline rendering. */
+export const selectJobApprovals = (jobId: string) => (state: AppState) => {
+  return Object.values(state.approvals).filter((a) => a.jobId === jobId);
+};

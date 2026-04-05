@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, GitBranch } from "lucide-react";
+import { ChevronRight, GitBranch, User } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useStore, selectStepEntries } from "../store";
 import type { Step } from "../store";
@@ -109,6 +109,11 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
     [stepEntries],
   );
 
+  const operatorMessages = useMemo(
+    () => stepEntries.filter((e) => e.role === "operator"),
+    [stepEntries],
+  );
+
   // Streaming delta for active step
   const streamingKey = step.turnId
     ? `${step.jobId}:${step.turnId}`
@@ -159,7 +164,25 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         </div>
       )}
 
-      {/* Completed: show agent summary (collapsed = clamp, expanded = full markdown) */}
+      {/* Operator messages — shown inline with chat bubble treatment */}
+      {operatorMessages.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {operatorMessages.map((msg) => (
+            <div key={msg.seq} className="flex items-start gap-2 justify-end">
+              <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-1.5 max-w-[85%]">
+                <div className="text-xs text-foreground/80 leading-relaxed">
+                  <AgentMarkdown content={msg.content} />
+                </div>
+              </div>
+              <div className="shrink-0 w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center mt-0.5">
+                <User size={10} className="text-primary" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Completed: show agent summary — always rendered as markdown */}
       {agentMessage && step.status !== "running" && (
         <div
           className={cn(
@@ -167,11 +190,7 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
             !expanded && (isMobile ? "line-clamp-2" : "line-clamp-3"),
           )}
         >
-          {expanded ? (
-            <AgentMarkdown content={agentMessage.content} />
-          ) : (
-            agentMessage.content
-          )}
+          <AgentMarkdown content={agentMessage.content} />
         </div>
       )}
 
