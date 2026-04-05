@@ -1,5 +1,5 @@
-import { Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Search, X, ChevronUp, ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 import { fetchTranscriptSearch } from "../api/client";
 
@@ -39,40 +39,165 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
+/** Highlight all occurrences of `term` in `text` — case-insensitive. */
+function HighlightedText({ text, term }: { text: string; term: string }) {
+  if (!term || term.length < 2) return <>{text}</>;
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === term.toLowerCase() ? (
+          <mark key={i} className="bg-yellow-400/30 text-foreground rounded-sm px-0.5">{part}</mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+/** Group results by step for the persistent results panel. */
+function groupByStep(results: SearchResult[]): { stepId: string | null; stepNumber: number | null; items: SearchResult[] }[] {
+  const groups: { stepId: string | null; stepNumber: number | null; items: SearchResult[] }[] = [];
+  const map = new Map<string, typeof groups[number]>();
+  for (const r of results) {
+    const key = r.stepId ?? "__no_step__";
+    let group = map.get(key);
+    if (!group) {
+      group = { stepId: r.stepId, stepNumber: r.stepNumber, items: [] };
+      map.set(key, group);
+      groups.push(group);
+    }
+    group.items.push(r);
+  }
+  return groups;
+}
+
 export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, visibleChips }: StepSearchBarProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const [isSearching, setIsSearching] = useState(false);
   const debouncedQuery = useDebounce(query, 300);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const resultPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!debouncedQuery || debouncedQuery.length < 2) {
       setResults([]);
+      setActiveIdx(-1);
       return;
     }
-    fetchTranscriptSearch(jobId, debouncedQuery)
-      .then(setResults)
-      .catch(() => setResults([]));
+    setIsSearching(true);
+    fetchTranscriptSearch(jobId, debouncedQuery, { limit: 100 })
+      .then((r) => { setResults(r); setActiveIdx(r.length > 0 ? 0 : -1); })
+      .catch(() => { setResults([]); setActiveIdx(-1); })
+      .finally(() => setIsSearching(false));
   }, [jobId, debouncedQuery]);
 
+  const navigateTo = useCallback((idx: number) => {
+    if (idx < 0 || idx >= results.length) return;
+    setActiveIdx(idx);
+    const r = results[idx];
+    if (r) onSelect?.(r);
+  }, [results, onSelect]);
+
+  const goNext = useCallback(() => {
+    if (results.length === 0) return;
+    const next = activeIdx < results.length - 1 ? activeIdx + 1 : 0;
+    navigateTo(next);
+  }, [activeIdx, results.length, navigateTo]);
+
+  const goPrev = useCallback(() => {
+    if (results.length === 0) return;
+    const prev = activeIdx > 0 ? activeIdx - 1 : results.length - 1;
+    navigateTo(prev);
+  }, [activeIdx, results.length, navigateTo]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown" || (e.key === "Enter" && !e.shiftKey)) {
+      e.preventDefault();
+      goNext();
+    } else if (e.key === "ArrowUp" || (e.key === "Enter" && e.shiftKey)) {
+      e.preventDefault();
+      goPrev();
+    } else if (e.key === "Escape") {
+      setQuery("");
+      setResults([]);
+      setActiveIdx(-1);
+      inputRef.current?.blur();
+    }
+  }, [goNext, goPrev]);
+
+  const clearSearch = useCallback(() => {
+    setQuery("");
+    setResults([]);
+    setActiveIdx(-1);
+  }, []);
+
+  const grouped = useMemo(() => groupByStep(results), [results]);
+  const hasResults = results.length > 0;
+  const showPanel = query.length >= 2;
+
+  // Scroll active result into view in the panel
+  useEffect(() => {
+    if (activeIdx < 0 || !resultPanelRef.current) return;
+    const el = resultPanelRef.current.querySelector(`[data-result-idx="${activeIdx}"]`);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
+
   return (
-    <div className="relative mb-2">
+    <div className="relative">
+      {/* Search input row */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50">
         <Search size={14} className="text-muted-foreground shrink-0" />
         <input
+          ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="Search transcript…"
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
         />
+        {/* Result count + navigation */}
+        {showPanel && (
+          <div className="flex items-center gap-1 shrink-0">
+            {isSearching ? (
+              <span className="text-xs text-muted-foreground animate-pulse">…</span>
+            ) : (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {hasResults ? `${activeIdx + 1}/${results.length}` : "0 results"}
+              </span>
+            )}
+            <button
+              onClick={goPrev}
+              disabled={!hasResults}
+              className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+              title="Previous (Shift+Enter)"
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              onClick={goNext}
+              disabled={!hasResults}
+              className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+              title="Next (Enter)"
+            >
+              <ChevronDown size={14} />
+            </button>
+          </div>
+        )}
         {query && (
           <button
-            onClick={() => { setQuery(""); setResults([]); }}
+            onClick={clearSearch}
             className="text-muted-foreground hover:text-foreground"
           >
             <X size={14} />
           </button>
         )}
       </div>
+
       {/* Filter chips — only shown when relevant data exists */}
       {onFilterChange && visibleChips && visibleChips.length > 0 && (
         <div className="flex items-center gap-1.5 px-4 py-1.5 overflow-x-auto border-b border-border/50">
@@ -92,21 +217,63 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
           ))}
         </div>
       )}
-      {results.length > 0 && (
-        <div className="absolute z-10 top-full left-0 right-0 bg-card border border-border rounded-b-md shadow-lg max-h-64 overflow-y-auto">
-          {results.map((r) => (
-            <button
-              key={r.seq}
-              onClick={() => { onSelect?.(r); setQuery(""); setResults([]); }}
-              className="w-full text-left px-3 py-2 hover:bg-accent text-sm border-b border-border last:border-0"
-            >
-              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-0.5">
-                <span className="capitalize">{r.role}</span>
-                {r.stepNumber != null && <span>· Step {r.stepNumber}</span>}
+
+      {/* Persistent results panel — grouped by step */}
+      {showPanel && hasResults && (
+        <div
+          ref={resultPanelRef}
+          className="border-b border-border bg-muted/30 max-h-72 overflow-y-auto"
+        >
+          {grouped.map((group) => (
+            <div key={group.stepId ?? "__none"}>
+              {/* Step group header */}
+              <div className="sticky top-0 z-[1] flex items-center gap-2 px-4 py-1 bg-muted/70 backdrop-blur-sm border-b border-border/30">
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  {group.stepNumber != null ? `Step ${group.stepNumber}` : "Ungrouped"}
+                </span>
+                <span className="text-[10px] text-muted-foreground/60">
+                  {group.items.length} match{group.items.length !== 1 ? "es" : ""}
+                </span>
               </div>
-              <div className="truncate text-foreground/90">{r.content}</div>
-            </button>
+              {/* Results within step */}
+              {group.items.map((r) => {
+                const globalIdx = results.indexOf(r);
+                const isActive = globalIdx === activeIdx;
+                return (
+                  <button
+                    key={r.seq}
+                    data-result-idx={globalIdx}
+                    onClick={() => navigateTo(globalIdx)}
+                    className={cn(
+                      "w-full text-left px-4 py-1.5 text-sm transition-colors border-b border-border/20 last:border-0",
+                      isActive ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-accent/50",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground mb-0.5">
+                      <span className={cn(
+                        "capitalize font-medium",
+                        r.role === "agent" && "text-blue-500",
+                        r.role === "tool_call" && "text-amber-500",
+                        r.role === "tool_result" && "text-emerald-500",
+                      )}>
+                        {r.role === "tool_call" ? (r.toolName ?? "tool") : r.role}
+                      </span>
+                    </div>
+                    <div className="text-xs text-foreground/80 line-clamp-2 leading-relaxed">
+                      <HighlightedText text={r.content} term={debouncedQuery} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           ))}
+        </div>
+      )}
+
+      {/* No results feedback */}
+      {showPanel && !hasResults && !isSearching && (
+        <div className="px-4 py-3 border-b border-border/50 text-center">
+          <span className="text-xs text-muted-foreground">No matches for "{debouncedQuery}"</span>
         </div>
       )}
     </div>

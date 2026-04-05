@@ -47,6 +47,7 @@ export function JobDetailScreen() {
   const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [tab, setTab] = useState("live");
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [diffStepId, setDiffStepId] = useState<string | null>(null);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
@@ -617,7 +618,7 @@ export function JobDetailScreen() {
       )}
 
       {/* Tab bar — desktop shows all tabs + terminal button; mobile shows 3 tabs + ••• overflow */}
-      <Tabs value={tab} onValueChange={setTab} className="mb-4">
+      <Tabs value={tab} onValueChange={(v) => { if (v === "diff") setDiffStepId(null); setTab(v); }} className="mb-4">
         {/* Desktop layout (hidden on mobile) */}
         <div className="hidden sm:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
@@ -711,7 +712,7 @@ export function JobDetailScreen() {
           <StepListView
               job={job}
               targetStepId={targetStepId}
-              onViewDiff={() => setTab("diff")}
+              onViewDiff={(step) => { setDiffStepId(step.stepId); setTab("diff"); }}
             />
           <div className="space-y-4">
             <PlanPanel jobId={jobId} />
@@ -729,7 +730,7 @@ export function JobDetailScreen() {
 
       {tab === "diff" && (
         <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-          <DiffViewer jobId={jobId} jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} onAskSent={() => setTab("live")} />
+          <DiffViewer jobId={jobId} jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} onAskSent={() => setTab("live")} stepId={diffStepId} onClearStep={() => setDiffStepId(null)} />
         </Suspense>
       )}
 
