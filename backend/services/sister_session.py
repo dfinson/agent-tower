@@ -48,7 +48,6 @@ _ORPHAN_CHECK_INTERVAL_S = 30.0
 
 # Standby pool — keep this many sessions ready to hand off instantly
 _STANDBY_POOL_SIZE = 2
-_POOL_REFILL_INTERVAL_S = 5.0
 
 # Retry count for one-shot callers
 _TIMEOUT_RETRIES = 1
@@ -138,9 +137,6 @@ class SisterSessionManager:
         """Seed the standby pool and start background maintenance tasks."""
         self._fill_pool()
         self._bg_tasks.append(
-            asyncio.create_task(self._pool_refiller(), name="sister-pool-refiller")
-        )
-        self._bg_tasks.append(
             asyncio.create_task(self._orphan_reaper(), name="sister-orphan-reaper")
         )
         log.debug("sister_session_manager_started", pool_size=self._pool_size)
@@ -171,10 +167,14 @@ class SisterSessionManager:
             self._pool.append(self._make_session())
 
     def _pop_or_create(self) -> SisterSession:
-        """Pop a session from the pool, or create one if empty."""
-        if self._pool:
-            return self._pool.popleft()
-        return self._make_session()
+        """Pop a session from the pool, or create one if empty.
+
+        Eagerly refills the pool after every pop so the next caller
+        always finds a session ready.
+        """
+        session = self._pool.popleft() if self._pool else self._make_session()
+        self._fill_pool()  # immediate top-up
+        return session
 
     # -- Pre-warm (new-job panel) -------------------------------------------
 
@@ -264,15 +264,6 @@ class SisterSessionManager:
                 self._pool.append(session)
 
     # -- Background tasks ----------------------------------------------------
-
-    async def _pool_refiller(self) -> None:
-        """Keep the standby pool topped up."""
-        try:
-            while True:
-                await asyncio.sleep(_POOL_REFILL_INTERVAL_S)
-                self._fill_pool()
-        except asyncio.CancelledError:
-            pass
 
     async def _orphan_reaper(self) -> None:
         """Close warm sessions that were never adopted."""
