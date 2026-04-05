@@ -561,8 +561,8 @@ def _pause_active_sessions(base_url: str) -> None:
         click.echo(f"    {mark}  {job['id'][:8]}… {title}")
 
 
-def _stop_server(port: int) -> bool:
-    """Send SIGTERM and wait for the server to exit. Returns True when stopped."""
+def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
+    """Send SIGTERM, wait up to *timeout_seconds*, then SIGKILL if still alive."""
     import os
     import time
 
@@ -582,7 +582,17 @@ def _stop_server(port: int) -> bool:
         with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGTERM)
 
+    deadline = time.monotonic() + timeout_seconds
     while _find_pids_on_port(port):
+        if time.monotonic() > deadline:
+            remaining = _find_pids_on_port(port)
+            if remaining:
+                click.echo(f"  SIGTERM timed out after {timeout_seconds}s — sending SIGKILL to {remaining}…")
+                for pid in remaining:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.kill(pid, signal.SIGKILL)
+                time.sleep(1)
+            break
         time.sleep(0.5)
 
     click.secho("  Server stopped.", fg="green")
