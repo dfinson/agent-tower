@@ -48,14 +48,14 @@ export const mockJobs = [
   // ── In Progress column ──────────────────────────────────────────────
   {
     ...JOB_DEFAULTS,
-    id: "j-0006",
+    id: "loading-skeleton-ticket-list",
     state: "running",
     title: "Persist the selected status filter in the URL query string",
     prompt: "Persist the selected status filter in the URL query string so the view survives page refreshes",
     repo: REPO_SUPPORT_DASH,
     sdk: "copilot",
-    branch: "cpl/j-0006",
-    model: "gpt-4o",
+    branch: "feat/loading-skeleton-ticket-list",
+    model: "claude-sonnet-4.6",
     progressHeadline: "Writing filter serialization logic",
     progressSummary: "Serializing active filters to URL search params",
     createdAt: minutesAgo(25),
@@ -63,14 +63,14 @@ export const mockJobs = [
   },
   {
     ...JOB_DEFAULTS,
-    id: "j-0007",
+    id: "customer-email-search",
     state: "running",
     title: "Add customer email search to the ticket list endpoint",
     prompt: "Add customer email search to the ticket list endpoint and add tests",
     repo: REPO_ISSUE_TRACKER,
     sdk: "copilot",
-    branch: "cpl/j-0007",
-    model: "gpt-4o",
+    branch: "feat/customer-email-search-tickets",
+    model: "claude-sonnet-4.6",
     progressHeadline: "Writing test cases",
     progressSummary: "Adding unit tests for email search filter",
     createdAt: minutesAgo(18),
@@ -78,27 +78,27 @@ export const mockJobs = [
   },
   {
     ...JOB_DEFAULTS,
-    id: "j-0009",
+    id: "409-conflict-archive-ticket",
     state: "queued",
     title: "Return 409 Conflict when archiving an already-archived ticket",
     prompt: "Return 409 Conflict when archiving an already-archived ticket and add a test",
     repo: REPO_ISSUE_TRACKER,
     sdk: "copilot",
     branch: null,
-    model: "gpt-4o",
+    model: "claude-sonnet-4.6",
     createdAt: minutesAgo(3),
     updatedAt: minutesAgo(3),
   },
   {
     ...JOB_DEFAULTS,
-    id: "j-0010",
+    id: "persist-status-filter-url",
     state: "queued",
     title: "Add a loading skeleton to the ticket list",
     prompt: "Add a loading skeleton to the ticket list while the API request is in flight",
     repo: REPO_SUPPORT_DASH,
     sdk: "copilot",
     branch: null,
-    model: "gpt-4o",
+    model: "claude-sonnet-4.6",
     createdAt: minutesAgo(2),
     updatedAt: minutesAgo(2),
   },
@@ -106,14 +106,14 @@ export const mockJobs = [
   // ── Awaiting Input column ───────────────────────────────────────────
   {
     ...JOB_DEFAULTS,
-    id: "j-0003",
+    id: "ticket-list-pagination",
     state: "review",
     title: "Add pagination to the ticket list endpoint",
     prompt: "Add pagination to the ticket list endpoint with limit and offset query params",
     repo: REPO_ISSUE_TRACKER,
     sdk: "copilot",
-    branch: "cpl/j-0003",
-    model: "gpt-4o",
+    branch: "feat/ticket-list-pagination",
+    model: "claude-sonnet-4.6",
     resolution: "unresolved",
     createdAt: minutesAgo(90),
     updatedAt: minutesAgo(58),
@@ -121,14 +121,14 @@ export const mockJobs = [
   },
   {
     ...JOB_DEFAULTS,
-    id: "j-0005",
+    id: "ticket-archival-error-codes",
     state: "review",
     title: "Tighten error handling around ticket archival",
     prompt: "Tighten error handling around ticket archival — return proper 404/409 codes",
     repo: REPO_ISSUE_TRACKER,
     sdk: "claude",
-    branch: "cpl/j-0005",
-    model: "claude-sonnet-4-5-20250514",
+    branch: "fix/ticket-archival-error-codes",
+    model: "claude-sonnet-4.6",
     resolution: "unresolved",
     createdAt: minutesAgo(75),
     updatedAt: minutesAgo(53),
@@ -136,14 +136,14 @@ export const mockJobs = [
   },
   {
     ...JOB_DEFAULTS,
-    id: "j-0008",
+    id: "keyboard-shortcut-hints",
     state: "waiting_for_approval",
     title: "Add keyboard shortcut hints to the search input and status filter",
     prompt: "Add keyboard shortcut hints to the search input and status filter",
     repo: REPO_SUPPORT_DASH,
     sdk: "claude",
-    branch: "cpl/j-0008",
-    model: "claude-sonnet-4-5-20250514",
+    branch: "feat/keyboard-shortcut-hints",
+    model: "claude-sonnet-4.6",
     permissionMode: "review_and_approve",
     progressHeadline: "Waiting for approval",
     createdAt: minutesAgo(12),
@@ -151,14 +151,14 @@ export const mockJobs = [
   },
   {
     ...JOB_DEFAULTS,
-    id: "j-0002",
+    id: "priority-badge-column",
     state: "completed",
     title: "Add a priority badge column to the ticket table",
     prompt: "Add a priority badge column to the ticket table with color-coded labels",
     repo: REPO_SUPPORT_DASH,
     sdk: "claude",
-    branch: "cpl/j-0002",
-    model: "claude-sonnet-4-5-20250514",
+    branch: "feat/priority-badge-column",
+    model: "claude-sonnet-4.6",
     resolution: "merged",
     prUrl: "https://github.com/acme/demo-support-dashboard/pull/14",
     createdAt: minutesAgo(120),
@@ -169,14 +169,14 @@ export const mockJobs = [
   // ── Failed column ──────────────────────────────────────────────────
   {
     ...JOB_DEFAULTS,
-    id: "j-0011",
+    id: "migrate-test-vitest",
     state: "failed",
     title: "Migrate test suite to Vitest",
     prompt: "Migrate the existing Jest test suite to Vitest",
     repo: REPO_SUPPORT_DASH,
     sdk: "copilot",
-    branch: "cpl/j-0011",
-    model: "gpt-4o",
+    branch: "chore/migrate-test-vitest",
+    model: "claude-sonnet-4.6",
     failureReason: "Test runner configuration incompatible with existing jest.config.ts — multiple transform conflicts",
     createdAt: minutesAgo(40),
     updatedAt: minutesAgo(32),
@@ -194,7 +194,7 @@ const TURN_C = "turn-003";
 export const runningJobTranscript = [
   // Turn 1: Initial analysis
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 1,
     timestamp: minutesAgo(17),
     role: "reasoning",
@@ -202,7 +202,7 @@ export const runningJobTranscript = [
     turnId: TURN_A,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 2,
     timestamp: minutesAgo(17),
     role: "tool_call",
@@ -217,7 +217,7 @@ export const runningJobTranscript = [
     toolDurationMs: 45,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 3,
     timestamp: minutesAgo(17),
     role: "tool_call",
@@ -232,7 +232,7 @@ export const runningJobTranscript = [
     toolDurationMs: 38,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 4,
     timestamp: minutesAgo(16),
     role: "tool_call",
@@ -247,7 +247,7 @@ export const runningJobTranscript = [
     toolDurationMs: 120,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 5,
     timestamp: minutesAgo(16),
     role: "agent",
@@ -258,7 +258,7 @@ export const runningJobTranscript = [
 
   // Turn 2: Implementation
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 6,
     timestamp: minutesAgo(14),
     role: "reasoning",
@@ -266,7 +266,7 @@ export const runningJobTranscript = [
     turnId: TURN_B,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 7,
     timestamp: minutesAgo(14),
     role: "tool_call",
@@ -281,7 +281,7 @@ export const runningJobTranscript = [
     toolDurationMs: 52,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 8,
     timestamp: minutesAgo(13),
     role: "tool_call",
@@ -296,7 +296,7 @@ export const runningJobTranscript = [
     toolDurationMs: 48,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 9,
     timestamp: minutesAgo(12),
     role: "tool_call",
@@ -311,7 +311,7 @@ export const runningJobTranscript = [
     toolDurationMs: 55,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 10,
     timestamp: minutesAgo(11),
     role: "tool_call",
@@ -326,7 +326,7 @@ export const runningJobTranscript = [
     toolDurationMs: 3420,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 11,
     timestamp: minutesAgo(10),
     role: "agent",
@@ -337,7 +337,7 @@ export const runningJobTranscript = [
 
   // Turn 3: Writing tests (in progress)
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 12,
     timestamp: minutesAgo(8),
     role: "reasoning",
@@ -345,7 +345,7 @@ export const runningJobTranscript = [
     turnId: TURN_C,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 13,
     timestamp: minutesAgo(7),
     role: "tool_call",
@@ -360,7 +360,7 @@ export const runningJobTranscript = [
     toolDurationMs: 32,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 14,
     timestamp: minutesAgo(5),
     role: "tool_call",
@@ -375,7 +375,7 @@ export const runningJobTranscript = [
     toolDurationMs: 2870,
   },
   {
-    jobId: "j-0007",
+    jobId: "customer-email-search",
     seq: 15,
     timestamp: minutesAgo(3),
     role: "tool_running",
@@ -397,7 +397,7 @@ export const runningJobTimeline = [
   },
   {
     headline: "Creating worktree",
-    headlinePast: "Created worktree on cpl/j-0007",
+    headlinePast: "Created worktree on feat/customer-email-search-tickets",
     summary: "Isolated branch for safe modification",
     timestamp: minutesAgo(18),
     active: false,
@@ -447,7 +447,7 @@ export const runningJobPlan = [
 export const approvalJobApprovals = [
   {
     id: "apr-001",
-    jobId: "j-0008",
+    jobId: "keyboard-shortcut-hints",
     description: "Write file: src/components/SearchInput.tsx — Replace the placeholder text with keyboard shortcut hint markup",
     proposedAction: 'replace_string_in_file: src/components/SearchInput.tsx\n- placeholder="Search tickets..."\n+ placeholder="Search tickets..." aria-keyshortcuts="Control+K"\n+ <kbd className="shortcut-hint">⌘K</kbd>',
     requestedAt: minutesAgo(5),
@@ -457,7 +457,7 @@ export const approvalJobApprovals = [
   },
   {
     id: "apr-002",
-    jobId: "j-0008",
+    jobId: "keyboard-shortcut-hints",
     description: "Execute command: npm run build — Verify the shortcut hints render correctly after modification",
     proposedAction: "$ npm run build",
     requestedAt: minutesAgo(5),
@@ -669,10 +669,9 @@ export const mockSdks = {
 };
 
 export const mockModels = [
-  { id: "gpt-4o", name: "GPT-4o", isDefault: true },
-  { id: "claude-sonnet-4-5-20250514", name: "Claude Sonnet 4.5", isDefault: false },
-  { id: "claude-3-5-haiku-20250120", name: "Claude 3.5 Haiku", isDefault: false },
-  { id: "o3-mini", name: "o3-mini", isDefault: false },
+  { id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", isDefault: true },
+  { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", isDefault: false },
+  { id: "claude-opus-4.6", name: "Claude Opus 4.6", isDefault: false },
 ];
 
 export const mockSettings = {
@@ -746,7 +745,7 @@ export const mockModelComparison = {
   repo: null,
   models: [
     {
-      model: "gpt-4o",
+      model: "claude-sonnet-4.6",
       sdk: "copilot",
       jobCount: 20,
       avgCost: 0.65,
@@ -767,7 +766,7 @@ export const mockModelComparison = {
       costPerToolCall: 0.005,
     },
     {
-      model: "claude-sonnet-4-5-20250514",
+      model: "claude-sonnet-4.6",
       sdk: "claude",
       jobCount: 14,
       avgCost: 1.48,

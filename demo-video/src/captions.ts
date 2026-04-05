@@ -26,7 +26,7 @@ const keys = Object.keys(S) as (keyof typeof S)[];
 
 export const titles: Title[] = [
   {
-    text: "You run 5 agents across 3 repos.\nWhere does the work stand?",
+    text: "Multiple agents. Multiple repos.\nWhere does the work stand?",
     startFrame: sceneStart(0) + 30,
     endFrame: sceneStart(0) + S.opening - 10,
   },

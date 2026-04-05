@@ -1,83 +1,60 @@
 /**
- * S06 — Approval flow: job detail with approval banner visible.
- * Shows the real approval banner with Approve/Reject buttons.
+ * S06 — Approval click video in a floating 3-D browser frame.
  */
-import { AbsoluteFill, Img, staticFile, useCurrentFrame, interpolate } from "remotion";
-import { loadFont } from "@remotion/google-fonts/Inter";
-import { C, SCENES } from "../constants";
-
-const { fontFamily } = loadFont("normal", { weights: ["500"] });
+import {
+  AbsoluteFill,
+  OffthreadVideo,
+  staticFile,
+  useCurrentFrame,
+  interpolate,
+  spring,
+} from "remotion";
+import { FPS, SCENES, C } from "../constants";
+import { AnimatedBg } from "../components/AnimatedBg";
+import { BrowserFrame } from "../components/BrowserFrame";
 
 export const S06_Approval: React.FC = () => {
   const frame = useCurrentFrame();
   const dur = SCENES.approval;
 
-  // Title
-  const titleOpacity = interpolate(frame, [0, 15, 55, 70], [0, 1, 1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
+  const bgOp = interpolate(frame, [0, 15], [0, 1], { extrapolateRight: "clamp" });
+  const entry = spring({
+    frame,
+    fps: FPS,
+    config: { damping: 100, stiffness: 90 },
+    durationInFrames: 20,
   });
-
-  // Screenshot
-  const imgOpacity = interpolate(frame, [10, 35], [0, 1], { extrapolateRight: "clamp" });
-  const imgScale = interpolate(frame, [10, dur], [1.06, 1], { extrapolateRight: "clamp" });
-  // Slowly zoom toward the approval area (upper portion)
-  const imgY = interpolate(frame, [60, dur], [0, -40], { extrapolateRight: "clamp" });
+  const fScale = entry * 0.12 + 0.88;
+  const fRotateX = interpolate(frame, [0, 20], [3, 0], { extrapolateRight: "clamp" });
+  const fOp = interpolate(frame, [0, 12], [0, 1], { extrapolateRight: "clamp" });
+  const floatY = Math.sin(frame * 0.025) * 4;
+  const fadeOut = interpolate(frame, [dur - 10, dur], [1, 0], { extrapolateLeft: "clamp" });
 
   return (
-    <AbsoluteFill style={{ backgroundColor: C.bg, fontFamily }}>
-      {/* Title */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          zIndex: 2,
-          pointerEvents: "none",
-          opacity: titleOpacity,
-        }}
-      >
-        <h2
-          style={{
-            fontSize: 64,
-            fontWeight: 500,
-            color: C.white,
-            textAlign: "center",
-            lineHeight: 1.4,
-            textShadow: "0 4px 40px rgba(0,0,0,0.9)",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          Stay in the loop{"\n"}without breaking flow.
-        </h2>
+    <AbsoluteFill style={{ backgroundColor: C.bg, opacity: fadeOut }}>
+      <div style={{ opacity: bgOp, position: "absolute", inset: 0 }}>
+        <AnimatedBg seed={5} intensity={0.45} />
       </div>
-
-      {/* Approval screenshot */}
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          overflow: "hidden",
-          opacity: imgOpacity,
-        }}
-      >
-        <Img
-          src={staticFile("captures/job-approval.png")}
-          style={{
-            width: "94%",
-            borderRadius: 20,
-            boxShadow: "0 30px 100px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)",
-            transform: `scale(${imgScale}) translateY(${imgY}px)`,
-          }}
-        />
+      <div style={{ position: "absolute", inset: 0, transform: `translateY(${floatY}px)` }}>
+        <BrowserFrame rotateX={fRotateX} scale={fScale} opacity={fOp} width="78%">
+          <div style={{ overflow: "hidden", position: "relative" }}>
+            <OffthreadVideo
+              src={staticFile("captures/video-approval-click.webm")}
+              startFrom={30}
+              style={{ width: "180%", marginLeft: "-12%", marginBottom: "-45%", display: "block" }}
+            />
+            <div style={{
+              position: "absolute", top: 0, right: 0, bottom: 0, width: "55%",
+              background: "linear-gradient(90deg, transparent 0%, hsl(220 20% 7% / 0.6) 30%, hsl(220 20% 7%) 55%)",
+              pointerEvents: "none",
+            }} />
+            <div style={{
+              position: "absolute", left: 0, right: 0, bottom: 0, height: "30%",
+              background: "linear-gradient(180deg, transparent 0%, hsl(220 20% 7%) 60%)",
+              pointerEvents: "none",
+            }} />
+          </div>
+        </BrowserFrame>
       </div>
     </AbsoluteFill>
   );
