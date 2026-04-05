@@ -1,11 +1,77 @@
 import { useMemo, useState } from "react";
-import { GitBranch } from "lucide-react";
+import { ChevronRight, GitBranch } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useStore, selectStepEntries } from "../store";
 import type { Step } from "../store";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { StepHeader } from "./StepHeader";
 import { Sheet } from "./ui/sheet";
+
+/* ---------- ToolCallRow (expandable) ---------- */
+
+function ToolCallRow({ entry }: { entry: import("../store").TranscriptEntry }) {
+  const [open, setOpen] = useState(false);
+  const hasDetail = !!(entry.toolResult || entry.toolArgs);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => hasDetail && setOpen((v) => !v)}
+        className={cn(
+          "flex items-center gap-2 w-full text-left text-xs py-1 rounded",
+          hasDetail ? "hover:bg-muted/50 cursor-pointer" : "cursor-default",
+        )}
+      >
+        {hasDetail && (
+          <ChevronRight
+            size={12}
+            className={cn(
+              "shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
+          />
+        )}
+        {!hasDetail && <span className="w-3 shrink-0" />}
+        <span className="shrink-0 mt-px">
+          {entry.toolSuccess === false ? "✗" : "✓"}
+        </span>
+        <span className="font-mono text-foreground/80 truncate flex-1">
+          {entry.toolDisplay || entry.toolName}
+        </span>
+        {entry.toolDurationMs != null && (
+          <span className="shrink-0 text-muted-foreground tabular-nums">
+            {entry.toolDurationMs < 1000
+              ? `${entry.toolDurationMs}ms`
+              : `${(entry.toolDurationMs / 1000).toFixed(1)}s`}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="ml-7 mb-2 border-l border-border pl-3">
+          {entry.toolArgs && (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer hover:text-foreground select-none py-0.5">
+                Arguments
+              </summary>
+              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all text-foreground/70 bg-muted/30 rounded p-2">
+                {entry.toolArgs}
+              </pre>
+            </details>
+          )}
+          {entry.toolResult && (
+            <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs text-foreground/70 bg-muted/30 rounded p-2">
+              {entry.toolResult}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- StepContainer ---------- */
 
 interface StepContainerProps {
   step: Step;
@@ -105,26 +171,9 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
 
       {/* Expanded: tool call list */}
       {!isMobile && expanded && toolCalls.length > 0 && (
-        <div className="mt-3 space-y-1 border-t pt-3">
+        <div className="mt-3 space-y-0.5 border-t pt-3">
           {toolCalls.map((tc) => (
-            <div
-              key={`${tc.seq}-${tc.toolName}`}
-              className="flex items-start gap-2 text-xs text-muted-foreground"
-            >
-              <span className="shrink-0 mt-0.5">
-                {tc.toolSuccess === false ? "✗" : "✓"}
-              </span>
-              <span className="font-mono text-foreground/80 truncate flex-1">
-                {tc.toolDisplay || tc.toolName}
-              </span>
-              {tc.toolDurationMs != null && (
-                <span className="shrink-0">
-                  {tc.toolDurationMs < 1000
-                    ? `${tc.toolDurationMs}ms`
-                    : `${(tc.toolDurationMs / 1000).toFixed(1)}s`}
-                </span>
-              )}
-            </div>
+            <ToolCallRow key={`${tc.seq}-${tc.toolName}`} entry={tc} />
           ))}
         </div>
       )}
@@ -158,26 +207,9 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
             </button>
           )}
           {toolCalls.length > 0 && (
-            <div className="space-y-1 border-t pt-3">
+            <div className="space-y-0.5 border-t pt-3">
               {toolCalls.map((tc) => (
-                <div
-                  key={`${tc.seq}-${tc.toolName}`}
-                  className="flex items-start gap-2 text-xs text-muted-foreground"
-                >
-                  <span className="shrink-0 mt-0.5">
-                    {tc.toolSuccess === false ? "✗" : "✓"}
-                  </span>
-                  <span className="font-mono text-foreground/80 truncate flex-1">
-                    {tc.toolDisplay || tc.toolName}
-                  </span>
-                  {tc.toolDurationMs != null && (
-                    <span className="shrink-0">
-                      {tc.toolDurationMs < 1000
-                        ? `${tc.toolDurationMs}ms`
-                        : `${(tc.toolDurationMs / 1000).toFixed(1)}s`}
-                    </span>
-                  )}
-                </div>
+                <ToolCallRow key={`${tc.seq}-${tc.toolName}`} entry={tc} />
               ))}
             </div>
           )}
