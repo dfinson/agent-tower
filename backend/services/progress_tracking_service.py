@@ -172,20 +172,13 @@ class ProgressTrackingService:
     # -- Lifecycle -----------------------------------------------------------
 
     async def start_tracking(self, job_id: str, prompt: str = "") -> None:
-        catch_all = PlanStep(
-            plan_step_id=_make_plan_step_id(),
-            label="Working on task",
-            status="active",
-            started_at=datetime.now(UTC),
-        )
-        self._plan_steps[job_id] = [catch_all]
-        self._active_idx[job_id] = 0
+        self._plan_steps[job_id] = []
+        self._active_idx[job_id] = -1
         self._plan_established[job_id] = False
         self._recent_messages[job_id] = []
         self._recent_tool_intents[job_id] = []
         self._recent_tool_names[job_id] = []
         self._job_prompts[job_id] = prompt
-        await self._emit_plan_step(job_id, catch_all)
 
     def stop_tracking(self, job_id: str) -> None:
         pass
@@ -284,11 +277,7 @@ class ProgressTrackingService:
         self._native_plan_active.add(job_id)
 
         existing = self._plan_steps.get(job_id, [])
-        # Extract catch-all metrics before replacing
-        catch_all_metrics: PlanStep | None = None
-        if existing and existing[0].label == "Working on task":
-            catch_all_metrics = existing[0]
-        existing_by_label = {s.label: s for s in existing if s.label != "Working on task"}
+        existing_by_label = {s.label: s for s in existing}
 
         updated: list[PlanStep] = []
         now = datetime.now(UTC)
@@ -314,19 +303,6 @@ class ProgressTrackingService:
                     completed_at=now if status == "done" else None,
                 )
                 updated.append(ps)
-
-        # Transfer catch-all metrics to first active/in-progress step
-        if catch_all_metrics and updated:
-            target = next((s for s in updated if s.status == "active"), updated[0])
-            target.tool_count += catch_all_metrics.tool_count
-            target.duration_ms += catch_all_metrics.duration_ms
-            for f in catch_all_metrics.files_written:
-                if f not in target.files_written:
-                    target.files_written.append(f)
-            if catch_all_metrics.start_sha and target.start_sha is None:
-                target.start_sha = catch_all_metrics.start_sha
-            if catch_all_metrics.end_sha:
-                target.end_sha = catch_all_metrics.end_sha
 
         self._plan_steps[job_id] = updated
         self._plan_established[job_id] = True
@@ -385,21 +361,6 @@ class ProgressTrackingService:
                 ))
 
             if steps:
-                # Transfer catch-all metrics to first real step
-                old_steps = self._plan_steps.get(job_id, [])
-                if old_steps and old_steps[0].label == "Working on task":
-                    catch_all = old_steps[0]
-                    first = steps[0]
-                    first.tool_count += catch_all.tool_count
-                    first.duration_ms += catch_all.duration_ms
-                    for f in catch_all.files_written:
-                        if f not in first.files_written:
-                            first.files_written.append(f)
-                    if catch_all.start_sha and first.start_sha is None:
-                        first.start_sha = catch_all.start_sha
-                    if catch_all.end_sha:
-                        first.end_sha = catch_all.end_sha
-
                 self._plan_steps[job_id] = steps
                 self._active_idx[job_id] = 0
                 self._plan_established[job_id] = True
@@ -433,28 +394,9 @@ class ProgressTrackingService:
         start_sha = turn_payload.get("start_sha")
         end_sha = turn_payload.get("end_sha")
 
-        # Native plan: accumulate metrics on active step + generate summary
-        if job_id in self._native_plan_active:
-            active_idx = self._active_idx.get(job_id, 0)
-            if 0 <= active_idx < len(steps):
-                ps = steps[active_idx]
-                ps.tool_count += tool_count
-                ps.duration_ms += duration_ms
-                for f in files_written:
-                    if f not in ps.files_written:
-                        ps.files_written.append(f)
-                if start_sha and ps.start_sha is None:
-                    ps.start_sha = start_sha
-                if end_sha:
-                    ps.end_sha = end_sha
-                if sister:
-                    await self._generate_summary(job_id, sister, ps, agent_msg)
-                await self._emit_plan_step(job_id, ps)
-                await self._emit_card_headline(job_id, ps)
-            return
-
-        # Non-native: classify turn to a plan item (needs sister for LLM classification)
-        if sister:
+        # Classify turn to a plan item using sister session.
+        # Works for both native (manage_todo_list) and inferred plans.
+        if sister and steps:
             await self._classify_and_update(
                 job_id, sister, steps,
                 agent_msg=agent_msg,
