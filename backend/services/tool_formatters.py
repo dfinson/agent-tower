@@ -197,6 +197,29 @@ _SIMPLE_SPECS: dict[str, _FmtSpec] = {
     "Write": _FmtSpec(("file_path", "path"), "Write", "Write file", use_path=True),
     "Edit": _FmtSpec(("file_path", "path"), "Edit", "Edit file", use_path=True),
     "Grep": _FmtSpec(("pattern",), "Grep:", "Grep", truncate=40, quote=True),
+    # ---- Additional aliases / less common tools ----------------------------
+    "delete_file": _FmtSpec(("filePath", "file_path", "path"), "Delete", "Delete file", use_path=True),
+    "edit_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "write_file": _FmtSpec(("filePath", "file_path", "path"), "Write", "Write file", use_path=True),
+    "create": _FmtSpec(("path", "file_path"), "Create", "Create file", use_path=True),
+    "create_or_update_file": _FmtSpec(("path", "file_path"), "Create/update", "Create or update file", use_path=True),
+    "apply_patch": _FmtSpec(("patch",), "Apply patch", "Apply patch", truncate=40),
+    "view_image": _FmtSpec(("filePath", "file_path"), "View image", "View image", use_path=True),
+    "run_vscode_command": _FmtSpec(("command",), "VS Code:", "VS Code command", truncate=40),
+    "git_diff": _FmtSpec(("path",), "Git diff", "Git diff", use_path=True),
+    "git_status": _FmtSpec((), "", "Git status"),
+    "git_log": _FmtSpec(("path",), "Git log", "Git log", use_path=True),
+    "readFile": _FmtSpec(("filePath", "file_path"), "Read", "Read file", use_path=True),
+    "editFile": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "listDir": _FmtSpec(("path",), "List", "List directory", use_path=True),
+    "Agent": _FmtSpec(("description",), "Agent:", "Run agent", truncate=50),
+    # ---- Legacy / rare aliases (humanize_tool_name fallback is fine) --------
+    "cat": _FmtSpec(("path",), "Read", "Read file", use_path=True),
+    "find": _FmtSpec(("pattern", "path"), "Find:", "Find", truncate=40),
+    "rg": _FmtSpec(("pattern",), "Ripgrep:", "Ripgrep", truncate=40, quote=True),
+    "fetch_url": _FmtSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
+    "web_fetch": _FmtSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
+    "WebFetch": _FmtSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
 }
 
 
@@ -515,6 +538,28 @@ _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
     "NotebookEdit": _static_hint("→ applied"),
     "Computer": _static_hint("→ done"),
     "ReadMcpResource": _count_hint("lines", empty="→ empty"),
+    # ---- Additional aliases ------------------------------------------------
+    "delete_file": _static_hint("→ deleted"),
+    "edit_file": _hint_replace_string,
+    "write_file": _static_hint("→ written"),
+    "create": _static_hint("→ created"),
+    "create_or_update_file": _static_hint("→ done"),
+    "apply_patch": _static_hint("→ applied"),
+    "view_image": _static_hint("→ viewed"),
+    "run_vscode_command": _static_hint("→ done"),
+    "git_diff": _count_hint("lines", empty="→ clean"),
+    "git_status": _count_hint("lines", empty="→ clean"),
+    "git_log": _count_hint("commits", empty="→ empty"),
+    "readFile": _count_hint("lines", empty="→ empty"),
+    "editFile": _hint_replace_string,
+    "listDir": _count_hint("entries", empty="→ empty"),
+    "Agent": _hint_subagent,
+    "cat": _count_hint("lines", empty="→ empty"),
+    "find": _count_hint("files", empty="→ no matches"),
+    "rg": _count_hint("matches", empty="→ no matches"),
+    "fetch_url": _hint_fetch_webpage,
+    "web_fetch": _hint_fetch_webpage,
+    "WebFetch": _hint_fetch_webpage,
 }
 
 # Hint functions that also receive tool_args (third parameter) to compute
@@ -616,6 +661,57 @@ def format_tool_display_full(
                     label = f"{label} {hint_fn(tool_result, tool_success)}"
 
     return label
+
+
+# ---------------------------------------------------------------------------
+# Tool visibility classification
+# ---------------------------------------------------------------------------
+
+_HIDDEN_TOOLS: frozenset[str] = frozenset({
+    "report_intent",
+    "manage_todo_list",
+    "TodoWrite",
+    "TodoRead",
+    "Think",
+})
+
+_COLLAPSED_TOOLS: frozenset[str] = frozenset({
+    "read_file",
+    "list_dir",
+    "get_errors",
+    "grep_search",
+    "file_search",
+    "semantic_search",
+    "tool_search_tool_regex",
+    "view_image",
+    "Glob",
+    "LS",
+    "Grep",
+    "glob",
+    "grep",
+    "search_subagent",
+    "get_terminal_output",
+    "memory",
+    "get_changed_files",
+    "open_file",
+    "vscode_listCodeUsages",
+    "skill",
+})
+
+
+def classify_tool_visibility(tool_name: str) -> str:
+    """Classify a tool into a visibility tier: hidden, collapsed, or visible.
+
+    - **hidden**: SDK-internal bookkeeping — never shown to the user.
+    - **collapsed**: Read-only / reconnaissance — shown as a count, expandable.
+    - **visible**: Meaningful mutations — always shown in the tool list.
+    """
+    lookup = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
+    if lookup in _HIDDEN_TOOLS:
+        return "hidden"
+    if lookup in _COLLAPSED_TOOLS:
+        return "collapsed"
+    return "visible"
 
 
 def extract_tool_issue(tool_result: str | None) -> str | None:

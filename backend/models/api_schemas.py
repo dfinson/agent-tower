@@ -887,6 +887,7 @@ class PlanStepPayload(CamelModel):
     label: str
     summary: str | None = None
     status: str
+    order: int = 0
     tool_count: int = 0
     files_written: list[str] | None = None
     started_at: datetime | None = None
