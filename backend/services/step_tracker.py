@@ -174,6 +174,10 @@ class StepTracker:
                 tool_args = payload.get("tool_args", "")
                 path = _extract_file_path(tool_name, tool_args)
                 if path:
+                    # Strip worktree prefix to get repo-relative path
+                    wt = self._worktree_paths.get(job_id, "")
+                    if wt and path.startswith(wt):
+                        path = path[len(wt):].lstrip("/")
                     if tool_name in _READ_TOOLS and path not in current.files_read:
                         current.files_read.append(path)
                     elif tool_name in _WRITE_TOOLS and path not in current.files_written:

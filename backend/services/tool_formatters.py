@@ -673,6 +673,9 @@ _HIDDEN_TOOLS: frozenset[str] = frozenset({
     "TodoWrite",
     "TodoRead",
     "Think",
+    "Sql",
+    "ListMcpResourceTemplates",
+    "ListMcpResources",
 })
 
 _COLLAPSED_TOOLS: frozenset[str] = frozenset({
