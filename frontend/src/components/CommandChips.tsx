@@ -59,7 +59,7 @@ export function CommandChips({ step }: { step: Step }) {
 }
 
 function ExpandedContent({ header, content }: { header: string; content: string }) {
-  const [raw, setRaw] = useState(false);
+  const [md, setMd] = useState(false);
   const lineCount = content.split("\n").length;
 
   return (
@@ -71,25 +71,25 @@ function ExpandedContent({ header, content }: { header: string; content: string 
             <span className="tabular-nums">{lineCount} lines</span>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); setRaw((v) => !v); }}
+              onClick={(e) => { e.stopPropagation(); setMd((v) => !v); }}
               className={cn(
                 "p-0.5 rounded hover:bg-muted transition-colors",
-                raw ? "text-foreground" : "text-muted-foreground",
+                md ? "text-foreground" : "text-muted-foreground",
               )}
-              title={raw ? "Render markdown" : "View raw"}
+              title={md ? "View raw" : "Render markdown"}
             >
               <Code size={12} />
             </button>
           </div>
         </div>
-        {raw ? (
-          <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
-            {content}
-          </pre>
-        ) : (
+        {md ? (
           <div className="text-xs p-2 max-h-64 overflow-auto leading-relaxed text-foreground/80 prose prose-xs dark:prose-invert max-w-none">
             <AgentMarkdown content={content} />
           </div>
+        ) : (
+          <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
+            {content}
+          </pre>
         )}
       </div>
     </div>
