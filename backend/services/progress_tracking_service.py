@@ -228,6 +228,12 @@ class ProgressTrackingService:
                     if len(ibuf) > 10:
                         self._recent_tool_intents[job_id] = ibuf[-10:]
 
+            # Some agents (Copilot) emit tools before any agent message.
+            # Try plan inference after a few tool calls so steps appear early.
+            tool_buf = self._recent_tool_names.get(job_id, [])
+            if len(tool_buf) >= 3 and not self._plan_established.get(job_id, False):
+                await self._try_early_plan(job_id)
+
     async def _try_early_plan(self, job_id: str) -> None:
         """Infer plan from the first agent message without waiting for step_completed."""
         sister = self._sister_sessions.get(job_id)
