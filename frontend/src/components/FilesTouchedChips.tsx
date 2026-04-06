@@ -61,20 +61,21 @@ function DiffBlock({ oldStr, newStr, success }: { oldStr: string; newStr: string
   const lines = useMemo(() => {
     const oldLines = oldStr.split("\n");
     const newLines = newStr.split("\n");
-    const result: { type: "ctx" | "del" | "add"; text: string }[] = [];
+    const result: { type: "ctx" | "del" | "add"; text: string; lineNo: number }[] = [];
 
     const lcs = buildLCS(oldLines, newLines);
     let oi = 0, ni = 0, li = 0;
+    let oldLineNo = 1, newLineNo = 1;
     while (oi < oldLines.length || ni < newLines.length) {
       if (li < lcs.length && oi < oldLines.length && ni < newLines.length && oldLines[oi] === lcs[li] && newLines[ni] === lcs[li]) {
-        result.push({ type: "ctx", text: oldLines[oi]! });
-        oi++; ni++; li++;
+        result.push({ type: "ctx", text: oldLines[oi]!, lineNo: newLineNo });
+        oi++; ni++; li++; oldLineNo++; newLineNo++;
       } else if (oi < oldLines.length && (li >= lcs.length || oldLines[oi] !== lcs[li])) {
-        result.push({ type: "del", text: oldLines[oi]! });
-        oi++;
+        result.push({ type: "del", text: oldLines[oi]!, lineNo: oldLineNo });
+        oi++; oldLineNo++;
       } else if (ni < newLines.length && (li >= lcs.length || newLines[ni] !== lcs[li])) {
-        result.push({ type: "add", text: newLines[ni]! });
-        ni++;
+        result.push({ type: "add", text: newLines[ni]!, lineNo: newLineNo });
+        ni++; newLineNo++;
       } else {
         break;
       }
@@ -88,17 +89,20 @@ function DiffBlock({ oldStr, newStr, success }: { oldStr: string; newStr: string
         {lines.map((line, i) => {
           if (line.type === "del") return (
             <div key={i} className="bg-red-500/10 text-red-600 dark:text-red-400">
-              <span className="select-none opacity-50 mr-2">-</span>{line.text}
+              <span className="inline-block w-8 text-right pr-2 select-none opacity-40 tabular-nums">{line.lineNo}</span>
+              <span className="select-none opacity-50">-</span> {line.text}
             </div>
           );
           if (line.type === "add") return (
             <div key={i} className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <span className="select-none opacity-50 mr-2">+</span>{line.text}
+              <span className="inline-block w-8 text-right pr-2 select-none opacity-40 tabular-nums">{line.lineNo}</span>
+              <span className="select-none opacity-50">+</span> {line.text}
             </div>
           );
           return (
             <div key={i} className="text-muted-foreground">
-              <span className="select-none opacity-30 mr-2"> </span>{line.text}
+              <span className="inline-block w-8 text-right pr-2 select-none opacity-30 tabular-nums">{line.lineNo}</span>
+              <span className="select-none opacity-30"> </span> {line.text}
             </div>
           );
         })}
