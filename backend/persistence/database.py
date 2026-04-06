@@ -66,5 +66,34 @@ def run_migrations(db_path: Path | None = None) -> None:
     alembic_cfg = Config()
     repo_root = Path(__file__).resolve().parents[2]
     alembic_cfg.set_main_option("script_location", str(repo_root / "alembic"))
-    alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path or DEFAULT_DB_PATH}")
-    command.upgrade(alembic_cfg, "head")
+    db_url = f"sqlite:///{db_path or DEFAULT_DB_PATH}"
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+    try:
+        command.upgrade(alembic_cfg, "head")
+    except command.util.CommandError as exc:
+        if "Can't locate revision" in str(exc):
+            import sqlite3
+            import structlog
+
+            log = structlog.get_logger()
+            log.warning(
+                "stale_alembic_revision",
+                error=str(exc),
+                action="stamping to head",
+            )
+            conn = sqlite3.connect(str(db_path or DEFAULT_DB_PATH))
+            try:
+                from alembic.script import ScriptDirectory
+
+                script = ScriptDirectory.from_config(alembic_cfg)
+                heads = script.get_heads()
+                head_rev = heads[0] if heads else "head"
+                conn.execute(
+                    "UPDATE alembic_version SET version_num = ?", (head_rev,)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            command.upgrade(alembic_cfg, "head")
+        else:
+            raise
