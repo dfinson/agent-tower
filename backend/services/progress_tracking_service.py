@@ -372,11 +372,9 @@ class ProgressTrackingService:
     ) -> None:
         """Called when an SDK turn (step_completed) fires."""
         sister = self._sister_sessions.get(job_id)
-        if sister is None:
-            return
 
-        # If plan not established, infer one
-        if not self._plan_established.get(job_id, False):
+        # If plan not established and we have a sister session, infer one
+        if sister and not self._plan_established.get(job_id, False):
             await self._infer_plan(job_id, sister)
 
         steps = self._plan_steps.get(job_id, [])
@@ -393,6 +391,7 @@ class ProgressTrackingService:
             self._plan_established[job_id] = True
             steps = [catch_all]
             await self._emit_plan_step(job_id, catch_all)
+            # Fall through to accumulate this turn's metrics on the catch-all
 
         tool_count = turn_payload.get("tool_count", 0)
         agent_msg = turn_payload.get("agent_message", "") or ""
@@ -415,21 +414,39 @@ class ProgressTrackingService:
                     ps.start_sha = start_sha
                 if end_sha:
                     ps.end_sha = end_sha
-                await self._generate_summary(job_id, sister, ps, agent_msg)
+                if sister:
+                    await self._generate_summary(job_id, sister, ps, agent_msg)
                 await self._emit_plan_step(job_id, ps)
                 await self._emit_card_headline(job_id, ps)
             return
 
-        # Non-native: classify turn to a plan item
-        await self._classify_and_update(
-            job_id, sister, steps,
-            agent_msg=agent_msg,
-            tool_count=tool_count,
-            files_written=files_written,
-            duration_ms=duration_ms,
-            start_sha=start_sha,
-            end_sha=end_sha,
-        )
+        # Non-native: classify turn to a plan item (needs sister for LLM classification)
+        if sister:
+            await self._classify_and_update(
+                job_id, sister, steps,
+                agent_msg=agent_msg,
+                tool_count=tool_count,
+                files_written=files_written,
+                duration_ms=duration_ms,
+                start_sha=start_sha,
+                end_sha=end_sha,
+            )
+        else:
+            # No sister session — accumulate metrics on active step without classification
+            active_idx = self._active_idx.get(job_id, 0)
+            if 0 <= active_idx < len(steps):
+                ps = steps[active_idx]
+                ps.tool_count += tool_count
+                ps.duration_ms += duration_ms
+                for f in files_written:
+                    if f not in ps.files_written:
+                        ps.files_written.append(f)
+                if start_sha and ps.start_sha is None:
+                    ps.start_sha = start_sha
+                if end_sha:
+                    ps.end_sha = end_sha
+                await self._emit_plan_step(job_id, ps)
+                await self._emit_card_headline(job_id, ps)
 
     async def _classify_and_update(
         self,
@@ -519,9 +536,11 @@ class ProgressTrackingService:
                 self._active_idx[job_id] = next_idx
                 await self._emit_plan_step(job_id, steps[next_idx])
 
-        self._active_idx[job_id] = max(
-            self._active_idx.get(job_id, 0), assign_idx
-        )
+        # Only advance active_idx if we didn't already move to next_idx above
+        if new_status != "done":
+            self._active_idx[job_id] = max(
+                self._active_idx.get(job_id, 0), assign_idx
+            )
 
         await self._emit_plan_step(job_id, ps)
         await self._emit_card_headline(job_id, ps)
@@ -575,11 +594,13 @@ class ProgressTrackingService:
         now = datetime.now(UTC)
         for ps in steps:
             if ps.status == "active":
-                ps.status = "done" if succeeded else "skipped"
+                ps.status = "done" if succeeded else "failed"
                 if ps.status == "done":
                     ps.completed_at = now
                 await self._emit_plan_step(job_id, ps)
-            # pending (never started) steps: silently drop — not emitted
+            elif ps.status == "pending":
+                ps.status = "skipped"
+                await self._emit_plan_step(job_id, ps)
 
     def get_plan_steps(self, job_id: str) -> list[dict[str, str]]:
         return [
