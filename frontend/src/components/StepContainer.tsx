@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, GitBranch, User } from "lucide-react";
+import { ChevronRight, GitBranch, User } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useStore, selectStepEntries } from "../store";
 import type { Step } from "../store";
@@ -7,6 +7,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { StepHeader } from "./StepHeader";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { FilesTouchedChips } from "./FilesTouchedChips";
+import { CommandChips } from "./CommandChips";
 
 /* ---------- ToolCallRow (expandable) ---------- */
 
@@ -72,32 +73,6 @@ function ToolCallRow({ entry }: { entry: import("../store").TranscriptEntry }) {
   );
 }
 
-/* ---------- CollapsedToolsSummary ---------- */
-
-function CollapsedToolsSummary({ tools }: { tools: import("../store").TranscriptEntry[] }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-      >
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <span>{tools.length} read{tools.length !== 1 ? "s" : ""} / search{tools.length !== 1 ? "es" : ""}</span>
-      </button>
-      {open && (
-        <div className="mt-1 space-y-0.5 ml-4">
-          {tools.map((tc) => (
-            <ToolCallRow key={`${tc.seq}-${tc.toolName}`} entry={tc} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ---------- StepContainer ---------- */
 
 /** Check if a tool is hidden (SDK-internal, never shown). */
@@ -145,11 +120,6 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
 
   const visibleTools = useMemo(
     () => toolCalls.filter((e) => !isCollapsedTool(e)),
-    [toolCalls],
-  );
-
-  const collapsedTools = useMemo(
-    () => toolCalls.filter((e) => isCollapsedTool(e)),
     [toolCalls],
   );
 
@@ -239,6 +209,9 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
       {/* File chips — always visible (not gated on expanded) */}
       <FilesTouchedChips step={step} />
 
+      {/* Terminal command chips — always visible */}
+      <CommandChips step={step} />
+
       {/* Expanded: visible tool calls (mutations) */}
       {expanded && visibleTools.length > 0 && (
         <div className="mt-3 space-y-0.5 border-t pt-3">
@@ -246,11 +219,6 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
             <ToolCallRow key={`${tc.seq}-${tc.toolName}`} entry={tc} />
           ))}
         </div>
-      )}
-
-      {/* Expanded: collapsed tools summary (reads/searches) */}
-      {expanded && collapsedTools.length > 0 && (
-        <CollapsedToolsSummary tools={collapsedTools} />
       )}
 
       {/* Step diff button — only when SHAs actually differ (real git changes) */}

@@ -1,0 +1,65 @@
+import { Terminal } from "lucide-react";
+import { useMemo, useState } from "react";
+import { cn } from "../lib/utils";
+import type { Step } from "../store";
+import { useStore, selectStepEntries } from "../store";
+
+const TERMINAL_TOOLS = new Set(["bash", "run_in_terminal", "Bash"]);
+
+export function CommandChips({ step }: { step: Step }) {
+  const stepEntries = useStore(selectStepEntries(step.jobId, step.stepId));
+  const [expandedSeq, setExpandedSeq] = useState<number | null>(null);
+
+  const commands = useMemo(() => {
+    return stepEntries.filter((e) => {
+      if (e.role !== "tool_call" || !e.toolName) return false;
+      if (e.toolVisibility !== "collapsed") return false;
+      const name = e.toolName.split("/").pop() ?? e.toolName;
+      return TERMINAL_TOOLS.has(name);
+    });
+  }, [stepEntries]);
+
+  if (!commands.length) return null;
+
+  const expandedCmd = expandedSeq != null ? commands.find((c) => c.seq === expandedSeq) : null;
+
+  return (
+    <div className="mt-1">
+      <div className="flex flex-wrap gap-1">
+        {commands.map((tc) => {
+          const isExpanded = expandedSeq === tc.seq;
+          const chipLabel = (tc.toolDisplay ?? tc.toolName ?? "").split(" → ")[0];
+          return (
+            <button
+              key={tc.seq}
+              type="button"
+              title={tc.toolDisplayFull ?? tc.toolDisplay ?? ""}
+              onClick={(e) => { e.stopPropagation(); setExpandedSeq(isExpanded ? null : tc.seq); }}
+              className={cn(
+                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors",
+                isExpanded && "ring-1 ring-foreground/30",
+              )}
+            >
+              <Terminal size={10} />
+              <span className="font-mono truncate max-w-[250px]">{chipLabel}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {expandedCmd?.toolResult && (
+        <div className="mt-1.5 ml-2 border-l border-border pl-3">
+          <div className="rounded overflow-hidden border border-border">
+            <div className="flex items-center justify-between px-2 py-1 bg-muted/40 text-xs text-muted-foreground border-b border-border">
+              <span className="font-mono truncate">{expandedCmd.toolDisplayFull ?? expandedCmd.toolDisplay ?? expandedCmd.toolName}</span>
+              <span className="shrink-0 tabular-nums">{expandedCmd.toolResult.split("\n").length} lines</span>
+            </div>
+            <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
+              {expandedCmd.toolResult}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
