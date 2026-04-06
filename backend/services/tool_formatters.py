@@ -663,59 +663,6 @@ def format_tool_display_full(
     return label
 
 
-# ---------------------------------------------------------------------------
-# Tool visibility classification
-# ---------------------------------------------------------------------------
-
-_HIDDEN_TOOLS: frozenset[str] = frozenset({
-    "report_intent",
-    "manage_todo_list",
-    "TodoWrite",
-    "TodoRead",
-    "Think",
-    "Sql",
-    "ListMcpResourceTemplates",
-    "ListMcpResources",
-})
-
-_COLLAPSED_TOOLS: frozenset[str] = frozenset({
-    "read_file",
-    "list_dir",
-    "get_errors",
-    "grep_search",
-    "file_search",
-    "semantic_search",
-    "tool_search_tool_regex",
-    "view_image",
-    "Glob",
-    "LS",
-    "Grep",
-    "glob",
-    "grep",
-    "search_subagent",
-    "get_terminal_output",
-    "memory",
-    "get_changed_files",
-    "open_file",
-    "vscode_listCodeUsages",
-    "skill",
-})
-
-
-def classify_tool_visibility(tool_name: str) -> str:
-    """Classify a tool into a visibility tier: hidden, collapsed, or visible.
-
-    - **hidden**: SDK-internal bookkeeping — never shown to the user.
-    - **collapsed**: Read-only / reconnaissance — shown as a count, expandable.
-    - **visible**: Meaningful mutations — always shown in the tool list.
-    """
-    lookup = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
-    if lookup in _HIDDEN_TOOLS:
-        return "hidden"
-    if lookup in _COLLAPSED_TOOLS:
-        return "collapsed"
-    return "visible"
-
 
 def extract_tool_issue(tool_result: str | None) -> str | None:
     """Return a concise issue summary for a non-successful tool result."""

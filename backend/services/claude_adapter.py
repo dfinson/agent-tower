@@ -692,7 +692,7 @@ class ClaudeAdapter(AgentAdapterInterface):
         }
 
         if tool_name not in _HIDDEN_TOOLS:
-            from backend.services.tool_formatters import classify_tool_visibility, format_tool_display, format_tool_display_full
+            from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
             self._enqueue(
                 session_id,
@@ -706,7 +706,6 @@ class ClaudeAdapter(AgentAdapterInterface):
                         "turn_id": turn_id,
                         "tool_display": format_tool_display(tool_name, args_str),
                         "tool_display_full": format_tool_display_full(tool_name, args_str),
-                        "tool_visibility": classify_tool_visibility(tool_name),
                     },
                 ),
             )
@@ -755,7 +754,7 @@ class ClaudeAdapter(AgentAdapterInterface):
             tool_issue = extract_tool_issue(result_text) or "Tool reported an issue"
 
         if tool_name not in _HIDDEN_TOOLS:
-            from backend.services.tool_formatters import classify_tool_visibility, format_tool_display, format_tool_display_full
+            from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
             self._enqueue(
                 session_id,
@@ -783,7 +782,6 @@ class ClaudeAdapter(AgentAdapterInterface):
                             tool_success=success,
                         ),
                         "tool_duration_ms": int(duration_ms),
-                        "tool_visibility": classify_tool_visibility(tool_name),
                     },
                 ),
             )

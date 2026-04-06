@@ -81,6 +81,23 @@ def _make_plan_step_id() -> str:
 # Sister session prompts
 # ---------------------------------------------------------------------------
 
+_VISIBILITY_PROMPT = """\
+Classify this tool call's visibility for a user watching an AI coding agent work.
+
+Tool: {tool_name}
+Args (truncated): {tool_args}
+Intent: {tool_intent}
+
+Reply with exactly one word: hidden, collapsed, or visible.
+- hidden: Agent-internal bookkeeping the user should never see (task tracking, \
+todo management, planning metadata, internal SQL, intent reporting, thinking).
+- collapsed: Read-only reconnaissance (reading files, searching, listing dirs, \
+checking errors). Not interesting individually but countable.
+- visible: Meaningful work the user cares about (editing files, running commands, \
+creating files, installing packages, running tests, making API calls).
+
+One word:"""
+
 _CLASSIFY_PROMPT = """\
 You manage a plan for a coding task.  Given the current plan items and the \
 latest completed work, determine:
@@ -228,6 +245,39 @@ class ProgressTrackingService:
             await self._infer_plan(job_id, sister)
         except Exception:
             log.debug("early_plan_inference_failed", job_id=job_id, exc_info=True)
+
+    async def classify_tool_visibility(
+        self,
+        job_id: str,
+        tool_name: str,
+        tool_args: str,
+        tool_intent: str,
+    ) -> str | None:
+        """Ask the sister session to classify a tool call's visibility.
+
+        Returns "hidden", "collapsed", or "visible", or None if the sister
+        session is unavailable (caller should fall back to hardcoded).
+        """
+        sister = self._sister_sessions.get(job_id)
+        if sister is None:
+            return None
+
+        # Truncate args to keep prompt short
+        args_short = tool_args[:300] if tool_args else "(none)"
+        prompt = _VISIBILITY_PROMPT.format(
+            tool_name=tool_name,
+            tool_args=args_short,
+            tool_intent=tool_intent or "(none)",
+        )
+        try:
+            raw = await sister.complete(prompt, timeout=5)
+            word = raw.strip().lower().split()[0] if raw.strip() else ""
+            if word in ("hidden", "collapsed", "visible"):
+                return word
+            return None
+        except Exception:
+            log.debug("visibility_classification_failed", job_id=job_id, exc_info=True)
+            return None
 
     def feed_tool_name(self, job_id: str, tool_name: str) -> None:
         buf = self._recent_tool_names.get(job_id)
