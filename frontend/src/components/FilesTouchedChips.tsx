@@ -197,7 +197,7 @@ export function FilesTouchedChips({ step }: { step: Step }) {
             ? "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors"
             : kind === "edit"
               ? "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors"
-              : "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:bg-muted/80 transition-colors";
+              : "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-violet-500/10 text-violet-600 hover:bg-violet-500/20 transition-colors";
           return (
             <button
               key={path}
@@ -263,7 +263,25 @@ export function FilesTouchedChips({ step }: { step: Step }) {
               return <DiffBlock key={tc.seq} oldStr={oldStr} newStr={newStr} success={tc.toolSuccess} />;
             }
 
-            // Fallback: read or unknown tool — show display label
+            // Read tool — show actual file content from tool result
+            if (READ_TOOLS.has(name) && tc.toolResult) {
+              const resultText = tc.toolResult;
+              const lineCount = resultText.split("\n").length;
+              const display = tc.toolDisplay || tc.toolDisplayFull || name;
+              return (
+                <div key={tc.seq} className="rounded overflow-hidden border border-border">
+                  <div className="flex items-center justify-between px-2 py-1 bg-muted/40 text-xs text-muted-foreground border-b border-border">
+                    <span className="font-mono truncate">{display}</span>
+                    <span className="shrink-0 tabular-nums">{lineCount} lines</span>
+                  </div>
+                  <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
+                    {resultText}
+                  </pre>
+                </div>
+              );
+            }
+
+            // Fallback: unknown tool — show display label
             const display = tc.toolDisplay || name;
             return (
               <div key={tc.seq} className="text-xs text-muted-foreground font-mono">

@@ -166,6 +166,8 @@ class ProgressTrackingService:
         self._recent_messages: dict[str, list[str]] = {}
         self._recent_tool_intents: dict[str, list[str]] = {}
         self._recent_tool_names: dict[str, list[str]] = {}
+        # Total tool call count per job (for early plan inference trigger)
+        self._tool_call_count: dict[str, int] = {}
         # Job task prompts (for plan inference)
         self._job_prompts: dict[str, str] = {}
 
@@ -178,6 +180,7 @@ class ProgressTrackingService:
         self._recent_messages[job_id] = []
         self._recent_tool_intents[job_id] = []
         self._recent_tool_names[job_id] = []
+        self._tool_call_count[job_id] = 0
         self._job_prompts[job_id] = prompt
 
     def stop_tracking(self, job_id: str) -> None:
@@ -187,7 +190,7 @@ class ProgressTrackingService:
         for store in (
             self._plan_steps, self._active_idx, self._plan_established,
             self._recent_messages, self._recent_tool_intents,
-            self._recent_tool_names, self._job_prompts,
+            self._recent_tool_names, self._tool_call_count, self._job_prompts,
         ):
             store.pop(job_id, None)  # type: ignore[arg-type]
         self._native_plan_active.discard(job_id)
@@ -221,12 +224,6 @@ class ProgressTrackingService:
                     if len(ibuf) > 10:
                         self._recent_tool_intents[job_id] = ibuf[-10:]
 
-            # Some agents (Copilot) emit tools before any agent message.
-            # Try plan inference after a few tool calls so steps appear early.
-            tool_buf = self._recent_tool_names.get(job_id, [])
-            if len(tool_buf) >= 3 and not self._plan_established.get(job_id, False):
-                await self._try_early_plan(job_id)
-
     async def _try_early_plan(self, job_id: str) -> None:
         """Infer plan from the first agent message without waiting for step_completed."""
         sister = self._sister_sessions.get(job_id)
@@ -237,13 +234,19 @@ class ProgressTrackingService:
         except Exception:
             log.debug("early_plan_inference_failed", job_id=job_id, exc_info=True)
 
-    def feed_tool_name(self, job_id: str, tool_name: str) -> None:
+    async def feed_tool_name(self, job_id: str, tool_name: str) -> None:
         buf = self._recent_tool_names.get(job_id)
         if buf is not None:
             if tool_name not in buf:
                 buf.append(tool_name)
             if len(buf) > 10:
                 self._recent_tool_names[job_id] = buf[-10:]
+
+        # Count total tool calls (not unique names) for early plan trigger
+        count = self._tool_call_count.get(job_id, 0) + 1
+        self._tool_call_count[job_id] = count
+        if count == 3 and not self._plan_established.get(job_id, False):
+            await self._try_early_plan(job_id)
 
     # -- Native plan (manage_todo_list) --------------------------------------
 
