@@ -372,7 +372,7 @@ export const useStore = create<AppState>((set, get) => ({
           startSha: raw.startSha ?? null,
           endSha: raw.endSha ?? null,
         })).sort((a: Step, b: Step) => a.order - b.order) },
-        transcriptByStep: { ...s.transcriptByStep, [jobId]: buildTranscriptByStep(snapshot.transcript ?? []) },
+        transcriptByStep: { ...s.transcriptByStep, [jobId]: buildTranscriptByStep(deduped) },
       };
     });
   },
