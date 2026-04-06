@@ -1,8 +1,9 @@
-import { Eye, FilePlus, Pencil } from "lucide-react";
+import { Code, Eye, FilePlus, Pencil } from "lucide-react";
 import { useMemo, useState, Fragment } from "react";
 import { cn } from "../lib/utils";
 import type { Step } from "../store";
 import { useStore, selectStepEntries } from "../store";
+import { AgentMarkdown } from "./AgentMarkdown";
 
 function basename(path: string): string {
   return path.split("/").pop() ?? path;
@@ -266,19 +267,8 @@ export function FilesTouchedChips({ step }: { step: Step }) {
             // Read tool — show actual file content from tool result
             if (READ_TOOLS.has(name) && tc.toolResult) {
               const resultText = tc.toolResult;
-              const lineCount = resultText.split("\n").length;
               const display = tc.toolDisplay || tc.toolDisplayFull || name;
-              return (
-                <div key={tc.seq} className="rounded overflow-hidden border border-border">
-                  <div className="flex items-center justify-between px-2 py-1 bg-muted/40 text-xs text-muted-foreground border-b border-border">
-                    <span className="font-mono truncate">{display}</span>
-                    <span className="shrink-0 tabular-nums">{lineCount} lines</span>
-                  </div>
-                  <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
-                    {resultText}
-                  </pre>
-                </div>
-              );
+              return <ReadContentBlock key={tc.seq} header={display} content={resultText} />;
             }
 
             // Fallback: unknown tool — show display label
@@ -294,6 +284,42 @@ export function FilesTouchedChips({ step }: { step: Step }) {
       {expandedFile && fileToolCalls.length === 0 && (
         <div className="mt-1.5 ml-2 text-xs text-muted-foreground italic">
           No tool data available for this file
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReadContentBlock({ header, content }: { header: string; content: string }) {
+  const [raw, setRaw] = useState(false);
+  const lineCount = content.split("\n").length;
+
+  return (
+    <div className="rounded overflow-hidden border border-border">
+      <div className="flex items-center justify-between px-2 py-1 bg-muted/40 text-xs text-muted-foreground border-b border-border">
+        <span className="font-mono truncate">{header}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="tabular-nums">{lineCount} lines</span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setRaw((v) => !v); }}
+            className={cn(
+              "p-0.5 rounded hover:bg-muted transition-colors",
+              raw ? "text-foreground" : "text-muted-foreground",
+            )}
+            title={raw ? "Render markdown" : "View raw"}
+          >
+            <Code size={12} />
+          </button>
+        </div>
+      </div>
+      {raw ? (
+        <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
+          {content}
+        </pre>
+      ) : (
+        <div className="text-xs p-2 max-h-64 overflow-auto leading-relaxed text-foreground/80 prose prose-xs dark:prose-invert max-w-none">
+          <AgentMarkdown content={content} />
         </div>
       )}
     </div>
