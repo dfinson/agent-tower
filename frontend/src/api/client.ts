@@ -164,6 +164,7 @@ export function fetchJobSnapshot(jobId: string): Promise<{
   transcript: import("../store").TranscriptEntry[];
   diff: DiffFileModel[];
   approvals: import("../store").ApprovalRequest[];
+  steps?: Array<{ planStepId: string; jobId: string; label: string; summary?: string | null; status: string; toolCount?: number; durationMs?: number | null; startedAt?: string | null; completedAt?: string | null; filesWritten?: string[] | null; startSha?: string | null; endSha?: string | null }>;
 }> {
   return request(`/jobs/${encodeURIComponent(jobId)}/snapshot`);
 }
