@@ -193,7 +193,7 @@ interface AppState {
     transcript: TranscriptEntry[];
     diff: DiffFileModel[];
     approvals: ApprovalRequest[];
-    steps?: Step[];
+    steps?: any[];
   }) => void;
 
   // Terminal actions
@@ -355,7 +355,20 @@ export const useStore = create<AppState>((set, get) => ({
           ...Object.fromEntries(snapshot.approvals.map((a) => [a.id, a])),
         },
         streamingMessages,
-        steps: { ...s.steps, [jobId]: snapshot.steps ?? [] },
+        steps: { ...s.steps, [jobId]: (snapshot.steps ?? []).map((raw: any) => ({
+          stepId: raw.stepId ?? raw.planStepId ?? "",
+          jobId: raw.jobId ?? jobId,
+          label: raw.label ?? "",
+          summary: raw.summary ?? null,
+          status: raw.status ?? "pending",
+          toolCount: raw.toolCount ?? 0,
+          durationMs: raw.durationMs ?? null,
+          startedAt: raw.startedAt ?? null,
+          completedAt: raw.completedAt ?? null,
+          filesWritten: raw.filesWritten ?? null,
+          startSha: raw.startSha ?? null,
+          endSha: raw.endSha ?? null,
+        })) },
         transcriptByStep: { ...s.transcriptByStep, [jobId]: buildTranscriptByStep(snapshot.transcript ?? []) },
       };
     });

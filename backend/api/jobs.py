@@ -512,14 +512,52 @@ async def get_job_transcript(
 @router.get("/jobs/{job_id}/steps", response_model=list[PlanStepPayload])
 async def get_job_steps(
     job_id: str,
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[JobService],
 ) -> list[PlanStepPayload]:
-    """Return plan steps for a job.
+    """Return plan steps for a job, hydrated from persisted PlanStepUpdated events.
 
-    Plan steps live in-memory during execution and are delivered via SSE.
-    This endpoint returns an empty list — hydration happens through SSE replay.
+    During execution, plan steps are also delivered live via SSE.  This
+    endpoint lets late-joining clients catch up on steps that were emitted
+    before they connected.
     """
-    return []
+    events = await svc.list_events_by_job(
+        job_id, [DomainEventKind.plan_step_updated], limit=5000
+    )
+    # De-duplicate: keep the latest event per plan_step_id (events are ordered chronologically)
+    latest_by_id: dict[str, dict] = {}
+    for ev in events:
+        step_id = ev.payload.get("plan_step_id", "")
+        if step_id:
+            latest_by_id[step_id] = ev.payload
+
+    # Build response preserving insertion order (first-seen order = plan order)
+    seen_order: list[str] = []
+    for ev in events:
+        sid = ev.payload.get("plan_step_id", "")
+        if sid and sid not in seen_order:
+            seen_order.append(sid)
+
+    result: list[PlanStepPayload] = []
+    for sid in seen_order:
+        p = latest_by_id[sid]
+        # Skip pending steps that were never started (dropped on finalization)
+        if p.get("status") == "pending":
+            continue
+        result.append(PlanStepPayload(
+            job_id=job_id,
+            plan_step_id=p.get("plan_step_id", ""),
+            label=p.get("label", ""),
+            summary=p.get("summary"),
+            status=p.get("status", "pending"),
+            tool_count=p.get("tool_count", 0),
+            files_written=p.get("files_written"),
+            started_at=p.get("started_at"),
+            completed_at=p.get("completed_at"),
+            duration_ms=p.get("duration_ms"),
+            start_sha=p.get("start_sha"),
+            end_sha=p.get("end_sha"),
+        ))
+    return result
 
 
 @router.get("/jobs/{job_id}/steps/{step_id}/diff", response_model=StepDiffPayload)
@@ -679,9 +717,10 @@ async def get_job_snapshot(
     transcript_coro = svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=2000)
     timeline_coro = svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=200)
     summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
+    steps_coro = svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
 
-    log_events, transcript_events, timeline_events, summary_events = await _aio.gather(
-        logs_coro, transcript_coro, timeline_coro, summary_coro
+    log_events, transcript_events, timeline_events, summary_events, step_events = await _aio.gather(
+        logs_coro, transcript_coro, timeline_coro, summary_coro, steps_coro
     )
 
     # Build logs
@@ -783,6 +822,35 @@ async def get_job_snapshot(
         for a in db_approvals
     ]
 
+    # Build plan steps (de-duplicate: keep latest event per step_id, preserve plan order)
+    step_latest: dict[str, dict] = {}
+    step_order: list[str] = []
+    for ev in step_events:
+        sid = ev.payload.get("plan_step_id", "")
+        if not sid:
+            continue
+        step_latest[sid] = ev.payload
+        if sid not in step_order:
+            step_order.append(sid)
+    plan_steps = [
+        PlanStepPayload(
+            job_id=job_id,
+            plan_step_id=p.get("plan_step_id", ""),
+            label=p.get("label", ""),
+            summary=p.get("summary"),
+            status=p.get("status", "pending"),
+            tool_count=p.get("tool_count", 0),
+            files_written=p.get("files_written"),
+            started_at=p.get("started_at"),
+            completed_at=p.get("completed_at"),
+            duration_ms=p.get("duration_ms"),
+            start_sha=p.get("start_sha"),
+            end_sha=p.get("end_sha"),
+        )
+        for sid in step_order
+        if (p := step_latest[sid]).get("status") != "pending"
+    ]
+
     resp = JobSnapshotResponse(
         job=_job_to_response(job, progress_preview),
         logs=logs,
@@ -790,6 +858,7 @@ async def get_job_snapshot(
         diff=diff,
         approvals=approval_list,
         timeline=milestones,
+        steps=plan_steps,
     )
     return resp.model_dump(by_alias=True)
 

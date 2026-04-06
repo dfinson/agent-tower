@@ -616,6 +616,7 @@ class JobSnapshotResponse(CamelModel):
     diff: list[DiffFileModel]
     approvals: list[ApprovalResponse]
     timeline: list[ProgressHeadlinePayload]
+    steps: list[PlanStepPayload] = []
 
 
 class SDKInfoResponse(CamelModel):

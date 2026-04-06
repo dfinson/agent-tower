@@ -139,8 +139,23 @@ export function JobDetailScreen() {
   useEffect(() => {
     if (!jobId) return;
     fetchJobSteps(jobId)
-      .then((steps) => {
-        useStore.setState((s) => ({ steps: { ...s.steps, [jobId]: steps } }));
+      .then((rawSteps) => {
+        // Map API response (planStepId) to store Step interface (stepId)
+        const mapped = (rawSteps as any[]).map((s) => ({
+          stepId: s.stepId ?? s.planStepId ?? "",
+          jobId: s.jobId ?? jobId,
+          label: s.label ?? "",
+          summary: s.summary ?? null,
+          status: s.status ?? "pending",
+          toolCount: s.toolCount ?? 0,
+          durationMs: s.durationMs ?? null,
+          startedAt: s.startedAt ?? null,
+          completedAt: s.completedAt ?? null,
+          filesWritten: s.filesWritten ?? null,
+          startSha: s.startSha ?? null,
+          endSha: s.endSha ?? null,
+        }));
+        useStore.setState((st) => ({ steps: { ...st.steps, [jobId]: mapped } }));
       })
       .catch((err) => console.error("Failed to fetch job steps", err));
   }, [jobId]);
