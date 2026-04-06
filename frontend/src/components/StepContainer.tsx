@@ -240,8 +240,8 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         </div>
       )}
 
-      {/* Expanded: file chips */}
-      {expanded && <FilesTouchedChips step={step} />}
+      {/* File chips — always visible (not gated on expanded) */}
+      <FilesTouchedChips step={step} />
 
       {/* Expanded: visible tool calls (mutations) */}
       {expanded && visibleTools.length > 0 && (

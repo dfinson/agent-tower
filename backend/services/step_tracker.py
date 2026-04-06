@@ -29,8 +29,20 @@ from backend.models.events import DomainEvent, DomainEventKind
 
 log = structlog.get_logger()
 
-_READ_TOOLS = frozenset({"read_file", "grep_search", "file_search", "semantic_search", "view_image"})
-_WRITE_TOOLS = frozenset({"replace_string_in_file", "create_file", "multi_replace_string_in_file", "create_directory"})
+_READ_TOOLS = frozenset({
+    "read_file", "grep_search", "file_search", "semantic_search", "view_image",
+    "list_dir", "glob", "grep", "open_file",
+    # Claude SDK PascalCase
+    "Glob", "LS", "Grep", "NotebookRead",
+})
+_WRITE_TOOLS = frozenset({
+    "replace_string_in_file", "create_file", "multi_replace_string_in_file", "create_directory",
+    "edit", "write", "str_replace_based_edit_tool", "str_replace_editor",
+    "insert_edit_into_file", "edit_file", "write_file", "delete_file",
+    "create", "create_or_update_file", "apply_patch",
+    # Claude SDK PascalCase
+    "Edit", "Write", "NotebookEdit",
+})
 
 
 def _extract_file_path(tool_name: str, tool_args: str) -> str | None:
@@ -39,7 +51,7 @@ def _extract_file_path(tool_name: str, tool_args: str) -> str | None:
         return None
     try:
         args = json.loads(tool_args) if tool_args.startswith("{") else {}
-        return args.get("filePath") or args.get("path") or args.get("query")
+        return args.get("filePath") or args.get("file_path") or args.get("path") or args.get("query")
     except (json.JSONDecodeError, AttributeError):
         return None
 
