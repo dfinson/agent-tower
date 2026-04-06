@@ -219,6 +219,7 @@ def _build_plan_step_updated(event: DomainEvent) -> str:
         label=p.get("label", ""),
         summary=p.get("summary"),
         status=p.get("status", "pending"),
+        order=p.get("order", 0),
         tool_count=p.get("tool_count", 0),
         files_written=p.get("files_written"),
         started_at=p.get("started_at"),

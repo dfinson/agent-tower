@@ -1,4 +1,4 @@
-import { CheckCircle, ChevronRight, Circle, Loader2, SkipForward, XCircle } from "lucide-react";
+import { CheckCircle, ChevronRight, Circle, Loader2 } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { Step } from "../store";
 
@@ -40,14 +40,10 @@ export function StepHeader({ step, expanded, onToggle, hideChevron, hasExpandabl
     >
       {step.status === "active" ? (
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-500" />
-      ) : step.status === "done" ? (
-        <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" />
-      ) : step.status === "failed" ? (
-        <XCircle className="h-4 w-4 shrink-0 text-destructive" />
-      ) : step.status === "skipped" ? (
-        <SkipForward className="h-4 w-4 shrink-0 text-muted-foreground" />
+      ) : step.status === "pending" ? (
+        <Circle className="h-4 w-4 shrink-0 text-muted-foreground/40" />
       ) : (
-        <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+        <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" />
       )}
 
       <div className="flex-1 min-w-0">
