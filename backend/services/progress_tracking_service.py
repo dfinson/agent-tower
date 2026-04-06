@@ -186,7 +186,7 @@ class ProgressTrackingService:
 
     # -- Data ingestion ------------------------------------------------------
 
-    def feed_transcript(
+    async def feed_transcript(
         self,
         job_id: str,
         role: str,
@@ -200,6 +200,11 @@ class ProgressTrackingService:
                 if len(buf) > 5:
                     self._recent_messages[job_id] = buf[-5:]
 
+                # Eagerly infer plan on first agent message so steps appear
+                # immediately instead of waiting for the first step_completed.
+                if len(buf) == 1 and not self._plan_established.get(job_id, False):
+                    await self._try_early_plan(job_id)
+
         if role == "tool_call":
             if tool_intent:
                 ibuf = self._recent_tool_intents.get(job_id)
@@ -207,6 +212,16 @@ class ProgressTrackingService:
                     ibuf.append(tool_intent[:_TOOL_INTENT_MAX])
                     if len(ibuf) > 10:
                         self._recent_tool_intents[job_id] = ibuf[-10:]
+
+    async def _try_early_plan(self, job_id: str) -> None:
+        """Infer plan from the first agent message without waiting for step_completed."""
+        sister = self._sister_sessions.get(job_id)
+        if sister is None:
+            return
+        try:
+            await self._infer_plan(job_id, sister)
+        except Exception:
+            log.debug("early_plan_inference_failed", job_id=job_id, exc_info=True)
 
     def feed_tool_name(self, job_id: str, tool_name: str) -> None:
         buf = self._recent_tool_names.get(job_id)
