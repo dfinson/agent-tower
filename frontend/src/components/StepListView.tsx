@@ -184,18 +184,31 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
 
       {/* Empty / startup state */}
       {steps.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-10 px-4">
+        <div className="flex flex-col divide-y divide-border/50">
           {isRunning ? (
-            <>
-              <Loader2 className="h-6 w-6 text-muted-foreground/50 animate-spin mb-3" />
-              <p className="text-sm text-muted-foreground">Waiting for first step…</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">The agent is initializing</p>
-            </>
+            <StepContainer
+              step={{
+                stepId: "__placeholder__",
+                jobId,
+                label: job.progressHeadline || "Working on task",
+                summary: job.progressSummary || null,
+                status: "active",
+                order: 0,
+                toolCount: 0,
+                durationMs: null,
+                startedAt: job.createdAt,
+                completedAt: null,
+                filesWritten: null,
+                startSha: null,
+                endSha: null,
+              }}
+              isActive
+            />
           ) : (
-            <>
+            <div className="flex flex-col items-center justify-center py-10 px-4">
               <ListChecks className="h-6 w-6 text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">No steps recorded</p>
-            </>
+            </div>
           )}
         </div>
       )}

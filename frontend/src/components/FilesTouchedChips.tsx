@@ -68,18 +68,20 @@ export function FilesTouchedChips({ step }: { step: Step }) {
         fp = args.filePath ?? args.file_path ?? args.path ?? "";
       } catch { continue; }
       if (!fp) continue;
+      // Normalize to repo-relative for matching against step.filesWritten
+      const rel = repoRelative(fp);
 
-      if (CREATE_TOOLS.has(name)) created.add(fp);
+      if (CREATE_TOOLS.has(name)) created.add(rel);
       if (EDIT_TOOLS.has(name)) {
-        editCounts.set(fp, (editCounts.get(fp) ?? 0) + 1);
+        editCounts.set(rel, (editCounts.get(rel) ?? 0) + 1);
       }
     }
 
-    const files = step.filesWritten ?? [];
+    const files = (step.filesWritten ?? []).map(repoRelative);
     // Group: creates first, then edits
     const infos: FileInfo[] = files.map((f) => ({
       path: f,
-      repoPath: repoRelative(f),
+      repoPath: f,
       isCreate: created.has(f),
       editCount: editCounts.get(f) ?? 0,
     }));
@@ -95,7 +97,7 @@ export function FilesTouchedChips({ step }: { step: Step }) {
       try {
         const args = JSON.parse(e.toolArgs);
         const fp = args.filePath ?? args.file_path ?? args.path ?? "";
-        return fp === expandedFile;
+        return repoRelative(fp) === expandedFile;
       } catch { return false; }
     });
   }, [stepEntries, expandedFile]);
