@@ -1,5 +1,5 @@
 import { Eye, FilePlus, Pencil } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, Fragment } from "react";
 import type { Step } from "../store";
 import { useStore, selectStepEntries } from "../store";
 
@@ -52,6 +52,75 @@ interface FileInfo {
   repoPath: string;
   kind: "create" | "edit" | "read";
   editCount: number;
+}
+
+/** Render a unified diff of old → new with removed/added/context lines. */
+function DiffBlock({ oldStr, newStr, success }: { oldStr: string; newStr: string; success?: boolean }) {
+  const lines = useMemo(() => {
+    const oldLines = oldStr.split("\n");
+    const newLines = newStr.split("\n");
+    const result: { type: "ctx" | "del" | "add"; text: string }[] = [];
+
+    const lcs = buildLCS(oldLines, newLines);
+    let oi = 0, ni = 0, li = 0;
+    while (oi < oldLines.length || ni < newLines.length) {
+      if (li < lcs.length && oi < oldLines.length && ni < newLines.length && oldLines[oi] === lcs[li] && newLines[ni] === lcs[li]) {
+        result.push({ type: "ctx", text: oldLines[oi]! });
+        oi++; ni++; li++;
+      } else if (oi < oldLines.length && (li >= lcs.length || oldLines[oi] !== lcs[li])) {
+        result.push({ type: "del", text: oldLines[oi]! });
+        oi++;
+      } else if (ni < newLines.length && (li >= lcs.length || newLines[ni] !== lcs[li])) {
+        result.push({ type: "add", text: newLines[ni]! });
+        ni++;
+      } else {
+        break;
+      }
+    }
+    return result;
+  }, [oldStr, newStr]);
+
+  return (
+    <div className={`rounded overflow-hidden border ${success === false ? "border-destructive/30" : "border-border"}`}>
+      <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed">
+        {lines.map((line, i) => {
+          if (line.type === "del") return (
+            <div key={i} className="bg-red-500/10 text-red-600 dark:text-red-400">
+              <span className="select-none opacity-50 mr-2">-</span>{line.text}
+            </div>
+          );
+          if (line.type === "add") return (
+            <div key={i} className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <span className="select-none opacity-50 mr-2">+</span>{line.text}
+            </div>
+          );
+          return (
+            <div key={i} className="text-muted-foreground">
+              <span className="select-none opacity-30 mr-2"> </span>{line.text}
+            </div>
+          );
+        })}
+      </pre>
+    </div>
+  );
+}
+
+/** Build longest common subsequence of two string arrays. */
+function buildLCS(a: string[], b: string[]): string[] {
+  const m = a.length, n = b.length;
+  if (m > 200 || n > 200) return [];
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array<number>(n + 1).fill(0));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i]![j] = a[i - 1] === b[j - 1] ? dp[i - 1]![j - 1]! + 1 : Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!);
+  const result: string[] = [];
+  let i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (a[i - 1] === b[j - 1]) { result.push(a[i - 1]!); i--; j--; }
+    else if (dp[i - 1]![j]! >= dp[i]![j - 1]!) i--;
+    else j--;
+  }
+  return result.reverse();
 }
 
 export function FilesTouchedChips({ step }: { step: Step }) {
@@ -140,23 +209,56 @@ export function FilesTouchedChips({ step }: { step: Step }) {
         })}
       </div>
 
-      {/* Expanded: show tool calls for the selected file */}
+      {/* Expanded: show diffs for the selected file */}
       {expandedFile && fileToolCalls.length > 0 && (
-        <div className="mt-1.5 ml-2 border-l border-border pl-3 space-y-1">
+        <div className="mt-1.5 ml-2 border-l border-border pl-3 space-y-2">
           {fileToolCalls.map((tc) => {
             const name = tc.toolName?.split("/").pop() ?? tc.toolName ?? "";
+            let oldStr = "";
+            let newStr = "";
+            let content = "";
+            let isCreate = false;
+            try {
+              const args = JSON.parse(tc.toolArgs ?? "{}");
+              oldStr = args.oldString ?? args.old_str ?? args.oldStr ?? "";
+              newStr = args.newString ?? args.new_str ?? args.newStr ?? "";
+              content = args.content ?? args.file_text ?? "";
+              if (CREATE_TOOLS.has(name) && content) isCreate = true;
+              // multi_replace_string_in_file has replacements array
+              if (args.replacements && Array.isArray(args.replacements)) {
+                return (
+                  <Fragment key={tc.seq}>
+                    {args.replacements.map((r: { oldString?: string; newString?: string }, ri: number) => (
+                      <DiffBlock key={ri} oldStr={r.oldString ?? ""} newStr={r.newString ?? ""} success={tc.toolSuccess} />
+                    ))}
+                  </Fragment>
+                );
+              }
+            } catch { /* ignore parse errors */ }
+
+            if (isCreate && content) {
+              return (
+                <div key={tc.seq} className="rounded bg-muted/30 overflow-hidden">
+                  <pre className="text-xs p-2 max-h-48 overflow-auto whitespace-pre-wrap break-all">
+                    {content.split("\n").map((line, i) => (
+                      <div key={i} className="text-emerald-600 dark:text-emerald-400">
+                        <span className="select-none text-emerald-600/50 mr-2">+</span>{line}
+                      </div>
+                    ))}
+                  </pre>
+                </div>
+              );
+            }
+
+            if (oldStr || newStr) {
+              return <DiffBlock key={tc.seq} oldStr={oldStr} newStr={newStr} success={tc.toolSuccess} />;
+            }
+
+            // Fallback: read or unknown tool — show display label
             const display = tc.toolDisplay || name;
             return (
-              <div key={tc.seq} className="text-xs text-muted-foreground">
-                <span className={tc.toolSuccess === false ? "text-destructive" : "text-foreground/70"}>
-                  {tc.toolSuccess === false ? "✗" : "✓"}
-                </span>{" "}
-                <span className="font-mono">{display}</span>
-                {tc.toolDurationMs != null && (
-                  <span className="ml-1 tabular-nums">
-                    {tc.toolDurationMs < 1000 ? `${tc.toolDurationMs}ms` : `${(tc.toolDurationMs / 1000).toFixed(1)}s`}
-                  </span>
-                )}
+              <div key={tc.seq} className="text-xs text-muted-foreground font-mono">
+                {tc.toolSuccess === false ? "✗" : "✓"} {display}
               </div>
             );
           })}
