@@ -279,7 +279,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepId, onClear
     style.textContent = [
       ".hunk-cb-unchecked, .hunk-cb-checked { cursor: pointer !important; }",
       ".hunk-cb-unchecked {",
-      "  background: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Crect x='1.5' y='1.5' width='13' height='13' rx='2.5' stroke='rgba(180,180,200,0.7)' stroke-width='2'/%3E%3C/svg%3E\") center center / 16px no-repeat;",
+      "  background: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Crect x='1' y='1' width='14' height='14' rx='2.5' stroke='rgba(180,180,200,0.9)' stroke-width='2'/%3E%3C/svg%3E\") center center / 18px no-repeat;",
       "}",
       ".hunk-cb-checked {",
       "  background: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Crect x='0.5' y='0.5' width='15' height='15' rx='2.5' fill='%230e639c'/%3E%3Cpath d='M4 8L7 11L12 5' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\") center center / 16px no-repeat;",
@@ -488,10 +488,10 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepId, onClear
                           type="button"
                           onClick={() => toggleFile(i)}
                           className={cn(
-                            "shrink-0 w-5 h-5 md:w-3.5 md:h-3.5 rounded-[3px] border flex items-center justify-center transition-colors cursor-pointer",
+                            "shrink-0 w-5 h-5 md:w-4 md:h-4 rounded-[3px] border-2 flex items-center justify-center transition-colors cursor-pointer",
                             fileChecked || filePartial
                               ? "bg-primary border-primary text-primary-foreground"
-                              : "border-muted-foreground/40 hover:border-muted-foreground",
+                              : "border-muted-foreground/60 hover:border-foreground/80",
                           )}
                         >
                           {fileChecked && <Check size={12} strokeWidth={3} />}
@@ -499,7 +499,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepId, onClear
                         </button>
                       </Tooltip>
                     ) : (
-                      <span className="shrink-0 w-5 md:w-3.5" />
+                      <span className="shrink-0 w-5 md:w-4" />
                     )}
                     <button
                       type="button"
