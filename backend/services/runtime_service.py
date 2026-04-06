@@ -1416,7 +1416,7 @@ class RuntimeService:
                 if role == "tool_call":
                     tool_name = domain_event.payload.get("tool_name", "")
                     if tool_name:
-                        self._progress_tracking.feed_tool_name(job_id, tool_name)
+                        await self._progress_tracking.feed_tool_name(job_id, tool_name)
                     # Native plan capture: extract structured plan data from the
                     # agent's own todo/plan tool.
                     if tool_name in ("manage_todo_list", "TodoWrite"):
