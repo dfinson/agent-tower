@@ -1,4 +1,4 @@
-import { FilePlus, Pencil } from "lucide-react";
+import { Eye, FilePlus, Pencil } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Step } from "../store";
 import { useStore, selectStepEntries } from "../store";
@@ -42,11 +42,15 @@ const EDIT_TOOLS = new Set([
   "str_replace_based_edit_tool", "str_replace_editor", "insert_edit_into_file",
   "edit_file", "write_file",
 ]);
+/** Tools that read files (shown as view-only chips). */
+const READ_TOOLS = new Set([
+  "read_file", "view_image", "Read", "View",
+]);
 
 interface FileInfo {
   path: string;
   repoPath: string;
-  isCreate: boolean;
+  kind: "create" | "edit" | "read";
   editCount: number;
 }
 
@@ -57,6 +61,7 @@ export function FilesTouchedChips({ step }: { step: Step }) {
   const fileInfos = useMemo(() => {
     const created = new Set<string>();
     const editCounts = new Map<string, number>();
+    const readFiles = new Set<string>();
 
     for (const e of stepEntries) {
       if (e.role !== "tool_call" || !e.toolName) continue;
@@ -68,24 +73,28 @@ export function FilesTouchedChips({ step }: { step: Step }) {
         fp = args.filePath ?? args.file_path ?? args.path ?? "";
       } catch { continue; }
       if (!fp) continue;
-      // Normalize to repo-relative for matching against step.filesWritten
       const rel = repoRelative(fp);
 
       if (CREATE_TOOLS.has(name)) created.add(rel);
       if (EDIT_TOOLS.has(name)) {
         editCounts.set(rel, (editCounts.get(rel) ?? 0) + 1);
       }
+      if (READ_TOOLS.has(name)) readFiles.add(rel);
     }
 
-    const files = (step.filesWritten ?? []).map(repoRelative);
-    // Group: creates first, then edits
-    const infos: FileInfo[] = files.map((f) => ({
+    const writtenFiles = new Set((step.filesWritten ?? []).map(repoRelative));
+    // Combine written + read, deduped (written takes priority)
+    const allFiles = new Set([...writtenFiles, ...readFiles]);
+
+    const infos: FileInfo[] = [...allFiles].map((f) => ({
       path: f,
       repoPath: f,
-      isCreate: created.has(f),
+      kind: created.has(f) ? "create" as const : editCounts.has(f) ? "edit" as const : "read" as const,
       editCount: editCounts.get(f) ?? 0,
     }));
-    infos.sort((a, b) => (a.isCreate === b.isCreate ? 0 : a.isCreate ? -1 : 1));
+    // Sort: creates first, then edits, then reads
+    const kindOrder = { create: 0, edit: 1, read: 2 };
+    infos.sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind]);
     return infos;
   }, [stepEntries, step.filesWritten]);
 
@@ -107,21 +116,22 @@ export function FilesTouchedChips({ step }: { step: Step }) {
   return (
     <div className="mt-1.5">
       <div className="flex flex-wrap gap-1">
-        {fileInfos.map(({ path, repoPath, isCreate, editCount }) => {
+        {fileInfos.map(({ path, repoPath, kind, editCount }) => {
           const isExpanded = expandedFile === path;
+          const chipClass = kind === "create"
+            ? "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors"
+            : kind === "edit"
+              ? "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors"
+              : "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground hover:bg-muted/80 transition-colors";
           return (
             <button
               key={path}
               type="button"
               title={repoPath}
               onClick={() => setExpandedFile(isExpanded ? null : path)}
-              className={
-                isCreate
-                  ? "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors"
-                  : "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors"
-              }
+              className={chipClass}
             >
-              {isCreate ? <FilePlus size={10} /> : <Pencil size={10} />}
+              {kind === "create" ? <FilePlus size={10} /> : kind === "edit" ? <Pencil size={10} /> : <Eye size={10} />}
               {basename(path)}
               {editCount > 1 && <span className="text-[10px] opacity-60">×{editCount}</span>}
               {parentDir(repoPath) && <span className="text-[10px] opacity-60">{parentDir(repoPath)}/</span>}

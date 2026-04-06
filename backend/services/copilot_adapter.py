@@ -889,6 +889,7 @@ class CopilotAdapter(AgentAdapterInterface):
                             "tool_display": None,
                             "tool_display_full": None,
                             "tool_duration_ms": None,
+                            "tool_visibility": "hidden",
                         }
                         queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
                         return
