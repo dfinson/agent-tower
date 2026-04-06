@@ -147,6 +147,7 @@ export function JobDetailScreen() {
           label: s.label ?? "",
           summary: s.summary ?? null,
           status: s.status ?? "pending",
+          order: s.order ?? 0,
           toolCount: s.toolCount ?? 0,
           durationMs: s.durationMs ?? null,
           startedAt: s.startedAt ?? null,

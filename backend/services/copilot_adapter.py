@@ -893,6 +893,7 @@ class CopilotAdapter(AgentAdapterInterface):
                         queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
                         return
                     from backend.services.tool_formatters import format_tool_display, format_tool_display_full
+                    from backend.services.tool_formatters import classify_tool_visibility
 
                     turn_id = buffered.get("turn_id") or (
                         str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None
@@ -907,6 +908,7 @@ class CopilotAdapter(AgentAdapterInterface):
                         "tool_title": buffered.get("tool_title"),
                         "tool_display": format_tool_display(tool_name, buffered.get("tool_args")),
                         "tool_display_full": format_tool_display_full(tool_name, buffered.get("tool_args")),
+                        "tool_visibility": classify_tool_visibility(tool_name),
                     }
                 elif kind_str == "tool.execution_complete":
                     tool_id = (data.tool_call_id or "") if data else ""
@@ -932,6 +934,7 @@ class CopilotAdapter(AgentAdapterInterface):
                         if not result_text and data.partial_output:
                             result_text = data.partial_output
                     from backend.services.tool_formatters import (
+                        classify_tool_visibility,
                         extract_tool_issue,
                         format_tool_display,
                         format_tool_display_full,
@@ -969,6 +972,7 @@ class CopilotAdapter(AgentAdapterInterface):
                             tool_success=success,
                         ),
                         "tool_duration_ms": dur_ms,
+                        "tool_visibility": classify_tool_visibility(tool_name),
                     }
             else:
                 event_payload = payload if isinstance(payload, dict) else {}

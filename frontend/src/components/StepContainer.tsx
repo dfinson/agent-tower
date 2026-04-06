@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, GitBranch, User } from "lucide-react";
+import { ChevronDown, ChevronRight, GitBranch, User } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useStore, selectStepEntries } from "../store";
 import type { Step } from "../store";
@@ -7,7 +7,6 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { StepHeader } from "./StepHeader";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { FilesTouchedChips } from "./FilesTouchedChips";
-import { Sheet } from "./ui/sheet";
 
 /* ---------- ToolCallRow (expandable) ---------- */
 
@@ -73,10 +72,47 @@ function ToolCallRow({ entry }: { entry: import("../store").TranscriptEntry }) {
   );
 }
 
+/* ---------- CollapsedToolsSummary ---------- */
+
+function CollapsedToolsSummary({ tools }: { tools: import("../store").TranscriptEntry[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+      >
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <span>{tools.length} read{tools.length !== 1 ? "s" : ""} / search{tools.length !== 1 ? "es" : ""}</span>
+      </button>
+      {open && (
+        <div className="mt-1 space-y-0.5 ml-4">
+          {tools.map((tc) => (
+            <ToolCallRow key={`${tc.seq}-${tc.toolName}`} entry={tc} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- StepContainer ---------- */
 
-/** SDK-internal tools that are metadata, not user-visible work. */
-const SDK_INTERNAL_TOOLS = new Set(["report_intent", "manage_todo_list", "TodoWrite"]);
+/** Check if a tool is hidden (SDK-internal, never shown). */
+function isHiddenTool(entry: import("../store").TranscriptEntry): boolean {
+  if (entry.toolVisibility === "hidden") return true;
+  // Fallback for entries without visibility field (pre-upgrade)
+  const LEGACY_HIDDEN = new Set(["report_intent", "manage_todo_list", "TodoWrite", "TodoRead", "Think"]);
+  return LEGACY_HIDDEN.has(entry.toolName ?? "");
+}
+
+/** Check if a tool is collapsed (read-only recon, shown summarised). */
+function isCollapsedTool(entry: import("../store").TranscriptEntry): boolean {
+  if (entry.toolVisibility === "collapsed") return true;
+  return false;
+}
 
 interface StepContainerProps {
   step: Step;
@@ -89,7 +125,6 @@ interface StepContainerProps {
 export function StepContainer({ step, isActive, expanded: externalExpanded, onToggle: externalToggle, onViewDiff }: StepContainerProps) {
   const isMobile = useIsMobile();
   const [localExpanded, setLocalExpanded] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
 
   const expanded = externalExpanded ?? localExpanded;
   const toggleExpanded = externalToggle ?? (() => setLocalExpanded((v) => !v));
@@ -98,7 +133,7 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
 
   const currentTool = useMemo(() => {
     if (step.status !== "active") return null;
-    const tools = stepEntries.filter((e) => e.role === "tool_running" && !SDK_INTERNAL_TOOLS.has(e.toolName ?? ""));
+    const tools = stepEntries.filter((e) => e.role === "tool_running" && !isHiddenTool(e));
     return tools.length > 0 ? tools[tools.length - 1] : null;
   }, [stepEntries, step.status]);
 
@@ -108,8 +143,18 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
   }, [stepEntries]);
 
   const toolCalls = useMemo(
-    () => stepEntries.filter((e) => e.role === "tool_call" && !SDK_INTERNAL_TOOLS.has(e.toolName ?? "")),
+    () => stepEntries.filter((e) => e.role === "tool_call" && !isHiddenTool(e)),
     [stepEntries],
+  );
+
+  const visibleTools = useMemo(
+    () => toolCalls.filter((e) => !isCollapsedTool(e)),
+    [toolCalls],
+  );
+
+  const collapsedTools = useMemo(
+    () => toolCalls.filter((e) => isCollapsedTool(e)),
+    [toolCalls],
   );
 
   const operatorMessages = useMemo(
@@ -129,11 +174,7 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
 
   const handleToggle = () => {
     if (!hasExpandableContent) return;
-    if (isMobile) {
-      setSheetOpen(true);
-    } else {
-      toggleExpanded();
-    }
+    toggleExpanded();
   };
 
   return (
@@ -154,7 +195,6 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         step={step}
         expanded={expanded}
         onToggle={handleToggle}
-        hideChevron={isMobile}
         hasExpandableContent={hasExpandableContent}
       />
 
@@ -194,26 +234,31 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
       )}
 
       {/* Expanded: summary + agent message */}
-      {!isMobile && expanded && agentMessage && (
+      {expanded && agentMessage && (
         <div className="mt-2 text-sm text-foreground/90 leading-relaxed">
           <AgentMarkdown content={agentMessage.content} />
         </div>
       )}
 
       {/* Expanded: file chips */}
-      {!isMobile && expanded && <FilesTouchedChips step={step} />}
+      {expanded && <FilesTouchedChips step={step} />}
 
-      {/* Expanded: tool call list */}
-      {!isMobile && expanded && toolCalls.length > 0 && (
+      {/* Expanded: visible tool calls (mutations) */}
+      {expanded && visibleTools.length > 0 && (
         <div className="mt-3 space-y-0.5 border-t pt-3">
-          {toolCalls.map((tc) => (
+          {visibleTools.map((tc) => (
             <ToolCallRow key={`${tc.seq}-${tc.toolName}`} entry={tc} />
           ))}
         </div>
       )}
 
+      {/* Expanded: collapsed tools summary (reads/searches) */}
+      {expanded && collapsedTools.length > 0 && (
+        <CollapsedToolsSummary tools={collapsedTools} />
+      )}
+
       {/* Step diff button — visible when step has file changes or SHA diff */}
-      {!isMobile && ((step.filesWritten ?? []).length > 0 || (step.startSha && step.endSha && step.startSha !== step.endSha)) && (
+      {((step.filesWritten ?? []).length > 0 || (step.startSha && step.endSha && step.startSha !== step.endSha)) && (
         <button
           onClick={() => onViewDiff?.(step)}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-2"
@@ -221,34 +266,6 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
           <GitBranch size={12} />
           View changes in this step
         </button>
-      )}
-
-      {/* Mobile: bottom sheet with full step details */}
-      {isMobile && (
-        <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={step.label}>
-          {agentMessage && (
-            <div className="text-sm text-foreground/90 leading-relaxed mb-4">
-              <AgentMarkdown content={agentMessage.content} />
-            </div>
-          )}
-          <FilesTouchedChips step={step} />
-          {((step.filesWritten ?? []).length > 0 || (step.startSha && step.endSha && step.startSha !== step.endSha)) && (
-            <button
-              onClick={() => { setSheetOpen(false); onViewDiff?.(step); }}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-3"
-            >
-              <GitBranch size={12} />
-              View changes in this step
-            </button>
-          )}
-          {toolCalls.length > 0 && (
-            <div className="space-y-0.5 border-t pt-3">
-              {toolCalls.map((tc) => (
-                <ToolCallRow key={`${tc.seq}-${tc.toolName}`} entry={tc} />
-              ))}
-            </div>
-          )}
-        </Sheet>
       )}
     </div>
   );

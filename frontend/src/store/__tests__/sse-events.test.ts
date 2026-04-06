@@ -231,7 +231,7 @@ describe("dispatchSSEEvent — additional events", () => {
   it("handles plan_step_updated — updates existing step", () => {
     useStore.setState({
       jobs: { "job-1": makeJob() },
-      steps: { "job-1": [{ stepId: "ps-abc", jobId: "job-1", label: "Analyze code", summary: null, status: "active", toolCount: 0, durationMs: null, startedAt: null, completedAt: null, filesWritten: null, startSha: null, endSha: null }] },
+      steps: { "job-1": [{ stepId: "ps-abc", jobId: "job-1", label: "Analyze code", summary: null, status: "active", order: 0, toolCount: 0, durationMs: null, startedAt: null, completedAt: null, filesWritten: null, startSha: null, endSha: null }] },
     });
     useStore.getState().dispatchSSEEvent("plan_step_updated", {
       jobId: "job-1",

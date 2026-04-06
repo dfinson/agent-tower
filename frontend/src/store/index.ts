@@ -94,6 +94,7 @@ export interface TranscriptEntry {
   toolDisplay?: string;  // tool_call: deterministic per-tool label (e.g. "$ ls -la", "Read src/main.py")
   toolDisplayFull?: string;  // tool_call: same label without char truncation (for CSS-based responsive truncation)
   toolDurationMs?: number;  // tool_call: execution time in milliseconds
+  toolVisibility?: string;  // tool_call: "hidden" | "collapsed" | "visible"
   // AI-generated group summary — patched in asynchronously via tool_group_summary SSE
   toolGroupSummary?: string;
   stepId?: string;      // step this event belongs to (added by StepTracker)
@@ -106,6 +107,7 @@ export interface Step {
   label: string;           // plan item label (stable)
   summary: string | null;  // sister session summary (dynamic)
   status: "pending" | "active" | "done" | "failed" | "skipped";
+  order: number;           // display order (from backend)
   toolCount: number;
   durationMs: number | null;
   startedAt: string | null;
@@ -361,6 +363,7 @@ export const useStore = create<AppState>((set, get) => ({
           label: raw.label ?? "",
           summary: raw.summary ?? null,
           status: raw.status ?? "pending",
+          order: raw.order ?? 0,
           toolCount: raw.toolCount ?? 0,
           durationMs: raw.durationMs ?? null,
           startedAt: raw.startedAt ?? null,
@@ -368,7 +371,7 @@ export const useStore = create<AppState>((set, get) => ({
           filesWritten: raw.filesWritten ?? null,
           startSha: raw.startSha ?? null,
           endSha: raw.endSha ?? null,
-        })) },
+        })).sort((a: Step, b: Step) => a.order - b.order) },
         transcriptByStep: { ...s.transcriptByStep, [jobId]: buildTranscriptByStep(snapshot.transcript ?? []) },
       };
     });
@@ -567,6 +570,7 @@ export const useStore = create<AppState>((set, get) => ({
             label: payload.label as string,
             summary: (payload.summary as string | null) ?? null,
             status: (payload.status as Step["status"]) ?? "pending",
+            order: (payload.order as number) ?? 0,
             toolCount: (payload.toolCount as number) ?? 0,
             durationMs: (payload.durationMs as number | null) ?? null,
             startedAt: (payload.startedAt as string | null) ?? null,
@@ -578,6 +582,7 @@ export const useStore = create<AppState>((set, get) => ({
           const updatedSteps = idx >= 0
             ? existing.map((s, i) => (i === idx ? step : s))
             : [...existing, step];
+          updatedSteps.sort((a, b) => a.order - b.order);
 
           // Also update job card headline from the active plan step
           const result: Partial<AppState> = {

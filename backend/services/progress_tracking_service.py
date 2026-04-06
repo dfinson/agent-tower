@@ -47,6 +47,7 @@ class PlanStep:
     label: str
     summary: str | None = None
     status: str = "pending"  # pending | active | done | failed | skipped
+    order: int = 0
     tool_count: int = 0
     files_written: list[str] = field(default_factory=list)
     started_at: datetime | None = None
@@ -61,6 +62,7 @@ class PlanStep:
             "label": self.label,
             "summary": self.summary,
             "status": self.status,
+            "order": self.order,
             "tool_count": self.tool_count,
             "files_written": self.files_written[:20] if self.files_written else [],
             "started_at": self.started_at.isoformat() if self.started_at else None,
@@ -272,9 +274,10 @@ class ProgressTrackingService:
         updated: list[PlanStep] = []
         now = datetime.now(UTC)
 
-        for label, status in new_labels:
+        for i, (label, status) in enumerate(new_labels):
             ps = existing_by_label.get(label)
             if ps:
+                ps.order = i
                 if ps.status != status:
                     ps.status = status
                     if status == "active" and ps.started_at is None:
@@ -287,6 +290,7 @@ class ProgressTrackingService:
                     plan_step_id=_make_plan_step_id(),
                     label=label,
                     status=status,
+                    order=i,
                     started_at=now if status == "active" else None,
                     completed_at=now if status == "done" else None,
                 )
@@ -344,6 +348,7 @@ class ProgressTrackingService:
                     plan_step_id=_make_plan_step_id(),
                     label=label.strip()[:60],
                     status="active" if i == 0 else "pending",
+                    order=i,
                     started_at=now if i == 0 else None,
                 ))
 
