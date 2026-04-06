@@ -566,38 +566,51 @@ def _pause_active_sessions(base_url: str) -> None:
 
 
 def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
-    """Send SIGTERM, wait up to *timeout_seconds*, then SIGKILL if still alive."""
+    """Send SIGTERM, wait up to *timeout_seconds*, then SIGKILL if still alive.
+
+    Kills both port-owning processes (uvicorn workers) and parent ``cpl up``
+    / ``uv run cpl up`` processes so the entire process tree is cleaned up.
+    """
     import os
     import time
 
+    from backend.services.setup_service import _find_cpl_processes
+
     pids = _find_pids_on_port(port)
-    if not pids:
-        # Process scan may have found PIDs that aren't on the port yet (startup race)
-        from backend.services.setup_service import _find_cpl_processes
+    # Also include parent cpl-up processes that may not own the port directly
+    cpl_pids = _find_cpl_processes()
+    all_pids = list(dict.fromkeys(pids + cpl_pids))  # deduplicate, preserve order
 
-        pids = _find_cpl_processes()
-
-    if not pids:
+    if not all_pids:
         click.echo("  No process found — already stopped.")
         return True
 
-    click.echo(f"  Sending SIGTERM to PID(s) {pids}…")
-    for pid in pids:
+    click.echo(f"  Sending SIGTERM to PID(s) {all_pids}…")
+    for pid in all_pids:
         with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGTERM)
 
     deadline = time.monotonic() + timeout_seconds
-    while _find_pids_on_port(port):
+    while True:
+        remaining_port = _find_pids_on_port(port)
+        remaining_cpl = _find_cpl_processes()
+        remaining = list(dict.fromkeys(remaining_port + remaining_cpl))
+        if not remaining:
+            break
         if time.monotonic() > deadline:
-            remaining = _find_pids_on_port(port)
-            if remaining:
-                click.echo(f"  SIGTERM timed out after {timeout_seconds}s — sending SIGKILL to {remaining}…")
-                for pid in remaining:
-                    with contextlib.suppress(ProcessLookupError):
-                        os.kill(pid, signal.SIGKILL)
-                time.sleep(1)
+            click.echo(f"  SIGTERM timed out after {timeout_seconds}s — sending SIGKILL to {remaining}…")
+            for pid in remaining:
+                with contextlib.suppress(ProcessLookupError):
+                    os.kill(pid, signal.SIGKILL)
+            time.sleep(1)
             break
         time.sleep(0.5)
+
+    # Final verification
+    leftover = _find_pids_on_port(port)
+    if leftover:
+        click.secho(f"  Warning: PIDs still on port {port}: {leftover}", fg="yellow")
+        return False
 
     click.secho("  Server stopped.", fg="green")
     return True
