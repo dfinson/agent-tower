@@ -102,16 +102,12 @@ function CollapsedToolsSummary({ tools }: { tools: import("../store").Transcript
 
 /** Check if a tool is hidden (SDK-internal, never shown). */
 function isHiddenTool(entry: import("../store").TranscriptEntry): boolean {
-  if (entry.toolVisibility === "hidden") return true;
-  // Fallback for entries without visibility field (pre-upgrade)
-  const LEGACY_HIDDEN = new Set(["report_intent", "manage_todo_list", "TodoWrite", "TodoRead", "Think"]);
-  return LEGACY_HIDDEN.has(entry.toolName ?? "");
+  return entry.toolVisibility === "hidden";
 }
 
 /** Check if a tool is collapsed (read-only recon, shown summarised). */
 function isCollapsedTool(entry: import("../store").TranscriptEntry): boolean {
-  if (entry.toolVisibility === "collapsed") return true;
-  return false;
+  return entry.toolVisibility === "collapsed";
 }
 
 interface StepContainerProps {

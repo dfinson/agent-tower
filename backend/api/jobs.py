@@ -570,17 +570,44 @@ async def get_step_diff(
     config: FromDishka[CPLConfig],
     event_bus: FromDishka[EventBus],
 ) -> StepDiffPayload:
-    """Return the Git diff for a specific step."""
-    from sqlalchemy import select as _select
+    """Return the Git diff for a specific step.
 
-    from backend.models.db import StepRow
+    The step_id can be either a plan_step_id (ps-*) from plan_step_updated
+    events, or an internal step_id (step-*) from the StepRow table.
+    Both are looked up to find start_sha/end_sha.
+    """
     from backend.services.git_service import GitService
 
-    result = await session.execute(_select(StepRow).where(StepRow.id == step_id))
-    step = result.scalar_one_or_none()
-    if not step or not step.start_sha or not step.end_sha:
-        return StepDiffPayload(step_id=step_id, diff="", files_changed=0)
-    if step.start_sha == step.end_sha:
+    start_sha: str | None = None
+    end_sha: str | None = None
+
+    # Try plan_step_updated events first (plan step IDs like ps-XXXX)
+    events = await svc.list_events_by_job(
+        job_id, [DomainEventKind.plan_step_updated], limit=5000
+    )
+    for ev in events:
+        if ev.payload.get("plan_step_id") == step_id:
+            # Take the latest event for this step (events are chronological)
+            s = ev.payload.get("start_sha")
+            e = ev.payload.get("end_sha")
+            if s:
+                start_sha = s
+            if e:
+                end_sha = e
+
+    # Fallback: try StepRow table (internal step IDs like step-XXXX)
+    if not start_sha or not end_sha:
+        from sqlalchemy import select as _select
+
+        from backend.models.db import StepRow
+
+        result = await session.execute(_select(StepRow).where(StepRow.id == step_id))
+        step = result.scalar_one_or_none()
+        if step and step.start_sha and step.end_sha:
+            start_sha = str(step.start_sha)
+            end_sha = str(step.end_sha)
+
+    if not start_sha or not end_sha or start_sha == end_sha:
         return StepDiffPayload(step_id=step_id, diff="", files_changed=0)
 
     job = await svc.get_job(job_id)
@@ -588,7 +615,7 @@ async def get_step_diff(
         return StepDiffPayload(step_id=step_id, diff="", files_changed=0)
 
     git = GitService(config)
-    diff_text = await git.diff_range(str(step.start_sha), str(step.end_sha), cwd=job.worktree_path)
+    diff_text = await git.diff_range(start_sha, end_sha, cwd=job.worktree_path)
     files_changed = diff_text.count("\ndiff --git ") + (1 if diff_text.startswith("diff --git ") else 0)
 
     from backend.services.diff_service import DiffService

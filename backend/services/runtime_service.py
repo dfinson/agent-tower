@@ -1050,9 +1050,8 @@ class RuntimeService:
         task.add_done_callback(_cleanup_snapshot_task)
 
     def _set_progress_terminal_state(self, job_id: str, outcome: str) -> None:
-        """Forward terminal outcome to the progress tracker."""
-        if self._progress_tracking is not None:
-            self._progress_tracking.set_terminal_state(job_id, outcome)
+        """No-op — terminal state handled via finalize() from event subscriber."""
+        pass
 
     async def _set_step_terminal_state(self, job_id: str, outcome: str) -> None:
         """Forward terminal outcome to the step tracker."""

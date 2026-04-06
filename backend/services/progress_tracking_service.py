@@ -636,13 +636,6 @@ class ProgressTrackingService:
             )
         )
 
-    # Back-compat stubs for RuntimeService
-    def set_terminal_state(self, job_id: str, outcome: str) -> None:
-        pass
-
-    async def finalize_plan_steps(self, job_id: str) -> None:
-        pass
-
 
 # ---------------------------------------------------------------------------
 # Event bus subscriber
