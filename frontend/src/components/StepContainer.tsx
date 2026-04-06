@@ -253,8 +253,8 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         <CollapsedToolsSummary tools={collapsedTools} />
       )}
 
-      {/* Step diff button — visible when step has file changes or SHA diff */}
-      {((step.filesWritten ?? []).length > 0 || (step.startSha && step.endSha && step.startSha !== step.endSha)) && (
+      {/* Step diff button — only when SHAs actually differ (real git changes) */}
+      {step.startSha && step.endSha && step.startSha !== step.endSha && (
         <button
           onClick={() => onViewDiff?.(step)}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-2"
