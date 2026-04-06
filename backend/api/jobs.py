@@ -790,6 +790,9 @@ async def get_job_snapshot(
             tool_display_full=_resolve_tool_display_full(e.payload),
             tool_duration_ms=e.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
+            tool_visibility=e.payload.get("tool_visibility"),
+            step_id=e.payload.get("step_id"),
+            step_number=e.payload.get("step_number"),
         )
         for e in transcript_events
     ]
