@@ -49,7 +49,12 @@ export function StepHeader({ step, expanded, onToggle, hideChevron, hasExpandabl
         <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" />
       )}
 
-      <span className="text-sm font-medium truncate flex-1 min-w-0">{step.label}</span>
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-medium truncate block">{step.label}</span>
+        {step.summary && expanded && (
+          <span className="text-xs text-muted-foreground truncate block mt-0.5">{step.summary}</span>
+        )}
+      </div>
 
       <span className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
         {step.toolCount > 0 && <span>{step.toolCount} tools</span>}

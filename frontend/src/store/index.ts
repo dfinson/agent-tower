@@ -482,11 +482,27 @@ export const useStore = create<AppState>((set, get) => ({
               if (entry.turnId && e.turnId && entry.turnId !== e.turnId) return true;
               return false;
             });
-            // If we replaced something, emit directly — no further dedup needed.
+            // If we replaced something, update both transcript and step index.
             if (base.length < before) {
               const updated = [...base, entry];
+
+              // Also remove stale tool_running and add tool_call in transcriptByStep
+              let transcriptByStep = state.transcriptByStep;
+              if (entry.stepId) {
+                const jobIndex = transcriptByStep[jobId] ?? {};
+                const stepEntries = (jobIndex[entry.stepId] ?? []).filter((e) =>
+                  !(e.role === "tool_running" && e.toolName === entry.toolName &&
+                    (!entry.turnId || !e.turnId || entry.turnId === e.turnId))
+                );
+                transcriptByStep = {
+                  ...transcriptByStep,
+                  [jobId]: { ...jobIndex, [entry.stepId]: [...stepEntries, entry] },
+                };
+              }
+
               return {
                 transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
+                transcriptByStep,
               };
             }
           }

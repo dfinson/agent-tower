@@ -457,8 +457,12 @@ export function JobDetailScreen() {
           <span className="text-sm text-muted-foreground font-mono">{job.repo.split("/").pop() ?? job.repo}</span>
         </div>
 
-        {job.progressHeadline && (job.state === "running" || job.state === "queued") && (
+        {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
           <p className="text-sm italic text-primary/70 mb-3">{job.progressHeadline}</p>
+        )}
+
+        {job.prompt && (
+          <p className="text-sm text-muted-foreground mb-3 line-clamp-3">{job.prompt}</p>
         )}
 
         <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-6 gap-y-2 text-sm mb-3">
