@@ -574,7 +574,7 @@ class RuntimeService:
 
         # Start progress tracking (plan-step orchestration)
         if self._progress_tracking is not None:
-            self._progress_tracking.start_tracking(job_id, prompt=config.prompt or "")
+            await self._progress_tracking.start_tracking(job_id, prompt=config.prompt or "")
 
         # Start telemetry tracking — init OTEL spans and SQLite summary row.
         import time as _time
@@ -1423,21 +1423,18 @@ class RuntimeService:
                         await self._ingest_native_plan(job_id, domain_event.payload)
 
             # Step tracking — annotate transcript events with step_id
-            # step_id = plan step ID (from orchestrator), not raw SDK turn ID
             if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
                 role = domain_event.payload.get("role", "")
                 if role != "agent_delta":
                     await self._step_tracker.on_transcript_event(job_id, domain_event)
                     current = self._step_tracker.current_step(job_id)
                     if current:
-                        # Use plan step ID for frontend grouping (falls back to SDK step ID)
-                        plan_step_id = (
-                            self._progress_tracking.get_active_plan_step_id(job_id)
-                            if self._progress_tracking is not None
-                            else None
-                        )
-                        domain_event.payload["step_id"] = plan_step_id or current.step_id
                         domain_event.payload["step_number"] = current.step_number
+                    # ProgressTrackingService is the sole step_id authority (ps-* IDs)
+                    if self._progress_tracking is not None:
+                        plan_step_id = self._progress_tracking.get_active_plan_step_id(job_id)
+                        if plan_step_id:
+                            domain_event.payload["step_id"] = plan_step_id
 
             # Tag log lines with the current session number so callers can filter
             # by session when a job has been resumed one or more times.
