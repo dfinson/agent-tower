@@ -45,7 +45,7 @@ const EDIT_TOOLS = new Set([
 ]);
 /** Tools that read files (shown as view-only chips). */
 const READ_TOOLS = new Set([
-  "read_file", "view_image", "Read", "View",
+  "read_file", "view_image", "Read", "View", "view", "read_files", "list_files",
 ]);
 
 interface FileInfo {
