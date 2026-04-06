@@ -1411,7 +1411,7 @@ class RuntimeService:
                 if role != "agent_delta":
                     content = domain_event.payload.get("content", "")
                     tool_intent = str(domain_event.payload.get("tool_intent") or "")
-                    self._progress_tracking.feed_transcript(job_id, role, content, tool_intent)
+                    await self._progress_tracking.feed_transcript(job_id, role, content, tool_intent)
 
                 # Feed tool names to progress tracker for summary context
                 if role == "tool_call":
