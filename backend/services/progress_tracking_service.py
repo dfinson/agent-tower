@@ -439,6 +439,11 @@ class ProgressTrackingService:
         start_sha: str | None,
         end_sha: str | None,
     ) -> None:
+        # Always assign to the current active step — strictly sequential.
+        active_idx = self._active_idx.get(job_id, 0)
+        active_idx = max(0, min(active_idx, len(steps) - 1))
+        ps = steps[active_idx]
+
         plan_block = "\n".join(
             f"  {i + 1}. [{s.status}] {s.label}" + (f" -- {s.summary}" if s.summary else "")
             for i, s in enumerate(steps)
@@ -453,6 +458,9 @@ class ProgressTrackingService:
             intents=intents or "(none)",
         )
 
+        summary = ""
+        new_status = "active"
+        updated_label: str | None = None
         try:
             raw = await sister.complete(prompt, timeout=15)
             raw = raw.strip()
@@ -462,26 +470,17 @@ class ProgressTrackingService:
                 raw = raw.strip()
 
             parsed = json.loads(raw)
-            assign_idx = int(parsed.get("assign_to", 1)) - 1
             summary = str(parsed.get("summary", ""))[:200]
             new_status = str(parsed.get("status", "active"))
             if new_status not in ("active", "done"):
                 new_status = "active"
-            updated_label = parsed.get("updated_label")
-            if isinstance(updated_label, str) and updated_label.strip():
-                updated_label = updated_label.strip()[:60]
-            else:
-                updated_label = None
+            ul = parsed.get("updated_label")
+            if isinstance(ul, str) and ul.strip():
+                updated_label = ul.strip()[:60]
 
         except Exception:
             log.debug("turn_classification_failed", job_id=job_id, exc_info=True)
-            assign_idx = self._active_idx.get(job_id, 0)
-            summary = ""
-            new_status = "active"
-            updated_label = None
 
-        assign_idx = max(0, min(assign_idx, len(steps) - 1))
-        ps = steps[assign_idx]
         now = datetime.now(UTC)
 
         ps.tool_count += tool_count
@@ -504,8 +503,9 @@ class ProgressTrackingService:
         if new_status == "done" and ps.status == "active":
             ps.status = "done"
             ps.completed_at = now
+            # Auto-advance to next pending step
             next_idx = next(
-                (i for i in range(assign_idx + 1, len(steps)) if steps[i].status == "pending"),
+                (i for i in range(active_idx + 1, len(steps)) if steps[i].status == "pending"),
                 -1,
             )
             if next_idx >= 0:
@@ -513,12 +513,6 @@ class ProgressTrackingService:
                 steps[next_idx].started_at = now
                 self._active_idx[job_id] = next_idx
                 await self._emit_plan_step(job_id, steps[next_idx])
-
-        # Only advance active_idx if we didn't already move to next_idx above
-        if new_status != "done":
-            self._active_idx[job_id] = max(
-                self._active_idx.get(job_id, 0), assign_idx
-            )
 
         await self._emit_plan_step(job_id, ps)
         await self._emit_card_headline(job_id, ps)
