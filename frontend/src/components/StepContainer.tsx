@@ -212,8 +212,8 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         </div>
       )}
 
-      {/* Step diff button — always visible when there are changes */}
-      {!isMobile && step.startSha && step.endSha && step.startSha !== step.endSha && (
+      {/* Step diff button — visible when step has file changes or SHA diff */}
+      {!isMobile && ((step.filesWritten ?? []).length > 0 || (step.startSha && step.endSha && step.startSha !== step.endSha)) && (
         <button
           onClick={() => onViewDiff?.(step)}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-2"
@@ -232,7 +232,7 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
             </div>
           )}
           <FilesTouchedChips step={step} />
-          {step.startSha && step.endSha && step.startSha !== step.endSha && (
+          {((step.filesWritten ?? []).length > 0 || (step.startSha && step.endSha && step.startSha !== step.endSha)) && (
             <button
               onClick={() => { setSheetOpen(false); onViewDiff?.(step); }}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-3"

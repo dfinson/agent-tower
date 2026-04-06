@@ -86,6 +86,7 @@ latest completed work, determine:
 1. Which plan item the work belongs to (by index, 1-based)
 2. An updated 1-2 sentence summary for that item
 3. Whether the item's status should change
+4. If the work substantially changed scope from the original label, provide an updated_label
 
 Current plan:
 {plan_block}
@@ -96,7 +97,7 @@ Latest completed work:
 - Tool intents: {intents}
 
 Respond with JSON only:
-{{"assign_to": <index>, "summary": "<1-2 sentence summary>", "status": "<active|done>"}}
+{{"assign_to": <index>, "summary": "<1-2 sentence summary>", "status": "<active|done>", "updated_label": "<new label or null>"}}
 
 RULES:
 - assign_to is the 1-based index of the plan item this work belongs to.
@@ -104,6 +105,9 @@ RULES:
 - If work is ongoing, keep status as "active".
 - Summary should describe what was specifically done in 1-2 sentences.
 - Be concrete: mention files, functions, endpoints, not abstractions.
+- updated_label: only set when the work scope has clearly diverged from the
+  original label (e.g. label says "scan" but agent actually fixed bugs).
+  Use null when the original label is still accurate.  3-8 words, imperative.
 """
 
 _INFER_PLAN_PROMPT = """\
@@ -463,12 +467,18 @@ class ProgressTrackingService:
             new_status = str(parsed.get("status", "active"))
             if new_status not in ("active", "done"):
                 new_status = "active"
+            updated_label = parsed.get("updated_label")
+            if isinstance(updated_label, str) and updated_label.strip():
+                updated_label = updated_label.strip()[:60]
+            else:
+                updated_label = None
 
         except Exception:
             log.debug("turn_classification_failed", job_id=job_id, exc_info=True)
             assign_idx = self._active_idx.get(job_id, 0)
             summary = ""
             new_status = "active"
+            updated_label = None
 
         assign_idx = max(0, min(assign_idx, len(steps) - 1))
         ps = steps[assign_idx]
@@ -485,6 +495,8 @@ class ProgressTrackingService:
             ps.end_sha = end_sha
         if summary:
             ps.summary = summary
+        if updated_label:
+            ps.label = updated_label
 
         if ps.status == "pending":
             ps.status = "active"
