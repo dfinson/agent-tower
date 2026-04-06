@@ -1,5 +1,6 @@
 import { Eye, FilePlus, Pencil } from "lucide-react";
 import { useMemo, useState, Fragment } from "react";
+import { cn } from "../lib/utils";
 import type { Step } from "../store";
 import { useStore, selectStepEntries } from "../store";
 
@@ -170,12 +171,17 @@ export function FilesTouchedChips({ step }: { step: Step }) {
   // Tool calls that touched the expanded file
   const fileToolCalls = useMemo(() => {
     if (!expandedFile) return [];
+    const target = expandedFile;
+    const targetBase = basename(target);
     return stepEntries.filter((e) => {
       if (e.role !== "tool_call" || !e.toolArgs) return false;
       try {
         const args = JSON.parse(e.toolArgs);
         const fp = args.filePath ?? args.file_path ?? args.path ?? "";
-        return repoRelative(fp) === expandedFile;
+        if (!fp) return false;
+        const rel = repoRelative(fp);
+        // Exact match first, then endsWith fallback for path prefix mismatches
+        return rel === target || rel.endsWith("/" + target) || target.endsWith("/" + rel) || basename(rel) === targetBase;
       } catch { return false; }
     });
   }, [stepEntries, expandedFile]);
@@ -197,8 +203,11 @@ export function FilesTouchedChips({ step }: { step: Step }) {
               key={path}
               type="button"
               title={repoPath}
-              onClick={() => setExpandedFile(isExpanded ? null : path)}
-              className={chipClass}
+              onClick={(e) => { e.stopPropagation(); setExpandedFile(isExpanded ? null : path); }}
+              className={cn(
+                chipClass,
+                isExpanded && "ring-1 ring-foreground/30",
+              )}
             >
               {kind === "create" ? <FilePlus size={10} /> : kind === "edit" ? <Pencil size={10} /> : <Eye size={10} />}
               {basename(path)}
@@ -262,6 +271,11 @@ export function FilesTouchedChips({ step }: { step: Step }) {
               </div>
             );
           })}
+        </div>
+      )}
+      {expandedFile && fileToolCalls.length === 0 && (
+        <div className="mt-1.5 ml-2 text-xs text-muted-foreground italic">
+          No tool data available for this file
         </div>
       )}
     </div>
