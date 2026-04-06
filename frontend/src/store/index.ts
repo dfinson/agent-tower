@@ -481,6 +481,7 @@ export const useStore = create<AppState>((set, get) => ({
             toolDisplay: payload.toolDisplay as string | undefined,
             toolDisplayFull: payload.toolDisplayFull as string | undefined,
             toolDurationMs: payload.toolDurationMs as number | undefined,
+            toolVisibility: payload.toolVisibility as string | undefined,
             stepId: payload.stepId as string | undefined,
             stepNumber: payload.stepNumber as number | undefined,
           };

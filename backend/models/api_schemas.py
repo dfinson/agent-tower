@@ -405,6 +405,7 @@ class TranscriptPayload(CamelModel):
     tool_display_full: str | None = None  # role=tool_call: same label, no char truncation (CSS-based)
     tool_duration_ms: int | None = None  # role=tool_call: execution time in milliseconds
     tool_group_summary: str | None = None  # AI-generated summary for the tool group turn
+    tool_visibility: str | None = None  # "hidden" | "collapsed" | "visible"
     step_id: str | None = None
     step_number: int | None = None
 
