@@ -5,8 +5,6 @@ import {
   selectJobLogs,
   selectJobTranscript,
   selectJobDiffs,
-  selectJobTimeline,
-  selectJobPlan,
   selectActiveJobs,
   selectSignoffJobs,
   selectAttentionJobs,
@@ -47,8 +45,7 @@ beforeEach(() => {
     logs: {},
     transcript: {},
     diffs: {},
-    timelines: {},
-    plans: {},
+    steps: {},
     connectionStatus: "disconnected",
   });
 });
@@ -212,45 +209,42 @@ describe("dispatchSSEEvent — additional events", () => {
     expect(Object.keys(selectJobs(useStore.getState()))).toHaveLength(0);
   });
 
-  it("handles progress_headline for existing job", () => {
+  it("handles plan_step_updated — creates new step", () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
-    useStore.getState().dispatchSSEEvent("progress_headline", {
+    useStore.getState().dispatchSSEEvent("plan_step_updated", {
       jobId: "job-1",
-      headline: "Analyzing code",
-      headlinePast: "Analyzed code",
-      timestamp: "2025-01-01T00:01:00Z",
+      planStepId: "ps-abc",
+      label: "Analyze code",
       summary: "Looking at files",
+      status: "active",
+      toolCount: 2,
     });
+    const steps = useStore.getState().steps["job-1"] ?? [];
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.label).toBe("Analyze code");
+    expect(steps[0]?.status).toBe("active");
+    // Should also update job headline
     const job = selectJobs(useStore.getState())["job-1"]!;
-    expect(job.progressHeadline).toBe("Analyzing code");
-    expect(job.progressSummary).toBe("Looking at files");
-    const timeline = selectJobTimeline("job-1")(useStore.getState());
-    expect(timeline).toHaveLength(1);
-    const firstEntry = timeline[0];
-    expect(firstEntry).toBeDefined();
-    expect(firstEntry?.active).toBe(true);
+    expect(job.progressHeadline).toBe("Analyze code");
   });
 
-  it("progress_headline deactivates previous entries", () => {
-    useStore.setState({ jobs: { "job-1": makeJob() } });
-    useStore.getState().dispatchSSEEvent("progress_headline", {
-      jobId: "job-1",
-      headline: "First",
-      timestamp: "2025-01-01T00:01:00Z",
+  it("handles plan_step_updated — updates existing step", () => {
+    useStore.setState({
+      jobs: { "job-1": makeJob() },
+      steps: { "job-1": [{ stepId: "ps-abc", jobId: "job-1", label: "Analyze code", summary: null, status: "active", toolCount: 0, durationMs: null, startedAt: null, completedAt: null, filesWritten: null, startSha: null, endSha: null }] },
     });
-    useStore.getState().dispatchSSEEvent("progress_headline", {
+    useStore.getState().dispatchSSEEvent("plan_step_updated", {
       jobId: "job-1",
-      headline: "Second",
-      timestamp: "2025-01-01T00:02:00Z",
+      planStepId: "ps-abc",
+      label: "Analyze code",
+      summary: "Finished reviewing all source files",
+      status: "done",
+      toolCount: 5,
     });
-    const timeline = selectJobTimeline("job-1")(useStore.getState());
-    expect(timeline).toHaveLength(2);
-    const firstEntry = timeline[0];
-    const secondEntry = timeline[1];
-    expect(firstEntry).toBeDefined();
-    expect(secondEntry).toBeDefined();
-    expect(firstEntry?.active).toBe(false);
-    expect(secondEntry?.active).toBe(true);
+    const steps = useStore.getState().steps["job-1"] ?? [];
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.status).toBe("done");
+    expect(steps[0]?.summary).toBe("Finished reviewing all source files");
   });
 
   it("handles model_downgraded", () => {
@@ -273,25 +267,6 @@ describe("dispatchSSEEvent — additional events", () => {
       actualModel: "gpt-3.5",
     });
     expect(Object.keys(selectJobs(useStore.getState()))).toHaveLength(0);
-  });
-
-  it("handles agent_plan_updated", () => {
-    useStore.getState().dispatchSSEEvent("agent_plan_updated", {
-      jobId: "job-1",
-      steps: [
-        { label: "Analyze", status: "done" },
-        { label: "Implement", status: "active" },
-        { label: "Test", status: "pending" },
-      ],
-    });
-    const plan = selectJobPlan("job-1")(useStore.getState());
-    expect(plan).toHaveLength(3);
-    const firstStep = plan[0];
-    const secondStep = plan[1];
-    expect(firstStep).toBeDefined();
-    expect(secondStep).toBeDefined();
-    expect(firstStep?.status).toBe("done");
-    expect(secondStep?.status).toBe("active");
   });
 
   it("transcript_update deduplicates", () => {
@@ -563,18 +538,6 @@ describe("selector sentinels", () => {
   it("selectJobDiffs returns stable empty array", () => {
     const a = selectJobDiffs("unknown")(useStore.getState());
     const b = selectJobDiffs("unknown")(useStore.getState());
-    expect(a).toBe(b);
-  });
-
-  it("selectJobTimeline returns stable empty array", () => {
-    const a = selectJobTimeline("unknown")(useStore.getState());
-    const b = selectJobTimeline("unknown")(useStore.getState());
-    expect(a).toBe(b);
-  });
-
-  it("selectJobPlan returns stable empty array", () => {
-    const a = selectJobPlan("unknown")(useStore.getState());
-    const b = selectJobPlan("unknown")(useStore.getState());
     expect(a).toBe(b);
   });
 });

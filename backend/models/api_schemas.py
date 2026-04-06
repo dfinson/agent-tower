@@ -879,6 +879,22 @@ class StepGroupPayload(CamelModel):
     step_ids: list[str]
 
 
+class PlanStepPayload(CamelModel):
+    """SSE payload for unified plan-step updates."""
+    job_id: str
+    plan_step_id: str
+    label: str
+    summary: str | None = None
+    status: str
+    tool_count: int = 0
+    files_written: list[str] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_ms: int | None = None
+    start_sha: str | None = None
+    end_sha: str | None = None
+
+
 class StepDiffPayload(CamelModel):
     """Response for step-scoped Git diff."""
     step_id: str

@@ -86,6 +86,9 @@ export interface SisterSessionMetrics {
     callCount: number;
     avgLatencyMs: number;
     totalLatencyMs: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
   }>;
 }
 
@@ -120,20 +123,6 @@ export function fetchJobLogs(jobId: string, level: string = "debug", limit = 200
 
 export function fetchJobTranscript(jobId: string, limit = 2000): Promise<import("../store").TranscriptEntry[]> {
   return request(`/jobs/${encodeURIComponent(jobId)}/transcript?limit=${limit}`);
-}
-
-export function fetchJobTimeline(jobId: string, limit = 200): Promise<import("../store").TimelineEntry[]> {
-  return request<Array<{ headline: string; headlinePast: string; summary?: string; timestamp: string }>>(
-    `/jobs/${encodeURIComponent(jobId)}/timeline?limit=${limit}`,
-  ).then((entries) =>
-    entries.map((e) => ({
-      headline: e.headline,
-      headlinePast: e.headlinePast,
-      summary: e.summary ?? "",
-      timestamp: e.timestamp,
-      active: false, // historical entries are never active; live SSE manages active state
-    })),
-  );
 }
 
 export function fetchJobDiff(jobId: string): Promise<DiffFileModel[]> {
@@ -175,7 +164,6 @@ export function fetchJobSnapshot(jobId: string): Promise<{
   transcript: import("../store").TranscriptEntry[];
   diff: DiffFileModel[];
   approvals: import("../store").ApprovalRequest[];
-  timeline: import("../store").TimelineEntry[];
 }> {
   return request(`/jobs/${encodeURIComponent(jobId)}/snapshot`);
 }

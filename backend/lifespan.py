@@ -35,7 +35,6 @@ from backend.services.runtime_service import RuntimeService
 from backend.services.sse_manager import SSEManager
 from backend.services.step_persistence import StepPersistenceSubscriber
 from backend.services.progress_tracking_service import ProgressTrackingService, _ProgressSubscriber
-from backend.services.step_title_generator import StepTitleGenerator, _StepTitleSubscriber
 from backend.services.step_tracker import StepTracker
 from backend.services.summarization_service import SummarizationService
 from backend.services.sister_session import SisterSessionManager
@@ -270,7 +269,7 @@ async def _wire_core_services(
         adapter=sister_sessions,
     )
 
-    # Progress tracking (headline milestones + plan extraction)
+    # Plan-step orchestration (plan items as visible steps)
     progress_tracking = ProgressTrackingService(
         sister_sessions=sister_sessions,
         event_bus=event_bus,
@@ -294,15 +293,6 @@ async def _wire_core_services(
         ),
         progress_tracking=progress_tracking,
     )
-
-    # Step title generator — wired as an event bus subscriber
-    step_repo = StepRepository(session_factory)
-    step_title_gen = StepTitleGenerator(
-        sister_sessions=sister_sessions,
-        event_bus=event_bus,
-        step_repo=step_repo,
-    )
-    event_bus.subscribe(_StepTitleSubscriber(step_title_gen))
 
     # Recover orphaned jobs from a previous crash
     await runtime_service.recover_on_startup()

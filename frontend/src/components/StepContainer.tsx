@@ -94,7 +94,7 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
   const stepEntries = useStore(selectStepEntries(step.jobId, step.stepId));
 
   const currentTool = useMemo(() => {
-    if (step.status !== "running") return null;
+    if (step.status !== "active") return null;
     const tools = stepEntries.filter((e) => e.role === "tool_running");
     return tools.length > 0 ? tools[tools.length - 1] : null;
   }, [stepEntries, step.status]);
@@ -114,13 +114,18 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
     [stepEntries],
   );
 
+  // Does this step have content worth expanding?
+  const hasExpandableContent = toolCalls.length > 0
+    || agentMessage != null
+    || (step.filesWritten ?? []).length > 0
+    || (step.startSha != null && step.endSha != null && step.startSha !== step.endSha);
+
   // Streaming delta for active step
-  const streamingKey = step.turnId
-    ? `${step.jobId}:${step.turnId}`
-    : `${step.jobId}:__default__`;
+  const streamingKey = `${step.jobId}:__default__`;
   const streamingText = useStore((s) => s.streamingMessages[streamingKey]);
 
   const handleToggle = () => {
+    if (!hasExpandableContent) return;
     if (isMobile) {
       setSheetOpen(true);
     } else {
@@ -135,9 +140,11 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         isMobile && "min-h-[44px]",
         isActive
           ? "border-l-blue-500 bg-blue-500/5"
-          : step.status === "completed"
+          : step.status === "done"
             ? "border-l-emerald-500/30"
-            : "border-l-transparent",
+            : step.status === "pending"
+              ? "border-l-muted-foreground/20"
+              : "border-l-transparent",
       )}
     >
       <StepHeader
@@ -145,6 +152,7 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         expanded={expanded}
         onToggle={handleToggle}
         hideChevron={isMobile}
+        hasExpandableContent={hasExpandableContent}
       />
 
       {/* Running: show latest tool or streaming delta */}
@@ -182,19 +190,13 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         </div>
       )}
 
-      {/* Completed: show agent summary — always rendered as markdown */}
-      {agentMessage && step.status !== "running" && (
-        <div
-          className={cn(
-            "mt-2 text-sm text-foreground/90 leading-relaxed relative",
-            !expanded && "max-h-[4.5rem] overflow-hidden",
-          )}
-        >
+      {/* Expanded: summary + agent message */}
+      {!isMobile && expanded && step.summary && (
+        <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{step.summary}</p>
+      )}
+      {!isMobile && expanded && agentMessage && (
+        <div className="mt-2 text-sm text-foreground/90 leading-relaxed">
           <AgentMarkdown content={agentMessage.content} />
-          {/* Fade-out gradient when collapsed — indicates more content */}
-          {!expanded && (
-            <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-card to-transparent pointer-events-none" />
-          )}
         </div>
       )}
 
@@ -223,7 +225,7 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
 
       {/* Mobile: bottom sheet with full step details */}
       {isMobile && (
-        <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={step.title || step.intent}>
+        <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={step.label}>
           {agentMessage && (
             <div className="text-sm text-foreground/90 leading-relaxed mb-4">
               <AgentMarkdown content={agentMessage.content} />

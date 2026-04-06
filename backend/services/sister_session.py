@@ -82,6 +82,9 @@ class SisterSession:
         # Metrics — only accessed via += after each call, safe under GIL
         self.call_count: int = 0
         self.total_latency_ms: float = 0.0
+        self.total_input_tokens: int = 0
+        self.total_output_tokens: int = 0
+        self.total_cost_usd: float = 0.0
         self.last_call_at: float | None = None
 
     async def _ensure_primed(self, prompt: str) -> str:
@@ -112,8 +115,11 @@ class SisterSession:
         elapsed_ms = (time.monotonic() - t0) * 1000
         self.call_count += 1
         self.total_latency_ms += elapsed_ms
+        self.total_input_tokens += result.input_tokens
+        self.total_output_tokens += result.output_tokens
+        self.total_cost_usd += result.cost_usd
         self.last_call_at = time.monotonic()
-        return result or ""
+        return result.text or ""
 
 
 class SisterSessionManager:
@@ -147,11 +153,17 @@ class SisterSessionManager:
         # Adopted sessions bound to a job (job_id → session)
         self._jobs: dict[str, SisterSession] = {}
 
+        # Snapshots of per-job metrics preserved after close_job()
+        self._closed_jobs: dict[str, dict[str, object]] = {}
+
         self._bg_tasks: list[asyncio.Task[None]] = []
 
         # Global metrics (accumulated from closed sessions)
         self._global_call_count: int = 0
         self._global_latency_ms: float = 0.0
+        self._global_input_tokens: int = 0
+        self._global_output_tokens: int = 0
+        self._global_cost_usd: float = 0.0
 
     @property
     def model(self) -> str:
@@ -261,9 +273,22 @@ class SisterSessionManager:
         """Remove the session binding for a finished job."""
         session = self._jobs.pop(job_id, None)
         if session is not None:
+            # Snapshot per-job metrics so they survive after close
+            if session.call_count > 0:
+                self._closed_jobs[job_id] = {
+                    "callCount": session.call_count,
+                    "avgLatencyMs": round(session.total_latency_ms / session.call_count, 1),
+                    "totalLatencyMs": round(session.total_latency_ms, 1),
+                    "inputTokens": session.total_input_tokens,
+                    "outputTokens": session.total_output_tokens,
+                    "costUsd": round(session.total_cost_usd, 6),
+                }
             # Accumulate into global metrics before dropping
             self._global_call_count += session.call_count
             self._global_latency_ms += session.total_latency_ms
+            self._global_input_tokens += session.total_input_tokens
+            self._global_output_tokens += session.total_output_tokens
+            self._global_cost_usd += session.total_cost_usd
             log.debug("sister_session_closed", job_id=job_id)
 
     # -- Non-job one-shot (Completable protocol) -----------------------------
@@ -302,12 +327,18 @@ class SisterSessionManager:
         total_calls = self._global_call_count + active_calls
         total_latency = self._global_latency_ms + active_latency
 
-        per_job = {}
+        per_job: dict[str, dict[str, object]] = {}
+        # Include closed (completed) job snapshots
+        per_job.update(self._closed_jobs)
+        # Overlay live metrics from active jobs (overrides if somehow both)
         for job_id, session in self._jobs.items():
             per_job[job_id] = {
                 "callCount": session.call_count,
                 "avgLatencyMs": round(session.total_latency_ms / session.call_count, 1) if session.call_count else 0,
                 "totalLatencyMs": round(session.total_latency_ms, 1),
+                "inputTokens": session.total_input_tokens,
+                "outputTokens": session.total_output_tokens,
+                "costUsd": round(session.total_cost_usd, 6),
             }
 
         return {

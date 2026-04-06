@@ -103,18 +103,13 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "job_archived",
         "session_resumed",
         "job_title_updated",
-        "progress_headline",
         "model_downgraded",
-        "agent_plan_updated",
         "tool_group_summary",
         "merge_completed",
         "merge_conflict",
         "telemetry_updated",
-        // Step system — low-frequency, must be registered explicitly
-        "step_started",
-        "step_completed",
-        "step_title",
-        "step_group_updated",
+        // Plan steps — the only step-level event the frontend handles
+        "plan_step_updated",
       ];
 
       for (const eventType of eventTypes) {

@@ -15,7 +15,6 @@ import {
   fetchJobLogs,
   fetchJobTranscript,
   fetchJobDiff,
-  fetchJobTimeline,
   createJob,
   cancelJob,
   rerunJob,
@@ -316,18 +315,6 @@ describe("fetchJobTranscript", () => {
     const result = await fetchJobTranscript("j-1");
     expect(result).toEqual(entries);
     expect(getFirstFetchUrl()).toContain("/api/jobs/j-1/transcript");
-  });
-});
-
-describe("fetchJobTimeline", () => {
-  it("fetches timeline and adds active=false", async () => {
-    const raw = [{ headline: "h", headlinePast: "hp", summary: "s", timestamp: "2025-01-01" }];
-    mockFetch.mockResolvedValueOnce(jsonResponse(raw));
-    const result = await fetchJobTimeline("j-1");
-    const firstEntry = result[0];
-    expect(firstEntry).toBeDefined();
-    expect(firstEntry?.active).toBe(false);
-    expect(firstEntry?.headline).toBe("h");
   });
 });
 

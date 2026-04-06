@@ -712,20 +712,28 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   </div>
                   {jobContext.flags.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
-                      {jobContext.flags.map((f, i) => (
-                        <Tooltip key={i} content={f.message}>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] cursor-help ${
-                              f.type === "warning" ? "border-yellow-500/40 text-yellow-400" :
-                              f.type === "info" ? "border-blue-500/40 text-blue-400" :
-                              "border-green-500/40 text-green-400"
-                            }`}
-                          >
-                            {f.type}
-                          </Badge>
-                        </Tooltip>
-                      ))}
+                      {jobContext.flags.map((f, i) => {
+                        const isWarning = f.type === "turn_escalation" || f.type === "high_rereads" || f.type === "tool_failures";
+                        const label = f.type === "high_rereads" ? "High Re-reads"
+                          : f.type === "turn_escalation" ? "Cost Escalation"
+                          : f.type === "tool_failures" ? "Tool Failures"
+                          : f.type;
+                        return (
+                          <Tooltip key={i} content={f.message}>
+                            <span>
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] cursor-help ${
+                                  isWarning ? "border-yellow-500/40 text-yellow-400" :
+                                  "border-blue-500/40 text-blue-400"
+                                }`}
+                              >
+                                {label}
+                              </Badge>
+                            </span>
+                          </Tooltip>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1135,11 +1143,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
   const [metrics, setMetrics] = useState<SisterSessionMetrics | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const telemetryVersion = useStore((s) => s.telemetryVersions[jobId] ?? 0);
   useEffect(() => {
     fetchSisterSessionMetrics()
       .then(setMetrics)
       .catch(() => {});
-  }, [jobId]);
+  }, [jobId, telemetryVersion]);
 
   const jobMetrics = metrics?.jobs?.[jobId];
   if (!jobMetrics || jobMetrics.callCount === 0) return null;
@@ -1149,6 +1158,8 @@ function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
     : jobMetrics.avgLatencyMs > 2000
       ? "text-yellow-400"
       : "text-green-400";
+
+  const hasTokens = jobMetrics.inputTokens > 0 || jobMetrics.outputTokens > 0;
 
   return (
     <div className="rounded-md border border-border overflow-hidden">
@@ -1161,6 +1172,8 @@ function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
         <span className="text-xs font-medium text-foreground">Sister Session</span>
         <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
           <span>{jobMetrics.callCount} calls</span>
+          {hasTokens && <span>{formatTokens(jobMetrics.inputTokens + jobMetrics.outputTokens)} tok</span>}
+          {jobMetrics.costUsd > 0 && <span className="text-green-400">{formatUsd(jobMetrics.costUsd)}</span>}
           <span className={latencyColor}>{formatDuration(jobMetrics.avgLatencyMs)} avg</span>
           <span>{formatDuration(jobMetrics.totalLatencyMs)}</span>
         </span>
@@ -1170,6 +1183,9 @@ function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
           <CompactStat label="Calls" value={String(jobMetrics.callCount)} />
           <CompactStat label="Avg Latency" value={formatDuration(jobMetrics.avgLatencyMs)} warn={jobMetrics.avgLatencyMs > 5000} />
           <CompactStat label="Total Time" value={formatDuration(jobMetrics.totalLatencyMs)} />
+          {hasTokens && <CompactStat label="Input" value={formatTokens(jobMetrics.inputTokens)} />}
+          {hasTokens && <CompactStat label="Output" value={formatTokens(jobMetrics.outputTokens)} />}
+          {jobMetrics.costUsd > 0 && <CompactStat label="Cost" value={formatUsd(jobMetrics.costUsd)} />}
         </div>
       )}
     </div>

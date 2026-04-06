@@ -23,13 +23,13 @@ from backend.models.api_schemas import (
     LogLinePayload,
     ModelInfoResponse,
     ProgressHeadlinePayload,
+    PlanStepPayload,
     ResolutionAction,
     ResolveJobRequest,
     ResolveJobResponse,
     RestoreRequest,
     ResumeJobRequest,
     StepDiffPayload,
-    StepPayload,
     SuggestNamesRequest,
     SuggestNamesResponse,
     TranscriptPayload,
@@ -489,42 +489,17 @@ async def get_job_transcript(
     ]
 
 
-@router.get("/jobs/{job_id}/steps", response_model=list[StepPayload])
+@router.get("/jobs/{job_id}/steps", response_model=list[PlanStepPayload])
 async def get_job_steps(
     job_id: str,
     session: FromDishka[AsyncSession],
-) -> list[StepPayload]:
-    """Return all steps for a job, ordered by step_number."""
-    import json as _json
-    from sqlalchemy import select as _select
+) -> list[PlanStepPayload]:
+    """Return plan steps for a job.
 
-    from backend.models.db import StepRow
-
-    result = await session.execute(
-        _select(StepRow).where(StepRow.job_id == job_id).order_by(StepRow.step_number).limit(200)
-    )
-    rows = list(result.scalars().all())
-    out = []
-    for row in rows:
-        out.append(StepPayload(
-            step_id=str(row.id),
-            step_number=int(row.step_number),
-            job_id=job_id,
-            turn_id=str(row.turn_id) if row.turn_id else None,
-            intent=str(row.intent),
-            title=str(row.title) if row.title else None,
-            status=str(row.status),
-            trigger=str(row.trigger),
-            tool_count=int(row.tool_count),
-            agent_message=str(row.agent_message) if row.agent_message else None,
-            duration_ms=int(row.duration_ms) if row.duration_ms is not None else None,
-            started_at=row.started_at,
-            completed_at=row.completed_at,
-            files_read=_json.loads(str(row.files_read)) if row.files_read else None,
-            files_written=_json.loads(str(row.files_written)) if row.files_written else None,            start_sha=str(row.start_sha) if row.start_sha else None,
-            end_sha=str(row.end_sha) if row.end_sha else None,
-        ))
-    return out
+    Plan steps live in-memory during execution and are delivered via SSE.
+    This endpoint returns an empty list — hydration happens through SSE replay.
+    """
+    return []
 
 
 @router.get("/jobs/{job_id}/steps/{step_id}/diff", response_model=StepDiffPayload)

@@ -1,23 +1,29 @@
-"""Progress tracking — headline milestones and plan extraction for running jobs.
+"""Plan-step orchestration — unified plan-item-as-step system.
 
-Event-driven: headlines and plan updates fire on step boundaries (step_completed)
-rather than on timers.  Each job's sister session provides the LLM calls.
+Plan items are the user-visible steps.  SDK turns are invisible
+implementation details bucketed into plan items by the sister session.
 
-Extracted from ``RuntimeService`` to isolate the LLM-driven progress tracking
-concern from the core job execution lifecycle.
+Sources of plan items:
+1. Native: ``manage_todo_list`` / ``TodoWrite`` tool calls
+2. Inferred: sister session generates plan from first agent message
+
+On each SDK turn boundary (step_completed), the sister session
+classifies which plan item the turn belongs to and generates a
+1-2 sentence summary for that item.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import re
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.domain import JobState
 from backend.models.events import DomainEvent, DomainEventKind
 
 if TYPE_CHECKING:
@@ -26,169 +32,98 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-
-@dataclass
-class HeadlineResult:
-    """Result of a headline generation attempt."""
-    emitted: bool = False
-    headline: str = ""
-    headline_past: str = ""
-    replace_last: int = 0
-
-# ---------------------------------------------------------------------------
-# Truncation limits
-# ---------------------------------------------------------------------------
-_HEADLINE_MSG_MAX = 200
-_PLAN_MSG_MAX = 400
+_MSG_MAX = 300
 _TOOL_INTENT_MAX = 80
 
-# ---------------------------------------------------------------------------
-# LLM prompt templates
-# ---------------------------------------------------------------------------
-_MILESTONE_PROMPT_PREFIX = (
-    "You are maintaining a milestone timeline for a coding agent. "
-    "Milestones mark distinct PHASES of work — not incremental progress. "
-    "Good milestones: 'Setting up project', 'Implementing auth API', 'Writing tests'. "
-    "Bad milestones: 'Reading file X', 'Editing line 42', 'Running search'. "
-    "The timeline should read like a high-level summary of what the agent accomplished, "
-    "not a log of individual actions.\n\n"
-)
-
-_MILESTONE_PROMPT_SUFFIX = (
-    "\n\nRespond with JSON only — exactly one of:\n\n"
-    '1. No meaningful phase change: {"defer": true}\n'
-    '2. New milestone: {"present": "Implementing auth API", "past": "Implemented auth API", '
-    '"summary": "Adding JWT token validation to /login and /refresh endpoints. '
-    'Wiring up middleware to reject expired tokens."}\n'
-    "3. Recent milestones were actually the same phase — consolidate the last N "
-    'into one: {"replace_last": 2, "present": "Implementing auth system", '
-    '"past": "Implemented auth system", '
-    '"summary": "Built login/refresh endpoints with JWT validation and expiry middleware."}\n\n'
-    "RULES:\n"
-    "- STRONGLY prefer defer. Only emit when the agent has clearly moved to a "
-    "different area of the codebase or a different kind of task.\n"
-    "- If the new milestone is mostly the same subject as the latest one, either defer or use replace_last.\n"
-    "- Avoid emitting adjacent milestones that only change the verb, tense, or wording.\n"
-    "- Use replace_last to merge entries that say essentially the same thing "
-    "(e.g. 'Updating auth routes' and 'Fixing auth middleware' → 'Implementing auth system').\n"
-    "- Labels: 3-6 words, no articles, no period, present tense for 'present', past tense for 'past'.\n"
-    "- 'summary': 1-3 SHORT sentences describing specifically what was/is being done. "
-    "Be concrete — mention actual files, endpoints, functions, or components. "
-    "BAD: 'Exploring authentication documentation'. "
-    "GOOD: 'Adding JWT middleware to protect /api routes. Storing refresh tokens in Redis.'"
-)
-
-_PLAN_PROMPT_PREFIX = (
-    "You are extracting a high-level execution plan from a coding agent's activity. "
-    "The plan should show 3-7 steps the agent is working through, with status markers.\n\n"
-)
-
-_PLAN_PROMPT_SUFFIX = (
-    "\n\nRespond with JSON only:\n"
-    '{"steps": [{"label": "Step description", "status": "done|active|pending"}]}\n\n'
-    "RULES:\n"
-    "- 3-7 steps total. Each label: 3-8 words, no articles, no period.\n"
-    "- Mark completed work as 'done', current work as 'active' (exactly one), "
-    "future work as 'pending'.\n"
-    "- Steps should cover the full task arc — from what's been done to what remains.\n"
-    "- Be concrete: mention actual components, endpoints, files when possible.\n"
-    "- PHASE TRANSITIONS: If all previous steps are 'done' but the agent is still "
-    "actively working (running tests, validating, fixing follow-ups, etc.), generate "
-    "a FRESH plan with new steps for the current phase. Do NOT repeat already-done "
-    "steps. The new plan should only contain steps relevant to what the agent is "
-    "doing now and what remains.\n"
-    "- COMPLETION: If all previous steps are 'done' AND the recent activity shows the "
-    "agent has finished (no new tasks, no active work, winding down), "
-    'respond with {"steps": []} to clear the plan.\n'
-    '- If you can\'t determine a plan from the activity, respond: {"steps": []}\n'
-)
 
 # ---------------------------------------------------------------------------
-# Headline similarity helpers (public for tests)
+# Plan step model (in-memory)
 # ---------------------------------------------------------------------------
-_HEADLINE_STOP_WORDS = frozenset(
-    {
-        "a",
-        "an",
-        "and",
-        "the",
-        "to",
-        "for",
-        "of",
-        "in",
-        "on",
-        "with",
-        "agent",
-        "phase",
-        "task",
-        "tasks",
-        "work",
-        "working",
-        "progress",
-        "checking",
-        "check",
-        "investigating",
-        "investigate",
-        "debugging",
-        "debug",
-        "analyzing",
-        "analyze",
-        "exploring",
-        "explore",
-        "reviewing",
-        "review",
-        "fixing",
-        "fix",
-        "implementing",
-        "implement",
-        "updating",
-        "update",
-        "writing",
-        "write",
-        "running",
-        "run",
-        "editing",
-        "edit",
-        "refining",
-        "refine",
-    }
-)
 
 
-def _normalize_headline_tokens(text: str) -> set[str]:
-    words = re.findall(r"[a-z0-9]+", text.lower())
-    return {word for word in words if word not in _HEADLINE_STOP_WORDS}
+@dataclass
+class PlanStep:
+    plan_step_id: str
+    label: str
+    summary: str | None = None
+    status: str = "pending"  # pending | active | done | failed | skipped
+    tool_count: int = 0
+    files_written: list[str] = field(default_factory=list)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_ms: int = 0
+    start_sha: str | None = None
+    end_sha: str | None = None
+
+    def to_event_payload(self) -> dict[str, Any]:
+        return {
+            "plan_step_id": self.plan_step_id,
+            "label": self.label,
+            "summary": self.summary,
+            "status": self.status,
+            "tool_count": self.tool_count,
+            "files_written": self.files_written[:20] if self.files_written else [],
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "duration_ms": self.duration_ms or None,
+            "start_sha": self.start_sha,
+            "end_sha": self.end_sha,
+        }
 
 
-def _headlines_are_similar(left: str, right: str) -> bool:
-    left_norm = " ".join(re.findall(r"[a-z0-9]+", left.lower()))
-    right_norm = " ".join(re.findall(r"[a-z0-9]+", right.lower()))
-    if not left_norm or not right_norm:
-        return False
-    if left_norm == right_norm or left_norm in right_norm or right_norm in left_norm:
-        return True
-
-    left_tokens = _normalize_headline_tokens(left)
-    right_tokens = _normalize_headline_tokens(right)
-    if not left_tokens or not right_tokens:
-        return False
-
-    shared = left_tokens & right_tokens
-    if len(shared) < 2:
-        return False
-
-    overlap = len(shared) / min(len(left_tokens), len(right_tokens))
-    return overlap >= 0.67
+def _make_plan_step_id() -> str:
+    return f"ps-{uuid.uuid4().hex[:10]}"
 
 
-def _count_similar_trailing_headlines(history: list[str], headline: str) -> int:
-    count = 0
-    for existing in reversed(history):
-        if _headlines_are_similar(existing, headline):
-            count += 1
-            continue
-        break
-    return count
+# ---------------------------------------------------------------------------
+# Sister session prompts
+# ---------------------------------------------------------------------------
+
+_CLASSIFY_PROMPT = """\
+You manage a plan for a coding task.  Given the current plan items and the \
+latest completed work, determine:
+
+1. Which plan item the work belongs to (by index, 1-based)
+2. An updated 1-2 sentence summary for that item
+3. Whether the item's status should change
+
+Current plan:
+{plan_block}
+
+Latest completed work:
+- Agent message: {agent_msg}
+- Tools used: {tools}
+- Tool intents: {intents}
+
+Respond with JSON only:
+{{"assign_to": <index>, "summary": "<1-2 sentence summary>", "status": "<active|done>"}}
+
+RULES:
+- assign_to is the 1-based index of the plan item this work belongs to.
+- If the work clearly finishes this item, set status to "done".
+- If work is ongoing, keep status as "active".
+- Summary should describe what was specifically done in 1-2 sentences.
+- Be concrete: mention files, functions, endpoints, not abstractions.
+"""
+
+_INFER_PLAN_PROMPT = """\
+A coding agent just started working on this task.  Based on the task \
+description and the agent's first message, infer a plan of 3-6 steps.
+
+Task: {task}
+
+Agent's first message:
+{first_msg}
+
+Respond with JSON only:
+{{"items": ["Step 1 label", "Step 2 label", ...]}}
+
+RULES:
+- 3-6 items total.
+- Each label: 3-8 words, imperative mood, concrete.
+- Cover the full task arc from start to finish.
+- Be specific: mention files, components, endpoints where possible.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +132,10 @@ def _count_similar_trailing_headlines(history: list[str], headline: str) -> int:
 
 
 class ProgressTrackingService:
-    """Manages headline milestone generation and plan extraction for active jobs.
+    """Orchestrates plan steps for active jobs.
 
-    Event-driven: headlines and plan updates fire on step boundaries rather
-    than on timers.  The sister session for each job is looked up via
-    ``SisterSessionManager``.
+    Plan items are the user-visible "steps".  SDK turns are assigned to
+    plan items by the sister session.
     """
 
     def __init__(
@@ -212,41 +146,42 @@ class ProgressTrackingService:
         self._sister_sessions = sister_sessions
         self._event_bus = event_bus
 
-        # Per-job headline state
-        self._headline_transcript: dict[str, list[str]] = {}
-        self._headline_tool_intents: dict[str, list[str]] = {}
-        self._headline_last_text: dict[str, str] = {}
-        self._headline_history: dict[str, list[str]] = {}
-
-        # Per-job plan state
-        self._plan_transcript: dict[str, list[str]] = {}
-        self._plan_last_steps: dict[str, list[dict[str, str]]] = {}
-        self._plan_terminal_state: dict[str, str] = {}
-        # Jobs receiving native plan data (manage_todo_list / TodoWrite)
+        # Per-job plan steps (ordered list)
+        self._plan_steps: dict[str, list[PlanStep]] = {}
+        # Active plan step index per job
+        self._active_idx: dict[str, int] = {}
+        # Plan established? (native todo or inferred)
+        self._plan_established: dict[str, bool] = {}
+        # Jobs receiving native plan data
         self._native_plan_active: set[str] = set()
+        # Transcript context buffers
+        self._recent_messages: dict[str, list[str]] = {}
+        self._recent_tool_intents: dict[str, list[str]] = {}
+        self._recent_tool_names: dict[str, list[str]] = {}
+        # Job task prompts (for plan inference)
+        self._job_prompts: dict[str, str] = {}
 
     # -- Lifecycle -----------------------------------------------------------
 
-    def start_tracking(self, job_id: str) -> None:
-        """Initialise per-job state (no background tasks)."""
-        self._headline_transcript[job_id] = []
-        self._headline_tool_intents[job_id] = []
-        self._headline_last_text[job_id] = ""
-        self._headline_history[job_id] = []
-        self._plan_transcript[job_id] = []
-        self._plan_last_steps[job_id] = []
+    def start_tracking(self, job_id: str, prompt: str = "") -> None:
+        self._plan_steps[job_id] = []
+        self._active_idx[job_id] = -1
+        self._plan_established[job_id] = False
+        self._recent_messages[job_id] = []
+        self._recent_tool_intents[job_id] = []
+        self._recent_tool_names[job_id] = []
+        self._job_prompts[job_id] = prompt
 
     def stop_tracking(self, job_id: str) -> None:
-        """No-op — no background tasks to cancel."""
+        pass
 
     def cleanup(self, job_id: str) -> None:
-        """Remove all per-job in-memory state."""
-        self._headline_transcript.pop(job_id, None)
-        self._headline_tool_intents.pop(job_id, None)
-        self._headline_last_text.pop(job_id, None)
-        self._headline_history.pop(job_id, None)
-        self._plan_transcript.pop(job_id, None)
-        self._plan_last_steps.pop(job_id, None)
+        for store in (
+            self._plan_steps, self._active_idx, self._plan_established,
+            self._recent_messages, self._recent_tool_intents,
+            self._recent_tool_names, self._job_prompts,
+        ):
+            store.pop(job_id, None)  # type: ignore[arg-type]
         self._native_plan_active.discard(job_id)
 
     # -- Data ingestion ------------------------------------------------------
@@ -258,33 +193,33 @@ class ProgressTrackingService:
         content: str,
         tool_intent: str = "",
     ) -> None:
-        """Feed transcript data from the event stream into tracking buffers."""
         if role == "agent" and content:
-            buf = self._headline_transcript.get(job_id)
+            buf = self._recent_messages.get(job_id)
             if buf is not None:
-                buf.append(content[:_HEADLINE_MSG_MAX])
-                if len(buf) > 3:
-                    self._headline_transcript[job_id] = buf[-3:]
+                buf.append(content[:_MSG_MAX])
+                if len(buf) > 5:
+                    self._recent_messages[job_id] = buf[-5:]
 
-            pbuf = self._plan_transcript.get(job_id)
-            if pbuf is not None:
-                pbuf.append(content[:_PLAN_MSG_MAX])
-                if len(pbuf) > 8:
-                    self._plan_transcript[job_id] = pbuf[-8:]
+        if role == "tool_call":
+            if tool_intent:
+                ibuf = self._recent_tool_intents.get(job_id)
+                if ibuf is not None:
+                    ibuf.append(tool_intent[:_TOOL_INTENT_MAX])
+                    if len(ibuf) > 10:
+                        self._recent_tool_intents[job_id] = ibuf[-10:]
 
-        if role == "tool_call" and tool_intent:
-            ibuf = self._headline_tool_intents.get(job_id)
-            if ibuf is not None:
-                ibuf.append(tool_intent[:_TOOL_INTENT_MAX])
-                if len(ibuf) > 10:
-                    self._headline_tool_intents[job_id] = ibuf[-10:]
+    def feed_tool_name(self, job_id: str, tool_name: str) -> None:
+        buf = self._recent_tool_names.get(job_id)
+        if buf is not None:
+            if tool_name not in buf:
+                buf.append(tool_name)
+            if len(buf) > 10:
+                self._recent_tool_names[job_id] = buf[-10:]
+
+    # -- Native plan (manage_todo_list) --------------------------------------
 
     async def feed_native_plan(self, job_id: str, items: list[dict[str, str]]) -> None:
-        """Accept plan steps from the agent's native todo tool.
-
-        Maps agent todo statuses to plan step statuses and publishes
-        ``agent_plan_updated`` immediately, bypassing the LLM extraction loop.
-        """
+        """Create/update plan steps from the agent's native todo tool."""
         status_map = {
             "not-started": "pending",
             "in-progress": "active",
@@ -295,412 +230,373 @@ class ProgressTrackingService:
             "active": "active",
             "skipped": "skipped",
         }
-        steps: list[dict[str, str]] = []
+
+        new_labels: list[tuple[str, str]] = []
         for item in items:
-            label = str(item.get("title") or item.get("content") or item.get("label") or "").strip()
+            label = str(
+                item.get("title") or item.get("content") or item.get("label") or ""
+            ).strip()
             if not label:
                 continue
             raw_status = str(item.get("status", "pending")).strip().lower()
             status = status_map.get(raw_status, "pending")
-            steps.append({"label": label, "status": status})
+            new_labels.append((label, status))
 
-        if not steps:
+        if not new_labels:
             return
 
         self._native_plan_active.add(job_id)
 
-        if steps != self._plan_last_steps.get(job_id, []):
-            self._plan_last_steps[job_id] = steps
-            await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
-                    timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.agent_plan_updated,
-                    payload={"steps": steps},
-                )
-            )
+        existing = self._plan_steps.get(job_id, [])
+        existing_by_label = {s.label: s for s in existing}
 
-    def set_terminal_state(self, job_id: str, outcome: str) -> None:
-        """Record terminal outcome (``succeeded`` / ``failed`` / ``canceled``)."""
-        self._plan_terminal_state[job_id] = outcome
+        updated: list[PlanStep] = []
+        now = datetime.now(UTC)
+
+        for label, status in new_labels:
+            ps = existing_by_label.get(label)
+            if ps:
+                if ps.status != status:
+                    ps.status = status
+                    if status == "active" and ps.started_at is None:
+                        ps.started_at = now
+                    elif status == "done" and ps.completed_at is None:
+                        ps.completed_at = now
+                updated.append(ps)
+            else:
+                ps = PlanStep(
+                    plan_step_id=_make_plan_step_id(),
+                    label=label,
+                    status=status,
+                    started_at=now if status == "active" else None,
+                    completed_at=now if status == "done" else None,
+                )
+                updated.append(ps)
+
+        self._plan_steps[job_id] = updated
+        self._plan_established[job_id] = True
+
+        self._active_idx[job_id] = next(
+            (i for i, s in enumerate(updated) if s.status == "active"), -1
+        )
+
+        for ps in updated:
+            await self._emit_plan_step(job_id, ps)
+
+        # Update card headline from active step
+        active_ps = next((s for s in updated if s.status == "active"), None)
+        if active_ps:
+            await self._emit_card_headline(job_id, active_ps)
+
+    # -- Plan inference (no native plan) -------------------------------------
+
+    async def _infer_plan(self, job_id: str, sister: SisterSession) -> None:
+        task = self._job_prompts.get(job_id, "")
+        msgs = self._recent_messages.get(job_id, [])
+        first_msg = msgs[0] if msgs else ""
+
+        if not task and not first_msg:
+            return
+
+        prompt = _INFER_PLAN_PROMPT.format(
+            task=task[:500],
+            first_msg=first_msg[:500],
+        )
+
+        try:
+            raw = await sister.complete(prompt, timeout=15)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+                raw = re.sub(r"\n?```$", "", raw)
+                raw = raw.strip()
+
+            parsed = json.loads(raw)
+            labels = parsed.get("items", [])
+            if not isinstance(labels, list) or not labels:
+                return
+
+            now = datetime.now(UTC)
+            steps: list[PlanStep] = []
+            for i, label in enumerate(labels[:8]):
+                if not isinstance(label, str) or not label.strip():
+                    continue
+                steps.append(PlanStep(
+                    plan_step_id=_make_plan_step_id(),
+                    label=label.strip()[:60],
+                    status="active" if i == 0 else "pending",
+                    started_at=now if i == 0 else None,
+                ))
+
+            if steps:
+                self._plan_steps[job_id] = steps
+                self._active_idx[job_id] = 0
+                self._plan_established[job_id] = True
+
+                for ps in steps:
+                    await self._emit_plan_step(job_id, ps)
+
+        except Exception:
+            log.debug("plan_inference_failed", job_id=job_id, exc_info=True)
+
+    # -- Turn classification + summary generation ----------------------------
+
+    async def on_turn_completed(
+        self,
+        job_id: str,
+        turn_payload: dict[str, Any],
+    ) -> None:
+        """Called when an SDK turn (step_completed) fires."""
+        sister = self._sister_sessions.get(job_id)
+        if sister is None:
+            return
+
+        # If plan not established, infer one
+        if not self._plan_established.get(job_id, False):
+            await self._infer_plan(job_id, sister)
+
+        steps = self._plan_steps.get(job_id, [])
+        if not steps:
+            now = datetime.now(UTC)
+            catch_all = PlanStep(
+                plan_step_id=_make_plan_step_id(),
+                label="Working on task",
+                status="active",
+                started_at=now,
+            )
+            self._plan_steps[job_id] = [catch_all]
+            self._active_idx[job_id] = 0
+            self._plan_established[job_id] = True
+            steps = [catch_all]
+            await self._emit_plan_step(job_id, catch_all)
+
+        tool_count = turn_payload.get("tool_count", 0)
+        agent_msg = turn_payload.get("agent_message", "") or ""
+        files_written = turn_payload.get("files_written", []) or []
+        duration_ms = turn_payload.get("duration_ms", 0) or 0
+        end_sha = turn_payload.get("end_sha")
+
+        # Native plan: accumulate metrics on active step + generate summary
+        if job_id in self._native_plan_active:
+            active_idx = self._active_idx.get(job_id, 0)
+            if 0 <= active_idx < len(steps):
+                ps = steps[active_idx]
+                ps.tool_count += tool_count
+                ps.duration_ms += duration_ms
+                for f in files_written:
+                    if f not in ps.files_written:
+                        ps.files_written.append(f)
+                if end_sha:
+                    ps.end_sha = end_sha
+                await self._generate_summary(job_id, sister, ps, agent_msg)
+                await self._emit_plan_step(job_id, ps)
+                await self._emit_card_headline(job_id, ps)
+            return
+
+        # Non-native: classify turn to a plan item
+        await self._classify_and_update(
+            job_id, sister, steps,
+            agent_msg=agent_msg,
+            tool_count=tool_count,
+            files_written=files_written,
+            duration_ms=duration_ms,
+            end_sha=end_sha,
+        )
+
+    async def _classify_and_update(
+        self,
+        job_id: str,
+        sister: SisterSession,
+        steps: list[PlanStep],
+        *,
+        agent_msg: str,
+        tool_count: int,
+        files_written: list[str],
+        duration_ms: int,
+        end_sha: str | None,
+    ) -> None:
+        plan_block = "\n".join(
+            f"  {i + 1}. [{s.status}] {s.label}" + (f" -- {s.summary}" if s.summary else "")
+            for i, s in enumerate(steps)
+        )
+        tools = ", ".join(self._recent_tool_names.get(job_id, [])[-6:])
+        intents = "; ".join(self._recent_tool_intents.get(job_id, [])[-3:])
+
+        prompt = _CLASSIFY_PROMPT.format(
+            plan_block=plan_block,
+            agent_msg=agent_msg[:300] if agent_msg else "(no message)",
+            tools=tools or "(none)",
+            intents=intents or "(none)",
+        )
+
+        try:
+            raw = await sister.complete(prompt, timeout=15)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+                raw = re.sub(r"\n?```$", "", raw)
+                raw = raw.strip()
+
+            parsed = json.loads(raw)
+            assign_idx = int(parsed.get("assign_to", 1)) - 1
+            summary = str(parsed.get("summary", ""))[:200]
+            new_status = str(parsed.get("status", "active"))
+            if new_status not in ("active", "done"):
+                new_status = "active"
+
+        except Exception:
+            log.debug("turn_classification_failed", job_id=job_id, exc_info=True)
+            assign_idx = self._active_idx.get(job_id, 0)
+            summary = ""
+            new_status = "active"
+
+        assign_idx = max(0, min(assign_idx, len(steps) - 1))
+        ps = steps[assign_idx]
+        now = datetime.now(UTC)
+
+        ps.tool_count += tool_count
+        ps.duration_ms += duration_ms
+        for f in files_written:
+            if f not in ps.files_written:
+                ps.files_written.append(f)
+        if end_sha:
+            ps.end_sha = end_sha
+        if summary:
+            ps.summary = summary
+
+        if ps.status == "pending":
+            ps.status = "active"
+            ps.started_at = now
+        if new_status == "done" and ps.status == "active":
+            ps.status = "done"
+            ps.completed_at = now
+            next_idx = next(
+                (i for i in range(assign_idx + 1, len(steps)) if steps[i].status == "pending"),
+                -1,
+            )
+            if next_idx >= 0:
+                steps[next_idx].status = "active"
+                steps[next_idx].started_at = now
+                self._active_idx[job_id] = next_idx
+                await self._emit_plan_step(job_id, steps[next_idx])
+
+        self._active_idx[job_id] = max(
+            self._active_idx.get(job_id, 0), assign_idx
+        )
+
+        await self._emit_plan_step(job_id, ps)
+        await self._emit_card_headline(job_id, ps)
+
+    async def _generate_summary(
+        self,
+        job_id: str,
+        sister: SisterSession,
+        ps: PlanStep,
+        agent_msg: str,
+    ) -> None:
+        intents = "; ".join(self._recent_tool_intents.get(job_id, [])[-3:])
+        tools = ", ".join(self._recent_tool_names.get(job_id, [])[-6:])
+
+        prompt = (
+            f"Summarize this coding step in 1-2 sentences. Be specific.\n\n"
+            f"Plan item: {ps.label}\n"
+            f"Agent message: {agent_msg[:300]}\n"
+            f"Tools: {tools}\n"
+            f"Tool intents: {intents}\n\n"
+            f"Summary:"
+        )
+
+        try:
+            raw = await sister.complete(prompt, timeout=10)
+            summary = raw.strip().strip('"')[:200]
+            if summary:
+                ps.summary = summary
+        except Exception:
+            log.debug("summary_generation_failed", job_id=job_id, exc_info=True)
+
+    # -- Active plan step (for transcript tagging) ---------------------------
+
+    def get_active_plan_step_id(self, job_id: str) -> str | None:
+        steps = self._plan_steps.get(job_id, [])
+        idx = self._active_idx.get(job_id, -1)
+        if 0 <= idx < len(steps):
+            return steps[idx].plan_step_id
+        for s in reversed(steps):
+            if s.status != "pending":
+                return s.plan_step_id
+        return steps[0].plan_step_id if steps else None
+
+    # -- Finalization --------------------------------------------------------
+
+    async def finalize(self, job_id: str, succeeded: bool) -> None:
+        steps = self._plan_steps.get(job_id, [])
+        if not steps:
+            return
+
+        now = datetime.now(UTC)
+        for ps in steps:
+            if ps.status == "active":
+                ps.status = "done" if succeeded else "skipped"
+                if ps.status == "done":
+                    ps.completed_at = now
+                await self._emit_plan_step(job_id, ps)
+            # pending (never started) steps: silently drop — not emitted
 
     def get_plan_steps(self, job_id: str) -> list[dict[str, str]]:
-        """Return the last known plan steps for a job (may be empty)."""
-        return list(self._plan_last_steps.get(job_id, []))
+        return [
+            {"label": s.label, "status": s.status}
+            for s in self._plan_steps.get(job_id, [])
+        ]
 
-    # -- Plan finalization ---------------------------------------------------
+    # -- Event emission helpers ----------------------------------------------
 
-    async def finalize_plan_steps(self, job_id: str) -> None:
-        """Emit a final plan update so the frontend resolves any spinning steps."""
-        terminal_outcome = self._plan_terminal_state.pop(job_id, None)
-        last_steps = self._plan_last_steps.get(job_id)
-        if not terminal_outcome or not last_steps:
-            return
-
-        succeeded = terminal_outcome in (JobState.review, JobState.completed)
-        final_steps = []
-        for s in last_steps:
-            status = s.get("status", "pending")
-            if status in ("active", "pending"):
-                status = "done" if succeeded else "skipped"
-            final_steps.append({"label": s["label"], "status": status})
-
-        if final_steps == last_steps:
-            return
-
-        try:
-            await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
-                    timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.agent_plan_updated,
-                    payload={"steps": final_steps},
-                )
-            )
-        except Exception:
-            log.debug("plan_finalize_emit_failed", job_id=job_id, exc_info=True)
-
-    # -- Event-driven headline generation -------------------------------------
-
-    async def generate_headline_on_step(
-        self,
-        job_id: str,
-        sister: SisterSession,
-    ) -> HeadlineResult:
-        """Generate a headline milestone on a step boundary.
-
-        Called by the step-completed event handler.  Uses the buffered
-        transcript data and the job's sister session for the LLM call.
-
-        Returns a ``HeadlineResult`` with details about what happened.
-        """
-        import json as _json
-
-        buf = self._headline_transcript.get(job_id)
-        intents_buf = self._headline_tool_intents.get(job_id)
-
-        recent_msgs: list[str] = list(buf) if buf else []
-        recent_intents: list[str] = list(intents_buf) if intents_buf else []
-
-        if buf:
-            buf.clear()
-        if intents_buf:
-            intents_buf.clear()
-
-        if not recent_msgs and not recent_intents:
-            return HeadlineResult()
-
-        parts = []
-        for msg in recent_msgs:
-            parts.append(msg[:_HEADLINE_MSG_MAX])
-        if recent_intents:
-            parts.append("Tool intents: " + ", ".join(recent_intents))
-
-        history = self._headline_history.get(job_id, [])
-        history_block = ""
-        if history:
-            numbered = "\n".join(f"  {i + 1}. {h}" for i, h in enumerate(history))
-            history_block = f"Milestone history so far:\n{numbered}\n\n"
-
-        prompt = (
-            _MILESTONE_PROMPT_PREFIX
-            + history_block
-            + "Recent agent activity:\n"
-            + "\n---\n".join(parts)
-            + _MILESTONE_PROMPT_SUFFIX
-        )
-
-        try:
-            raw = await sister.complete(prompt, timeout=30)
-            raw = raw.strip()
-
-            # Strip markdown fences if present
-            if raw.startswith("```"):
-                raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
-                raw = re.sub(r"\n?```$", "", raw)
-                raw = raw.strip()
-
-            try:
-                parsed = _json.loads(raw)
-            except (ValueError, AttributeError):
-                parsed = {}
-
-            if parsed.get("defer"):
-                log.debug("headline_deferred", job_id=job_id)
-                return HeadlineResult()
-            else:
-                headline = str(parsed.get("present", "")).strip().strip('"').strip(".")
-                headline_past = str(parsed.get("past", "")).strip().strip('"').strip(".")
-                summary = str(parsed.get("summary", "")).strip().strip('"')
-                replace_last = int(parsed.get("replace_last", 0))
-
-                last_headline = self._headline_last_text.get(job_id, "")
-                if headline and len(headline) > 3 and headline != last_headline:
-                    replace_last = max(replace_last, _count_similar_trailing_headlines(history, headline))
-                    replace_last = max(0, min(replace_last, len(history)))
-
-                    if replace_last > 0:
-                        self._headline_history[job_id] = history[:-replace_last] + [headline]
-                    else:
-                        self._headline_history.setdefault(job_id, []).append(headline)
-                    self._headline_last_text[job_id] = headline
-
-                    await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
-                            timestamp=datetime.now(UTC),
-                            kind=DomainEventKind.progress_headline,
-                            payload={
-                                "headline": headline,
-                                "headline_past": headline_past,
-                                "replaces_count": replace_last,
-                                "summary": summary,
-                            },
-                        )
-                    )
-                    return HeadlineResult(
-                        emitted=True,
-                        headline=headline,
-                        headline_past=headline_past,
-                        replace_last=replace_last,
-                    )
-            return HeadlineResult()
-        except Exception:
-            log.debug("headline_generation_failed", job_id=job_id, exc_info=True)
-            return HeadlineResult()
-
-    # -- Event-driven plan extraction ----------------------------------------
-
-    async def generate_plan_on_step(
-        self,
-        job_id: str,
-        sister: SisterSession,
-    ) -> None:
-        """Extract/update the plan on a step boundary.
-
-        Skipped when the agent provides native plan data via manage_todo_list.
-        Called by the step-completed event handler.
-        """
-        import json as _json
-
-        if job_id in self._native_plan_active:
-            return
-
-        buf = self._plan_transcript.get(job_id)
-        if not buf:
-            return
-
-        recent = list(buf)
-
-        milestones = self._headline_history.get(job_id, [])
-        milestone_block = ""
-        if milestones:
-            milestone_block = "Completed milestones:\n" + "\n".join(f"  - {m}" for m in milestones) + "\n\n"
-
-        prev_steps = self._plan_last_steps.get(job_id, [])
-        prev_block = ""
-        if prev_steps:
-            lines = []
-            for s in prev_steps:
-                lines.append(f"  - [{s.get('status', 'pending')}] {s.get('label', '')}")
-            prev_block = "Previous plan:\n" + "\n".join(lines) + "\n\n"
-
-        prompt = (
-            _PLAN_PROMPT_PREFIX
-            + milestone_block
-            + prev_block
-            + "Recent agent messages:\n"
-            + "\n---\n".join(recent)
-            + _PLAN_PROMPT_SUFFIX
-        )
-
-        try:
-            raw = await sister.complete(prompt, timeout=30)
-            raw = raw.strip()
-
-            if raw.startswith("```"):
-                raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
-                raw = re.sub(r"\n?```$", "", raw)
-                raw = raw.strip()
-
-            parsed = _json.loads(raw)
-            steps = parsed.get("steps", [])
-
-            if not isinstance(steps, list):
-                steps = []
-
-            if not steps:
-                if self._plan_last_steps.get(job_id):
-                    self._plan_last_steps[job_id] = []
-                    await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
-                            timestamp=datetime.now(UTC),
-                            kind=DomainEventKind.agent_plan_updated,
-                            payload={"steps": []},
-                        )
-                    )
-            else:
-                clean_steps = []
-                for s in steps:
-                    if isinstance(s, dict) and s.get("label"):
-                        status = s.get("status", "pending")
-                        if status not in ("done", "active", "pending", "skipped"):
-                            status = "pending"
-                        clean_steps.append({"label": s["label"], "status": status})
-
-                if clean_steps and clean_steps != self._plan_last_steps.get(job_id, []):
-                    self._plan_last_steps[job_id] = clean_steps
-                    await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=job_id,
-                            timestamp=datetime.now(UTC),
-                            kind=DomainEventKind.agent_plan_updated,
-                            payload={"steps": clean_steps},
-                        )
-                    )
-        except Exception:
-            log.debug("plan_extraction_failed", job_id=job_id, exc_info=True)
-
-
-# ---------------------------------------------------------------------------
-# Event bus subscriber — triggers headline + plan generation on step boundaries
-# ---------------------------------------------------------------------------
-
-
-class _ProgressSubscriber:
-    """EventBus subscriber that dispatches step_completed events to ProgressTrackingService.
-
-    Also tracks step groups: steps that belong to the same headline phase
-    are clustered together and emitted as ``step_group_updated`` events.
-
-    Groups update **retroactively**:
-    - On every step_completed, the *open* group is re-emitted with the latest
-      step IDs so the frontend sees it grow in real time.
-    - When a new headline fires, the open group is *closed* and a new one starts.
-    - When ``replace_last > 0`` (headline consolidation), the last N closed groups
-      are merged into the current one — the headline retroactively covers a wider
-      span of steps.
-    """
-
-    def __init__(self, service: ProgressTrackingService) -> None:
-        self._svc = service
-        # Per-job group state
-        self._current_group_steps: dict[str, list[str]] = {}
-        self._group_counter: dict[str, int] = {}
-        # Closed groups kept for merge-on-replace_last
-        self._closed_groups: dict[str, list[dict]] = {}  # job_id → [{groupId, headline, stepIds}]
-        # Current open group headline (from last emitted headline, or empty)
-        self._current_headline: dict[str, str] = {}
-        self._current_headline_past: dict[str, str] = {}
-
-    def _next_group_id(self, job_id: str) -> str:
-        counter = self._group_counter.get(job_id, 0) + 1
-        self._group_counter[job_id] = counter
-        return f"g-{counter}"
-
-    async def _emit_group(self, job_id: str, group_id: str, headline: str,
-                          headline_past: str, step_ids: list[str]) -> None:
-        await self._svc._event_bus.publish(
+    async def _emit_plan_step(self, job_id: str, ps: PlanStep) -> None:
+        await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
                 timestamp=datetime.now(UTC),
-                kind=DomainEventKind.step_group_updated,
+                kind=DomainEventKind.plan_step_updated,
+                payload=ps.to_event_payload(),
+            )
+        )
+
+    async def _emit_card_headline(self, job_id: str, ps: PlanStep) -> None:
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.progress_headline,
                 payload={
-                    "group_id": group_id,
-                    "headline": headline,
-                    "headline_past": headline_past,
-                    "step_ids": list(step_ids),
+                    "headline": ps.label,
+                    "headline_past": ps.label,
+                    "summary": ps.summary or "",
                 },
             )
         )
 
+    # Back-compat stubs for RuntimeService
+    def set_terminal_state(self, job_id: str, outcome: str) -> None:
+        pass
+
+    async def finalize_plan_steps(self, job_id: str) -> None:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Event bus subscriber
+# ---------------------------------------------------------------------------
+
+
+class _ProgressSubscriber:
+    """EventBus subscriber that dispatches events to ProgressTrackingService."""
+
+    def __init__(self, service: ProgressTrackingService) -> None:
+        self._svc = service
+
     async def __call__(self, event: DomainEvent) -> None:
-        # Accumulate step IDs as they start
-        if event.kind == DomainEventKind.step_started:
-            step_id = event.payload.get("step_id", "")
-            if step_id:
-                self._current_group_steps.setdefault(event.job_id, []).append(step_id)
-            return
-
-        if event.kind != DomainEventKind.step_completed:
-            return
-        if event.payload.get("status") == "canceled":
-            return
-
-        job_id = event.job_id
-        sister = self._svc._sister_sessions.get(job_id)
-        if sister is None:
-            return
-
-        # Headline and plan generation are independent — run in parallel.
-        # Group emission depends on headline result, so we await both first.
-        result, _ = await asyncio.gather(
-            self._svc.generate_headline_on_step(job_id, sister),
-            self._svc.generate_plan_on_step(job_id, sister),
-        )
-
-        step_ids = self._current_group_steps.get(job_id, [])
-        if not step_ids:
-            return
-
-        if result.emitted:
-            # --- Phase boundary: close the current open group ---
-
-            if result.replace_last > 0:
-                # Merge: absorb step IDs from the last N closed groups
-                closed = self._closed_groups.get(job_id, [])
-                merge_count = min(result.replace_last, len(closed))
-                merged_step_ids: list[str] = []
-                merged_group_id: str | None = None
-                for grp in closed[-merge_count:]:
-                    if merged_group_id is None:
-                        merged_group_id = grp["group_id"]  # reuse earliest group's ID
-                    merged_step_ids.extend(grp["step_ids"])
-                # Remove the merged groups from closed list
-                if merge_count > 0:
-                    self._closed_groups[job_id] = closed[:-merge_count]
-
-                # Combine: merged old groups + current open group
-                all_step_ids = merged_step_ids + step_ids
-                gid = merged_group_id or self._next_group_id(job_id)
-                await self._emit_group(job_id, gid, result.headline, result.headline_past, all_step_ids)
-
-                # Record as closed
-                self._closed_groups.setdefault(job_id, []).append({
-                    "group_id": gid,
-                    "headline": result.headline,
-                    "step_ids": all_step_ids,
-                })
-            else:
-                # New phase — close current group as-is
-                gid = self._next_group_id(job_id)
-                await self._emit_group(job_id, gid, result.headline, result.headline_past, step_ids)
-
-                self._closed_groups.setdefault(job_id, []).append({
-                    "group_id": gid,
-                    "headline": result.headline,
-                    "step_ids": list(step_ids),
-                })
-
-            # Update headline and reset accumulator
-            self._current_headline[job_id] = result.headline
-            self._current_headline_past[job_id] = result.headline_past
-            self._current_group_steps[job_id] = []
-
-        else:
-            # --- No phase boundary: re-emit the open group so frontend sees it grow ---
-            headline = self._current_headline.get(job_id, "")
-            headline_past = self._current_headline_past.get(job_id, "")
-            if headline:
-                # Emit open-group update when there's a known headline so the
-                # frontend sees every step assigned to its group immediately —
-                # including the first step after a phase boundary.
-                next_counter = self._group_counter.get(job_id, 0) + 1
-                await self._emit_group(job_id, f"g-{next_counter}", headline, headline_past, step_ids)
+        if event.kind == DomainEventKind.step_completed:
+            if event.payload.get("status") == "canceled":
+                return
+            await self._svc.on_turn_completed(event.job_id, event.payload)

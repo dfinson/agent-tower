@@ -16,7 +16,7 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, AgentAdapterInterface, normalize_model_name
+from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, AgentAdapterInterface, CompletionResult, normalize_model_name
 from backend.services.permission_policy import (
     PolicyDecision,
     evaluate,
@@ -1153,11 +1153,13 @@ class CopilotAdapter(AgentAdapterInterface):
         finally:
             self._cleanup_session(session_id)
 
-    async def complete(self, prompt: str) -> str | None:
+    async def complete(self, prompt: str) -> CompletionResult:
         """Create a minimal session for single-turn completion, collect the response."""
         from copilot import CopilotClient
         from copilot import PermissionRequestResult as _Result
         from copilot.types import SessionConfig as SdkSessionConfig
+
+        from backend.services.agent_adapter import CompletionResult
 
         client = CopilotClient()
         tmp_session_id = str(uuid.uuid4())
@@ -1199,10 +1201,10 @@ class CopilotAdapter(AgentAdapterInterface):
                 await asyncio.wait_for(done_event.wait(), timeout=180)
             except TimeoutError:
                 log.warning("complete_timeout")
-            return "\n".join(collected)
+            return CompletionResult(text="\n".join(collected))
         except Exception:
             log.error("complete_failed", prompt_len=len(prompt), exc_info=True)
-            return None
+            return CompletionResult()
         finally:
             try:
                 cleanup_session = self._sessions.get(tmp_session_id)

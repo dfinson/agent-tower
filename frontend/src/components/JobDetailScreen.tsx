@@ -6,14 +6,12 @@ import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobTimeline, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSteps } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSteps } from "../api/client";
 import { StepListView } from "./StepListView";
 import { lazyRetry } from "../lib/lazyRetry";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
 import { MetricsPanel } from "./MetricsPanel";
-import { ExecutionTimeline } from "./ExecutionTimeline";
-import { PlanPanel } from "./PlanPanel";
 import { CompleteJobDialog } from "./CompleteJobDialog";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
@@ -122,31 +120,6 @@ export function JobDetailScreen() {
           };
         });
     }).catch((err) => console.error("Failed to fetch job transcript", err));
-  }, [jobId]);
-
-  // Hydrate activity timeline from the persisted event store. This ensures the
-  // timeline is populated when navigating to a completed or resumed job, not
-  // just during live streaming.
-  useEffect(() => {
-    if (!jobId) return;
-    fetchJobTimeline(jobId).then((fetched) => {
-      if (fetched.length === 0) return;
-      useStore.setState((s) => {
-        const live = s.timelines[jobId] ?? [];
-        // Merge historical entries with any live entries already in the store.
-        // Live entries take precedence for the same timestamp (they may carry
-        // active:true state set by the progress_headline SSE handler).
-        const liveByTs = new Map(live.map((e) => [e.timestamp, e]));
-        const merged = fetched.map((e) => liveByTs.get(e.timestamp) ?? e);
-        // Append any live entries not covered by the historical fetch.
-        const fetchedTs = new Set(fetched.map((e) => e.timestamp));
-        const extraLive = live.filter((e) => !fetchedTs.has(e.timestamp));
-        const full = [...merged, ...extraLive].sort(
-          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-        );
-        return { timelines: { ...s.timelines, [jobId]: full } };
-      });
-    }).catch((err) => console.error("Failed to fetch job timeline", err));
   }, [jobId]);
 
   // Load pending approvals so late-joining clients can approve/reject.
@@ -715,8 +688,6 @@ export function JobDetailScreen() {
               onViewDiff={(step) => { setDiffStepId(step.stepId); setTab("diff"); }}
             />
           <div className="space-y-4">
-            <PlanPanel jobId={jobId} />
-            <ExecutionTimeline jobId={jobId} />
             <MetricsPanel jobId={jobId} isRunning={isRunning} />
           </div>
         </div>
