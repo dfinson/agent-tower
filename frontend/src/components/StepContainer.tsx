@@ -191,9 +191,6 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
       )}
 
       {/* Expanded: summary + agent message */}
-      {!isMobile && expanded && step.summary && (
-        <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{step.summary}</p>
-      )}
       {!isMobile && expanded && agentMessage && (
         <div className="mt-2 text-sm text-foreground/90 leading-relaxed">
           <AgentMarkdown content={agentMessage.content} />
@@ -212,8 +209,8 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         </div>
       )}
 
-      {/* Expanded: step diff button */}
-      {!isMobile && expanded && step.startSha && step.endSha && step.startSha !== step.endSha && (
+      {/* Step diff button — always visible when there are changes */}
+      {!isMobile && step.startSha && step.endSha && step.startSha !== step.endSha && (
         <button
           onClick={() => onViewDiff?.(step)}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-2"
