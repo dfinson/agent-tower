@@ -1,4 +1,4 @@
-import { CheckCircle, ChevronRight, Loader2, XCircle } from "lucide-react";
+import { CheckCircle, ChevronRight, Circle, Loader2, SkipForward, XCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { Step } from "../store";
 
@@ -24,35 +24,42 @@ interface StepHeaderProps {
   expanded: boolean;
   onToggle: () => void;
   hideChevron?: boolean;
+  /** Whether expand has content to reveal (tool calls, files, agent message) */
+  hasExpandableContent?: boolean;
 }
 
-export function StepHeader({ step, expanded, onToggle, hideChevron }: StepHeaderProps) {
-  const displayTitle = step.title || step.intent;
+export function StepHeader({ step, expanded, onToggle, hideChevron, hasExpandableContent }: StepHeaderProps) {
+  const showChevron = !hideChevron && hasExpandableContent;
 
   return (
     <div
-      className="flex items-center gap-2 cursor-pointer group"
-      onClick={onToggle}
+      className={cn("flex items-center gap-2 group", showChevron ? "cursor-pointer" : "cursor-default")}
+      onClick={showChevron ? onToggle : undefined}
+      title={step.summary ?? undefined}
     >
-      {step.status === "running" ? (
+      {step.status === "active" ? (
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-500" />
-      ) : step.status === "completed" ? (
+      ) : step.status === "done" ? (
         <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" />
-      ) : (
+      ) : step.status === "failed" ? (
         <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+      ) : step.status === "skipped" ? (
+        <SkipForward className="h-4 w-4 shrink-0 text-muted-foreground" />
+      ) : (
+        <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" />
       )}
 
-      <span className="text-sm font-medium truncate flex-1">{displayTitle}</span>
+      <span className="text-sm font-medium truncate flex-1 min-w-0">{step.label}</span>
 
       <span className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
         {step.toolCount > 0 && <span>{step.toolCount} tools</span>}
         {step.durationMs != null && (
           <span className="tabular-nums">{formatDuration(step.durationMs)}</span>
         )}
-        <span className="tabular-nums">{relativeTime(step.startedAt)}</span>
+        {step.startedAt && <span className="tabular-nums">{relativeTime(step.startedAt)}</span>}
       </span>
 
-      {!hideChevron && (
+      {showChevron && (
         <ChevronRight
           className={cn(
             "h-4 w-4 shrink-0 text-muted-foreground transition-transform",

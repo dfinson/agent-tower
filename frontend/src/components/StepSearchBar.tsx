@@ -2,6 +2,7 @@ import { Search, X, ChevronUp, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/utils";
 import { fetchTranscriptSearch } from "../api/client";
+import { useStore, selectJobSteps } from "../store";
 
 interface SearchResult {
   seq: number;
@@ -74,6 +75,30 @@ function groupByStep(results: SearchResult[]): { stepId: string | null; stepNumb
   return groups;
 }
 
+/** Human-readable label for transcript roles. */
+function roleLabel(r: SearchResult): string {
+  switch (r.role) {
+    case "agent": return "Agent";
+    case "tool_call": return r.toolName ?? "Tool";
+    case "tool_result": return r.toolName ? `${r.toolName} result` : "Tool result";
+    case "tool_running": return r.toolName ?? "Tool running";
+    case "operator": return "You";
+    case "system": return "System";
+    default: return r.role;
+  }
+}
+
+function roleColor(role: string): string {
+  switch (role) {
+    case "agent": return "text-blue-500";
+    case "tool_call":
+    case "tool_running": return "text-amber-500";
+    case "tool_result": return "text-emerald-500";
+    case "operator": return "text-primary";
+    default: return "";
+  }
+}
+
 export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, visibleChips }: StepSearchBarProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -82,6 +107,14 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
   const debouncedQuery = useDebounce(query, 300);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultPanelRef = useRef<HTMLDivElement>(null);
+
+  // Map stepId → label for group headers
+  const planSteps = useStore(selectJobSteps(jobId));
+  const stepLabelMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of planSteps) m.set(s.stepId, s.label);
+    return m;
+  }, [planSteps]);
 
   useEffect(() => {
     if (!debouncedQuery || debouncedQuery.length < 2) {
@@ -228,10 +261,10 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
             <div key={group.stepId ?? "__none"}>
               {/* Step group header */}
               <div className="sticky top-0 z-[1] flex items-center gap-2 px-4 py-1 bg-muted/70 backdrop-blur-sm border-b border-border/30">
-                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  {group.stepNumber != null ? `Step ${group.stepNumber}` : "Ungrouped"}
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
+                  {group.stepId ? (stepLabelMap.get(group.stepId) ?? `Step ${group.stepNumber ?? "?"}`) : "General"}
                 </span>
-                <span className="text-[10px] text-muted-foreground/60">
+                <span className="text-[10px] text-muted-foreground/60 shrink-0">
                   {group.items.length} match{group.items.length !== 1 ? "es" : ""}
                 </span>
               </div>
@@ -250,13 +283,8 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
                     )}
                   >
                     <div className="flex items-center gap-2 text-[10px] text-muted-foreground mb-0.5">
-                      <span className={cn(
-                        "capitalize font-medium",
-                        r.role === "agent" && "text-blue-500",
-                        r.role === "tool_call" && "text-amber-500",
-                        r.role === "tool_result" && "text-emerald-500",
-                      )}>
-                        {r.role === "tool_call" ? (r.toolName ?? "tool") : r.role}
+                      <span className={cn("font-medium", roleColor(r.role))}>
+                        {roleLabel(r)}
                       </span>
                     </div>
                     <div className="text-xs text-foreground/80 line-clamp-2 leading-relaxed">

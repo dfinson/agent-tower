@@ -42,6 +42,7 @@ class DomainEventKind(StrEnum):
     step_completed = "StepCompleted"
     step_title_generated = "StepTitleGenerated"
     step_group_updated = "StepGroupUpdated"
+    plan_step_updated = "PlanStepUpdated"
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +223,20 @@ class StepTitlePayloadDict(TypedDict, total=False):
     title: str
 
 
+class PlanStepUpdatedPayloadDict(TypedDict, total=False):
+    plan_step_id: str
+    label: str
+    summary: str | None
+    status: str
+    tool_count: int
+    files_written: list[str]
+    started_at: str | None
+    completed_at: str | None
+    duration_ms: int | None
+    start_sha: str | None
+    end_sha: str | None
+
+
 # Union of all known payload shapes.  Used as the DomainEvent.payload type so
 # consumers get useful type information.  The ``dict[str, Any]`` fallback
 # covers event kinds whose payload is not yet formally typed.
@@ -250,6 +265,7 @@ EventPayload = (
     | StepStartedPayloadDict
     | StepCompletedPayloadDict
     | StepTitlePayloadDict
+    | PlanStepUpdatedPayloadDict
     | dict[str, Any]
 )
 

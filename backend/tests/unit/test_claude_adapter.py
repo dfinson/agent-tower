@@ -907,9 +907,9 @@ class TestComplete:
         with patch.dict(sys.modules["claude_code_sdk"].__dict__, {"query": _fake_query}):
             result = await adapter.complete("test prompt")
 
-        assert result is not None
-        assert "Hello" in result
-        assert "World" in result
+        assert result.text is not None
+        assert "Hello" in result.text
+        assert "World" in result.text
 
     @pytest.mark.asyncio
     async def test_complete_handles_exception(self, adapter: ClaudeAdapter) -> None:
@@ -920,7 +920,7 @@ class TestComplete:
         with patch.dict(sys.modules["claude_code_sdk"].__dict__, {"query": _exploding_query}):
             result = await adapter.complete("test")
 
-        assert result is None
+        assert result.text is None
 
 
 # ---------------------------------------------------------------------------

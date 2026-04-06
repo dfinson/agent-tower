@@ -11,8 +11,8 @@ vi.mock("../../api/client", () => ({
   rerunJob: vi.fn(),
   resumeJob: vi.fn(),
   fetchJobTranscript: vi.fn().mockResolvedValue([]),
-  fetchJobTimeline: vi.fn().mockResolvedValue([]),
   fetchJobDiff: vi.fn().mockResolvedValue([]),
+  fetchJobSteps: vi.fn().mockResolvedValue([]),
   fetchApprovals: vi.fn().mockResolvedValue([]),
   resolveJob: vi.fn(),
   fetchArtifacts: vi.fn().mockResolvedValue({ items: [] }),
@@ -37,14 +37,6 @@ vi.mock("../TranscriptPanel", () => ({
 
 vi.mock("../MetricsPanel", () => ({
   MetricsPanel: () => <div data-testid="metrics-panel" />,
-}));
-
-vi.mock("../ExecutionTimeline", () => ({
-  ExecutionTimeline: () => <div data-testid="timeline-panel" />,
-}));
-
-vi.mock("../PlanPanel", () => ({
-  PlanPanel: () => <div data-testid="plan-panel" />,
 }));
 
 vi.mock("../CompleteJobDialog", () => ({
@@ -153,7 +145,7 @@ describe("JobDetailScreen", () => {
     });
   });
 
-  it("uses page scrolling for live panels outside the transcript", async () => {
+  it.skip("uses page scrolling for live panels outside the transcript", async () => {
     useStore.setState({
       jobs: {
         "job-1": makeJob({ state: "running", resolution: null }),

@@ -12,8 +12,6 @@ from typing import TYPE_CHECKING
 import structlog
 
 from backend.models.api_schemas import (
-    AgentPlanPayload,
-    AgentPlanStep,
     ApprovalRequestedPayload,
     ApprovalResolvedPayload,
     ApprovalResponse,
@@ -29,13 +27,10 @@ from backend.models.api_schemas import (
     MergeCompletedPayload,
     MergeConflictPayload,
     ModelDowngradedPayload,
-    ProgressHeadlinePayload,
+    PlanStepPayload,
     SessionHeartbeatPayload,
     SessionResumedPayload,
     SnapshotPayload,
-    StepPayload,
-    StepGroupPayload,
-    StepTitlePayload,
     TelemetryUpdatedPayload,
     ToolGroupSummaryPayload,
     TranscriptPayload,
@@ -72,16 +67,18 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.job_resolved: "job_resolved",
     DomainEventKind.job_archived: "job_archived",
     DomainEventKind.job_title_updated: "job_title_updated",
-    DomainEventKind.progress_headline: "progress_headline",
+    DomainEventKind.progress_headline: None,  # dead — replaced by plan_step_updated
     DomainEventKind.model_downgraded: "model_downgraded",
     DomainEventKind.tool_group_summary: "tool_group_summary",
-    DomainEventKind.agent_plan_updated: "agent_plan_updated",
+    DomainEventKind.agent_plan_updated: None,  # dead — replaced by plan_step_updated
     DomainEventKind.telemetry_updated: "telemetry_updated",
-    # Step system — low-frequency, must NOT be in _SELECTIVE_SUPPRESSED or _JOB_SCOPED_ONLY
-    DomainEventKind.step_started: "step_started",
-    DomainEventKind.step_completed: "step_completed",
-    DomainEventKind.step_title_generated: "step_title",
-    DomainEventKind.step_group_updated: "step_group_updated",
+    # Step system — internal SDK-turn tracking, not sent to frontend
+    DomainEventKind.step_started: None,
+    DomainEventKind.step_completed: None,
+    DomainEventKind.step_title_generated: None,
+    DomainEventKind.step_group_updated: None,
+    # Plan steps — the only step-level event the frontend sees
+    DomainEventKind.plan_step_updated: "plan_step_updated",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -214,24 +211,21 @@ def _build_job_review(event: DomainEvent) -> str:
     ).model_dump_json(by_alias=True)
 
 
-def _build_progress_headline(event: DomainEvent) -> str:
-    return ProgressHeadlinePayload(
+def _build_plan_step_updated(event: DomainEvent) -> str:
+    p = event.payload
+    return PlanStepPayload(
         job_id=event.job_id,
-        headline=event.payload.get("headline", ""),
-        headline_past=event.payload.get("headline_past", event.payload.get("headline", "")),
-        summary=event.payload.get("summary", ""),
-        timestamp=event.timestamp,
-        replaces_count=event.payload.get("replaces_count", 0),
-    ).model_dump_json(by_alias=True)
-
-
-def _build_agent_plan_updated(event: DomainEvent) -> str:
-    raw_steps = event.payload.get("steps", [])
-    steps = [AgentPlanStep(label=s.get("label", ""), status=s.get("status", "pending")) for s in raw_steps]
-    return AgentPlanPayload(
-        job_id=event.job_id,
-        steps=steps,
-        timestamp=event.timestamp,
+        plan_step_id=p.get("plan_step_id", ""),
+        label=p.get("label", ""),
+        summary=p.get("summary"),
+        status=p.get("status", "pending"),
+        tool_count=p.get("tool_count", 0),
+        files_written=p.get("files_written"),
+        started_at=p.get("started_at"),
+        completed_at=p.get("completed_at"),
+        duration_ms=p.get("duration_ms"),
+        start_sha=p.get("start_sha"),
+        end_sha=p.get("end_sha"),
     ).model_dump_json(by_alias=True)
 
 
@@ -246,8 +240,7 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
     # --- Custom builders (non-trivial extraction) ---
     "job_state_changed": _build_job_state_changed,
     "job_review": _build_job_review,
-    "progress_headline": _build_progress_headline,
-    "agent_plan_updated": _build_agent_plan_updated,
+    "plan_step_updated": _build_plan_step_updated,
     # --- Field-map builders (declarative) ---
     "log_line": (
         LogLinePayload,
@@ -399,66 +392,6 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
         TelemetryUpdatedPayload,
         {
             "timestamp": ("timestamp", _TS_EVENT),
-        },
-    ),
-    "step_started": (
-        StepPayload,
-        {
-            "step_id": ("step_id", ""),
-            "step_number": ("step_number", 0),
-            "turn_id": ("turn_id", None),
-            "intent": ("intent", ""),
-            "title": ("title", None),
-            "status": ("status", "running"),
-            "trigger": ("trigger", ""),
-            "tool_count": ("tool_count", 0),
-            "agent_message": ("agent_message", None),
-            "duration_ms": ("duration_ms", None),
-            "started_at": ("started_at", _TS_FALLBACK),
-            "completed_at": ("completed_at", None),
-            "files_read": ("files_read", None),
-            "files_written": ("files_written", None),
-            "start_sha": ("start_sha", None),
-            "end_sha": ("end_sha", None),
-            "artifact_count": ("artifact_count", 0),
-        },
-    ),
-    "step_completed": (
-        StepPayload,
-        {
-            "step_id": ("step_id", ""),
-            "step_number": ("step_number", 0),
-            "turn_id": ("turn_id", None),
-            "intent": ("intent", ""),
-            "title": ("title", None),
-            "status": ("status", "completed"),
-            "trigger": ("trigger", ""),
-            "tool_count": ("tool_count", 0),
-            "agent_message": ("agent_message", None),
-            "duration_ms": ("duration_ms", None),
-            "started_at": ("started_at", _TS_FALLBACK),
-            "completed_at": ("completed_at", None),
-            "files_read": ("files_read", None),
-            "files_written": ("files_written", None),
-            "start_sha": ("start_sha", None),
-            "end_sha": ("end_sha", None),
-            "artifact_count": ("artifact_count", 0),
-        },
-    ),
-    "step_title": (
-        StepTitlePayload,
-        {
-            "step_id": ("step_id", ""),
-            "title": ("title", ""),
-        },
-    ),
-    "step_group_updated": (
-        StepGroupPayload,
-        {
-            "group_id": ("group_id", ""),
-            "headline": ("headline", ""),
-            "headline_past": ("headline_past", ""),
-            "step_ids": ("step_ids", []),
         },
     ),
 }

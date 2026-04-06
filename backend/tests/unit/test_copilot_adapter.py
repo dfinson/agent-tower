@@ -1135,8 +1135,8 @@ class TestComplete:
         with patch("copilot.CopilotClient", return_value=_FakeCompleteClient()):
             result = await adapter.complete("test prompt")
 
-        assert result is not None
-        assert collected_content in result
+        assert result.text is not None
+        assert collected_content in result.text
 
     @pytest.mark.asyncio
     async def test_complete_handles_exception(self, adapter: CopilotAdapter) -> None:
@@ -1147,7 +1147,7 @@ class TestComplete:
         with patch("copilot.CopilotClient", return_value=_FailingClient()):
             result = await adapter.complete("test")
 
-        assert result is None
+        assert result.text is None
 
     @pytest.mark.asyncio
     async def test_complete_timeout(self, adapter: CopilotAdapter) -> None:
@@ -1163,7 +1163,7 @@ class TestComplete:
         ):
             result = await adapter.complete("test prompt")
 
-        assert result == ""
+        assert result.text == ""
 
 
 # ---------------------------------------------------------------------------

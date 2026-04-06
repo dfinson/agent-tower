@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, ListChecks, ChevronRight, Send, User, ShieldQuestion, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, ListChecks, Send, User, ShieldQuestion, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../lib/utils";
-import { useStore, selectJobSteps, selectActiveStep, selectStepGroups, selectJobTranscript, selectApprovals } from "../store";
-import type { JobSummary, Step, StepGroup, TranscriptEntry, ApprovalRequest } from "../store";
+import { useStore, selectJobSteps, selectActiveStep, selectJobTranscript, selectApprovals } from "../store";
+import type { JobSummary, Step, TranscriptEntry, ApprovalRequest } from "../store";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { StepContainer } from "./StepContainer";
 import { StepSearchBar } from "./StepSearchBar";
@@ -25,7 +25,6 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
   const jobId = job.id;
   const steps = useStore(selectJobSteps(jobId));
   const activeStep = useStore(selectActiveStep(jobId));
-  const stepGroups = useStore(selectStepGroups(jobId));
   const allTranscript = useStore(selectJobTranscript(jobId));
   const allApprovals = useStore(selectApprovals);
 
@@ -104,9 +103,9 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
     switch (filter) {
       case "errors": return step.status === "failed";
       case "tools": return step.toolCount > 0;
-      case "agent": return step.agentMessage != null;
+      case "agent": return step.summary != null;
       case "files": return (step.filesWritten ?? []).length > 0;
-      case "running": return step.status === "running";
+      case "running": return step.status === "active";
       default: return true;
     }
   }, []);
@@ -118,80 +117,42 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
     if (errorCount > 0) chips.push({ key: "errors", label: "Errors", count: errorCount });
     const toolSteps = steps.filter((s) => s.toolCount > 0).length;
     if (toolSteps > 0) chips.push({ key: "tools", label: "Tool calls" });
-    const agentSteps = steps.filter((s) => s.agentMessage != null).length;
+    const agentSteps = steps.filter((s) => s.summary != null).length;
     if (agentSteps > 0) chips.push({ key: "agent", label: "Agent messages" });
     const fileSteps = steps.filter((s) => (s.filesWritten ?? []).length > 0).length;
     if (fileSteps > 0) chips.push({ key: "files", label: "File changes", count: fileSteps });
-    const runningSteps = steps.filter((s) => s.status === "running").length;
-    if (runningSteps > 0) chips.push({ key: "running", label: "Running", count: runningSteps });
+    const activeSteps = steps.filter((s) => s.status === "active").length;
+    if (activeSteps > 0) chips.push({ key: "running", label: "Active", count: activeSteps });
     return chips;
   }, [steps]);
 
-  // Collapsed group tracking
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const toggleGroup = useCallback((groupId: string) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
-  }, []);
-
-  // Build render items: interleave groups, ungrouped steps, interstitials, and approvals
+  // Build render items: interleave steps, interstitials, and approvals
   type RenderItem =
     | { kind: "step"; step: Step }
-    | { kind: "group"; group: StepGroup; steps: Step[] }
     | { kind: "operator"; entry: TranscriptEntry }
     | { kind: "approval"; approval: ApprovalRequest };
 
   const renderItems = useMemo<RenderItem[]>(() => {
-    // Build base items from steps/groups
-    const baseItems: (RenderItem & { ts: string })[] = [];
+    // Steps maintain plan order (array position from backend)
+    const items: RenderItem[] = steps.map((step) => ({ kind: "step" as const, step }));
 
-    if (stepGroups.length === 0) {
-      for (const step of steps) {
-        baseItems.push({ kind: "step", step, ts: step.startedAt });
-      }
-    } else {
-      const stepIdToGroup = new Map<string, StepGroup>();
-      for (const group of stepGroups) {
-        for (const sid of group.stepIds) stepIdToGroup.set(sid, group);
-      }
-      const emittedGroups = new Set<string>();
-      for (const step of steps) {
-        const group = stepIdToGroup.get(step.stepId);
-        if (group) {
-          if (!emittedGroups.has(group.groupId)) {
-            emittedGroups.add(group.groupId);
-            const groupSteps = steps.filter((s) => group.stepIds.includes(s.stepId));
-            baseItems.push({ kind: "group", group, steps: groupSteps, ts: groupSteps[0]?.startedAt ?? "" });
-          }
-        } else {
-          baseItems.push({ kind: "step", step, ts: step.startedAt });
-        }
-      }
-    }
-
-    // Add stepless operator messages as interstitials
+    // Interstitials (operator messages + pending approvals) appended after steps
+    const interstitials: (RenderItem & { ts: string })[] = [];
     for (const entry of steplessEntries) {
       if (entry.role === "operator") {
-        baseItems.push({ kind: "operator", entry, ts: entry.timestamp });
+        interstitials.push({ kind: "operator", entry, ts: entry.timestamp });
       }
     }
-
-    // Add pending approvals
     for (const a of approvals) {
       if (!a.resolvedAt) {
-        baseItems.push({ kind: "approval", approval: a, ts: a.requestedAt });
+        interstitials.push({ kind: "approval", approval: a, ts: a.requestedAt });
       }
     }
+    interstitials.sort((a, b) => a.ts.localeCompare(b.ts));
+    items.push(...interstitials);
 
-    // Sort by timestamp to get chronological interleaving
-    baseItems.sort((a, b) => a.ts.localeCompare(b.ts));
-
-    return baseItems;
-  }, [steps, stepGroups, steplessEntries, approvals]);
+    return items;
+  }, [steps, steplessEntries, approvals]);
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -202,10 +163,15 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
         <ListChecks size={14} className="text-muted-foreground" />
         <span className="text-sm font-medium">Steps</span>
         {steps.length > 0 && (
-          <span className="text-xs text-muted-foreground">{steps.length}</span>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {steps.filter((s) => s.status === "done").length}/{steps.length}
+          </span>
         )}
         {isRunning && activeStep && (
           <span className="ml-auto text-[10px] font-medium text-blue-500">LIVE</span>
+        )}
+        {!isRunning && steps.length > 0 && steps.every((s) => s.status === "done") && (
+          <CheckCircle2 size={14} className="ml-auto text-emerald-500" />
         )}
       </div>
 
@@ -291,83 +257,7 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
               );
             }
 
-            // Grouped steps
-            const { group, steps: groupSteps } = item;
-            const isCollapsed = collapsedGroups.has(group.groupId);
-            const groupToolCount = groupSteps.reduce((s, st) => s + st.toolCount, 0);
-            const groupDurationMs = groupSteps.reduce((s, st) => s + (st.durationMs ?? 0), 0);
-            const groupHasActive = groupSteps.some((s) => s.stepId === activeStep?.stepId);
-            const allDimmed = activeFilter != null && groupSteps.every((s) => !stepMatchesFilter(s, activeFilter));
-
-            return (
-              <div
-                key={group.groupId}
-                className={cn(allDimmed && "opacity-40 transition-opacity")}
-              >
-                {/* Group header */}
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(group.groupId)}
-                  className={cn(
-                    "flex items-center gap-2 w-full text-left px-4 py-2.5 transition-colors",
-                    "hover:bg-accent/30",
-                    groupHasActive && "bg-blue-500/5",
-                  )}
-                >
-                  <ChevronRight
-                    size={14}
-                    className={cn(
-                      "shrink-0 text-muted-foreground transition-transform",
-                      !isCollapsed && "rotate-90",
-                    )}
-                  />
-                  <span className="text-sm font-medium truncate flex-1">
-                    {group.headline}
-                  </span>
-                  <span className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
-                    <span>{groupSteps.length} steps</span>
-                    {groupToolCount > 0 && <span>{groupToolCount} tools</span>}
-                    {groupDurationMs > 0 && (
-                      <span className="tabular-nums">
-                        {groupDurationMs < 1000 ? `${groupDurationMs}ms` : `${Math.round(groupDurationMs / 1000)}s`}
-                      </span>
-                    )}
-                  </span>
-                </button>
-
-                {/* Group children */}
-                {!isCollapsed && (
-                  <div className="ml-3 border-l border-border/50">
-                    {groupSteps.map((step) => {
-                      const isActive = step.stepId === activeStep?.stepId;
-                      const dimmed = activeFilter != null && !stepMatchesFilter(step, activeFilter);
-                      return (
-                        <div
-                          key={step.stepId}
-                          data-step-id={step.stepId}
-                          ref={(el) => {
-                            if (el) stepRefs.current.set(step.stepId, el);
-                            if (isActive) activeStepRef.current = el;
-                          }}
-                          className={cn(
-                            "border-b border-border/30 last:border-b-0",
-                            dimmed && "opacity-40 transition-opacity",
-                          )}
-                        >
-                          <StepContainer
-                            step={step}
-                            isActive={isActive}
-                            expanded={expandedStepIds.has(step.stepId)}
-                            onToggle={() => toggleStep(step.stepId)}
-                            onViewDiff={onViewDiff}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
+            return null;
           })}
         </div>
       )}

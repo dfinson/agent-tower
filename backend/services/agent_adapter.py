@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,21 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.models.domain import SessionConfig, SessionEvent
+
+
+@dataclass(slots=True)
+class CompletionResult:
+    """SDK-agnostic result of a single-turn ``complete()`` call.
+
+    Adapters populate whichever fields their SDK exposes.  Missing data
+    stays at zero — callers must treat zeroes as *unknown*, not *none*.
+    """
+
+    text: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    model: str = ""
 
 
 class AgentSDK(StrEnum):
@@ -128,9 +144,14 @@ class AgentAdapterInterface(ABC):
         """Lift the tool block set by ``pause_tools``."""
 
     @abstractmethod
-    async def complete(self, prompt: str) -> str | None:
-        """Non-agentic single-turn completion. Returns the full response text, or None on error."""
-        return None
+    async def complete(self, prompt: str) -> CompletionResult:
+        """Non-agentic single-turn completion.
+
+        Returns a ``CompletionResult`` with the response text and any
+        token/cost metadata the SDK exposes.  On error the ``text`` field
+        is ``None``.
+        """
+        return CompletionResult()
 
     def set_execution_phase(self, job_id: str, phase: str) -> None:  # noqa: B027
         """Update the current execution phase for a job (used by cost analytics)."""

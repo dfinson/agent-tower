@@ -29,7 +29,7 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, AgentAdapterInterface, normalize_model_name
+from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, AgentAdapterInterface, CompletionResult, normalize_model_name
 from backend.services.permission_policy import is_git_reset_hard
 
 if TYPE_CHECKING:
@@ -1178,7 +1178,7 @@ class ClaudeAdapter(AgentAdapterInterface):
         _kill_sdk_subprocess(client)
         self._cleanup_session(session_id)
 
-    async def complete(self, prompt: str) -> str | None:
+    async def complete(self, prompt: str) -> CompletionResult:
         """Single-turn completion using the Claude Agent SDK."""
         from claude_code_sdk import (
             AssistantMessage,
@@ -1188,6 +1188,8 @@ class ClaudeAdapter(AgentAdapterInterface):
             query,
         )
 
+        from backend.services.agent_adapter import CompletionResult
+
         options = ClaudeCodeOptions(
             max_turns=1,
             permission_mode="bypassPermissions",
@@ -1195,6 +1197,7 @@ class ClaudeAdapter(AgentAdapterInterface):
         )
 
         collected: list[str] = []
+        result_meta: dict[str, object] = {}
         try:
 
             async def _run_query() -> None:
@@ -1209,6 +1212,13 @@ class ClaudeAdapter(AgentAdapterInterface):
                         result = getattr(message, "result", "")
                         if result:
                             collected.append(result)
+                        # Capture usage/cost from the result message
+                        usage = getattr(message, "usage", {}) or {}
+                        if isinstance(usage, dict):
+                            result_meta["input_tokens"] = usage.get("input_tokens", 0)
+                            result_meta["output_tokens"] = usage.get("output_tokens", 0)
+                        result_meta["cost_usd"] = getattr(message, "total_cost_usd", 0.0) or 0.0
+                        result_meta["model"] = getattr(message, "model", "") or ""
                         break
 
             await asyncio.wait_for(_run_query(), timeout=180)
@@ -1216,8 +1226,14 @@ class ClaudeAdapter(AgentAdapterInterface):
             log.warning("claude_complete_timeout", prompt_len=len(prompt))
         except Exception:
             log.error("claude_complete_failed", prompt_len=len(prompt), exc_info=True)
-            return None
-        return "\n".join(collected)
+            return CompletionResult()
+        return CompletionResult(
+            text="\n".join(collected),
+            input_tokens=int(result_meta.get("input_tokens", 0) or 0),
+            output_tokens=int(result_meta.get("output_tokens", 0) or 0),
+            cost_usd=float(result_meta.get("cost_usd", 0.0) or 0.0),
+            model=str(result_meta.get("model", "") or ""),
+        )
 
 
 # ---------------------------------------------------------------------------

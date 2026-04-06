@@ -39,8 +39,6 @@ beforeEach(() => {
     logs: {},
     transcript: {},
     diffs: {},
-    timelines: {},
-    plans: {},
   });
 });
 

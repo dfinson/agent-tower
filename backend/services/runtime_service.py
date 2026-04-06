@@ -572,9 +572,9 @@ class RuntimeService:
         )
         self._heartbeat_tasks[job_id] = heartbeat_task
 
-        # Start progress tracking (headline milestones + plan extraction)
+        # Start progress tracking (plan-step orchestration)
         if self._progress_tracking is not None:
-            self._progress_tracking.start_tracking(job_id)
+            self._progress_tracking.start_tracking(job_id, prompt=config.prompt or "")
 
         # Start telemetry tracking — init OTEL spans and SQLite summary row.
         import time as _time
@@ -931,7 +931,8 @@ class RuntimeService:
             self._heartbeat_tasks.pop(job_id, None)
             if self._progress_tracking is not None:
                 self._progress_tracking.stop_tracking(job_id)
-                await self._progress_tracking.finalize_plan_steps(job_id)
+                succeeded = final_state == JobState.completed
+                await self._progress_tracking.finalize(job_id, succeeded=succeeded)
             await self._cleanup_job_state(job_id)
 
     async def _store_post_completion_artifacts(
@@ -1412,21 +1413,31 @@ class RuntimeService:
                     tool_intent = str(domain_event.payload.get("tool_intent") or "")
                     self._progress_tracking.feed_transcript(job_id, role, content, tool_intent)
 
-                # Native plan capture: extract structured plan data from the
-                # agent's own todo/plan tool instead of relying on LLM extraction.
+                # Feed tool names to progress tracker for summary context
                 if role == "tool_call":
                     tool_name = domain_event.payload.get("tool_name", "")
+                    if tool_name:
+                        self._progress_tracking.feed_tool_name(job_id, tool_name)
+                    # Native plan capture: extract structured plan data from the
+                    # agent's own todo/plan tool.
                     if tool_name in ("manage_todo_list", "TodoWrite"):
                         await self._ingest_native_plan(job_id, domain_event.payload)
 
-            # Step tracking — annotate transcript events with step_id/step_number
+            # Step tracking — annotate transcript events with step_id
+            # step_id = plan step ID (from orchestrator), not raw SDK turn ID
             if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
                 role = domain_event.payload.get("role", "")
                 if role != "agent_delta":
                     await self._step_tracker.on_transcript_event(job_id, domain_event)
                     current = self._step_tracker.current_step(job_id)
                     if current:
-                        domain_event.payload["step_id"] = current.step_id
+                        # Use plan step ID for frontend grouping (falls back to SDK step ID)
+                        plan_step_id = (
+                            self._progress_tracking.get_active_plan_step_id(job_id)
+                            if self._progress_tracking is not None
+                            else None
+                        )
+                        domain_event.payload["step_id"] = plan_step_id or current.step_id
                         domain_event.payload["step_number"] = current.step_number
 
             # Tag log lines with the current session number so callers can filter
