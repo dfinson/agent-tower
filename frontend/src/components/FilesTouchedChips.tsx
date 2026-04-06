@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FilePlus, Pencil } from "lucide-react";
+import { FilePlus, Pencil } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Step } from "../store";
 import { useStore, selectStepEntries } from "../store";
