@@ -663,6 +663,101 @@ def format_tool_display_full(
     return label
 
 
+# ---------------------------------------------------------------------------
+# Tool visibility classification
+# ---------------------------------------------------------------------------
+
+# Always hidden regardless of args — pure SDK/agent bookkeeping.
+_ALWAYS_HIDDEN: frozenset[str] = frozenset({
+    "report_intent",
+    "manage_todo_list",
+    "TodoWrite",
+    "TodoRead",
+    "Think",
+    "Sql",
+    "ListMcpResourceTemplates",
+    "ListMcpResources",
+})
+
+# Always collapsed regardless of args — read-only reconnaissance.
+_ALWAYS_COLLAPSED: frozenset[str] = frozenset({
+    "read_file",
+    "list_dir",
+    "get_errors",
+    "grep_search",
+    "file_search",
+    "semantic_search",
+    "tool_search_tool_regex",
+    "view_image",
+    "Glob",
+    "LS",
+    "Grep",
+    "glob",
+    "grep",
+    "search_subagent",
+    "get_terminal_output",
+    "memory",
+    "get_changed_files",
+    "open_file",
+    "vscode_listCodeUsages",
+    "skill",
+})
+
+# Patterns in tool args that indicate agent-internal metadata (→ hidden).
+_HIDDEN_ARG_PATTERNS: tuple[str, ...] = (
+    "INSERT INTO todo",
+    "UPDATE todo",
+    "DELETE FROM todo",
+    "SELECT * FROM todo",
+    "manage_todo",
+    '"intent"',
+    "todoList",
+)
+
+# Patterns in tool args that indicate read-only recon (→ collapsed).
+_COLLAPSED_ARG_PATTERNS: tuple[str, ...] = (
+    "cat ",
+    "head ",
+    "tail ",
+    "wc -l",
+    "ls ",
+    "find ",
+    "which ",
+    "command -v",
+    "echo ",
+    "pwd",
+    "git status",
+    "git log",
+    "git diff",
+    "git show",
+)
+
+
+def classify_tool_visibility(tool_name: str, tool_args: str | None = None) -> str:
+    """Classify a tool into a visibility tier.
+
+    - **hidden**: SDK-internal bookkeeping — never shown.
+    - **collapsed**: Read-only reconnaissance — shown as a count.
+    - **visible**: Meaningful mutations — always shown.
+    """
+    lookup = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
+
+    if lookup in _ALWAYS_HIDDEN:
+        return "hidden"
+    if lookup in _ALWAYS_COLLAPSED:
+        return "collapsed"
+
+    if tool_args:
+        args_lower = tool_args.lower()
+        for pattern in _HIDDEN_ARG_PATTERNS:
+            if pattern.lower() in args_lower:
+                return "hidden"
+        for pattern in _COLLAPSED_ARG_PATTERNS:
+            if pattern.lower() in args_lower:
+                return "collapsed"
+
+    return "visible"
+
 
 def extract_tool_issue(tool_result: str | None) -> str | None:
     """Return a concise issue summary for a non-successful tool result."""

@@ -1444,21 +1444,6 @@ class RuntimeService:
             if domain_event.kind == DomainEventKind.log_line_emitted:
                 domain_event.payload.setdefault("session_number", session_number)
 
-            # Sister session visibility classification for tool calls
-            if (
-                domain_event.kind == DomainEventKind.transcript_updated
-                and domain_event.payload.get("role") in ("tool_call", "tool_running")
-                and self._progress_tracking is not None
-            ):
-                tool_name = str(domain_event.payload.get("tool_name", ""))
-                tool_args = str(domain_event.payload.get("tool_args", ""))
-                tool_intent = str(domain_event.payload.get("tool_intent", ""))
-                llm_vis = await self._progress_tracking.classify_tool_visibility(
-                    job_id, tool_name, tool_args, tool_intent,
-                )
-                if llm_vis:
-                    domain_event.payload["tool_visibility"] = llm_vis
-
             await self._event_bus.publish(domain_event)
 
         return _SessionAttemptResult(
