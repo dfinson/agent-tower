@@ -1,8 +1,9 @@
-import { Terminal } from "lucide-react";
+import { Code, Terminal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "../lib/utils";
 import type { Step } from "../store";
 import { useStore, selectStepEntries } from "../store";
+import { AgentMarkdown } from "./AgentMarkdown";
 
 const TERMINAL_TOOLS = new Set(["bash", "run_in_terminal", "Bash"]);
 
@@ -48,18 +49,49 @@ export function CommandChips({ step }: { step: Step }) {
       </div>
 
       {expandedCmd?.toolResult && (
-        <div className="mt-1.5 ml-2 border-l border-border pl-3">
-          <div className="rounded overflow-hidden border border-border">
-            <div className="flex items-center justify-between px-2 py-1 bg-muted/40 text-xs text-muted-foreground border-b border-border">
-              <span className="font-mono truncate">{expandedCmd.toolDisplayFull ?? expandedCmd.toolDisplay ?? expandedCmd.toolName}</span>
-              <span className="shrink-0 tabular-nums">{expandedCmd.toolResult.split("\n").length} lines</span>
-            </div>
-            <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
-              {expandedCmd.toolResult}
-            </pre>
+        <ExpandedContent
+          header={expandedCmd.toolDisplayFull ?? expandedCmd.toolDisplay ?? expandedCmd.toolName ?? ""}
+          content={expandedCmd.toolResult}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExpandedContent({ header, content }: { header: string; content: string }) {
+  const [raw, setRaw] = useState(false);
+  const lineCount = content.split("\n").length;
+
+  return (
+    <div className="mt-1.5 ml-2 border-l border-border pl-3">
+      <div className="rounded overflow-hidden border border-border">
+        <div className="flex items-center justify-between px-2 py-1 bg-muted/40 text-xs text-muted-foreground border-b border-border">
+          <span className="font-mono truncate">{header}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="tabular-nums">{lineCount} lines</span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setRaw((v) => !v); }}
+              className={cn(
+                "p-0.5 rounded hover:bg-muted transition-colors",
+                raw ? "text-foreground" : "text-muted-foreground",
+              )}
+              title={raw ? "Render markdown" : "View raw"}
+            >
+              <Code size={12} />
+            </button>
           </div>
         </div>
-      )}
+        {raw ? (
+          <pre className="text-xs p-2 max-h-64 overflow-auto whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
+            {content}
+          </pre>
+        ) : (
+          <div className="text-xs p-2 max-h-64 overflow-auto leading-relaxed text-foreground/80 prose prose-xs dark:prose-invert max-w-none">
+            <AgentMarkdown content={content} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
