@@ -351,8 +351,28 @@ async def list_models(
     cached_models_by_sdk: FromDishka[CachedModelsBySdk],
     sdk: str | None = Query(default=None, description="SDK id (copilot | claude). Omit for default."),
 ) -> list[ModelInfoResponse]:
-    """Return the model list for the requested SDK, cached at server startup."""
-    models = cached_models_by_sdk.get(sdk, []) if sdk is not None else cached_models_by_sdk.get("copilot", [])
+    """Return the model list for the requested SDK, cached at server startup.
+
+    If the cache is empty for the copilot SDK (e.g. auth wasn't ready at
+    startup), attempt a live fetch so the user doesn't have to restart.
+    """
+    resolved_sdk = sdk if sdk is not None else "copilot"
+    models = cached_models_by_sdk.get(resolved_sdk, [])
+    if not models and resolved_sdk == "copilot":
+        try:
+            from copilot import CopilotClient
+
+            _client = CopilotClient()
+            await _client.start()
+            try:
+                live = [m.to_dict() for m in await _client.list_models()]
+                if live:
+                    cached_models_by_sdk[resolved_sdk] = live  # warm the cache for next time
+                    models = live
+            finally:
+                await _client.stop()
+        except Exception:
+            pass  # fall through to empty list
     return [ModelInfoResponse.model_validate(m) for m in models]
 
 

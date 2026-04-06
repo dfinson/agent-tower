@@ -341,7 +341,7 @@ function ApprovalInline({ approval }: { approval: ApprovalRequest }) {
               <button
                 onClick={() => handleResolve("approved")}
                 disabled={loading !== null}
-                className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+                className="flex items-center gap-1 px-2.5 py-1 min-h-[44px] sm:min-h-0 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-700 text-white disabled:opacity-50"
               >
                 <CheckCircle2 size={12} />
                 {loading === "approved" ? "…" : "Approve"}
@@ -349,7 +349,7 @@ function ApprovalInline({ approval }: { approval: ApprovalRequest }) {
               <button
                 onClick={() => handleResolve("rejected")}
                 disabled={loading !== null}
-                className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-muted hover:bg-muted/80 text-muted-foreground disabled:opacity-50"
+                className="flex items-center gap-1 px-2.5 py-1 min-h-[44px] sm:min-h-0 rounded text-xs font-medium bg-muted hover:bg-muted/80 active:bg-muted/80 text-muted-foreground disabled:opacity-50"
               >
                 <XCircle size={12} />
                 {loading === "rejected" ? "…" : "Reject"}

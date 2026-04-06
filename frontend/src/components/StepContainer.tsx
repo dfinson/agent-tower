@@ -21,8 +21,8 @@ function ToolCallRow({ entry }: { entry: import("../store").TranscriptEntry }) {
         type="button"
         onClick={() => hasDetail && setOpen((v) => !v)}
         className={cn(
-          "flex items-center gap-2 w-full text-left text-xs py-1 rounded",
-          hasDetail ? "hover:bg-muted/50 cursor-pointer" : "cursor-default",
+          "flex items-center gap-2 w-full text-left text-xs py-1 rounded min-h-[44px] sm:min-h-0",
+          hasDetail ? "hover:bg-muted/50 active:bg-muted/50 cursor-pointer" : "cursor-default",
         )}
       >
         {hasDetail && (

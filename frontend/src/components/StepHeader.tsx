@@ -30,12 +30,13 @@ interface StepHeaderProps {
 
 export function StepHeader({ step, expanded, onToggle, hideChevron, hasExpandableContent }: StepHeaderProps) {
   const showChevron = !hideChevron && hasExpandableContent;
+  const isClickable = hasExpandableContent;
 
   return (
     <div
-      className={cn("flex items-center gap-2 group", showChevron ? "cursor-pointer" : "cursor-default")}
-      onClick={showChevron ? onToggle : undefined}
-      title={step.summary ?? undefined}
+      className={cn("flex items-center gap-2 group", isClickable ? "cursor-pointer active:bg-muted/30" : "cursor-default")}
+      onClick={isClickable ? onToggle : undefined}
+      title={!hideChevron ? (step.summary ?? undefined) : undefined}
     >
       {step.status === "active" ? (
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-500" />
@@ -51,7 +52,7 @@ export function StepHeader({ step, expanded, onToggle, hideChevron, hasExpandabl
 
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium truncate block">{step.label}</span>
-        {step.summary && expanded && (
+        {step.summary && (expanded || hideChevron) && (
           <span className="text-xs text-muted-foreground truncate block mt-0.5">{step.summary}</span>
         )}
       </div>

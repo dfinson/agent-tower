@@ -347,20 +347,26 @@ async def _init_optional_services(
     # Models are keyed by SDK id so the frontend can fetch per-SDK.
     cached_models_by_sdk: dict[str, list[dict[str, object]]] = {}
 
-    # Copilot models
+    # Copilot models — retry up to 3 times since auth tokens may not be ready immediately
     copilot_models: list[dict[str, object]] = []
-    try:
-        from copilot import CopilotClient
-
-        _model_client = CopilotClient()
-        await _model_client.start()
+    for _attempt in range(3):
         try:
-            copilot_models = [m.to_dict() for m in await _model_client.list_models()]
-            log.debug("copilot_models_cached", count=len(copilot_models))
-        finally:
-            await _model_client.stop()
-    except Exception as exc:
-        log.warning("copilot_model_cache_failed", error=str(exc))
+            from copilot import CopilotClient
+
+            _model_client = CopilotClient()
+            await _model_client.start()
+            try:
+                copilot_models = [m.to_dict() for m in await _model_client.list_models()]
+                log.debug("copilot_models_cached", count=len(copilot_models))
+            finally:
+                await _model_client.stop()
+            break  # success
+        except Exception as exc:
+            if _attempt < 2:
+                log.debug("copilot_model_cache_retry", attempt=_attempt + 1, error=str(exc))
+                await asyncio.sleep(2)
+            else:
+                log.warning("copilot_model_cache_failed", error=str(exc))
     cached_models_by_sdk["copilot"] = copilot_models
 
     # Claude Code models — loaded from data/claude_models.json
