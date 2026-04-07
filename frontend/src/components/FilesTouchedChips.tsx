@@ -54,6 +54,11 @@ interface FileInfo {
   repoPath: string;
   kind: "create" | "edit" | "read";
   editCount: number;
+  hasToolData: boolean;
+}
+
+function isMdFile(path: string): boolean {
+  return /\.md$/i.test(path);
 }
 
 /** Render a unified diff of old → new with removed/added/context lines. */
@@ -158,6 +163,8 @@ export function FilesTouchedChips({ step, collapsed, onExpand }: { step: Step; c
     }
 
     const writtenFiles = new Set((step.filesWritten ?? []).map(repoRelative));
+    // Track which files have actual tool_call entries with parseable args
+    const filesWithToolData = new Set([...created, ...editCounts.keys(), ...readFiles]);
     // Combine written + read, deduped (written takes priority)
     const allFiles = new Set([...writtenFiles, ...readFiles]);
 
@@ -166,6 +173,7 @@ export function FilesTouchedChips({ step, collapsed, onExpand }: { step: Step; c
       repoPath: f,
       kind: created.has(f) ? "create" as const : editCounts.has(f) ? "edit" as const : "read" as const,
       editCount: editCounts.get(f) ?? 0,
+      hasToolData: filesWithToolData.has(f),
     }));
     // Sort: creates first, then edits, then reads
     const kindOrder = { create: 0, edit: 1, read: 2 };
@@ -218,8 +226,9 @@ export function FilesTouchedChips({ step, collapsed, onExpand }: { step: Step; c
   return (
     <div className="mt-1.5">
       <div className="flex flex-wrap gap-1">
-        {fileInfos.map(({ path, repoPath, kind, editCount }) => {
+        {fileInfos.map(({ path, repoPath, kind, editCount, hasToolData }) => {
           const isExpanded = expandedFile === path;
+          const canExpand = hasToolData;
           const kindLabel = kind === "create" ? "Created" : kind === "edit" ? "Edited" : "Read";
           const chipClass = kind === "create"
             ? "inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors min-h-[32px]"
@@ -230,12 +239,14 @@ export function FilesTouchedChips({ step, collapsed, onExpand }: { step: Step; c
             <button
               key={path}
               type="button"
-              aria-expanded={isExpanded}
+              aria-expanded={canExpand ? isExpanded : undefined}
               aria-label={`${kindLabel}: ${repoPath}${editCount > 1 ? `, ${editCount} edits` : ""}`}
-              onClick={(e) => { e.stopPropagation(); setExpandedFile(isExpanded ? null : path); }}
+              title={repoPath}
+              onClick={(e) => { e.stopPropagation(); if (canExpand) setExpandedFile(isExpanded ? null : path); }}
               className={cn(
                 chipClass,
-                isExpanded && "ring-1 ring-foreground/30",
+                canExpand && isExpanded && "ring-1 ring-foreground/30",
+                !canExpand && "cursor-default",
               )}
             >
               {kind === "create" ? <FilePlus size={12} aria-hidden="true" /> : kind === "edit" ? <Pencil size={12} aria-hidden="true" /> : <Eye size={12} aria-hidden="true" />}
@@ -276,17 +287,7 @@ export function FilesTouchedChips({ step, collapsed, onExpand }: { step: Step; c
             } catch { /* ignore parse errors */ }
 
             if (isCreate && content) {
-              return (
-                <div key={tc.seq} className="rounded bg-muted/30 overflow-hidden">
-                  <pre className="text-xs p-2 max-h-48 overflow-auto whitespace-pre-wrap break-all">
-                    {content.split("\n").map((line, i) => (
-                      <div key={i} className="text-emerald-600 dark:text-emerald-400">
-                        <span className="select-none text-emerald-600/50 mr-2">+</span>{line}
-                      </div>
-                    ))}
-                  </pre>
-                </div>
-              );
+              return <CreatedFileBlock key={tc.seq} path={expandedFile!} content={content} />;
             }
 
             if (oldStr || newStr) {
@@ -297,7 +298,8 @@ export function FilesTouchedChips({ step, collapsed, onExpand }: { step: Step; c
             if (READ_TOOLS.has(name) && tc.toolResult) {
               const resultText = tc.toolResult;
               const display = tc.toolDisplay || tc.toolDisplayFull || name;
-              return <ReadContentBlock key={tc.seq} header={display} content={resultText} />;
+              const filePath = expandedFile ?? "";
+              return <ReadContentBlock key={tc.seq} header={display} content={resultText} filePath={filePath} />;
             }
 
             // Fallback: unknown tool — show display label
@@ -310,17 +312,62 @@ export function FilesTouchedChips({ step, collapsed, onExpand }: { step: Step; c
           })}
         </div>
       )}
-      {expandedFile && fileToolCalls.length === 0 && (
-        <div className="mt-1.5 ml-2 text-xs text-muted-foreground italic">
-          No tool data available for this file
-        </div>
-      )}
+
     </div>
   );
 }
 
-function ReadContentBlock({ header, content }: { header: string; content: string }) {
-  const [md, setMd] = useState(false);
+/** Block for newly created file content — renders .md files as markdown by default. */
+function CreatedFileBlock({ path, content }: { path: string; content: string }) {
+  const mdFile = isMdFile(path);
+  const [raw, setRaw] = useState(!mdFile);
+
+  if (!mdFile || raw) {
+    return (
+      <div className="rounded bg-muted/30 overflow-hidden">
+        {mdFile && (
+          <div className="flex items-center justify-end px-2 py-0.5 border-b border-border/50">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setRaw(false); }}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Render
+            </button>
+          </div>
+        )}
+        <pre className="text-xs p-2 max-h-48 overflow-auto whitespace-pre-wrap break-all">
+          {content.split("\n").map((line, i) => (
+            <div key={i} className="text-emerald-600 dark:text-emerald-400">
+              <span className="select-none text-emerald-600/50 mr-2">+</span>{line}
+            </div>
+          ))}
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded overflow-hidden border border-border">
+      <div className="flex items-center justify-end px-2 py-0.5 bg-muted/40 border-b border-border/50">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setRaw(true); }}
+          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Raw
+        </button>
+      </div>
+      <div className="text-xs p-2 max-h-48 overflow-auto leading-relaxed text-foreground/80 prose prose-xs dark:prose-invert max-w-none">
+        <AgentMarkdown content={content} />
+      </div>
+    </div>
+  );
+}
+
+function ReadContentBlock({ header, content, filePath }: { header: string; content: string; filePath?: string }) {
+  const mdFile = filePath ? isMdFile(filePath) : false;
+  const [raw, setRaw] = useState(!mdFile);
   const lineCount = content.split("\n").length;
 
   return (
@@ -329,21 +376,23 @@ function ReadContentBlock({ header, content }: { header: string; content: string
         <span className="font-mono truncate">{header}</span>
         <div className="flex items-center gap-2 shrink-0">
           <span className="tabular-nums">{lineCount} lines</span>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setMd((v) => !v); }}
-            className={cn(
-              "p-0.5 rounded hover:bg-muted transition-colors",
-              md ? "text-foreground" : "text-muted-foreground",
-            )}
-            aria-label={md ? "View raw" : "Render markdown"}
-            aria-pressed={md}
-          >
-            <Code size={12} aria-hidden="true" />
-          </button>
+          {mdFile && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setRaw((v) => !v); }}
+              className={cn(
+                "p-0.5 rounded hover:bg-muted transition-colors",
+                !raw ? "text-foreground" : "text-muted-foreground",
+              )}
+              aria-label={raw ? "Render markdown" : "View raw"}
+              aria-pressed={!raw}
+            >
+              <Code size={12} aria-hidden="true" />
+            </button>
+          )}
         </div>
       </div>
-      {md ? (
+      {!raw ? (
         <div className="text-xs p-2 max-h-64 overflow-auto leading-relaxed text-foreground/80 prose prose-xs dark:prose-invert max-w-none">
           <AgentMarkdown content={content} />
         </div>

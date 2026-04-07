@@ -76,7 +76,8 @@ export function CommandChips({ step, collapsed, onExpand }: { step: Step; collap
 }
 
 function ExpandedContent({ header, content }: { header: string; content: string }) {
-  const [md, setMd] = useState(false);
+  const mdFile = /\.md$/i.test(header);
+  const [raw, setRaw] = useState(!mdFile);
   const lineCount = content.split("\n").length;
 
   return (
@@ -86,21 +87,23 @@ function ExpandedContent({ header, content }: { header: string; content: string 
           <span className="font-mono truncate">{header}</span>
           <div className="flex items-center gap-2 shrink-0">
             <span className="tabular-nums">{lineCount} lines</span>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setMd((v) => !v); }}
-              className={cn(
-                "p-0.5 rounded hover:bg-muted transition-colors",
-                md ? "text-foreground" : "text-muted-foreground",
-              )}
-              aria-label={md ? "View raw" : "Render markdown"}
-              aria-pressed={md}
-            >
-              <Code size={12} aria-hidden="true" />
-            </button>
+            {mdFile && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setRaw((v) => !v); }}
+                className={cn(
+                  "p-0.5 rounded hover:bg-muted transition-colors",
+                  !raw ? "text-foreground" : "text-muted-foreground",
+                )}
+                aria-label={raw ? "Render markdown" : "View raw"}
+                aria-pressed={!raw}
+              >
+                <Code size={12} aria-hidden="true" />
+              </button>
+            )}
           </div>
         </div>
-        {md ? (
+        {!raw ? (
           <div className="text-xs p-2 max-h-64 overflow-auto leading-relaxed text-foreground/80 prose prose-xs dark:prose-invert max-w-none">
             <AgentMarkdown content={content} />
           </div>

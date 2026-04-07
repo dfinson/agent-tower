@@ -198,10 +198,10 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
         {showPanel && (
           <div className="flex items-center gap-1 shrink-0">
             {isSearching ? (
-              <span className="text-xs text-muted-foreground animate-pulse">…</span>
+              <span className="text-xs text-muted-foreground animate-pulse">searching…</span>
             ) : (
               <span className="text-xs text-muted-foreground tabular-nums">
-                {hasResults ? `${activeIdx + 1}/${results.length}` : "0 results"}
+                {hasResults ? `${activeIdx + 1} of ${results.length}` : "no matches"}
               </span>
             )}
             <button
@@ -293,6 +293,9 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
                       <span className={cn("font-medium", roleColor(r.role))}>
                         {roleLabel(r)}
                       </span>
+                      <span className="opacity-60">
+                        {new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                      </span>
                     </div>
                     <div className="text-xs text-foreground/80 line-clamp-2 leading-relaxed">
                       <HighlightedText text={r.content} term={debouncedQuery} />
@@ -308,7 +311,16 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
       {/* No results feedback */}
       {showPanel && !hasResults && !isSearching && (
         <div className="px-4 py-3 border-b border-border/50 text-center">
-          <span className="text-xs text-muted-foreground">No matches for "{debouncedQuery}"</span>
+          <span className="text-xs text-muted-foreground">No matches for “{debouncedQuery}” in agent messages, tool calls, or your messages</span>
+        </div>
+      )}
+
+      {/* Keyboard hint — shown while results panel is open */}
+      {showPanel && hasResults && (
+        <div className="px-4 py-1 border-b border-border/50 bg-muted/20">
+          <span className="text-[10px] text-muted-foreground/60">
+            Click a result to jump to that step · <kbd className="font-mono">Enter</kbd>/<kbd className="font-mono">Shift+Enter</kbd> to navigate · <kbd className="font-mono">Esc</kbd> to close
+          </span>
         </div>
       )}
     </div>
