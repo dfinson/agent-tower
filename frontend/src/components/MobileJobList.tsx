@@ -74,7 +74,7 @@ export function MobileJobList() {
           className="pl-8 h-8 text-sm"
         />
       </div>
-      <div className="flex rounded-lg bg-muted p-1 mb-4 gap-0.5">
+      <div className="flex rounded-lg bg-muted p-1 mb-4 gap-0.5" role="tablist">
         {TABS.map((t) => {
           const label =
             t === KANBAN_COLUMNS.AWAITING_INPUT && awaitingCount > 0
@@ -83,6 +83,8 @@ export function MobileJobList() {
           return (
             <button
               key={t}
+              role="tab"
+              aria-selected={tab === t}
               onClick={() => setTab(t)}
               className={cn(
                 "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
@@ -103,7 +105,7 @@ export function MobileJobList() {
               return (
                 <div className="flex flex-col items-center gap-3 px-4 py-6">
                   <div className="rounded-full bg-primary/10 p-3">
-                    <PlayCircle className="h-6 w-6 text-primary" />
+                    <PlayCircle className="h-6 w-6 text-primary" aria-hidden="true" />
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted-foreground">No jobs running</p>
@@ -120,7 +122,7 @@ export function MobileJobList() {
               return (
                 <div className="flex flex-col items-center gap-3 px-4 py-6">
                   <div className="rounded-full bg-emerald-500/10 p-3">
-                    <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                    <CheckCircle2 className="h-6 w-6 text-emerald-500" aria-hidden="true" />
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted-foreground">All caught up</p>
@@ -133,7 +135,7 @@ export function MobileJobList() {
               return (
                 <div className="flex flex-col items-center gap-3 px-4 py-6">
                   <div className="rounded-full bg-emerald-500/10 p-3">
-                    <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                    <CheckCircle2 className="h-6 w-6 text-emerald-500" aria-hidden="true" />
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted-foreground">All clear</p>

@@ -210,9 +210,10 @@ export function SettingsScreen() {
                 <button
                   type="button"
                   onClick={() => setRemoveRepoTarget(r)}
-                  className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-400/10"
+                  aria-label={`Remove repository ${r}`}
+                  className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-400/10"
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={14} aria-hidden="true" />
                 </button>
               </div>
             ))}

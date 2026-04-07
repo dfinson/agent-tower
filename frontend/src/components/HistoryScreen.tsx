@@ -153,8 +153,8 @@ function HistoryRow({ job, onNavigate }: { job: JobSummary; onNavigate: () => vo
   };
 
   return (
-    <div
-      className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 cursor-pointer hover:border-primary/60 hover:bg-accent transition-colors"
+    <button
+      className="w-full flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left cursor-pointer hover:border-primary/60 hover:bg-accent transition-colors"
       onClick={onNavigate}
     >
       <div className="flex-1 min-w-0">
@@ -174,6 +174,6 @@ function HistoryRow({ job, onNavigate }: { job: JobSummary; onNavigate: () => vo
         </div>
         <p className="text-xs text-foreground/60 truncate mt-0.5">{job.prompt}</p>
       </div>
-    </div>
+    </button>
   );
 }

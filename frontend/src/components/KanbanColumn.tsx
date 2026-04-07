@@ -33,7 +33,7 @@ export const KanbanColumn = memo(function KanbanColumn({
               return (
                 <div className="flex flex-col items-center gap-3 px-4 py-6">
                   <div className="rounded-full bg-primary/10 p-3">
-                    <PlayCircle className="h-6 w-6 text-primary" />
+                    <PlayCircle className="h-6 w-6 text-primary" aria-hidden="true" />
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted-foreground">No jobs running</p>
@@ -46,7 +46,7 @@ export const KanbanColumn = memo(function KanbanColumn({
               return (
                 <div className="flex flex-col items-center gap-3 px-4 py-6">
                   <div className="rounded-full bg-emerald-500/10 p-3">
-                    <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                    <CheckCircle2 className="h-6 w-6 text-emerald-500" aria-hidden="true" />
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted-foreground">All caught up</p>
@@ -59,7 +59,7 @@ export const KanbanColumn = memo(function KanbanColumn({
               return (
                 <div className="flex flex-col items-center gap-3 px-4 py-6">
                   <div className="rounded-full bg-emerald-500/10 p-3">
-                    <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                    <CheckCircle2 className="h-6 w-6 text-emerald-500" aria-hidden="true" />
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-medium text-muted-foreground">All clear</p>

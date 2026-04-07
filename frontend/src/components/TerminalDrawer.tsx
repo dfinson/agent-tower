@@ -102,10 +102,12 @@ export function TerminalDrawer() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-center h-8 shrink-0 border-b border-border px-1 gap-0.5 overflow-x-auto">
+      <div className="flex items-center h-8 shrink-0 border-b border-border px-1 gap-0.5 overflow-x-auto" role="tablist">
         {sessionList.map((session) => (
           <button
             key={session.id}
+            role="tab"
+            aria-selected={activeTerminalTab === session.id}
             onClick={() => setActiveTerminalTab(session.id)}
             className={`flex items-center gap-1.5 px-2.5 h-7 rounded-sm text-xs font-medium transition-colors shrink-0 ${
               activeTerminalTab === session.id
@@ -113,19 +115,21 @@ export function TerminalDrawer() {
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
           >
-            <TerminalSquare size={12} />
+            <TerminalSquare size={12} aria-hidden="true" />
             {session.jobId && (
               <GitBranch size={9} className="text-muted-foreground/60 shrink-0 -mr-0.5" />
             )}
             <span className="max-w-[120px] truncate">
               {session.label || session.cwd?.split("/").pop() || "Terminal"}
             </span>
-            <span
+            <button
+              type="button"
               onClick={(e) => handleCloseSession(session.id, e)}
+              aria-label="Close terminal tab"
               className="ml-0.5 p-1.5 rounded hover:bg-muted-foreground/20"
             >
-              <X size={12} />
-            </span>
+              <X size={12} aria-hidden="true" />
+            </button>
           </button>
         ))}
 

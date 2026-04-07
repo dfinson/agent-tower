@@ -348,6 +348,7 @@ export function JobCreationScreen() {
           <button
             type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
+            aria-expanded={showAdvanced}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
           >
             {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}

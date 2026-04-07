@@ -123,6 +123,7 @@ export function NavMenuSlideout() {
             target="_blank"
             rel="noreferrer"
             onClick={() => setOpen(false)}
+            aria-label="Documentation (opens in new tab)"
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors text-muted-foreground hover:text-foreground hover:bg-accent"
           >
             <ExternalLink size={15} className="shrink-0" />
