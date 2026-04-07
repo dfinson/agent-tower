@@ -100,15 +100,20 @@ export function KanbanBoard() {
             size="sm"
             className="h-8 gap-1.5 text-xs"
             onClick={() => setSortOpen((v) => !v)}
+            aria-haspopup="listbox"
+            aria-expanded={sortOpen}
+            aria-label={`Sort by: ${currentSortLabel}`}
           >
             <ArrowDownUp size={12} />
             {currentSortLabel}
           </Button>
           {sortOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-border bg-popover shadow-md py-1">
+            <div role="listbox" aria-label="Sort options" className="absolute right-0 top-full mt-1 z-50 min-w-[160px] rounded-md border border-border bg-popover shadow-md py-1">
               {SORT_OPTIONS.map((opt) => (
                 <button
                   key={opt.key}
+                  role="option"
+                  aria-selected={sort === opt.key}
                   className={`w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors ${sort === opt.key ? "text-primary font-medium" : "text-foreground"}`}
                   onClick={() => { setSort(opt.key); setSortOpen(false); }}
                 >

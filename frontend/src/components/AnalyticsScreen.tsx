@@ -91,6 +91,7 @@ function CollapsibleSection({
     <div className="rounded-lg border border-border bg-card">
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
         className="w-full flex items-center justify-between p-4 text-left hover:bg-accent/30 transition-colors"
       >
         <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
@@ -404,9 +405,9 @@ function ObservationsPanel({ observations, onDismiss }: { observations: Observat
             <button
               onClick={() => onDismiss(obs.id)}
               className="shrink-0 p-1 rounded hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
-              title="Dismiss"
+              aria-label="Dismiss observation"
             >
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -705,7 +706,14 @@ function SortHeader({ label, field, current, desc, onSort }: {
 }) {
   const active = field === current;
   return (
-    <th className="text-right py-1.5 px-2 font-medium cursor-pointer select-none hover:text-foreground" onClick={() => onSort(field)}>
+    <th
+      className="text-right py-1.5 px-2 font-medium cursor-pointer select-none hover:text-foreground"
+      onClick={() => onSort(field)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSort(field); } }}
+      tabIndex={0}
+      role="columnheader"
+      aria-sort={active ? (desc ? "descending" : "ascending") : undefined}
+    >
       <span className="inline-flex items-center gap-0.5">
         {label}
         {active && (desc ? <ChevronDown size={12} /> : <ChevronUp size={12} />)}
