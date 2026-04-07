@@ -878,6 +878,10 @@ export interface components {
             base_ref?: string | null;
             /** Branch */
             branch?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Worktree Name */
+            worktree_name?: string | null;
             permission_mode?: components["schemas"]["PermissionMode"] | null;
             /** Model */
             model?: string | null;

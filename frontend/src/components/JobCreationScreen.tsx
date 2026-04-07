@@ -52,6 +52,7 @@ export function JobCreationScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
   const branchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestedNamesRef = useRef<{ title: string; worktreeName: string } | null>(null);
   const sessionTokenRef = useRef<string | null>(null);
   const jobCreatedRef = useRef(false);
 
@@ -120,6 +121,7 @@ export function JobCreationScreen() {
     if (branchDebounceRef.current) clearTimeout(branchDebounceRef.current);
     if (!prompt.trim()) {
       setBranch("");
+      suggestedNamesRef.current = null;
       return;
     }
     let cancelled = false;
@@ -127,10 +129,14 @@ export function JobCreationScreen() {
       setBranchSuggesting(true);
       suggestNames(prompt)
         .then((names) => {
-          if (!cancelled) setBranch(names.branchName);
+          if (!cancelled) {
+            setBranch(names.branchName);
+            suggestedNamesRef.current = { title: names.title, worktreeName: names.worktreeName };
+          }
         })
         .catch(() => {
           // silently ignore — user can type a branch name manually
+          if (!cancelled) suggestedNamesRef.current = null;
         })
         .finally(() => { if (!cancelled) setBranchSuggesting(false); });
     }, 1500);
@@ -198,11 +204,14 @@ export function JobCreationScreen() {
     if (!repo || !prompt.trim() || voiceState !== "idle") return;
     setSubmitting(true);
     try {
+      const cached = suggestedNamesRef.current;
       const result = await createJob({
         repo,
         prompt: prompt.trim(),
         base_ref: baseRef || undefined,
         branch: branch || undefined,
+        title: cached?.title,
+        worktree_name: cached?.worktreeName,
         permission_mode: permissionMode,
         model: model || undefined,
         sdk: activeSdk !== defaultSdk ? activeSdk : undefined,
