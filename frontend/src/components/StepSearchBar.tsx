@@ -191,6 +191,7 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Search transcript…"
+          aria-label="Search transcript"
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
         />
         {/* Result count + navigation */}
@@ -207,7 +208,7 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
               onClick={goPrev}
               disabled={!hasResults}
               className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-              title="Previous (Shift+Enter)"
+              aria-label="Previous result (Shift+Enter)"
             >
               <ChevronUp size={14} />
             </button>
@@ -215,7 +216,7 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
               onClick={goNext}
               disabled={!hasResults}
               className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-              title="Next (Enter)"
+              aria-label="Next result (Enter)"
             >
               <ChevronDown size={14} />
             </button>
@@ -225,6 +226,7 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
           <button
             onClick={clearSearch}
             className="text-muted-foreground hover:text-foreground"
+            aria-label="Clear search"
           >
             <X size={14} />
           </button>
@@ -238,8 +240,9 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
             <button
               key={chip.key}
               onClick={() => onFilterChange(activeFilter === chip.key ? null : chip.key)}
+              aria-pressed={activeFilter === chip.key}
               className={cn(
-                "shrink-0 px-2 py-0.5 rounded-full text-xs transition-colors",
+                "shrink-0 px-2 py-0.5 rounded-full text-xs transition-colors min-h-[28px]",
                 activeFilter === chip.key
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:text-foreground",
@@ -255,6 +258,8 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
       {showPanel && hasResults && (
         <div
           ref={resultPanelRef}
+          role="listbox"
+          aria-label="Search results"
           className="border-b border-border bg-muted/30 max-h-72 overflow-y-auto"
         >
           {grouped.map((group) => (
@@ -275,6 +280,8 @@ export function StepSearchBar({ jobId, onSelect, activeFilter, onFilterChange, v
                 return (
                   <button
                     key={r.seq}
+                    role="option"
+                    aria-selected={isActive}
                     data-result-idx={globalIdx}
                     onClick={() => navigateTo(globalIdx)}
                     className={cn(

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, ListChecks, Send, User, ShieldQuestion, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, ListChecks, Send, User, ShieldQuestion, CheckCircle2, XCircle, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../lib/utils";
 import { useStore, selectJobSteps, selectActiveStep, selectJobTranscript, selectApprovals } from "../store";
@@ -53,6 +53,14 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
       else next.add(stepId);
       return next;
     });
+  }, []);
+
+  const expandAll = useCallback(() => {
+    setExpandedStepIds(new Set(steps.map((s) => s.stepId)));
+  }, [steps]);
+
+  const collapseAll = useCallback(() => {
+    setExpandedStepIds(new Set());
   }, []);
 
   const scrollToStep = useCallback((stepId: string) => {
@@ -160,18 +168,27 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
 
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
-        <ListChecks size={14} className="text-muted-foreground" />
+        <ListChecks size={14} className="text-muted-foreground" aria-hidden="true" />
         <span className="text-sm font-medium">Steps</span>
         {steps.length > 0 && (
           <span className="text-xs text-muted-foreground tabular-nums">
             {steps.filter((s) => s.status === "done").length}/{steps.length}
           </span>
         )}
+        {steps.length > 1 && (
+          <button
+            onClick={expandedStepIds.size > 0 ? collapseAll : expandAll}
+            className="ml-auto p-1 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={expandedStepIds.size > 0 ? "Collapse all steps" : "Expand all steps"}
+          >
+            <ChevronsUpDown size={14} />
+          </button>
+        )}
         {isRunning && activeStep && (
-          <span className="ml-auto text-[10px] font-medium text-blue-500">LIVE</span>
+          <span className={cn("text-[10px] font-medium text-blue-500", steps.length <= 1 && "ml-auto")}>LIVE</span>
         )}
         {!isRunning && steps.length > 0 && steps.every((s) => s.status === "done") && (
-          <CheckCircle2 size={14} className="ml-auto text-emerald-500" />
+          <CheckCircle2 size={14} className={cn("text-emerald-500", steps.length <= 1 && "ml-auto")} />
         )}
       </div>
 
@@ -201,12 +218,12 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
 
       {/* Step list (grouped + ungrouped + interstitials + approvals) */}
       {(steps.length > 0 || renderItems.length > 0) && (
-        <div className="flex flex-col divide-y divide-border/50">
+        <div className="flex flex-col divide-y divide-border/50" role="list">
           {renderItems.map((item) => {
             if (item.kind === "operator") {
               const { entry } = item;
               return (
-                <div key={`op-${entry.seq}`} className="px-4 py-3">
+                <div key={`op-${entry.seq}`} className="px-4 py-3" role="listitem">
                   <div className="flex items-start gap-2 justify-end">
                     <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-2 max-w-[85%]">
                       <div className="text-sm text-foreground/90 leading-relaxed">
@@ -238,6 +255,8 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
               return (
                 <div
                   key={step.stepId}
+                  role="listitem"
+                  aria-current={isActive ? "step" : undefined}
                   data-step-id={step.stepId}
                   ref={(el) => {
                     if (el) stepRefs.current.set(step.stepId, el);
@@ -271,23 +290,26 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
         isMobile ? (
           <button
             onClick={scrollToActiveStep}
+            aria-label="Jump to the currently executing step"
             className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full
                        bg-primary text-primary-foreground text-sm font-medium shadow-lg min-h-[44px]"
           >
-            Jump to current step ↓
+            Jump to current step
           </button>
         ) : (
           <div className="sticky bottom-0 flex gap-2 p-2 bg-card/95 backdrop-blur border-t border-border">
             <button
               onClick={scrollToActiveStep}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              className="text-xs text-muted-foreground hover:text-foreground min-h-[32px] px-2"
+              aria-label="Jump to the currently executing step"
             >
               Jump to current step
             </button>
             {hasErrors && (
               <button
                 onClick={scrollToLastError}
-                className="text-xs text-destructive/80 hover:text-destructive"
+                className="text-xs text-destructive/80 hover:text-destructive min-h-[32px] px-2"
+                aria-label="Jump to the last failed step"
               >
                 Jump to last error
               </button>
