@@ -7,7 +7,7 @@ import { AgentMarkdown } from "./AgentMarkdown";
 
 const TERMINAL_TOOLS = new Set(["bash", "run_in_terminal", "Bash"]);
 
-export function CommandChips({ step, collapsed }: { step: Step; collapsed?: boolean }) {
+export function CommandChips({ step, collapsed, onExpand }: { step: Step; collapsed?: boolean; onExpand?: () => void }) {
   const stepEntries = useStore(selectStepEntries(step.jobId, step.stepId));
   const [expandedSeq, setExpandedSeq] = useState<number | null>(null);
 
@@ -26,7 +26,13 @@ export function CommandChips({ step, collapsed }: { step: Step; collapsed?: bool
   if (collapsed) {
     return (
       <div className="mt-1">
-        <span className="text-xs text-muted-foreground">{commands.length} command{commands.length !== 1 ? "s" : ""}</span>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onExpand?.(); }}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {commands.length} command{commands.length !== 1 ? "s" : ""}
+        </button>
       </div>
     );
   }

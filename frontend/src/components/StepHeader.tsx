@@ -49,7 +49,7 @@ export function StepHeader({ step, expanded, onToggle, hideChevron, hasExpandabl
 
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium truncate block">{step.label}</span>
-        {step.summary && (expanded || hideChevron) && (
+        {step.summary && (expanded || hideChevron || step.status === "done") && (
           <span className="text-xs text-muted-foreground truncate block mt-0.5">{step.summary}</span>
         )}
       </div>

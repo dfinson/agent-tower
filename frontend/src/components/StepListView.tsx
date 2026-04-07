@@ -188,7 +188,7 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
           <span className={cn("text-[10px] font-medium text-blue-500", steps.length <= 1 && "ml-auto")}>LIVE</span>
         )}
         {!isRunning && steps.length > 0 && steps.every((s) => s.status === "done") && (
-          <CheckCircle2 size={14} className={cn("text-emerald-500", steps.length <= 1 && "ml-auto")} />
+          <CheckCircle2 size={14} className={cn("text-emerald-500", steps.length <= 1 && "ml-auto")} aria-hidden="true" />
         )}
       </div>
 
@@ -204,12 +204,12 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
         <div className="flex flex-col divide-y divide-border/50">
           {isRunning ? (
             <div className="flex items-center gap-2 py-4 px-4">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
               <span className="text-sm text-muted-foreground">Waiting for first step…</span>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-10 px-4">
-              <ListChecks className="h-6 w-6 text-muted-foreground/30 mb-3" />
+              <ListChecks className="h-6 w-6 text-muted-foreground/30 mb-3" aria-hidden="true" />
               <p className="text-sm text-muted-foreground">No steps recorded</p>
             </div>
           )}
@@ -339,7 +339,7 @@ function ApprovalInline({ approval }: { approval: ApprovalRequest }) {
   }, [approval.id]);
 
   return (
-    <div className="px-4 py-3">
+    <div className="px-4 py-3" role="alert">
       <div className={cn(
         "rounded-lg border p-3",
         approval.requiresExplicitApproval
@@ -347,7 +347,7 @@ function ApprovalInline({ approval }: { approval: ApprovalRequest }) {
           : "border-amber-500/40 bg-amber-500/5",
       )}>
         <div className="flex items-start gap-2">
-          <ShieldQuestion size={16} className={cn(
+          <ShieldQuestion size={16} aria-hidden="true" className={cn(
             "shrink-0 mt-0.5",
             approval.requiresExplicitApproval ? "text-red-500" : "text-amber-500",
           )} />
@@ -425,7 +425,7 @@ function MessageComposer({ jobId, isTerminal }: { jobId: string; isTerminal: boo
       </div>
       {micState === "transcribing" && (
         <div className="flex items-center gap-2 px-1 mb-2 text-xs text-muted-foreground">
-          <Loader2 size={12} className="animate-spin" />
+          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
           <span>Transcribing…</span>
         </div>
       )}
@@ -434,6 +434,7 @@ function MessageComposer({ jobId, isTerminal }: { jobId: string; isTerminal: boo
           <textarea
             ref={textareaRef}
             placeholder="Message the agent…"
+            aria-label="Message the agent"
             value={msg}
             onChange={(e) => {
               setMsg(e.currentTarget.value);
@@ -464,7 +465,8 @@ function MessageComposer({ jobId, isTerminal }: { jobId: string; isTerminal: boo
           disabled={sending || !msg.trim() || micState !== "idle"}
           className="flex items-center justify-center h-8 w-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
         >
-          <Send size={14} />
+          <Send size={14} aria-hidden="true" />
+          <span className="sr-only">Send message</span>
         </button>
       </div>
     </div>

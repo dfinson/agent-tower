@@ -129,7 +129,7 @@ function buildLCS(a: string[], b: string[]): string[] {
   return result.reverse();
 }
 
-export function FilesTouchedChips({ step, collapsed }: { step: Step; collapsed?: boolean }) {
+export function FilesTouchedChips({ step, collapsed, onExpand }: { step: Step; collapsed?: boolean; onExpand?: () => void }) {
   const stepEntries = useStore(selectStepEntries(step.jobId, step.stepId));
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
 
@@ -204,7 +204,13 @@ export function FilesTouchedChips({ step, collapsed }: { step: Step; collapsed?:
     if (readCount > 0) parts.push(`${readCount} read`);
     return (
       <div className="mt-1.5">
-        <span className="text-xs text-muted-foreground">{parts.join(", ")}</span>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onExpand?.(); }}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {parts.join(", ")}
+        </button>
       </div>
     );
   }
