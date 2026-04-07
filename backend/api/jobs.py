@@ -748,9 +748,10 @@ async def get_job_snapshot(
     timeline_coro = svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=200)
     summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
     steps_coro = svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
+    reassign_coro = svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=5000)
 
-    log_events, transcript_events, timeline_events, summary_events, step_events = await _aio.gather(
-        logs_coro, transcript_coro, timeline_coro, summary_coro, steps_coro
+    log_events, transcript_events, timeline_events, summary_events, step_events, reassign_events = await _aio.gather(
+        logs_coro, transcript_coro, timeline_coro, summary_coro, steps_coro, reassign_coro
     )
 
     # Build logs
@@ -798,6 +799,27 @@ async def get_job_snapshot(
         )
         for e in transcript_events
     ]
+
+    # Apply step reassignments so transcript entries have their final step_id.
+    # Without this, hydration returns the original step_id from when the entry
+    # was first persisted, causing entries to appear under the wrong step.
+    if reassign_events:
+        # Build a map: turn_id → (old_step_id, new_step_id) for each reassignment.
+        # Later reassignments for the same turn override earlier ones.
+        reassign_map: dict[str, tuple[str, str]] = {}
+        for ev in reassign_events:
+            tid = ev.payload.get("turn_id", "")
+            old_sid = ev.payload.get("old_step_id", "")
+            new_sid = ev.payload.get("new_step_id", "")
+            if tid and old_sid and new_sid:
+                reassign_map[tid] = (old_sid, new_sid)
+        if reassign_map:
+            for entry in transcript:
+                key = entry.turn_id or ""
+                if key in reassign_map:
+                    old_sid, new_sid = reassign_map[key]
+                    if entry.step_id == old_sid:
+                        entry.step_id = new_sid
 
     # Build timeline
     milestones: list[ProgressHeadlinePayload] = []

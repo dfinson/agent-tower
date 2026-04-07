@@ -150,7 +150,9 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
   const hasExpandableContent = toolCalls.length > 0
     || agentMessage != null
     || (step.filesWritten ?? []).length > 0
-    || (step.startSha != null && step.endSha != null && step.startSha !== step.endSha);
+    || (step.startSha != null && step.endSha != null && step.startSha !== step.endSha)
+    || step.summary != null
+    || step.toolCount > 0;
 
   // Streaming delta for active step
   const streamingKey = `${step.jobId}:__default__`;
