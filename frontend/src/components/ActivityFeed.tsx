@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, User, Search, X } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { Bot, User, Search, X, GitCompareArrows } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useStore, selectJobTranscript, selectJobSteps, selectActiveStep } from "../store";
 import type { Step, TranscriptEntry } from "../store";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { FilesTouchedChips } from "./FilesTouchedChips";
+import { CommandChips } from "./CommandChips";
 import {
   ToolStepList,
   ReasoningBlock,
@@ -37,6 +39,24 @@ function buildTurns(entries: TranscriptEntry[]): AgentTurn[] {
   const flush = () => {
     if (current) {
       current.intent = extractReportIntent(current.toolCalls);
+      // Deduplicate: tool_running entries are superseded by tool_call entries.
+      // Count how many completed (tool_call) entries exist per toolName, then
+      // remove that many tool_running entries with the same name.
+      const completedCounts = new Map<string, number>();
+      for (const tc of current.toolCalls) {
+        if (tc.role === "tool_call" && tc.toolName) {
+          completedCounts.set(tc.toolName, (completedCounts.get(tc.toolName) ?? 0) + 1);
+        }
+      }
+      current.toolCalls = current.toolCalls.filter((tc) => {
+        if (tc.role !== "tool_running" || !tc.toolName) return true;
+        const remaining = completedCounts.get(tc.toolName) ?? 0;
+        if (remaining > 0) {
+          completedCounts.set(tc.toolName, remaining - 1);
+          return false; // drop this running entry — a completion exists
+        }
+        return true; // no completion yet — tool is still running
+      });
       turns.push(current);
     }
   };
@@ -163,37 +183,66 @@ function StepDivider({
   step,
   index,
   id,
+  onViewDiff,
 }: {
   step: Step;
   index: number;
   id?: string;
+  onViewDiff?: (step: Step) => void;
 }) {
   const isDone = step.status === "done";
   const isFailed = step.status === "failed";
   const isActive = step.status === "active";
+  const hasDiff = step.startSha && step.endSha && step.startSha !== step.endSha;
   return (
     <div
       id={id}
       className={cn(
-        "flex items-center gap-2 px-4 py-2 text-xs font-medium",
-        isActive ? "bg-blue-500/5 text-blue-400"
-          : isDone ? "bg-emerald-500/5 text-emerald-500/80"
-            : isFailed ? "bg-red-500/5 text-red-400"
-              : "bg-muted/30 text-muted-foreground/70",
+        "px-4 py-2 text-xs",
+        isActive ? "bg-blue-500/5"
+          : isDone ? "bg-emerald-500/5"
+            : isFailed ? "bg-red-500/5"
+              : "bg-muted/30",
       )}
     >
-      <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center border text-[10px] tabular-nums"
-        style={{
-          borderColor: isActive ? "rgb(59 130 246 / 0.4)" : isDone ? "rgb(16 185 129 / 0.3)" : isFailed ? "rgb(239 68 68 / 0.3)" : "rgb(var(--border) / 0.3)",
-        }}
-      >
-        {index + 1}
-      </span>
-      <span className="truncate">{step.label}</span>
-      {step.durationMs != null && (
-        <span className="ml-auto text-muted-foreground/50 shrink-0">{formatDuration(step.durationMs)}</span>
+      {/* Step header row */}
+      <div className={cn(
+        "flex items-center gap-2 font-medium",
+        isActive ? "text-blue-400"
+          : isDone ? "text-emerald-500/80"
+            : isFailed ? "text-red-400"
+              : "text-muted-foreground/70",
+      )}>
+        <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center border text-[10px] tabular-nums"
+          style={{
+            borderColor: isActive ? "rgb(59 130 246 / 0.4)" : isDone ? "rgb(16 185 129 / 0.3)" : isFailed ? "rgb(239 68 68 / 0.3)" : "rgb(var(--border) / 0.3)",
+          }}
+        >
+          {index + 1}
+        </span>
+        <span className="truncate">{step.label}</span>
+        {step.durationMs != null && (
+          <span className="ml-auto text-muted-foreground/50 shrink-0">{formatDuration(step.durationMs)}</span>
+        )}
+        {step.summary && <span className="ml-2 text-muted-foreground/40 truncate max-w-[200px]">— {step.summary}</span>}
+      </div>
+
+      {/* File chips + command chips + diff button — compact step summary */}
+      {(isDone || isFailed) && (
+        <div className="mt-1.5 ml-7">
+          <FilesTouchedChips step={step} collapsed={false} />
+          <CommandChips step={step} collapsed={false} />
+          {hasDiff && onViewDiff && (
+            <button
+              onClick={() => onViewDiff(step)}
+              className="inline-flex items-center gap-1.5 text-xs font-medium mt-1.5 px-2.5 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              <GitCompareArrows size={12} />
+              View changes
+            </button>
+          )}
+        </div>
       )}
-      {step.summary && <span className="ml-2 text-muted-foreground/40 truncate max-w-[200px]">— {step.summary}</span>}
     </div>
   );
 }
@@ -258,9 +307,10 @@ function AgentTurnBlock({
 
 interface ActivityFeedProps {
   jobId: string;
+  onViewDiff?: (step: { stepId: string; startSha: string | null; endSha: string | null }) => void;
 }
 
-export function ActivityFeed({ jobId }: ActivityFeedProps) {
+export function ActivityFeed({ jobId, onViewDiff }: ActivityFeedProps) {
   const allTranscript = useStore(selectJobTranscript(jobId));
   const steps = useStore(selectJobSteps(jobId));
   const activeStep = useStore(selectActiveStep(jobId));
@@ -345,33 +395,16 @@ export function ActivityFeed({ jobId }: ActivityFeedProps) {
     });
   }, [feedItems, filterQuery]);
 
-  // Step divider refs for scroll-to-step
+  // Step divider refs for scroll-to-step (from rail clicks)
   const dividerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollToStep = useCallback((stepId: string) => {
     const el = dividerRefs.current.get(stepId);
+    // scrollIntoView finds the nearest scrollable ancestor (<main>)
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  // Auto-scroll to bottom for new content
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const [userScrolled, setUserScrolled] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!userScrolled) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [filteredItems.length, userScrolled]);
-
-  const handleScroll = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    setUserScrolled(!atBottom);
-  }, []);
-
   return (
-    <div className="flex flex-col h-full">
+    <div>
       {/* Step progress rail */}
       <StepRail
         steps={steps}
@@ -382,12 +415,8 @@ export function ActivityFeed({ jobId }: ActivityFeedProps) {
       {/* Inline search */}
       <InlineSearch query={filterQuery} onQueryChange={setFilterQuery} />
 
-      {/* Feed content */}
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto divide-y divide-border/30"
-      >
+      {/* Feed content — renders inline, scrolls with the page */}
+      <div className="divide-y divide-border/30">
         {filteredItems.length === 0 && (
           <div className="flex flex-col items-center justify-center py-10 px-4">
             <Bot className="h-6 w-6 text-muted-foreground/30 mb-3" />
@@ -405,7 +434,7 @@ export function ActivityFeed({ jobId }: ActivityFeedProps) {
                 key={item.key}
                 ref={(el) => { if (el) dividerRefs.current.set(item.step.stepId, el); }}
               >
-                <StepDivider step={item.step} index={info?.index ?? 0} id={`activity-step-${item.step.stepId}`} />
+                <StepDivider step={item.step} index={info?.index ?? 0} id={`activity-step-${item.step.stepId}`} onViewDiff={onViewDiff} />
               </div>
             );
           }
@@ -440,8 +469,6 @@ export function ActivityFeed({ jobId }: ActivityFeedProps) {
           }
           return null;
         })}
-
-        <div ref={bottomRef} />
       </div>
     </div>
   );
