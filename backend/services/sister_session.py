@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from backend.services.lightweight_completer import LightweightCompleter
+
 if TYPE_CHECKING:
     from backend.services.agent_adapter import AgentAdapterInterface
 
@@ -143,6 +145,9 @@ class SisterSessionManager:
         self._model = model
         self._pool_size = pool_size
 
+        # Fast-path completer — direct HTTP to LLM API, bypasses SDK subprocess
+        self._fast_completer = LightweightCompleter(adapter, model=model)
+
         # Standby pool — ready-to-use SisterSession instances
         self._pool: deque[SisterSession] = deque()
 
@@ -191,6 +196,7 @@ class SisterSessionManager:
         self._warm.clear()
         self._warm_created_at.clear()
         self._jobs.clear()
+        await self._fast_completer.close()
         log.debug("sister_session_manager_shutdown")
 
     # -- Standby pool --------------------------------------------------------
@@ -296,8 +302,30 @@ class SisterSessionManager:
     async def complete(self, prompt: str, timeout: float = 30.0) -> str:
         """One-shot completion for callers without a job context.
 
-        Uses a pooled session, then recycles it.
+        Uses the fast-path direct HTTP completer when available (bypasses
+        the SDK subprocess entirely).  Falls back to a pooled SisterSession.
         """
+        # Fast path — direct API call (~500ms vs 3-10s subprocess)
+        if self._fast_completer.available:
+            try:
+                t0 = time.monotonic()
+                result = await asyncio.wait_for(
+                    self._fast_completer.complete(
+                        f"{_UTILITY_SYSTEM_PROMPT}\n\n{prompt}"
+                    ),
+                    timeout=timeout,
+                )
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                log.debug(
+                    "fast_complete_ok",
+                    elapsed_ms=round(elapsed_ms, 1),
+                    model=self._model,
+                )
+                return result.text or ""
+            except Exception:
+                log.warning("fast_complete_failed_falling_back", exc_info=True)
+
+        # Slow path — full SDK session
         session = self._pop_or_create()
         try:
             for attempt in range(_TIMEOUT_RETRIES + 1):

@@ -1194,8 +1194,9 @@ class ClaudeAdapter(AgentAdapterInterface):
 
         options = ClaudeCodeOptions(
             max_turns=1,
+            model="claude-haiku-4-20250414",
             permission_mode="bypassPermissions",
-            allowed_tools=["Read", "Glob", "Grep"],
+            allowed_tools=[],
         )
 
         collected: list[str] = []

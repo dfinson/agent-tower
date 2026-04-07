@@ -605,6 +605,13 @@ class TelemetryUpdatedPayload(CamelModel):
     timestamp: datetime
 
 
+class StepEntriesReassignedPayload(CamelModel):
+    job_id: str
+    turn_id: str
+    old_step_id: str
+    new_step_id: str
+
+
 class SnapshotPayload(CamelModel):
     jobs: list[JobResponse]
     pending_approvals: list[ApprovalResponse]

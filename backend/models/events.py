@@ -43,6 +43,7 @@ class DomainEventKind(StrEnum):
     step_title_generated = "StepTitleGenerated"
     step_group_updated = "StepGroupUpdated"
     plan_step_updated = "PlanStepUpdated"
+    step_entries_reassigned = "StepEntriesReassigned"
 
 
 # ---------------------------------------------------------------------------
