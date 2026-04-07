@@ -108,11 +108,12 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown, onS
       {/* Normal textarea — visible when NOT recording */}
       <div style={{ display: state === "recording" ? "none" : "block" }}>
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-foreground">
+          <label htmlFor="prompt-input" className="text-sm font-medium text-foreground">
             Prompt<span className="text-red-500 ml-0.5">*</span>
           </label>
           <div className="relative">
             <Textarea
+              id="prompt-input"
               value={value}
               onChange={(e) => onChange(e.currentTarget.value)}
               onBlur={onBlur}
