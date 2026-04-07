@@ -129,7 +129,7 @@ function buildLCS(a: string[], b: string[]): string[] {
   return result.reverse();
 }
 
-export function FilesTouchedChips({ step }: { step: Step }) {
+export function FilesTouchedChips({ step, collapsed }: { step: Step; collapsed?: boolean }) {
   const stepEntries = useStore(selectStepEntries(step.jobId, step.stepId));
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
 
@@ -193,28 +193,47 @@ export function FilesTouchedChips({ step }: { step: Step }) {
 
   if (!fileInfos.length) return null;
 
+  // Collapsed mode: show compact summary instead of individual chips
+  if (collapsed) {
+    const createCount = fileInfos.filter((f) => f.kind === "create").length;
+    const editCount = fileInfos.filter((f) => f.kind === "edit").length;
+    const readCount = fileInfos.filter((f) => f.kind === "read").length;
+    const parts: string[] = [];
+    if (createCount > 0) parts.push(`${createCount} created`);
+    if (editCount > 0) parts.push(`${editCount} edited`);
+    if (readCount > 0) parts.push(`${readCount} read`);
+    return (
+      <div className="mt-1.5">
+        <span className="text-xs text-muted-foreground">{parts.join(", ")}</span>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-1.5">
       <div className="flex flex-wrap gap-1">
         {fileInfos.map(({ path, repoPath, kind, editCount }) => {
           const isExpanded = expandedFile === path;
+          const kindLabel = kind === "create" ? "Created" : kind === "edit" ? "Edited" : "Read";
           const chipClass = kind === "create"
-            ? "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors"
+            ? "inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-colors min-h-[32px]"
             : kind === "edit"
-              ? "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors"
-              : "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-violet-500/10 text-violet-600 hover:bg-violet-500/20 transition-colors";
+              ? "inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors min-h-[32px]"
+              : "inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-violet-500/10 text-violet-600 hover:bg-violet-500/20 transition-colors min-h-[32px]";
           return (
             <button
               key={path}
               type="button"
-              title={repoPath}
+              aria-expanded={isExpanded}
+              aria-label={`${kindLabel}: ${repoPath}${editCount > 1 ? `, ${editCount} edits` : ""}`}
               onClick={(e) => { e.stopPropagation(); setExpandedFile(isExpanded ? null : path); }}
               className={cn(
                 chipClass,
                 isExpanded && "ring-1 ring-foreground/30",
               )}
             >
-              {kind === "create" ? <FilePlus size={10} /> : kind === "edit" ? <Pencil size={10} /> : <Eye size={10} />}
+              {kind === "create" ? <FilePlus size={12} aria-hidden="true" /> : kind === "edit" ? <Pencil size={12} aria-hidden="true" /> : <Eye size={12} aria-hidden="true" />}
+              <span className="sr-only">{kindLabel}:</span>
               {basename(path)}
               {editCount > 1 && <span className="text-[10px] opacity-60">×{editCount}</span>}
               {parentDir(repoPath) && <span className="text-[10px] opacity-60">{parentDir(repoPath)}/</span>}
@@ -225,7 +244,7 @@ export function FilesTouchedChips({ step }: { step: Step }) {
 
       {/* Expanded: show diffs for the selected file */}
       {expandedFile && fileToolCalls.length > 0 && (
-        <div className="mt-1.5 ml-2 border-l border-border pl-3 space-y-2">
+        <div className="mt-1.5 ml-2 border-l border-border pl-3 space-y-2" role="region" aria-label={`Changes to ${basename(expandedFile)}`}>
           {fileToolCalls.map((tc) => {
             const name = tc.toolName?.split("/").pop() ?? tc.toolName ?? "";
             let oldStr = "";
@@ -311,9 +330,10 @@ function ReadContentBlock({ header, content }: { header: string; content: string
               "p-0.5 rounded hover:bg-muted transition-colors",
               md ? "text-foreground" : "text-muted-foreground",
             )}
-            title={md ? "View raw" : "Render markdown"}
+            aria-label={md ? "View raw" : "Render markdown"}
+            aria-pressed={md}
           >
-            <Code size={12} />
+            <Code size={12} aria-hidden="true" />
           </button>
         </div>
       </div>

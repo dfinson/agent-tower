@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, GitBranch, User } from "lucide-react";
+import { ChevronRight, GitCompareArrows, User } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useStore, selectStepEntries } from "../store";
 import type { Step } from "../store";
@@ -20,6 +20,8 @@ function ToolCallRow({ entry }: { entry: import("../store").TranscriptEntry }) {
       <button
         type="button"
         onClick={() => hasDetail && setOpen((v) => !v)}
+        aria-expanded={hasDetail ? open : undefined}
+        aria-label={`${entry.toolDisplay || entry.toolName}${entry.toolSuccess === false ? " (failed)" : ""}`}
         className={cn(
           "flex items-center gap-2 w-full text-left text-xs py-1 rounded min-h-[44px] sm:min-h-0",
           hasDetail ? "hover:bg-muted/50 active:bg-muted/50 cursor-pointer" : "cursor-default",
@@ -28,14 +30,15 @@ function ToolCallRow({ entry }: { entry: import("../store").TranscriptEntry }) {
         {hasDetail && (
           <ChevronRight
             size={12}
+            aria-hidden="true"
             className={cn(
               "shrink-0 text-muted-foreground transition-transform",
               open && "rotate-90",
             )}
           />
         )}
-        {!hasDetail && <span className="w-3 shrink-0" />}
-        <span className="shrink-0 mt-px">
+        {!hasDetail && <span className="w-3 shrink-0" aria-hidden="true" />}
+        <span className="shrink-0 mt-px" aria-hidden="true">
           {entry.toolSuccess === false ? "✗" : "✓"}
         </span>
         <span className="font-mono text-foreground/80 truncate flex-1">
@@ -166,8 +169,8 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
 
       {/* Running: show latest tool or streaming delta */}
       {isActive && currentTool && (
-        <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+        <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" aria-hidden="true" />
           <span className="truncate">
             {currentTool.toolIntent || currentTool.toolDisplay || currentTool.toolName}
           </span>
@@ -175,9 +178,9 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
       )}
 
       {isActive && !currentTool && streamingText && (
-        <div className="mt-2 text-sm text-foreground/90 leading-relaxed line-clamp-2">
+        <div className="mt-2 text-sm text-foreground/90 leading-relaxed line-clamp-2" aria-live="polite">
           <span>{streamingText}</span>
-          <span className="inline-block w-0.5 h-4 bg-foreground/50 animate-pulse ml-0.5" />
+          <span className="inline-block w-0.5 h-4 bg-foreground/50 animate-pulse ml-0.5" aria-hidden="true" />
         </div>
       )}
 
@@ -206,11 +209,11 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         </div>
       )}
 
-      {/* File chips — always visible (not gated on expanded) */}
-      <FilesTouchedChips step={step} />
+      {/* File chips — always visible; collapsed for old completed steps */}
+      <FilesTouchedChips step={step} collapsed={!isActive && step.status === "done" && !expanded} />
 
-      {/* Terminal command chips — always visible */}
-      <CommandChips step={step} />
+      {/* Terminal command chips — always visible; collapsed for old completed steps */}
+      <CommandChips step={step} collapsed={!isActive && step.status === "done" && !expanded} />
 
       {/* Expanded: visible tool calls (mutations) */}
       {expanded && visibleTools.length > 0 && (
@@ -225,10 +228,10 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
       {step.startSha && step.endSha && step.startSha !== step.endSha && (
         <button
           onClick={() => onViewDiff?.(step)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-2"
+          className="inline-flex items-center gap-1.5 text-xs font-medium mt-2 px-2.5 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
         >
-          <GitBranch size={12} />
-          View changes in this step
+          <GitCompareArrows size={12} aria-hidden="true" />
+          View changes
         </button>
       )}
     </div>
