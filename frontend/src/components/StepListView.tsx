@@ -226,7 +226,7 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
       {/* Activity feed mode */}
       {viewMode === "activity" ? (
         <>
-          <ActivityFeed jobId={jobId} />
+          <ActivityFeed jobId={jobId} onViewDiff={onViewDiff} />
           {canInteract && (
             <MessageComposer jobId={jobId} isTerminal={false} />
           )}
