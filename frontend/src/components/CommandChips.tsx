@@ -1,4 +1,4 @@
-import { Code, Terminal } from "lucide-react";
+import { Terminal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "../lib/utils";
 import type { Step } from "../store";
@@ -75,6 +75,38 @@ export function CommandChips({ step, collapsed, onExpand }: { step: Step; collap
   );
 }
 
+/** Segmented toggle for Rendered / Source views on markdown content. */
+function MdViewToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
+  return (
+    <div className="inline-flex rounded border border-border text-[11px] leading-none overflow-hidden" role="radiogroup" aria-label="View mode">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={!raw}
+        onClick={(e) => { e.stopPropagation(); if (raw) onToggle(); }}
+        className={cn(
+          "px-2 py-1 transition-colors",
+          !raw ? "bg-muted text-foreground font-medium" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        Rendered
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={raw}
+        onClick={(e) => { e.stopPropagation(); if (!raw) onToggle(); }}
+        className={cn(
+          "px-2 py-1 transition-colors border-l border-border",
+          raw ? "bg-muted text-foreground font-medium" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        Source
+      </button>
+    </div>
+  );
+}
+
 function ExpandedContent({ header, content }: { header: string; content: string }) {
   const mdFile = /\.md$/i.test(header);
   const [raw, setRaw] = useState(!mdFile);
@@ -87,24 +119,11 @@ function ExpandedContent({ header, content }: { header: string; content: string 
           <span className="font-mono truncate">{header}</span>
           <div className="flex items-center gap-2 shrink-0">
             <span className="tabular-nums">{lineCount} lines</span>
-            {mdFile && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setRaw((v) => !v); }}
-                className={cn(
-                  "p-0.5 rounded hover:bg-muted transition-colors",
-                  !raw ? "text-foreground" : "text-muted-foreground",
-                )}
-                aria-label={raw ? "Render markdown" : "View raw"}
-                aria-pressed={!raw}
-              >
-                <Code size={12} aria-hidden="true" />
-              </button>
-            )}
+            {mdFile && <MdViewToggle raw={raw} onToggle={() => setRaw((v) => !v)} />}
           </div>
         </div>
         {!raw ? (
-          <div className="text-xs p-2 max-h-64 overflow-auto leading-relaxed text-foreground/80 prose prose-xs dark:prose-invert max-w-none">
+          <div className="text-sm p-3 max-h-72 overflow-auto leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none">
             <AgentMarkdown content={content} />
           </div>
         ) : (
