@@ -129,10 +129,11 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
     [stepEntries],
   );
 
-  /** Last few completed tools — gives the user a breadcrumb trail of recent activity. */
+  /** Last few completed tools — gives the user a breadcrumb trail of recent activity.
+   *  Includes collapsed tools (reads, greps, etc.) so the user can see what just happened. */
   const recentTools = useMemo(() => {
     if (!isActive) return [];
-    return toolCalls.filter((e) => !isCollapsedTool(e)).slice(-3);
+    return toolCalls.slice(-3);
   }, [toolCalls, isActive]);
 
   const visibleTools = useMemo(
