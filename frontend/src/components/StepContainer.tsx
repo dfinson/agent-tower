@@ -210,10 +210,10 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
       )}
 
       {/* File chips — always visible; collapsed for old completed steps */}
-      <FilesTouchedChips step={step} collapsed={!isActive && step.status === "done" && !expanded} />
+      <FilesTouchedChips step={step} collapsed={!isActive && step.status === "done" && !expanded} onExpand={handleToggle} />
 
       {/* Terminal command chips — always visible; collapsed for old completed steps */}
-      <CommandChips step={step} collapsed={!isActive && step.status === "done" && !expanded} />
+      <CommandChips step={step} collapsed={!isActive && step.status === "done" && !expanded} onExpand={handleToggle} />
 
       {/* Expanded: visible tool calls (mutations) */}
       {expanded && visibleTools.length > 0 && (
@@ -228,6 +228,7 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
       {step.startSha && step.endSha && step.startSha !== step.endSha && (
         <button
           onClick={() => onViewDiff?.(step)}
+          aria-label={`View changes for ${step.label}`}
           className="inline-flex items-center gap-1.5 text-xs font-medium mt-2 px-2.5 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
         >
           <GitCompareArrows size={12} aria-hidden="true" />
