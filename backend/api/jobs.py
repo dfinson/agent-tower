@@ -184,6 +184,8 @@ async def create_job(
         prompt=body.prompt,
         base_ref=body.base_ref,
         branch=body.branch,
+        title=body.title,
+        worktree_name=body.worktree_name,
         permission_mode=body.permission_mode or PermissionMode.full_auto,
         model=body.model,
         sdk=body.sdk,

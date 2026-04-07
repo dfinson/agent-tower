@@ -174,6 +174,8 @@ class JobService:
         prompt: str,
         base_ref: str | None = None,
         branch: str | None = None,
+        title: str | None = None,
+        worktree_name: str | None = None,
         permission_mode: PermissionMode = PermissionMode.full_auto,
         model: str | None = None,
         sdk: str | None = None,
@@ -210,12 +212,22 @@ class JobService:
 
         now = datetime.now(UTC)
 
-        # Blocking naming: generate title, branch, worktree_name via LLM.
-        # The worktree_name becomes the job ID.
-        title: str | None = None
-        worktree_name: str | None = None
+        # When the frontend has pre-computed names via suggest-names, we can
+        # skip the expensive LLM round-trip entirely.  We only need collision
+        # checks (fast DB + git lookups).
+        pre_named = title is not None and worktree_name is not None
 
-        if self._naming is not None:
+        if pre_named:
+            # Still verify the pre-computed worktree_name doesn't collide
+            existing_job_ids = await self._job_repo.list_ids()
+            if worktree_name in existing_job_ids or await self._job_repo.get(worktree_name) is not None:
+                # Collision — fall through to LLM naming below
+                log.info("pre_named_collision", worktree_name=worktree_name)
+                pre_named = False
+                title = None
+                worktree_name = None
+
+        if not pre_named and self._naming is not None:
             from backend.services.naming_service import NamingError
 
             try:

@@ -122,6 +122,8 @@ class CreateJobRequest(CamelModel):
     prompt: str
     base_ref: str | None = None
     branch: str | None = None
+    title: str | None = None
+    worktree_name: str | None = None
     permission_mode: PermissionMode | None = None
     model: str | None = None
     sdk: str | None = None
