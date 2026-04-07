@@ -31,6 +31,7 @@ from backend.models.api_schemas import (
     SessionHeartbeatPayload,
     SessionResumedPayload,
     SnapshotPayload,
+    StepEntriesReassignedPayload,
     TelemetryUpdatedPayload,
     ToolGroupSummaryPayload,
     TranscriptPayload,
@@ -79,6 +80,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.step_group_updated: None,
     # Plan steps — the only step-level event the frontend sees
     DomainEventKind.plan_step_updated: "plan_step_updated",
+    DomainEventKind.step_entries_reassigned: "step_entries_reassigned",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -394,6 +396,14 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
         TelemetryUpdatedPayload,
         {
             "timestamp": ("timestamp", _TS_EVENT),
+        },
+    ),
+    "step_entries_reassigned": (
+        StepEntriesReassignedPayload,
+        {
+            "turn_id": ("turn_id", ""),
+            "old_step_id": ("old_step_id", ""),
+            "new_step_id": ("new_step_id", ""),
         },
     ),
 }

@@ -605,6 +605,48 @@ export const useStore = create<AppState>((set, get) => ({
           return result;
         }
 
+        case "step_entries_reassigned": {
+          const jobId = payload.jobId as string;
+          const turnId = payload.turnId as string;
+          const oldStepId = payload.oldStepId as string;
+          const newStepId = payload.newStepId as string;
+          if (!jobId || !turnId || !oldStepId || !newStepId) return null;
+
+          const jobIndex = state.transcriptByStep[jobId] ?? {};
+          const oldEntries = jobIndex[oldStepId] ?? [];
+          if (!oldEntries.length) return null;
+
+          // Partition: entries matching turnId move to new step, rest stay.
+          const keep: TranscriptEntry[] = [];
+          const move: TranscriptEntry[] = [];
+          for (const e of oldEntries) {
+            if (e.turnId === turnId) {
+              move.push({ ...e, stepId: newStepId });
+            } else {
+              keep.push(e);
+            }
+          }
+          if (!move.length) return null;
+
+          const newEntries = [...(jobIndex[newStepId] ?? []), ...move];
+
+          // Also update the flat transcript array so full-transcript views
+          // stay consistent with the step-indexed view.
+          const flatUpdated = (state.transcript[jobId] ?? []).map((e) =>
+            e.turnId === turnId && e.stepId === oldStepId
+              ? { ...e, stepId: newStepId }
+              : e,
+          );
+
+          return {
+            transcript: { ...state.transcript, [jobId]: flatUpdated },
+            transcriptByStep: {
+              ...state.transcriptByStep,
+              [jobId]: { ...jobIndex, [oldStepId]: keep, [newStepId]: newEntries },
+            },
+          };
+        }
+
         case "approval_requested": {
           const approval: ApprovalRequest = {
             id: payload.approvalId as string,

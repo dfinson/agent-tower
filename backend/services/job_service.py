@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import glob
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -232,9 +233,12 @@ class JobService:
 
             try:
                 # Gather existing branches, worktrees, and job IDs for conflict detection
-                existing_branches = await self._git.list_branches(resolved_repo)
-                existing_worktrees = await self._git.list_worktree_names(resolved_repo)
-                existing_job_ids = await self._job_repo.list_ids()
+                # (run in parallel — these are independent I/O operations)
+                existing_branches, existing_worktrees, existing_job_ids = await asyncio.gather(
+                    self._git.list_branches(resolved_repo),
+                    self._git.list_worktree_names(resolved_repo),
+                    self._job_repo.list_ids(),
+                )
 
                 exclude_names = existing_worktrees | existing_job_ids
 

@@ -258,6 +258,7 @@ class StepTracker:
             kind=DomainEventKind.step_completed,
             payload={
                 "step_id": state.step_id,
+                "turn_id": state.turn_id,
                 "status": status,
                 "tool_count": state.tool_count,
                 "duration_ms": duration_ms,

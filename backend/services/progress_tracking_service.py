@@ -396,6 +396,7 @@ class ProgressTrackingService:
         duration_ms = turn_payload.get("duration_ms", 0) or 0
         start_sha = turn_payload.get("start_sha")
         end_sha = turn_payload.get("end_sha")
+        turn_id = turn_payload.get("turn_id")
 
         # Classify turn to a plan item using sister session.
         # Works for both native (manage_todo_list) and inferred plans.
@@ -408,6 +409,7 @@ class ProgressTrackingService:
                 duration_ms=duration_ms,
                 start_sha=start_sha,
                 end_sha=end_sha,
+                turn_id=turn_id,
             )
         else:
             # No sister session — accumulate metrics on active step without classification
@@ -438,11 +440,10 @@ class ProgressTrackingService:
         duration_ms: int,
         start_sha: str | None,
         end_sha: str | None,
+        turn_id: str | None = None,
     ) -> None:
-        # Always assign to the current active step — strictly sequential.
         active_idx = self._active_idx.get(job_id, 0)
         active_idx = max(0, min(active_idx, len(steps) - 1))
-        ps = steps[active_idx]
 
         plan_block = "\n".join(
             f"  {i + 1}. [{s.status}] {s.label}" + (f" -- {s.summary}" if s.summary else "")
@@ -461,6 +462,7 @@ class ProgressTrackingService:
         summary = ""
         new_status = "active"
         updated_label: str | None = None
+        target_idx = active_idx
         try:
             raw = await sister.complete(prompt, timeout=15)
             raw = raw.strip()
@@ -478,11 +480,40 @@ class ProgressTrackingService:
             if isinstance(ul, str) and ul.strip():
                 updated_label = ul.strip()[:60]
 
+            # Honor the sister session's assign_to classification.
+            raw_assign = parsed.get("assign_to")
+            if isinstance(raw_assign, int) and 1 <= raw_assign <= len(steps):
+                candidate = raw_assign - 1  # convert 1-based → 0-based
+                # Accept assignment to active, pending, or the step just
+                # before active (in case classification catches up late).
+                # Avoid assigning to already-done steps to prevent regression.
+                if steps[candidate].status in ("active", "pending") or candidate == active_idx:
+                    target_idx = candidate
+
         except Exception:
             log.debug("turn_classification_failed", job_id=job_id, exc_info=True)
 
         now = datetime.now(UTC)
+        ps = steps[target_idx]
 
+        # If the sister assigned to a different step than what the events
+        # were stamped with, emit a reassignment so the frontend can move
+        # transcript entries from the old step to the correct one.
+        stamped_step_id = steps[active_idx].plan_step_id
+        if target_idx != active_idx and turn_id and ps.plan_step_id != stamped_step_id:
+            await self._event_bus.publish(DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.step_entries_reassigned,
+                payload={
+                    "turn_id": turn_id,
+                    "old_step_id": stamped_step_id,
+                    "new_step_id": ps.plan_step_id,
+                },
+            ))
+
+        # Accumulate metrics on the target step.
         ps.tool_count += tool_count
         ps.duration_ms += duration_ms
         for f in files_written:
@@ -500,12 +531,22 @@ class ProgressTrackingService:
         if ps.status == "pending":
             ps.status = "active"
             ps.started_at = now
+
+        # If target is ahead of active, mark intermediate steps done and advance.
+        if target_idx > active_idx:
+            for i in range(active_idx, target_idx):
+                if steps[i].status == "active":
+                    steps[i].status = "done"
+                    steps[i].completed_at = now
+                    await self._emit_plan_step(job_id, steps[i])
+            self._active_idx[job_id] = target_idx
+
         if new_status == "done" and ps.status == "active":
             ps.status = "done"
             ps.completed_at = now
             # Auto-advance to next pending step
             next_idx = next(
-                (i for i in range(active_idx + 1, len(steps)) if steps[i].status == "pending"),
+                (i for i in range(target_idx + 1, len(steps)) if steps[i].status == "pending"),
                 -1,
             )
             if next_idx >= 0:
