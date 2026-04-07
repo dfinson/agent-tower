@@ -197,6 +197,7 @@ _SIMPLE_SPECS: dict[str, _FmtSpec] = {
     "Write": _FmtSpec(("file_path", "path"), "Write", "Write file", use_path=True),
     "Edit": _FmtSpec(("file_path", "path"), "Edit", "Edit file", use_path=True),
     "Grep": _FmtSpec(("pattern",), "Grep:", "Grep", truncate=40, quote=True),
+    "Sql": _FmtSpec(("query",), "SQL:", "SQL query", truncate=55, quote=True),
     # ---- Additional aliases / less common tools ----------------------------
     "delete_file": _FmtSpec(("filePath", "file_path", "path"), "Delete", "Delete file", use_path=True),
     "edit_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
@@ -576,15 +577,49 @@ _RESULT_HINTS_WITH_ARGS: dict[str, Callable[[str, bool, str | None], str]] = {
 }
 
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$", re.IGNORECASE)
+_HEX_RE = re.compile(r"^[0-9a-f]{8,}$", re.IGNORECASE)
+
+
 def _humanize_tool_name(name: str) -> str:
     """Turn snake_case or camelCase tool names into human-readable labels.
 
     ``search_code`` → ``"Search code"``, ``listAllFiles`` → ``"List all files"``.
+    UUIDs and hex strings are replaced with a generic label.
     """
+    if _UUID_RE.match(name) or _HEX_RE.match(name):
+        return "Tool action"
     parts = re.sub(r"([a-z])([A-Z])", r"\1 \2", name).replace("_", " ").split()
     if not parts:
         return name
     return parts[0].capitalize() + (" " + " ".join(p.lower() for p in parts[1:]) if len(parts) > 1 else "")
+
+
+# Keys commonly used by agent SDKs for human-readable descriptions in tool args.
+_DESCRIPTION_KEYS: tuple[str, ...] = (
+    "description",
+    "explanation",
+    "goal",
+    "query",
+    "prompt",
+    "message",
+    "title",
+    "summary",
+    "reason",
+    "task",
+)
+
+
+def _extract_description_from_args(tool_args: str | None, max_len: int = 60) -> str | None:
+    """Try to pull a human-readable label from common tool argument fields."""
+    args = _parse_args(tool_args)
+    if not args:
+        return None
+    for key in _DESCRIPTION_KEYS:
+        val = args.get(key, "")
+        if isinstance(val, str) and val.strip():
+            return _truncate(val.strip(), max_len)
+    return None
 
 
 def format_tool_display(
@@ -603,7 +638,14 @@ def format_tool_display(
     lookup_name = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
     formatter = _FORMATTERS.get(lookup_name)
     if formatter is None:
-        label = _humanize_tool_name(lookup_name)
+        # Try extracting a description from common arg fields before falling
+        # back to the raw (humanized) tool name.
+        desc = _extract_description_from_args(tool_args)
+        humanized = _humanize_tool_name(lookup_name)
+        if desc:
+            label = f"{humanized}: {desc}" if humanized != "Tool action" else desc
+        else:
+            label = humanized
     else:
         args = _parse_args(tool_args)
         try:
@@ -641,7 +683,12 @@ def format_tool_display_full(
     lookup_name = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
     formatter = _FORMATTERS_FULL.get(lookup_name)
     if formatter is None:
-        label = _humanize_tool_name(lookup_name)
+        desc = _extract_description_from_args(tool_args, max_len=200)
+        humanized = _humanize_tool_name(lookup_name)
+        if desc:
+            label = f"{humanized}: {desc}" if humanized != "Tool action" else desc
+        else:
+            label = humanized
     else:
         args = _parse_args(tool_args)
         try:

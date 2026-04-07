@@ -499,7 +499,7 @@ function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const skillName = (args.skill as string) ?? "";
       const displayName = skillName
         ? skillName.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-        : (entry.toolDisplay ?? entry.toolName ?? "Skill");
+        : (entry.toolTitle ?? entry.toolDisplay ?? entry.toolName ?? "Skill");
       return (
         <div className="font-mono text-xs">
           <div className={cn(
@@ -793,7 +793,7 @@ function ToolStep({ entry, isActive }: {
   const isRunning = entry.role === "tool_running";
   // Prefer the untruncated label so CSS handles responsive ellipsing; fall back
   // to the char-capped toolDisplay for entries that predate toolDisplayFull.
-  const label = entry.toolDisplayFull ?? entry.toolDisplay ?? entry.toolName ?? entry.content;
+  const label = entry.toolIntent || entry.toolTitle || entry.toolDisplayFull || entry.toolDisplay || entry.toolName || entry.content;
   const icon = resolveToolIcon(entry.toolName);
 
   return (

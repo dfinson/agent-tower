@@ -9,6 +9,14 @@ import { AgentMarkdown } from "./AgentMarkdown";
 import { FilesTouchedChips } from "./FilesTouchedChips";
 import { CommandChips } from "./CommandChips";
 
+/* ---------- Display text helper ---------- */
+
+/** Pick the best available display text for a tool entry.
+ *  Priority: toolIntent > toolTitle > toolDisplay > toolName */
+function toolLabel(entry: import("../store").TranscriptEntry): string {
+  return entry.toolIntent || entry.toolTitle || entry.toolDisplay || entry.toolName || "Tool";
+}
+
 /* ---------- ToolCallRow (expandable) ---------- */
 
 function ToolCallRow({ entry }: { entry: import("../store").TranscriptEntry }) {
@@ -21,7 +29,7 @@ function ToolCallRow({ entry }: { entry: import("../store").TranscriptEntry }) {
         type="button"
         onClick={() => hasDetail && setOpen((v) => !v)}
         aria-expanded={hasDetail ? open : undefined}
-        aria-label={`${entry.toolDisplay || entry.toolName}${entry.toolSuccess === false ? " (failed)" : ""}`}
+        aria-label={`${toolLabel(entry)}${entry.toolSuccess === false ? " (failed)" : ""}`}
         className={cn(
           "flex items-center gap-2 w-full text-left text-xs py-1 rounded min-h-[44px] sm:min-h-0",
           hasDetail ? "hover:bg-muted/50 active:bg-muted/50 cursor-pointer" : "cursor-default",
@@ -121,6 +129,12 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
     [stepEntries],
   );
 
+  /** Last few completed tools — gives the user a breadcrumb trail of recent activity. */
+  const recentTools = useMemo(() => {
+    if (!isActive) return [];
+    return toolCalls.filter((e) => !isCollapsedTool(e)).slice(-3);
+  }, [toolCalls, isActive]);
+
   const visibleTools = useMemo(
     () => toolCalls.filter((e) => !isCollapsedTool(e)),
     [toolCalls],
@@ -167,20 +181,47 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         hasExpandableContent={hasExpandableContent}
       />
 
-      {/* Running: show latest tool or streaming delta */}
-      {isActive && currentTool && (
-        <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" aria-hidden="true" />
-          <span className="truncate">
-            {currentTool.toolIntent || currentTool.toolDisplay || currentTool.toolName}
-          </span>
-        </div>
-      )}
+      {/* Running: live activity panel — recent tools trail + current action + thinking */}
+      {isActive && (currentTool || recentTools.length > 0 || streamingText) && (
+        <div className="mt-2 space-y-1" aria-live="polite">
+          {/* Recent completed tools trail */}
+          {recentTools.length > 0 && (
+            <div className="flex flex-col gap-0.5">
+              {recentTools.map((tc) => (
+                <div key={tc.seq} className="flex items-center gap-2 text-xs text-muted-foreground/70">
+                  <span className="shrink-0" aria-hidden="true">
+                    {tc.toolSuccess === false ? "✗" : "✓"}
+                  </span>
+                  <span className="font-mono truncate">
+                    {toolLabel(tc)}
+                  </span>
+                  {tc.toolDurationMs != null && (
+                    <span className="shrink-0 tabular-nums">
+                      {tc.toolDurationMs < 1000 ? `${tc.toolDurationMs}ms` : `${(tc.toolDurationMs / 1000).toFixed(1)}s`}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
-      {isActive && !currentTool && streamingText && (
-        <div className="mt-2 text-sm text-foreground/90 leading-relaxed line-clamp-2" aria-live="polite">
-          <span>{streamingText}</span>
-          <span className="inline-block w-0.5 h-4 bg-foreground/50 animate-pulse ml-0.5" aria-hidden="true" />
+          {/* Current tool — highlighted */}
+          {currentTool && (
+            <div className="flex items-center gap-2 text-sm text-foreground/80">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" aria-hidden="true" />
+              <span className="truncate font-medium">
+                {toolLabel(currentTool)}
+              </span>
+            </div>
+          )}
+
+          {/* Streaming text — agent's reasoning, shown alongside tools */}
+          {streamingText && (
+            <div className="text-xs text-muted-foreground leading-relaxed line-clamp-2 pl-3.5">
+              <span>{streamingText}</span>
+              <span className="inline-block w-0.5 h-3 bg-foreground/40 animate-pulse ml-0.5 align-middle" aria-hidden="true" />
+            </div>
+          )}
         </div>
       )}
 

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { CheckCircle, ChevronRight, Circle, Loader2, XCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { Step } from "../store";
@@ -7,6 +8,18 @@ function formatDuration(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+/** Live elapsed timer — ticks every second while the step is active. */
+function useElapsed(startedAt: string | null, active: boolean): string | null {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!active || !startedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [active, startedAt]);
+  if (!active || !startedAt) return null;
+  return formatDuration(Math.max(0, now - new Date(startedAt).getTime()));
 }
 
 interface StepHeaderProps {
@@ -21,6 +34,7 @@ interface StepHeaderProps {
 export function StepHeader({ step, expanded, onToggle, hideChevron, hasExpandableContent }: StepHeaderProps) {
   const showChevron = !hideChevron && hasExpandableContent;
   const isClickable = hasExpandableContent;
+  const elapsed = useElapsed(step.startedAt, step.status === "active");
 
   const statusLabel = step.status === "active" ? "Running" : step.status === "pending" ? "Pending" : step.status === "failed" ? "Failed" : "Done";
 
@@ -56,7 +70,10 @@ export function StepHeader({ step, expanded, onToggle, hideChevron, hasExpandabl
 
       <span className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
         {step.toolCount > 0 && <span>{step.toolCount} tools</span>}
-        {step.durationMs != null && (
+        {step.status === "active" && elapsed && (
+          <span className="tabular-nums text-blue-500">{elapsed}</span>
+        )}
+        {step.status !== "active" && step.durationMs != null && (
           <span className="tabular-nums">{formatDuration(step.durationMs)}</span>
         )}
       </span>
