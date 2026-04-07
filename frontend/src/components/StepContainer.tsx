@@ -246,18 +246,22 @@ export function StepContainer({ step, isActive, expanded: externalExpanded, onTo
         </div>
       )}
 
-      {/* Expanded: summary + agent message */}
-      {expanded && agentMessage && (
+      {/* Agent message — always show a snippet for completed steps; full when expanded */}
+      {agentMessage && (expanded ? (
         <div className="mt-2 text-sm text-foreground/90 leading-relaxed">
           <AgentMarkdown content={agentMessage.content} />
         </div>
-      )}
+      ) : !isActive && step.status === "done" ? (
+        <div className="mt-2 text-sm text-foreground/70 leading-relaxed line-clamp-3 cursor-pointer" onClick={handleToggle}>
+          <AgentMarkdown content={agentMessage.content} />
+        </div>
+      ) : null)}
 
-      {/* File chips — always visible; collapsed for old completed steps */}
-      <FilesTouchedChips step={step} collapsed={!isActive && step.status === "done" && !expanded} onExpand={handleToggle} />
+      {/* File chips — always visible and expanded for completed steps */}
+      <FilesTouchedChips step={step} collapsed={false} onExpand={handleToggle} />
 
-      {/* Terminal command chips — always visible; collapsed for old completed steps */}
-      <CommandChips step={step} collapsed={!isActive && step.status === "done" && !expanded} onExpand={handleToggle} />
+      {/* Terminal command chips — always visible and expanded for completed steps */}
+      <CommandChips step={step} collapsed={false} onExpand={handleToggle} />
 
       {/* Expanded: visible tool calls (mutations) */}
       {expanded && visibleTools.length > 0 && (

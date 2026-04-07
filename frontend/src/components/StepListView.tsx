@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, ListChecks, Send, User, ShieldQuestion, CheckCircle2, XCircle, ChevronsUpDown } from "lucide-react";
+import { Loader2, ListChecks, Send, User, ShieldQuestion, CheckCircle2, XCircle, ChevronsUpDown, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../lib/utils";
 import { useStore, selectJobSteps, selectActiveStep, selectJobTranscript, selectApprovals } from "../store";
@@ -10,6 +10,7 @@ import { StepSearchBar } from "./StepSearchBar";
 import type { FilterChipKey } from "./StepSearchBar";
 import { ResumeBanner } from "./ResumeBanner";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { ActivityFeed } from "./ActivityFeed";
 import { sendOperatorMessage, resumeJob, resolveApproval } from "../api/client";
 import { MicButton } from "./VoiceButton";
 
@@ -45,6 +46,9 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
 
   // Expanded step tracking (supports external triggers from search/deep links)
   const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(new Set());
+
+  // View mode: "steps" (default accordion) or "activity" (chronological feed)
+  const [viewMode, setViewMode] = useState<"steps" | "activity">("steps");
 
   const toggleStep = useCallback((stepId: string) => {
     setExpandedStepIds((prev) => {
@@ -168,14 +172,41 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
 
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
-        <ListChecks size={14} className="text-muted-foreground" aria-hidden="true" />
-        <span className="text-sm font-medium">Steps</span>
+        {/* View mode toggle */}
+        <div className="flex items-center rounded-md border border-border bg-muted/30 p-0.5">
+          <button
+            onClick={() => setViewMode("steps")}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors",
+              viewMode === "steps"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-pressed={viewMode === "steps"}
+          >
+            <ListChecks size={12} />
+            <span className="hidden sm:inline">Steps</span>
+          </button>
+          <button
+            onClick={() => setViewMode("activity")}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors",
+              viewMode === "activity"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-pressed={viewMode === "activity"}
+          >
+            <ScrollText size={12} />
+            <span className="hidden sm:inline">Activity</span>
+          </button>
+        </div>
         {steps.length > 0 && (
           <span className="text-xs text-muted-foreground tabular-nums">
             {steps.filter((s) => s.status === "done").length}/{steps.length}
           </span>
         )}
-        {steps.length > 1 && (
+        {viewMode === "steps" && steps.length > 1 && (
           <button
             onClick={expandedStepIds.size > 0 ? collapseAll : expandAll}
             className="ml-auto p-1 text-muted-foreground hover:text-foreground transition-colors"
@@ -185,137 +216,149 @@ export function StepListView({ job, targetStepId, onViewDiff }: StepListViewProp
           </button>
         )}
         {isRunning && activeStep && (
-          <span className={cn("text-[10px] font-medium text-blue-500", steps.length <= 1 && "ml-auto")}>LIVE</span>
+          <span className={cn("text-[10px] font-medium text-blue-500", (viewMode === "activity" || steps.length <= 1) && "ml-auto")}>LIVE</span>
         )}
         {!isRunning && steps.length > 0 && steps.every((s) => s.status === "done") && (
-          <CheckCircle2 size={14} className={cn("text-emerald-500", steps.length <= 1 && "ml-auto")} aria-hidden="true" />
+          <CheckCircle2 size={14} className={cn("text-emerald-500", (viewMode === "activity" || steps.length <= 1) && "ml-auto")} aria-hidden="true" />
         )}
       </div>
 
-      {/* Search & filters — only shown when there are steps */}
-      {steps.length > 0 && (
-        <StepSearchBar jobId={jobId} onSelect={handleSearchSelect} activeFilter={activeFilter} onFilterChange={setActiveFilter} visibleChips={visibleChips} />
-      )}
+      {/* Activity feed mode */}
+      {viewMode === "activity" ? (
+        <>
+          <ActivityFeed jobId={jobId} />
+          {canInteract && (
+            <MessageComposer jobId={jobId} isTerminal={false} />
+          )}
+        </>
+      ) : (
+        <>
+          {/* Search & filters — only shown when there are steps */}
+          {steps.length > 0 && (
+            <StepSearchBar jobId={jobId} onSelect={handleSearchSelect} activeFilter={activeFilter} onFilterChange={setActiveFilter} visibleChips={visibleChips} />
+          )}
 
-      <ResumeBanner jobId={jobId} onJumpToFirst={scrollToTop} />
+          <ResumeBanner jobId={jobId} onJumpToFirst={scrollToTop} />
 
-      {/* Empty / startup state */}
-      {steps.length === 0 && (
-        <div className="flex flex-col divide-y divide-border/50">
-          {isRunning ? (
-            <div className="flex items-center gap-2 py-4 px-4">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
-              <span className="text-sm text-muted-foreground">Waiting for first step…</span>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-10 px-4">
-              <ListChecks className="h-6 w-6 text-muted-foreground/30 mb-3" aria-hidden="true" />
-              <p className="text-sm text-muted-foreground">No steps recorded</p>
+          {/* Empty / startup state */}
+          {steps.length === 0 && (
+            <div className="flex flex-col divide-y divide-border/50">
+              {isRunning ? (
+                <div className="flex items-center gap-2 py-4 px-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
+                  <span className="text-sm text-muted-foreground">Waiting for first step…</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 px-4">
+                  <ListChecks className="h-6 w-6 text-muted-foreground/30 mb-3" aria-hidden="true" />
+                  <p className="text-sm text-muted-foreground">No steps recorded</p>
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Step list (grouped + ungrouped + interstitials + approvals) */}
-      {(steps.length > 0 || renderItems.length > 0) && (
-        <div className="flex flex-col divide-y divide-border/50" role="list">
-          {renderItems.map((item) => {
-            if (item.kind === "operator") {
-              const { entry } = item;
-              return (
-                <div key={`op-${entry.seq}`} className="px-4 py-3" role="listitem">
-                  <div className="flex items-start gap-2 justify-end">
-                    <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-2 max-w-[85%]">
-                      <div className="text-sm text-foreground/90 leading-relaxed">
-                        <AgentMarkdown content={entry.content} />
-                      </div>
-                      <div className="text-[10px] text-muted-foreground/60 mt-1 text-right">
-                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {/* Step list (grouped + ungrouped + interstitials + approvals) */}
+          {(steps.length > 0 || renderItems.length > 0) && (
+            <div className="flex flex-col divide-y divide-border/50" role="list">
+              {renderItems.map((item) => {
+                if (item.kind === "operator") {
+                  const { entry } = item;
+                  return (
+                    <div key={`op-${entry.seq}`} className="px-4 py-3" role="listitem">
+                      <div className="flex items-start gap-2 justify-end">
+                        <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-2 max-w-[85%]">
+                          <div className="text-sm text-foreground/90 leading-relaxed">
+                            <AgentMarkdown content={entry.content} />
+                          </div>
+                          <div className="text-[10px] text-muted-foreground/60 mt-1 text-right">
+                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        </div>
+                        <div className="shrink-0 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center mt-0.5">
+                          <User size={12} className="text-primary" />
+                        </div>
                       </div>
                     </div>
-                    <div className="shrink-0 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center mt-0.5">
-                      <User size={12} className="text-primary" />
+                  );
+                }
+
+                if (item.kind === "approval") {
+                  const { approval } = item;
+                  return (
+                    <ApprovalInline key={`apr-${approval.id}`} approval={approval} />
+                  );
+                }
+
+                if (item.kind === "step") {
+                  const { step } = item;
+                  const isActive = step.stepId === activeStep?.stepId;
+                  const dimmed = activeFilter != null && !stepMatchesFilter(step, activeFilter);
+                  return (
+                    <div
+                      key={step.stepId}
+                      role="listitem"
+                      aria-current={isActive ? "step" : undefined}
+                      data-step-id={step.stepId}
+                      ref={(el) => {
+                        if (el) stepRefs.current.set(step.stepId, el);
+                        if (isActive) activeStepRef.current = el;
+                      }}
+                      className={cn(dimmed && "opacity-40 transition-opacity")}
+                    >
+                      <StepContainer
+                        step={step}
+                        isActive={isActive}
+                        expanded={expandedStepIds.has(step.stepId)}
+                        onToggle={() => toggleStep(step.stepId)}
+                        onViewDiff={onViewDiff}
+                      />
                     </div>
-                  </div>
-                </div>
-              );
-            }
+                  );
+                }
 
-            if (item.kind === "approval") {
-              const { approval } = item;
-              return (
-                <ApprovalInline key={`apr-${approval.id}`} approval={approval} />
-              );
-            }
+                return null;
+              })}
+            </div>
+          )}
 
-            if (item.kind === "step") {
-              const { step } = item;
-              const isActive = step.stepId === activeStep?.stepId;
-              const dimmed = activeFilter != null && !stepMatchesFilter(step, activeFilter);
-              return (
-                <div
-                  key={step.stepId}
-                  role="listitem"
-                  aria-current={isActive ? "step" : undefined}
-                  data-step-id={step.stepId}
-                  ref={(el) => {
-                    if (el) stepRefs.current.set(step.stepId, el);
-                    if (isActive) activeStepRef.current = el;
-                  }}
-                  className={cn(dimmed && "opacity-40 transition-opacity")}
-                >
-                  <StepContainer
-                    step={step}
-                    isActive={isActive}
-                    expanded={expandedStepIds.has(step.stepId)}
-                    onToggle={() => toggleStep(step.stepId)}
-                    onViewDiff={onViewDiff}
-                  />
-                </div>
-              );
-            }
+          {/* Message composer — pinned at bottom when job is interactive */}
+          {canInteract && (
+            <MessageComposer jobId={jobId} isTerminal={false} />
+          )}
 
-            return null;
-          })}
-        </div>
-      )}
-
-      {/* Message composer — pinned at bottom when job is interactive */}
-      {canInteract && (
-        <MessageComposer jobId={jobId} isTerminal={false} />
-      )}
-
-      {/* Jump-to quick actions */}
-      {isRunning && activeStep && (
-        isMobile ? (
-          <button
-            onClick={scrollToActiveStep}
-            aria-label="Jump to the currently executing step"
-            className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full
-                       bg-primary text-primary-foreground text-sm font-medium shadow-lg min-h-[44px]"
-          >
-            Jump to current step
-          </button>
-        ) : (
-          <div className="sticky bottom-0 flex gap-2 p-2 bg-card/95 backdrop-blur border-t border-border">
-            <button
-              onClick={scrollToActiveStep}
-              className="text-xs text-muted-foreground hover:text-foreground min-h-[32px] px-2"
-              aria-label="Jump to the currently executing step"
-            >
-              Jump to current step
-            </button>
-            {hasErrors && (
+          {/* Jump-to quick actions */}
+          {isRunning && activeStep && (
+            isMobile ? (
               <button
-                onClick={scrollToLastError}
-                className="text-xs text-destructive/80 hover:text-destructive min-h-[32px] px-2"
-                aria-label="Jump to the last failed step"
+                onClick={scrollToActiveStep}
+                aria-label="Jump to the currently executing step"
+                className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full
+                           bg-primary text-primary-foreground text-sm font-medium shadow-lg min-h-[44px]"
               >
-                Jump to last error
+                Jump to current step
               </button>
-            )}
-          </div>
-        )
+            ) : (
+              <div className="sticky bottom-0 flex gap-2 p-2 bg-card/95 backdrop-blur border-t border-border">
+                <button
+                  onClick={scrollToActiveStep}
+                  className="text-xs text-muted-foreground hover:text-foreground min-h-[32px] px-2"
+                  aria-label="Jump to the currently executing step"
+                >
+                  Jump to current step
+                </button>
+                {hasErrors && (
+                  <button
+                    onClick={scrollToLastError}
+                    className="text-xs text-destructive/80 hover:text-destructive min-h-[32px] px-2"
+                    aria-label="Jump to the last failed step"
+                  >
+                    Jump to last error
+                  </button>
+                )}
+              </div>
+            )
+          )}
+        </>
       )}
     </div>
   );
