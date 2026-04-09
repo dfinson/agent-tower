@@ -23,6 +23,7 @@ import { Tooltip } from "./ui/tooltip";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
+import type { StepFilter } from "./DiffViewer";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazyRetry(() => import("./DiffViewer"));
@@ -45,10 +46,32 @@ export function JobDetailScreen() {
   const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [tab, setTab] = useState("live");
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [stepFilter, setStepFilter] = useState<StepFilter | null>(null);
+  const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
   const [hasArtifacts, setHasArtifacts] = useState(false);
+
+  const handleTabChange = useCallback((v: string) => {
+    setTab(v);
+    if (v !== "diff") setStepFilter(null);
+    if (v !== "live") setScrollToSeq(null);
+  }, []);
+
+  const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number) => {
+    setStepFilter({ filePaths, label, scrollToSeq: seq });
+    setTab("diff");
+  }, []);
+
+  const handleClearStepFilter = useCallback(() => {
+    setStepFilter(null);
+  }, []);
+
+  const handleNavigateToStep = useCallback((seq: number) => {
+    setScrollToSeq(seq);
+    setTab("live");
+  }, []);
 
   useEffect(() => {
     if (!jobId) return;
@@ -585,7 +608,7 @@ export function JobDetailScreen() {
       )}
 
       {/* Tab bar — desktop shows all tabs + terminal button; mobile shows 3 tabs + ••• overflow */}
-      <Tabs value={tab} onValueChange={setTab} className="mb-4">
+      <Tabs value={tab} onValueChange={handleTabChange} className="mb-4">
         {/* Desktop layout (hidden on mobile) */}
         <div className="hidden sm:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
@@ -677,7 +700,17 @@ export function JobDetailScreen() {
       {tab === "live" && (
         <div className="flex flex-col gap-4">
           <div className="h-[80dvh] min-h-[22rem]">
-            <CuratedFeed jobId={jobId} sdk={job.sdk} interactive jobState={job.state} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />
+            <CuratedFeed
+              jobId={jobId}
+              sdk={job.sdk}
+              interactive
+              jobState={job.state}
+              pausable={isRunning}
+              prompt={job.prompt}
+              promptTimestamp={job.createdAt}
+              onViewStepChanges={handleViewStepChanges}
+              scrollToSeq={scrollToSeq}
+            />
           </div>
           <div className="space-y-4">
             <PlanPanel jobId={jobId} />
@@ -695,7 +728,16 @@ export function JobDetailScreen() {
 
       {tab === "diff" && (
         <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-          <DiffViewer jobId={jobId} jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} onAskSent={() => setTab("live")} />
+          <DiffViewer
+            jobId={jobId}
+            jobState={job.state}
+            resolution={job.resolution}
+            archivedAt={job.archivedAt}
+            onAskSent={() => setTab("live")}
+            stepFilter={stepFilter}
+            onClearStepFilter={handleClearStepFilter}
+            onNavigateToStep={handleNavigateToStep}
+          />
         </Suspense>
       )}
 

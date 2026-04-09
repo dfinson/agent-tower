@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus } from "lucide-react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
@@ -14,12 +14,24 @@ import { Tooltip } from "./ui/tooltip";
 import { useDrag } from "../hooks/useDrag";
 import type { DiffFileModel, DiffHunkModel } from "../api/types";
 
+export interface StepFilter {
+  /** Relative file paths that belong to this step */
+  filePaths: string[];
+  /** Human-readable label, e.g. "Edited models.py, views.py" */
+  label: string;
+  /** Transcript entry seq to scroll back to in the feed */
+  scrollToSeq?: number;
+}
+
 interface DiffViewerProps {
   jobId: string;
   jobState?: string;
   resolution?: string | null;
   archivedAt?: string | null;
   onAskSent?: () => void;
+  stepFilter?: StepFilter | null;
+  onClearStepFilter?: () => void;
+  onNavigateToStep?: (seq: number) => void;
 }
 
 const STATUS_ICON: Record<string, LucideIcon> = {
@@ -121,11 +133,28 @@ function computeAskState(): { canAsk: boolean; reason: string | null } {
   return { canAsk: true, reason: null };
 }
 
-export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerProps) {
+export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onClearStepFilter, onNavigateToStep }: DiffViewerProps) {
   const navigate = useNavigate();
-  const diffs = useStore(selectJobDiffs(jobId));
+  const allDiffs = useStore(selectJobDiffs(jobId));
   const isMobile = useIsMobile();
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [showAllChanges, setShowAllChanges] = useState(false);
+
+  // Filter diffs when step filter is active and not toggled to "all"
+  const isFiltered = !!stepFilter && !showAllChanges;
+  const diffs = useMemo(() => {
+    if (!isFiltered || !stepFilter) return allDiffs;
+    const filterPaths = new Set(stepFilter.filePaths);
+    return allDiffs.filter((f) =>
+      filterPaths.has(f.path) ||
+      stepFilter.filePaths.some((fp) => f.path.endsWith(fp) || fp.endsWith(f.path)),
+    );
+  }, [allDiffs, stepFilter, isFiltered]);
+
+  // Reset selection when filter changes
+  useEffect(() => { setSelectedIdx(0); }, [isFiltered, stepFilter]);
+  // Reset toggle when filter is cleared externally
+  useEffect(() => { if (!stepFilter) setShowAllChanges(false); }, [stepFilter]);
 
   const [original, setOriginal] = useState("");
   const [modified, setModified] = useState("");
@@ -399,7 +428,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
   const totalAdditions = diffs.reduce((sum, f) => sum + (f.additions ?? 0), 0);
   const totalDeletions = diffs.reduce((sum, f) => sum + (f.deletions ?? 0), 0);
 
-  if (diffs.length === 0) {
+  if (diffs.length === 0 && !stepFilter) {
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center">
         <p className="text-sm text-muted-foreground">No changes detected</p>
@@ -409,6 +438,68 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Step filter banner */}
+      {stepFilter && (
+        <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+          <Filter size={14} className="text-primary shrink-0" />
+          <span className="text-xs text-muted-foreground">
+            {isFiltered ? (
+              <>
+                Showing changes from:{" "}
+                {stepFilter.scrollToSeq != null && onNavigateToStep ? (
+                  <button
+                    onClick={() => onNavigateToStep(stepFilter.scrollToSeq!)}
+                    className="text-primary hover:text-primary/80 underline underline-offset-2 decoration-primary/40 hover:decoration-primary transition-colors"
+                  >
+                    {stepFilter.label}
+                  </button>
+                ) : (
+                  <span className="text-foreground/80">{stepFilter.label}</span>
+                )}
+              </>
+            ) : "Showing all changes"}
+          </span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button
+              onClick={() => setShowAllChanges(!showAllChanges)}
+              className={cn(
+                "px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
+                isFiltered
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "bg-muted/30 text-muted-foreground hover:bg-accent/40 border border-transparent",
+              )}
+            >
+              Step Only
+            </button>
+            <button
+              onClick={() => setShowAllChanges(!showAllChanges)}
+              className={cn(
+                "px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
+                !isFiltered
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "bg-muted/30 text-muted-foreground hover:bg-accent/40 border border-transparent",
+              )}
+            >
+              All Changes
+            </button>
+            <button
+              onClick={onClearStepFilter}
+              className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground transition-colors ml-1"
+              title="Clear filter"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {diffs.length === 0 && stepFilter && (
+        <div className="rounded-lg border border-border bg-card p-8 text-center">
+          <p className="text-sm text-muted-foreground">No matching changes for this step</p>
+        </div>
+      )}
+
+      {diffs.length > 0 && (
       <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[calc(100vh-14rem)] md:h-[60vh] min-h-[300px] max-h-[600px]">
         {/* File list sidebar */}
         <div
@@ -509,6 +600,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerPro
           ) : null}
         </div>
       </div>
+      )}
 
       {/* Ask-about-diff bar */}
       {canAsk && checkedHunks.size > 0 && (
