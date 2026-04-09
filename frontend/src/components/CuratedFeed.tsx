@@ -31,7 +31,9 @@ import { cn } from "../lib/utils";
 import {
   formatDuration,
   trimWorktreePaths,
-  ToolStepList,
+  parseArgs,
+  stripMcpPrefix,
+  TruncatedPayload,
 } from "./ToolRenderers";
 
 // ---------------------------------------------------------------------------
@@ -278,35 +280,384 @@ function clusterToolCalls(calls: TranscriptEntry[]): ActionCluster[] {
 }
 
 // ---------------------------------------------------------------------------
-// Chip component — the core unit of progressive disclosure
+// Phase box — flat container with per-file chips, collapses to summary
 // ---------------------------------------------------------------------------
 
-function ActionChip({ cluster }: { cluster: ActionCluster }) {
-  const [expanded, setExpanded] = useState(false);
-  const Icon = KIND_LABELS[cluster.kind].icon;
+/** Extract a dedup key (file path or command) from a tool call entry. */
+function extractFileKey(entry: TranscriptEntry): string {
+  const args = parseArgs(entry.toolArgs);
+  const kind = classifyTool(entry.toolName);
 
-  return (
-    <div className="inline-flex flex-col">
+  if (kind === "read" || kind === "write" || kind === "create") {
+    const path = (args.filePath ?? args.file_path ?? args.path ?? "") as string;
+    if (path) return path;
+  }
+  if (kind === "execute") {
+    return (args.command as string) ?? entry.toolDisplay ?? `cmd-${entry.seq}`;
+  }
+  if (kind === "search") {
+    return (args.query ?? args.pattern ?? "") as string || `search-${entry.seq}`;
+  }
+  // multi_replace: extract first file
+  const name = stripMcpPrefix(entry.toolName ?? "");
+  if (name === "multi_replace_string_in_file" || name === "MultiEdit") {
+    const edits = (args.replacements ?? args.edits ?? []) as Array<Record<string, unknown>>;
+    const firstPath = edits[0] && ((edits[0].filePath ?? edits[0].file_path ?? edits[0].path ?? "") as string);
+    if (firstPath) return firstPath;
+  }
+  return entry.toolDisplay ?? `entry-${entry.seq}`;
+}
+
+interface PhaseFile {
+  key: string;
+  fileName: string;       // just the filename (shown on chip)
+  relativePath: string;   // path relative to worktree root (shown on hover + expand)
+  entries: TranscriptEntry[];
+}
+
+/** Extract just the filename from a path. */
+function fileNameOnly(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1]! : path;
+}
+
+/** Path relative to worktree root (strips worktree prefix). */
+function relativeToWorktree(path: string): string {
+  const MARKER = "/.codeplane-worktrees/";
+  const idx = path.indexOf(MARKER);
+  if (idx !== -1) {
+    // Skip the worktree name segment: …/worktree-name/rest
+    const afterMarker = path.slice(idx + MARKER.length);
+    const slashIdx = afterMarker.indexOf("/");
+    return slashIdx !== -1 ? afterMarker.slice(slashIdx + 1) : afterMarker;
+  }
+  // Fallback: last 3 segments
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts.length <= 3 ? path : parts.slice(-3).join("/");
+}
+
+function deduplicateByFile(entries: TranscriptEntry[]): PhaseFile[] {
+  const map = new Map<string, PhaseFile>();
+  for (const e of entries) {
+    const key = extractFileKey(e);
+    const existing = map.get(key);
+    if (existing) {
+      existing.entries.push(e);
+    } else {
+      const kind = classifyTool(e.toolName);
+      let fileName: string;
+      let relativePath: string;
+      if (kind === "execute") {
+        const args = parseArgs(e.toolArgs);
+        const cmd = trimWorktreePaths((args.command as string) ?? "");
+        fileName = cmd.length > 40 ? cmd.slice(0, 40) + "…" : cmd;
+        relativePath = cmd;
+      } else if (kind === "search") {
+        const args = parseArgs(e.toolArgs);
+        const q = ((args.query ?? args.pattern ?? "") as string).slice(0, 30);
+        fileName = `"${q}"`;
+        relativePath = `"${q}"`;
+      } else {
+        fileName = fileNameOnly(key);
+        relativePath = relativeToWorktree(key);
+      }
+      map.set(key, { key, fileName, relativePath, entries: [e] });
+    }
+  }
+  return [...map.values()];
+}
+
+function PhaseBox({
+  cluster,
+  defaultExpanded,
+}: {
+  cluster: ActionCluster;
+  defaultExpanded?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const Icon = KIND_LABELS[cluster.kind].icon;
+  const files = useMemo(() => deduplicateByFile(cluster.entries), [cluster.entries]);
+  const totalDuration = cluster.entries.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
+
+  // Collapsed: summary row
+  if (!expanded) {
+    return (
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setExpanded(true)}
         className={cn(
-          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium",
-          "border border-border/60 bg-card/50 text-muted-foreground",
-          "hover:bg-accent/50 hover:text-foreground transition-colors",
-          "cursor-pointer select-none",
+          "flex items-center gap-2 py-1.5 px-2.5 rounded-md w-full text-left",
+          "text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors",
+          "border border-transparent hover:border-border/40",
         )}
       >
-        <Icon size={12} className="shrink-0 opacity-60" />
-        <span>{cluster.label}</span>
-        {cluster.entries.length > 1 && (
-          expanded
-            ? <ChevronDown size={11} className="opacity-40" />
-            : <ChevronRight size={11} className="opacity-40" />
+        <Icon size={12} className="shrink-0 opacity-50" />
+        <span className="font-medium">{cluster.label}</span>
+        {totalDuration > 0 && (
+          <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
         )}
+        <ChevronRight size={11} className="opacity-30 shrink-0" />
       </button>
-      {expanded && (
-        <div className="mt-1.5">
-          <ToolStepList calls={cluster.entries} isActive={false} />
+    );
+  }
+
+  // Expanded: phase box with file chips
+  const selectedFile = files.find((f) => f.key === selectedKey);
+
+  return (
+    <div className="rounded-md border border-border/40 bg-muted/5 overflow-hidden">
+      {/* Phase header */}
+      <button
+        onClick={() => setExpanded(false)}
+        className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/20 transition-colors"
+      >
+        <Icon size={12} className="shrink-0 opacity-50" />
+        <span className="font-medium">{cluster.label}</span>
+        {totalDuration > 0 && (
+          <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
+        )}
+        <ChevronDown size={11} className="opacity-30 shrink-0" />
+      </button>
+
+      {/* File chips */}
+      <div className="flex flex-wrap gap-1.5 px-3 py-2 border-t border-border/20">
+        {files.map((f) => (
+          <FileChip
+            key={f.key}
+            file={f}
+            selected={selectedKey === f.key}
+            onClick={() => setSelectedKey(selectedKey === f.key ? null : f.key)}
+          />
+        ))}
+      </div>
+
+      {/* Inline preview — directly below chips, left-aligned */}
+      {selectedFile && (
+        <div className="border-t border-border/20">
+          <InlinePreview file={selectedFile} kind={cluster.kind} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FileChip({
+  file,
+  selected,
+  onClick,
+}: {
+  file: PhaseFile;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const failed = file.entries.some((e) => e.toolSuccess === false);
+  const isRunning = file.entries.some((e) => e.role === "tool_running");
+  const editCount = file.entries.length > 1 ? file.entries.length : undefined;
+
+  return (
+    <button
+      onClick={onClick}
+      title={file.relativePath}
+      className={cn(
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono",
+        "transition-colors cursor-pointer select-none",
+        selected
+          ? "bg-primary/15 text-primary border border-primary/30"
+          : "bg-muted/30 text-muted-foreground hover:bg-accent/40 hover:text-foreground border border-transparent",
+        failed && "text-red-400",
+        isRunning && "animate-pulse",
+      )}
+    >
+      <span className="truncate max-w-[200px]">{file.fileName}</span>
+      {editCount && <span className="text-[9px] opacity-50">×{editCount}</span>}
+    </button>
+  );
+}
+
+function InlinePreview({ file, kind }: { file: PhaseFile; kind: ClusterKind }) {
+  return (
+    <div>
+      {/* Path header — relative to worktree root */}
+      {kind !== "execute" && kind !== "search" && (
+        <div className="px-3 py-1 text-[11px] font-mono text-muted-foreground/60 border-b border-border/10">
+          {file.relativePath}
+        </div>
+      )}
+      <InlinePreviewContent entries={file.entries} kind={kind} />
+    </div>
+  );
+}
+
+function InlinePreviewContent({ entries, kind }: { entries: TranscriptEntry[]; kind: ClusterKind }) {
+  switch (kind) {
+    case "execute":
+      return <CommandPreview entries={entries} />;
+    case "write":
+      return <EditPreview entries={entries} />;
+    case "read":
+      return <ReadPreview entries={entries} />;
+    case "create":
+      return <CreatePreview entries={entries} />;
+    case "search":
+      return <SearchPreview entries={entries} />;
+    default:
+      return <GenericPreview entries={entries} />;
+  }
+}
+
+function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
+  const entry = entries[entries.length - 1]!;
+  const args = parseArgs(entry.toolArgs);
+  const command = trimWorktreePaths((args.command as string) ?? "");
+  const failed = entry.toolSuccess === false;
+
+  return (
+    <div className="font-mono text-xs">
+      <div className={cn("px-3 py-1.5", failed ? "bg-red-950/20" : "bg-zinc-950/30")}>
+        <span className="text-muted-foreground">$ </span>
+        <span className="text-foreground/90">{command}</span>
+      </div>
+      {entry.toolResult && (
+        <div className="px-3 py-1.5">
+          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={600} />
+        </div>
+      )}
+      {failed && entry.toolIssue && (
+        <div className="px-3 py-1 text-red-400 text-[11px]">{entry.toolIssue}</div>
+      )}
+    </div>
+  );
+}
+
+function EditPreview({ entries }: { entries: TranscriptEntry[] }) {
+  return (
+    <div className="text-xs space-y-0">
+      {entries.map((entry, i) => {
+        const args = parseArgs(entry.toolArgs);
+        const name = stripMcpPrefix(entry.toolName ?? "");
+        const failed = entry.toolSuccess === false;
+
+        // multi_replace / MultiEdit
+        if (name === "multi_replace_string_in_file" || name === "MultiEdit") {
+          const edits = (args.replacements ?? args.edits ?? []) as Array<Record<string, unknown>>;
+          return (
+            <div key={i} className="px-3 py-1.5 space-y-1.5">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Pencil size={10} className="text-amber-400 shrink-0" />
+                <span>{edits.length} edits {failed ? "→ failed" : "→ applied"}</span>
+              </div>
+              {edits.slice(0, 4).map((e, j) => {
+                const oldStr = (e.old_string ?? e.old_str ?? e.oldString) as string | undefined;
+                const newStr = (e.new_string ?? e.new_str ?? e.newString) as string | undefined;
+                return oldStr && newStr ? (
+                  <div key={j} className="font-mono text-[11px] leading-relaxed">
+                    <div className="text-red-400/80">- {oldStr.slice(0, 120)}{oldStr.length > 120 ? "…" : ""}</div>
+                    <div className="text-green-400/80">+ {newStr.slice(0, 120)}{newStr.length > 120 ? "…" : ""}</div>
+                  </div>
+                ) : null;
+              })}
+              {edits.length > 4 && (
+                <div className="text-muted-foreground/50 text-[10px]">+{edits.length - 4} more</div>
+              )}
+            </div>
+          );
+        }
+
+        // Single edit
+        const oldStr = (args.old_str ?? args.old_string ?? args.oldString) as string | undefined;
+        const newStr = (args.new_str ?? args.new_string ?? args.newString) as string | undefined;
+        return (
+          <div key={i} className={cn("px-3 py-1.5", i > 0 && "border-t border-border/10")}>
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <Pencil size={10} className="text-amber-400 shrink-0" />
+              <span>{failed ? "Failed" : "Applied"}</span>
+              {entry.toolDurationMs != null && (
+                <span className="text-[10px] opacity-40">{formatDuration(entry.toolDurationMs)}</span>
+              )}
+            </div>
+            {typeof oldStr === "string" && typeof newStr === "string" && (
+              <div className="font-mono text-[11px] leading-relaxed">
+                <div className="text-red-400/80">- {oldStr.slice(0, 120)}{oldStr.length > 120 ? "…" : ""}</div>
+                <div className="text-green-400/80">+ {newStr.slice(0, 120)}{newStr.length > 120 ? "…" : ""}</div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReadPreview({ entries }: { entries: TranscriptEntry[] }) {
+  // Show the content of the last read (most complete)
+  const entry = entries[entries.length - 1]!;
+  const args = parseArgs(entry.toolArgs);
+  const startLine = (args.startLine ?? args.start_line) as number | undefined;
+  const endLine = (args.endLine ?? args.end_line) as number | undefined;
+  const range = startLine && endLine ? `lines ${startLine}–${endLine}` : null;
+
+  return (
+    <div className="text-xs">
+      {range && (
+        <div className="px-3 py-1 text-muted-foreground/60">{range}</div>
+      )}
+      {entry.toolResult && (
+        <div className="px-3 py-1.5 font-mono">
+          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={800} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreatePreview({ entries }: { entries: TranscriptEntry[] }) {
+  const entry = entries[0]!;
+  return (
+    <div className="px-3 py-1.5 text-xs">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <FilePlus size={10} className="text-green-400 shrink-0" />
+        <span>Created</span>
+        {entry.toolDurationMs != null && (
+          <span className="text-[10px] opacity-40">{formatDuration(entry.toolDurationMs)}</span>
+        )}
+      </div>
+      {entry.toolResult && (
+        <div className="mt-1 font-mono">
+          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={400} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SearchPreview({ entries }: { entries: TranscriptEntry[] }) {
+  const entry = entries[entries.length - 1]!;
+  const lines = entry.toolResult?.split("\n").filter((l) => l.trim()).length;
+
+  return (
+    <div className="text-xs">
+      {lines != null && (
+        <div className="px-3 py-1 text-muted-foreground/60">→ {lines} results</div>
+      )}
+      {entry.toolResult && (
+        <div className="px-3 py-1.5 font-mono">
+          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={600} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GenericPreview({ entries }: { entries: TranscriptEntry[] }) {
+  const entry = entries[entries.length - 1]!;
+  return (
+    <div className="px-3 py-1.5 text-xs">
+      {entry.toolDisplay && (
+        <div className="text-muted-foreground mb-1">{entry.toolDisplay}</div>
+      )}
+      {entry.toolResult && (
+        <div className="font-mono">
+          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={400} />
         </div>
       )}
     </div>
@@ -335,16 +686,20 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   clusters,
   isStreaming,
   streamingText,
+  isLastTurn,
+  isJobLive,
 }: {
   turn: AgentTurn;
   clusters: ActionCluster[];
   isStreaming?: boolean;
   streamingText?: string;
+  isLastTurn?: boolean;
+  isJobLive?: boolean;
 }) {
   const hasTools = clusters.length > 0;
-  const totalDuration = turn.toolCalls.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
   const messageContent = turn.message?.content?.trim() ?? "";
   const displayMessage = streamingText || messageContent;
+  const turnComplete = !!turn.message;
 
   return (
     <div className="py-3 space-y-2">
@@ -353,17 +708,20 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
         <ReasoningHint content={turn.reasoning.content} />
       )}
 
-      {/* Tool clusters as chips */}
+      {/* Tool phases as stacked boxes */}
       {hasTools && (
-        <div className="flex flex-wrap gap-1.5 items-start">
-          {clusters.map((c, i) => (
-            <ActionChip key={i} cluster={c} />
-          ))}
-          {totalDuration > 0 && (
-            <span className="text-[10px] text-muted-foreground/40 self-center ml-1">
-              {formatDuration(totalDuration)}
-            </span>
-          )}
+        <div className="space-y-1.5">
+          {clusters.map((c, i) => {
+            // Last cluster in an active turn → expanded
+            const isActivePhase = !turnComplete && !!isLastTurn && !!isJobLive && i === clusters.length - 1;
+            return (
+              <PhaseBox
+                key={i}
+                cluster={c}
+                defaultExpanded={isActivePhase}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -395,45 +753,12 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
   turn: AgentTurn;
   clusters: ActionCluster[];
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const totalTools = turn.toolCalls.length;
-  const totalDuration = turn.toolCalls.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
-
-  // Build an inline summary from cluster labels
-  const summary = clusters.map((c) => c.label).join(", ");
-
-  if (!expanded) {
-    return (
-      <button
-        onClick={() => setExpanded(true)}
-        className={cn(
-          "flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-md w-full text-left",
-          "text-xs text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/30 transition-colors",
-        )}
-      >
-        <ChevronRight size={12} className="shrink-0 opacity-40" />
-        <span className="truncate">{summary}</span>
-        {totalDuration > 0 && (
-          <span className="text-[10px] opacity-30 shrink-0 ml-auto">{formatDuration(totalDuration)}</span>
-        )}
-      </button>
-    );
-  }
-
+  // Condensed turns (no agent message) — show phases collapsed
   return (
-    <div className="py-2 space-y-2">
-      <button
-        onClick={() => setExpanded(false)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-      >
-        <ChevronDown size={12} className="opacity-40" />
-        <span>{totalTools} tool{totalTools !== 1 ? "s" : ""}</span>
-      </button>
-      <div className="flex flex-wrap gap-1.5 items-start">
-        {clusters.map((c, i) => (
-          <ActionChip key={i} cluster={c} />
-        ))}
-      </div>
+    <div className="py-1 space-y-1">
+      {clusters.map((c, i) => (
+        <PhaseBox key={i} cluster={c} defaultExpanded={false} />
+      ))}
       {turn.reasoning?.content && (
         <ReasoningHint content={turn.reasoning.content} />
       )}
@@ -744,6 +1069,7 @@ export function CuratedFeed({
                     jobId={jobId}
                     streamingMessages={streamingMessages}
                     isJobLive={isJobLive}
+                    isLast={vItem.index === displayItems.length - 1}
                   />
                 </div>
               </div>
@@ -767,7 +1093,7 @@ export function CuratedFeed({
 
       {/* Message composer */}
       {interactive && (
-        <div className="border-t border-border/30 px-3 py-2">
+        <div className="rounded-lg border border-border bg-card px-3 py-2 mt-2">
           <div className="flex items-end gap-2">
             <div className="flex-1 relative">
               <textarea
@@ -835,11 +1161,13 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
   jobId,
   streamingMessages,
   isJobLive,
+  isLast,
 }: {
   item: FeedItem;
   jobId: string;
   streamingMessages: Record<string, string>;
   isJobLive: boolean;
+  isLast: boolean;
 }) {
   switch (item.type) {
     case "operator":
@@ -854,6 +1182,8 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
           clusters={item.clusters}
           isStreaming={isStreaming}
           streamingText={streamingText}
+          isLastTurn={isLast}
+          isJobLive={isJobLive}
         />
       );
     }
