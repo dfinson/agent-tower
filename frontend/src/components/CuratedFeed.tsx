@@ -1111,8 +1111,11 @@ export function CuratedFeed({
   // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)
   // This is the ONLY programmatic scroll — explicit user-initiated navigation.
   const [highlightIdx, setHighlightIdx] = useState<number | null>(null);
+  const handledSeqRef = useRef<number | null>(null);
   useEffect(() => {
-    if (scrollToSeq == null || feedItems.length === 0) return;
+    if (scrollToSeq == null) { handledSeqRef.current = null; return; }
+    if (feedItems.length === 0) return;
+    if (handledSeqRef.current === scrollToSeq) return;
     const idx = feedItems.findIndex((item) => {
       if (item.type === "turn" || item.type === "condensed") {
         return item.turn.toolCalls.some((tc) => tc.seq === scrollToSeq);
@@ -1123,7 +1126,8 @@ export function CuratedFeed({
       return false;
     });
     if (idx >= 0) {
-      virtualizer.scrollToIndex(idx, { align: "start", behavior: "smooth" });
+      handledSeqRef.current = scrollToSeq;
+      virtualizer.scrollToIndex(idx, { align: "start" });
       setHighlightIdx(idx);
     }
   }, [scrollToSeq, feedItems, virtualizer]);
