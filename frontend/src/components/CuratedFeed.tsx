@@ -1351,16 +1351,6 @@ export function CuratedFeed({
     },
   });
 
-  // Invalidate all virtualizer measurements when the displayed item set changes
-  // (search filter applied/removed/changed). Without this, stale heights cause overlap.
-  const prevCountRef = useRef(displayItems.length);
-  useEffect(() => {
-    if (displayItems.length !== prevCountRef.current) {
-      prevCountRef.current = displayItems.length;
-      virtualizer.measure();
-    }
-  }, [displayItems.length, virtualizer]);
-
   // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)
   // This is the ONLY programmatic scroll — explicit user-initiated navigation.
   const [highlightIdx, setHighlightIdx] = useState<number | null>(null);
@@ -1529,8 +1519,9 @@ export function CuratedFeed({
         </button>
       )}
 
-      {/* Virtualized feed */}
+      {/* Virtualized feed — key forces full remount when search changes so heights are fresh */}
       <div
+        key={searchQuery ? `search-${searchQuery}-${searchFacet}` : "feed"}
         ref={viewportRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
