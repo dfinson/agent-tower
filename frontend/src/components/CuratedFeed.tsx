@@ -1331,6 +1331,7 @@ export function CuratedFeed({
     : null;
   const displayItems = searchQuery.trim() ? filteredItems : feedItems;
   const activeHighlight = searchQuery.trim() ? searchQuery.toLowerCase() : "";
+  const isSearching = !!searchQuery.trim();
 
   // Virtualizer — NO auto-scroll. User controls scroll at all times.
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1519,13 +1520,33 @@ export function CuratedFeed({
         </button>
       )}
 
-      {/* Virtualized feed — key forces full remount when search changes so heights are fresh */}
+      {/* Feed — virtualized when unfiltered, direct render when searching */}
       <div
-        key={searchQuery ? `search-${searchQuery}-${searchFacet}` : "feed"}
         ref={viewportRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
       >
+        {isSearching ? (
+          /* Search results: small set, render directly — no virtualizer stale-height issues */
+          <div>
+            {displayItems.map((item, idx) => (
+              <div key={idx} className="px-4">
+                <FeedItemRenderer
+                  item={item}
+                  jobId={jobId}
+                  sdk={sdk}
+                  streamingMessages={streamingMessages}
+                  isJobLive={isJobLive}
+                  isLast={idx === displayItems.length - 1}
+                  onViewStepChanges={onViewStepChanges}
+                />
+              </div>
+            ))}
+            {displayItems.length === 0 && (
+              <div className="py-12 text-center text-sm text-muted-foreground">No matches</div>
+            )}
+          </div>
+        ) : (
         <div
           style={{ height: virtualizer.getTotalSize(), position: "relative" }}
         >
@@ -1563,6 +1584,7 @@ export function CuratedFeed({
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Scroll-to-bottom */}
