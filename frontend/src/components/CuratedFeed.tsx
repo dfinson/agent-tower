@@ -10,7 +10,7 @@
  * - Minimal visual weight, muted colors
  */
 
-import { useRef, useEffect, useState, useCallback, useMemo, useDeferredValue, memo, createContext, useContext } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo, memo, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { useHotkeys } from "react-hotkeys-hook";
 import {
@@ -1261,7 +1261,6 @@ export function CuratedFeed({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchFacet, setSearchFacet] = useState<SearchFacet>("all");
-  const deferredQuery = useDeferredValue(searchQuery);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useHotkeys("ctrl+f,meta+f", () => {
@@ -1271,10 +1270,10 @@ export function CuratedFeed({
     if (searchOpen) { setSearchOpen(false); setSearchQuery(""); setSearchFacet("all"); }
   }, { enableOnFormTags: true });
 
-  // Filter items by search (debounced via useDeferredValue)
+  // Filter items by search
   const filteredItems = useMemo(() => {
-    if (!deferredQuery.trim()) return feedItems;
-    const q = deferredQuery.toLowerCase();
+    if (!searchQuery.trim()) return feedItems;
+    const q = searchQuery.toLowerCase();
     const facet = searchFacet;
 
     return feedItems.filter((item) => {
@@ -1319,13 +1318,13 @@ export function CuratedFeed({
 
       return true;
     });
-  }, [feedItems, deferredQuery, searchFacet]);
+  }, [feedItems, searchQuery, searchFacet]);
 
-  const matchCount = deferredQuery.trim()
+  const matchCount = searchQuery.trim()
     ? filteredItems.filter((i) => i.type !== "divider").length
     : null;
-  const displayItems = deferredQuery.trim() ? filteredItems : feedItems;
-  const activeHighlight = deferredQuery.trim() ? deferredQuery.toLowerCase() : "";
+  const displayItems = searchQuery.trim() ? filteredItems : feedItems;
+  const activeHighlight = searchQuery.trim() ? searchQuery.toLowerCase() : "";
 
   // Virtualizer — NO auto-scroll. User controls scroll at all times.
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1336,6 +1335,14 @@ export function CuratedFeed({
     getScrollElement: () => viewportRef.current,
     estimateSize: () => 120,
     overscan: 5,
+    getItemKey: (index) => {
+      const item = displayItems[index];
+      if (!item) return index;
+      if (item.type === "turn" || item.type === "condensed") return item.turn.key;
+      if (item.type === "operator" || item.type === "divider") return `e-${item.entry.seq}`;
+      if (item.type === "approval") return `a-${item.approval.id}`;
+      return index;
+    },
   });
 
   // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)
@@ -1495,17 +1502,15 @@ export function CuratedFeed({
           </div>
         </div>
       ) : (
-        <div className="px-3 py-1.5">
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-2 w-full px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 border border-border/40 transition-colors"
-            title={`Search transcript  ${modKey}+F`}
-          >
-            <Search size={13} className="shrink-0" />
-            <span className="flex-1 text-left">Search transcript…</span>
-            <kbd className="text-[10px] text-muted-foreground/50 font-mono shrink-0">{modKey}+F</kbd>
-          </button>
-        </div>
+        <button
+          onClick={() => setSearchOpen(true)}
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 border border-border bg-card transition-colors"
+          title={`Search transcript  ${modKey}+F`}
+        >
+          <Search size={14} className="shrink-0" />
+          <span className="flex-1 text-left">Search transcript…</span>
+          <kbd className="text-[11px] text-muted-foreground/40 font-mono shrink-0">{modKey}+F</kbd>
+        </button>
       )}
 
       {/* Virtualized feed */}
