@@ -6,8 +6,7 @@ import { cn } from "../lib/utils";
 
 /** Terminal job states where the agent is no longer working. */
 const TERMINAL_STATES = new Set([
-  "completed", "error", "cancelled", "in_review", "review_approved",
-  "review_changes_requested", "review_merged", "archived",
+  "review", "completed", "failed", "canceled", "archived",
 ]);
 
 function ActivityStatusIcon({ status }: { status: string }) {
