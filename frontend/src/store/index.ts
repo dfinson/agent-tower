@@ -112,6 +112,26 @@ export interface TimelineEntry {
   active: boolean;
 }
 
+/** A single step in the activity timeline — one visible agent turn. */
+export interface ActivityTimelineStep {
+  turnId: string;
+  title: string;
+  activityId: string;
+}
+
+/** A retrospective grouping of steps in the activity timeline. */
+export interface ActivityTimelineActivity {
+  activityId: string;
+  label: string;
+  status: "active" | "done";
+  steps: ActivityTimelineStep[];
+}
+
+/** Per-job activity timeline state. */
+export interface ActivityTimelineState {
+  activities: ActivityTimelineActivity[];
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -130,6 +150,44 @@ export function enrichJob(job: JobSummary): JobSummary {
   const m = MODEL_DOWNGRADE_RE.exec(job.failureReason);
   if (!m) return job;
   return { ...job, modelDowngraded: true, requestedModel: m[1], actualModel: m[2] };
+}
+
+/** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
+function _rebuildActivityTimeline(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  summaries: Array<Record<string, any>>,
+): ActivityTimelineState {
+  const activities: ActivityTimelineActivity[] = [];
+  const seenTurnIds = new Set<string>();
+  for (const s of summaries) {
+    const turnId = s.turnId ?? "";
+    if (seenTurnIds.has(turnId)) continue;
+    seenTurnIds.add(turnId);
+    const step: ActivityTimelineStep = {
+      turnId,
+      title: s.title ?? "",
+      activityId: s.activityId ?? "",
+    };
+    const isNew = s.isNewActivity as boolean;
+    if (isNew || activities.length === 0) {
+      const prev = activities[activities.length - 1];
+      if (prev) prev.status = "done";
+      activities.push({
+        activityId: s.activityId ?? "",
+        label: s.activityLabel ?? "",
+        status: (s.activityStatus as "active" | "done") ?? "active",
+        steps: [step],
+      });
+    } else {
+      const last = activities[activities.length - 1];
+      if (last) {
+        last.steps.push(step);
+        last.label = s.activityLabel ?? last.label;
+        last.status = (s.activityStatus as "active" | "done") ?? last.status;
+      }
+    }
+  }
+  return { activities };
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +211,7 @@ interface AppState {
   diffs: Record<string, DiffFileModel[]>; // keyed by jobId
   plans: Record<string, PlanStep[]>; // keyed by jobId
   timelines: Record<string, TimelineEntry[]>; // keyed by jobId
+  activityTimelines: Record<string, ActivityTimelineState>; // keyed by jobId
   /** Accumulated streaming text for in-progress agent messages, keyed by
    * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
    * Cleared when the complete agent message arrives for that turn. */
@@ -196,6 +255,7 @@ interface AppState {
     diff: DiffFileModel[];
     approvals: ApprovalRequest[];
     timeline: TimelineEntry[];
+    turnSummaries?: Array<Record<string, unknown>>;
   }) => void;
 
   // Terminal actions
@@ -224,6 +284,7 @@ export const useStore = create<AppState>((set, get) => ({
   diffs: {},
   plans: {},
   timelines: {},
+  activityTimelines: {},
   streamingMessages: {},
   telemetryVersions: {},
   connectionStatus: "reconnecting",
@@ -350,6 +411,10 @@ export const useStore = create<AppState>((set, get) => ({
         timelines: {
           ...s.timelines,
           [jobId]: (snapshot.timeline ?? []).map((t: any) => ({ ...t, active: false })),
+        },
+        activityTimelines: {
+          ...s.activityTimelines,
+          [jobId]: _rebuildActivityTimeline(snapshot.turnSummaries ?? []),
         },
       };
     });
@@ -882,6 +947,85 @@ export const useStore = create<AppState>((set, get) => ({
           };
         }
 
+        case "turn_summary": {
+          const jobId = payload.jobId as string;
+          const turnId = payload.turnId as string;
+          const title = payload.title as string;
+          const activityId = payload.activityId as string;
+          const activityLabel = payload.activityLabel as string;
+          const activityStatus = (payload.activityStatus as "active" | "done") || "active";
+          const isNewActivity = payload.isNewActivity as boolean;
+
+          // Read FRESH state (not the captured `state` from the top of dispatchSSEEvent)
+          // because two SSE connections (global + job-scoped) may deliver the same event
+          // in back-to-back macrotasks, and the captured `state` would be stale for the
+          // second delivery.
+          const freshTimeline = get().activityTimelines[jobId] ?? { activities: [] };
+
+          // Dedup: skip if this turnId was already recorded.
+          // Exception: if the title changed, this is a merge update — patch in place.
+          const alreadyExists = freshTimeline.activities.some((a) =>
+            a.steps.some((s) => s.turnId === turnId),
+          );
+          if (alreadyExists) {
+            // Check if the title differs (merge update from backend)
+            const needsTitleUpdate = freshTimeline.activities.some((a) =>
+              a.steps.some((s) => s.turnId === turnId && s.title !== title),
+            );
+            if (!needsTitleUpdate) return null;
+
+            // Patch the existing step's title in place
+            const activities = freshTimeline.activities.map((a) => ({
+              ...a,
+              steps: a.steps.map((s) =>
+                s.turnId === turnId ? { ...s, title } : s,
+              ),
+            }));
+            return {
+              activityTimelines: {
+                ...state.activityTimelines,
+                [jobId]: { activities },
+              },
+            };
+          }
+
+          const activities = [...freshTimeline.activities];
+
+          const step: ActivityTimelineStep = { turnId, title, activityId };
+
+          if (isNewActivity || activities.length === 0) {
+            // Mark previous activity as done
+            const prev = activities[activities.length - 1];
+            if (prev) {
+              activities[activities.length - 1] = { ...prev, status: "done" };
+            }
+            activities.push({
+              activityId,
+              label: activityLabel,
+              status: activityStatus,
+              steps: [step],
+            });
+          } else {
+            // Add step to the last activity and optionally update its label
+            const last = activities[activities.length - 1];
+            if (last) {
+              activities[activities.length - 1] = {
+                ...last,
+                label: activityLabel,
+                status: activityStatus,
+                steps: [...last.steps, step],
+              };
+            }
+          }
+
+          return {
+            activityTimelines: {
+              ...state.activityTimelines,
+              [jobId]: { activities },
+            },
+          };
+        }
+
         default:
           return null;
       }
@@ -1071,6 +1215,10 @@ export const selectJobTimeline = (jobId: string) => (state: AppState) =>
 const EMPTY_PLAN: PlanStep[] = [];
 export const selectJobPlan = (jobId: string) => (state: AppState) =>
   state.plans[jobId] ?? EMPTY_PLAN;
+
+const EMPTY_ACTIVITY_TIMELINE: ActivityTimelineState = { activities: [] };
+export const selectActivityTimeline = (jobId: string) => (state: AppState) =>
+  state.activityTimelines[jobId] ?? EMPTY_ACTIVITY_TIMELINE;
 
 // Per-column selectors — only recompute when jobs in that column change
 

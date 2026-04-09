@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-_MSG_MAX = 300
+_MSG_MAX = 500
 _TOOL_INTENT_MAX = 80
 
 
@@ -75,6 +75,29 @@ class PlanStep:
 
 def _make_plan_step_id() -> str:
     return f"ps-{uuid.uuid4().hex[:10]}"
+
+
+def _make_activity_id() -> str:
+    return f"act-{uuid.uuid4().hex[:10]}"
+
+
+# ---------------------------------------------------------------------------
+# Activity model (in-memory) — retrospective grouping for the timeline
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Activity:
+    activity_id: str
+    label: str
+    status: str = "active"  # active | done
+
+
+@dataclass
+class ActivityStep:
+    turn_id: str
+    title: str
+    activity_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +157,40 @@ RULES:
 """
 
 
+_ACTIVITY_PROMPT = """\
+You are summarizing work completed by a coding agent for a session timeline.
+
+Current activity: "{current_activity_label}"
+Steps so far in this activity:
+{recent_step_titles}
+
+Latest completed work:
+- Agent message: {agent_msg}
+- Tools used: {tools}
+
+Respond with JSON only:
+{{"turn_title": "<3-8 word title>", "merge_with_previous": <true|false>, "continues_activity": <true|false>, "new_activity_label": "<label if new activity, else null>", "updated_activity_label": "<refined label if same activity evolved, else null>"}}
+
+RULES:
+- turn_title: concrete and specific — mention file names, function names, endpoints.
+  3-8 words. Describe what THIS turn did, not the overall activity.
+- merge_with_previous: true when this turn is essentially completing, retrying,
+  or continuing the SAME work as the last step listed above.  Examples:
+  fixing a lint error from the previous edit, re-running the same test,
+  narrowing a type annotation that was just added, addressing review feedback
+  on the same change.  When true the turn is folded into the previous step
+  rather than creating a separate line in the timeline.  false when the agent
+  has moved on to meaningfully different work.
+- continues_activity: true if this work is part of the same logical task
+  as the current activity.  false ONLY when the agent has clearly shifted
+  to a different concern (e.g. backend to frontend, building to testing,
+  feature to bugfixing).  Activity boundaries = chapter breaks, not paragraph breaks.
+- new_activity_label: only when continues_activity is false.  3-10 words.
+- updated_activity_label: only when the activity label should be refined
+  because the scope has evolved.  null in most cases.
+"""
+
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
@@ -171,6 +228,10 @@ class ProgressTrackingService:
         # Job task prompts (for plan inference)
         self._job_prompts: dict[str, str] = {}
 
+        # Activity timeline state (retrospective grouping)
+        self._activities: dict[str, list[Activity]] = {}
+        self._activity_steps: dict[str, list[ActivityStep]] = {}
+
     # -- Lifecycle -----------------------------------------------------------
 
     async def start_tracking(self, job_id: str, prompt: str = "") -> None:
@@ -182,6 +243,8 @@ class ProgressTrackingService:
         self._recent_tool_names[job_id] = []
         self._tool_call_count[job_id] = 0
         self._job_prompts[job_id] = prompt
+        self._activities[job_id] = []
+        self._activity_steps[job_id] = []
 
     def stop_tracking(self, job_id: str) -> None:
         pass
@@ -191,6 +254,7 @@ class ProgressTrackingService:
             self._plan_steps, self._active_idx, self._plan_established,
             self._recent_messages, self._recent_tool_intents,
             self._recent_tool_names, self._tool_call_count, self._job_prompts,
+            self._activities, self._activity_steps,
         ):
             store.pop(job_id, None)  # type: ignore[arg-type]
         self._native_plan_active.discard(job_id)
@@ -428,6 +492,142 @@ class ProgressTrackingService:
                 await self._emit_plan_step(job_id, ps)
                 await self._emit_card_headline(job_id, ps)
 
+        # Activity timeline: summarize this turn and assign to an activity.
+        # Only fires when there's a visible agent message (= one feed block).
+        if sister and agent_msg and turn_id:
+            await self._summarize_for_activity_timeline(
+                job_id, sister, agent_msg=agent_msg, turn_id=turn_id,
+            )
+
+    async def _summarize_for_activity_timeline(
+        self,
+        job_id: str,
+        sister: SisterSession,
+        *,
+        agent_msg: str,
+        turn_id: str,
+    ) -> None:
+        """Generate a step title and decide activity grouping for the timeline."""
+        activities = self._activities.get(job_id, [])
+        act_steps = self._activity_steps.get(job_id, [])
+
+        current_activity = activities[-1] if activities else None
+        current_label = current_activity.label if current_activity else "(none — this is the first step)"
+
+        # Collect recent step titles in the current activity
+        current_act_id = current_activity.activity_id if current_activity else None
+        recent_titles = [
+            s.title for s in act_steps
+            if s.activity_id == current_act_id
+        ][-5:]
+        recent_block = "\n".join(f"  - {t}" for t in recent_titles) if recent_titles else "  (none yet)"
+
+        tools = ", ".join(self._recent_tool_names.get(job_id, [])[-6:])
+
+        prompt = _ACTIVITY_PROMPT.format(
+            current_activity_label=current_label,
+            recent_step_titles=recent_block,
+            agent_msg=agent_msg[:_MSG_MAX],
+            tools=tools or "(none)",
+        )
+
+        turn_title = "Work in progress"
+        continues = True
+        merge_prev = False
+        new_label: str | None = None
+        updated_label: str | None = None
+
+        try:
+            raw = await sister.complete(prompt, timeout=15)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+                raw = re.sub(r"\n?```$", "", raw)
+                raw = raw.strip()
+
+            parsed = json.loads(raw)
+            tt = parsed.get("turn_title")
+            if isinstance(tt, str) and tt.strip():
+                turn_title = tt.strip()[:80]
+            ca = parsed.get("continues_activity")
+            if isinstance(ca, bool):
+                continues = ca
+            nl = parsed.get("new_activity_label")
+            if isinstance(nl, str) and nl.strip():
+                new_label = nl.strip()[:80]
+            ul = parsed.get("updated_activity_label")
+            if isinstance(ul, str) and ul.strip():
+                updated_label = ul.strip()[:80]
+            mp = parsed.get("merge_with_previous")
+            if isinstance(mp, bool):
+                merge_prev = mp
+        except Exception:
+            log.debug("activity_summary_failed", job_id=job_id, exc_info=True)
+
+        # Merge with the previous step: update its title and emit an
+        # update so the frontend refreshes, but don't add a new line.
+        prev_step = act_steps[-1] if act_steps else None
+        if merge_prev and prev_step and current_activity is not None:
+            prev_step.title = turn_title
+            await self._event_bus.publish(DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.turn_summary,
+                payload={
+                    "turn_id": prev_step.turn_id,
+                    "title": turn_title,
+                    "activity_id": current_activity.activity_id,
+                    "activity_label": current_activity.label,
+                    "activity_status": current_activity.status,
+                    "is_new_activity": False,
+                },
+            ))
+            return
+
+        is_new_activity = False
+
+        if not continues or current_activity is None:
+            # Start a new activity
+            if current_activity is not None:
+                current_activity.status = "done"
+            new_act = Activity(
+                activity_id=_make_activity_id(),
+                label=new_label or turn_title,
+                status="active",
+            )
+            activities.append(new_act)
+            self._activities[job_id] = activities
+            current_activity = new_act
+            is_new_activity = True
+        elif updated_label and current_activity:
+            current_activity.label = updated_label
+
+        # Record the step
+        step = ActivityStep(
+            turn_id=turn_id,
+            title=turn_title,
+            activity_id=current_activity.activity_id,
+        )
+        act_steps.append(step)
+        self._activity_steps[job_id] = act_steps
+
+        # Emit the turn_summary event
+        await self._event_bus.publish(DomainEvent(
+            event_id=DomainEvent.make_event_id(),
+            job_id=job_id,
+            timestamp=datetime.now(UTC),
+            kind=DomainEventKind.turn_summary,
+            payload={
+                "turn_id": turn_id,
+                "title": turn_title,
+                "activity_id": current_activity.activity_id,
+                "activity_label": current_activity.label,
+                "activity_status": current_activity.status,
+                "is_new_activity": is_new_activity,
+            },
+        ))
+
     async def _classify_and_update(
         self,
         job_id: str,
@@ -614,6 +814,11 @@ class ProgressTrackingService:
             elif ps.status == "pending":
                 ps.status = "skipped"
                 await self._emit_plan_step(job_id, ps)
+
+        # Mark the last activity as done
+        activities = self._activities.get(job_id, [])
+        if activities and activities[-1].status == "active":
+            activities[-1].status = "done"
 
     def get_plan_steps(self, job_id: str) -> list[dict[str, str]]:
         return [

@@ -35,6 +35,7 @@ from backend.models.api_schemas import (
     TelemetryUpdatedPayload,
     ToolGroupSummaryPayload,
     TranscriptPayload,
+    TurnSummaryPayload,
 )
 from backend.models.domain import JobState, Resolution
 from backend.models.events import DomainEvent, DomainEventKind
@@ -81,6 +82,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     # Plan steps — the only step-level event the frontend sees
     DomainEventKind.plan_step_updated: "plan_step_updated",
     DomainEventKind.step_entries_reassigned: "step_entries_reassigned",
+    DomainEventKind.turn_summary: "turn_summary",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -404,6 +406,17 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "turn_id": ("turn_id", ""),
             "old_step_id": ("old_step_id", ""),
             "new_step_id": ("new_step_id", ""),
+        },
+    ),
+    "turn_summary": (
+        TurnSummaryPayload,
+        {
+            "turn_id": ("turn_id", ""),
+            "title": ("title", ""),
+            "activity_id": ("activity_id", ""),
+            "activity_label": ("activity_label", ""),
+            "activity_status": ("activity_status", "active"),
+            "is_new_activity": ("is_new_activity", False),
         },
     ),
 }

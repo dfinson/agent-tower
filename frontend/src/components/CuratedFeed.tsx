@@ -398,7 +398,7 @@ function PhaseBox({
 }: {
   cluster: ActionCluster;
   defaultExpanded?: boolean;
-  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -409,6 +409,8 @@ function PhaseBox({
 
   // First entry seq — used as scroll anchor from the diff tab back to this spot
   const firstSeq = cluster.entries[0]?.seq;
+  // Turn ID — used to fetch step-specific diff from the API
+  const turnId = cluster.entries[0]?.turnId;
 
   const handleViewChanges = useCallback(() => {
     if (!onViewStepChanges) return;
@@ -418,8 +420,8 @@ function PhaseBox({
     const names = files.map((f) => f.fileName);
     const shown = names.slice(0, 2).join(", ");
     const rest = names.length > 2 ? ` +${names.length - 2} more` : "";
-    onViewStepChanges(paths, `${verb} ${shown}${rest}`, firstSeq);
-  }, [onViewStepChanges, files, cluster.kind, firstSeq]);
+    onViewStepChanges(paths, `${verb} ${shown}${rest}`, firstSeq, turnId ?? undefined);
+  }, [onViewStepChanges, files, cluster.kind, firstSeq, turnId]);
 
   // Collapsed: summary row
   if (!expanded) {
@@ -663,6 +665,131 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
   );
 }
 
+/** Compute a simple line-level diff between old and new text. */
+function computeLineDiff(oldStr: string, newStr: string, contextLines = 3) {
+  const oldLines = oldStr.split("\n");
+  const newLines = newStr.split("\n");
+
+  // Find common prefix lines
+  let prefixLen = 0;
+  while (
+    prefixLen < oldLines.length &&
+    prefixLen < newLines.length &&
+    oldLines[prefixLen] === newLines[prefixLen]
+  ) {
+    prefixLen++;
+  }
+
+  // Find common suffix lines (not overlapping prefix)
+  let suffixLen = 0;
+  while (
+    suffixLen < oldLines.length - prefixLen &&
+    suffixLen < newLines.length - prefixLen &&
+    oldLines[oldLines.length - 1 - suffixLen] === newLines[newLines.length - 1 - suffixLen]
+  ) {
+    suffixLen++;
+  }
+
+  const removedLines = oldLines.slice(prefixLen, oldLines.length - suffixLen);
+  const addedLines = newLines.slice(prefixLen, newLines.length - suffixLen);
+
+  // Context: up to N lines before/after the changed region
+  const ctxBefore = oldLines.slice(Math.max(0, prefixLen - contextLines), prefixLen);
+  const ctxAfter = oldLines.slice(
+    oldLines.length - suffixLen,
+    Math.min(oldLines.length, oldLines.length - suffixLen + contextLines),
+  );
+
+  // Line numbers (1-based): the context-before starts at this line in old file
+  const startLineOld = Math.max(0, prefixLen - contextLines) + 1;
+  const startLineNew = Math.max(0, prefixLen - contextLines) + 1;
+
+  type DiffLine = { type: "ctx" | "del" | "add"; text: string; oldNo?: number; newNo?: number };
+  const result: DiffLine[] = [];
+
+  let oldNo = startLineOld;
+  let newNo = startLineNew;
+
+  // Collapse indicator if we skipped prefix lines
+  if (prefixLen > contextLines) {
+    result.push({ type: "ctx", text: "···" });
+  }
+
+  for (const line of ctxBefore) {
+    result.push({ type: "ctx", text: line, oldNo, newNo });
+    oldNo++;
+    newNo++;
+  }
+  for (const line of removedLines) {
+    result.push({ type: "del", text: line, oldNo });
+    oldNo++;
+  }
+  for (const line of addedLines) {
+    result.push({ type: "add", text: line, newNo });
+    newNo++;
+  }
+  for (const line of ctxAfter) {
+    result.push({ type: "ctx", text: line, oldNo, newNo });
+    oldNo++;
+    newNo++;
+  }
+
+  // Collapse indicator if we skipped suffix lines
+  if (suffixLen > contextLines) {
+    result.push({ type: "ctx", text: "···" });
+  }
+
+  return result;
+}
+
+const MAX_DIFF_LINES = 30;
+
+function DiffLines({ oldStr, newStr }: { oldStr: string; newStr: string }) {
+  const lines = useMemo(() => computeLineDiff(oldStr, newStr), [oldStr, newStr]);
+  const capped = lines.length > MAX_DIFF_LINES;
+  const visible = capped ? lines.slice(0, MAX_DIFF_LINES) : lines;
+  const gutterWidth = Math.max(
+    ...lines.map((l) => Math.max(l.oldNo ?? 0, l.newNo ?? 0)),
+  ).toString().length;
+
+  return (
+    <div className="font-mono text-[11px] leading-relaxed overflow-x-auto">
+      {visible.map((line, i) => {
+        const isCollapse = line.text === "···";
+        if (isCollapse) {
+          return (
+            <div key={i} className="text-muted-foreground/40 select-none px-1">
+              {"  ".repeat(gutterWidth)}  ···
+            </div>
+          );
+        }
+        const oldGutter = line.oldNo != null ? String(line.oldNo).padStart(gutterWidth) : " ".repeat(gutterWidth);
+        const newGutter = line.newNo != null ? String(line.newNo).padStart(gutterWidth) : " ".repeat(gutterWidth);
+        const prefix = line.type === "del" ? "-" : line.type === "add" ? "+" : " ";
+        return (
+          <div
+            key={i}
+            className={cn(
+              "px-1 whitespace-pre",
+              line.type === "del" && "bg-red-500/10 text-red-400/80",
+              line.type === "add" && "bg-green-500/10 text-green-400/80",
+              line.type === "ctx" && "text-muted-foreground/60",
+            )}
+          >
+            <span className="text-muted-foreground/30 select-none">{oldGutter} {newGutter} </span>
+            {prefix} {line.text}
+          </div>
+        );
+      })}
+      {capped && (
+        <div className="text-muted-foreground/40 text-[10px] px-1 py-0.5">
+          +{lines.length - MAX_DIFF_LINES} more lines
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EditPreview({ entries }: { entries: TranscriptEntry[] }) {
   return (
     <div className="text-xs space-y-0">
@@ -680,18 +807,17 @@ function EditPreview({ entries }: { entries: TranscriptEntry[] }) {
                 <Pencil size={10} className="text-amber-400 shrink-0" />
                 <span>{edits.length} edits {failed ? "→ failed" : "→ applied"}</span>
               </div>
-              {edits.slice(0, 4).map((e, j) => {
+              {edits.slice(0, 6).map((e, j) => {
                 const oldStr = (e.old_string ?? e.old_str ?? e.oldString) as string | undefined;
                 const newStr = (e.new_string ?? e.new_str ?? e.newString) as string | undefined;
                 return oldStr && newStr ? (
-                  <div key={j} className="font-mono text-[11px] leading-relaxed">
-                    <div className="text-red-400/80">- {oldStr.slice(0, 120)}{oldStr.length > 120 ? "…" : ""}</div>
-                    <div className="text-green-400/80">+ {newStr.slice(0, 120)}{newStr.length > 120 ? "…" : ""}</div>
+                  <div key={j} className={cn(j > 0 && "border-t border-border/10 pt-1.5")}>
+                    <DiffLines oldStr={oldStr} newStr={newStr} />
                   </div>
                 ) : null;
               })}
-              {edits.length > 4 && (
-                <div className="text-muted-foreground/50 text-[10px]">+{edits.length - 4} more</div>
+              {edits.length > 6 && (
+                <div className="text-muted-foreground/50 text-[10px]">+{edits.length - 6} more</div>
               )}
             </div>
           );
@@ -710,10 +836,7 @@ function EditPreview({ entries }: { entries: TranscriptEntry[] }) {
               )}
             </div>
             {typeof oldStr === "string" && typeof newStr === "string" && (
-              <div className="font-mono text-[11px] leading-relaxed">
-                <div className="text-red-400/80">- {oldStr.slice(0, 120)}{oldStr.length > 120 ? "…" : ""}</div>
-                <div className="text-green-400/80">+ {newStr.slice(0, 120)}{newStr.length > 120 ? "…" : ""}</div>
-              </div>
+              <DiffLines oldStr={oldStr} newStr={newStr} />
             )}
           </div>
         );
@@ -839,7 +962,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   streamingText?: string;
   isLastTurn?: boolean;
   isJobLive?: boolean;
-  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
   const hasTools = clusters.length > 0;
   const messageContent = turn.message?.content?.trim() ?? "";
@@ -928,7 +1051,7 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
   turn: AgentTurn;
   clusters: ActionCluster[];
   sdk?: string;
-  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
   // Condensed turns (no agent message) — show phases collapsed
   return (
@@ -1063,6 +1186,7 @@ export function CuratedFeed({
   promptTimestamp,
   onViewStepChanges,
   scrollToSeq,
+  scrollToTurnId,
 }: {
   jobId: string;
   sdk?: string;
@@ -1071,8 +1195,9 @@ export function CuratedFeed({
   jobState?: string;
   prompt?: string;
   promptTimestamp?: string;
-  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
   scrollToSeq?: number | null;
+  scrollToTurnId?: string | null;
 }) {
   const navigate = useNavigate();
   const rawEntries = useStore(selectJobTranscript(jobId));
@@ -1131,6 +1256,25 @@ export function CuratedFeed({
       setHighlightIdx(idx);
     }
   }, [scrollToSeq, feedItems, virtualizer]);
+
+  // Scroll to a specific turn when scrollToTurnId is set (from activity timeline click)
+  const handledTurnIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (scrollToTurnId == null) { handledTurnIdRef.current = null; return; }
+    if (feedItems.length === 0) return;
+    if (handledTurnIdRef.current === scrollToTurnId) return;
+    const idx = feedItems.findIndex((item) => {
+      if (item.type === "turn" || item.type === "condensed") {
+        return item.turn.turnId === scrollToTurnId;
+      }
+      return false;
+    });
+    if (idx >= 0) {
+      handledTurnIdRef.current = scrollToTurnId;
+      virtualizer.scrollToIndex(idx, { align: "start" });
+      setHighlightIdx(idx);
+    }
+  }, [scrollToTurnId, feedItems, virtualizer]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -1223,7 +1367,7 @@ export function CuratedFeed({
   const displayItems = searchQuery.trim() ? filteredItems : feedItems;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {/* Search bar */}
       {searchOpen && (
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30">
@@ -1380,7 +1524,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
   streamingMessages: Record<string, string>;
   isJobLive: boolean;
   isLast: boolean;
-  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
   switch (item.type) {
     case "operator":

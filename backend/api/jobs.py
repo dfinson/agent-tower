@@ -34,6 +34,7 @@ from backend.models.api_schemas import (
     SuggestNamesResponse,
     TranscriptPayload,
     TranscriptSearchResult,
+    TurnSummaryPayload,
 )
 from backend.models.events import DomainEventKind
 from backend.services.event_bus import EventBus
@@ -576,8 +577,8 @@ async def get_step_diff(
     """Return the Git diff for a specific step.
 
     The step_id can be either a plan_step_id (ps-*) from plan_step_updated
-    events, or an internal step_id (step-*) from the StepRow table.
-    Both are looked up to find start_sha/end_sha.
+    events, an internal step_id (step-*) from the StepRow table, or a
+    turn_id from the SDK — all are looked up to find start_sha/end_sha.
     """
     from backend.services.git_service import GitService
 
@@ -605,6 +606,20 @@ async def get_step_diff(
         from backend.models.db import StepRow
 
         result = await session.execute(_select(StepRow).where(StepRow.id == step_id))
+        step = result.scalar_one_or_none()
+        if step and step.start_sha and step.end_sha:
+            start_sha = str(step.start_sha)
+            end_sha = str(step.end_sha)
+
+    # Fallback 2: try StepRow by turn_id (frontend passes turnId from transcript)
+    if not start_sha or not end_sha:
+        from sqlalchemy import select as _select
+
+        from backend.models.db import StepRow
+
+        result = await session.execute(
+            _select(StepRow).where(StepRow.job_id == job_id, StepRow.turn_id == step_id)
+        )
         step = result.scalar_one_or_none()
         if step and step.start_sha and step.end_sha:
             start_sha = str(step.start_sha)
@@ -750,9 +765,10 @@ async def get_job_snapshot(
     summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
     steps_coro = svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
     reassign_coro = svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=5000)
+    turn_summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=5000)
 
-    log_events, transcript_events, timeline_events, summary_events, step_events, reassign_events = await _aio.gather(
-        logs_coro, transcript_coro, timeline_coro, summary_coro, steps_coro, reassign_coro
+    log_events, transcript_events, timeline_events, summary_events, step_events, reassign_events, turn_summary_events = await _aio.gather(
+        logs_coro, transcript_coro, timeline_coro, summary_coro, steps_coro, reassign_coro, turn_summary_coro
     )
 
     # Build logs
@@ -908,6 +924,21 @@ async def get_job_snapshot(
         if (p := step_latest[sid]).get("status") != "pending"
     ]
 
+    # Build turn summaries for the activity timeline
+    turn_summaries = [
+        TurnSummaryPayload(
+            job_id=job_id,
+            turn_id=ev.payload.get("turn_id", ""),
+            title=ev.payload.get("title", ""),
+            activity_id=ev.payload.get("activity_id", ""),
+            activity_label=ev.payload.get("activity_label", ""),
+            activity_status=ev.payload.get("activity_status", "active"),
+            is_new_activity=bool(ev.payload.get("is_new_activity", False)),
+        )
+        for ev in turn_summary_events
+        if ev.payload.get("turn_id") and ev.payload.get("title")
+    ]
+
     resp = JobSnapshotResponse(
         job=_job_to_response(job, progress_preview),
         logs=logs,
@@ -916,6 +947,7 @@ async def get_job_snapshot(
         approvals=approval_list,
         timeline=milestones,
         steps=plan_steps,
+        turn_summaries=turn_summaries,
     )
     return resp.model_dump(by_alias=True)
 
