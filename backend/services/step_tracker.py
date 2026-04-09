@@ -247,6 +247,13 @@ class StepTracker:
             cwd = self._worktree_paths.get(job_id)
             if cwd:
                 try:
+                    # Auto-commit any uncommitted work so the SHA boundary
+                    # captures exactly this step's changes.  ~50 ms, no-op
+                    # when the worktree is clean.
+                    await self._git_service.auto_commit(
+                        cwd=cwd,
+                        message=f"codeplane: step {state.step_number}",
+                    )
                     end_sha = await self._git_service.rev_parse("HEAD", cwd=cwd)
                 except Exception:
                     pass

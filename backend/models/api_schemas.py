@@ -630,6 +630,7 @@ class JobSnapshotResponse(CamelModel):
     approvals: list[ApprovalResponse]
     timeline: list[ProgressHeadlinePayload]
     steps: list[PlanStepPayload] = []
+    turn_summaries: list[TurnSummaryPayload] = []
 
 
 class SDKInfoResponse(CamelModel):
@@ -908,6 +909,17 @@ class PlanStepPayload(CamelModel):
     duration_ms: int | None = None
     start_sha: str | None = None
     end_sha: str | None = None
+
+
+class TurnSummaryPayload(CamelModel):
+    """SSE payload for activity timeline turn summaries."""
+    job_id: str
+    turn_id: str
+    title: str
+    activity_id: str
+    activity_label: str
+    activity_status: str = "active"  # active | done
+    is_new_activity: bool = False
 
 
 class StepDiffPayload(CamelModel):

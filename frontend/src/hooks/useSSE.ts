@@ -110,6 +110,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "telemetry_updated",
         // Plan steps — the only step-level event the frontend handles
         "plan_step_updated",
+        // Activity timeline
+        "turn_summary",
       ];
 
       for (const eventType of eventTypes) {

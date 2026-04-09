@@ -544,7 +544,7 @@ function SortHeader({
 // ---------------------------------------------------------------------------
 
 export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRunning?: boolean }) {
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
   const [toolsCollapsed, setToolsCollapsed] = useState(true);
   const [llmCollapsed, setLlmCollapsed] = useState(true);
   const [llmMainExpanded, setLlmMainExpanded] = useState(false);

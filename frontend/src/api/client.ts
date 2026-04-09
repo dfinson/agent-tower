@@ -129,6 +129,11 @@ export function fetchJobDiff(jobId: string): Promise<DiffFileModel[]> {
   return request(`/jobs/${encodeURIComponent(jobId)}/diff`);
 }
 
+/** Fetch the diff for a single step/turn (uses turn_id as the step lookup key). */
+export function fetchStepDiff(jobId: string, turnId: string): Promise<{ stepId: string; diff: string; filesChanged: number; changedFiles: DiffFileModel[] }> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/steps/${encodeURIComponent(turnId)}/diff`);
+}
+
 export function fetchJobTimeline(jobId: string, limit = 200): Promise<import("../store").TimelineEntry[]> {
   return request<Array<{ headline: string; headlinePast: string; summary?: string; timestamp: string }>>(
     `/jobs/${encodeURIComponent(jobId)}/timeline?limit=${limit}`,

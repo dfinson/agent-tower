@@ -4,7 +4,7 @@ import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
-import { sendOperatorMessage, resumeJob, continueJob } from "../api/client";
+import { sendOperatorMessage, resumeJob, continueJob, fetchStepDiff } from "../api/client";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
@@ -21,6 +21,8 @@ export interface StepFilter {
   label: string;
   /** Transcript entry seq to scroll back to in the feed */
   scrollToSeq?: number;
+  /** SDK turn ID — used to fetch the exact step diff from the API */
+  turnId?: string;
 }
 
 interface DiffViewerProps {
@@ -140,21 +142,50 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [showAllChanges, setShowAllChanges] = useState(false);
 
+  // Step-specific diffs fetched from the API (when turnId is available)
+  const [stepDiffs, setStepDiffs] = useState<import("../api/types").DiffFileModel[] | null>(null);
+  const [stepDiffsLoading, setStepDiffsLoading] = useState(false);
+
+  // Fetch step-specific diff from API when filter has a turnId
+  useEffect(() => {
+    if (!stepFilter?.turnId || showAllChanges) {
+      setStepDiffs(null);
+      return;
+    }
+    let cancelled = false;
+    setStepDiffsLoading(true);
+    fetchStepDiff(jobId, stepFilter.turnId)
+      .then((res) => {
+        if (!cancelled) setStepDiffs(res.changedFiles ?? []);
+      })
+      .catch(() => {
+        // Fallback: will use path-based filtering below
+        if (!cancelled) setStepDiffs(null);
+      })
+      .finally(() => {
+        if (!cancelled) setStepDiffsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [jobId, stepFilter?.turnId, showAllChanges]);
+
   // Filter diffs when step filter is active and not toggled to "all"
   const isFiltered = !!stepFilter && !showAllChanges;
   const diffs = useMemo(() => {
     if (!isFiltered || !stepFilter) return allDiffs;
+    // Prefer API-fetched step diffs when available
+    if (stepDiffs !== null) return stepDiffs;
+    // Fallback: path-based filtering (for steps without turnId or API failure)
     const filterPaths = new Set(stepFilter.filePaths);
     return allDiffs.filter((f) =>
       filterPaths.has(f.path) ||
       stepFilter.filePaths.some((fp) => f.path.endsWith(fp) || fp.endsWith(f.path)),
     );
-  }, [allDiffs, stepFilter, isFiltered]);
+  }, [allDiffs, stepFilter, isFiltered, stepDiffs]);
 
   // Reset selection when filter changes
   useEffect(() => { setSelectedIdx(0); }, [isFiltered, stepFilter]);
   // Reset toggle when filter is cleared externally
-  useEffect(() => { if (!stepFilter) setShowAllChanges(false); }, [stepFilter]);
+  useEffect(() => { if (!stepFilter) { setShowAllChanges(false); setStepDiffs(null); } }, [stepFilter]);
 
   const [original, setOriginal] = useState("");
   const [modified, setModified] = useState("");
@@ -504,7 +535,13 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
         </div>
       )}
 
-      {diffs.length === 0 && stepFilter && (
+      {stepDiffsLoading && isFiltered && (
+        <div className="flex justify-center py-6">
+          <Spinner />
+        </div>
+      )}
+
+      {!stepDiffsLoading && diffs.length === 0 && stepFilter && (
         <div className="rounded-lg border border-border bg-card p-8 text-center">
           <p className="text-sm text-muted-foreground">No matching changes for this step</p>
         </div>

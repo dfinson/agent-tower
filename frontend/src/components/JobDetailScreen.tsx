@@ -1,13 +1,14 @@
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
+import { ActivityTimeline } from "./ActivityTimeline";
 import { PlanPanel } from "./PlanPanel";
 import { ExecutionTimeline } from "./ExecutionTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
@@ -48,10 +49,39 @@ export function JobDetailScreen() {
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [stepFilter, setStepFilter] = useState<StepFilter | null>(null);
   const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
+  const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
+  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
+  const isResizingRef = useRef(false);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
   const [hasArtifacts, setHasArtifacts] = useState(false);
+
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const delta = ev.clientX - startX;
+      const newWidth = Math.max(160, Math.min(480, startWidth + delta));
+      setSidebarWidth(newWidth);
+    };
+    const onMouseUp = () => {
+      isResizingRef.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [sidebarWidth]);
 
   const handleTabChange = useCallback((v: string) => {
     setTab(v);
@@ -59,8 +89,8 @@ export function JobDetailScreen() {
     if (v !== "live") setScrollToSeq(null);
   }, []);
 
-  const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number) => {
-    setStepFilter({ filePaths, label, scrollToSeq: seq });
+  const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
+    setStepFilter({ filePaths, label, scrollToSeq: seq, turnId });
     setTab("diff");
   }, []);
 
@@ -142,6 +172,14 @@ export function JobDetailScreen() {
           };
         });
     }).catch((err) => console.error("Failed to fetch job transcript", err));
+  }, [jobId]);
+
+  // Hydrate activity timeline from snapshot (turn summaries).
+  useEffect(() => {
+    if (!jobId) return;
+    fetchJobSnapshot(jobId)
+      .then((snapshot) => useStore.getState().hydrateJob(snapshot))
+      .catch(() => { /* best-effort */ });
   }, [jobId]);
 
   // Load pending approvals so late-joining clients can approve/reject.
@@ -316,6 +354,7 @@ export function JobDetailScreen() {
   const canCancel = ["queued", "running", "waiting_for_approval"].includes(job.state);
   const canResume = job.state === "failed";
   const isRunning = job.state === "running";
+
   const hasMergeConflict =
     !["merged", "pr_created", "discarded"].includes(job.resolution ?? "") &&
     (job.resolution === "conflict" ||
@@ -615,6 +654,7 @@ export function JobDetailScreen() {
             <TabsTrigger value="live">Live</TabsTrigger>
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
+            <TabsTrigger value="metrics"><BarChart3 size={13} className="mr-1.5" />Metrics</TabsTrigger>
             {hasArtifacts && <TabsTrigger value="artifacts">Artifacts</TabsTrigger>}
           </TabsList>
 
@@ -640,6 +680,7 @@ export function JobDetailScreen() {
             <TabsTrigger value="live">Live</TabsTrigger>
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
+            <TabsTrigger value="metrics"><BarChart3 size={13} className="mr-1.5" />Metrics</TabsTrigger>
           </TabsList>
 
           {(hasArtifacts || hasWorktree) && (
@@ -698,24 +739,75 @@ export function JobDetailScreen() {
       </Tabs>
 
       {tab === "live" && (
-        <div className="flex flex-col gap-4">
-          <div className="h-[80dvh] min-h-[22rem]">
-            <CuratedFeed
-              jobId={jobId}
-              sdk={job.sdk}
-              interactive
-              jobState={job.state}
-              pausable={isRunning}
-              prompt={job.prompt}
-              promptTimestamp={job.createdAt}
-              onViewStepChanges={handleViewStepChanges}
-              scrollToSeq={scrollToSeq}
-            />
+        <div className="flex flex-row">
+          {/* Activity Timeline sidebar — hidden on small screens */}
+          <div
+            className={cn(
+              "hidden lg:flex flex-col flex-shrink-0 h-[80dvh] min-h-[22rem] rounded-lg border border-border bg-card overflow-hidden",
+              sidebarCollapsed && "w-10",
+            )}
+            style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
+          >
+            {sidebarCollapsed ? (
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                className="flex items-center justify-center h-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                title="Expand activity timeline"
+              >
+                <PanelLeftOpen size={18} />
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => setSidebarCollapsed(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-border hover:bg-accent/50 transition-colors"
+                  title="Collapse activity timeline"
+                >
+                  <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
+                  <span className="text-sm font-semibold text-muted-foreground">Activity</span>
+                </button>
+                <div className="flex-1 overflow-hidden">
+                  <ActivityTimeline
+                    jobId={jobId}
+                    onStepClick={(turnId) => {
+                      setScrollToTurnId(turnId);
+                      setSelectedTurnId(turnId);
+                    }}
+                    selectedTurnId={selectedTurnId}
+                  />
+                </div>
+              </>
+            )}
           </div>
-          <div className="space-y-4">
-            <PlanPanel jobId={jobId} />
-            <ExecutionTimeline jobId={jobId} />
-            <MetricsPanel jobId={jobId} isRunning={isRunning} />
+          {/* Drag handle for resizing sidebar */}
+          {!sidebarCollapsed && (
+            <div
+              className="hidden lg:flex items-center justify-center w-2 cursor-col-resize group flex-shrink-0"
+              onMouseDown={handleSidebarResizeStart}
+              title="Drag to resize"
+            >
+              <div className="w-0.5 h-8 rounded-full bg-border group-hover:bg-muted-foreground/60 transition-colors" />
+            </div>
+          )}
+          <div className="flex flex-col gap-4 flex-1 min-w-0 pl-2">
+            <div className="h-[80dvh] min-h-[22rem]">
+              <CuratedFeed
+                jobId={jobId}
+                sdk={job.sdk}
+                interactive
+                jobState={job.state}
+                pausable={isRunning}
+                prompt={job.prompt}
+                promptTimestamp={job.createdAt}
+                onViewStepChanges={handleViewStepChanges}
+                scrollToSeq={scrollToSeq}
+                scrollToTurnId={scrollToTurnId}
+              />
+            </div>
+            <div className="space-y-4">
+              <PlanPanel jobId={jobId} />
+              <ExecutionTimeline jobId={jobId} />
+            </div>
           </div>
         </div>
       )}
@@ -739,6 +831,10 @@ export function JobDetailScreen() {
             onNavigateToStep={handleNavigateToStep}
           />
         </Suspense>
+      )}
+
+      {tab === "metrics" && (
+        <MetricsPanel jobId={jobId} isRunning={isRunning} />
       )}
 
       {tab === "artifacts" && (
