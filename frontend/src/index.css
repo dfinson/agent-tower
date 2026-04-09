@@ -35,16 +35,14 @@
   a { text-decoration: none; color: inherit; }
 }
 
-/* Glow flicker for navigated-to feed items */
-@keyframes glow-flicker {
+/* Brief single glow for navigated-to feed items */
+@keyframes glow-once {
   0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
-  15%  { box-shadow: 0 0 8px 2px hsl(var(--primary) / 0.35); }
-  40%  { box-shadow: 0 0 4px 1px hsl(var(--primary) / 0.15); }
-  60%  { box-shadow: 0 0 6px 2px hsl(var(--primary) / 0.25); }
+  30%  { box-shadow: 0 0 8px 2px hsl(var(--primary) / 0.3); }
   100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
 }
 .animate-glow-flicker {
-  animation: glow-flicker 1.2s ease-out;
+  animation: glow-once 0.8s ease-out;
   border-radius: var(--radius);
 }
 

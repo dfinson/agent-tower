@@ -32,6 +32,7 @@ class JobRow(Base):
     resolution = Column(String, nullable=True)
     archived_at = Column(TZDateTime, nullable=True)
     title = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
     worktree_name = Column(String, nullable=True)
     permission_mode = Column(String, nullable=False, default=PermissionMode.full_auto)
     session_count = Column(Integer, nullable=False, default=1)

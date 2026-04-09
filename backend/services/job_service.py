@@ -176,6 +176,7 @@ class JobService:
         base_ref: str | None = None,
         branch: str | None = None,
         title: str | None = None,
+        description: str | None = None,
         worktree_name: str | None = None,
         permission_mode: PermissionMode = PermissionMode.full_auto,
         model: str | None = None,
@@ -226,6 +227,7 @@ class JobService:
                 log.info("pre_named_collision", worktree_name=worktree_name)
                 pre_named = False
                 title = None
+                description = None
                 worktree_name = None
 
         if not pre_named and self._naming is not None:
@@ -242,7 +244,7 @@ class JobService:
 
                 exclude_names = existing_worktrees | existing_job_ids
 
-                title, generated_branch, worktree_name = await self._naming.generate(
+                title, description, generated_branch, worktree_name = await self._naming.generate(
                     prompt,
                     existing_branches=existing_branches,
                     existing_worktrees=exclude_names,
@@ -263,7 +265,7 @@ class JobService:
                         attempt=_retry + 1,
                     )
                     exclude_names = exclude_names | {worktree_name}
-                    title, generated_branch, worktree_name = await self._naming.generate(
+                    title, description, generated_branch, worktree_name = await self._naming.generate(
                         prompt,
                         existing_branches=existing_branches,
                         existing_worktrees=exclude_names,
@@ -289,6 +291,7 @@ class JobService:
                     updated_at=now,
                     completed_at=now,
                     title=None,
+                    description=None,
                     worktree_name=None,
                     permission_mode=permission_mode,
                     model=model,
@@ -357,6 +360,7 @@ class JobService:
                 updated_at=now,
                 completed_at=now,
                 title=title,
+                description=description,
                 worktree_name=worktree_name,
                 permission_mode=permission_mode,
                 model=model,
@@ -382,6 +386,7 @@ class JobService:
             created_at=now,
             updated_at=now,
             title=title,
+            description=description,
             worktree_name=worktree_name,
             permission_mode=permission_mode,
             model=model,

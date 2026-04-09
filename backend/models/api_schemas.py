@@ -123,6 +123,7 @@ class CreateJobRequest(CamelModel):
     base_ref: str | None = None
     branch: str | None = None
     title: str | None = None
+    description: str | None = None
     worktree_name: str | None = None
     permission_mode: PermissionMode | None = None
     model: str | None = None
@@ -227,6 +228,7 @@ class SuggestNamesRequest(BaseModel):
 
 class SuggestNamesResponse(CamelModel):
     title: str
+    description: str
     branch_name: str
     worktree_name: str
 
@@ -249,6 +251,7 @@ class JobResponse(CamelModel):
     repo: str
     prompt: str
     title: str | None = None
+    description: str | None = None
     state: JobState
     base_ref: str
     worktree_path: str | None
