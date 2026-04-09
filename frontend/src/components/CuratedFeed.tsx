@@ -65,6 +65,12 @@ function Highlight({ text }: { text: string }) {
 
 type SearchFacet = "all" | "messages" | "tools" | "commands";
 
+/** AgentMarkdown that auto-reads the search highlight context. */
+function HighlightedMarkdown({ content }: { content: string }) {
+  const query = useContext(SearchHighlightCtx);
+  return <AgentMarkdown content={content} highlight={query || undefined} />;
+}
+
 const FACETS: { value: SearchFacet; label: string }[] = [
   { value: "all", label: "All" },
   { value: "messages", label: "Messages" },
@@ -974,7 +980,7 @@ const OperatorMessage = memo(function OperatorMessage({ entry }: { entry: Transc
         <User size={13} className="text-primary" />
       </div>
       <div className="flex-1 min-w-0">
-        <AgentMarkdown content={entry.content ?? ""} />
+        <HighlightedMarkdown content={entry.content ?? ""} />
       </div>
     </div>
   );
@@ -1044,7 +1050,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
             {/* Agent message — the high-signal content */}
             {displayMessage && (
               <div className="text-sm text-foreground/90 leading-relaxed">
-                <AgentMarkdown content={displayMessage} />
+                <HighlightedMarkdown content={displayMessage} />
                 {isStreaming && (
                   <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
                 )}
@@ -1067,7 +1073,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
           </div>
           <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2">
             <div className="text-sm text-foreground/90 leading-relaxed">
-              <AgentMarkdown content={streamingText} />
+              <HighlightedMarkdown content={streamingText} />
               <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
             </div>
           </div>
@@ -1344,6 +1350,16 @@ export function CuratedFeed({
       return index;
     },
   });
+
+  // Invalidate all virtualizer measurements when the displayed item set changes
+  // (search filter applied/removed/changed). Without this, stale heights cause overlap.
+  const prevCountRef = useRef(displayItems.length);
+  useEffect(() => {
+    if (displayItems.length !== prevCountRef.current) {
+      prevCountRef.current = displayItems.length;
+      virtualizer.measure();
+    }
+  }, [displayItems.length, virtualizer]);
 
   // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)
   // This is the ONLY programmatic scroll — explicit user-initiated navigation.
