@@ -653,6 +653,9 @@ function ReadPreview({ entries }: { entries: TranscriptEntry[] }) {
 
 function CreatePreview({ entries }: { entries: TranscriptEntry[] }) {
   const entry = entries[0]!;
+  const args = parseArgs(entry.toolArgs);
+  const fileContent = (args.content ?? args.file_text) as string | undefined;
+
   return (
     <div className="px-3 py-1.5 text-xs">
       <div className="flex items-center gap-2 text-muted-foreground">
@@ -662,11 +665,15 @@ function CreatePreview({ entries }: { entries: TranscriptEntry[] }) {
           <span className="text-[10px] opacity-40">{formatDuration(entry.toolDurationMs)}</span>
         )}
       </div>
-      {entry.toolResult && (
+      {fileContent ? (
+        <div className="mt-1 font-mono">
+          <TruncatedPayload content={trimWorktreePaths(fileContent)} maxLength={800} />
+        </div>
+      ) : entry.toolResult ? (
         <div className="mt-1 font-mono">
           <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={400} />
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -743,14 +750,11 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   const messageContent = turn.message?.content?.trim() ?? "";
   const displayMessage = streamingText || messageContent;
   const turnComplete = !!turn.message;
+  const hasMessage = !!displayMessage;
+  const hasReasoning = !!turn.reasoning?.content;
 
   return (
     <div className="py-3 space-y-2">
-      {/* Reasoning — subtle secondary text */}
-      {turn.reasoning?.content && (
-        <ReasoningHint content={turn.reasoning.content} />
-      )}
-
       {/* Tool phases as stacked boxes */}
       {hasTools && (
         <div className="space-y-1.5">
@@ -769,21 +773,48 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
         </div>
       )}
 
-      {/* Agent message — the high-signal content */}
-      {displayMessage && (
-        <div className="text-sm text-foreground/90 leading-relaxed">
-          <AgentMarkdown content={displayMessage} />
-          {isStreaming && (
-            <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
-          )}
+      {/* Agent bubble — message + reasoning grouped together */}
+      {(hasMessage || (hasReasoning && !hasTools)) && (
+        <div className="flex gap-3">
+          <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
+            <Bot size={13} className="text-muted-foreground/60" />
+          </div>
+          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2 space-y-1.5">
+            {/* Reasoning — expandable inside the bubble */}
+            {hasReasoning && (
+              <ReasoningHint content={turn.reasoning!.content!} />
+            )}
+
+            {/* Agent message — the high-signal content */}
+            {displayMessage && (
+              <div className="text-sm text-foreground/90 leading-relaxed">
+                <AgentMarkdown content={displayMessage} />
+                {isStreaming && (
+                  <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Streaming with no committed message yet */}
-      {!displayMessage && isStreaming && streamingText && (
-        <div className="text-sm text-foreground/90 leading-relaxed">
-          <AgentMarkdown content={streamingText} />
-          <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
+      {/* Reasoning only (no message yet, but tools present) — show below tools */}
+      {hasReasoning && hasTools && !hasMessage && (
+        <ReasoningHint content={turn.reasoning!.content!} />
+      )}
+
+      {/* Streaming with no committed message yet and no reasoning bubble shown */}
+      {!displayMessage && isStreaming && streamingText && !hasReasoning && (
+        <div className="flex gap-3">
+          <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
+            <Bot size={13} className="text-muted-foreground/60" />
+          </div>
+          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2">
+            <div className="text-sm text-foreground/90 leading-relaxed">
+              <AgentMarkdown content={streamingText} />
+              <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -806,7 +837,14 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
         <PhaseBox key={i} cluster={c} defaultExpanded={false} onViewStepChanges={onViewStepChanges} />
       ))}
       {turn.reasoning?.content && (
-        <ReasoningHint content={turn.reasoning.content} />
+        <div className="flex gap-3 mt-1">
+          <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
+            <Bot size={13} className="text-muted-foreground/60" />
+          </div>
+          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2">
+            <ReasoningHint content={turn.reasoning.content} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -814,17 +852,16 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
 
 function ReasoningHint({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
-  // Show first ~120 chars as a hint
   const preview = content.length > 120 ? content.slice(0, 120) + "…" : content;
 
   return (
-    <div className="text-[11px] text-muted-foreground/40 leading-snug">
+    <div className="text-xs text-muted-foreground/60 leading-snug">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-start gap-1.5 hover:text-muted-foreground/60 transition-colors text-left"
+        className="flex items-start gap-1.5 hover:text-muted-foreground/80 transition-colors text-left"
       >
-        <Brain size={11} className="shrink-0 mt-0.5 opacity-50" />
-        <span className={expanded ? "whitespace-pre-wrap" : "line-clamp-1"}>
+        <Brain size={12} className="shrink-0 mt-0.5 opacity-60" />
+        <span className={expanded ? "whitespace-pre-wrap" : "line-clamp-2"}>
           {expanded ? trimWorktreePaths(content) : preview}
         </span>
       </button>
