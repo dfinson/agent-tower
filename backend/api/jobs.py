@@ -164,11 +164,11 @@ async def suggest_names(
 
     naming = NamingService(sister_sessions)
     try:
-        title, branch_name, worktree_name = await naming.generate(body.prompt)
+        title, description, branch_name, worktree_name = await naming.generate(body.prompt)
     except NamingError as exc:
         raise HTTPException(status_code=503, detail=f"Naming failed: {exc}") from exc
 
-    return SuggestNamesResponse(title=title, branch_name=branch_name, worktree_name=worktree_name)
+    return SuggestNamesResponse(title=title, description=description, branch_name=branch_name, worktree_name=worktree_name)
 
 
 @router.post("/jobs", response_model=CreateJobResponse, status_code=201)
@@ -185,6 +185,7 @@ async def create_job(
         base_ref=body.base_ref,
         branch=body.branch,
         title=body.title,
+        description=body.description,
         worktree_name=body.worktree_name,
         permission_mode=body.permission_mode or PermissionMode.full_auto,
         model=body.model,

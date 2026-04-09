@@ -197,6 +197,7 @@ class Job:
     """User-facing job disposition (see :class:`Resolution`)."""
     archived_at: datetime | None = None
     title: str | None = None
+    description: str | None = None
     worktree_name: str | None = None
     permission_mode: PermissionMode = PermissionMode.full_auto
     session_count: int = 1
