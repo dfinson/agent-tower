@@ -97,24 +97,19 @@ export interface TranscriptEntry {
   toolVisibility?: string;  // tool_call: "hidden" | "collapsed" | "visible"
   // AI-generated group summary — patched in asynchronously via tool_group_summary SSE
   toolGroupSummary?: string;
-  stepId?: string;      // step this event belongs to (added by StepTracker)
-  stepNumber?: number;  // sequential step number within the job
 }
 
-export interface Step {
-  stepId: string;          // plan step ID (ps-...)
-  jobId: string;
-  label: string;           // plan item label (stable)
-  summary: string | null;  // sister session summary (dynamic)
-  status: "pending" | "active" | "done" | "failed" | "skipped";
-  order: number;           // display order (from backend)
-  toolCount: number;
-  durationMs: number | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  filesWritten: string[] | null;
-  startSha: string | null;
-  endSha: string | null;
+export interface PlanStep {
+  label: string;
+  status: "done" | "active" | "pending" | "skipped";
+}
+
+export interface TimelineEntry {
+  headline: string;
+  headlinePast: string;
+  summary: string;
+  timestamp: string;
+  active: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +117,11 @@ export interface Step {
 // ---------------------------------------------------------------------------
 
 const MODEL_DOWNGRADE_RE = /^Model downgraded: requested (.+) but received (.+)$/;
+
+/** Finalize all active/pending plan steps to a terminal status. */
+function finalizePlanSteps(plan: PlanStep[] | undefined, finalStatus: "done" | "skipped"): PlanStep[] | undefined {
+  return plan?.map((s) => (s.status === "active" || s.status === "pending" ? { ...s, status: finalStatus } : s));
+}
 
 /** Enrich a job loaded from the REST API with parsed model downgrade info. */
 export function enrichJob(job: JobSummary): JobSummary {
@@ -151,8 +151,8 @@ interface AppState {
   logs: Record<string, LogLine[]>; // keyed by jobId
   transcript: Record<string, TranscriptEntry[]>; // keyed by jobId
   diffs: Record<string, DiffFileModel[]>; // keyed by jobId
-  steps: Record<string, Step[]>;           // keyed by jobId
-  transcriptByStep: Record<string, Record<string, TranscriptEntry[]>>;  // jobId → stepId → entries
+  plans: Record<string, PlanStep[]>; // keyed by jobId
+  timelines: Record<string, TimelineEntry[]>; // keyed by jobId
   /** Accumulated streaming text for in-progress agent messages, keyed by
    * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
    * Cleared when the complete agent message arrives for that turn. */
@@ -195,7 +195,7 @@ interface AppState {
     transcript: TranscriptEntry[];
     diff: DiffFileModel[];
     approvals: ApprovalRequest[];
-    steps?: any[];
+    timeline: TimelineEntry[];
   }) => void;
 
   // Terminal actions
@@ -216,24 +216,14 @@ export function _resetSdkInitForTesting() {
   _sdkInitPromise = null;
 }
 
-function buildTranscriptByStep(entries: TranscriptEntry[]): Record<string, TranscriptEntry[]> {
-  const byStep: Record<string, TranscriptEntry[]> = {};
-  for (const entry of entries) {
-    if (entry.stepId) {
-      (byStep[entry.stepId] ??= []).push(entry);
-    }
-  }
-  return byStep;
-}
-
 export const useStore = create<AppState>((set, get) => ({
   jobs: {},
   approvals: {},
   logs: {},
   transcript: {},
   diffs: {},
-  steps: {},
-  transcriptByStep: {},
+  plans: {},
+  timelines: {},
   streamingMessages: {},
   telemetryVersions: {},
   connectionStatus: "reconnecting",
@@ -357,22 +347,10 @@ export const useStore = create<AppState>((set, get) => ({
           ...Object.fromEntries(snapshot.approvals.map((a) => [a.id, a])),
         },
         streamingMessages,
-        steps: { ...s.steps, [jobId]: (snapshot.steps ?? []).map((raw: any) => ({
-          stepId: raw.stepId ?? raw.planStepId ?? "",
-          jobId: raw.jobId ?? jobId,
-          label: raw.label ?? "",
-          summary: raw.summary ?? null,
-          status: raw.status ?? "pending",
-          order: raw.order ?? 0,
-          toolCount: raw.toolCount ?? 0,
-          durationMs: raw.durationMs ?? null,
-          startedAt: raw.startedAt ?? null,
-          completedAt: raw.completedAt ?? null,
-          filesWritten: raw.filesWritten ?? null,
-          startSha: raw.startSha ?? null,
-          endSha: raw.endSha ?? null,
-        })).sort((a: Step, b: Step) => a.order - b.order) },
-        transcriptByStep: { ...s.transcriptByStep, [jobId]: buildTranscriptByStep(deduped) },
+        timelines: {
+          ...s.timelines,
+          [jobId]: (snapshot.timeline ?? []).map((t: any) => ({ ...t, active: false })),
+        },
       };
     });
   },
@@ -407,11 +385,8 @@ export const useStore = create<AppState>((set, get) => ({
 
             // Finalize plan steps on cancel
             const isCanceled = newState === "canceled";
-            const finalSteps = isCanceled
-              ? (state.steps[jobId] ?? [])
-                  .filter((s) => s.status !== "pending")
-                  .map((s) => s.status === "active" ? { ...s, status: "skipped" as const } : s)
-              : undefined;
+            const existingPlan = isCanceled ? state.plans[jobId] : undefined;
+            const finalPlan = finalizePlanSteps(existingPlan, "skipped");
 
             return {
               jobs: {
@@ -422,7 +397,7 @@ export const useStore = create<AppState>((set, get) => ({
                   updatedAt: (payload.timestamp as string) ?? existing.updatedAt,
                 },
               },
-              ...(finalSteps && { steps: { ...state.steps, [jobId]: finalSteps } }),
+              ...(finalPlan && { plans: { ...state.plans, [jobId]: finalPlan } }),
               ...(approvals !== state.approvals && { approvals }),
             };
           }
@@ -482,8 +457,6 @@ export const useStore = create<AppState>((set, get) => ({
             toolDisplayFull: payload.toolDisplayFull as string | undefined,
             toolDurationMs: payload.toolDurationMs as number | undefined,
             toolVisibility: payload.toolVisibility as string | undefined,
-            stepId: payload.stepId as string | undefined,
-            stepNumber: payload.stepNumber as number | undefined,
           };
           const existing = state.transcript[jobId] ?? [];
 
@@ -503,23 +476,8 @@ export const useStore = create<AppState>((set, get) => ({
             if (base.length < before) {
               const updated = [...base, entry];
 
-              // Also remove stale tool_running and add tool_call in transcriptByStep
-              let transcriptByStep = state.transcriptByStep;
-              if (entry.stepId) {
-                const jobIndex = transcriptByStep[jobId] ?? {};
-                const stepEntries = (jobIndex[entry.stepId] ?? []).filter((e) =>
-                  !(e.role === "tool_running" && e.toolName === entry.toolName &&
-                    (!entry.turnId || !e.turnId || entry.turnId === e.turnId))
-                );
-                transcriptByStep = {
-                  ...transcriptByStep,
-                  [jobId]: { ...jobIndex, [entry.stepId]: [...stepEntries, entry] },
-                };
-              }
-
               return {
                 transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
-                transcriptByStep,
               };
             }
           }
@@ -541,109 +499,58 @@ export const useStore = create<AppState>((set, get) => ({
             }
           }
 
-          // Index by step for O(1) lookup in StepContainer
-          let transcriptByStep = state.transcriptByStep;
-          if (entry.stepId) {
-            const jobIndex = transcriptByStep[jobId] ?? {};
-            const stepEntries = jobIndex[entry.stepId] ?? [];
-            const capped = stepEntries.length >= 500 ? stepEntries.slice(-499) : stepEntries;
-            transcriptByStep = {
-              ...transcriptByStep,
-              [jobId]: { ...jobIndex, [entry.stepId]: [...capped, entry] },
-            };
-          }
-
           return {
             transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
             streamingMessages,
-            transcriptByStep,
           };
         }
 
-        case "plan_step_updated": {
+        case "agent_plan_updated": {
           const jobId = payload.jobId as string;
-          const stepId = payload.planStepId as string;
-          const existing = get().steps[jobId] ?? [];
-          const idx = existing.findIndex((s) => s.stepId === stepId);
-          const step: Step = {
-            stepId,
-            jobId,
-            label: payload.label as string,
-            summary: (payload.summary as string | null) ?? null,
-            status: (payload.status as Step["status"]) ?? "pending",
-            order: (payload.order as number) ?? 0,
-            toolCount: (payload.toolCount as number) ?? 0,
-            durationMs: (payload.durationMs as number | null) ?? null,
-            startedAt: (payload.startedAt as string | null) ?? null,
-            completedAt: (payload.completedAt as string | null) ?? null,
-            filesWritten: (payload.filesWritten as string[] | null) ?? null,
-            startSha: (payload.startSha as string | null) ?? null,
-            endSha: (payload.endSha as string | null) ?? null,
+          const rawSteps = (payload.steps as Array<{ label: string; status: string }>) || [];
+          const typed: PlanStep[] = rawSteps.map((s) => ({
+            label: s.label,
+            status: (s.status as PlanStep["status"]) || "pending",
+          }));
+          return {
+            plans: { ...state.plans, [jobId]: typed },
           };
-          const updatedSteps = idx >= 0
-            ? existing.map((s, i) => (i === idx ? step : s))
-            : [...existing, step];
-          updatedSteps.sort((a, b) => a.order - b.order);
+        }
 
-          // Also update job card headline from the active plan step
-          const result: Partial<AppState> = {
-            steps: { ...get().steps, [jobId]: updatedSteps },
-          };
-          if (step.status === "active") {
-            const job = state.jobs[jobId];
-            if (job) {
-              result.jobs = {
+        case "progress_headline": {
+          const jobId = payload.jobId as string;
+          const headline = (payload.headline as string) || "";
+          const headlinePast = (payload.headlinePast as string) || headline;
+          const timestamp = (payload.timestamp as string) || new Date().toISOString();
+          const summary = (payload.summary as string) || "";
+          const existing = state.jobs[jobId];
+
+          // Accumulate timeline entry
+          const prevTimeline = state.timelines[jobId] ?? [];
+          // Mark all remaining previous entries as inactive
+          const deactivated = prevTimeline.map((e) =>
+            e.active ? { ...e, active: false } : e,
+          );
+          const newTimeline = [
+            ...deactivated,
+            { headline, headlinePast, summary, timestamp, active: true },
+          ];
+
+          if (existing) {
+            return {
+              jobs: {
                 ...state.jobs,
                 [jobId]: {
-                  ...job,
-                  progressHeadline: step.label,
-                  progressSummary: step.summary ?? "",
+                  ...existing,
+                  progressHeadline: headline,
+                  progressSummary: summary,
                 },
-              };
-            }
+              },
+              timelines: { ...state.timelines, [jobId]: newTimeline },
+            };
           }
-          return result;
-        }
-
-        case "step_entries_reassigned": {
-          const jobId = payload.jobId as string;
-          const turnId = payload.turnId as string;
-          const oldStepId = payload.oldStepId as string;
-          const newStepId = payload.newStepId as string;
-          if (!jobId || !turnId || !oldStepId || !newStepId) return null;
-
-          const jobIndex = state.transcriptByStep[jobId] ?? {};
-          const oldEntries = jobIndex[oldStepId] ?? [];
-          if (!oldEntries.length) return null;
-
-          // Partition: entries matching turnId move to new step, rest stay.
-          const keep: TranscriptEntry[] = [];
-          const move: TranscriptEntry[] = [];
-          for (const e of oldEntries) {
-            if (e.turnId === turnId) {
-              move.push({ ...e, stepId: newStepId });
-            } else {
-              keep.push(e);
-            }
-          }
-          if (!move.length) return null;
-
-          const newEntries = [...(jobIndex[newStepId] ?? []), ...move];
-
-          // Also update the flat transcript array so full-transcript views
-          // stay consistent with the step-indexed view.
-          const flatUpdated = (state.transcript[jobId] ?? []).map((e) =>
-            e.turnId === turnId && e.stepId === oldStepId
-              ? { ...e, stepId: newStepId }
-              : e,
-          );
-
           return {
-            transcript: { ...state.transcript, [jobId]: flatUpdated },
-            transcriptByStep: {
-              ...state.transcriptByStep,
-              [jobId]: { ...jobIndex, [oldStepId]: keep, [newStepId]: newEntries },
-            },
+            timelines: { ...state.timelines, [jobId]: newTimeline },
           };
         }
 
@@ -717,9 +624,7 @@ export const useStore = create<AppState>((set, get) => ({
           const actualModel = (payload.actualModel as string | null) ?? null;
           const existing = state.jobs[jobId];
           if (existing) {
-            const finalSteps = (state.steps[jobId] ?? [])
-              .filter((s) => s.status !== "pending")
-              .map((s) => s.status === "active" ? { ...s, status: "done" as const } : s);
+            const finalPlan = finalizePlanSteps(state.plans[jobId], "done");
             return {
               jobs: {
                 ...state.jobs,
@@ -733,7 +638,7 @@ export const useStore = create<AppState>((set, get) => ({
                   ...(modelDowngraded && { modelDowngraded, requestedModel, actualModel }),
                 },
               },
-              steps: { ...state.steps, [jobId]: finalSteps },
+              ...(finalPlan && { plans: { ...state.plans, [jobId]: finalPlan } }),
             };
           }
           return null;
@@ -765,9 +670,7 @@ export const useStore = create<AppState>((set, get) => ({
           const reason = (payload.reason as string | null) ?? "Unknown error";
           const existing = state.jobs[jobId];
           if (existing) {
-            const finalSteps = (state.steps[jobId] ?? [])
-              .filter((s) => s.status !== "pending")
-              .map((s) => s.status === "active" ? { ...s, status: "skipped" as const } : s);
+            const finalPlan = finalizePlanSteps(state.plans[jobId], "skipped");
             return {
               jobs: {
                 ...state.jobs,
@@ -777,7 +680,7 @@ export const useStore = create<AppState>((set, get) => ({
                   failureReason: reason,
                 },
               },
-              steps: { ...state.steps, [jobId]: finalSteps },
+              ...(finalPlan && { plans: { ...state.plans, [jobId]: finalPlan } }),
             };
           }
           return null;
@@ -903,16 +806,11 @@ export const useStore = create<AppState>((set, get) => ({
           if (existing.some((e) => e.role === "divider" && e.timestamp === divider.timestamp)) {
             return { jobs: state.jobs[jobId] ? { ...state.jobs, [jobId]: { ...state.jobs[jobId], ...resetFields } } : state.jobs };
           }
-          // Also reset step state so stale steps from the previous session don't appear
-          const { [jobId]: _s, ...restSteps } = state.steps;
-          const { [jobId]: _t, ...restByStep } = state.transcriptByStep;
           return {
             transcript: { ...state.transcript, [jobId]: [...existing, divider] },
             jobs: state.jobs[jobId]
               ? { ...state.jobs, [jobId]: { ...state.jobs[jobId], ...resetFields } }
               : state.jobs,
-            steps: restSteps,
-            transcriptByStep: restByStep,
           };
         }
 
@@ -1166,15 +1064,14 @@ export const selectArchivedJobs = (state: AppState): JobSummary[] =>
 export const selectArchivedCount = (state: AppState): number =>
   Object.values(state.jobs).filter((j) => !!j.archivedAt).length;
 
-const EMPTY_STEPS: Step[] = [];
-export const selectJobSteps = (jobId: string) => (state: AppState) =>
-  state.steps[jobId] ?? EMPTY_STEPS;
-export const selectActiveStep = (jobId: string) => (state: AppState) => {
-  const steps = state.steps[jobId] ?? [];
-  return steps.find((s) => s.status === "active");
-};
-const EMPTY_STEP_ENTRIES: TranscriptEntry[] = [];
-export const selectStepEntries = (jobId: string, stepId: string) => (state: AppState) =>
-  state.transcriptByStep[jobId]?.[stepId] ?? EMPTY_STEP_ENTRIES;
+const EMPTY_TIMELINE: TimelineEntry[] = [];
+export const selectJobTimeline = (jobId: string) => (state: AppState) =>
+  state.timelines[jobId] ?? EMPTY_TIMELINE;
+
+const EMPTY_PLAN: PlanStep[] = [];
+export const selectJobPlan = (jobId: string) => (state: AppState) =>
+  state.plans[jobId] ?? EMPTY_PLAN;
+
+// Per-column selectors — only recompute when jobs in that column change
 
 

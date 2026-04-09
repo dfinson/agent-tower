@@ -129,8 +129,18 @@ export function fetchJobDiff(jobId: string): Promise<DiffFileModel[]> {
   return request(`/jobs/${encodeURIComponent(jobId)}/diff`);
 }
 
-export function fetchJobSteps(jobId: string): Promise<import("../store").Step[]> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/steps`);
+export function fetchJobTimeline(jobId: string, limit = 200): Promise<import("../store").TimelineEntry[]> {
+  return request<Array<{ headline: string; headlinePast: string; summary?: string; timestamp: string }>>(
+    `/jobs/${encodeURIComponent(jobId)}/timeline?limit=${limit}`,
+  ).then((entries) =>
+    entries.map((e) => ({
+      headline: e.headline,
+      headlinePast: e.headlinePast,
+      summary: e.summary ?? "",
+      timestamp: e.timestamp,
+      active: false,
+    })),
+  );
 }
 
 export function fetchTranscriptSearch(
@@ -143,10 +153,6 @@ export function fetchTranscriptSearch(
   if (opts?.stepId) params.set("step_id", opts.stepId);
   if (opts?.limit) params.set("limit", String(opts.limit));
   return request(`/jobs/${encodeURIComponent(jobId)}/transcript/search?${params}`);
-}
-
-export function fetchStepDiff(jobId: string, stepId: string): Promise<{ stepId: string; diff: string; filesChanged: number; changedFiles: import("./types").DiffFileModel[] }> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/steps/${encodeURIComponent(stepId)}/diff`);
 }
 
 export function restoreToSha(jobId: string, sha: string): Promise<{ restored: boolean; sha: string }> {
@@ -164,7 +170,7 @@ export function fetchJobSnapshot(jobId: string): Promise<{
   transcript: import("../store").TranscriptEntry[];
   diff: DiffFileModel[];
   approvals: import("../store").ApprovalRequest[];
-  steps?: Array<{ planStepId: string; jobId: string; label: string; summary?: string | null; status: string; toolCount?: number; durationMs?: number | null; startedAt?: string | null; completedAt?: string | null; filesWritten?: string[] | null; startSha?: string | null; endSha?: string | null }>;
+  timeline: import("../store").TimelineEntry[];
 }> {
   return request(`/jobs/${encodeURIComponent(jobId)}/snapshot`);
 }

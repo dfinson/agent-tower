@@ -2,7 +2,7 @@ import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-/** Shared markdown renderer for agent messages — used by TranscriptPanel and StepContainer. */
+/** Shared markdown renderer for agent messages — used by CuratedFeed. */
 export const AgentMarkdown = memo(function AgentMarkdown({ content }: { content: string }) {
   return (
     <ReactMarkdown

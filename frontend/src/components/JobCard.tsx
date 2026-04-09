@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { GitBranch, AlertTriangle, XCircle, ArrowDownCircle, FolderGit2, CheckCircle2 } from "lucide-react";
-import { useStore, selectJobSteps, selectJobTranscript } from "../store";
+import { useStore, selectJobTranscript } from "../store";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
@@ -44,13 +44,11 @@ function ResolutionBadge({ resolution }: { resolution: string }) {
 export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
   const navigate = useNavigate();
   const repoName = job.repo.split("/").pop() ?? job.repo;
-  const steps = useStore(selectJobSteps(job.id));
   const transcript = useStore(selectJobTranscript(job.id));
   const lastSeenSeq = useViewStateStore((s) => s.lastSeenSeq[job.id]);
   const hasUnread = lastSeenSeq != null && transcript.some((e) => (e.seq ?? 0) > lastSeenSeq);
-  const activeStep = steps.find((s) => s.status === "active");
-  const previewHeadline = activeStep?.label ?? job.progressHeadline ?? null;
-  const previewSummary = activeStep?.summary ?? job.progressSummary ?? "";
+  const previewHeadline = job.progressHeadline ?? null;
+  const previewSummary = job.progressSummary ?? "";
 
   const isFailed = job.state === "failed";
   return (

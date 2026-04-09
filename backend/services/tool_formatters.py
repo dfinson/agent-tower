@@ -722,6 +722,7 @@ _ALWAYS_HIDDEN: frozenset[str] = frozenset({
     "TodoRead",
     "Think",
     "Sql",
+    "sql",
     "ListMcpResourceTemplates",
     "ListMcpResources",
 })

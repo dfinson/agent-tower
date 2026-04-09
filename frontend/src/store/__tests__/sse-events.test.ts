@@ -45,7 +45,8 @@ beforeEach(() => {
     logs: {},
     transcript: {},
     diffs: {},
-    steps: {},
+    plans: {},
+    timelines: {},
     connectionStatus: "disconnected",
   });
 });
@@ -209,42 +210,19 @@ describe("dispatchSSEEvent — additional events", () => {
     expect(Object.keys(selectJobs(useStore.getState()))).toHaveLength(0);
   });
 
-  it("handles plan_step_updated — creates new step", () => {
+  it("handles agent_plan_updated — creates plan steps", () => {
     useStore.setState({ jobs: { "job-1": makeJob() } });
-    useStore.getState().dispatchSSEEvent("plan_step_updated", {
+    useStore.getState().dispatchSSEEvent("agent_plan_updated", {
       jobId: "job-1",
-      planStepId: "ps-abc",
-      label: "Analyze code",
-      summary: "Looking at files",
-      status: "active",
-      toolCount: 2,
+      steps: [
+        { label: "Analyze code", status: "active" },
+        { label: "Fix bugs", status: "pending" },
+      ],
     });
-    const steps = useStore.getState().steps["job-1"] ?? [];
-    expect(steps).toHaveLength(1);
-    expect(steps[0]?.label).toBe("Analyze code");
-    expect(steps[0]?.status).toBe("active");
-    // Should also update job headline
-    const job = selectJobs(useStore.getState())["job-1"]!;
-    expect(job.progressHeadline).toBe("Analyze code");
-  });
-
-  it("handles plan_step_updated — updates existing step", () => {
-    useStore.setState({
-      jobs: { "job-1": makeJob() },
-      steps: { "job-1": [{ stepId: "ps-abc", jobId: "job-1", label: "Analyze code", summary: null, status: "active", order: 0, toolCount: 0, durationMs: null, startedAt: null, completedAt: null, filesWritten: null, startSha: null, endSha: null }] },
-    });
-    useStore.getState().dispatchSSEEvent("plan_step_updated", {
-      jobId: "job-1",
-      planStepId: "ps-abc",
-      label: "Analyze code",
-      summary: "Finished reviewing all source files",
-      status: "done",
-      toolCount: 5,
-    });
-    const steps = useStore.getState().steps["job-1"] ?? [];
-    expect(steps).toHaveLength(1);
-    expect(steps[0]?.status).toBe("done");
-    expect(steps[0]?.summary).toBe("Finished reviewing all source files");
+    const plans = useStore.getState().plans["job-1"] ?? [];
+    expect(plans).toHaveLength(2);
+    expect(plans[0]?.label).toBe("Analyze code");
+    expect(plans[0]?.status).toBe("active");
   });
 
   it("handles model_downgraded", () => {
