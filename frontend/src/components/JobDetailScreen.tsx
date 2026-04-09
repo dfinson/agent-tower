@@ -10,7 +10,6 @@ import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, 
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { PlanPanel } from "./PlanPanel";
-import { ExecutionTimeline } from "./ExecutionTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
@@ -769,6 +768,7 @@ export function JobDetailScreen() {
                 <div className="flex-1 overflow-hidden">
                   <ActivityTimeline
                     jobId={jobId}
+                    jobState={job.state}
                     onStepClick={(turnId) => {
                       setScrollToTurnId(turnId);
                       setSelectedTurnId(turnId);
@@ -806,7 +806,6 @@ export function JobDetailScreen() {
             </div>
             <div className="space-y-4">
               <PlanPanel jobId={jobId} />
-              <ExecutionTimeline jobId={jobId} />
             </div>
           </div>
         </div>

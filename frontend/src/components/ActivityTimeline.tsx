@@ -4,10 +4,16 @@ import { useStore, selectActivityTimeline, selectJobPlan } from "../store";
 import type { ActivityTimelineActivity, PlanStep } from "../store";
 import { cn } from "../lib/utils";
 
+/** Terminal job states where the agent is no longer working. */
+const TERMINAL_STATES = new Set([
+  "completed", "error", "cancelled", "in_review", "review_approved",
+  "review_changes_requested", "review_merged", "archived",
+]);
+
 function ActivityStatusIcon({ status }: { status: string }) {
-  if (status === "done") return <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />;
-  if (status === "active") return <Loader2 size={13} className="text-blue-400 animate-spin shrink-0" />;
-  return <Circle size={13} className="text-muted-foreground/60 shrink-0" />;
+  if (status === "done") return <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />;
+  if (status === "active") return <Loader2 size={14} className="text-blue-400 animate-spin shrink-0" />;
+  return <Circle size={14} className="text-muted-foreground/60 shrink-0" />;
 }
 
 function StepDot({ active }: { active: boolean }) {
@@ -41,13 +47,13 @@ function ActivitySection({
         className="flex items-center gap-1.5 w-full text-left py-1.5 hover:bg-accent/50 rounded-sm transition-colors group"
       >
         {expanded ? (
-          <ChevronDown size={12} className="text-muted-foreground shrink-0" />
+          <ChevronDown size={13} className="text-muted-foreground shrink-0" />
         ) : (
-          <ChevronRight size={12} className="text-muted-foreground shrink-0" />
+          <ChevronRight size={13} className="text-muted-foreground shrink-0" />
         )}
         <span
           className={cn(
-            "text-xs font-semibold leading-snug truncate flex-1",
+            "text-sm font-semibold leading-snug truncate flex-1",
             activity.status === "active" ? "text-foreground" : "text-muted-foreground",
           )}
           title={activity.label}
@@ -73,7 +79,7 @@ function ActivitySection({
                 <StepDot active={isActive} />
                 <span
                   className={cn(
-                    "text-[11px] leading-snug",
+                    "text-[13px] leading-snug",
                     isActive ? "text-foreground font-medium" : "text-foreground/70",
                   )}
                   title={step.title}
@@ -94,7 +100,7 @@ function PlanSummary({ steps }: { steps: PlanStep[] }) {
   if (steps.length === 0) return null;
   return (
     <div className="mt-2 pt-2 border-t border-border">
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <span>Plan</span>
         <span className="tabular-nums">{doneCount}/{steps.length}</span>
       </div>
@@ -104,10 +110,12 @@ function PlanSummary({ steps }: { steps: PlanStep[] }) {
 
 export function ActivityTimeline({
   jobId,
+  jobState,
   onStepClick,
   selectedTurnId,
 }: {
   jobId: string;
+  jobState?: string;
   onStepClick: (turnId: string) => void;
   selectedTurnId?: string | null;
 }) {
@@ -115,7 +123,14 @@ export function ActivityTimeline({
   const planSteps = useStore(selectJobPlan(jobId));
   const hasActiveWork = planSteps.some((s) => s.status === "active" || s.status === "pending");
 
-  if (timeline.activities.length === 0) {
+  // When the job has reached a terminal state, force all activities to "done"
+  // so the spinner stops.
+  const jobFinished = !!jobState && TERMINAL_STATES.has(jobState);
+  const activities = jobFinished
+    ? timeline.activities.map((a) => a.status === "active" ? { ...a, status: "done" as const } : a)
+    : timeline.activities;
+
+  if (activities.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 px-4 py-6">
         <ListTree size={20} className="text-muted-foreground" />
@@ -127,11 +142,11 @@ export function ActivityTimeline({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-        {timeline.activities.map((activity, i) => (
+        {activities.map((activity, i) => (
           <ActivitySection
             key={activity.activityId}
             activity={activity}
-            isLast={i === timeline.activities.length - 1}
+            isLast={i === activities.length - 1}
             selectedTurnId={selectedTurnId ?? null}
             onStepClick={onStepClick}
           />
