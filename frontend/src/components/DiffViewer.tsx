@@ -156,7 +156,9 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
     setStepDiffsLoading(true);
     fetchStepDiff(jobId, stepFilter.turnId)
       .then((res) => {
-        if (!cancelled) setStepDiffs(res.changedFiles ?? []);
+        const files = res.changedFiles ?? [];
+        // If API returned no files, set null so we fall through to path-based filtering
+        if (!cancelled) setStepDiffs(files.length > 0 ? files : null);
       })
       .catch(() => {
         // Fallback: will use path-based filtering below
