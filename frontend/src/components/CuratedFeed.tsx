@@ -248,11 +248,22 @@ function buildFeedItems(
 function clusterToolCalls(calls: TranscriptEntry[]): ActionCluster[] {
   if (calls.length === 0) return [];
 
+  // Filter out file operations on artifact/temp paths (not in the repo worktree)
+  const filtered = calls.filter((call) => {
+    const kind = classifyTool(call.toolName);
+    if (kind === "read" || kind === "write" || kind === "create") {
+      const key = extractFileKey(call);
+      if (!isRepoFile(key)) return false;
+    }
+    return true;
+  });
+  if (filtered.length === 0) return [];
+
   const clusters: ActionCluster[] = [];
   let currentKind: ClusterKind | null = null;
   let currentEntries: TranscriptEntry[] = [];
 
-  for (const call of calls) {
+  for (const call of filtered) {
     const kind = classifyTool(call.toolName);
     // "other" tools never cluster — each gets its own chip with its toolDisplay label
     if (kind === "other") {
@@ -335,6 +346,18 @@ function relativeToWorktree(path: string): string {
   // Fallback: last 3 segments
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts.length <= 3 ? path : parts.slice(-3).join("/");
+}
+
+/** True if the path is inside the job worktree (a repo file, not a temp/session artifact). */
+function isRepoFile(path: string): boolean {
+  if (!path) return false;
+  if (path.includes("/.codeplane-worktrees/")) return true;
+  // Exclude known artifact/temp locations
+  if (path.startsWith("/tmp/") || path.startsWith("/tmp\\")) return false;
+  if (path.includes("/.copilot/")) return false;
+  if (path.includes("/session-state/")) return false;
+  if (path.includes("/.vscode")) return false;
+  return true;
 }
 
 function deduplicateByFile(entries: TranscriptEntry[]): PhaseFile[] {
@@ -1077,19 +1100,22 @@ export function CuratedFeed({
   // Virtualizer
   const viewportRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const prevCountRef = useRef(feedItems.length);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const virtualizer = useVirtualizer({
     count: feedItems.length,
     getScrollElement: () => viewportRef.current,
-    estimateSize: () => 80,
+    estimateSize: () => 120,
     overscan: 5,
   });
 
+  // Auto-scroll to bottom only when NEW items are added (not on re-measure/re-render)
   useEffect(() => {
-    if (stickRef.current && feedItems.length > 0) {
+    if (feedItems.length > prevCountRef.current && stickRef.current) {
       virtualizer.scrollToIndex(feedItems.length - 1, { align: "end" });
     }
+    prevCountRef.current = feedItems.length;
   }, [feedItems.length, virtualizer]);
 
   // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)

@@ -306,32 +306,43 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
       decorationIdsRef.current = modifiedEditor.deltaDecorations(decorationIdsRef.current, []);
       return;
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const newDecorations: any[] = [];
-    hunkLineRanges.forEach((range, hi) => {
-      const checked = checkedHunks.has(hunkKey(selectedIdx, hi));
-      // Glyph checkbox on the first line of each hunk
-      newDecorations.push({
-        range: new m.Range(range.startLine, 1, range.startLine, 1),
-        options: {
-          glyphMarginClassName: checked ? "hunk-cb-checked" : "hunk-cb-unchecked",
-          glyphMarginHoverMessage: { value: "Toggle hunk selection" },
-        },
-      });
-      // Background tint + left-border accent across all lines of checked hunks
-      if (checked) {
+
+    // Apply decorations after a short delay to let Monaco process new content
+    const applyDecorations = () => {
+      const ed = diffEditorRef.current?.getModifiedEditor();
+      if (!ed) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const newDecorations: any[] = [];
+      hunkLineRanges.forEach((range, hi) => {
+        const checked = checkedHunks.has(hunkKey(selectedIdx, hi));
+        // Glyph checkbox on the first line of each hunk
         newDecorations.push({
-          range: new m.Range(range.startLine, 1, range.endLine, 1),
+          range: new m.Range(range.startLine, 1, range.startLine, 1),
           options: {
-            className: "hunk-selected-line",
-            marginClassName: "hunk-selected-line-margin",
-            isWholeLine: true,
+            glyphMarginClassName: checked ? "hunk-cb-checked" : "hunk-cb-unchecked",
+            glyphMarginHoverMessage: { value: "Toggle hunk selection" },
           },
         });
-      }
-    });
-    decorationIdsRef.current = modifiedEditor.deltaDecorations(decorationIdsRef.current, newDecorations);
-  }, [selectedIdx, checkedHunks, hunkLineRanges, canAsk]);
+        // Background tint + left-border accent across all lines of checked hunks
+        if (checked) {
+          newDecorations.push({
+            range: new m.Range(range.startLine, 1, range.endLine, 1),
+            options: {
+              className: "hunk-selected-line",
+              marginClassName: "hunk-selected-line-margin",
+              isWholeLine: true,
+            },
+          });
+        }
+      });
+      decorationIdsRef.current = ed.deltaDecorations(decorationIdsRef.current, newDecorations);
+    };
+
+    // Apply immediately and again after a tick (Monaco may need time to process new models)
+    applyDecorations();
+    const timer = setTimeout(applyDecorations, 100);
+    return () => clearTimeout(timer);
+  }, [selectedIdx, checkedHunks, hunkLineRanges, canAsk, modified]);
 
   // DiffEditor mount handler — wires the glyph-margin click listener
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
