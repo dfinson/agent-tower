@@ -1495,14 +1495,15 @@ export function CuratedFeed({
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-end px-3 py-1">
+        <div className="flex items-center justify-end px-3 py-1.5">
           <button
             onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/30 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 border border-border/40 transition-colors"
             title={`Search transcript  ${modKey}+F`}
           >
-            <Search size={12} />
-            <span>Search</span>
+            <Search size={13} />
+            <span>Search transcript</span>
+            <kbd className="ml-1 text-[10px] text-muted-foreground/60 font-mono">{modKey}+F</kbd>
           </button>
         </div>
       )}
