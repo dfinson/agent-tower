@@ -15,7 +15,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Send, Bot, User, ChevronDown, ChevronRight, Brain,
   ShieldQuestion, CheckCircle2, XCircle as XCircleIcon,
-  ArrowDown, Search, PauseCircle, X, GitBranch,
+  ArrowDown, Search, PauseCircle, X, GitBranch, GitFork,
   FileText, Pencil, FilePlus, Terminal, Globe, Cpu,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ import { useStore, selectJobTranscript, selectApprovals } from "../store";
 import type { TranscriptEntry, ApprovalRequest } from "../store";
 import { sendOperatorMessage, continueJob, pauseJob, resolveApproval } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { SdkIcon } from "./SdkBadge";
 import { MicButton } from "./VoiceButton";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
@@ -482,6 +483,75 @@ function PhaseBox({
   );
 }
 
+function SubAgentBubble({
+  cluster,
+  sdk,
+}: {
+  cluster: ActionCluster;
+  sdk?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Find the best entry: prefer tool_call (completed) over tool_running
+  const completedEntry = cluster.entries.find((e) => e.role === "tool_call");
+  const runningEntry = cluster.entries.find((e) => e.role === "tool_running");
+  const entry = completedEntry ?? runningEntry ?? cluster.entries[cluster.entries.length - 1]!;
+
+  const args = parseArgs(entry.toolArgs);
+  const description = (args.description as string) || entry.toolDisplay?.replace(/^Task:\s*/i, "") || "Sub-agent task";
+  const isRunning = !completedEntry && !!runningEntry;
+  const result = completedEntry?.toolResult ?? entry.toolResult;
+  const totalDuration = cluster.entries.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
+  const hasResult = !!result?.trim();
+
+  return (
+    <div className="rounded-md border border-border/30 bg-card/50 overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => hasResult && setExpanded(!expanded)}
+        className={cn(
+          "flex items-center gap-2.5 px-3 py-2 w-full text-left transition-colors",
+          hasResult && "hover:bg-accent/20 cursor-pointer",
+          !hasResult && "cursor-default",
+        )}
+      >
+        <GitFork size={12} className={cn("shrink-0", isRunning ? "text-primary" : "text-muted-foreground/40")} />
+        <span className={cn(
+          "text-xs flex-1 min-w-0",
+          isRunning ? "text-foreground/80 font-medium" : "text-muted-foreground",
+        )}>
+          {description}
+          {isRunning && (
+            <span className="inline-block w-1 h-3 bg-primary/60 animate-pulse ml-1.5 align-text-bottom rounded-sm" />
+          )}
+        </span>
+        {totalDuration > 0 && !isRunning && (
+          <span className="text-[10px] text-muted-foreground/30 shrink-0">{formatDuration(totalDuration)}</span>
+        )}
+        {hasResult && (
+          expanded
+            ? <ChevronDown size={11} className="opacity-30 shrink-0" />
+            : <ChevronRight size={11} className="opacity-30 shrink-0" />
+        )}
+      </button>
+
+      {/* Expanded result */}
+      {expanded && hasResult && (
+        <div className="border-t border-border/20 px-3 py-2">
+          <div className="flex gap-2.5">
+            <div className="shrink-0 w-5 h-5 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
+              <SdkIcon sdk={sdk} size={12} fallback={<Bot size={11} className="text-muted-foreground/50" />} />
+            </div>
+            <div className="flex-1 min-w-0 text-xs text-foreground/80 leading-relaxed max-h-80 overflow-y-auto">
+              <AgentMarkdown content={trimWorktreePaths(result!)} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FileChip({
   file,
   selected,
@@ -732,6 +802,7 @@ const OperatorMessage = memo(function OperatorMessage({ entry }: { entry: Transc
 const AgentTurnBlock = memo(function AgentTurnBlock({
   turn,
   clusters,
+  sdk,
   isStreaming,
   streamingText,
   isLastTurn,
@@ -740,6 +811,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 }: {
   turn: AgentTurn;
   clusters: ActionCluster[];
+  sdk?: string;
   isStreaming?: boolean;
   streamingText?: string;
   isLastTurn?: boolean;
@@ -759,6 +831,9 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
       {hasTools && (
         <div className="space-y-1.5">
           {clusters.map((c, i) => {
+            if (c.kind === "agent") {
+              return <SubAgentBubble key={i} cluster={c} sdk={sdk} />;
+            }
             // Last cluster in an active turn → expanded
             const isActivePhase = !turnComplete && !!isLastTurn && !!isJobLive && i === clusters.length - 1;
             return (
@@ -777,7 +852,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
       {(hasMessage || (hasReasoning && !hasTools)) && (
         <div className="flex gap-3">
           <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
-            <Bot size={13} className="text-muted-foreground/60" />
+            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
           </div>
           <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2 space-y-1.5">
             {/* Reasoning — expandable inside the bubble */}
@@ -807,7 +882,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
       {!displayMessage && isStreaming && streamingText && !hasReasoning && (
         <div className="flex gap-3">
           <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
-            <Bot size={13} className="text-muted-foreground/60" />
+            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
           </div>
           <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2">
             <div className="text-sm text-foreground/90 leading-relaxed">
@@ -824,22 +899,26 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 const CondensedTurnBlock = memo(function CondensedTurnBlock({
   turn,
   clusters,
+  sdk,
   onViewStepChanges,
 }: {
   turn: AgentTurn;
   clusters: ActionCluster[];
+  sdk?: string;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
 }) {
   // Condensed turns (no agent message) — show phases collapsed
   return (
     <div className="py-1 space-y-1">
       {clusters.map((c, i) => (
-        <PhaseBox key={i} cluster={c} defaultExpanded={false} onViewStepChanges={onViewStepChanges} />
+        c.kind === "agent"
+          ? <SubAgentBubble key={i} cluster={c} sdk={sdk} />
+          : <PhaseBox key={i} cluster={c} defaultExpanded={false} onViewStepChanges={onViewStepChanges} />
       ))}
       {turn.reasoning?.content && (
         <div className="flex gap-3 mt-1">
           <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
-            <Bot size={13} className="text-muted-foreground/60" />
+            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
           </div>
           <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2">
             <ReasoningHint content={turn.reasoning.content} />
@@ -953,6 +1032,7 @@ function DividerLine({ entry }: { entry: TranscriptEntry }) {
 
 export function CuratedFeed({
   jobId,
+  sdk,
   interactive,
   pausable,
   jobState,
@@ -1172,6 +1252,7 @@ export function CuratedFeed({
                   <FeedItemRenderer
                     item={item}
                     jobId={jobId}
+                    sdk={sdk}
                     streamingMessages={streamingMessages}
                     isJobLive={isJobLive}
                     isLast={vItem.index === displayItems.length - 1}
@@ -1265,6 +1346,7 @@ export function CuratedFeed({
 const FeedItemRenderer = memo(function FeedItemRenderer({
   item,
   jobId,
+  sdk,
   streamingMessages,
   isJobLive,
   isLast,
@@ -1272,6 +1354,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
 }: {
   item: FeedItem;
   jobId: string;
+  sdk?: string;
   streamingMessages: Record<string, string>;
   isJobLive: boolean;
   isLast: boolean;
@@ -1288,6 +1371,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
         <AgentTurnBlock
           turn={item.turn}
           clusters={item.clusters}
+          sdk={sdk}
           isStreaming={isStreaming}
           streamingText={streamingText}
           isLastTurn={isLast}
@@ -1297,7 +1381,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
       );
     }
     case "condensed":
-      return <CondensedTurnBlock turn={item.turn} clusters={item.clusters} onViewStepChanges={onViewStepChanges} />;
+      return <CondensedTurnBlock turn={item.turn} clusters={item.clusters} sdk={sdk} onViewStepChanges={onViewStepChanges} />;
     case "approval":
       return <InlineApprovalCard approval={item.approval} />;
     case "divider":
