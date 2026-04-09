@@ -15,7 +15,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Send, Bot, User, ChevronDown, ChevronRight, Brain,
   ShieldQuestion, CheckCircle2, XCircle as XCircleIcon,
-  ArrowDown, Search, PauseCircle, X,
+  ArrowDown, Search, PauseCircle, X, GitBranch,
   FileText, Pencil, FilePlus, Terminal, Globe, Cpu,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -370,34 +370,63 @@ function deduplicateByFile(entries: TranscriptEntry[]): PhaseFile[] {
 function PhaseBox({
   cluster,
   defaultExpanded,
+  onViewStepChanges,
 }: {
   cluster: ActionCluster;
   defaultExpanded?: boolean;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const Icon = KIND_LABELS[cluster.kind].icon;
   const files = useMemo(() => deduplicateByFile(cluster.entries), [cluster.entries]);
   const totalDuration = cluster.entries.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
+  const hasEdits = cluster.kind === "write" || cluster.kind === "create";
+
+  // First entry seq — used as scroll anchor from the diff tab back to this spot
+  const firstSeq = cluster.entries[0]?.seq;
+
+  const handleViewChanges = useCallback(() => {
+    if (!onViewStepChanges) return;
+    const paths = files.map((f) => f.relativePath);
+    // Build a descriptive label: "Edited models.py, views.py" or "Created INDEX.md +2 more"
+    const verb = KIND_LABELS[cluster.kind].singular;
+    const names = files.map((f) => f.fileName);
+    const shown = names.slice(0, 2).join(", ");
+    const rest = names.length > 2 ? ` +${names.length - 2} more` : "";
+    onViewStepChanges(paths, `${verb} ${shown}${rest}`, firstSeq);
+  }, [onViewStepChanges, files, cluster.kind, firstSeq]);
 
   // Collapsed: summary row
   if (!expanded) {
     return (
-      <button
-        onClick={() => setExpanded(true)}
-        className={cn(
-          "flex items-center gap-2 py-1.5 px-2.5 rounded-md w-full text-left",
-          "text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors",
-          "border border-transparent hover:border-border/40",
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setExpanded(true)}
+          className={cn(
+            "flex items-center gap-2 py-1.5 px-2.5 rounded-md flex-1 text-left",
+            "text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors",
+            "border border-transparent hover:border-border/40",
+          )}
+        >
+          <Icon size={12} className="shrink-0 opacity-50" />
+          <span className="font-medium">{cluster.label}</span>
+          {totalDuration > 0 && (
+            <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
+          )}
+          <ChevronRight size={11} className="opacity-30 shrink-0" />
+        </button>
+        {hasEdits && onViewStepChanges && (
+          <button
+            onClick={handleViewChanges}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-primary/70 hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
+            title="View changes in diff viewer"
+          >
+            <GitBranch size={10} />
+            <span>View Changes</span>
+          </button>
         )}
-      >
-        <Icon size={12} className="shrink-0 opacity-50" />
-        <span className="font-medium">{cluster.label}</span>
-        {totalDuration > 0 && (
-          <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
-        )}
-        <ChevronRight size={11} className="opacity-30 shrink-0" />
-      </button>
+      </div>
     );
   }
 
@@ -407,17 +436,29 @@ function PhaseBox({
   return (
     <div className="rounded-md border border-border/40 bg-muted/5 overflow-hidden">
       {/* Phase header */}
-      <button
-        onClick={() => setExpanded(false)}
-        className="flex items-center gap-2 px-3 py-1.5 w-full text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/20 transition-colors"
-      >
-        <Icon size={12} className="shrink-0 opacity-50" />
-        <span className="font-medium">{cluster.label}</span>
-        {totalDuration > 0 && (
-          <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
+      <div className="flex items-center gap-1 pr-1">
+        <button
+          onClick={() => setExpanded(false)}
+          className="flex items-center gap-2 px-3 py-1.5 flex-1 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/20 transition-colors"
+        >
+          <Icon size={12} className="shrink-0 opacity-50" />
+          <span className="font-medium">{cluster.label}</span>
+          {totalDuration > 0 && (
+            <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
+          )}
+          <ChevronDown size={11} className="opacity-30 shrink-0" />
+        </button>
+        {hasEdits && onViewStepChanges && (
+          <button
+            onClick={handleViewChanges}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-primary/70 hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
+            title="View changes in diff viewer"
+          >
+            <GitBranch size={10} />
+            <span>View Changes</span>
+          </button>
         )}
-        <ChevronDown size={11} className="opacity-30 shrink-0" />
-      </button>
+      </div>
 
       {/* File chips */}
       <div className="flex flex-wrap gap-1.5 px-3 py-2 border-t border-border/20">
@@ -688,6 +729,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   streamingText,
   isLastTurn,
   isJobLive,
+  onViewStepChanges,
 }: {
   turn: AgentTurn;
   clusters: ActionCluster[];
@@ -695,6 +737,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   streamingText?: string;
   isLastTurn?: boolean;
   isJobLive?: boolean;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
 }) {
   const hasTools = clusters.length > 0;
   const messageContent = turn.message?.content?.trim() ?? "";
@@ -719,6 +762,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
                 key={i}
                 cluster={c}
                 defaultExpanded={isActivePhase}
+                onViewStepChanges={onViewStepChanges}
               />
             );
           })}
@@ -749,15 +793,17 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 const CondensedTurnBlock = memo(function CondensedTurnBlock({
   turn,
   clusters,
+  onViewStepChanges,
 }: {
   turn: AgentTurn;
   clusters: ActionCluster[];
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
 }) {
   // Condensed turns (no agent message) — show phases collapsed
   return (
     <div className="py-1 space-y-1">
       {clusters.map((c, i) => (
-        <PhaseBox key={i} cluster={c} defaultExpanded={false} />
+        <PhaseBox key={i} cluster={c} defaultExpanded={false} onViewStepChanges={onViewStepChanges} />
       ))}
       {turn.reasoning?.content && (
         <ReasoningHint content={turn.reasoning.content} />
@@ -875,6 +921,8 @@ export function CuratedFeed({
   jobState,
   prompt,
   promptTimestamp,
+  onViewStepChanges,
+  scrollToSeq,
 }: {
   jobId: string;
   sdk?: string;
@@ -883,6 +931,8 @@ export function CuratedFeed({
   jobState?: string;
   prompt?: string;
   promptTimestamp?: string;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
+  scrollToSeq?: number | null;
 }) {
   const navigate = useNavigate();
   const rawEntries = useStore(selectJobTranscript(jobId));
@@ -924,6 +974,24 @@ export function CuratedFeed({
       virtualizer.scrollToIndex(feedItems.length - 1, { align: "end" });
     }
   }, [feedItems.length, virtualizer]);
+
+  // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)
+  useEffect(() => {
+    if (scrollToSeq == null || feedItems.length === 0) return;
+    const idx = feedItems.findIndex((item) => {
+      if (item.type === "turn" || item.type === "condensed") {
+        return item.turn.toolCalls.some((tc) => tc.seq === scrollToSeq);
+      }
+      if (item.type === "operator" || item.type === "divider") {
+        return item.entry.seq === scrollToSeq;
+      }
+      return false;
+    });
+    if (idx >= 0) {
+      stickRef.current = false;
+      virtualizer.scrollToIndex(idx, { align: "start", behavior: "smooth" });
+    }
+  }, [scrollToSeq, feedItems, virtualizer]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -1070,6 +1138,7 @@ export function CuratedFeed({
                     streamingMessages={streamingMessages}
                     isJobLive={isJobLive}
                     isLast={vItem.index === displayItems.length - 1}
+                    onViewStepChanges={onViewStepChanges}
                   />
                 </div>
               </div>
@@ -1162,12 +1231,14 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
   streamingMessages,
   isJobLive,
   isLast,
+  onViewStepChanges,
 }: {
   item: FeedItem;
   jobId: string;
   streamingMessages: Record<string, string>;
   isJobLive: boolean;
   isLast: boolean;
+  onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number) => void;
 }) {
   switch (item.type) {
     case "operator":
@@ -1184,11 +1255,12 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
           streamingText={streamingText}
           isLastTurn={isLast}
           isJobLive={isJobLive}
+          onViewStepChanges={onViewStepChanges}
         />
       );
     }
     case "condensed":
-      return <CondensedTurnBlock turn={item.turn} clusters={item.clusters} />;
+      return <CondensedTurnBlock turn={item.turn} clusters={item.clusters} onViewStepChanges={onViewStepChanges} />;
     case "approval":
       return <InlineApprovalCard approval={item.approval} />;
     case "divider":
