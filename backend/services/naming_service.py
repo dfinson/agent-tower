@@ -29,10 +29,12 @@ class Completable(Protocol):
 
 _NAMING_PROMPT = """\
 You are a naming assistant for a coding task manager. Given a task description, \
-output exactly one JSON object with three fields.
+output exactly one JSON object with four fields.
 
 Field rules:
 - "title": 3-8 words, sentence case, no trailing period. Example: "Add user search feature"
+- "description": 1-2 concise sentences summarising what the task will accomplish. Max 200 characters.
+  Example: "Add a full-text search endpoint for users with filtering by name and email."
 - "branch_name": must start with one of these prefixes followed by a slash, then a kebab-case slug.
   Prefixes: feat/ fix/ chore/ docs/ test/
   Slug: only lowercase a-z, digits 0-9, and hyphens. No underscores, no spaces.
@@ -44,7 +46,7 @@ Field rules:
   Good examples: "add-user-search", "fix-login-bug", "upgrade-deps"
 
 Output format — respond with ONLY this JSON, no markdown, no explanation:
-{"title": "Fix null pointer in login", "branch_name": "fix/null-pointer-login", "worktree_name": "null-pointer-login"}
+{"title": "Fix null pointer in login", "description": "Fix the null pointer exception in the login flow when the user profile is missing.", "branch_name": "fix/null-pointer-login", "worktree_name": "null-pointer-login"}
 
 Task description:
 """
@@ -104,6 +106,16 @@ def _sanitize_title(raw: str) -> str | None:
     return title
 
 
+def _sanitize_description(raw: str) -> str | None:
+    """Validate and clean a generated description. Returns None if unusable."""
+    desc = raw.strip().strip("\"'")
+    if not desc or len(desc) < 5:
+        return None
+    if len(desc) > 300:
+        desc = desc[:297] + "..."
+    return desc
+
+
 def _extract_json(raw: str) -> dict[str, Any] | None:
     """Extract JSON object from LLM response, handling markdown fencing."""
     json_str = raw.strip()
@@ -144,8 +156,8 @@ class NamingService:
         existing_branches: set[str] | None = None,
         existing_worktrees: set[str] | None = None,
         parent_job_context: str | None = None,
-    ) -> tuple[str, str, str]:
-        """Generate a title, branch name, and worktree name.
+    ) -> tuple[str, str, str, str]:
+        """Generate a title, description, branch name, and worktree name.
 
         Retries the full LLM call up to MAX_RETRIES times if the response is
         invalid or unparseable. Raises NamingError if all attempts fail.
@@ -159,7 +171,7 @@ class NamingService:
                 so the generated names reflect the follow-up relationship.
 
         Returns:
-            Tuple of (title, branch_name, worktree_name).
+            Tuple of (title, description, branch_name, worktree_name).
         """
         branches = existing_branches or set()
         worktrees = existing_worktrees or set()
@@ -172,7 +184,7 @@ class NamingService:
         last_error: Exception = NamingError("No attempts made")
         for attempt in range(self.MAX_RETRIES):
             try:
-                title, branch, worktree = await self._attempt_generate(effective_prompt)
+                title, description, branch, worktree = await self._attempt_generate(effective_prompt)
             except Exception as exc:
                 log.warning("naming_attempt_failed", attempt=attempt + 1, reason=str(exc))
                 last_error = exc
@@ -195,13 +207,13 @@ class NamingService:
                         worktree = new_worktree
                         log.info("naming_worktree_regenerated", new_worktree=worktree)
 
-            log.info("naming_generated", title=title, branch=branch, worktree=worktree)
-            return title, branch, worktree
+            log.info("naming_generated", title=title, description=description, branch=branch, worktree=worktree)
+            return title, description, branch, worktree
 
         raise NamingError(f"Failed to generate valid names after {self.MAX_RETRIES} attempts") from last_error
 
-    async def _attempt_generate(self, prompt: str) -> tuple[str, str, str]:
-        """Single LLM call to produce title, branch, and worktree. Raises on any invalid output."""
+    async def _attempt_generate(self, prompt: str) -> tuple[str, str, str, str]:
+        """Single LLM call to produce title, description, branch, and worktree. Raises on any invalid output."""
         raw = await self._backend.complete(_NAMING_PROMPT + prompt)
         if not raw:
             raise NamingError("Empty response from LLM")
@@ -211,6 +223,7 @@ class NamingService:
             raise NamingError(f"No valid JSON in LLM response: {raw[:200]!r}")
 
         title = _sanitize_title(data.get("title", ""))
+        description = _sanitize_description(data.get("description", ""))
         branch = _sanitize_branch(data.get("branch_name", ""))
         worktree = _sanitize_worktree(data.get("worktree_name", ""))
 
@@ -222,7 +235,7 @@ class NamingService:
                 f"worktree={data.get('worktree_name')!r})"
             )
 
-        return title, branch, worktree  # type: ignore[return-value]
+        return title, description or title, branch, worktree  # type: ignore[return-value]
 
     async def _regenerate_field(self, field: str, conflicting_value: str, prompt: str) -> str | None:
         """Re-prompt the LLM for a single conflicting field."""
