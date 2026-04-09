@@ -1101,6 +1101,8 @@ export function CuratedFeed({
   const viewportRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const prevCountRef = useRef(feedItems.length);
+  const userInteractingRef = useRef(false);
+  const interactTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const virtualizer = useVirtualizer({
@@ -1108,17 +1110,28 @@ export function CuratedFeed({
     getScrollElement: () => viewportRef.current,
     estimateSize: () => 120,
     overscan: 5,
-  });
+    // When items above the viewport resize (PhaseBox expand/collapse), adjust scroll
+    // position to prevent the visible content from jumping.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    shouldAdjustScrollPositionOnItemSizeChange: (item: any, _delta: any, instance: any) => {
+      return item.start < (instance.scrollOffset ?? 0);
+    },
+  } as Parameters<typeof useVirtualizer>[0]);
 
-  // Auto-scroll to bottom only when NEW items are added (not on re-measure/re-render)
+  // Auto-scroll to bottom only when NEW items are added AND user isn't interacting
   useEffect(() => {
-    if (feedItems.length > prevCountRef.current && stickRef.current) {
+    if (
+      feedItems.length > prevCountRef.current &&
+      stickRef.current &&
+      !userInteractingRef.current
+    ) {
       virtualizer.scrollToIndex(feedItems.length - 1, { align: "end" });
     }
     prevCountRef.current = feedItems.length;
   }, [feedItems.length, virtualizer]);
 
   // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)
+  const [highlightIdx, setHighlightIdx] = useState<number | null>(null);
   useEffect(() => {
     if (scrollToSeq == null || feedItems.length === 0) return;
     const idx = feedItems.findIndex((item) => {
@@ -1133,6 +1146,7 @@ export function CuratedFeed({
     if (idx >= 0) {
       stickRef.current = false;
       virtualizer.scrollToIndex(idx, { align: "start", behavior: "smooth" });
+      setHighlightIdx(idx);
     }
   }, [scrollToSeq, feedItems, virtualizer]);
 
@@ -1141,6 +1155,10 @@ export function CuratedFeed({
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     stickRef.current = atBottom;
     setShowScrollBtn(!atBottom);
+    // Suppress auto-scroll during active user interaction (expand/collapse causes re-measure)
+    userInteractingRef.current = true;
+    clearTimeout(interactTimerRef.current);
+    interactTimerRef.current = setTimeout(() => { userInteractingRef.current = false; }, 300);
   };
 
   const scrollToBottom = useCallback(() => {
@@ -1266,6 +1284,8 @@ export function CuratedFeed({
                 key={vItem.key}
                 ref={virtualizer.measureElement}
                 data-index={vItem.index}
+                className={vItem.index === highlightIdx ? "animate-glow-flicker" : undefined}
+                onAnimationEnd={vItem.index === highlightIdx ? () => setHighlightIdx(null) : undefined}
                 style={{
                   position: "absolute",
                   top: 0,

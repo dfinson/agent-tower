@@ -35,6 +35,19 @@
   a { text-decoration: none; color: inherit; }
 }
 
+/* Glow flicker for navigated-to feed items */
+@keyframes glow-flicker {
+  0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
+  15%  { box-shadow: 0 0 8px 2px hsl(var(--primary) / 0.35); }
+  40%  { box-shadow: 0 0 4px 1px hsl(var(--primary) / 0.15); }
+  60%  { box-shadow: 0 0 6px 2px hsl(var(--primary) / 0.25); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
+}
+.animate-glow-flicker {
+  animation: glow-flicker 1.2s ease-out;
+  border-radius: var(--radius);
+}
+
 /* Monaco diff line highlighting */
 .diff-add-line { background: rgba(16, 185, 129, 0.12) !important; }
 .diff-add-decoration { background: #10b981 !important; width: 3px !important; margin-left: 2px; }
