@@ -18,7 +18,6 @@ import signal
 import tempfile
 import time
 import uuid
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -29,8 +28,8 @@ from backend.models.domain import (
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, AgentAdapterInterface, CompletionResult, normalize_model_name
-from backend.services.permission_policy import is_git_reset_hard
+from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
+from backend.services.base_adapter import BaseAgentAdapter, PermissionDecision
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -39,14 +38,8 @@ if TYPE_CHECKING:
 
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
-    from backend.services.retry_tracker import RetryTracker
 
 log = structlog.get_logger()
-
-# Truncation limits for approval action payloads and tool summaries
-_TOOL_ACTION_MAX = 2000
-_TOOL_SUMMARY_MAX = 200
-_TOOL_SUMMARY_FALLBACK = 120
 
 # Claude SDK tool names that are internal / should not appear in transcript
 _HIDDEN_TOOLS: frozenset[str] = frozenset()
@@ -107,7 +100,7 @@ def _kill_sdk_subprocess(client: object | None) -> None:
         client._transport = None  # type: ignore[attr-defined]
 
 
-class ClaudeAdapter(AgentAdapterInterface):
+class ClaudeAdapter(BaseAgentAdapter):
     """Wraps the Claude Agent SDK (Python) behind the adapter interface.
 
     Each session is backed by a ``ClaudeSDKClient`` instance that maintains
@@ -122,40 +115,23 @@ class ClaudeAdapter(AgentAdapterInterface):
         event_bus: EventBus | None = None,
         session_factory: Any | None = None,
     ) -> None:
-        self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
-        self._clients: dict[str, ClaudeSDKClient] = {}
+        super().__init__(
+            approval_service=approval_service,
+            event_bus=event_bus,
+            session_factory=session_factory,
+        )
         self._consumer_tasks: dict[str, asyncio.Task[None]] = {}
-        self._session_to_job: dict[str, str] = {}
-        self._tool_start_times: dict[str, float] = {}
-        self._tool_call_buffer: dict[str, dict[str, str]] = {}
         self._current_turn_id: str = ""
-        self._approval_service = approval_service
-        self._event_bus = event_bus
-        self._session_factory = session_factory
-        self._job_start_times: dict[str, float] = {}
-        self._job_main_models: dict[str, str] = {}
         self._requested_models: dict[str, str] = {}
         self._model_verified: dict[str, bool] = {}
-        self._paused_sessions: set[str] = set()
-        # Debounce: last monotonic time a telemetry_updated SSE was fired per job
-        self._last_telemetry_broadcast: dict[str, float] = {}
         # Stderr capture files for debugging failed sessions
         self._stderr_files: dict[str, str] = {}
-        # Cost analytics: per-job turn counter, phase, retry tracker
-        self._turn_counters: dict[str, int] = {}
-        self._current_phases: dict[str, str] = {}
-        self._retry_trackers: dict[str, RetryTracker] = {}
-        self._write_tasks: list[asyncio.Task[None]] = []
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _cleanup_session(self, session_id: str) -> None:
-        self._paused_sessions.discard(session_id)
-        job_id = self._session_to_job.pop(session_id, None)
-        self._clients.pop(session_id, None)
-        self._queues.pop(session_id, None)
         task = self._consumer_tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
@@ -163,15 +139,12 @@ class ClaudeAdapter(AgentAdapterInterface):
         if stderr_path:
             with contextlib.suppress(OSError):
                 os.unlink(stderr_path)
+        # Claude-specific model tracking
+        job_id = self._session_to_job.get(session_id)
         if job_id:
-            self._job_start_times.pop(job_id, None)
-            self._job_main_models.pop(job_id, None)
             self._requested_models.pop(job_id, None)
             self._model_verified.pop(job_id, None)
-            self._last_telemetry_broadcast.pop(job_id, None)
-            self._turn_counters.pop(job_id, None)
-            self._current_phases.pop(job_id, None)
-            self._retry_trackers.pop(job_id, None)
+        super()._cleanup_session_state(session_id)
 
     def set_execution_phase(self, job_id: str, phase: str) -> None:
         """Update the current execution phase for cost analytics span tagging."""
@@ -196,116 +169,6 @@ class ClaudeAdapter(AgentAdapterInterface):
         except (Exception, asyncio.CancelledError):
             log.warning("claude_client_disconnect_failed", exc_info=True)
 
-    _MAX_PENDING_WRITES = 20  # limit concurrent fire-and-forget DB tasks
-
-    def _schedule_db_write(self, coro: Any) -> None:  # noqa: ANN401
-        """Schedule an async DB write from a synchronous or async context."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return  # No event loop — skip DB write
-
-        # Prune completed tasks
-        self._write_tasks = [t for t in self._write_tasks if not t.done()]
-
-        # Drop writes when too many are in-flight to prevent pool exhaustion
-        if len(self._write_tasks) >= self._MAX_PENDING_WRITES:
-            return
-
-        task = loop.create_task(coro)
-        self._write_tasks.append(task)
-
-    _TELEMETRY_BROADCAST_INTERVAL = 2.0  # seconds — debounce SSE broadcasts
-
-    async def _db_write(self, fn_name: str, **kwargs: Any) -> None:
-        """Execute a telemetry DB write in its own session."""
-        if self._session_factory is None:
-            return
-        try:
-            async with self._session_factory() as session:
-                from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
-
-                if fn_name == "increment":
-                    await TelemetrySummaryRepo(session).increment(**kwargs)
-                elif fn_name == "insert_span":
-                    await TelemetrySpansRepo(session).insert(**kwargs)
-                elif fn_name == "set_model":
-                    await TelemetrySummaryRepo(session).set_model(**kwargs)
-                elif fn_name == "set_quota":
-                    await TelemetrySummaryRepo(session).set_quota(**kwargs)
-                elif fn_name == "record_file_access":
-                    from backend.persistence.file_access_repo import FileAccessRepo
-
-                    await FileAccessRepo(session).record(**kwargs)
-                await session.commit()
-        except Exception:
-            log.debug("telemetry_db_write_failed", fn=fn_name, exc_info=True)
-            return
-
-        # Broadcast a debounced telemetry_updated SSE for summary changes
-        if fn_name != "insert_span":
-            job_id = kwargs.get("job_id")
-            if job_id:
-                await self._maybe_broadcast_telemetry(job_id)
-
-    async def _maybe_broadcast_telemetry(self, job_id: str) -> None:
-        """Publish telemetry_updated if debounce interval has elapsed."""
-        import time as _time
-
-        from backend.models.events import DomainEvent, DomainEventKind
-
-        if self._event_bus is None:
-            return
-        now = _time.monotonic()
-        last = self._last_telemetry_broadcast.get(job_id, 0.0)
-        if now - last < self._TELEMETRY_BROADCAST_INTERVAL:
-            return
-        self._last_telemetry_broadcast[job_id] = now
-        await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.telemetry_updated,
-                payload={"job_id": job_id},
-            )
-        )
-
-    def _enqueue(self, session_id: str, event: SessionEvent) -> None:
-        q = self._queues.get(session_id)
-        if q is not None:
-            q.put_nowait(event)
-
-    def _enqueue_log(
-        self,
-        session_id: str,
-        message: str,
-        level: str = "info",
-        seq: list[int] | None = None,
-    ) -> None:
-        """Enqueue a log event for the session.
-
-        .. note::
-            When *seq* is provided it is **mutated in-place** (``seq[0]``
-            is incremented) so the caller's counter stays in sync across
-            successive calls.
-        """
-        if seq is not None:
-            seq[0] += 1
-        self._enqueue(
-            session_id,
-            SessionEvent(
-                kind=SessionEventKind.log,
-                payload={
-                    "seq": seq[0] if seq else 0,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                    "level": level,
-                    "message": message,
-                },
-            ),
-        )
-
     # ------------------------------------------------------------------
     # Permission callback builder
     # ------------------------------------------------------------------
@@ -313,134 +176,59 @@ class ClaudeAdapter(AgentAdapterInterface):
     def _build_can_use_tool(self, config: SessionConfig, session_id: str) -> Any:  # noqa: ANN401
         """Build the ``can_use_tool`` callback for the Claude SDK.
 
-        Returns a coroutine that the SDK calls before each tool execution.
-        We inspect the CodePlane permission mode and either auto-approve,
-        deny, or route the request to the operator via the approval service.
+        Wraps the base adapter's ``_evaluate_permission`` to return SDK-
+        specific PermissionResultAllow / PermissionResultDeny objects.
         """
         from claude_code_sdk import PermissionResultAllow, PermissionResultDeny
+
+        # Map Claude tool names to permission_policy kinds
+        _CLAUDE_TOOL_KIND: dict[str, str] = {
+            "Bash": "shell",
+            "Edit": "write",
+            "Write": "write",
+            "Read": "read",
+            "MultiEdit": "write",
+            "Glob": "read",
+            "Grep": "read",
+            "ToolSearch": "read",
+            "WebFetch": "read",
+            "WebSearch": "read",
+        }
 
         async def _can_use_tool(
             tool_name: str,
             input_data: dict[str, Any],
             context: object,
         ) -> PermissionResultAllow | PermissionResultDeny:
-            # Paused — immediately deny all tools so the agent cannot act.
-            if session_id in self._paused_sessions:
-                return PermissionResultDeny(message="Session is paused — waiting for operator")
-
-            mode = config.permission_mode
             job_id = self._session_to_job.get(session_id)
-
-            # ----------------------------------------------------------------
-            # Hard block: git reset --hard always requires explicit operator
-            # approval — no trust bypass, no auto mode bypass, ever.
-            # ----------------------------------------------------------------
-            _shell_cmd = input_data.get("command", "") or "" if tool_name == "Bash" else ""
-            if _shell_cmd and is_git_reset_hard(_shell_cmd):
-                if self._approval_service is None or job_id is None:
-                    log.error(
-                        "git_reset_hard_blocked_no_infra",
-                        tool=tool_name,
-                        command=_shell_cmd[:200],
-                    )
-                    return PermissionResultDeny(
-                        message=(
-                            "git reset --hard requires operator approval but no approval infrastructure is available"
-                        )
-                    )
-
-                description = (
-                    "⚠️ git reset --hard — this will discard ALL uncommitted changes and "
-                    f"move HEAD: {_summarize_tool_input(tool_name, input_data)}"
-                )
-                approval = await self._approval_service.create_request(
-                    job_id=job_id,
-                    description=description,
-                    proposed_action=json.dumps(input_data, default=str)[:_TOOL_ACTION_MAX],
-                    requires_explicit_approval=True,
-                )
-                self._enqueue(
-                    session_id,
-                    SessionEvent(
-                        kind=SessionEventKind.approval_request,
-                        payload={
-                            "description": description,
-                            "proposed_action": json.dumps(input_data, default=str)[:_TOOL_ACTION_MAX],
-                            "approval_id": approval.id,
-                            "requires_explicit_approval": True,
-                        },
-                    ),
-                )
-                log.warning(
-                    "git_reset_hard_awaiting_operator",
-                    approval_id=approval.id,
-                    job_id=job_id,
-                    command=_shell_cmd[:200],
-                )
-                resolution = await self._approval_service.wait_for_resolution(approval.id)
-                if resolution == "approved":
-                    return PermissionResultAllow()
-                return PermissionResultDeny(message="Operator denied git reset --hard")
-
-            # Check trust
-            if self._approval_service is not None and job_id and self._approval_service.is_trusted(job_id):
-                return PermissionResultAllow()
-
-            # AUTO — approve everything
-            if mode == PermissionMode.full_auto:
-                return PermissionResultAllow()
-
-            # READ_ONLY — only allow read-type tools
-            if mode == PermissionMode.observe_only:
-                read_tools = {"Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch"}
-                if tool_name in read_tools:
-                    return PermissionResultAllow()
-                return PermissionResultDeny(message="Read-only mode: tool blocked")
-
-            # APPROVAL_REQUIRED — read tools auto-approved, everything else → operator
-            read_tools = {"Read", "Glob", "Grep"}
-            if tool_name in read_tools:
-                return PermissionResultAllow()
-
-            # Route to operator
-            if self._approval_service is None or job_id is None:
-                log.warning("claude_permission_no_infra", tool=tool_name)
-                return PermissionResultAllow()
-
-            # Build human-readable description
-            description = f"{tool_name}: {_summarize_tool_input(tool_name, input_data)}"
-
-            approval = await self._approval_service.create_request(
-                job_id=job_id,
-                description=description,
-                proposed_action=json.dumps(input_data, default=str)[:_TOOL_ACTION_MAX],
-            )
-
-            # Emit approval_request event
-            self._enqueue(
+            tool_kind = _CLAUDE_TOOL_KIND.get(tool_name, "custom-tool")
+            full_cmd = str(input_data.get("command", "")) if tool_name == "Bash" else None
+            file_name = str(input_data.get("file_path", "") or input_data.get("path", "")) or None
+            decision = await self._evaluate_permission(
                 session_id,
-                SessionEvent(
-                    kind=SessionEventKind.approval_request,
-                    payload={
-                        "description": description,
-                        "proposed_action": json.dumps(input_data, default=str)[:_TOOL_ACTION_MAX],
-                        "approval_id": approval.id,
-                    },
-                ),
+                job_id,
+                config.permission_mode,
+                tool_kind=tool_kind,
+                tool_name=tool_name,
+                tool_input=input_data,
+                workspace_path=config.workspace_path,
+                full_command_text=full_cmd,
+                file_name=file_name,
+                path=file_name,
             )
-
-            log.info(
-                "claude_permission_awaiting_operator",
-                approval_id=approval.id,
-                tool=tool_name,
-            )
-
-            resolution = await self._approval_service.wait_for_resolution(approval.id)
-            if resolution == "approved":
+            if decision == PermissionDecision.allow:
                 return PermissionResultAllow()
-            return PermissionResultDeny(message="Operator denied the action")
+            return PermissionResultDeny(message="Blocked by CodePlane policy")
 
         return _can_use_tool
+
+    @staticmethod
+    async def _disconnect_client(client: ClaudeSDKClient) -> None:
+        """Disconnect a ClaudeSDKClient, terminating its backing subprocess."""
+        try:
+            await asyncio.wait_for(client.disconnect(), timeout=10)
+        except (Exception, asyncio.CancelledError):
+            log.warning("claude_client_disconnect_failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Message consumer — runs in a background task per session
@@ -596,33 +384,11 @@ class ClaudeAdapter(AgentAdapterInterface):
             self._turn_counters[job_id] = turn_num
 
         # Lock in the main model from the first AssistantMessage that carries one
-        if job_id and model and job_id not in self._job_main_models:
-            self._job_main_models[job_id] = model
-            self._schedule_db_write(self._db_write("set_model", job_id=job_id, model=model))
-
-            # Model downgrade/mismatch detection (mirrors CopilotAdapter behaviour)
+        if job_id and model:
+            requested = self._requested_models.get(job_id, "")
             if not self._model_verified.get(job_id):
                 self._model_verified[job_id] = True
-                requested = self._requested_models.get(job_id, "")
-                if requested and normalize_model_name(model) != normalize_model_name(requested):
-                    log.error(
-                        "model_mismatch",
-                        requested=requested,
-                        actual=model,
-                        job_id=job_id,
-                    )
-                    self._enqueue(
-                        session_id,
-                        SessionEvent(
-                            kind=SessionEventKind.model_downgraded,
-                            payload={
-                                "requested_model": requested,
-                                "actual_model": model,
-                            },
-                        ),
-                    )
-                else:
-                    log.info("model_confirmed", model=model, job_id=job_id)
+                self._verify_and_set_model(session_id, job_id, model, requested)
 
         for block in content_blocks:
             if isinstance(block, TextBlock):
@@ -796,107 +562,15 @@ class ClaudeAdapter(AgentAdapterInterface):
 
         # Telemetry
         if job_id:
-            from backend.services import telemetry as tel
-            from backend.services.tool_classifier import classify_tool, extract_file_paths, extract_tool_target
-
-            attrs: dict[str, str | bool] = {
-                "job_id": job_id,
-                "sdk": "claude",
-                "tool_name": tool_name,
-                "success": bool(success),
-            }
-            tel.tool_duration.record(duration_ms, attrs)
-
-            # Tool classification
-            category = classify_tool(tool_name)
-            target = extract_tool_target(tool_name, tool_args_str)
-            current_phase = self._current_phases.get(job_id, "agent_reasoning")
-            turn_num = self._turn_counters.get(job_id, 0)
-
-            # Retry detection
-            from backend.services.retry_tracker import RetryTracker
-
-            if job_id not in self._retry_trackers:
-                self._retry_trackers[job_id] = RetryTracker()
-            retry_result = self._retry_trackers[job_id].record(tool_name, target, 0, success)
-
-            # Result size
-            result_size = len(result_text.encode("utf-8", errors="replace")) if result_text else None
-
-            # File access tracking
-            file_rw_increment = {"file_read_count": 0, "file_write_count": 0}
-            if category in ("file_read", "file_write"):
-                paths = extract_file_paths(tool_name, tool_args_str)
-                access_type = "write" if category == "file_write" else "read"
-                if access_type == "read":
-                    file_rw_increment["file_read_count"] = 1
-                else:
-                    file_rw_increment["file_write_count"] = 1
-                for fpath in paths:
-                    self._schedule_db_write(
-                        self._db_write(
-                            "record_file_access",
-                            job_id=job_id,
-                            file_path=fpath,
-                            access_type=access_type,
-                            turn_number=turn_num,
-                        )
-                    )
-
-                # Emit file_changed events for successful writes so the runtime
-                # service can trigger diff recalculation (mirrors CopilotAdapter's
-                # session.workspace_file_changed handling).
-                if category == "file_write" and success:
-                    for fpath in paths:
-                        self._enqueue(
-                            session_id,
-                            SessionEvent(
-                                kind=SessionEventKind.file_changed,
-                                payload={"path": fpath},
-                            ),
-                        )
-
-            self._schedule_db_write(
-                self._db_write(
-                    "increment",
-                    job_id=job_id,
-                    tool_call_count=1,
-                    tool_failure_count=0 if success else 1,
-                    total_tool_duration_ms=int(duration_ms),
-                    retry_count=1 if retry_result.is_retry else 0,
-                    **file_rw_increment,
-                )
-            )
-
-            job_start = self._job_start_times.get(job_id, time.monotonic())
-            offset = time.monotonic() - job_start
-            self._schedule_db_write(
-                self._db_write(
-                    "insert_span",
-                    job_id=job_id,
-                    span_type="tool",
-                    name=tool_name,
-                    started_at=round(offset, 2),
-                    duration_ms=duration_ms,
-                    attrs={
-                        "success": success,
-                        **(
-                            {
-                                "error_snippet": result_text[:500],
-                            }
-                            if not success and result_text
-                            else {}
-                        ),
-                    },
-                    tool_category=category,
-                    tool_target=target,
-                    turn_number=turn_num,
-                    execution_phase=current_phase,
-                    is_retry=retry_result.is_retry,
-                    retries_span_id=retry_result.prior_failure_span_id,
-                    tool_args_json=tool_args_str,
-                    result_size_bytes=result_size,
-                )
+            self._record_tool_telemetry(
+                session_id,
+                job_id,
+                "claude",
+                tool_name=tool_name,
+                tool_args_str=tool_args_str,
+                success=success,
+                duration_ms=duration_ms,
+                result_text=result_text,
             )
 
     def _process_result_message(
@@ -920,63 +594,33 @@ class ClaudeAdapter(AgentAdapterInterface):
 
         # Telemetry — note: model is not on ResultMessage, so we use the main model.
         if job_id:
-            from backend.services import telemetry as tel
-
             model = self._job_main_models.get(job_id, "")
-            attrs = {"job_id": job_id, "sdk": "claude", "model": model}
-            tel.tokens_input.add(int(input_tokens), attrs)
-            tel.tokens_output.add(int(output_tokens), attrs)
-            tel.tokens_cache_read.add(int(cache_read), attrs)
-            tel.tokens_cache_write.add(int(cache_write), attrs)
-            tel.cost_usd.add(float(total_cost_usd), attrs)
-            tel.llm_duration.record(float(duration_ms), {**attrs, "is_subagent": False})
 
             num_turns = getattr(message, "num_turns", 0) or 1
-            self._schedule_db_write(
-                self._db_write(
-                    "increment",
-                    job_id=job_id,
-                    input_tokens=int(input_tokens),
-                    output_tokens=int(output_tokens),
-                    cache_read_tokens=int(cache_read),
-                    cache_write_tokens=int(cache_write),
-                    total_cost_usd=float(total_cost_usd),
-                    total_llm_duration_ms=int(duration_ms),
-                    llm_call_count=int(num_turns),
-                    total_turns=int(num_turns),
-                )
+            self._record_llm_telemetry(
+                job_id,
+                "claude",
+                model,
+                input_tokens=int(input_tokens),
+                output_tokens=int(output_tokens),
+                cache_read=int(cache_read),
+                cache_write=int(cache_write),
+                cost_usd=float(total_cost_usd),
+                duration_ms=float(duration_ms),
+                is_subagent=False,
+                num_turns=int(num_turns),
             )
-
-            turn_num = self._turn_counters.get(job_id, 0)
-            current_phase = self._current_phases.get(job_id, "agent_reasoning")
-
-            job_start = self._job_start_times.get(job_id, time.monotonic())
-            offset = time.monotonic() - job_start
-            self._schedule_db_write(
-                self._db_write(
-                    "insert_span",
-                    job_id=job_id,
-                    span_type="llm",
-                    name=model or "claude",
-                    started_at=round(offset, 2),
-                    duration_ms=float(duration_ms),
-                    attrs={
-                        "input_tokens": int(input_tokens),
-                        "output_tokens": int(output_tokens),
-                        "cache_read_tokens": int(cache_read),
-                        "cache_write_tokens": int(cache_write),
-                        "cost": float(total_cost_usd),
-                        "is_subagent": False,
-                        "num_turns": int(num_turns),
-                    },
-                    turn_number=turn_num,
-                    execution_phase=current_phase,
-                    input_tokens=int(input_tokens),
-                    output_tokens=int(output_tokens),
-                    cache_read_tokens=int(cache_read),
-                    cache_write_tokens=int(cache_write),
-                    cost_usd=float(total_cost_usd),
-                )
+            self._record_llm_span(
+                job_id,
+                model,
+                duration_ms=float(duration_ms),
+                input_tokens=int(input_tokens),
+                output_tokens=int(output_tokens),
+                cache_read=int(cache_read),
+                cache_write=int(cache_write),
+                cost_usd=float(total_cost_usd),
+                is_subagent=False,
+                num_turns=int(num_turns),
             )
 
         self._enqueue_log(
@@ -1012,8 +656,7 @@ class ClaudeAdapter(AgentAdapterInterface):
         self._queues[session_id] = queue
 
         if config.job_id:
-            self._session_to_job[session_id] = config.job_id
-            self._job_start_times.setdefault(config.job_id, time.monotonic())
+            self.set_job_id(session_id, config.job_id)
             if config.model:
                 self._requested_models[config.job_id] = config.model
 
@@ -1161,11 +804,6 @@ class ClaudeAdapter(AgentAdapterInterface):
         except Exception:
             log.warning("claude_interrupt_failed", session_id=session_id, exc_info=True)
 
-    def pause_tools(self, session_id: str) -> None:
-        self._paused_sessions.add(session_id)
-
-    def resume_tools(self, session_id: str) -> None:
-        self._paused_sessions.discard(session_id)
 
     async def abort_session(self, session_id: str) -> None:
         client = self._clients.get(session_id)
@@ -1266,21 +904,3 @@ async def _prompt_to_stream(prompt: str) -> Any:  # noqa: ANN401
     # Use a bare Future — it suspends until cancelled, and correctly
     # propagates CancelledError under both asyncio and anyio.
     await asyncio.get_running_loop().create_future()
-
-
-def _summarize_tool_input(tool_name: str, input_data: dict[str, Any]) -> str:
-    """Build a short human-readable summary of a tool call for approval display."""
-    if tool_name == "Bash":
-        return str(input_data.get("command", ""))[:_TOOL_SUMMARY_MAX]
-    if tool_name in ("Edit", "Write"):
-        return str(input_data.get("file_path", "") or input_data.get("path", ""))
-    if tool_name == "Read":
-        return str(input_data.get("file_path", "") or input_data.get("path", ""))
-    if tool_name == "WebFetch":
-        return str(input_data.get("url", ""))[:_TOOL_SUMMARY_MAX]
-    if tool_name == "WebSearch":
-        return str(input_data.get("query", ""))[:_TOOL_SUMMARY_MAX]
-    try:
-        return json.dumps(input_data, default=str)[:_TOOL_SUMMARY_FALLBACK]
-    except Exception:
-        return str(input_data)[:_TOOL_SUMMARY_FALLBACK]

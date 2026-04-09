@@ -484,7 +484,7 @@ export function JobDetailScreen() {
             ["Base", job.baseRef],
             ["Worktree", job.worktreePath ? job.worktreePath.split("/").pop() ?? job.worktreePath : "—"],
             ...(job.model ? [["Model", job.model]] : []),
-            ...(job.sdk && job.sdk !== "copilot" ? [["SDK", job.sdk]] : []),
+            ...(job.sdk ? [["SDK", job.sdk]] : []),
             ["Created", new Date(job.createdAt).toLocaleString()],
             ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
           ].map(([label, value]) => (

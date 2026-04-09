@@ -165,8 +165,8 @@ from backend.services.claude_adapter import (  # noqa: E402
     _HIDDEN_TOOLS,
     _PERMISSION_MODE_MAP,
     ClaudeAdapter,
-    _summarize_tool_input,
 )
+from backend.services.base_adapter import BaseAgentAdapter  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -202,32 +202,32 @@ def _make_config(**overrides: Any) -> SessionConfig:
 # ---------------------------------------------------------------------------
 
 
-class TestSummarizeToolInput:
+class TestBuildPermissionDescription:
     def test_bash_command(self) -> None:
-        assert _summarize_tool_input("Bash", {"command": "ls -la"}) == "ls -la"
+        assert "ls -la" in BaseAgentAdapter._build_permission_description("shell", "Bash", {"command": "ls -la"}, None)
 
     def test_edit_file_path(self) -> None:
-        assert _summarize_tool_input("Edit", {"file_path": "/tmp/foo.py"}) == "/tmp/foo.py"
+        assert "/tmp/foo.py" in BaseAgentAdapter._build_permission_description("write", "Edit", {"file_path": "/tmp/foo.py"}, None)
 
     def test_write_file_path(self) -> None:
-        assert _summarize_tool_input("Write", {"path": "/tmp/bar.py"}) == "/tmp/bar.py"
+        assert "/tmp/bar.py" in BaseAgentAdapter._build_permission_description("write", "Write", {"path": "/tmp/bar.py"}, None)
 
     def test_read_file_path(self) -> None:
-        assert _summarize_tool_input("Read", {"file_path": "readme.md"}) == "readme.md"
+        assert "readme.md" in BaseAgentAdapter._build_permission_description("read", "Read", {"file_path": "readme.md"}, None)
 
     def test_webfetch_url(self) -> None:
-        assert _summarize_tool_input("WebFetch", {"url": "https://example.com"}) == "https://example.com"
+        assert "example.com" in BaseAgentAdapter._build_permission_description("url", "WebFetch", {"url": "https://example.com"}, None)
 
     def test_websearch_query(self) -> None:
-        assert _summarize_tool_input("WebSearch", {"query": "python async"}) == "python async"
+        assert "python async" in BaseAgentAdapter._build_permission_description("url", "WebSearch", {"query": "python async"}, None)
 
     def test_fallback_json(self) -> None:
-        result = _summarize_tool_input("CustomTool", {"a": 1})
+        result = BaseAgentAdapter._build_permission_description("custom-tool", "CustomTool", {"a": 1}, None)
         assert "1" in result
 
     def test_fallback_truncation(self) -> None:
-        result = _summarize_tool_input("CustomTool", {"x": "a" * 200})
-        assert len(result) <= 120
+        result = BaseAgentAdapter._build_permission_description("custom-tool", "CustomTool", {"x": "a" * 200}, None)
+        assert len(result) <= 250
 
 
 class TestPermissionModeMap:
@@ -417,7 +417,7 @@ class TestBuildCanUseTool:
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues["sess-1"] = q
 
-        result = await callback("Bash", {"command": "echo hi"}, None)
+        result = await callback("Bash", {"command": "pip install flask"}, None)
 
         assert isinstance(result, _FakePermissionResultAllow)
         # Check approval_request event was enqueued
@@ -425,6 +425,24 @@ class TestBuildCanUseTool:
         assert event is not None
         assert event.kind == SessionEventKind.approval_request
         assert event.payload["approval_id"] == "req-1"
+
+    @pytest.mark.asyncio
+    async def test_review_and_approve_auto_approves_readonly_shell(self) -> None:
+        """Readonly shell commands (echo, ls, grep) are auto-approved even
+        in review_and_approve mode — they don't require operator approval."""
+        approval_svc = MagicMock()
+        approval_svc.is_trusted = MagicMock(return_value=False)
+
+        adapter = ClaudeAdapter(approval_service=approval_svc)
+        adapter._session_to_job["sess-1"] = "job-1"
+        config = _make_config(permission_mode=PermissionMode.review_and_approve)
+        callback = adapter._build_can_use_tool(config, "sess-1")
+
+        result = await callback("Bash", {"command": "echo hi"}, None)
+
+        assert isinstance(result, _FakePermissionResultAllow)
+        # No approval request should have been created
+        approval_svc.create_request.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_approval_required_routes_to_operator_denied(self) -> None:

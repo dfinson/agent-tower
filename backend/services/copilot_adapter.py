@@ -11,17 +11,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from backend.models.domain import (
-    PermissionMode,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
 )
-from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, AgentAdapterInterface, CompletionResult, normalize_model_name
-from backend.services.permission_policy import (
-    PolicyDecision,
-    evaluate,
-    is_git_reset_hard,
-)
+from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
+from backend.services.base_adapter import BaseAgentAdapter, PermissionDecision
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -32,12 +27,11 @@ if TYPE_CHECKING:
 
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
-    from backend.services.retry_tracker import RetryTracker
 
 log = structlog.get_logger()
 
 
-class CopilotAdapter(AgentAdapterInterface):
+class CopilotAdapter(BaseAgentAdapter):
     """Wraps the Python Copilot SDK behind the adapter interface.
 
     Uses a callback-to-iterator bridge: SDK callbacks push SessionEvent
@@ -50,30 +44,15 @@ class CopilotAdapter(AgentAdapterInterface):
         event_bus: EventBus | None = None,
         session_factory: Any | None = None,
     ) -> None:
-        self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
+        super().__init__(
+            approval_service=approval_service,
+            event_bus=event_bus,
+            session_factory=session_factory,
+        )
         self._sessions: dict[str, CopilotSession] = {}
-        self._clients: dict[str, Any] = {}  # session_id → CopilotClient (owns CLI server process)
-        self._session_to_job: dict[str, str] = {}  # session_id → job_id for telemetry
-        self._paused_sessions: set[str] = set()
-        self._tool_start_times: dict[str, float] = {}  # tool_call_id → start monotonic
-        # Buffers tool.execution_start data so we can emit a combined entry on complete
-        self._tool_call_buffer: dict[str, dict[str, str]] = {}  # tool_call_id → {tool_name, tool_args, turn_id}
         # Synthesized turn_id for step tracking when the SDK doesn't provide one.
         # Rotated on assistant.message to mark turn boundaries.
         self._fallback_turn_ids: dict[str, str] = {}  # job_id → current fallback turn_id
-        self._approval_service = approval_service
-        self._event_bus = event_bus
-        self._session_factory = session_factory
-        # Per-job monotonic start time for computing span offsets
-        self._job_start_times: dict[str, float] = {}
-        # Per-job confirmed main model
-        self._job_main_models: dict[str, str] = {}
-        # Debounce: last monotonic time a telemetry_updated SSE was fired per job
-        self._last_telemetry_broadcast: dict[str, float] = {}
-        # Cost analytics: per-job turn counter, phase, retry tracker
-        self._turn_counters: dict[str, int] = {}
-        self._current_phases: dict[str, str] = {}
-        self._retry_trackers: dict[str, RetryTracker] = {}
 
     def _get_turn_id(self, job_id: str, data: Any) -> str:
         """Return the SDK turn_id or synthesize a fallback for step tracking."""
@@ -94,104 +73,17 @@ class CopilotAdapter(AgentAdapterInterface):
 
         self._fallback_turn_ids[job_id] = str(_uuid.uuid4())
 
-    def set_job_id(self, session_id: str, job_id: str) -> None:
-        """Associate a session with a job for telemetry routing."""
-        import time as _time
-
-        self._session_to_job[session_id] = job_id
-        self._job_start_times.setdefault(job_id, _time.monotonic())
-
-    def _schedule_db_write(self, coro: Any) -> None:  # noqa: ANN401
-        """Schedule an async DB write from a synchronous SDK callback."""
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(coro)
-        except RuntimeError:
-            pass  # No event loop — skip DB write (shouldn't happen in normal operation)
-
-    _TELEMETRY_BROADCAST_INTERVAL = 2.0  # seconds — debounce SSE broadcasts
-
-    async def _db_write(self, fn_name: str, **kwargs: Any) -> None:
-        """Execute a telemetry DB write in its own session."""
-        if self._session_factory is None:
-            return
-        try:
-            async with self._session_factory() as session:
-                from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
-
-                if fn_name == "increment":
-                    await TelemetrySummaryRepo(session).increment(**kwargs)
-                elif fn_name == "insert_span":
-                    await TelemetrySpansRepo(session).insert(**kwargs)
-                elif fn_name == "set_model":
-                    await TelemetrySummaryRepo(session).set_model(**kwargs)
-                elif fn_name == "set_context":
-                    await TelemetrySummaryRepo(session).set_context(**kwargs)
-                elif fn_name == "set_quota":
-                    await TelemetrySummaryRepo(session).set_quota(**kwargs)
-                elif fn_name == "record_file_access":
-                    from backend.persistence.file_access_repo import FileAccessRepo
-
-                    await FileAccessRepo(session).record(**kwargs)
-                await session.commit()
-        except Exception:
-            log.debug("telemetry_db_write_failed", fn=fn_name, exc_info=True)
-            return
-
-        # Broadcast a debounced telemetry_updated SSE for summary changes
-        if fn_name != "insert_span":
-            job_id = kwargs.get("job_id")
-            if job_id:
-                await self._maybe_broadcast_telemetry(job_id)
-
-    async def _maybe_broadcast_telemetry(self, job_id: str) -> None:
-        """Publish telemetry_updated if debounce interval has elapsed."""
-        import time as _time
-
-        from backend.models.events import DomainEvent, DomainEventKind
-
-        if self._event_bus is None:
-            return
-        now = _time.monotonic()
-        last = self._last_telemetry_broadcast.get(job_id, 0.0)
-        if now - last < self._TELEMETRY_BROADCAST_INTERVAL:
-            return
-        self._last_telemetry_broadcast[job_id] = now
-        await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.telemetry_updated,
-                payload={"job_id": job_id},
-            )
-        )
-
     def _cleanup_session(self, session_id: str) -> None:
         """Remove session and queue references for a completed/aborted session.
 
         Also stops the CopilotClient that owns the backing CLI server process
         to prevent leaked child processes from accumulating over time.
         """
-        self._paused_sessions.discard(session_id)
-        job_id = self._session_to_job.pop(session_id, None)
         self._sessions.pop(session_id, None)
-        self._queues.pop(session_id, None)
-        client = self._clients.pop(session_id, None)
+        client = self._clients.get(session_id)
         if client is not None:
             asyncio.ensure_future(self._stop_client(client))
-        if job_id:
-            self._job_start_times.pop(job_id, None)
-            self._job_main_models.pop(job_id, None)
-            self._last_telemetry_broadcast.pop(job_id, None)
-            self._turn_counters.pop(job_id, None)
-            self._current_phases.pop(job_id, None)
-            self._retry_trackers.pop(job_id, None)
-
-    def set_execution_phase(self, job_id: str, phase: str) -> None:
-        """Update the current execution phase for cost analytics span tagging."""
-        self._current_phases[job_id] = phase
+        super()._cleanup_session_state(session_id)
 
     @staticmethod
     async def _stop_client(client: Any) -> None:  # noqa: ANN401
@@ -215,185 +107,43 @@ class CopilotAdapter(AgentAdapterInterface):
     ) -> PermissionRequestResult:
         """Bridge SDK permission requests into CodePlane's approval system.
 
-        Extracted from the ``create_session`` closure so it can be tested and
-        reviewed independently.  The ``config`` provides the permission mode
-        and workspace path that were captured by the original closure.
+        Wraps the base adapter's ``_evaluate_permission`` to return SDK-
+        specific PermissionRequestResult objects.
         """
         from copilot import PermissionRequestResult as _Result
 
         kind_val = request.kind.value if request.kind else "unknown"
-        mode = config.permission_mode
         sid = invocation.get("session_id", "")
 
-        # Paused — immediately deny all tools so the agent cannot act.
-        if sid in self._paused_sessions:
-            return _Result(kind="denied-interactively-by-user")
+        # Collect path candidates for policy evaluation
+        candidate_paths: list[str] = []
+        if request.file_name:
+            candidate_paths.append(request.file_name)
+        if request.path:
+            candidate_paths.append(request.path)
+        if request.possible_paths:
+            candidate_paths.extend(request.possible_paths)
 
-        # ----------------------------------------------------------------
-        # Hard block: git reset --hard always requires explicit operator
-        # approval — no trust bypass, no auto mode bypass, ever.
-        # ----------------------------------------------------------------
-        if kind_val == "shell" and request.full_command_text and is_git_reset_hard(request.full_command_text):
-            approval_service = self._approval_service
-            job_id = self._session_to_job.get(sid)
+        # Build tool_input dict for the base method
+        tool_input: dict[str, Any] = {}
+        if request.full_command_text:
+            tool_input["command"] = request.full_command_text
 
-            if approval_service is None or job_id is None:
-                log.error(
-                    "git_reset_hard_blocked_no_infra",
-                    command=request.full_command_text[:200],
-                )
-                return _Result(kind="denied-interactively-by-user")
-
-            description = (
-                "⚠️ git reset --hard — this will discard ALL uncommitted changes and "
-                f"move HEAD: {request.full_command_text}"
-            )
-            approval = await approval_service.create_request(
-                job_id=job_id,
-                description=description,
-                proposed_action=request.full_command_text,
-                requires_explicit_approval=True,
-            )
-            event_queue = self._queues.get(sid)
-            if event_queue is not None:
-                event_queue.put_nowait(
-                    SessionEvent(
-                        kind=SessionEventKind.approval_request,
-                        payload={
-                            "description": description,
-                            "proposed_action": request.full_command_text,
-                            "approval_id": approval.id,
-                            "requires_explicit_approval": True,
-                        },
-                    )
-                )
-            log.warning(
-                "git_reset_hard_awaiting_operator",
-                approval_id=approval.id,
-                job_id=job_id,
-                command=request.full_command_text[:200],
-            )
-            resolution = await approval_service.wait_for_resolution(approval.id)
-            if resolution == "approved":
-                return _Result(kind="approved")
-            return _Result(kind="denied-interactively-by-user")
-
-        # --- Check if operator has trusted this job session ---
-        approval_service = self._approval_service
-        job_id = self._session_to_job.get(sid)
-        if approval_service is not None and job_id and approval_service.is_trusted(job_id):
-            log.debug("permission_auto_approved", mode="trusted", kind=kind_val)
-            return _Result(kind="approved")
-
-        # --- FULL_AUTO: approve everything (full execution permission) ---
-        if mode == PermissionMode.full_auto:
-            candidate_paths: list[str] = []
-            if request.file_name:
-                candidate_paths.append(request.file_name)
-            if request.path:
-                candidate_paths.append(request.path)
-            if request.possible_paths:
-                candidate_paths.extend(request.possible_paths)
-
-            decision = evaluate(
-                mode=PermissionMode.full_auto,
-                kind=kind_val,
-                workspace_path=config.workspace_path,
-                possible_paths=candidate_paths or None,
-                file_name=request.file_name,
-                path=request.path,
-            )
-            if decision == PolicyDecision.approve:
-                log.debug("permission_auto_approved", mode=PermissionMode.full_auto, kind=kind_val)
-                return _Result(kind="approved")
-
-        # --- OBSERVE_ONLY: deny mutations ---
-        if mode == PermissionMode.observe_only:
-            decision = evaluate(
-                mode=PermissionMode.observe_only,
-                kind=kind_val,
-                workspace_path=config.workspace_path,
-                full_command_text=request.full_command_text,
-                file_name=request.file_name,
-                path=request.path,
-                read_only=request.read_only,
-            )
-            if decision == PolicyDecision.approve:
-                log.debug("permission_auto_approved", mode=PermissionMode.observe_only, kind=kind_val)
-                return _Result(kind="approved")
-            if decision == PolicyDecision.deny:
-                log.info("permission_denied_readonly", kind=kind_val)
-                return _Result(kind="denied-interactively-by-user")
-            # ask → fall through (shouldn't happen in observe_only, but safe)
-
-        # --- REVIEW_AND_APPROVE: check policy ---
-        if mode == PermissionMode.review_and_approve:
-            decision = evaluate(
-                mode=PermissionMode.review_and_approve,
-                kind=kind_val,
-                workspace_path=config.workspace_path,
-                full_command_text=request.full_command_text,
-                file_name=request.file_name,
-                path=request.path,
-                read_only=request.read_only,
-            )
-            if decision == PolicyDecision.approve:
-                log.debug("permission_auto_approved", mode=PermissionMode.review_and_approve, kind=kind_val)
-                return _Result(kind="approved")
-
-        # --- Route to operator for approval ---
-        # Build human-readable description
-        if kind_val == "write":
-            description = f"Write file: {request.file_name or request.intention or ''}"
-        elif kind_val == "shell":
-            description = f"Run shell: {request.full_command_text or request.intention or ''}"
-        elif kind_val == "url":
-            description = f"Fetch URL: {request.url or request.intention or ''}"
-        elif kind_val in ("mcp", "custom-tool"):
-            label = request.tool_title or request.tool_name or kind_val
-            description = f"{label}: {request.intention or ''}"
-        else:
-            description = request.intention or request.full_command_text or kind_val
-
-        approval_service = self._approval_service
-        job_id = self._session_to_job.get(sid)
-
-        if approval_service is None or job_id is None:
-            log.warning("permission_ask_no_infra", kind=kind_val)
-            return _Result(kind="approved")
-
-        # Persist the approval request and create a Future
-        approval = await approval_service.create_request(
-            job_id=job_id,
-            description=description,
-            proposed_action=request.full_command_text,
+        decision = await self._evaluate_permission(
+            sid,
+            self._session_to_job.get(sid),
+            config.permission_mode,
+            tool_kind=kind_val,
+            tool_name=request.tool_name or "",
+            tool_input=tool_input or None,
+            workspace_path=config.workspace_path,
+            full_command_text=request.full_command_text,
+            file_name=request.file_name,
+            path=request.path,
+            read_only=request.read_only,
+            possible_paths=candidate_paths or None,
         )
-
-        # Emit approval_request event so RuntimeService transitions state
-        event_queue = self._queues.get(sid)
-        if event_queue is not None:
-            event_queue.put_nowait(
-                SessionEvent(
-                    kind=SessionEventKind.approval_request,
-                    payload={
-                        "description": description,
-                        "proposed_action": request.full_command_text,
-                        "approval_id": approval.id,
-                    },
-                )
-            )
-
-        log.info(
-            "permission_awaiting_operator",
-            approval_id=approval.id,
-            kind=kind_val,
-            description=description,
-        )
-
-        # Block the SDK until the operator responds
-        resolution = await approval_service.wait_for_resolution(approval.id)
-
-        if resolution == "approved":
+        if decision == PermissionDecision.allow:
             return _Result(kind="approved")
         return _Result(kind="denied-interactively-by-user")
 
@@ -441,26 +191,13 @@ class CopilotAdapter(AgentAdapterInterface):
 
         if not model_verified[0] and requested_model and actual_model:
             model_verified[0] = True
-            if normalize_model_name(actual_model) != normalize_model_name(requested_model):
-                log.error(
-                    "model_mismatch",
-                    requested=requested_model,
-                    actual=actual_model,
-                    job_id=job_id,
-                )
-                queue.put_nowait(
-                    SessionEvent(
-                        kind=SessionEventKind.model_downgraded,
-                        payload={
-                            "requested_model": requested_model,
-                            "actual_model": actual_model,
-                        },
-                    )
-                )
-            else:
-                log.info("model_confirmed", model=actual_model, job_id=job_id)
-            self._job_main_models[job_id] = actual_model
-            self._schedule_db_write(self._db_write("set_model", job_id=job_id, model=actual_model))
+            # Find the session_id for this job so we can emit events
+            sid = ""
+            for s, j in self._session_to_job.items():
+                if j == job_id:
+                    sid = s
+                    break
+            self._verify_and_set_model(sid, job_id, actual_model, requested_model)
 
         # Sub-agent detection
         main_model = self._job_main_models.get(job_id, "")
@@ -474,64 +211,35 @@ class CopilotAdapter(AgentAdapterInterface):
         cost = float(data.cost or 0)
         duration_ms = float(data.duration or 0)
 
-        attrs = {"job_id": job_id, "sdk": "copilot", "model": actual_model}
-
-        # OTEL instruments
-        tel.tokens_input.add(input_toks, attrs)
-        tel.tokens_output.add(output_toks, attrs)
-        tel.tokens_cache_read.add(cache_read, attrs)
-        tel.tokens_cache_write.add(cache_write, attrs)
-        tel.cost_usd.add(cost, attrs)
-        tel.llm_duration.record(duration_ms, {**attrs, "is_subagent": is_subagent})
-
-        # SQLite summary increment
-        self._schedule_db_write(
-            self._db_write(
-                "increment",
-                job_id=job_id,
-                input_tokens=input_toks,
-                output_tokens=output_toks,
-                cache_read_tokens=cache_read,
-                cache_write_tokens=cache_write,
-                total_cost_usd=cost,
-                llm_call_count=1,
-                total_llm_duration_ms=int(duration_ms),
-                total_turns=1,
-            )
+        self._record_llm_telemetry(
+            job_id,
+            "copilot",
+            actual_model,
+            input_tokens=input_toks,
+            output_tokens=output_toks,
+            cache_read=cache_read,
+            cache_write=cache_write,
+            cost_usd=cost,
+            duration_ms=duration_ms,
+            is_subagent=is_subagent,
+            num_turns=1,
         )
 
         # Advance turn counter for this job
         turn_num = self._turn_counters.get(job_id, 0) + 1
         self._turn_counters[job_id] = turn_num
-        current_phase = self._current_phases.get(job_id, "agent_reasoning")
 
         # SQLite span detail
-        start_time = self._job_start_times.get(job_id, _time.monotonic())
-        offset = _time.monotonic() - start_time
-        self._schedule_db_write(
-            self._db_write(
-                "insert_span",
-                job_id=job_id,
-                span_type="llm",
-                name=actual_model or "unknown",
-                started_at=round(offset, 2),
-                duration_ms=duration_ms,
-                attrs={
-                    "input_tokens": input_toks,
-                    "output_tokens": output_toks,
-                    "cache_read_tokens": cache_read,
-                    "cache_write_tokens": cache_write,
-                    "cost": cost,
-                    "is_subagent": is_subagent,
-                },
-                turn_number=turn_num,
-                execution_phase=current_phase,
-                input_tokens=input_toks,
-                output_tokens=output_toks,
-                cache_read_tokens=cache_read,
-                cache_write_tokens=cache_write,
-                cost_usd=cost,
-            )
+        self._record_llm_span(
+            job_id,
+            actual_model,
+            duration_ms=duration_ms,
+            input_tokens=input_toks,
+            output_tokens=output_toks,
+            cache_read=cache_read,
+            cache_write=cache_write,
+            cost_usd=cost,
+            is_subagent=is_subagent,
         )
 
         # Capture Copilot quota snapshots if present
@@ -603,9 +311,6 @@ class CopilotAdapter(AgentAdapterInterface):
         tool_id = data.tool_call_id or ""
         import time as _time
 
-        from backend.services import telemetry as tel
-        from backend.services.tool_classifier import classify_tool, extract_file_paths, extract_tool_target
-
         start = self._tool_start_times.pop(tool_id, _time.monotonic())
         dur = (_time.monotonic() - start) * 1000
         # Prefer the display name buffered at tool.execution_start
@@ -614,92 +319,27 @@ class CopilotAdapter(AgentAdapterInterface):
         resolved_name = buffered_name or data.tool_name or data.mcp_tool_name or "tool"
         success = bool(data.success) if data.success is not None else True
 
-        attrs = {"job_id": job_id, "sdk": "copilot", "tool_name": resolved_name, "success": success}
-        tel.tool_duration.record(dur, attrs)
-
-        # Tool classification
-        tool_args_str = buffered.get("tool_args")
-        category = classify_tool(resolved_name)
-        target = extract_tool_target(resolved_name, tool_args_str)
-        current_phase = self._current_phases.get(job_id, "agent_reasoning")
-        turn_num = self._turn_counters.get(job_id, 0)
-
-        # Retry detection
-        from backend.services.retry_tracker import RetryTracker
-
-        if job_id not in self._retry_trackers:
-            self._retry_trackers[job_id] = RetryTracker()
-        # Use a placeholder span_id (0); real id assigned by DB
-        retry_result = self._retry_trackers[job_id].record(resolved_name, target, 0, success)
-
-        # Result size estimation
+        # Result text extraction
         result_text = ""
         if data.result is not None:
             result_text = str(data.result) if not isinstance(data.result, str) else data.result
-        result_size = len(result_text.encode("utf-8", errors="replace")) if result_text else None
 
-        # File read/write tracking
-        file_rw_increment = {"file_read_count": 0, "file_write_count": 0}
-        if category in ("file_read", "file_write"):
-            paths = extract_file_paths(resolved_name, tool_args_str)
-            access_type = "write" if category == "file_write" else "read"
-            if access_type == "read":
-                file_rw_increment["file_read_count"] = 1
-            else:
-                file_rw_increment["file_write_count"] = 1
-            for fpath in paths:
-                self._schedule_db_write(
-                    self._db_write(
-                        "record_file_access",
-                        job_id=job_id,
-                        file_path=fpath,
-                        access_type=access_type,
-                        turn_number=turn_num,
-                    )
-                )
+        # Find the session_id for file_changed events
+        sid = ""
+        for s, j in self._session_to_job.items():
+            if j == job_id:
+                sid = s
+                break
 
-        # SQLite writes
-        self._schedule_db_write(
-            self._db_write(
-                "increment",
-                job_id=job_id,
-                tool_call_count=1,
-                tool_failure_count=0 if success else 1,
-                total_tool_duration_ms=int(dur),
-                retry_count=1 if retry_result.is_retry else 0,
-                **file_rw_increment,
-            )
-        )
-
-        job_start = self._job_start_times.get(job_id, _time.monotonic())
-        offset = _time.monotonic() - job_start
-        self._schedule_db_write(
-            self._db_write(
-                "insert_span",
-                job_id=job_id,
-                span_type="tool",
-                name=resolved_name,
-                started_at=round(offset, 2),
-                duration_ms=dur,
-                attrs={
-                    "success": success,
-                    **(
-                        {
-                            "error_snippet": result_text[:500],
-                        }
-                        if not success and result_text
-                        else {}
-                    ),
-                },
-                tool_category=category,
-                tool_target=target,
-                turn_number=turn_num,
-                execution_phase=current_phase,
-                is_retry=retry_result.is_retry,
-                retries_span_id=retry_result.prior_failure_span_id,
-                tool_args_json=tool_args_str,
-                result_size_bytes=result_size,
-            )
+        self._record_tool_telemetry(
+            sid,
+            job_id,
+            "copilot",
+            tool_name=resolved_name,
+            tool_args_str=buffered.get("tool_args"),
+            success=success,
+            duration_ms=dur,
+            result_text=result_text,
         )
 
     def _handle_context_changed(self, data: Any, job_id: str) -> None:
@@ -1139,12 +779,6 @@ class CopilotAdapter(AgentAdapterInterface):
             await session.send({"prompt": message, "mode": "immediate", "attachments": []})
         except Exception:
             log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
-
-    def pause_tools(self, session_id: str) -> None:
-        self._paused_sessions.add(session_id)
-
-    def resume_tools(self, session_id: str) -> None:
-        self._paused_sessions.discard(session_id)
 
     async def abort_session(self, session_id: str) -> None:
         session = self._sessions.get(session_id)
