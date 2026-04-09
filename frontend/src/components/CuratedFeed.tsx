@@ -10,8 +10,9 @@
  * - Minimal visual weight, muted colors
  */
 
-import { useRef, useEffect, useState, useCallback, useMemo, memo } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo, useDeferredValue, memo, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
+import { useHotkeys } from "react-hotkeys-hook";
 import {
   Send, Bot, User, ChevronDown, ChevronRight, Brain,
   ShieldQuestion, CheckCircle2, XCircle as XCircleIcon,
@@ -28,7 +29,7 @@ import { SdkIcon } from "./SdkBadge";
 import { MicButton } from "./VoiceButton";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
-import { cn } from "../lib/utils";
+import { cn, modKey } from "../lib/utils";
 import {
   formatDuration,
   trimWorktreePaths,
@@ -36,6 +37,40 @@ import {
   stripMcpPrefix,
   TruncatedPayload,
 } from "./ToolRenderers";
+
+// ---------------------------------------------------------------------------
+// Search highlight context — lets nested renderers highlight matches
+// ---------------------------------------------------------------------------
+
+const SearchHighlightCtx = createContext<string>("");
+
+/** Wraps substring matches in a <mark> tag. Safe for use in React text nodes. */
+function Highlight({ text }: { text: string }) {
+  const query = useContext(SearchHighlightCtx);
+  if (!query || !text) return <>{text}</>;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(re);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        re.test(part)
+          ? <mark key={i} className="bg-yellow-400/30 text-foreground rounded-sm px-0.5">{part}</mark>
+          : <span key={i}>{part}</span>,
+      )}
+    </>
+  );
+}
+
+type SearchFacet = "all" | "messages" | "tools" | "commands";
+
+const FACETS: { value: SearchFacet; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "messages", label: "Messages" },
+  { value: "tools", label: "Tools" },
+  { value: "commands", label: "Commands" },
+];
 
 // ---------------------------------------------------------------------------
 // Tool classification for clustering
@@ -604,7 +639,7 @@ function FileChip({
         isRunning && "animate-pulse",
       )}
     >
-      <span className="truncate max-w-[200px]">{file.fileName}</span>
+      <span className="truncate max-w-[200px]"><Highlight text={file.fileName} /></span>
       {editCount && <span className="text-[9px] opacity-50">×{editCount}</span>}
     </button>
   );
@@ -1087,7 +1122,7 @@ function ReasoningHint({ content }: { content: string }) {
       >
         <Brain size={12} className="shrink-0 mt-0.5 opacity-60" />
         <span className={expanded ? "whitespace-pre-wrap" : "line-clamp-2"}>
-          {expanded ? trimWorktreePaths(content) : preview}
+          <Highlight text={expanded ? trimWorktreePaths(content) : preview} />
         </span>
       </button>
     </div>
@@ -1295,7 +1330,18 @@ export function CuratedFeed({
   const [pausing, setPausing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFacet, setSearchFacet] = useState<SearchFacet>("all");
+  const deferredQuery = useDeferredValue(searchQuery);
   const waveformContainerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Keyboard shortcuts: Ctrl+F/⌘+F opens search, Escape closes it
+  useHotkeys("ctrl+f,meta+f", () => {
+    setSearchOpen(true);
+  }, { preventDefault: true, enableOnFormTags: true });
+  useHotkeys("Escape", () => {
+    if (searchOpen) { setSearchOpen(false); setSearchQuery(""); setSearchFacet("all"); }
+  }, { enableOnFormTags: true });
 
   const isTerminal = ["review", "completed", "failed", "canceled"].includes(jobState ?? "");
 
@@ -1342,46 +1388,118 @@ export function CuratedFeed({
     }
   };
 
-  // Filter items by search
+  // Filter items by search (debounced via useDeferredValue)
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return feedItems;
-    const q = searchQuery.toLowerCase();
+    if (!deferredQuery.trim()) return feedItems;
+    const q = deferredQuery.toLowerCase();
+    const facet = searchFacet;
+
     return feedItems.filter((item) => {
-      if (item.type === "operator") return item.entry.content?.toLowerCase().includes(q);
+      if (item.type === "divider") return true; // always keep dividers
+
+      if (item.type === "operator") {
+        if (facet === "tools" || facet === "commands") return false;
+        return item.entry.content?.toLowerCase().includes(q);
+      }
+
+      if (item.type === "approval") {
+        if (facet === "tools" || facet === "commands") return false;
+        return item.approval.description.toLowerCase().includes(q);
+      }
+
       if (item.type === "turn" || item.type === "condensed") {
         const turn = item.turn;
-        if (turn.message?.content?.toLowerCase().includes(q)) return true;
-        if (turn.reasoning?.content?.toLowerCase().includes(q)) return true;
-        if (turn.toolCalls.some((t) =>
+        const matchesMessage =
+          turn.message?.content?.toLowerCase().includes(q) ||
+          turn.message?.title?.toLowerCase().includes(q) ||
+          turn.reasoning?.content?.toLowerCase().includes(q);
+        const matchesTools = turn.toolCalls.some((t) =>
           t.toolDisplay?.toLowerCase().includes(q) ||
           t.toolName?.toLowerCase().includes(q) ||
-          t.toolResult?.toLowerCase().includes(q)
-        )) return true;
-        return false;
+          t.toolResult?.toLowerCase().includes(q) ||
+          t.toolArgs?.toLowerCase().includes(q) ||
+          t.toolGroupSummary?.toLowerCase().includes(q) ||
+          t.toolTitle?.toLowerCase().includes(q)
+        );
+        const matchesCommands = turn.toolCalls.some((t) => {
+          if (classifyTool(t.toolName) !== "execute") return false;
+          return t.toolDisplay?.toLowerCase().includes(q) ||
+            t.toolResult?.toLowerCase().includes(q) ||
+            t.toolArgs?.toLowerCase().includes(q);
+        });
+
+        if (facet === "messages") return !!matchesMessage;
+        if (facet === "tools") return matchesTools;
+        if (facet === "commands") return matchesCommands;
+        return !!matchesMessage || matchesTools;
       }
-      if (item.type === "approval") return item.approval.description.toLowerCase().includes(q);
+
       return true;
     });
-  }, [feedItems, searchQuery]);
+  }, [feedItems, deferredQuery, searchFacet]);
 
-  const displayItems = searchQuery.trim() ? filteredItems : feedItems;
+  const matchCount = deferredQuery.trim()
+    ? filteredItems.filter((i) => i.type !== "divider").length
+    : null;
+  const displayItems = deferredQuery.trim() ? filteredItems : feedItems;
+  const activeHighlight = deferredQuery.trim() ? deferredQuery.toLowerCase() : "";
 
   return (
+    <SearchHighlightCtx.Provider value={activeHighlight}>
     <div className="flex flex-col h-full relative">
       {/* Search bar */}
-      {searchOpen && (
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30">
-          <Search size={13} className="text-muted-foreground/40" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter activity..."
-            className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/30"
-            autoFocus
-          />
-          <button onClick={() => { setSearchOpen(false); setSearchQuery(""); }} className="text-muted-foreground/40 hover:text-muted-foreground">
-            <X size={14} />
+      {searchOpen ? (
+        <div className="border-b border-border/30">
+          <div className="flex items-center gap-2 px-3 py-2">
+            <Search size={13} className="text-muted-foreground/40 shrink-0" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`Filter activity…  ${modKey}+F`}
+              className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/30"
+              autoFocus
+            />
+            {matchCount !== null && (
+              <span className="text-[11px] text-muted-foreground/50 tabular-nums shrink-0">
+                {matchCount} {matchCount === 1 ? "match" : "matches"}
+              </span>
+            )}
+            <button
+              onClick={() => { setSearchOpen(false); setSearchQuery(""); setSearchFacet("all"); }}
+              className="text-muted-foreground/40 hover:text-muted-foreground shrink-0"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          {/* Facet chips */}
+          <div className="flex items-center gap-1 px-3 pb-2">
+            {FACETS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setSearchFacet(f.value)}
+                className={cn(
+                  "px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors",
+                  searchFacet === f.value
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/30",
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-end px-3 py-1">
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30 transition-colors"
+            title={`Search  ${modKey}+F`}
+          >
+            <Search size={12} />
+            <span>Search</span>
           </button>
         </div>
       )}
@@ -1462,15 +1580,7 @@ export function CuratedFeed({
               <div ref={waveformContainerRef} />
             </div>
             <div className="flex items-center gap-1 pb-1.5">
-              {!searchOpen && (
-                <button
-                  onClick={() => setSearchOpen(true)}
-                  className="p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                  title="Search"
-                >
-                  <Search size={14} />
-                </button>
-              )}
+
               <MicButton
                 onStateChange={() => {}}
                 waveformContainerRef={waveformContainerRef}
@@ -1502,6 +1612,7 @@ export function CuratedFeed({
         </div>
       )}
     </div>
+    </SearchHighlightCtx.Provider>
   );
 }
 
