@@ -576,6 +576,7 @@ class JobArchivedPayload(CamelModel):
 class JobTitleUpdatedPayload(CamelModel):
     job_id: str
     title: str | None = None
+    description: str | None = None
     branch: str | None = None
     timestamp: datetime
 

@@ -45,10 +45,6 @@ from backend.services.adapter_registry import AdapterRegistry
 from backend.services.agent_adapter import AgentAdapterInterface
 from backend.services.event_bus import EventBus
 from backend.services.job_service import StateConflictError
-from backend.services.progress_tracking_service import (
-    _count_similar_trailing_headlines,
-    _headlines_are_similar,
-)
 from backend.services.runtime_service import (
     RuntimeService,
     _AgentSession,
@@ -407,22 +403,6 @@ class TestCapacityAndQueueing:
     async def test_running_count_property(self, runtime: RuntimeService) -> None:
         assert runtime.running_count == 0
         assert runtime.max_concurrent == 2  # default
-
-
-class TestHeadlineSimilarity:
-    def test_headlines_are_similar_when_subject_is_same(self) -> None:
-        assert _headlines_are_similar("Investigating tool error display", "Debugging tool error display")
-
-    def test_headlines_are_not_similar_for_different_work(self) -> None:
-        assert not _headlines_are_similar("Implementing auth API", "Writing Playwright tests")
-
-    def test_count_similar_trailing_headlines_counts_contiguous_tail(self) -> None:
-        history = [
-            "Preparing worktree",
-            "Investigating tool error display",
-            "Debugging tool error display",
-        ]
-        assert _count_similar_trailing_headlines(history, "Fixing tool error display") == 2
 
 
 # ---------------------------------------------------------------------------

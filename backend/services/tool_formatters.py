@@ -837,3 +837,81 @@ def extract_tool_issue(tool_result: str | None) -> str | None:
             return _truncate(line, 120)
 
     return _truncate(lines[0], 120)
+
+
+# ---------------------------------------------------------------------------
+# Edit-tool success correction
+# ---------------------------------------------------------------------------
+# Agent SDKs (Claude Code, Copilot) can report is_error / success=False on
+# file-edit tool results even when the edit was successfully applied to disk.
+# This happens because the SDK performs post-edit validation (lint, syntax
+# check) and conflates a validation warning with a tool failure.  The result
+# is a misleading "Failed" badge in the UI while the diff clearly shows
+# the applied changes.
+#
+# ``correct_edit_success`` inspects the tool result text for definitive
+# evidence that the edit did NOT happen (no match, file not found, etc.).
+# If no such evidence is found, it overrides the SDK's error flag to True
+# (success), preventing the false-failure display.
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate the file-edit genuinely did not apply.
+_EDIT_FAILURE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?:old_?str(?:ing)?|search.string).{0,30}not found", re.IGNORECASE),
+    re.compile(r"no\s+match", re.IGNORECASE),
+    re.compile(r"(?:file|path).{0,20}(?:not found|does not exist|doesn.t exist)", re.IGNORECASE),
+    re.compile(r"(?:multiple|ambiguous).{0,20}(?:match|occurrence)", re.IGNORECASE),
+    re.compile(r"(?:string|text).{0,30}(?:not found|does not appear)", re.IGNORECASE),
+    re.compile(r"permission\s+denied", re.IGNORECASE),
+    re.compile(r"is a directory", re.IGNORECASE),
+    re.compile(r"matched\s+multiple\s+locations", re.IGNORECASE),
+)
+
+# Tools whose success flag we're willing to correct.
+_EDIT_TOOL_NAMES: frozenset[str] = frozenset({
+    "replace_string_in_file",
+    "multi_replace_string_in_file",
+    "str_replace_based_edit_tool",
+    "str_replace_editor",
+    "insert_edit_into_file",
+    "edit_file",
+    "edit",
+    "Edit",
+    "MultiEdit",
+    "editFile",
+    "apply_patch",
+})
+
+
+def _is_definite_edit_failure(result_text: str) -> bool:
+    """Return True if the result text clearly indicates the edit was not applied."""
+    for pattern in _EDIT_FAILURE_PATTERNS:
+        if pattern.search(result_text):
+            return True
+    return False
+
+
+def correct_edit_success(
+    tool_name: str,
+    sdk_success: bool,
+    result_text: str,
+) -> bool:
+    """Return a corrected success flag for file-edit tools.
+
+    If the SDK reported failure but the result text does not contain evidence
+    that the edit genuinely failed (no match, file not found, etc.), return
+    True to prevent a misleading "Failed" label in the UI.
+
+    For non-edit tools or when the SDK already reports success, the original
+    flag is returned unchanged.
+    """
+    if sdk_success:
+        return True
+    if tool_name not in _EDIT_TOOL_NAMES:
+        return sdk_success
+    if not result_text or not result_text.strip():
+        return sdk_success
+    if _is_definite_edit_failure(result_text):
+        return False
+    # SDK says error but no evidence the edit failed — override to success.
+    return True

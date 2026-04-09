@@ -31,6 +31,7 @@ export interface JobSummary {
   repo: string;
   prompt: string;
   title?: string | null;
+  description?: string | null;
   state: string;
   baseRef: string;
   worktreePath: string | null;
@@ -883,6 +884,7 @@ export const useStore = create<AppState>((set, get) => ({
           const jobId = payload.jobId as string;
           const title = (payload.title as string | null) ?? null;
           const branch = (payload.branch as string | null) ?? null;
+          const description = (payload.description as string | null) ?? null;
           const existing = state.jobs[jobId];
           if (existing) {
             return {
@@ -892,6 +894,7 @@ export const useStore = create<AppState>((set, get) => ({
                   ...existing,
                   ...(title && { title }),
                   ...(branch && { branch }),
+                  ...(description && { description }),
                 },
               },
             };

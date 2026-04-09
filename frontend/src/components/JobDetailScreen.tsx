@@ -512,8 +512,8 @@ export function JobDetailScreen() {
           <p className="text-sm italic text-primary/70 mb-3">{job.progressHeadline}</p>
         )}
 
-        {job.prompt && (
-          <p className="text-sm text-muted-foreground mb-3 line-clamp-3">{job.prompt}</p>
+        {(job.description || job.prompt) && (
+          <p className="text-sm text-muted-foreground mb-3 line-clamp-3">{job.description ?? job.prompt}</p>
         )}
 
         <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-6 gap-y-2 text-sm mb-3">

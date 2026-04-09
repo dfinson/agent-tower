@@ -164,9 +164,8 @@ class CopilotAdapter(BaseAgentAdapter):
         "session.error": SessionEventKind.error,
         "assistant.message": SessionEventKind.transcript,
         "assistant.streaming_delta": SessionEventKind.transcript,
+        "assistant.reasoning": SessionEventKind.transcript,
         "user.message": SessionEventKind.transcript,
-        # assistant.reasoning is intentionally NOT mapped — it duplicates
-        # the reasoning_text already embedded in assistant.message.
         "tool.execution_complete": SessionEventKind.transcript,
         "tool.execution_start": SessionEventKind.transcript,
         "session.workspace_file_changed": SessionEventKind.file_changed,
@@ -324,6 +323,12 @@ class CopilotAdapter(BaseAgentAdapter):
         if data.result is not None:
             result_text = str(data.result) if not isinstance(data.result, str) else data.result
 
+        # Correct false failures for file-edit tools
+        if not success:
+            from backend.services.tool_formatters import correct_edit_success
+
+            success = correct_edit_success(resolved_name, success, result_text)
+
         # Find the session_id for file_changed events
         sid = ""
         for s, j in self._session_to_job.items():
@@ -408,6 +413,14 @@ class CopilotAdapter(BaseAgentAdapter):
             buffered_log_name = self._tool_call_buffer.get((data.tool_call_id or ""), {}).get("tool_name")
             t_name = buffered_log_name or data.tool_name or data.mcp_tool_name or "tool"
             ok = bool(data.success) if data.success is not None else True
+            # Correct false failures for file-edit tools in log messages too
+            if not ok:
+                result_text = ""
+                if data.result is not None:
+                    result_text = str(data.result) if not isinstance(data.result, str) else data.result
+                from backend.services.tool_formatters import correct_edit_success
+
+                ok = correct_edit_success(t_name, ok, result_text)
             _log_msg = f"Tool {'completed' if ok else 'failed'}: {t_name}"
             _log_level = "info" if ok else "warn"
         elif kind_str == "assistant.usage" and data:
@@ -493,6 +506,13 @@ class CopilotAdapter(BaseAgentAdapter):
                         "content": delta,
                         "turn_id": self._get_turn_id(job_id, data) if job_id else (str(data.turn_id) if data and data.turn_id else None),
                     }
+                elif kind_str == "assistant.reasoning":
+                    content = (data.content or getattr(data, "reasoning_text", "") or "") if data else ""
+                    event_payload = {
+                        "role": "reasoning",
+                        "content": content,
+                        "turn_id": self._get_turn_id(job_id, data) if job_id else (str(data.turn_id) if data else None),
+                    }
                 elif kind_str == "user.message":
                     content = (data.content or data.message or "") if data else ""
                     # SDK injects internal system_notification messages (e.g.
@@ -575,6 +595,7 @@ class CopilotAdapter(BaseAgentAdapter):
                             result_text = data.partial_output
                     from backend.services.tool_formatters import (
                         classify_tool_visibility,
+                        correct_edit_success,
                         extract_tool_issue,
                         format_tool_display,
                         format_tool_display_full,
@@ -582,6 +603,9 @@ class CopilotAdapter(BaseAgentAdapter):
 
                     tool_args_str = buffered.get("tool_args")
                     success = bool(data.success) if data and data.success is not None else True
+                    # Correct false failures for file-edit tools
+                    if not success:
+                        success = correct_edit_success(tool_name, success, result_text)
                     tool_issue = extract_tool_issue(result_text) if not success else None
                     # Compute tool execution duration
                     import time as _time

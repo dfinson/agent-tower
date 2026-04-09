@@ -374,6 +374,7 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
         JobTitleUpdatedPayload,
         {
             "title": ("title", None),
+            "description": ("description", None),
             "branch": ("branch", None),
             "timestamp": ("timestamp", _TS_EVENT),
         },
@@ -636,6 +637,7 @@ class SSEManager:
                     repo=j.repo,
                     prompt=j.prompt,
                     title=j.title,
+                    description=j.description,
                     state=j.state,
                     base_ref=j.base_ref,
                     worktree_path=j.worktree_path,
