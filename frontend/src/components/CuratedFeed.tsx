@@ -1257,12 +1257,82 @@ export function CuratedFeed({
     [entries, jobApprovals],
   );
 
+  // --- Search state (must be before virtualizer so count is correct) ---
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFacet, setSearchFacet] = useState<SearchFacet>("all");
+  const deferredQuery = useDeferredValue(searchQuery);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useHotkeys("ctrl+f,meta+f", () => {
+    setSearchOpen(true);
+  }, { preventDefault: true, enableOnFormTags: true });
+  useHotkeys("Escape", () => {
+    if (searchOpen) { setSearchOpen(false); setSearchQuery(""); setSearchFacet("all"); }
+  }, { enableOnFormTags: true });
+
+  // Filter items by search (debounced via useDeferredValue)
+  const filteredItems = useMemo(() => {
+    if (!deferredQuery.trim()) return feedItems;
+    const q = deferredQuery.toLowerCase();
+    const facet = searchFacet;
+
+    return feedItems.filter((item) => {
+      if (item.type === "divider") return true;
+
+      if (item.type === "operator") {
+        if (facet === "tools" || facet === "commands") return false;
+        return item.entry.content?.toLowerCase().includes(q);
+      }
+
+      if (item.type === "approval") {
+        if (facet === "tools" || facet === "commands") return false;
+        return item.approval.description.toLowerCase().includes(q);
+      }
+
+      if (item.type === "turn" || item.type === "condensed") {
+        const turn = item.turn;
+        const matchesMessage =
+          turn.message?.content?.toLowerCase().includes(q) ||
+          turn.message?.title?.toLowerCase().includes(q) ||
+          turn.reasoning?.content?.toLowerCase().includes(q);
+        const matchesTools = turn.toolCalls.some((t) =>
+          t.toolDisplay?.toLowerCase().includes(q) ||
+          t.toolName?.toLowerCase().includes(q) ||
+          t.toolResult?.toLowerCase().includes(q) ||
+          t.toolArgs?.toLowerCase().includes(q) ||
+          t.toolGroupSummary?.toLowerCase().includes(q) ||
+          t.toolTitle?.toLowerCase().includes(q)
+        );
+        const matchesCommands = turn.toolCalls.some((t) => {
+          if (classifyTool(t.toolName) !== "execute") return false;
+          return t.toolDisplay?.toLowerCase().includes(q) ||
+            t.toolResult?.toLowerCase().includes(q) ||
+            t.toolArgs?.toLowerCase().includes(q);
+        });
+
+        if (facet === "messages") return !!matchesMessage;
+        if (facet === "tools") return matchesTools;
+        if (facet === "commands") return matchesCommands;
+        return !!matchesMessage || matchesTools;
+      }
+
+      return true;
+    });
+  }, [feedItems, deferredQuery, searchFacet]);
+
+  const matchCount = deferredQuery.trim()
+    ? filteredItems.filter((i) => i.type !== "divider").length
+    : null;
+  const displayItems = deferredQuery.trim() ? filteredItems : feedItems;
+  const activeHighlight = deferredQuery.trim() ? deferredQuery.toLowerCase() : "";
+
   // Virtualizer — NO auto-scroll. User controls scroll at all times.
   const viewportRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const virtualizer = useVirtualizer({
-    count: feedItems.length,
+    count: displayItems.length,
     getScrollElement: () => viewportRef.current,
     estimateSize: () => 120,
     overscan: 5,
@@ -1318,30 +1388,17 @@ export function CuratedFeed({
   };
 
   const scrollToBottom = useCallback(() => {
-    if (feedItems.length > 0) {
-      virtualizer.scrollToIndex(feedItems.length - 1, { align: "end", behavior: "smooth" });
+    if (displayItems.length > 0) {
+      virtualizer.scrollToIndex(displayItems.length - 1, { align: "end", behavior: "smooth" });
       setShowScrollBtn(false);
     }
-  }, [feedItems.length, virtualizer]);
+  }, [displayItems.length, virtualizer]);
 
   // Message composer state
   const [msg, setMsg] = useState("");
   const [sending, setSending] = useState(false);
   const [pausing, setPausing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchFacet, setSearchFacet] = useState<SearchFacet>("all");
-  const deferredQuery = useDeferredValue(searchQuery);
   const waveformContainerRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  // Keyboard shortcuts: Ctrl+F/⌘+F opens search, Escape closes it
-  useHotkeys("ctrl+f,meta+f", () => {
-    setSearchOpen(true);
-  }, { preventDefault: true, enableOnFormTags: true });
-  useHotkeys("Escape", () => {
-    if (searchOpen) { setSearchOpen(false); setSearchQuery(""); setSearchFacet("all"); }
-  }, { enableOnFormTags: true });
 
   const isTerminal = ["review", "completed", "failed", "canceled"].includes(jobState ?? "");
 
@@ -1388,61 +1445,7 @@ export function CuratedFeed({
     }
   };
 
-  // Filter items by search (debounced via useDeferredValue)
-  const filteredItems = useMemo(() => {
-    if (!deferredQuery.trim()) return feedItems;
-    const q = deferredQuery.toLowerCase();
-    const facet = searchFacet;
 
-    return feedItems.filter((item) => {
-      if (item.type === "divider") return true; // always keep dividers
-
-      if (item.type === "operator") {
-        if (facet === "tools" || facet === "commands") return false;
-        return item.entry.content?.toLowerCase().includes(q);
-      }
-
-      if (item.type === "approval") {
-        if (facet === "tools" || facet === "commands") return false;
-        return item.approval.description.toLowerCase().includes(q);
-      }
-
-      if (item.type === "turn" || item.type === "condensed") {
-        const turn = item.turn;
-        const matchesMessage =
-          turn.message?.content?.toLowerCase().includes(q) ||
-          turn.message?.title?.toLowerCase().includes(q) ||
-          turn.reasoning?.content?.toLowerCase().includes(q);
-        const matchesTools = turn.toolCalls.some((t) =>
-          t.toolDisplay?.toLowerCase().includes(q) ||
-          t.toolName?.toLowerCase().includes(q) ||
-          t.toolResult?.toLowerCase().includes(q) ||
-          t.toolArgs?.toLowerCase().includes(q) ||
-          t.toolGroupSummary?.toLowerCase().includes(q) ||
-          t.toolTitle?.toLowerCase().includes(q)
-        );
-        const matchesCommands = turn.toolCalls.some((t) => {
-          if (classifyTool(t.toolName) !== "execute") return false;
-          return t.toolDisplay?.toLowerCase().includes(q) ||
-            t.toolResult?.toLowerCase().includes(q) ||
-            t.toolArgs?.toLowerCase().includes(q);
-        });
-
-        if (facet === "messages") return !!matchesMessage;
-        if (facet === "tools") return matchesTools;
-        if (facet === "commands") return matchesCommands;
-        return !!matchesMessage || matchesTools;
-      }
-
-      return true;
-    });
-  }, [feedItems, deferredQuery, searchFacet]);
-
-  const matchCount = deferredQuery.trim()
-    ? filteredItems.filter((i) => i.type !== "divider").length
-    : null;
-  const displayItems = deferredQuery.trim() ? filteredItems : feedItems;
-  const activeHighlight = deferredQuery.trim() ? deferredQuery.toLowerCase() : "";
 
   return (
     <SearchHighlightCtx.Provider value={activeHighlight}>
@@ -1451,14 +1454,14 @@ export function CuratedFeed({
       {searchOpen ? (
         <div className="border-b border-border/30">
           <div className="flex items-center gap-2 px-3 py-2">
-            <Search size={13} className="text-muted-foreground/40 shrink-0" />
+            <Search size={13} className="text-muted-foreground/60 shrink-0" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={`Filter activity…  ${modKey}+F`}
-              className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/30"
+              placeholder={`Search transcript…  ${modKey}+F`}
+              className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
               autoFocus
             />
             {matchCount !== null && (
@@ -1495,8 +1498,8 @@ export function CuratedFeed({
         <div className="flex items-center justify-end px-3 py-1">
           <button
             onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30 transition-colors"
-            title={`Search  ${modKey}+F`}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/30 transition-colors"
+            title={`Search transcript  ${modKey}+F`}
           >
             <Search size={12} />
             <span>Search</span>
