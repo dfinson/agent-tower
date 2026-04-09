@@ -163,6 +163,7 @@ class JobResolvedPayloadDict(TypedDict, total=False):
 class JobTitleUpdatedPayloadDict(TypedDict, total=False):
     title: str | None
     branch: str | None
+    description: str | None
 
 
 class ProgressHeadlinePayloadDict(TypedDict, total=False):

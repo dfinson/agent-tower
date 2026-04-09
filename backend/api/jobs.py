@@ -98,6 +98,7 @@ def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) 
         repo=job.repo,
         prompt=job.prompt,
         title=job.title,
+        description=job.description,
         state=job.state,
         base_ref=job.base_ref,
         worktree_path=job.worktree_path,

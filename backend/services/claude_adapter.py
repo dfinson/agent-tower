@@ -514,6 +514,13 @@ class ClaudeAdapter(BaseAgentAdapter):
             result_text = "\n".join(parts)
 
         success = not is_error
+        # Correct false failures for file-edit tools (SDK may report is_error
+        # even when the edit was applied to disk).
+        if not success:
+            from backend.services.tool_formatters import correct_edit_success
+
+            success = correct_edit_success(tool_name, success, result_text)
+
         tool_issue = None
         if not success:
             from backend.services.tool_formatters import extract_tool_issue

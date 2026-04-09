@@ -407,6 +407,7 @@ class TestJobControl:
         fake_job.repo = "/test/repo"
         fake_job.prompt = "Test prompt"
         fake_job.title = None
+        fake_job.description = None
         fake_job.state = "running"
         fake_job.sdk = "copilot"
         fake_job.base_ref = "main"
@@ -477,6 +478,7 @@ class TestJobControl:
         fake_job.repo = "/test/repo"
         fake_job.prompt = "Test prompt"
         fake_job.title = None
+        fake_job.description = None
         fake_job.state = "running"
         fake_job.sdk = "copilot"
         fake_job.base_ref = "main"
@@ -509,7 +511,8 @@ class TestJobControl:
     # ── Models ──
 
     async def test_list_models_empty(self, client: AsyncClient) -> None:
-        resp = await client.get("/api/models")
+        # Use sdk=claude to avoid the live CopilotClient fallback fetch
+        resp = await client.get("/api/models", params={"sdk": "claude"})
         assert resp.status_code == 200
         assert resp.json() == []
 
