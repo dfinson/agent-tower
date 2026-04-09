@@ -36,7 +36,7 @@ function QuotaWarningBanner() {
     <div role="alert" className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-2.5 mb-4 flex items-center gap-2 text-sm">
       <AlertTriangle size={16} className="text-yellow-400 shrink-0" aria-hidden="true" />
       <span className="text-yellow-200">
-        Copilot quota is {quotaPct.toFixed(0)}% used — new jobs may be throttled or denied.
+        Quota is {quotaPct.toFixed(0)}% used — new jobs may be throttled or denied.
       </span>
     </div>
   );

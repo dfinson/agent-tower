@@ -1295,7 +1295,7 @@ export function CuratedFeed({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-card/90 border border-border/50 text-xs text-muted-foreground shadow-lg hover:text-foreground transition-colors"
           >
             <ArrowDown size={12} />
-            New activity
+            Jump to bottom
           </button>
         </div>
       )}

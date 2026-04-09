@@ -147,7 +147,7 @@ class TestClaudeAdapterPermissions:
             permission_mode=PermissionMode.observe_only,
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
-        result = await callback("Read", {"file_path": "test.py"}, None)
+        result = await callback("Read", {"file_path": "/tmp/test/test.py"}, None)
         assert isinstance(result, PermissionResultAllow)
 
     @pytest.mark.asyncio
@@ -161,7 +161,7 @@ class TestClaudeAdapterPermissions:
             permission_mode=PermissionMode.observe_only,
         )
         callback = adapter._build_can_use_tool(config, "sess-1")
-        result = await callback("Edit", {"file_path": "test.py"}, None)
+        result = await callback("Edit", {"file_path": "/tmp/test/test.py"}, None)
         assert isinstance(result, PermissionResultDeny)
 
     @pytest.mark.asyncio
@@ -228,30 +228,30 @@ class TestClaudeAdapterPermissions:
 
 
 class TestClaudeAdapterToolSummary:
-    """Test the _summarize_tool_input helper."""
+    """Test the _build_permission_description helper."""
 
     def test_bash_summary(self) -> None:
-        from backend.services.claude_adapter import _summarize_tool_input
+        from backend.services.base_adapter import BaseAgentAdapter
 
-        result = _summarize_tool_input("Bash", {"command": "make test"})
-        assert result == "make test"
+        result = BaseAgentAdapter._build_permission_description("shell", "Bash", {"command": "make test"}, None)
+        assert "make test" in result
 
     def test_edit_summary(self) -> None:
-        from backend.services.claude_adapter import _summarize_tool_input
+        from backend.services.base_adapter import BaseAgentAdapter
 
-        result = _summarize_tool_input("Edit", {"file_path": "src/main.py"})
-        assert result == "src/main.py"
+        result = BaseAgentAdapter._build_permission_description("write", "Edit", {"file_path": "src/main.py"}, None)
+        assert "src/main.py" in result
 
     def test_web_fetch_summary(self) -> None:
-        from backend.services.claude_adapter import _summarize_tool_input
+        from backend.services.base_adapter import BaseAgentAdapter
 
-        result = _summarize_tool_input("WebFetch", {"url": "https://example.com"})
-        assert result == "https://example.com"
+        result = BaseAgentAdapter._build_permission_description("url", "WebFetch", {"url": "https://example.com"}, None)
+        assert "example.com" in result
 
     def test_fallback_summary(self) -> None:
-        from backend.services.claude_adapter import _summarize_tool_input
+        from backend.services.base_adapter import BaseAgentAdapter
 
-        result = _summarize_tool_input("CustomTool", {"key": "value"})
+        result = BaseAgentAdapter._build_permission_description("custom-tool", "CustomTool", {"key": "value"}, None)
         assert "key" in result
 
 

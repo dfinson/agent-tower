@@ -292,27 +292,78 @@ function CacheEfficiencyBar({ inputTokens, cacheReadTokens, pricing, outputToken
 }
 
 // ---------------------------------------------------------------------------
+// SDK-specific rendering config — add entries here for new SDKs
+// ---------------------------------------------------------------------------
+
+interface SdkCostConfig {
+  /** Header label for the cost section */
+  label: string;
+  /** Icon element for the section header */
+  icon: React.ReactNode;
+  /** Render the cost breakdown component */
+  CostView: React.ComponentType<{ data: TelemetryData }>;
+  /** Label for the "LLM Calls" stat card */
+  llmStatLabel: string;
+  /** Value extractor for the LLM stat card */
+  llmStatValue: (data: TelemetryData) => string;
+  /** Tooltip for the cost stat card */
+  costTooltip: string;
+  /** Whether to show a "Turns" column in the LLM call table */
+  showTurnsColumn: boolean;
+}
+
+const SDK_COST_CONFIG: Record<string, SdkCostConfig> = {
+  copilot: {
+    label: "Premium Requests",
+    icon: <Zap size={12} className="text-yellow-400" />,
+    CostView: CopilotCostView,
+    llmStatLabel: "LLM Calls",
+    llmStatValue: (data) => String(data.llmCallCount ?? 0),
+    costTooltip: "API-equivalent cost — your actual charge is through your Copilot subscription",
+    showTurnsColumn: false,
+  },
+  claude: {
+    label: "Cost",
+    icon: <BarChart3 size={12} className="text-green-400" />,
+    CostView: ClaudeCostView,
+    llmStatLabel: "Turns",
+    llmStatValue: (data) => String(data.agentMessages ?? 0),
+    costTooltip: "API-equivalent cost — if using Claude Max, this reflects usage value, not your subscription charge",
+    showTurnsColumn: true,
+  },
+};
+
+const DEFAULT_COST_CONFIG: Omit<SdkCostConfig, "CostView"> = {
+  label: "Cost",
+  icon: <BarChart3 size={12} className="text-green-400" />,
+  llmStatLabel: "LLM Calls",
+  llmStatValue: (data) => String(data.llmCallCount ?? 0),
+  costTooltip: "Total API-equivalent cost for this job",
+  showTurnsColumn: false,
+};
+
+// ---------------------------------------------------------------------------
 // CostSection component
 // ---------------------------------------------------------------------------
 
 function CostSection({ data }: { data: TelemetryData }) {
   const sdk = data.sdk ?? "";
-  const isCopilot = sdk === "copilot";
-  const isClaude = sdk === "claude";
+  const config = SDK_COST_CONFIG[sdk];
 
-  if (!isCopilot && !isClaude) {
+  if (!config) {
     return null;
   }
+
+  const { CostView } = config;
 
   return (
     <div>
       <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-3">
-        {isCopilot ? <Zap size={12} className="text-yellow-400" /> : <BarChart3 size={12} className="text-green-400" />}
-        {isCopilot ? "Premium Requests" : "Cost"}
+        {config.icon}
+        {config.label}
       </h4>
 
-      {isCopilot && <CopilotCostView data={data} />}
-      {isClaude && <ClaudeCostView data={data} />}
+      <CostView data={data} />
     </div>
   );
 }
@@ -740,19 +791,24 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               )}
 
               {/* Stat cards */}
+              {(() => {
+                const sdkConf = SDK_COST_CONFIG[data.sdk ?? ""] ?? DEFAULT_COST_CONFIG;
+                return (
               <div className={cn("grid grid-cols-2 gap-3", (data.totalCost ?? 0) > 0 ? "sm:grid-cols-5" : "sm:grid-cols-4")}>
                 <StatCard icon={<Clock size={14} />} label="Duration" value={formatDuration(data.durationMs ?? 0)} color="text-blue-400" />
                 <StatCard icon={<Cpu size={14} />} label="Tokens" value={formatTokens(data.totalTokens ?? 0)} color="text-violet-400" />
-                <StatCard icon={<Brain size={14} />} label={data.sdk === "claude" ? "Turns" : "LLM Calls"} value={String(data.sdk === "claude" ? (data.agentMessages ?? 0) : (data.llmCallCount ?? 0))} color="text-blue-400" />
+                <StatCard icon={<Brain size={14} />} label={sdkConf.llmStatLabel} value={sdkConf.llmStatValue(data)} color="text-blue-400" />
                 <StatCard icon={<Wrench size={14} />} label="Tools" value={`${data.toolCallCount ?? 0}${fails ? ` (${fails} fail)` : ""}`} color="text-yellow-400" />
                 {(data.totalCost ?? 0) > 0 && (
-                  <Tooltip content={data.sdk === "copilot" ? "API-equivalent cost — your actual charge is through your Copilot subscription" : data.sdk === "claude" ? "API-equivalent cost — if using Claude Max, this reflects usage value, not your subscription charge" : "Total API-equivalent cost for this job"}>
+                  <Tooltip content={sdkConf.costTooltip}>
                     <div>
                       <StatCard icon={<Zap size={14} />} label="Cost" value={formatUsd(data.totalCost ?? 0)} color="text-green-400" />
                     </div>
                   </Tooltip>
                 )}
               </div>
+                );
+              })()}
 
               {/* Token breakdown */}
               <div>
@@ -1031,7 +1087,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   >
                     {llmCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                     <Brain size={12} className="text-violet-400" />
-                    {data.sdk === "claude" ? "LLM Calls" : "LLM Calls"}
+                    LLM Calls
                     <span className="text-muted-foreground font-normal ml-1">
                       ({data.llmCallCount ?? 0} calls, {formatDuration(data.totalLlmDurationMs ?? 0)})
                     </span>
@@ -1068,7 +1124,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                 <th className="px-2 py-1.5 text-right font-medium">In</th>
                                 <th className="px-2 py-1.5 text-right font-medium">Out</th>
                                 <th className="px-2 py-1.5 text-right font-medium">Cache</th>
-                                {data.sdk === "claude" && <th className="px-2 py-1.5 text-right font-medium">Turns</th>}
+                                {(SDK_COST_CONFIG[data.sdk ?? ""]?.showTurnsColumn) && <th className="px-2 py-1.5 text-right font-medium">Turns</th>}
                                 <th className="px-2 py-1.5 text-right font-medium">Duration</th>
                               </tr>
                             </thead>
@@ -1081,7 +1137,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                   <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
                                     {lc.cacheReadTokens > 0 ? formatTokens(lc.cacheReadTokens) : "—"}
                                   </td>
-                                  {data.sdk === "claude" && <td className="px-2 py-1.5 text-right tabular-nums">{lc.callCount ?? 1}</td>}
+                                  {(SDK_COST_CONFIG[data.sdk ?? ""]?.showTurnsColumn) && <td className="px-2 py-1.5 text-right tabular-nums">{lc.callCount ?? 1}</td>}
                                   <td className="px-2 py-1.5 text-right tabular-nums">{formatDuration(lc.durationMs)}</td>
                                 </tr>
                               ))}
