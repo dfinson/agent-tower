@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, ArrowLeft } from "lucide-react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
-import { sendOperatorMessage, resumeJob, continueJob, fetchStepDiff } from "../api/client";
+import { sendOperatorMessage, resumeJob, continueJob } from "../api/client";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
@@ -20,10 +20,6 @@ interface DiffViewerProps {
   resolution?: string | null;
   archivedAt?: string | null;
   onAskSent?: () => void;
-  /** When set, fetch and show only this step's changes */
-  stepId?: string | null;
-  /** Called when user clicks "Show all changes" to clear the step filter */
-  onClearStep?: () => void;
 }
 
 const STATUS_ICON: Record<string, LucideIcon> = {
@@ -125,31 +121,11 @@ function computeAskState(): { canAsk: boolean; reason: string | null } {
   return { canAsk: true, reason: null };
 }
 
-export default function DiffViewer({ jobId, jobState, onAskSent, stepId, onClearStep }: DiffViewerProps) {
+export default function DiffViewer({ jobId, jobState, onAskSent }: DiffViewerProps) {
   const navigate = useNavigate();
-  const globalDiffs = useStore(selectJobDiffs(jobId));
-  const [stepDiffs, setStepDiffs] = useState<DiffFileModel[] | null>(null);
-  const [stepDiffLoading, setStepDiffLoading] = useState(false);
-
-  // Fetch step-scoped diff when stepId is provided
-  useEffect(() => {
-    if (!stepId) {
-      setStepDiffs(null);
-      return;
-    }
-    setStepDiffLoading(true);
-    fetchStepDiff(jobId, stepId)
-      .then((res) => setStepDiffs(res.changedFiles ?? []))
-      .catch(() => setStepDiffs([]))
-      .finally(() => setStepDiffLoading(false));
-  }, [jobId, stepId]);
-
-  const diffs = stepId && stepDiffs != null ? stepDiffs : globalDiffs;
+  const diffs = useStore(selectJobDiffs(jobId));
   const isMobile = useIsMobile();
   const [selectedIdx, setSelectedIdx] = useState(0);
-
-  // Reset selection when switching between step/global diffs
-  useEffect(() => { setSelectedIdx(0); }, [stepId]);
 
   const [original, setOriginal] = useState("");
   const [modified, setModified] = useState("");
@@ -423,38 +399,16 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepId, onClear
   const totalAdditions = diffs.reduce((sum, f) => sum + (f.additions ?? 0), 0);
   const totalDeletions = diffs.reduce((sum, f) => sum + (f.deletions ?? 0), 0);
 
-  if (stepDiffLoading) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-8 text-center">
-        <Spinner />
-        <p className="text-sm text-muted-foreground mt-2">Loading step diff…</p>
-      </div>
-    );
-  }
-
   if (diffs.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center">
-        <p className="text-sm text-muted-foreground">{stepId ? "No changes in this step" : "No changes detected"}</p>
-        {stepId && onClearStep && (
-          <button onClick={onClearStep} className="mt-2 text-xs text-primary hover:underline">Show all changes</button>
-        )}
+        <p className="text-sm text-muted-foreground">No changes detected</p>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Step filter banner */}
-      {stepId && onClearStep && (
-        <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2">
-          <button onClick={onClearStep} className="text-muted-foreground hover:text-foreground">
-            <ArrowLeft size={14} />
-          </button>
-          <span className="text-xs text-muted-foreground">Showing changes from this step only</span>
-          <button onClick={onClearStep} className="ml-auto text-xs text-primary hover:underline">Show all changes</button>
-        </div>
-      )}
       <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[calc(100vh-14rem)] md:h-[60vh] min-h-[300px] max-h-[600px]">
         {/* File list sidebar */}
         <div

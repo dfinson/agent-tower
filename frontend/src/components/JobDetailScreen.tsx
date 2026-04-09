@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback, Suspense } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSteps } from "../api/client";
-import { StepListView } from "./StepListView";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob } from "../api/client";
+import { CuratedFeed } from "./CuratedFeed";
+import { PlanPanel } from "./PlanPanel";
+import { ExecutionTimeline } from "./ExecutionTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
@@ -31,8 +33,6 @@ const SKELETON_DELAY_MS = 500;
 export function JobDetailScreen() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const targetStepId = searchParams.get("step");
   const jobs = useStore(selectJobs);
   const job: JobSummary | undefined = jobId ? jobs[jobId] : undefined;
   const [loading, setLoading] = useState(!job);
@@ -45,7 +45,6 @@ export function JobDetailScreen() {
   const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [tab, setTab] = useState("live");
   const [overflowOpen, setOverflowOpen] = useState(false);
-  const [diffStepId, setDiffStepId] = useState<string | null>(null);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
@@ -136,31 +135,6 @@ export function JobDetailScreen() {
 
   // Load diff data: on mount and when job state changes (e.g. reaches terminal state).
   const jobState = job?.state;
-  useEffect(() => {
-    if (!jobId) return;
-    fetchJobSteps(jobId)
-      .then((rawSteps) => {
-        // Map API response (planStepId) to store Step interface (stepId)
-        const mapped = (rawSteps as any[]).map((s) => ({
-          stepId: s.stepId ?? s.planStepId ?? "",
-          jobId: s.jobId ?? jobId,
-          label: s.label ?? "",
-          summary: s.summary ?? null,
-          status: s.status ?? "pending",
-          order: s.order ?? 0,
-          toolCount: s.toolCount ?? 0,
-          durationMs: s.durationMs ?? null,
-          startedAt: s.startedAt ?? null,
-          completedAt: s.completedAt ?? null,
-          filesWritten: s.filesWritten ?? null,
-          startSha: s.startSha ?? null,
-          endSha: s.endSha ?? null,
-        }));
-        useStore.setState((st) => ({ steps: { ...st.steps, [jobId]: mapped } }));
-      })
-      .catch((err) => console.error("Failed to fetch job steps", err));
-  }, [jobId]);
-
   useEffect(() => {
     if (!jobId) return;
     fetchJobDiff(jobId)
@@ -611,7 +585,7 @@ export function JobDetailScreen() {
       )}
 
       {/* Tab bar — desktop shows all tabs + terminal button; mobile shows 3 tabs + ••• overflow */}
-      <Tabs value={tab} onValueChange={(v) => { if (v === "diff") setDiffStepId(null); setTab(v); }} className="mb-4">
+      <Tabs value={tab} onValueChange={setTab} className="mb-4">
         {/* Desktop layout (hidden on mobile) */}
         <div className="hidden sm:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
@@ -702,12 +676,12 @@ export function JobDetailScreen() {
 
       {tab === "live" && (
         <div className="flex flex-col gap-4">
-          <StepListView
-              job={job}
-              targetStepId={targetStepId}
-              onViewDiff={(step) => { setDiffStepId(step.stepId); setTab("diff"); }}
-            />
+          <div className="h-[80dvh] min-h-[22rem]">
+            <CuratedFeed jobId={jobId} sdk={job.sdk} interactive jobState={job.state} pausable={isRunning} prompt={job.prompt} promptTimestamp={job.createdAt} />
+          </div>
           <div className="space-y-4">
+            <PlanPanel jobId={jobId} />
+            <ExecutionTimeline jobId={jobId} />
             <MetricsPanel jobId={jobId} isRunning={isRunning} />
           </div>
         </div>
@@ -721,7 +695,7 @@ export function JobDetailScreen() {
 
       {tab === "diff" && (
         <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-          <DiffViewer jobId={jobId} jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} onAskSent={() => setTab("live")} stepId={diffStepId} onClearStep={() => setDiffStepId(null)} />
+          <DiffViewer jobId={jobId} jobState={job.state} resolution={job.resolution} archivedAt={job.archivedAt} onAskSent={() => setTab("live")} />
         </Suspense>
       )}
 
