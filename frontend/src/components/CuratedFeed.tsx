@@ -1399,15 +1399,11 @@ export function CuratedFeed({
 
   const [currentMatchPos, setCurrentMatchPos] = useState(0); // position within matchList
 
-  // Reset position when matches change, auto-jump to first match
+  // Reset position when matches change — do NOT auto-scroll.
+  // The user scrolls explicitly via Enter / arrow buttons.
   useEffect(() => {
     setCurrentMatchPos(0);
-    if (matchList.length > 0) {
-      const first = matchList[0]!;
-      virtualizer.scrollToIndex(first, { align: "center" });
-      setHighlightIdx(first);
-    }
-  }, [matchList]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [matchList]);
 
   const jumpToMatch = useCallback((pos: number) => {
     if (matchList.length === 0) return;
