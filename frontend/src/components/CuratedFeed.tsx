@@ -1494,40 +1494,40 @@ export function CuratedFeed({
           {virtualizer.getVirtualItems().map((vItem) => {
             const item = feedItems[vItem.index];
             if (!item) return null;
-            // When searching, hide non-matching items (collapsed to 0-height)
-            const hidden = matchingIndices !== null && !matchingIndices.has(vItem.index);
+            // When searching, dim non-matching items instead of hiding them
+            // (hiding breaks virtualizer position calculations)
+            const dimmed = matchingIndices !== null && !matchingIndices.has(vItem.index);
+            const isActiveMatch = vItem.index === highlightIdx;
 
             return (
               <div
                 key={vItem.key}
                 ref={virtualizer.measureElement}
                 data-index={vItem.index}
-                className={vItem.index === highlightIdx ? "animate-glow-flicker" : undefined}
-                onAnimationEnd={vItem.index === highlightIdx ? () => setHighlightIdx(null) : undefined}
+                className={isActiveMatch ? "animate-glow-flicker" : undefined}
+                onAnimationEnd={isActiveMatch ? () => setHighlightIdx(null) : undefined}
                 style={{
                   position: "absolute",
                   top: 0,
                   left: 0,
                   width: "100%",
                   transform: `translateY(${vItem.start}px)`,
-                  ...(hidden ? { height: 0, overflow: "hidden", visibility: "hidden" as const } : {}),
+                  ...(dimmed ? { opacity: 0.15, pointerEvents: "none" as const } : {}),
                 }}
               >
-                {!hidden && (
-                  <div className="px-4">
-                    <SearchHighlightCtx.Provider value={activeHighlight}>
-                      <FeedItemRenderer
-                        item={item}
-                        jobId={jobId}
-                        sdk={sdk}
-                        streamingMessages={streamingMessages}
-                        isJobLive={isJobLive}
-                        isLast={vItem.index === feedItems.length - 1}
-                        onViewStepChanges={onViewStepChanges}
-                      />
-                    </SearchHighlightCtx.Provider>
-                  </div>
-                )}
+                <div className="px-4">
+                  <SearchHighlightCtx.Provider value={activeHighlight}>
+                    <FeedItemRenderer
+                      item={item}
+                      jobId={jobId}
+                      sdk={sdk}
+                      streamingMessages={streamingMessages}
+                      isJobLive={isJobLive}
+                      isLast={vItem.index === feedItems.length - 1}
+                      onViewStepChanges={onViewStepChanges}
+                    />
+                  </SearchHighlightCtx.Provider>
+                </div>
               </div>
             );
           })}
