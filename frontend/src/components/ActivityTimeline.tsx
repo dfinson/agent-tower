@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree } from "lucide-react";
 import { useStore, selectActivityTimeline, selectJobPlan } from "../store";
 import type { ActivityTimelineActivity, PlanStep } from "../store";
@@ -31,13 +31,23 @@ function ActivitySection({
   isLast,
   selectedTurnId,
   onStepClick,
+  searchActive,
 }: {
   activity: ActivityTimelineActivity;
   isLast: boolean;
   selectedTurnId: string | null;
   onStepClick: (turnId: string) => void;
+  searchActive?: boolean;
 }) {
   const [expanded, setExpanded] = useState(activity.status === "active");
+
+  // When search is driving the sidebar, auto-expand the activity containing
+  // the matched step and collapse everything else.
+  const containsSelected = !!selectedTurnId && activity.steps.some((s) => s.turnId === selectedTurnId);
+  useEffect(() => {
+    if (!searchActive) return; // only react when search is active
+    setExpanded(containsSelected);
+  }, [searchActive, containsSelected]);
 
   return (
     <div>
@@ -112,11 +122,13 @@ export function ActivityTimeline({
   jobState,
   onStepClick,
   selectedTurnId,
+  searchActive,
 }: {
   jobId: string;
   jobState?: string;
   onStepClick: (turnId: string) => void;
   selectedTurnId?: string | null;
+  searchActive?: boolean;
 }) {
   const timeline = useStore(selectActivityTimeline(jobId));
   const planSteps = useStore(selectJobPlan(jobId));
@@ -148,6 +160,7 @@ export function ActivityTimeline({
             isLast={i === activities.length - 1}
             selectedTurnId={selectedTurnId ?? null}
             onStepClick={onStepClick}
+            searchActive={searchActive}
           />
         ))}
       </div>
