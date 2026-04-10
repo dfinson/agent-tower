@@ -83,7 +83,7 @@ class TestUpCommand:
     def test_up_accepts_negative_port(self) -> None:
         """Click accepts negative int; uvicorn would fail at bind time."""
         runner = CliRunner()
-        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server") as mock_server:
+        with patch("backend.cli._build_frontend"), patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server") as mock_server:
             result = runner.invoke(cli, ["up", "--port", "-1"])
             # Should reach uvicorn.Server (click doesn't validate port range)
             if result.exit_code == 0:
@@ -93,14 +93,14 @@ class TestUpCommand:
 
     def test_up_with_zero_port(self) -> None:
         runner = CliRunner()
-        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server") as mock_server:
+        with patch("backend.cli._build_frontend"), patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server") as mock_server:
             result = runner.invoke(cli, ["up", "--port", "0"])
             if result.exit_code == 0:
                 assert mock_server.called
 
     def test_up_with_custom_host(self) -> None:
         runner = CliRunner()
-        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server") as mock_server:
+        with patch("backend.cli._build_frontend"), patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server") as mock_server:
             result = runner.invoke(cli, ["up", "--host", "0.0.0.0"])
             if result.exit_code == 0:
                 config = mock_server.call_args[0][0]
@@ -108,7 +108,7 @@ class TestUpCommand:
 
     def test_up_uses_config_defaults(self) -> None:
         runner = CliRunner()
-        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server") as mock_server:
+        with patch("backend.cli._build_frontend"), patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server") as mock_server:
             result = runner.invoke(cli, ["up"])
             if result.exit_code == 0:
                 config = mock_server.call_args[0][0]
@@ -129,7 +129,7 @@ class TestUpCommand:
     def test_up_host_0000_auto_generates_password(self) -> None:
         """--host 0.0.0.0 without explicit password should auto-generate one."""
         runner = CliRunner()
-        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server"):
+        with patch("backend.cli._build_frontend"), patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server"):
             result = runner.invoke(cli, ["up", "--host", "0.0.0.0", "--skip-preflight"])
             # The password auto-generation happens before server.run()
             if result.exit_code == 0:
@@ -138,7 +138,7 @@ class TestUpCommand:
     def test_up_host_0000_with_explicit_password_allowed(self) -> None:
         """--host 0.0.0.0 --password mypass should work without issue."""
         runner = CliRunner()
-        with patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server"):
+        with patch("backend.cli._build_frontend"), patch("backend.cli.run_migrations"), patch("backend.cli.uvicorn.Server"):
             result = runner.invoke(cli, ["up", "--host", "0.0.0.0", "--password", "mypass", "--skip-preflight"])
             assert result.exit_code == 0
 

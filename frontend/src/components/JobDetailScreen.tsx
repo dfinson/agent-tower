@@ -72,8 +72,9 @@ export function JobDetailScreen() {
   const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
   const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  const [searchActive, setSearchActive] = useState(false);
   // Reset selectedTurnId when navigating to a different job
-  useEffect(() => { setSelectedTurnId(null); }, [jobId]);
+  useEffect(() => { setSelectedTurnId(null); setSearchActive(false); }, [jobId]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
   const isResizingRef = useRef(false);
@@ -803,6 +804,7 @@ export function JobDetailScreen() {
                       setSelectedTurnId(turnId);
                     }}
                     selectedTurnId={selectedTurnId}
+                    searchActive={searchActive}
                   />
                 </div>
               </>
@@ -829,6 +831,10 @@ export function JobDetailScreen() {
                 prompt={job.prompt}
                 promptTimestamp={job.createdAt}
                 onViewStepChanges={handleViewStepChanges}
+                onSearchHighlight={(turnId) => {
+                  setSelectedTurnId(turnId);
+                  setSearchActive(turnId !== null);
+                }}
                 scrollToSeq={scrollToSeq}
                 scrollToTurnId={scrollToTurnId}
               />

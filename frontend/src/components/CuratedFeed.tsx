@@ -1198,6 +1198,7 @@ export function CuratedFeed({
   prompt,
   promptTimestamp,
   onViewStepChanges,
+  onSearchHighlight,
   scrollToSeq,
   scrollToTurnId,
 }: {
@@ -1209,6 +1210,7 @@ export function CuratedFeed({
   prompt?: string;
   promptTimestamp?: string;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
+  onSearchHighlight?: (turnId: string | null) => void;
   scrollToSeq?: number | null;
   scrollToTurnId?: string | null;
 }) {
@@ -1402,10 +1404,18 @@ export function CuratedFeed({
 
   // Auto-jump to first match when search query produces results.
   // Uses debouncedQuery as trigger so it fires once per distinct query.
+  // Extract the turnId from a feedItem at a given index
+  const getTurnIdForIndex = useCallback((idx: number): string | null => {
+    const item = feedItems[idx];
+    if (!item) return null;
+    if (item.type === "turn" || item.type === "condensed") return item.turn.turnId ?? null;
+    return null;
+  }, [feedItems]);
+
   const lastJumpedQueryRef = useRef("");
   useEffect(() => {
     const q = debouncedQuery.trim();
-    if (!q) { lastJumpedQueryRef.current = ""; return; }
+    if (!q) { lastJumpedQueryRef.current = ""; onSearchHighlight?.(null); return; }
     if (matchList.length === 0) return;
     if (lastJumpedQueryRef.current === q) return; // already jumped for this query
     lastJumpedQueryRef.current = q;
@@ -1413,6 +1423,7 @@ export function CuratedFeed({
     const first = matchList[0]!;
     virtualizer.scrollToIndex(first, { align: "center" });
     setHighlightIdx(first);
+    onSearchHighlight?.(getTurnIdForIndex(first));
   }, [debouncedQuery, matchList]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const jumpToMatch = useCallback((pos: number) => {
@@ -1422,7 +1433,8 @@ export function CuratedFeed({
     const feedIdx = matchList[clamped]!;
     virtualizer.scrollToIndex(feedIdx, { align: "center" });
     setHighlightIdx(feedIdx);
-  }, [matchList, virtualizer]);
+    onSearchHighlight?.(getTurnIdForIndex(feedIdx));
+  }, [matchList, virtualizer, onSearchHighlight, getTurnIdForIndex]);
 
   const nextMatch = useCallback(() => jumpToMatch(currentMatchPos + 1), [jumpToMatch, currentMatchPos]);
   const prevMatch = useCallback(() => jumpToMatch(currentMatchPos - 1), [jumpToMatch, currentMatchPos]);
@@ -1430,7 +1442,7 @@ export function CuratedFeed({
   // Ctrl+F / ⌘+F to open search
   const searchInputRef = useRef<HTMLInputElement>(null);
   useHotkeys("mod+f", (e) => { e.preventDefault(); setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0); }, { enableOnFormTags: true });
-  useHotkeys("Escape", () => { if (searchOpen) { setSearchOpen(false); setSearchQuery(""); } }, { enableOnFormTags: true });
+  useHotkeys("Escape", () => { if (searchOpen) { setSearchOpen(false); setSearchQuery(""); onSearchHighlight?.(null); } }, { enableOnFormTags: true });
 
   return (
     <div className="flex flex-col h-full relative">
@@ -1479,7 +1491,7 @@ export function CuratedFeed({
                     </button>
                   </div>
                 )}
-                <button onClick={() => { setSearchOpen(false); setSearchQuery(""); }} className="text-muted-foreground/40 hover:text-muted-foreground shrink-0">
+                <button onClick={() => { setSearchOpen(false); setSearchQuery(""); onSearchHighlight?.(null); }} className="text-muted-foreground/40 hover:text-muted-foreground shrink-0">
                   <X size={14} />
                 </button>
               </>
