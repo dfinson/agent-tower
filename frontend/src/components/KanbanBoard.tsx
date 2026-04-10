@@ -55,8 +55,12 @@ export function KanbanBoard() {
   const [sortOpen, setSortOpen] = useState(false);
   const filterInputRef = useRef<HTMLInputElement>(null);
 
-  // "/" focuses the filter input (disabled automatically when an input is already focused)
-  useHotkeys("/", () => filterInputRef.current?.focus(), { preventDefault: true, useKey: true });
+  // "/" focuses the filter input (skip when already inside an input/textarea)
+  useHotkeys("/", () => {
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+    filterInputRef.current?.focus();
+  }, { preventDefault: true, useKey: true });
 
   const process = (jobs: JobSummary[]) => sortJobs(filterJobs(jobs, query), sort);
 

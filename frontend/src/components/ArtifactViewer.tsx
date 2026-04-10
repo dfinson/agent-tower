@@ -91,6 +91,7 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
             {canPreview ? (
               <button
                 onClick={() => setExpanded((e) => !e)}
+                aria-expanded={expanded}
                 className="flex items-center gap-1.5 text-left hover:text-foreground transition-colors"
               >
                 {expanded ? <ChevronDown size={12} className="text-muted-foreground shrink-0" /> : <ChevronRight size={12} className="text-muted-foreground shrink-0" />}
@@ -112,9 +113,10 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
             href={downloadArtifactUrl(artifact.id)}
             target="_blank"
             rel="noopener noreferrer"
+            aria-label={`Download ${artifact.name}`}
             className="inline-flex items-center justify-center w-8 h-8 text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Download size={14} />
+            <Download size={14} aria-hidden="true" />
           </a>
         </td>
       </tr>

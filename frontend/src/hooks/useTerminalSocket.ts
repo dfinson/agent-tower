@@ -27,6 +27,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSo
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionIdRef = useRef(sessionId);
+  const attemptRef = useRef(0);
   sessionIdRef.current = sessionId;
 
   const connect = useCallback(() => {
@@ -36,6 +37,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSo
     wsRef.current = ws;
 
     ws.onopen = () => {
+      attemptRef.current = 0;
       // Attach to session
       ws.send(JSON.stringify({ type: "attach", sessionId: sessionIdRef.current }));
     };
@@ -65,9 +67,16 @@ export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSo
 
     ws.onclose = () => {
       wsRef.current = null;
-      // Auto-reconnect after 2s if session is still active
+      // Auto-reconnect with exponential backoff if session is still active
       if (sessionIdRef.current) {
-        reconnectTimer.current = setTimeout(connect, 2000);
+        attemptRef.current += 1;
+        const MAX_WS_ATTEMPTS = 20;
+        if (attemptRef.current > MAX_WS_ATTEMPTS) {
+          console.warn("[terminal] Max reconnect attempts reached");
+          return;
+        }
+        const delay = Math.min(1000 * 2 ** (attemptRef.current - 1), 30_000);
+        reconnectTimer.current = setTimeout(connect, delay);
       }
     };
 

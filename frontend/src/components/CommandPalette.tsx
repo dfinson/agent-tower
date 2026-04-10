@@ -208,7 +208,7 @@ export function CommandPalette() {
             <button
               key={item.id}
               onClick={() => runItem(item)}
-              onMouseEnter={() => setSelectedIndex(i)}
+              onMouseMove={() => setSelectedIndex(i)}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-left transition-colors ${
                 i === selectedIndex
                   ? "bg-accent text-accent-foreground"

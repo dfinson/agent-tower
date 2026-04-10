@@ -16,7 +16,6 @@ const INITIAL_DELAY_MS = 1000;
 const BACKOFF_MULTIPLIER = 2;
 const MAX_DELAY_MS = 30_000;
 const JITTER_MS = 500;
-const MAX_ATTEMPTS = 20;
 
 function jitter(): number {
   return Math.round((Math.random() - 0.5) * 2 * JITTER_MS);
@@ -159,14 +158,6 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         if (disposed) return;
 
         attemptRef.current += 1;
-
-        if (attemptRef.current > MAX_ATTEMPTS) {
-          setTimeout(() => {
-            setConnectionStatus("disconnected");
-            setReconnectAttempt(attemptRef.current);
-          }, 0);
-          return;
-        }
 
         setTimeout(() => {
           setConnectionStatus(wasConnectedRef.current ? "reconnecting" : "connecting");
