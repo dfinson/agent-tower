@@ -1404,8 +1404,8 @@ export function CuratedFeed({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
       >
-        {/* Inline search */}
-        <div className="px-4 pt-2.5 pb-0">
+        {/* Inline search — sticky so it stays visible on scroll */}
+        <div className="sticky top-0 z-10 bg-card px-4 pt-2.5 pb-0">
           <div
             className={cn(
               "flex items-center gap-2 transition-colors cursor-text",
