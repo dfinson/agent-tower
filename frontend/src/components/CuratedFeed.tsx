@@ -1374,13 +1374,14 @@ export function CuratedFeed({
       if (item.type === "operator") match = !!item.entry.content?.toLowerCase().includes(q);
       else if (item.type === "turn" || item.type === "condensed") {
         const turn = item.turn;
+        // Only search visible text: agent messages, reasoning, tool display labels,
+        // and cluster labels. Skip toolResult/toolArgs — they're hidden/collapsed
+        // and matching them produces phantom results the user can't see.
         match = !!(turn.message?.content?.toLowerCase().includes(q)
           || turn.reasoning?.content?.toLowerCase().includes(q)
           || turn.toolCalls.some((t) =>
             t.toolDisplay?.toLowerCase().includes(q)
             || t.toolName?.toLowerCase().includes(q)
-            || t.toolResult?.toLowerCase().includes(q)
-            || (typeof t.toolArgs === "string" && t.toolArgs.toLowerCase().includes(q))
           )
         );
       } else if (item.type === "approval") match = item.approval.description.toLowerCase().includes(q);
@@ -1595,15 +1596,6 @@ export function CuratedFeed({
               <div ref={waveformContainerRef} />
             </div>
             <div className="flex items-center gap-1 pb-1.5">
-              {!searchOpen && (
-                <button
-                  onClick={() => setSearchOpen(true)}
-                  className="p-1.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                  title="Search"
-                >
-                  <Search size={14} />
-                </button>
-              )}
               <MicButton
                 onStateChange={() => {}}
                 waveformContainerRef={waveformContainerRef}
