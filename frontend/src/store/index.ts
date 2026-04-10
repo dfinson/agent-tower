@@ -103,6 +103,10 @@ export interface TranscriptEntry {
 export interface PlanStep {
   label: string;
   status: "done" | "active" | "pending" | "skipped";
+  summary?: string;
+  toolCount?: number;
+  filesWritten?: string[];
+  durationMs?: number;
 }
 
 export interface TimelineEntry {
@@ -629,10 +633,14 @@ export const useStore = create<AppState>((set, get) => ({
 
         case "agent_plan_updated": {
           const jobId = payload.jobId as string;
-          const rawSteps = (payload.steps as Array<{ label: string; status: string }>) || [];
+          const rawSteps = (payload.steps as Array<{ label: string; status: string; summary?: string; toolCount?: number; filesWritten?: string[]; durationMs?: number }>) || [];
           const typed: PlanStep[] = rawSteps.map((s) => ({
             label: s.label,
             status: (s.status as PlanStep["status"]) || "pending",
+            summary: s.summary,
+            toolCount: s.toolCount,
+            filesWritten: s.filesWritten,
+            durationMs: s.durationMs,
           }));
           return {
             plans: { ...state.plans, [jobId]: typed },

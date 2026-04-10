@@ -1,7 +1,27 @@
-import { useEffect, useState } from "react";
-import { type LucideIcon, Download, FileText, FileCode, ChevronDown, ChevronRight, BookOpen, ScrollText, ListChecks, Activity, ShieldCheck, ClipboardList, Archive } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type LucideIcon,
+  Download,
+  FileText,
+  FileCode,
+  ChevronDown,
+  ChevronRight,
+  BookOpen,
+  ScrollText,
+  Activity,
+  ShieldCheck,
+  ClipboardList,
+  Archive,
+  Terminal,
+  Package,
+} from "lucide-react";
 import { fetchArtifacts, downloadArtifactUrl, fetchArtifactText } from "../api/client";
 import { Spinner } from "./ui/spinner";
+import { useStore } from "../store";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Artifact {
   id: string;
@@ -14,29 +34,92 @@ interface Artifact {
   createdAt: string;
 }
 
+/** Display key — the actual group a given artifact is rendered under.
+ *  This may differ from the raw `type` (e.g. legacy `document`-typed
+ *  agent.log files are reclassified to `agent_log`). */
+type DisplayType =
+  | "agent_summary"
+  | "diff_snapshot"
+  | "session_log"
+  | "agent_log"
+  | "approval_history"
+  | "document"
+  | "custom"
+  | "exports";
+
+// ---------------------------------------------------------------------------
+// Icons, labels, descriptions, and sort order
+// ---------------------------------------------------------------------------
+
 const TYPE_ICON: Record<string, LucideIcon> = {
-  diff_snapshot: FileCode,
-  session_snapshot: Archive,
-  session_log: ScrollText,
   agent_summary: ClipboardList,
-  agent_plan: ListChecks,
-  telemetry_report: Activity,
+  diff_snapshot: FileCode,
+  session_log: ScrollText,
+  agent_log: Terminal,
   approval_history: ShieldCheck,
   document: BookOpen,
-  custom: FileText,
+  custom: Package,
+  exports: Activity,
+  // Legacy / fallback
+  session_snapshot: Archive,
 };
 
 const TYPE_LABEL: Record<string, string> = {
-  diff_snapshot: "Diff Snapshots",
-  session_snapshot: "Session Snapshots",
-  session_log: "Session Logs",
-  agent_summary: "Agent Summaries",
-  agent_plan: "Agent Plans",
-  telemetry_report: "Telemetry Reports",
-  approval_history: "Approval History",
-  document: "Documents",
-  custom: "Custom",
+  agent_summary: "Session Summaries",
+  diff_snapshot: "Code Changes",
+  session_log: "Full Transcript",
+  agent_log: "Agent Debug Log",
+  approval_history: "Approval Log",
+  document: "Agent Files",
+  custom: "Other Files",
+  exports: "Data Exports",
 };
+
+const TYPE_DESCRIPTION: Record<string, string> = {
+  agent_summary: "LLM-generated summary of what was accomplished, key decisions, and resume context per session.",
+  diff_snapshot: "Snapshot of all code changes made by the agent, serialized as JSON.",
+  session_log: "Raw transcript of all tool calls and agent actions across sessions.",
+  agent_log: "Timestamped log of LLM calls and tool invocations for debugging.",
+  approval_history: "Chronological record of all approval requests and their resolutions.",
+  document: "Markdown, text, and other files created by the agent during execution.",
+  custom: "Non-text files placed by the agent in .codeplane/artifacts/.",
+  exports: "Machine-readable data also visible in other tabs (Metrics, Progress).",
+};
+
+/** Groups that are redundant with other tabs — collapsed into "Data Exports". */
+const EXPORT_TYPES = new Set(["telemetry_report", "agent_plan"]);
+
+/** Preferred display order — lower = higher in the list. */
+const GROUP_ORDER: Record<string, number> = {
+  agent_summary: 0,
+  diff_snapshot: 1,
+  document: 2,
+  session_log: 3,
+  agent_log: 4,
+  approval_history: 5,
+  custom: 6,
+  exports: 99,
+};
+
+// ---------------------------------------------------------------------------
+// Classify artifacts into display groups
+// ---------------------------------------------------------------------------
+
+function classifyArtifact(a: Artifact): DisplayType {
+  // Telemetry + plan → "exports" bucket
+  if (EXPORT_TYPES.has(a.type)) return "exports";
+  // Legacy: agent.log stored as type=document → reclassify
+  if (a.type === "document" && a.name.endsWith("agent.log")) return "agent_log";
+  // New type from backend
+  if (a.type === "agent_log") return "agent_log";
+  // Legacy session_snapshot → treat as session_log
+  if (a.type === "session_snapshot") return "session_log";
+  return a.type as DisplayType;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 const PREVIEWABLE_MIMES = new Set([
   "text/plain",
@@ -56,6 +139,87 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ---------------------------------------------------------------------------
+// JSON Tree Viewer — collapsible key/value tree for JSON artifacts
+// ---------------------------------------------------------------------------
+
+function JsonNode({ name, value, depth }: { name?: string; value: unknown; depth: number }) {
+  const [open, setOpen] = useState(depth < 2);
+
+  if (value === null || value === undefined) {
+    return (
+      <div className="flex items-baseline gap-1" style={{ paddingLeft: depth * 16 }}>
+        {name != null && <span className="text-blue-400">{name}:</span>}
+        <span className="text-muted-foreground italic">null</span>
+      </div>
+    );
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return (
+      <div style={{ paddingLeft: depth * 16 }}>
+        <button onClick={() => setOpen(!open)} className="flex items-center gap-1 hover:text-foreground transition-colors text-left">
+          {open ? <ChevronDown size={10} className="shrink-0" /> : <ChevronRight size={10} className="shrink-0" />}
+          {name != null && <span className="text-blue-400">{name}</span>}
+          <span className="text-muted-foreground">{`{${entries.length}}`}</span>
+        </button>
+        {open && entries.map(([k, v]) => <JsonNode key={k} name={k} value={v} depth={depth + 1} />)}
+      </div>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return (
+      <div style={{ paddingLeft: depth * 16 }}>
+        <button onClick={() => setOpen(!open)} className="flex items-center gap-1 hover:text-foreground transition-colors text-left">
+          {open ? <ChevronDown size={10} className="shrink-0" /> : <ChevronRight size={10} className="shrink-0" />}
+          {name != null && <span className="text-blue-400">{name}</span>}
+          <span className="text-muted-foreground">[{value.length}]</span>
+        </button>
+        {open && value.map((item, i) => <JsonNode key={i} name={String(i)} value={item} depth={depth + 1} />)}
+      </div>
+    );
+  }
+
+  // Primitive values
+  const display = typeof value === "string"
+    ? <span className="text-green-400">"{value.length > 200 ? value.slice(0, 200) + "…" : value}"</span>
+    : typeof value === "number"
+      ? <span className="text-amber-400">{value}</span>
+      : typeof value === "boolean"
+        ? <span className="text-purple-400">{String(value)}</span>
+        : <span>{String(value)}</span>;
+
+  return (
+    <div className="flex items-baseline gap-1 flex-wrap" style={{ paddingLeft: depth * 16 }}>
+      {name != null && <span className="text-blue-400">{name}:</span>}
+      {display}
+    </div>
+  );
+}
+
+function JsonTreeViewer({ content }: { content: string }) {
+  try {
+    const parsed = JSON.parse(content);
+    return (
+      <div className="max-h-80 overflow-y-auto bg-background/50 rounded-md border border-border/50 p-4 text-xs font-mono leading-relaxed">
+        <JsonNode value={parsed} depth={0} />
+      </div>
+    );
+  } catch {
+    return (
+      <div className="max-h-80 overflow-y-auto bg-background/50 rounded-md border border-border/50 p-4">
+        <pre className="text-xs text-foreground/80 whitespace-pre-wrap break-words font-mono leading-relaxed">{content}</pre>
+      </div>
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Preview
+// ---------------------------------------------------------------------------
+
 function ArtifactPreview({ artifact }: { artifact: Artifact }) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,6 +233,10 @@ function ArtifactPreview({ artifact }: { artifact: Artifact }) {
 
   if (loading) return <div className="py-4 flex justify-center"><Spinner /></div>;
 
+  if (content && artifact.mimeType === "application/json") {
+    return <JsonTreeViewer content={content} />;
+  }
+
   return (
     <div className="max-h-80 overflow-y-auto bg-background/50 rounded-md border border-border/50 p-4">
       <pre className="text-xs text-foreground/80 whitespace-pre-wrap break-words font-mono leading-relaxed">
@@ -78,10 +246,17 @@ function ArtifactPreview({ artifact }: { artifact: Artifact }) {
   );
 }
 
-function ArtifactRow({ artifact }: { artifact: Artifact }) {
+// ---------------------------------------------------------------------------
+// Row
+// ---------------------------------------------------------------------------
+
+function ArtifactRow({ artifact, displayType }: { artifact: Artifact; displayType: DisplayType }) {
   const [expanded, setExpanded] = useState(false);
-  const Icon = TYPE_ICON[artifact.type] ?? FileText;
+  const Icon = TYPE_ICON[displayType] ?? TYPE_ICON[artifact.type] ?? FileText;
   const canPreview = isPreviewable(artifact);
+
+  // Show a softer label for exports: e.g. "telemetry_report" → "Telemetry"
+  const exportSubLabel = artifact.type === "telemetry_report" ? "Telemetry" : artifact.type === "agent_plan" ? "Plan" : null;
 
   return (
     <>
@@ -97,11 +272,13 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
                 {expanded ? <ChevronDown size={12} className="text-muted-foreground shrink-0" /> : <ChevronRight size={12} className="text-muted-foreground shrink-0" />}
                 <Icon size={14} className="text-muted-foreground shrink-0" />
                 <span className="truncate">{artifact.name}</span>
+                {exportSubLabel && <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded bg-accent/50">{exportSubLabel}</span>}
               </button>
             ) : (
               <>
                 <Icon size={14} className="text-muted-foreground shrink-0" />
                 <span className="truncate">{artifact.name}</span>
+                {exportSubLabel && <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded bg-accent/50">{exportSubLabel}</span>}
               </>
             )}
           </div>
@@ -131,10 +308,16 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
   );
 }
 
-function ArtifactGroup({ type, artifacts }: { type: string; artifacts: Artifact[] }) {
+// ---------------------------------------------------------------------------
+// Group
+// ---------------------------------------------------------------------------
+
+function ArtifactGroup({ displayType, artifacts }: { displayType: DisplayType; artifacts: Artifact[] }) {
   const [open, setOpen] = useState(false);
-  const Icon = TYPE_ICON[type] ?? FileText;
-  const label = TYPE_LABEL[type] ?? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const Icon = TYPE_ICON[displayType] ?? FileText;
+  const label = TYPE_LABEL[displayType] ?? displayType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const description = TYPE_DESCRIPTION[displayType];
+  const totalSize = artifacts.reduce((sum, a) => sum + a.sizeBytes, 0);
 
   return (
     <div className="border-b border-border/50 last:border-0">
@@ -149,56 +332,101 @@ function ArtifactGroup({ type, artifacts }: { type: string; artifacts: Artifact[
         )}
         <Icon size={14} className="text-muted-foreground shrink-0" />
         <span className="text-sm font-medium">{label}</span>
-        <span className="text-xs text-muted-foreground ml-1">({artifacts.length})</span>
+        <span className="text-xs text-muted-foreground ml-1">
+          ({artifacts.length}{artifacts.length > 1 ? ` · ${formatSize(totalSize)}` : ""})
+        </span>
       </button>
       {open && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <tbody>
-              {artifacts.map((a) => (
-                <ArtifactRow key={a.id} artifact={a} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {description && (
+            <p className="text-xs text-muted-foreground px-4 pb-2 pl-10">{description}</p>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <tbody>
+                {artifacts.map((a) => (
+                  <ArtifactRow key={a.id} artifact={a} displayType={displayType} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-interface Props { jobId: string; }
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
-export default function ArtifactViewer({ jobId }: Props) {
+interface Props {
+  jobId: string;
+  /** Callback to report the artifact count up to the parent (for tab badge). */
+  onCountChange?: (count: number) => void;
+}
+
+export default function ArtifactViewer({ jobId, onCountChange }: Props) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  // Subscribe to job state changes so artifacts refresh when job reaches
+  // review/completed/failed states (when post-completion artifacts are created).
+  const jobState = useStore((s) => s.jobs[jobId]?.state);
+
+  const loadArtifacts = useCallback(() => {
     fetchArtifacts(jobId)
-      .then((res) => setArtifacts(res.items as Artifact[]))
+      .then((res) => {
+        const items = res.items as Artifact[];
+        setArtifacts(items);
+        onCountChange?.(items.length);
+      })
       .catch((err) => console.error("Failed to fetch artifacts", err))
       .finally(() => setLoading(false));
-  }, [jobId]);
+  }, [jobId, onCountChange]);
+
+  // Load on mount + whenever job state changes (covers session end + completion)
+  useEffect(() => {
+    loadArtifacts();
+  }, [loadArtifacts, jobState]);
+
+  // Classify and group
+  const sortedGroups = useMemo(() => {
+    const groups: Record<string, Artifact[]> = {};
+    for (const a of artifacts) {
+      const dt = classifyArtifact(a);
+      (groups[dt] ??= []).push(a);
+    }
+    return Object.entries(groups).sort(
+      ([a], [b]) => (GROUP_ORDER[a] ?? 50) - (GROUP_ORDER[b] ?? 50),
+    );
+  }, [artifacts]);
 
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
 
   if (artifacts.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center">
-        <p className="text-sm text-muted-foreground">No artifacts available</p>
+        <p className="text-sm text-muted-foreground">No artifacts collected yet</p>
+        <p className="text-xs text-muted-foreground mt-1">Artifacts appear when a session ends or the job completes.</p>
       </div>
     );
   }
 
-  const groups = artifacts.reduce<Record<string, Artifact[]>>((acc, a) => {
-    (acc[a.type] ??= []).push(a);
-    return acc;
-  }, {});
+  const totalSize = artifacts.reduce((sum, a) => sum + a.sizeBytes, 0);
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      {Object.entries(groups).map(([type, items]) => (
-        <ArtifactGroup key={type} type={type} artifacts={items} />
-      ))}
+    <div>
+      <div className="flex items-center justify-between mb-2 px-1">
+        <p className="text-xs text-muted-foreground">
+          {artifacts.length} artifact{artifacts.length !== 1 ? "s" : ""} · {formatSize(totalSize)} total
+        </p>
+      </div>
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
+        {sortedGroups.map(([type, items]) => (
+          <ArtifactGroup key={type} displayType={type as DisplayType} artifacts={items} />
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3 } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -9,7 +9,7 @@ import { formatJobTerminalLabel } from "../lib/terminalLabels";
 import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { PlanPanel } from "./PlanPanel";
+import { MobilePlanDrawer } from "./PlanPanel";
 import { lazyRetry } from "../lib/lazyRetry";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
@@ -23,6 +23,7 @@ import { Tooltip } from "./ui/tooltip";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
+import { Sheet } from "./ui/sheet";
 import type { StepFilter } from "./DiffViewer";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
@@ -75,6 +76,7 @@ export function JobDetailScreen() {
   const [searchActive, setSearchActive] = useState(false);
   // Reset selectedTurnId when navigating to a different job
   useEffect(() => { setSelectedTurnId(null); setSearchActive(false); }, [jobId]);
+  const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
   const isResizingRef = useRef(false);
@@ -82,6 +84,7 @@ export function JobDetailScreen() {
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
   const [hasArtifacts, setHasArtifacts] = useState(false);
+  const [artifactCount, setArtifactCount] = useState(0);
 
   // Map a transcript turnId to the nearest activity-timeline step turnId.
   // Many transcript turns have no corresponding step in the activity timeline;
@@ -141,10 +144,17 @@ export function JobDetailScreen() {
     document.body.style.userSelect = "none";
   }, [sidebarWidth]);
 
+  const tabBarRef = useRef<HTMLDivElement>(null);
+
   const handleTabChange = useCallback((v: string) => {
     setTab(v);
     if (v !== "diff") setStepFilter(null);
     if (v !== "live") setScrollToSeq(null);
+    // After tab content swaps, scroll the tab bar back into view so the user
+    // sees the new content instead of being stranded at the top of the page.
+    requestAnimationFrame(() => {
+      tabBarRef.current?.scrollIntoView({ block: "nearest" });
+    });
   }, []);
 
   const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
@@ -168,7 +178,10 @@ export function JobDetailScreen() {
   useEffect(() => {
     if (!jobId) return;
     fetchArtifacts(jobId)
-      .then((res) => setHasArtifacts(res.items.length > 0))
+      .then((res) => {
+        setHasArtifacts(res.items.length > 0);
+        setArtifactCount(res.items.length);
+      })
       .catch(() => {});
   }, [jobId, job?.state]);
 
@@ -709,7 +722,7 @@ export function JobDetailScreen() {
       )}
 
       {/* Tab bar — desktop shows all tabs + terminal button; mobile shows 3 tabs + ••• overflow */}
-      <Tabs value={tab} onValueChange={handleTabChange} className="mb-4">
+      <Tabs value={tab} onValueChange={handleTabChange} className="mb-4" ref={tabBarRef}>
         {/* Desktop layout (hidden on mobile) */}
         <div className="hidden sm:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
@@ -717,7 +730,16 @@ export function JobDetailScreen() {
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
             <TabsTrigger value="metrics"><BarChart3 size={13} className="mr-1.5" />Metrics</TabsTrigger>
-            {hasArtifacts && <TabsTrigger value="artifacts">Artifacts</TabsTrigger>}
+            {hasArtifacts && (
+              <TabsTrigger value="artifacts">
+                Artifacts
+                {artifactCount > 0 && (
+                  <span className="ml-1.5 text-[10px] leading-none bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 font-normal">
+                    {artifactCount}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {hasWorktree && (
@@ -736,7 +758,7 @@ export function JobDetailScreen() {
           )}
         </div>
 
-        {/* Mobile layout: 3 primary tabs + ••• overflow menu (hidden on desktop) */}
+        {/* Mobile layout: 3 primary tabs + activity toggle + ••• overflow menu (hidden on desktop) */}
         <div className="flex sm:hidden items-center gap-2">
           <TabsList>
             <TabsTrigger value="live">Live</TabsTrigger>
@@ -779,6 +801,9 @@ export function JobDetailScreen() {
                     >
                       <Package size={13} />
                       Artifacts
+                      {artifactCount > 0 && (
+                        <span className="ml-auto text-[10px] font-semibold text-muted-foreground">{artifactCount}</span>
+                      )}
                     </button>
                   )}
                   {hasWorktree && (
@@ -797,8 +822,37 @@ export function JobDetailScreen() {
               </PopoverPrimitive.Portal>
             </PopoverPrimitive.Root>
           )}
+
+          {tab === "live" && (
+            <button
+              onClick={() => setMobileActivityOpen(true)}
+              aria-label="Open activity timeline"
+              className="flex items-center justify-center w-9 h-9 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+            >
+              <ListTree size={15} />
+            </button>
+          )}
         </div>
       </Tabs>
+
+      {/* Mobile activity timeline sheet (hidden on lg+) */}
+      <div className="lg:hidden">
+        <Sheet open={mobileActivityOpen} onClose={() => setMobileActivityOpen(false)} title="Activity" side="left">
+          <div className="-mx-4 -mt-4">
+            <ActivityTimeline
+              jobId={jobId}
+              jobState={job.state}
+              onStepClick={(turnId) => {
+                setMobileActivityOpen(false);
+                setScrollToTurnId(turnId);
+                setSelectedTurnId(turnId);
+              }}
+              selectedTurnId={selectedTurnId}
+              searchActive={searchActive}
+            />
+          </div>
+        </Sheet>
+      </div>
 
       {tab === "live" && (
         <div className="flex flex-row">
@@ -872,12 +926,12 @@ export function JobDetailScreen() {
                 scrollToTurnId={scrollToTurnId}
               />
             </div>
-            <div className="space-y-4">
-              <PlanPanel jobId={jobId} />
-            </div>
           </div>
         </div>
       )}
+
+      {/* Mobile plan drawer — persistent bottom bar (hidden on lg+) */}
+      {tab === "live" && <MobilePlanDrawer jobId={jobId} />}
 
       {tab === "files" && (
         <TabErrorBoundary>
@@ -911,7 +965,7 @@ export function JobDetailScreen() {
       {tab === "artifacts" && (
         <TabErrorBoundary>
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <ArtifactViewer jobId={jobId} />
+            <ArtifactViewer jobId={jobId} onCountChange={(n) => { setArtifactCount(n); setHasArtifacts(n > 0); }} />
           </Suspense>
         </TabErrorBoundary>
       )}
