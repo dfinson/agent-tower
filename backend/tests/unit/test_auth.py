@@ -175,6 +175,47 @@ class TestIsLocalhost:
 
 
 # ---------------------------------------------------------------------------
+# _has_cloudflare_access
+# ---------------------------------------------------------------------------
+
+
+class TestHasCloudflareAccess:
+    def test_returns_true_with_jwt_header(self) -> None:
+        req = _make_request(headers={"cf-access-jwt-assertion": "eyJ.test.sig"})
+        assert auth._has_cloudflare_access(req) is True
+
+    def test_returns_false_without_header(self) -> None:
+        req = _make_request()
+        assert auth._has_cloudflare_access(req) is False
+
+    def test_returns_false_with_empty_header(self) -> None:
+        req = _make_request(headers={"cf-access-jwt-assertion": ""})
+        assert auth._has_cloudflare_access(req) is False
+
+
+# ---------------------------------------------------------------------------
+# is_request_authenticated — CF Access bypass
+# ---------------------------------------------------------------------------
+
+
+class TestIsRequestAuthenticated:
+    def test_cf_access_jwt_bypasses_password_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _reset_auth_state(monkeypatch)
+        auth.set_password("secret")
+        req = _make_request(
+            client_host="203.0.113.1",
+            headers={"cf-access-jwt-assertion": "eyJ.test.sig"},
+        )
+        assert auth.is_request_authenticated(req) is True
+
+    def test_remote_without_cf_header_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _reset_auth_state(monkeypatch)
+        auth.set_password("secret")
+        req = _make_request(client_host="203.0.113.1")
+        assert auth.is_request_authenticated(req) is False
+
+
+# ---------------------------------------------------------------------------
 # handle_login
 # ---------------------------------------------------------------------------
 
@@ -385,6 +426,31 @@ class TestAuthMiddleware:
         resp = await auth.auth_middleware(req, call_next)
         assert resp.status_code == 401
         call_next.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_access_jwt_bypasses_auth(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _reset_auth_state(monkeypatch)
+        req = _make_request(
+            path="/api/jobs",
+            client_host="203.0.113.1",
+            headers={"cf-access-jwt-assertion": "eyJhbGciOiJSUzI1NiJ9.test.sig"},
+        )
+        sentinel = object()
+        call_next = AsyncMock(return_value=sentinel)
+        resp = await auth.auth_middleware(req, call_next)
+        assert resp is sentinel
+
+    @pytest.mark.asyncio
+    async def test_empty_cf_access_header_does_not_bypass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _reset_auth_state(monkeypatch)
+        req = _make_request(
+            path="/api/jobs",
+            client_host="203.0.113.1",
+            headers={"cf-access-jwt-assertion": ""},
+        )
+        call_next = AsyncMock()
+        resp = await auth.auth_middleware(req, call_next)
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
