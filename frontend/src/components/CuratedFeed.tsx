@@ -1392,27 +1392,28 @@ export function CuratedFeed({
   const activeHighlight = debouncedQuery.trim().toLowerCase();
 
   // Sorted array of matching feed-item indices for next/prev navigation
+  const EMPTY_MATCH_LIST: number[] = [];
   const matchList = useMemo(() => {
-    if (!matchingIndices) return [];
+    if (!matchingIndices || matchingIndices.size === 0) return EMPTY_MATCH_LIST;
     return Array.from(matchingIndices).sort((a, b) => a - b);
-  }, [matchingIndices]);
+  }, [matchingIndices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [currentMatchPos, setCurrentMatchPos] = useState(0); // position within matchList
-  const prevMatchCountRef = useRef(0);
 
-  // Reset position when matches change. Auto-jump to first match only on
-  // the transition from 0→N matches (i.e. first results appear), not on
-  // every keystroke refinement — that would fight user scroll.
+  // Auto-jump to first match when search query produces results.
+  // Uses debouncedQuery as trigger so it fires once per distinct query.
+  const lastJumpedQueryRef = useRef("");
   useEffect(() => {
+    const q = debouncedQuery.trim();
+    if (!q) { lastJumpedQueryRef.current = ""; return; }
+    if (matchList.length === 0) return;
+    if (lastJumpedQueryRef.current === q) return; // already jumped for this query
+    lastJumpedQueryRef.current = q;
     setCurrentMatchPos(0);
-    const hadMatches = prevMatchCountRef.current > 0;
-    prevMatchCountRef.current = matchList.length;
-    if (!hadMatches && matchList.length > 0) {
-      const first = matchList[0]!;
-      virtualizer.scrollToIndex(first, { align: "center" });
-      setHighlightIdx(first);
-    }
-  }, [matchList]); // eslint-disable-line react-hooks/exhaustive-deps
+    const first = matchList[0]!;
+    virtualizer.scrollToIndex(first, { align: "center" });
+    setHighlightIdx(first);
+  }, [debouncedQuery, matchList]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const jumpToMatch = useCallback((pos: number) => {
     if (matchList.length === 0) return;
