@@ -1418,10 +1418,16 @@ export function CuratedFeed({
     return null;
   }, [feedItems]);
 
+  // Stable refs for callbacks used in search effects — avoids stale closures
+  const onSearchHighlightRef = useRef(onSearchHighlight);
+  onSearchHighlightRef.current = onSearchHighlight;
+  const getTurnIdForIndexRef = useRef(getTurnIdForIndex);
+  getTurnIdForIndexRef.current = getTurnIdForIndex;
+
   const lastJumpedQueryRef = useRef("");
   useEffect(() => {
     const q = debouncedQuery.trim();
-    if (!q) { lastJumpedQueryRef.current = ""; onSearchHighlight?.(null); return; }
+    if (!q) { lastJumpedQueryRef.current = ""; onSearchHighlightRef.current?.(null); return; }
     if (matchList.length === 0) return;
     if (lastJumpedQueryRef.current === q) return; // already jumped for this query
     lastJumpedQueryRef.current = q;
@@ -1429,7 +1435,7 @@ export function CuratedFeed({
     const first = matchList[0]!;
     virtualizer.scrollToIndex(first, { align: "center" });
     setHighlightIdx(first);
-    onSearchHighlight?.(getTurnIdForIndex(first));
+    onSearchHighlightRef.current?.(getTurnIdForIndexRef.current(first));
   }, [debouncedQuery, matchList]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const jumpToMatch = useCallback((pos: number) => {
@@ -1439,8 +1445,8 @@ export function CuratedFeed({
     const feedIdx = matchList[clamped]!;
     virtualizer.scrollToIndex(feedIdx, { align: "center" });
     setHighlightIdx(feedIdx);
-    onSearchHighlight?.(getTurnIdForIndex(feedIdx));
-  }, [matchList, virtualizer, onSearchHighlight, getTurnIdForIndex]);
+    onSearchHighlightRef.current?.(getTurnIdForIndexRef.current(feedIdx));
+  }, [matchList, virtualizer]);
 
   const nextMatch = useCallback(() => jumpToMatch(currentMatchPos + 1), [jumpToMatch, currentMatchPos]);
   const prevMatch = useCallback(() => jumpToMatch(currentMatchPos - 1), [jumpToMatch, currentMatchPos]);
@@ -1448,7 +1454,7 @@ export function CuratedFeed({
   // Ctrl+F / ⌘+F to open search
   const searchInputRef = useRef<HTMLInputElement>(null);
   useHotkeys("mod+f", (e) => { e.preventDefault(); setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0); }, { enableOnFormTags: true });
-  useHotkeys("Escape", () => { if (searchOpen) { setSearchOpen(false); setSearchQuery(""); onSearchHighlight?.(null); } }, { enableOnFormTags: true });
+  useHotkeys("Escape", () => { if (searchOpen) { setSearchOpen(false); setSearchQuery(""); onSearchHighlightRef.current?.(null); } }, { enableOnFormTags: true });
 
   return (
     <div className="flex flex-col h-full relative">
@@ -1497,7 +1503,7 @@ export function CuratedFeed({
                     </button>
                   </div>
                 )}
-                <button onClick={() => { setSearchOpen(false); setSearchQuery(""); onSearchHighlight?.(null); }} className="text-muted-foreground/40 hover:text-muted-foreground shrink-0">
+                <button onClick={() => { setSearchOpen(false); setSearchQuery(""); onSearchHighlightRef.current?.(null); }} className="text-muted-foreground/40 hover:text-muted-foreground shrink-0">
                   <X size={14} />
                 </button>
               </>
