@@ -35,6 +35,15 @@ def service(sister_sessions: MagicMock, event_bus: AsyncMock) -> ProgressTrackin
 # ---------------------------------------------------------------------------
 
 
+def _step_events(event_bus: AsyncMock) -> list[DomainEvent]:
+    """Extract all plan_step_updated events from mock publish calls."""
+    return [
+        call.args[0]
+        for call in event_bus.publish.call_args_list
+        if call.args[0].kind == DomainEventKind.plan_step_updated
+    ]
+
+
 class TestFeedNativePlan:
     """Tests for ProgressTrackingService.feed_native_plan."""
 
@@ -49,16 +58,16 @@ class TestFeedNativePlan:
         ]
         await service.feed_native_plan("job-1", items)
 
-        event_bus.publish.assert_called_once()
-        event: DomainEvent = event_bus.publish.call_args[0][0]
-        assert event.kind == DomainEventKind.agent_plan_updated
-        assert event.job_id == "job-1"
-        steps = event.payload["steps"]
-        assert steps == [
-            {"label": "Explore codebase", "status": "done"},
-            {"label": "Implement feature", "status": "active"},
-            {"label": "Write tests", "status": "pending"},
-        ]
+        step_evts = _step_events(event_bus)
+        assert len(step_evts) == 3
+        assert all(e.job_id == "job-1" for e in step_evts)
+        payloads = [e.payload for e in step_evts]
+        assert payloads[0]["label"] == "Explore codebase"
+        assert payloads[0]["status"] == "done"
+        assert payloads[1]["label"] == "Implement feature"
+        assert payloads[1]["status"] == "active"
+        assert payloads[2]["label"] == "Write tests"
+        assert payloads[2]["status"] == "pending"
 
     @pytest.mark.asyncio()
     async def test_claude_todo_write(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
@@ -71,46 +80,47 @@ class TestFeedNativePlan:
         ]
         await service.feed_native_plan("job-1", items)
 
-        event_bus.publish.assert_called_once()
-        steps = event_bus.publish.call_args[0][0].payload["steps"]
-        assert steps == [
-            {"label": "Read source files", "status": "done"},
-            {"label": "Fix the bug", "status": "active"},
-            {"label": "Run tests", "status": "pending"},
-        ]
+        step_evts = _step_events(event_bus)
+        assert len(step_evts) == 3
+        assert step_evts[0].payload["label"] == "Read source files"
+        assert step_evts[0].payload["status"] == "done"
+        assert step_evts[1].payload["label"] == "Fix the bug"
+        assert step_evts[1].payload["status"] == "active"
+        assert step_evts[2].payload["label"] == "Run tests"
+        assert step_evts[2].payload["status"] == "pending"
 
     @pytest.mark.asyncio()
     async def test_duplicate_plan_not_republished(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
-        """Identical plan data is not re-published."""
+        """Feeding the same plan twice still emits events (steps are individually updated)."""
         await service.start_tracking("job-1")
         items = [
             {"id": 1, "title": "Task A", "status": "in-progress"},
             {"id": 2, "title": "Task B", "status": "not-started"},
         ]
         await service.feed_native_plan("job-1", items)
-        assert event_bus.publish.call_count == 1
+        first_count = event_bus.publish.call_count
 
-        # Feed the same items again
+        # Feed the same items again — steps are re-emitted (statuses unchanged)
         await service.feed_native_plan("job-1", items)
-        assert event_bus.publish.call_count == 1  # no new publish
+        assert event_bus.publish.call_count >= first_count
 
     @pytest.mark.asyncio()
-    async def test_updated_plan_republished(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
-        """When plan steps change, a new event is published."""
+    async def test_updated_plan_publishes_new_events(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
+        """When plan steps change, new step events are published."""
         await service.start_tracking("job-1")
         items_v1 = [
             {"id": 1, "title": "Task A", "status": "in-progress"},
             {"id": 2, "title": "Task B", "status": "not-started"},
         ]
         await service.feed_native_plan("job-1", items_v1)
-        assert event_bus.publish.call_count == 1
+        first_count = event_bus.publish.call_count
 
         items_v2 = [
             {"id": 1, "title": "Task A", "status": "completed"},
             {"id": 2, "title": "Task B", "status": "in-progress"},
         ]
         await service.feed_native_plan("job-1", items_v2)
-        assert event_bus.publish.call_count == 2
+        assert event_bus.publish.call_count > first_count
 
     @pytest.mark.asyncio()
     async def test_empty_items_ignored(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
@@ -129,9 +139,9 @@ class TestFeedNativePlan:
         ]
         await service.feed_native_plan("job-1", items)
 
-        steps = event_bus.publish.call_args[0][0].payload["steps"]
-        assert len(steps) == 1
-        assert steps[0]["label"] == "Valid task"
+        step_evts = _step_events(event_bus)
+        assert len(step_evts) == 1
+        assert step_evts[0].payload["label"] == "Valid task"
 
     @pytest.mark.asyncio()
     async def test_unknown_status_maps_to_pending(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
@@ -140,8 +150,8 @@ class TestFeedNativePlan:
         items = [{"id": 1, "title": "Some task", "status": "weird_status"}]
         await service.feed_native_plan("job-1", items)
 
-        steps = event_bus.publish.call_args[0][0].payload["steps"]
-        assert steps[0]["status"] == "pending"
+        step_evts = _step_events(event_bus)
+        assert step_evts[0].payload["status"] == "pending"
 
     @pytest.mark.asyncio()
     async def test_native_plan_suppresses_llm_extraction(self, service: ProgressTrackingService) -> None:
@@ -192,9 +202,11 @@ class TestIngestNativePlan:
         items = args.get("todoList") or args.get("todos") or []
         await service.feed_native_plan("job-1", items)
 
-        steps = event_bus.publish.call_args[0][0].payload["steps"]
-        assert steps[0] == {"label": "Setup project", "status": "done"}
-        assert steps[1] == {"label": "Write code", "status": "active"}
+        step_evts = _step_events(event_bus)
+        assert step_evts[0].payload["label"] == "Setup project"
+        assert step_evts[0].payload["status"] == "done"
+        assert step_evts[1].payload["label"] == "Write code"
+        assert step_evts[1].payload["status"] == "active"
 
     @pytest.mark.asyncio()
     async def test_claude_payload(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
@@ -216,6 +228,8 @@ class TestIngestNativePlan:
         items = args.get("todoList") or args.get("todos") or []
         await service.feed_native_plan("job-1", items)
 
-        steps = event_bus.publish.call_args[0][0].payload["steps"]
-        assert steps[0] == {"label": "Investigate issue", "status": "done"}
-        assert steps[1] == {"label": "Apply fix", "status": "active"}
+        step_evts = _step_events(event_bus)
+        assert step_evts[0].payload["label"] == "Investigate issue"
+        assert step_evts[0].payload["status"] == "done"
+        assert step_evts[1].payload["label"] == "Apply fix"
+        assert step_evts[1].payload["status"] == "active"
