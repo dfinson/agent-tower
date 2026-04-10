@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, Suspense, Component, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
@@ -82,6 +82,35 @@ export function JobDetailScreen() {
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
   const [hasArtifacts, setHasArtifacts] = useState(false);
+
+  // Map a transcript turnId to the nearest activity-timeline step turnId.
+  // Many transcript turns have no corresponding step in the activity timeline;
+  // walking backward through the transcript finds the closest preceding step.
+  const activityTimeline = useStore((s) => jobId ? s.activityTimelines[jobId] : undefined);
+  const transcript = useStore((s) => jobId ? s.transcript[jobId] : undefined);
+  const stepTurnIdSet = useMemo(() => {
+    if (!activityTimeline) return new Set<string>();
+    return new Set(activityTimeline.activities.flatMap((a) => a.steps.map((s) => s.turnId)));
+  }, [activityTimeline]);
+
+  const mapToStepTurnId = useCallback((turnId: string | null): string | null => {
+    if (!turnId || stepTurnIdSet.size === 0) return turnId;
+    if (stepTurnIdSet.has(turnId)) return turnId;
+    if (!transcript) return turnId;
+    // Find the position of this turnId in the transcript, then walk backward
+    const idx = transcript.findIndex((e) => e.turnId === turnId);
+    if (idx < 0) return turnId;
+    for (let i = idx - 1; i >= 0; i--) {
+      const tid = transcript[i]?.turnId;
+      if (tid && stepTurnIdSet.has(tid)) return tid;
+    }
+    // Fallback: walk forward
+    for (let i = idx + 1; i < transcript.length; i++) {
+      const tid = transcript[i]?.turnId;
+      if (tid && stepTurnIdSet.has(tid)) return tid;
+    }
+    return turnId;
+  }, [stepTurnIdSet, transcript]);
 
   const resizeCleanupRef = useRef<(() => void) | null>(null);
   // Clean up sidebar resize listeners on unmount (prevents leak if nav away mid-resize)
@@ -832,7 +861,7 @@ export function JobDetailScreen() {
                 promptTimestamp={job.createdAt}
                 onViewStepChanges={handleViewStepChanges}
                 onSearchHighlight={(turnId) => {
-                  setSelectedTurnId(turnId);
+                  setSelectedTurnId(turnId ? mapToStepTurnId(turnId) : null);
                   setSearchActive(turnId !== null);
                 }}
                 scrollToSeq={scrollToSeq}
