@@ -14,7 +14,7 @@ import { useRef, useEffect, useState, useCallback, useMemo, memo, createContext,
 import { useHotkeys } from "react-hotkeys-hook";
 import { useNavigate } from "react-router-dom";
 import {
-  Send, Bot, User, ChevronDown, ChevronRight, Brain,
+  Send, Bot, User, ChevronDown, ChevronUp, ChevronRight, Brain,
   ShieldQuestion, CheckCircle2, XCircle as XCircleIcon,
   ArrowDown, Search, PauseCircle, X, GitBranch, GitFork,
   FileText, Pencil, FilePlus, Terminal, Globe, Cpu,
@@ -1391,6 +1391,36 @@ export function CuratedFeed({
   const matchCount = matchingIndices !== null ? matchingIndices.size : null;
   const activeHighlight = debouncedQuery.trim().toLowerCase();
 
+  // Sorted array of matching feed-item indices for next/prev navigation
+  const matchList = useMemo(() => {
+    if (!matchingIndices) return [];
+    return Array.from(matchingIndices).sort((a, b) => a - b);
+  }, [matchingIndices]);
+
+  const [currentMatchPos, setCurrentMatchPos] = useState(0); // position within matchList
+
+  // Reset position when matches change, auto-jump to first match
+  useEffect(() => {
+    setCurrentMatchPos(0);
+    if (matchList.length > 0) {
+      const first = matchList[0]!;
+      virtualizer.scrollToIndex(first, { align: "center" });
+      setHighlightIdx(first);
+    }
+  }, [matchList]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const jumpToMatch = useCallback((pos: number) => {
+    if (matchList.length === 0) return;
+    const clamped = ((pos % matchList.length) + matchList.length) % matchList.length;
+    setCurrentMatchPos(clamped);
+    const feedIdx = matchList[clamped]!;
+    virtualizer.scrollToIndex(feedIdx, { align: "center" });
+    setHighlightIdx(feedIdx);
+  }, [matchList, virtualizer]);
+
+  const nextMatch = useCallback(() => jumpToMatch(currentMatchPos + 1), [jumpToMatch, currentMatchPos]);
+  const prevMatch = useCallback(() => jumpToMatch(currentMatchPos - 1), [jumpToMatch, currentMatchPos]);
+
   // Ctrl+F / ⌘+F to open search
   const searchInputRef = useRef<HTMLInputElement>(null);
   useHotkeys("mod+f", (e) => { e.preventDefault(); setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0); }, { enableOnFormTags: true });
@@ -1421,12 +1451,27 @@ export function CuratedFeed({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); e.shiftKey ? prevMatch() : nextMatch(); }
+                  }}
                   placeholder="Search transcript…"
                   className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
                   autoFocus
                 />
                 {matchCount !== null && (
-                  <span className="text-[11px] tabular-nums text-muted-foreground/60 shrink-0">{matchCount} match{matchCount !== 1 ? "es" : ""}</span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground/60 shrink-0">
+                    {matchCount > 0 ? `${currentMatchPos + 1}/${matchCount}` : "0 results"}
+                  </span>
+                )}
+                {matchCount !== null && matchCount > 0 && (
+                  <div className="flex items-center shrink-0">
+                    <button onClick={prevMatch} className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground" aria-label="Previous match">
+                      <ChevronUp size={14} />
+                    </button>
+                    <button onClick={nextMatch} className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground" aria-label="Next match">
+                      <ChevronDown size={14} />
+                    </button>
+                  </div>
                 )}
                 <button onClick={() => { setSearchOpen(false); setSearchQuery(""); }} className="text-muted-foreground/40 hover:text-muted-foreground shrink-0">
                   <X size={14} />
