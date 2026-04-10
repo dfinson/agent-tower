@@ -137,7 +137,7 @@ export interface ActivityTimelineState {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const MODEL_DOWNGRADE_RE = /^Model downgraded: requested (.+) but received (.+)$/;
+const MODEL_DOWNGRADE_RE = /^Model downgraded: requested (.+?) but received (.+)$/;
 
 /** Finalize all active/pending plan steps to a terminal status. */
 function finalizePlanSteps(plan: PlanStep[] | undefined, finalStatus: "done" | "skipped"): PlanStep[] | undefined {
@@ -151,6 +151,60 @@ export function enrichJob(job: JobSummary): JobSummary {
   const m = MODEL_DOWNGRADE_RE.exec(job.failureReason);
   if (!m) return job;
   return { ...job, modelDowngraded: true, requestedModel: m[1], actualModel: m[2] };
+}
+
+// ---------------------------------------------------------------------------
+// LRU eviction for per-job data — prevents unbounded memory growth.
+// ---------------------------------------------------------------------------
+
+/** Max jobs whose logs/transcript/diffs we keep in memory. */
+const MAX_CACHED_JOBS = 30;
+
+/** Track access order: most-recent jobId at the end. */
+const _jobAccessOrder: string[] = [];
+
+/** Mark a jobId as recently accessed; returns jobIds to evict (if over limit). */
+function touchJob(jobId: string): string[] {
+  const idx = _jobAccessOrder.indexOf(jobId);
+  if (idx >= 0) _jobAccessOrder.splice(idx, 1);
+  _jobAccessOrder.push(jobId);
+  const evict: string[] = [];
+  while (_jobAccessOrder.length > MAX_CACHED_JOBS) {
+    evict.push(_jobAccessOrder.shift()!);
+  }
+  return evict;
+}
+
+/** Evict per-job data for stale jobs from a state snapshot. */
+function evictStaleJobs(
+  state: Pick<AppState, "logs" | "transcript" | "diffs" | "plans" | "timelines" | "activityTimelines" | "streamingMessages">,
+  evictIds: string[],
+): Partial<AppState> | null {
+  if (evictIds.length === 0) return null;
+  const logs = { ...state.logs };
+  const transcript = { ...state.transcript };
+  const diffs = { ...state.diffs };
+  const plans = { ...state.plans };
+  const timelines = { ...state.timelines };
+  const activityTimelines = { ...state.activityTimelines };
+  let streamingMessages = state.streamingMessages;
+  let streamingChanged = false;
+  for (const id of evictIds) {
+    delete logs[id];
+    delete transcript[id];
+    delete diffs[id];
+    delete plans[id];
+    delete timelines[id];
+    delete activityTimelines[id];
+    // Clean streaming messages for evicted jobs
+    for (const key of Object.keys(streamingMessages)) {
+      if (key.startsWith(`${id}:`)) {
+        if (!streamingChanged) { streamingMessages = { ...streamingMessages }; streamingChanged = true; }
+        delete streamingMessages[key];
+      }
+    }
+  }
+  return { logs, transcript, diffs, plans, timelines, activityTimelines, streamingMessages };
 }
 
 /** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
@@ -375,6 +429,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   hydrateJob: (snapshot) => {
     const jobId = snapshot.job.id;
+    const evictIds = touchJob(jobId);
     set((s) => {
       // Remove stale approvals for this job before merging fresh ones
       const keptApprovals = Object.fromEntries(
@@ -400,6 +455,7 @@ export const useStore = create<AppState>((set, get) => ({
         return !completedCallKeys.has(key);
       });
       return {
+        ...evictStaleJobs(s, evictIds),
         jobs: { ...s.jobs, [jobId]: enrichJob(snapshot.job) },
         logs: { ...s.logs, [jobId]: snapshot.logs },
         transcript: { ...s.transcript, [jobId]: deduped },

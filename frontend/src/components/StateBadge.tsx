@@ -20,7 +20,7 @@ export const StateBadge = memo(function StateBadge({ state }: { state: string })
   const cfg = STATE_CONFIG[state] ?? DEFAULT_CFG;
   return (
     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${cfg.bg} ${cfg.text}`}>
-      <cfg.Icon size={12} />
+      <cfg.Icon size={12} aria-hidden="true" />
       {cfg.label}
     </span>
   );

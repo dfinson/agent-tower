@@ -31,6 +31,7 @@ export function LogsPanel({ jobId }: { jobId: string }) {
   /** Minimum severity level shown — also drives the historical fetch */
   const [minLevel, setMinLevel] = useState<Level>("info");
   const [collapsed, setCollapsed] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
@@ -42,6 +43,7 @@ export function LogsPanel({ jobId }: { jobId: string }) {
   // Fetch historical log lines at the selected minimum level and merge into
   // the store.  Re-runs whenever the level or jobId changes.
   useEffect(() => {
+    setFetchError(null);
     fetchJobLogs(jobId, minLevel).then((fetched) => {
       useStore.setState((s) => {
         const existing = s.logs[jobId] ?? [];
@@ -53,7 +55,10 @@ export function LogsPanel({ jobId }: { jobId: string }) {
         ].sort((a, b) => a.seq - b.seq);
         return { logs: { ...s.logs, [jobId]: merged } };
       });
-    }).catch((err) => console.error("Failed to fetch job logs", err));
+    }).catch((err) => {
+      console.error("Failed to fetch job logs", err);
+      setFetchError("Failed to load logs");
+    });
   }, [jobId, minLevel]);
 
   useEffect(() => {
@@ -136,7 +141,9 @@ export function LogsPanel({ jobId }: { jobId: string }) {
           style={{ contain: "strict" }}
           onScroll={handleScroll}
         >
-          {logs.length === 0 ? (
+          {fetchError ? (
+            <p className="text-sm text-red-400 text-center py-8">{fetchError}</p>
+          ) : logs.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No logs</p>
           ) : (
             <div style={{ height: `${virtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>

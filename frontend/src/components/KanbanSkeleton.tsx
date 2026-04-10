@@ -2,7 +2,7 @@ import { Skeleton } from "./ui/skeleton";
 
 export function KanbanSkeleton() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+    <div className="grid grid-cols-3 gap-3 p-4 max-lg:grid-cols-2 max-sm:grid-cols-1">
       {Array.from({ length: 3 }).map((_, col) => (
         <div key={col} className="space-y-3">
           <Skeleton className="h-8 w-32" />

@@ -22,6 +22,9 @@ import type {
 } from "./types";
 
 const BASE = "/api";
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1000;
 
 class ApiError extends Error {
   constructor(
@@ -33,39 +36,79 @@ class ApiError extends Error {
   }
 }
 
+/** Strip HTML tags to prevent XSS when error details are rendered in UI. */
+function sanitize(text: string): string {
+  return text.replace(/<[^>]*>/g, "");
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {};
   if (init?.body) {
     headers["Content-Type"] = "application/json";
   }
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      ...headers,
-      ...init?.headers,
-    },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    let detail: string;
-    if (body == null) {
-      detail = res.statusText || `HTTP ${res.status}`;
-    } else if (typeof body.detail === "string") {
-      detail = body.detail;
-    } else if (Array.isArray(body.detail)) {
-      // FastAPI 422 validation errors: [{loc, msg, type}, ...]
-      detail = body.detail
-        .map((e: { loc?: string[]; msg?: string }) =>
-          [e.loc?.slice(1).join("."), e.msg].filter(Boolean).join(": "),
-        )
-        .join("; ");
-    } else {
-      detail = res.statusText || `HTTP ${res.status}`;
+
+  let lastError: unknown;
+  const isIdempotent = !init?.method || init.method === "GET" || init.method === "HEAD";
+
+  for (let attempt = 0; attempt <= (isIdempotent ? MAX_RETRIES : 0); attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
     }
-    throw new ApiError(res.status, detail);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: { ...headers, ...init?.headers },
+        signal: init?.signal ?? controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        // Don't retry client errors (4xx)
+        if (res.status >= 400 && res.status < 500) {
+          throw await buildApiError(res);
+        }
+        // Retry server errors (5xx) for idempotent requests
+        lastError = await buildApiError(res);
+        if (attempt < (isIdempotent ? MAX_RETRIES : 0)) continue;
+        throw lastError;
+      }
+      if (res.status === 204) return undefined as T;
+      return res.json() as Promise<T>;
+    } catch (e) {
+      clearTimeout(timeout);
+      if (e instanceof ApiError) throw e;
+      if ((e as Error).name === "AbortError") {
+        throw new ApiError(0, "Request timed out");
+      }
+      lastError = e;
+      if (attempt < (isIdempotent ? MAX_RETRIES : 0)) continue;
+      throw e;
+    }
   }
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  throw lastError;
+}
+
+async function buildApiError(res: Response): Promise<ApiError> {
+  const body = await res.json().catch(() => null);
+  let detail: string;
+  if (body == null) {
+    detail = res.statusText || `HTTP ${res.status}`;
+  } else if (typeof body.detail === "string") {
+    detail = sanitize(body.detail);
+  } else if (Array.isArray(body.detail)) {
+    detail = body.detail
+      .map((e: { loc?: string[]; msg?: string }) =>
+        [e.loc?.slice(1).join("."), e.msg].filter(Boolean).join(": "),
+      )
+      .join("; ");
+  } else {
+    detail = res.statusText || `HTTP ${res.status}`;
+  }
+  return new ApiError(res.status, detail);
 }
 
 // --- Health ---

@@ -102,7 +102,20 @@ export function TerminalDrawer() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-center h-8 shrink-0 border-b border-border px-1 gap-0.5 overflow-x-auto" role="tablist">
+      <div
+        className="flex items-center h-8 shrink-0 border-b border-border px-1 gap-0.5 overflow-x-auto"
+        role="tablist"
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+            e.preventDefault();
+            const idx = sessionList.findIndex((s) => s.id === activeTerminalTab);
+            const next = e.key === "ArrowRight"
+              ? sessionList[(idx + 1) % sessionList.length]
+              : sessionList[(idx - 1 + sessionList.length) % sessionList.length];
+            if (next) setActiveTerminalTab(next.id);
+          }
+        }}
+      >
         {sessionList.map((session) => (
           <button
             key={session.id}

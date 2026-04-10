@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +31,28 @@ const ArtifactViewer = lazyRetry(() => import("./ArtifactViewer"));
 
 const SKELETON_DELAY_MS = 500;
 
+/** Error boundary for lazy-loaded tabs — shows a recovery button instead of a blank panel. */
+class TabErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 gap-3">
+          <p className="text-sm text-muted-foreground">This panel failed to load.</p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="px-3 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function JobDetailScreen() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
@@ -50,6 +72,8 @@ export function JobDetailScreen() {
   const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
   const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  // Reset selectedTurnId when navigating to a different job
+  useEffect(() => { setSelectedTurnId(null); }, [jobId]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
   const isResizingRef = useRef(false);
@@ -58,6 +82,9 @@ export function JobDetailScreen() {
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
   const [hasArtifacts, setHasArtifacts] = useState(false);
 
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+  // Clean up sidebar resize listeners on unmount (prevents leak if nav away mid-resize)
+  useEffect(() => () => { resizeCleanupRef.current?.(); }, []);
   const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isResizingRef.current = true;
@@ -73,9 +100,11 @@ export function JobDetailScreen() {
       isResizingRef.current = false;
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+      resizeCleanupRef.current = null;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
+    resizeCleanupRef.current = onMouseUp;
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
     document.body.style.cursor = "col-resize";
@@ -812,14 +841,17 @@ export function JobDetailScreen() {
       )}
 
       {tab === "files" && (
-        <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-          <WorkspaceBrowser jobId={jobId} />
-        </Suspense>
+        <TabErrorBoundary>
+          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+            <WorkspaceBrowser jobId={jobId} />
+          </Suspense>
+        </TabErrorBoundary>
       )}
 
       {tab === "diff" && (
-        <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-          <DiffViewer
+        <TabErrorBoundary>
+          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+            <DiffViewer
             jobId={jobId}
             jobState={job.state}
             resolution={job.resolution}
@@ -829,7 +861,8 @@ export function JobDetailScreen() {
             onClearStepFilter={handleClearStepFilter}
             onNavigateToStep={handleNavigateToStep}
           />
-        </Suspense>
+          </Suspense>
+        </TabErrorBoundary>
       )}
 
       {tab === "metrics" && (
@@ -837,9 +870,11 @@ export function JobDetailScreen() {
       )}
 
       {tab === "artifacts" && (
-        <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-          <ArtifactViewer jobId={jobId} />
-        </Suspense>
+        <TabErrorBoundary>
+          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+            <ArtifactViewer jobId={jobId} />
+          </Suspense>
+        </TabErrorBoundary>
       )}
 
       <ConfirmDialog

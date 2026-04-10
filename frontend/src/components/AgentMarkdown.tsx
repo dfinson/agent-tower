@@ -1,6 +1,16 @@
-import { memo, Children, isValidElement, cloneElement, type ReactNode } from "react";
+import { memo, Component, Children, isValidElement, cloneElement, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+/** Error boundary for markdown rendering — shows raw text on crash. */
+class MarkdownErrorBoundary extends Component<{ fallback: string; children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) return <pre className="text-xs whitespace-pre-wrap">{this.props.fallback}</pre>;
+    return this.props.children;
+  }
+}
 
 /** Highlight substring matches inside a text string. */
 function highlightText(text: string, query: string): ReactNode {
@@ -31,6 +41,7 @@ function mapChildren(children: ReactNode, mapper: (text: string) => ReactNode): 
 export const AgentMarkdown = memo(function AgentMarkdown({ content, highlight }: { content: string; highlight?: string }) {
   const hl = highlight ? (children: ReactNode) => mapChildren(children, (t) => highlightText(t, highlight)) : (children: ReactNode) => children;
   return (
+    <MarkdownErrorBoundary fallback={content}>
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
@@ -79,5 +90,6 @@ export const AgentMarkdown = memo(function AgentMarkdown({ content, highlight }:
     >
       {content}
     </ReactMarkdown>
+    </MarkdownErrorBoundary>
   );
 });
