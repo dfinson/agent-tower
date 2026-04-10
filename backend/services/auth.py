@@ -16,6 +16,12 @@ through ``auth_middleware`` before reaching any route handler.
 ``localhost`` are unconditionally trusted and never challenged.  This allows
 same-machine tools and CLIs to access the API without credentials.
 
+**Cloudflare Access bypass**: requests carrying a ``Cf-Access-Jwt-Assertion``
+header are treated as pre-authenticated by Cloudflare Access and skip the
+local password gate.  This covers deployments where ``cloudflared`` is managed
+externally (systemd service, Docker side-car, etc.) and CodePlane was not
+started with ``--remote --provider cloudflare``.
+
 **WebSocket auth**: WebSocket upgrades are *not* wrapped by the HTTP
 middleware (Starlette handles them on a different code-path).  Instead, each
 WebSocket endpoint calls ``check_websocket_auth`` at connect time, passing the
@@ -155,6 +161,16 @@ def is_localhost(request: Request) -> bool:
     return host in LOCALHOST_ADDRS
 
 
+def _has_cloudflare_access(request: Request) -> bool:
+    """Return True when the request carries a Cloudflare Access JWT.
+
+    Cloudflare Access sets ``Cf-Access-Jwt-Assertion`` on every request that
+    has passed its identity gate.  When present we treat the user as already
+    authenticated and skip the internal password challenge.
+    """
+    return bool(request.headers.get("cf-access-jwt-assertion"))
+
+
 def is_request_authenticated(request: Request) -> bool:
     """Check if a request is authenticated via localhost or valid session cookie.
 
@@ -164,6 +180,8 @@ def is_request_authenticated(request: Request) -> bool:
     if not is_password_auth_enabled():
         return True
     if is_localhost(request):
+        return True
+    if _has_cloudflare_access(request):
         return True
     return is_valid_token(request.cookies.get(COOKIE_NAME))
 
@@ -189,7 +207,9 @@ def _record_ws_attempt(ip: str) -> None:
     _ws_auth_attempts[ip].append(time.monotonic())
 
 
-def check_websocket_auth(*, client_host: str | None, cookies: dict[str, str]) -> bool:
+def check_websocket_auth(
+    *, client_host: str | None, cookies: dict[str, str], cf_access_jwt: str | None = None
+) -> bool:
     """Validate authentication for a WebSocket connection.
 
     Mirrors the HTTP middleware logic: if password auth is not enabled
@@ -201,6 +221,8 @@ def check_websocket_auth(*, client_host: str | None, cookies: dict[str, str]) ->
     if not is_password_auth_enabled():
         return True
     if client_host and client_host in LOCALHOST_ADDRS:
+        return True
+    if cf_access_jwt:
         return True
     ip = client_host or "unknown"
     if _is_ws_rate_limited(ip):
@@ -352,6 +374,11 @@ async def auth_middleware(request: Request, call_next: Any) -> Response:
     if is_localhost(request):
         client_ip = request.client.host if request.client else "unknown"
         log.debug("auth_localhost_bypass", client_ip=client_ip, path=path)
+        return await call_next(request)  # type: ignore[no-any-return]
+
+    # Cloudflare Access — request already authenticated at the CF edge
+    if _has_cloudflare_access(request):
+        log.debug("auth_cloudflare_access_bypass", path=path)
         return await call_next(request)  # type: ignore[no-any-return]
 
     # Check session cookie

@@ -170,7 +170,11 @@ async def terminal_ws(ws: WebSocket) -> None:
                 await ws.close(code=1008, reason="Origin not allowed")
                 return
 
-    if not check_websocket_auth(client_host=client_host, cookies=ws.cookies):
+    if not check_websocket_auth(
+        client_host=client_host,
+        cookies=ws.cookies,
+        cf_access_jwt=ws.headers.get("cf-access-jwt-assertion"),
+    ):
         await ws.close(code=1008, reason="Authentication required")
         return
 
