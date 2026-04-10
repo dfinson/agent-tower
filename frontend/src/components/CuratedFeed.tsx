@@ -1404,11 +1404,17 @@ export function CuratedFeed({
 
   // Auto-jump to first match when search query produces results.
   // Uses debouncedQuery as trigger so it fires once per distinct query.
-  // Extract the turnId from a feedItem at a given index
+  // Extract the turnId from a feedItem at a given index.
+  // If the item itself isn't a turn (e.g. operator message), walk backwards
+  // to find the nearest preceding turn — that's the activity context.
   const getTurnIdForIndex = useCallback((idx: number): string | null => {
-    const item = feedItems[idx];
-    if (!item) return null;
-    if (item.type === "turn" || item.type === "condensed") return item.turn.turnId ?? null;
+    for (let i = idx; i >= 0; i--) {
+      const item = feedItems[i];
+      if (!item) continue;
+      if (item.type === "turn" || item.type === "condensed") {
+        return item.turn.turnId ?? null;
+      }
+    }
     return null;
   }, [feedItems]);
 
