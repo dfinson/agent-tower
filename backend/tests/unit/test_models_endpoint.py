@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from dishka import Provider, Scope, from_context, make_async_container
 from dishka.integrations.fastapi import setup_dishka
@@ -50,7 +52,10 @@ async def test_models_returns_empty_when_cache_is_empty() -> None:
     app = await _make_app([])
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/api/models")
+        with pytest.MonkeyPatch.context() as mp:
+            # Block the live-fetch fallback so the endpoint returns the empty cache as-is.
+            mp.setitem(sys.modules, "copilot", None)
+            resp = await client.get("/api/models")
 
     assert resp.status_code == 200
     assert resp.json() == []
