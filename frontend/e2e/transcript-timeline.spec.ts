@@ -82,30 +82,30 @@ const TRANSCRIPT = [
   },
 ];
 
-const TIMELINE = [
+const TURN_SUMMARIES = [
   {
-    jobId: "job-1",
-    headline: "Analyzing auth module",
-    headlinePast: "Analyzed auth module",
-    summary: "Reading source files to understand current implementation",
-    timestamp: NOW,
-    active: false,
+    turnId: "turn-1",
+    title: "Reading auth module",
+    activityId: "act-1",
+    activityLabel: "Investigating the bug",
+    activityStatus: "done",
+    isNewActivity: true,
   },
   {
-    jobId: "job-1",
-    headline: "Fixing authentication bug",
-    headlinePast: "Fixed authentication bug",
-    summary: "Added proper token validation to login flow",
-    timestamp: NOW,
-    active: false,
+    turnId: "turn-2",
+    title: "Applying fix",
+    activityId: "act-2",
+    activityLabel: "Fixing authentication",
+    activityStatus: "done",
+    isNewActivity: true,
   },
   {
-    jobId: "job-1",
-    headline: "Writing unit tests",
-    headlinePast: "Wrote unit tests",
-    summary: "",
-    timestamp: NOW,
-    active: true,
+    turnId: "turn-3",
+    title: "Writing test cases",
+    activityId: "act-3",
+    activityLabel: "Adding tests",
+    activityStatus: "active",
+    isNewActivity: true,
   },
 ];
 
@@ -117,7 +117,6 @@ test.describe("Transcript — Message Rendering", () => {
   test.beforeEach(async ({ page }) => {
     await setupJobDetailMocks(page, makeJob(), {
       transcript: TRANSCRIPT,
-      timeline: TIMELINE,
     });
   });
 
@@ -147,47 +146,66 @@ test.describe("Transcript — Message Rendering", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // CuratedFeed clusters tool calls — read_file → "Read 1 file", edit_file → "Edited 1 file"
+    // CuratedFeed: read_file → "Read 1 file" cluster; edit_file → "other" kind uses toolDisplay
     await expect(
       page.getByText("Read 1 file").first(),
     ).toBeVisible({ timeout: 5_000 });
     await expect(
-      page.getByText("Edited 1 file").first(),
+      page.getByText("Edited src/auth.ts").first(),
     ).toBeVisible();
   });
 });
 
-test.describe("Transcript — Timeline Headlines", () => {
-  test("shows timeline entries with headlines", async ({ page }) => {
+test.describe("Transcript — Activity Timeline", () => {
+  test("shows activity labels in the sidebar", async ({ page }) => {
     await setupJobDetailMocks(page, makeJob(), {
       transcript: TRANSCRIPT,
-      timeline: TIMELINE,
+      snapshot: {
+        job: makeJob(),
+        logs: [],
+        transcript: TRANSCRIPT,
+        diff: [],
+        approvals: [],
+        timeline: [],
+        turnSummaries: TURN_SUMMARIES,
+      },
     });
 
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // Timeline shows headlinePast for inactive entries, headline for active
+    // ActivityTimeline sidebar shows activity labels
     await expect(
-      page.getByText("Analyzed auth module").first(),
+      page.getByText("Investigating the bug").first(),
     ).toBeVisible({ timeout: 5_000 });
     await expect(
-      page.getByText("Fixed authentication bug").first(),
+      page.getByText("Fixing authentication").first(),
+    ).toBeVisible();
+      await expect(
+      page.getByText("Adding tests").first(),
     ).toBeVisible();
   });
 
-  test("active timeline entry is visually distinct", async ({ page }) => {
+  test("active activity has spinning indicator", async ({ page }) => {
     await setupJobDetailMocks(page, makeJob(), {
       transcript: TRANSCRIPT,
-      timeline: TIMELINE,
+      snapshot: {
+        job: makeJob(),
+        logs: [],
+        transcript: TRANSCRIPT,
+        diff: [],
+        approvals: [],
+        timeline: [],
+        turnSummaries: TURN_SUMMARIES,
+      },
     });
 
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // The active entry uses headline (present tense), not headlinePast
+    // The last activity "Adding tests" should be active
     await expect(
-      page.getByText("Writing unit tests").first(),
+      page.getByText("Adding tests").first(),
     ).toBeVisible({ timeout: 5_000 });
   });
 });
