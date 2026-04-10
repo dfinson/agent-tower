@@ -75,7 +75,10 @@ function ActivitySection({
         <div className="ml-3 pl-2 border-l-2 border-border space-y-0.5 pb-1">
           {activity.steps.map((step, i) => {
             const isActive = isLast && i === activity.steps.length - 1 && activity.status === "active";
-            const isSelected = selectedTurnId === step.turnId;
+            // Don't highlight individual steps during search — the activity
+            // expansion is enough context; step-level highlight is misleading
+            // since search matches text, not steps.
+            const isSelected = !searchActive && selectedTurnId === step.turnId;
             return (
               <button
                 key={step.turnId}

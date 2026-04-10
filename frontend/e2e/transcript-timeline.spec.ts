@@ -147,12 +147,12 @@ test.describe("Transcript — Message Rendering", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // Tool calls should show their display names
+    // CuratedFeed clusters tool calls — read_file → "Read 1 file", edit_file → "Edited 1 file"
     await expect(
-      page.getByText("Read src/auth.ts").first(),
+      page.getByText("Read 1 file").first(),
     ).toBeVisible({ timeout: 5_000 });
     await expect(
-      page.getByText("Edited src/auth.ts").first(),
+      page.getByText("Edited 1 file").first(),
     ).toBeVisible();
   });
 });
@@ -167,13 +167,12 @@ test.describe("Transcript — Timeline Headlines", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // Timeline headlines should appear somewhere on the page
-    // (either in the sidebar or as section dividers)
+    // Timeline shows headlinePast for inactive entries, headline for active
     await expect(
-      page.getByText(/Analyz(ing|ed) auth module/i).first(),
+      page.getByText("Analyzed auth module").first(),
     ).toBeVisible({ timeout: 5_000 });
     await expect(
-      page.getByText(/Fix(ing|ed) authentication bug/i).first(),
+      page.getByText("Fixed authentication bug").first(),
     ).toBeVisible();
   });
 
@@ -186,9 +185,9 @@ test.describe("Transcript — Timeline Headlines", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // The last headline ("Writing unit tests") is active
+    // The active entry uses headline (present tense), not headlinePast
     await expect(
-      page.getByText(/Writ(ing|e) unit tests/i).first(),
+      page.getByText("Writing unit tests").first(),
     ).toBeVisible({ timeout: 5_000 });
   });
 });
