@@ -415,16 +415,14 @@ function PhaseBox({
 }) {
   const searchQuery = useSearchHighlight();
   // Auto-expand when search matches an entry inside this cluster
-  const hasSearchMatch = searchQuery
-    ? cluster.entries.some((e) =>
-        e.toolDisplay?.toLowerCase().includes(searchQuery)
-        || e.toolName?.toLowerCase().includes(searchQuery)
-      )
-    : false;
-  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
-  useEffect(() => {
-    if (hasSearchMatch) setExpanded(true);
-  }, [hasSearchMatch]);
+  const hasSearchMatch = !!searchQuery && cluster.entries.some((e) =>
+    e.toolDisplay?.toLowerCase().includes(searchQuery)
+    || e.toolName?.toLowerCase().includes(searchQuery)
+  );
+  const [manualExpanded, setManualExpanded] = useState(defaultExpanded ?? false);
+  // Expand if either manually expanded or search made a match
+  const expanded = manualExpanded || hasSearchMatch;
+  const setExpanded = setManualExpanded;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const Icon = KIND_LABELS[cluster.kind].icon;
   const files = useMemo(() => deduplicateByFile(cluster.entries), [cluster.entries]);

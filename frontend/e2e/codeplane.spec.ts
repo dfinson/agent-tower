@@ -49,8 +49,8 @@ test.describe("Dashboard", () => {
   test("shows mobile filter tabs on small viewport", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
-    // Kanban board hidden on mobile, mobile tab buttons visible
-    await expect(page.getByRole("button", { name: "In Progress" })).toBeVisible();
+    // Kanban board hidden on mobile, mobile tab filters visible
+    await expect(page.getByRole("tab", { name: "In Progress" })).toBeVisible();
   });
 });
 

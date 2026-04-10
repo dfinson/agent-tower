@@ -135,10 +135,12 @@ test.describe("Command Palette", () => {
     await expect(page.getByText(/CodePlane/i).first()).toBeVisible({ timeout: 5_000 });
 
     await page.keyboard.press("Control+k");
-    await expect(page.getByRole("dialog").first()).toBeVisible({ timeout: 3_000 });
+    const dialog = page.getByRole("dialog").first();
+    await expect(dialog).toBeVisible({ timeout: 3_000 });
 
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).not.toBeVisible({ timeout: 2_000 });
+    // Focus may be on the search input inside the dialog; Escape should still close it
+    await dialog.press("Escape");
+    await expect(dialog).toBeHidden({ timeout: 3_000 });
   });
 
   test("palette search filters items", async ({ page }) => {

@@ -75,6 +75,21 @@ async function setupJobDetailMocks(
     });
   });
 
+  await page.route("**/api/jobs/job-1/snapshot*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job,
+        logs: [],
+        transcript: [],
+        diff: [],
+        approvals: [],
+        timeline: [],
+      }),
+    });
+  });
+
   await page.route("**/api/jobs/job-1", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
@@ -95,6 +110,23 @@ async function setupJobDetailMocks(
   });
   await page.route("**/api/jobs/job-1/approvals*", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+
+  await page.route("**/api/settings", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+  });
+  await page.route("**/api/settings/repos", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await page.route("**/api/sdks", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ default: "copilot", sdks: [{ id: "copilot", name: "GitHub Copilot", enabled: true, status: "ready" }] }),
+    });
+  });
+  await page.route("**/api/models", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) });
   });
 }
 
@@ -127,7 +159,7 @@ test.describe("Cancel Running Job", () => {
     // Cancel opens a confirmation dialog — confirm it
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await dialog.locator("button", { hasText: "Cancel & Archive" }).click();
+    await dialog.locator("button", { hasText: "Cancel & Clean Up" }).click();
 
     await page.waitForTimeout(500);
     expect(cancelCalled).toBe(true);
@@ -199,8 +231,8 @@ test.describe("Send Message to Running Job", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
-    // TranscriptPanel should have the message input when interactive=true
-    const textarea = page.locator("textarea[placeholder*='Send']");
+    // CuratedFeed renders a message input for interactive jobs
+    const textarea = page.getByRole("textbox", { name: /message the agent/i });
     await expect(textarea).toBeVisible({ timeout: 5_000 });
   });
 
@@ -223,11 +255,11 @@ test.describe("Send Message to Running Job", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
-    const textarea = page.locator("textarea[placeholder*='Send']");
+    const textarea = page.getByRole("textbox", { name: /message the agent/i });
     await expect(textarea).toBeVisible({ timeout: 5_000 });
     await textarea.fill("Please also add tests");
 
-    // Press Enter to send (or click send button)
+    // Press Enter to send
     await textarea.press("Enter");
 
     await page.waitForTimeout(500);
@@ -243,7 +275,7 @@ test.describe("Archive Completed Job", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true })).toBeVisible({ timeout: 5_000 });
 
-    await expect(page.locator("button", { hasText: "Archive" })).toBeVisible();
+    await expect(page.locator("button", { hasText: "Abandon" })).toBeVisible();
   });
 
   test("archive button visible for canceled jobs", async ({ page }) => {

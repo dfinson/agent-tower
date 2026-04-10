@@ -156,10 +156,14 @@ export function JobDetailScreen() {
     setStepFilter(null);
   }, []);
 
-  const handleNavigateToStep = useCallback((seq: number) => {
+  const handleNavigateToStep = useCallback((seq: number, turnId?: string) => {
     setScrollToSeq(seq);
     setTab("live");
-  }, []);
+    if (turnId) {
+      setSelectedTurnId(mapToStepTurnId(turnId));
+      setSearchActive(true);
+    }
+  }, [mapToStepTurnId]);
 
   useEffect(() => {
     if (!jobId) return;

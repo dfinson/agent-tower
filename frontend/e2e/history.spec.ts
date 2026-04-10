@@ -161,30 +161,18 @@ test.describe("History — Filtering", () => {
   test("clicking a filter narrows the displayed jobs", async ({ page }) => {
     await setupHistoryMocks(page);
 
-    // Track filter requests
-    let lastUrl = "";
-    await page.route("**/api/jobs?*", async (route) => {
-      if (route.request().method() !== "GET") return route.fallback();
-      lastUrl = route.request().url();
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          items: HISTORY_JOBS.filter((j) => j.state === "failed"),
-          cursor: null,
-          hasMore: false,
-        }),
-      });
-    });
-
     await page.goto("/history");
+    // Wait for initial load with all jobs
     await expect(page.getByText("Fix auth bug").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Refactor database").first()).toBeVisible();
 
-    // Click "Failed" filter
-    await page.getByRole("button", { name: /Failed/i }).click();
+    // Click "Failed" filter — this is a client-side filter, no new API call
+    await page.getByRole("button", { name: "Failed", exact: true }).click();
 
     // Should show only the failed job
     await expect(page.getByText("Refactor database").first()).toBeVisible({ timeout: 5_000 });
+    // Merged job should be hidden
+    await expect(page.getByText("Fix auth bug")).toHaveCount(0);
   });
 });
 
