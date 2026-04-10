@@ -21,7 +21,7 @@ function highlightText(text: string, query: string): ReactNode {
   if (parts.length === 1) return text;
   return parts.map((part, i) =>
     re.test(part)
-      ? <mark key={i} className="bg-yellow-400/30 text-foreground rounded-sm px-0.5">{part}</mark>
+      ? <mark key={i} className="bg-yellow-400/50 text-foreground rounded-sm px-0.5 ring-1 ring-yellow-400/40">{part}</mark>
       : <span key={i}>{part}</span>,
   );
 }

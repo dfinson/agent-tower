@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree } from "lucide-react";
 import { useStore, selectActivityTimeline, selectJobPlan } from "../store";
-import type { ActivityTimelineActivity, PlanStep } from "../store";
+import type { ActivityTimelineActivity } from "../store";
+import { PlanPanel } from "./PlanPanel";
 import { cn } from "../lib/utils";
 
 /** Terminal job states where the agent is no longer working. */
@@ -75,17 +76,15 @@ function ActivitySection({
         <div className="ml-3 pl-2 border-l-2 border-border space-y-0.5 pb-1">
           {activity.steps.map((step, i) => {
             const isActive = isLast && i === activity.steps.length - 1 && activity.status === "active";
-            // Don't highlight individual steps during search — the activity
-            // expansion is enough context; step-level highlight is misleading
-            // since search matches text, not steps.
-            const isSelected = !searchActive && selectedTurnId === step.turnId;
+            const isSelected = selectedTurnId === step.turnId;
             return (
               <button
                 key={step.turnId}
+                ref={isSelected && searchActive ? (el) => el?.scrollIntoView({ block: "nearest", behavior: "smooth" }) : undefined}
                 onClick={() => onStepClick(step.turnId)}
                 className={cn(
                   "flex items-start gap-1.5 w-full text-left py-1 px-1.5 rounded-sm transition-colors hover:bg-accent/50",
-                  isSelected && "bg-accent/60 ring-1 ring-accent",
+                  isSelected && "bg-primary/10 ring-1 ring-primary/50",
                 )}
               >
                 <StepDot active={isActive} />
@@ -107,19 +106,6 @@ function ActivitySection({
   );
 }
 
-function PlanSummary({ steps }: { steps: PlanStep[] }) {
-  const doneCount = steps.filter((s) => s.status === "done").length;
-  if (steps.length === 0) return null;
-  return (
-    <div className="mt-2 pt-2 border-t border-border">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span>Plan</span>
-        <span className="tabular-nums">{doneCount}/{steps.length}</span>
-      </div>
-    </div>
-  );
-}
-
 export function ActivityTimeline({
   jobId,
   jobState,
@@ -135,7 +121,6 @@ export function ActivityTimeline({
 }) {
   const timeline = useStore(selectActivityTimeline(jobId));
   const planSteps = useStore(selectJobPlan(jobId));
-  const hasActiveWork = planSteps.some((s) => s.status === "active" || s.status === "pending");
 
   // When the job has reached a terminal state, force all activities to "done"
   // so the spinner stops.
@@ -144,7 +129,7 @@ export function ActivityTimeline({
     ? timeline.activities.map((a) => a.status === "active" ? { ...a, status: "done" as const } : a)
     : timeline.activities;
 
-  if (activities.length === 0) {
+  if (activities.length === 0 && planSteps.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 px-4 py-6">
         <ListTree size={20} className="text-muted-foreground" />
@@ -155,6 +140,8 @@ export function ActivityTimeline({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Plan panel — pinned at top of sidebar */}
+      {planSteps.length > 0 && <PlanPanel jobId={jobId} />}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
         {activities.map((activity, i) => (
           <ActivitySection
@@ -167,7 +154,6 @@ export function ActivityTimeline({
           />
         ))}
       </div>
-      {hasActiveWork && <PlanSummary steps={planSteps} />}
     </div>
   );
 }

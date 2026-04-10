@@ -397,7 +397,7 @@ class TestStoreLogArtifactUpsert:
         try:
             events = [{"session_number": 1, "seq": 0, "level": "info", "message": "hello", "timestamp": "t1"}]
             result = await artifact_service.store_log_artifact("job-1", events, slug="my-job")
-            assert result.type == ArtifactType.document
+            assert result.type == ArtifactType.agent_log
             assert result.name.endswith("agent.log")
             mock_repo.create.assert_called_once()
             mock_repo.update_size_bytes.assert_not_called()

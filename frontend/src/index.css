@@ -35,14 +35,17 @@
   a { text-decoration: none; color: inherit; }
 }
 
-/* Brief single glow for navigated-to feed items */
-@keyframes glow-once {
-  0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
-  30%  { box-shadow: 0 0 8px 2px hsl(var(--primary) / 0.3); }
-  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
+/* Two-pulse glow + left accent bar for navigated-to feed items */
+@keyframes highlight-pulse {
+  0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0);    border-left-color: transparent; }
+  15%  { box-shadow: 0 0 12px 4px hsl(var(--primary) / 0.5); border-left-color: hsl(var(--primary)); }
+  50%  { box-shadow: 0 0 6px 2px hsl(var(--primary) / 0.2);  border-left-color: hsl(var(--primary) / 0.6); }
+  70%  { box-shadow: 0 0 12px 4px hsl(var(--primary) / 0.45); border-left-color: hsl(var(--primary)); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0);    border-left-color: transparent; }
 }
 .animate-glow-flicker {
-  animation: glow-once 0.8s ease-out;
+  animation: highlight-pulse 1.2s ease-out;
+  border-left: 3px solid transparent;
   border-radius: var(--radius);
 }
 

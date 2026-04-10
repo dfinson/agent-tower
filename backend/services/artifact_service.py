@@ -546,8 +546,11 @@ class ArtifactService:
         content = f"# CodePlane agent log — job {job_id}\n" + "".join(lines)
 
         # Upsert: reuse existing log artifact if one exists so we don't accumulate
-        # one file per session completion.
-        existing = await self._get_first_artifact_by_type(job_id, ArtifactType.document, name_suffix="agent.log")
+        # one file per session completion.  Check both the new agent_log type and the
+        # legacy document type (for jobs created before the type was introduced).
+        existing = await self._get_first_artifact_by_type(job_id, ArtifactType.agent_log)
+        if existing is None:
+            existing = await self._get_first_artifact_by_type(job_id, ArtifactType.document, name_suffix="agent.log")
         if existing is not None:
             disk_path = Path(existing.disk_path)
             disk_path.write_text(content, encoding="utf-8")
@@ -566,7 +569,7 @@ class ArtifactService:
             id=artifact_id,
             job_id=job_id,
             name=name,
-            type=ArtifactType.document,
+            type=ArtifactType.agent_log,
             mime_type="text/plain",
             size_bytes=disk_path.stat().st_size,
             disk_path=str(disk_path),
