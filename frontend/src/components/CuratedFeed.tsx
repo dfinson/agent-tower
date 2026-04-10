@@ -1398,43 +1398,51 @@ export function CuratedFeed({
 
   return (
     <div className="flex flex-col h-full relative">
-      {/* Search bar / button */}
-      {searchOpen ? (
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30">
-          <Search size={13} className="text-muted-foreground/50" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search transcript…"
-            className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
-            autoFocus
-          />
-          {matchCount !== null && (
-            <span className="text-[11px] tabular-nums text-muted-foreground/60">{matchCount} match{matchCount !== 1 ? "es" : ""}</span>
-          )}
-          <button onClick={() => { setSearchOpen(false); setSearchQuery(""); }} className="text-muted-foreground/40 hover:text-muted-foreground">
-            <X size={14} />
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={() => setSearchOpen(true)}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 border border-border bg-card transition-colors"
-        >
-          <Search size={14} className="shrink-0" />
-          <span className="flex-1 text-left">Search transcript…</span>
-          <kbd className="text-[11px] text-muted-foreground/40 font-mono shrink-0">{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+F</kbd>
-        </button>
-      )}
-
-      {/* Virtualized feed */}
+      {/* Virtualized feed — search is integrated at the top */}
       <div
         ref={viewportRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
       >
+        {/* Inline search */}
+        <div className="px-4 pt-2.5 pb-0">
+          <div
+            className={cn(
+              "flex items-center gap-2 transition-colors cursor-text",
+              searchOpen ? "text-foreground" : "text-muted-foreground/40 hover:text-muted-foreground/60",
+            )}
+            onClick={() => { if (!searchOpen) { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0); } }}
+          >
+            <Search size={13} className="shrink-0" />
+            {searchOpen ? (
+              <>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search transcript…"
+                  className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
+                  autoFocus
+                />
+                {matchCount !== null && (
+                  <span className="text-[11px] tabular-nums text-muted-foreground/60 shrink-0">{matchCount} match{matchCount !== 1 ? "es" : ""}</span>
+                )}
+                <button onClick={() => { setSearchOpen(false); setSearchQuery(""); }} className="text-muted-foreground/40 hover:text-muted-foreground shrink-0">
+                  <X size={14} />
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1 text-sm">Search…</span>
+                <kbd className="text-[10px] text-muted-foreground/30 font-mono shrink-0">{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+F</kbd>
+              </>
+            )}
+          </div>
+          {/* Divider line with margin on both sides */}
+          <div className="mx-2 mt-2.5 border-b border-border/40" />
+        </div>
+
         <div
           style={{ height: virtualizer.getTotalSize(), position: "relative" }}
         >
