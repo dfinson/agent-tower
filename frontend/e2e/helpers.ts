@@ -147,6 +147,29 @@ export async function setupJobDetailMocks(
   await setupBaseMocks(page, [job]);
 
   const jobId = job.id as string;
+  const transcript = overrides.transcript ?? [];
+  const timeline = overrides.timeline ?? [];
+  const diff = overrides.diff ?? [];
+  const approvals = overrides.approvals ?? [];
+
+  // The snapshot endpoint is the primary data source for JobDetailScreen.
+  // It must be mocked to prevent the real server from overriding other mocks.
+  await page.route(`**/api/jobs/${jobId}/snapshot*`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        overrides.snapshot ?? {
+          job,
+          logs: [],
+          transcript,
+          diff,
+          approvals,
+          timeline,
+        },
+      ),
+    });
+  });
 
   await page.route(`**/api/jobs/${jobId}`, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
@@ -161,7 +184,7 @@ export async function setupJobDetailMocks(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(overrides.transcript ?? []),
+      body: JSON.stringify(transcript),
     });
   });
 
@@ -169,7 +192,7 @@ export async function setupJobDetailMocks(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(overrides.timeline ?? []),
+      body: JSON.stringify(timeline),
     });
   });
 
@@ -177,7 +200,7 @@ export async function setupJobDetailMocks(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(overrides.diff ?? []),
+      body: JSON.stringify(diff),
     });
   });
 
@@ -185,19 +208,9 @@ export async function setupJobDetailMocks(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(overrides.approvals ?? []),
+      body: JSON.stringify(approvals),
     });
   });
-
-  if (overrides.snapshot) {
-    await page.route(`**/api/jobs/${jobId}/snapshot*`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(overrides.snapshot),
-      });
-    });
-  }
 
   if (overrides.artifacts) {
     await page.route(`**/api/jobs/${jobId}/artifacts*`, async (route) => {
