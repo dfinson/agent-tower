@@ -413,7 +413,18 @@ function PhaseBox({
   defaultExpanded?: boolean;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
+  const searchQuery = useSearchHighlight();
+  // Auto-expand when search matches an entry inside this cluster
+  const hasSearchMatch = searchQuery
+    ? cluster.entries.some((e) =>
+        e.toolDisplay?.toLowerCase().includes(searchQuery)
+        || e.toolName?.toLowerCase().includes(searchQuery)
+      )
+    : false;
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
+  useEffect(() => {
+    if (hasSearchMatch) setExpanded(true);
+  }, [hasSearchMatch]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const Icon = KIND_LABELS[cluster.kind].icon;
   const files = useMemo(() => deduplicateByFile(cluster.entries), [cluster.entries]);
@@ -1374,9 +1385,6 @@ export function CuratedFeed({
       if (item.type === "operator") match = !!item.entry.content?.toLowerCase().includes(q);
       else if (item.type === "turn" || item.type === "condensed") {
         const turn = item.turn;
-        // Only search visible text: agent messages, reasoning, tool display labels,
-        // and cluster labels. Skip toolResult/toolArgs — they're hidden/collapsed
-        // and matching them produces phantom results the user can't see.
         match = !!(turn.message?.content?.toLowerCase().includes(q)
           || turn.reasoning?.content?.toLowerCase().includes(q)
           || turn.toolCalls.some((t) =>

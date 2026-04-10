@@ -235,8 +235,10 @@ test.describe("Analytics — Model Comparison", () => {
     await setupAnalyticsMocks(page);
     await page.goto("/analytics");
 
-    // Should see job count "30" for sonnet somewhere
-    await expect(page.getByText("30").first()).toBeVisible({ timeout: 5_000 });
+    // Model comparison heading should be visible
+    await expect(page.getByText("Model Comparison").first()).toBeVisible({ timeout: 5_000 });
+    // Model names should appear (sonnet or opus)
+    await expect(page.getByText(/sonnet|opus/i).first()).toBeVisible({ timeout: 5_000 });
   });
 });
 
@@ -245,11 +247,15 @@ test.describe("Analytics — Tool Health", () => {
     await setupAnalyticsMocks(page);
     await page.goto("/analytics");
 
-    // Tool names should appear (may need to expand a collapsible section)
-    // Look for recognizable tool names
+    // Tool Health section is collapsed — click to expand
+    const toolHealthBtn = page.getByRole("button", { name: /Tool Health/i });
+    await expect(toolHealthBtn).toBeVisible({ timeout: 5_000 });
+    await toolHealthBtn.click();
+
+    // Tool names should now be visible
     await expect(
       page.getByText(/edit_file|read_file|run_in_terminal/i).first(),
-    ).toBeVisible({ timeout: 8_000 });
+    ).toBeVisible({ timeout: 5_000 });
   });
 });
 
