@@ -73,7 +73,10 @@ test.describe("Keyboard Shortcuts — Navigation", () => {
     await expect(page.getByText(/Settings/i).first()).toBeVisible({ timeout: 5_000 });
 
     await page.keyboard.press("Alt+j");
-    await expect(page).toHaveURL(/^\/$|\/\?/, { timeout: 5_000 });
+    // Should navigate back to root dashboard
+    await page.waitForURL("**/", { timeout: 5_000 });
+    const url = new URL(page.url());
+    expect(url.pathname).toBe("/");
   });
 
   test("Alt+H navigates to History", async ({ page }) => {
