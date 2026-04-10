@@ -1398,12 +1398,21 @@ export function CuratedFeed({
   }, [matchingIndices]);
 
   const [currentMatchPos, setCurrentMatchPos] = useState(0); // position within matchList
+  const prevMatchCountRef = useRef(0);
 
-  // Reset position when matches change — do NOT auto-scroll.
-  // The user scrolls explicitly via Enter / arrow buttons.
+  // Reset position when matches change. Auto-jump to first match only on
+  // the transition from 0→N matches (i.e. first results appear), not on
+  // every keystroke refinement — that would fight user scroll.
   useEffect(() => {
     setCurrentMatchPos(0);
-  }, [matchList]);
+    const hadMatches = prevMatchCountRef.current > 0;
+    prevMatchCountRef.current = matchList.length;
+    if (!hadMatches && matchList.length > 0) {
+      const first = matchList[0]!;
+      virtualizer.scrollToIndex(first, { align: "center" });
+      setHighlightIdx(first);
+    }
+  }, [matchList]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const jumpToMatch = useCallback((pos: number) => {
     if (matchList.length === 0) return;

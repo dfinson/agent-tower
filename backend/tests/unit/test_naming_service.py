@@ -30,8 +30,13 @@ class FakeBackend:
         return self._index
 
 
-def _json(title: str, branch: str = "feat/add-feature", worktree: str = "add-feature") -> str:
-    return json.dumps({"title": title, "branch_name": branch, "worktree_name": worktree})
+def _json(
+    title: str,
+    branch: str = "feat/add-feature",
+    worktree: str = "add-feature",
+    description: str = "",
+) -> str:
+    return json.dumps({"title": title, "description": description, "branch_name": branch, "worktree_name": worktree})
 
 
 class TestNamingServiceHappyPath:
@@ -39,7 +44,7 @@ class TestNamingServiceHappyPath:
     async def test_generates_all_fields(self):
         backend = FakeBackend([_json("Add user search", "feat/add-user-search", "add-user-search")])
         svc = NamingService(backend)
-        title, branch, worktree = await svc.generate("Add a user search feature")
+        title, description, branch, worktree = await svc.generate("Add a user search feature")
         assert title == "Add user search"
         assert branch == "feat/add-user-search"
         assert worktree == "add-user-search"
@@ -48,7 +53,7 @@ class TestNamingServiceHappyPath:
     async def test_strips_trailing_period_from_title(self):
         backend = FakeBackend([_json("Fix login bug.", "fix/fix-login-bug", "fix-login-bug")])
         svc = NamingService(backend)
-        title, _, _ = await svc.generate("Fix the login bug")
+        title, _, _, _ = await svc.generate("Fix the login bug")
         assert not title.endswith(".")
 
     @pytest.mark.asyncio
@@ -68,7 +73,7 @@ class TestNamingServiceRetry:
         good = _json("Fix login bug", "fix/fix-login-bug", "fix-login-bug")
         backend = FakeBackend([bad, good])
         svc = NamingService(backend)
-        title, branch, worktree = await svc.generate("Fix the login bug")
+        title, _, branch, worktree = await svc.generate("Fix the login bug")
         assert title == "Fix login bug"
         assert branch == "fix/fix-login-bug"
         assert backend.call_count == 2
@@ -78,7 +83,7 @@ class TestNamingServiceRetry:
         good = _json("Add feature", "feat/add-feature", "add-feature")
         backend = FakeBackend(["", good])
         svc = NamingService(backend)
-        title, _, _ = await svc.generate("Add a feature")
+        title, _, _, _ = await svc.generate("Add a feature")
         assert title == "Add feature"
         assert backend.call_count == 2
 
@@ -87,7 +92,7 @@ class TestNamingServiceRetry:
         good = _json("Refactor auth", "chore/refactor-auth", "refactor-auth")
         backend = FakeBackend(["I'm sorry, I can't help with that.", good])
         svc = NamingService(backend)
-        title, _, _ = await svc.generate("Refactor the auth module")
+        title, _, _, _ = await svc.generate("Refactor the auth module")
         assert title == "Refactor auth"
 
     @pytest.mark.asyncio
@@ -95,7 +100,7 @@ class TestNamingServiceRetry:
         good = _json("Fix bug", "fix/fix-bug", "fix-bug")
         backend = FakeBackend([RuntimeError("timeout"), good])
         svc = NamingService(backend)
-        title, _, _ = await svc.generate("Fix a bug")
+        title, _, _, _ = await svc.generate("Fix a bug")
         assert title == "Fix bug"
 
 
@@ -137,7 +142,7 @@ class TestNamingServiceConflictResolution:
         retry = json.dumps({"branch_name": "fix/login-bug-v2"})
         backend = FakeBackend([initial, retry])
         svc = NamingService(backend)
-        _, branch, _ = await svc.generate("Fix login", existing_branches={"fix/fix-login-bug"})
+        _, _, branch, _ = await svc.generate("Fix login", existing_branches={"fix/fix-login-bug"})
         assert branch == "fix/login-bug-v2"
 
     @pytest.mark.asyncio
@@ -146,7 +151,7 @@ class TestNamingServiceConflictResolution:
         retry = json.dumps({"worktree_name": "fix-login-v2"})
         backend = FakeBackend([initial, retry])
         svc = NamingService(backend)
-        _, _, worktree = await svc.generate("Fix login", existing_worktrees={"fix-login-bug"})
+        _, _, _, worktree = await svc.generate("Fix login", existing_worktrees={"fix-login-bug"})
         assert worktree == "fix-login-v2"
 
     @pytest.mark.asyncio
@@ -156,5 +161,5 @@ class TestNamingServiceConflictResolution:
         retry = json.dumps({"branch_name": "fix/login-bug-v2"})
         backend = FakeBackend([initial, retry])
         svc = NamingService(backend)
-        title, _, _ = await svc.generate("Fix login", existing_branches={"fix/fix-login-bug"})
+        title, _, _, _ = await svc.generate("Fix login", existing_branches={"fix/fix-login-bug"})
         assert title == "Fix login bug"

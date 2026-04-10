@@ -21,13 +21,13 @@ def event_bus() -> AsyncMock:
 
 
 @pytest.fixture()
-def utility_session() -> MagicMock:
+def sister_sessions() -> MagicMock:
     return MagicMock()
 
 
 @pytest.fixture()
-def service(utility_session: MagicMock, event_bus: AsyncMock) -> ProgressTrackingService:
-    return ProgressTrackingService(utility_session=utility_session, event_bus=event_bus)
+def service(sister_sessions: MagicMock, event_bus: AsyncMock) -> ProgressTrackingService:
+    return ProgressTrackingService(sister_sessions=sister_sessions, event_bus=event_bus)
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ class TestFeedNativePlan:
     @pytest.mark.asyncio()
     async def test_copilot_manage_todo_list(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """Copilot-style todoList items are correctly mapped to plan steps."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         items = [
             {"id": 1, "title": "Explore codebase", "status": "completed"},
             {"id": 2, "title": "Implement feature", "status": "in-progress"},
@@ -63,7 +63,7 @@ class TestFeedNativePlan:
     @pytest.mark.asyncio()
     async def test_claude_todo_write(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """Claude-style todos with 'content' field are correctly mapped."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         items = [
             {"id": "1", "content": "Read source files", "status": "completed"},
             {"id": "2", "content": "Fix the bug", "status": "in_progress"},
@@ -82,7 +82,7 @@ class TestFeedNativePlan:
     @pytest.mark.asyncio()
     async def test_duplicate_plan_not_republished(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """Identical plan data is not re-published."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         items = [
             {"id": 1, "title": "Task A", "status": "in-progress"},
             {"id": 2, "title": "Task B", "status": "not-started"},
@@ -97,7 +97,7 @@ class TestFeedNativePlan:
     @pytest.mark.asyncio()
     async def test_updated_plan_republished(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """When plan steps change, a new event is published."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         items_v1 = [
             {"id": 1, "title": "Task A", "status": "in-progress"},
             {"id": 2, "title": "Task B", "status": "not-started"},
@@ -115,14 +115,14 @@ class TestFeedNativePlan:
     @pytest.mark.asyncio()
     async def test_empty_items_ignored(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """Empty items list does not publish an event."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         await service.feed_native_plan("job-1", [])
         event_bus.publish.assert_not_called()
 
     @pytest.mark.asyncio()
     async def test_items_without_labels_skipped(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """Items missing both title and content are filtered out."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         items = [
             {"id": 1, "status": "in-progress"},  # no title/content
             {"id": 2, "title": "Valid task", "status": "not-started"},
@@ -136,7 +136,7 @@ class TestFeedNativePlan:
     @pytest.mark.asyncio()
     async def test_unknown_status_maps_to_pending(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """Unknown status values default to 'pending'."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         items = [{"id": 1, "title": "Some task", "status": "weird_status"}]
         await service.feed_native_plan("job-1", items)
 
@@ -146,7 +146,7 @@ class TestFeedNativePlan:
     @pytest.mark.asyncio()
     async def test_native_plan_suppresses_llm_extraction(self, service: ProgressTrackingService) -> None:
         """Once native plan is fed, the job is flagged to suppress LLM extraction."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         items = [{"id": 1, "title": "Task", "status": "in-progress"}]
         await service.feed_native_plan("job-1", items)
         assert "job-1" in service._native_plan_active
@@ -154,7 +154,7 @@ class TestFeedNativePlan:
     @pytest.mark.asyncio()
     async def test_cleanup_clears_native_flag(self, service: ProgressTrackingService) -> None:
         """Cleanup removes native plan flag."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
         items = [{"id": 1, "title": "Task", "status": "in-progress"}]
         await service.feed_native_plan("job-1", items)
         assert "job-1" in service._native_plan_active
@@ -174,7 +174,7 @@ class TestIngestNativePlan:
     @pytest.mark.asyncio()
     async def test_copilot_payload(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """Copilot-style tool_args with todoList are parsed correctly."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
 
         # Simulate what RuntimeService._ingest_native_plan does
         payload = {
@@ -199,7 +199,7 @@ class TestIngestNativePlan:
     @pytest.mark.asyncio()
     async def test_claude_payload(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
         """Claude-style tool_args with todos are parsed correctly."""
-        service.start_tracking("job-1")
+        await service.start_tracking("job-1")
 
         payload = {
             "tool_name": "TodoWrite",
