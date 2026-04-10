@@ -201,8 +201,8 @@ test.describe("Mobile Viewport", () => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
-    // Should show job card content
-    await expect(page.getByText("job-1").first()).toBeVisible({ timeout: 8_000 });
+    // Wait for the job card button to be present (it may have truncated text)
+    await expect(page.getByRole("button", { name: /Test Job/i })).toBeVisible({ timeout: 8_000 });
 
     // Document should not overflow horizontally
     const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);

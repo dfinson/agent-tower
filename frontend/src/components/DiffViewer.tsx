@@ -33,7 +33,7 @@ interface DiffViewerProps {
   onAskSent?: () => void;
   stepFilter?: StepFilter | null;
   onClearStepFilter?: () => void;
-  onNavigateToStep?: (seq: number) => void;
+  onNavigateToStep?: (seq: number, turnId?: string) => void;
 }
 
 const STATUS_ICON: Record<string, LucideIcon> = {
@@ -492,7 +492,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 Showing changes from:{" "}
                 {stepFilter.scrollToSeq != null && onNavigateToStep ? (
                   <button
-                    onClick={() => onNavigateToStep(stepFilter.scrollToSeq!)}
+                    onClick={() => onNavigateToStep(stepFilter.scrollToSeq!, stepFilter.turnId)}
                     className="text-primary hover:text-primary/80 underline underline-offset-2 decoration-primary/40 hover:decoration-primary transition-colors"
                   >
                     {stepFilter.label}

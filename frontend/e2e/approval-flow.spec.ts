@@ -1,11 +1,12 @@
 /**
  * E2E tests: Approval flow.
  *
- * Covers SSE-driven approval_requested events, the approval banner UI,
- * approve/reject actions, and the "Approve All" trust session flow.
+ * Covers approval rendering in the CuratedFeed, approve/reject actions,
+ * and SSE-driven approval_requested events.
  */
 
 import { test, expect } from "@playwright/test";
+import { makeJob, sseBody, setupBaseMocks } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -13,26 +14,7 @@ import { test, expect } from "@playwright/test";
 
 const NOW = new Date().toISOString();
 
-const MOCK_JOB = {
-  id: "job-1",
-  title: "Test Job",
-  prompt: "Fix the bug in auth module",
-  state: "waiting_for_approval",
-  createdAt: NOW,
-  updatedAt: NOW,
-  completedAt: null,
-  repo: "/tmp/test-repo",
-  branch: "cpl/job-1",
-  baseRef: "main",
-  worktreePath: null,
-  prUrl: null,
-  resolution: null,
-  archivedAt: null,
-  failureReason: null,
-  progressHeadline: null,
-  model: "claude-sonnet-4-5-20250514",
-  sdk: "copilot",
-};
+const MOCK_JOB = makeJob({ state: "waiting_for_approval" });
 
 const MOCK_APPROVAL = {
   id: "approval-1",
@@ -42,44 +24,32 @@ const MOCK_APPROVAL = {
   requestedAt: NOW,
   resolvedAt: null,
   resolution: null,
+  requiresExplicitApproval: false,
 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function sseBody(events: { event: string; data: unknown }[]): string {
-  return events
-    .map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`)
-    .join("");
-}
-
-/** Set up mocks for job detail page with pending approvals via SSE snapshot. */
+/** Set up mocks for job detail page with pending approvals. */
 async function setupApprovalMocks(
   page: import("@playwright/test").Page,
   approvals: unknown[] = [MOCK_APPROVAL],
 ) {
-  await page.route("**/api/events*", async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-      },
-      body: sseBody([
-        { event: "session_heartbeat", data: {} },
-        { event: "snapshot", data: { jobs: [MOCK_JOB], pendingApprovals: approvals } },
-      ]),
-    });
-  });
+  await setupBaseMocks(page, [MOCK_JOB]);
 
-  await page.route("**/api/jobs?*", async (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
+  await page.route("**/api/jobs/job-1/snapshot*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ items: [MOCK_JOB], cursor: null, hasMore: false }),
+      body: JSON.stringify({
+        job: MOCK_JOB,
+        logs: [],
+        transcript: [],
+        diff: [],
+        approvals,
+        timeline: [],
+      }),
     });
   });
 
@@ -115,15 +85,11 @@ async function setupApprovalMocks(
 // ---------------------------------------------------------------------------
 
 test.describe("Approval Banner", () => {
-  test("shows approval banner when pending approvals exist", async ({ page }) => {
+  test("shows approval card when pending approvals exist", async ({ page }) => {
     await setupApprovalMocks(page);
-
     await page.goto("/jobs/job-1");
 
-    // Inline approval card should appear with the description
-    await expect(page.getByText("Approval Required")).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText("Agent wants to run: npm install lodash")).toBeVisible();
-    // Should show the proposed action in a code block
+    await expect(page.getByText("Agent wants to run: npm install lodash")).toBeVisible({ timeout: 8_000 });
     await expect(page.locator("pre", { hasText: "npm install lodash" })).toBeVisible();
   });
 
@@ -133,29 +99,27 @@ test.describe("Approval Banner", () => {
       id: "approval-2",
       description: "Agent wants to write to package.json",
       proposedAction: null,
+      requestedAt: new Date(Date.now() + 1000).toISOString(),
     };
     await setupApprovalMocks(page, [MOCK_APPROVAL, secondApproval]);
-
     await page.goto("/jobs/job-1");
 
-    // Both approval descriptions should appear as inline cards
     await expect(page.getByText("Agent wants to run: npm install lodash")).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText("Agent wants to write to package.json")).toBeVisible();
   });
 
   test("shows Approve and Reject buttons for each approval", async ({ page }) => {
     await setupApprovalMocks(page);
-
     await page.goto("/jobs/job-1");
 
-    await expect(page.getByText("Approval Required")).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText("Agent wants to run: npm install lodash")).toBeVisible({ timeout: 8_000 });
     await expect(page.locator("button", { hasText: "Approve" }).first()).toBeVisible();
-    await expect(page.locator("button", { hasText: "Reject" })).toBeVisible();
+    await expect(page.locator("button", { hasText: "Reject" }).first()).toBeVisible();
   });
 });
 
 test.describe("Approve Action", () => {
-  test("clicking Approve calls resolve API with 'approved'", async ({ page }) => {
+  test("clicking Approve calls resolve API with approved", async ({ page }) => {
     await setupApprovalMocks(page);
 
     let resolveApiCalled = false;
@@ -171,8 +135,7 @@ test.describe("Approve Action", () => {
     });
 
     await page.goto("/jobs/job-1");
-
-    await expect(page.getByText("Approval Required")).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText("Agent wants to run: npm install lodash")).toBeVisible({ timeout: 8_000 });
     await page.locator("button", { hasText: "Approve" }).first().click();
 
     await page.waitForTimeout(500);
@@ -181,7 +144,7 @@ test.describe("Approve Action", () => {
 });
 
 test.describe("Reject Action", () => {
-  test("clicking Reject calls resolve API with 'rejected'", async ({ page }) => {
+  test("clicking Reject calls resolve API with rejected", async ({ page }) => {
     await setupApprovalMocks(page);
 
     let resolveApiCalled = false;
@@ -197,26 +160,17 @@ test.describe("Reject Action", () => {
     });
 
     await page.goto("/jobs/job-1");
-
-    await expect(page.getByText("Approval Required")).toBeVisible({ timeout: 8_000 });
-    // Clicking Reject opens a confirmation dialog
-    await page.locator("button", { hasText: "Reject" }).click();
-    // Confirm the rejection in the dialog
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await dialog.locator("button", { hasText: "Reject" }).click();
+    await expect(page.getByText("Agent wants to run: npm install lodash")).toBeVisible({ timeout: 8_000 });
+    await page.locator("button", { hasText: "Reject" }).first().click();
 
     await page.waitForTimeout(500);
     expect(resolveApiCalled).toBe(true);
   });
 });
 
-// Note: "Approve All" / trust session is not currently exposed in the
-// inline approval cards rendered by TranscriptPanel, so no E2E test here.
-
 test.describe("SSE-Driven Approval Events", () => {
-  test("approval_requested SSE event shows banner on job detail", async ({ page }) => {
-    // Start with NO pending approvals, then deliver one via SSE
+  test("approval_requested SSE event shows approval on job detail", async ({ page }) => {
+    // SSE delivers an approval_requested event after the initial snapshot
     await page.route("**/api/events*", async (route) => {
       await route.fulfill({
         status: 200,
@@ -228,7 +182,6 @@ test.describe("SSE-Driven Approval Events", () => {
         body: sseBody([
           { event: "session_heartbeat", data: {} },
           { event: "snapshot", data: { jobs: [MOCK_JOB], pendingApprovals: [] } },
-          // Deliver approval_requested after snapshot
           {
             event: "approval_requested",
             data: {
@@ -251,13 +204,31 @@ test.describe("SSE-Driven Approval Events", () => {
         body: JSON.stringify({ items: [MOCK_JOB], cursor: null, hasMore: false }),
       });
     });
-
-    await page.route("**/api/jobs/job-1", async (route) => {
-      if (route.request().method() !== "GET") return route.fallback();
+    await page.route("**/api/settings", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+    });
+    await page.route("**/api/settings/repos", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+    await page.route("**/api/sdks", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(MOCK_JOB),
+        body: JSON.stringify({ default: "copilot", sdks: [{ id: "copilot", name: "GitHub Copilot", enabled: true, status: "ready" }] }),
+      });
+    });
+    await page.route("**/api/models", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) });
+    });
+    await page.route("**/api/jobs/job-1", async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_JOB) });
+    });
+    await page.route("**/api/jobs/job-1/snapshot*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ job: MOCK_JOB, logs: [], transcript: [], diff: [], approvals: [], timeline: [] }),
       });
     });
     await page.route("**/api/jobs/job-1/transcript*", async (route) => {
@@ -274,9 +245,6 @@ test.describe("SSE-Driven Approval Events", () => {
     });
 
     await page.goto("/jobs/job-1");
-
-    // The SSE-driven approval should appear
-    await expect(page.getByText("Approval Required")).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText("Agent wants to execute: rm -rf /tmp/cache")).toBeVisible();
+    await expect(page.getByText("Agent wants to execute: rm -rf /tmp/cache")).toBeVisible({ timeout: 8_000 });
   });
 });

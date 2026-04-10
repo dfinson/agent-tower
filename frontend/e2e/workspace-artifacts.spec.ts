@@ -108,6 +108,21 @@ async function setupJobDetailMocks(page: import("@playwright/test").Page) {
     });
   });
 
+  await page.route("**/api/jobs/job-1/snapshot*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job: MOCK_JOB,
+        logs: [],
+        transcript: [],
+        diff: [],
+        approvals: [],
+        timeline: [],
+      }),
+    });
+  });
+
   await page.route("**/api/jobs/job-1", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
@@ -128,6 +143,22 @@ async function setupJobDetailMocks(page: import("@playwright/test").Page) {
   });
   await page.route("**/api/jobs/job-1/approvals*", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+  await page.route("**/api/settings", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+  });
+  await page.route("**/api/settings/repos", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+  });
+  await page.route("**/api/sdks", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ default: "copilot", sdks: [{ id: "copilot", name: "GitHub Copilot", enabled: true, status: "ready" }] }),
+    });
+  });
+  await page.route("**/api/models", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) });
   });
 }
 
@@ -254,9 +285,12 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
     // Click the Artifacts tab
     await page.getByRole("tab", { name: "Artifacts" }).click();
 
-    // Should show artifact names
+    // Groups are collapsed — headers should be visible
+    await expect(page.getByText("Agent Summaries").first()).toBeVisible({ timeout: 5_000 });
+
+    // Click to expand a group, then check for artifact name
+    await page.getByText("Agent Summaries").first().click();
     await expect(page.getByText("agent_summary.md")).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText("diff_snapshot.patch")).toBeVisible();
   });
 
   test("artifacts tab shows artifact types", async ({ page }) => {
@@ -265,9 +299,9 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
 
     await page.getByRole("tab", { name: "Artifacts" }).click();
 
-    // Should show type badges
-    await expect(page.getByText("agent_summary", { exact: true })).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText("diff_snapshot", { exact: true })).toBeVisible();
+    // Should show type labels (human-readable)
+    await expect(page.getByText("Agent Summaries").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Diff Snapshots").first()).toBeVisible();
   });
 
   test("hides artifacts tab when no artifacts exist", async ({ page }) => {
