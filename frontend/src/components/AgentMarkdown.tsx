@@ -60,7 +60,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({ content, highlight }:
         code: ({ className, children }) => {
           const isBlock = className?.startsWith("language-");
           return isBlock ? (
-            <pre className="bg-background border border-border rounded-md p-3 my-2 overflow-x-auto max-w-full text-xs font-mono">
+            <pre className="bg-background border border-border rounded-md p-2 sm:p-3 my-2 overflow-x-auto max-w-full text-xs font-mono">
               <code>{children}</code>
             </pre>
           ) : (

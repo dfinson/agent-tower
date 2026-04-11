@@ -626,7 +626,7 @@ function FileChip({
         isRunning && "animate-pulse",
       )}
     >
-      <span className="truncate max-w-[200px]">{file.fileName}</span>
+      <span className="truncate max-w-[140px] sm:max-w-[200px]">{file.fileName}</span>
       {editCount && <span className="text-[9px] opacity-50">×{editCount}</span>}
     </button>
   );
@@ -956,8 +956,8 @@ function GenericPreview({ entries }: { entries: TranscriptEntry[] }) {
 
 const OperatorMessage = memo(function OperatorMessage({ entry }: { entry: TranscriptEntry }) {
   return (
-    <div className="flex gap-3 py-3">
-      <div className="shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
+    <div className="flex gap-2 sm:gap-3 py-3">
+      <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/10 flex items-center justify-center">
         <User size={13} className="text-primary" />
       </div>
       <div className="flex-1 min-w-0">
@@ -1018,11 +1018,11 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
       {/* Agent bubble — message + reasoning grouped together */}
       {(hasMessage || (hasReasoning && !hasTools)) && (
-        <div className="flex gap-3">
-          <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
+        <div className="flex gap-2 sm:gap-3">
+          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
             <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
           </div>
-          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2 space-y-1.5">
+          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-2.5 sm:px-3 py-2 space-y-1.5">
             {/* Reasoning — expandable inside the bubble */}
             {hasReasoning && (
               <ReasoningHint content={turn.reasoning!.content!} />
@@ -1084,11 +1084,11 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
           : <PhaseBox key={i} cluster={c} defaultExpanded={false} onViewStepChanges={onViewStepChanges} />
       ))}
       {turn.reasoning?.content && (
-        <div className="flex gap-3 mt-1">
-          <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
+        <div className="flex gap-2 sm:gap-3 mt-1">
+          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
             <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
           </div>
-          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2">
+          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-2.5 sm:px-3 py-2">
             <ReasoningHint content={turn.reasoning.content} />
           </div>
         </div>
@@ -1469,10 +1469,10 @@ export function CuratedFeed({
       <div
         ref={viewportRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-card"
+        className="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
       >
         {/* Inline search — sticky so it stays visible on scroll */}
-        <div className="sticky top-0 z-10 bg-card px-4 pt-2.5 pb-0">
+        <div className="sticky top-0 z-10 bg-card px-3 sm:px-4 pt-2.5 pb-0">
           <div
             className={cn(
               "flex items-center gap-2 transition-colors cursor-text",
@@ -1517,7 +1517,7 @@ export function CuratedFeed({
             ) : (
               <>
                 <span className="flex-1 text-sm">Search…</span>
-                <kbd className="text-[10px] text-muted-foreground/30 font-mono shrink-0">{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+F</kbd>
+                <kbd className="hidden sm:inline text-[10px] text-muted-foreground/30 font-mono shrink-0">{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+F</kbd>
               </>
             )}
           </div>
@@ -1552,7 +1552,7 @@ export function CuratedFeed({
                   ...(dimmed ? { opacity: 0.15, pointerEvents: "none" as const } : {}),
                 }}
               >
-                <div className="px-4">
+                <div className="px-3 sm:px-4 overflow-x-hidden">
                   <SearchHighlightCtx.Provider value={activeHighlight}>
                     <FeedItemRenderer
                       item={item}

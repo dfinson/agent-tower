@@ -83,7 +83,7 @@ function ActivitySection({
                 ref={isSelected && searchActive ? (el) => el?.scrollIntoView({ block: "nearest", behavior: "smooth" }) : undefined}
                 onClick={() => onStepClick(step.turnId)}
                 className={cn(
-                  "flex items-start gap-1.5 w-full text-left py-1 px-1.5 rounded-sm transition-colors hover:bg-accent/50",
+                  "flex items-start gap-1.5 w-full text-left py-2 px-2 rounded-sm transition-colors hover:bg-accent/50",
                   isSelected && "bg-primary/10 ring-1 ring-primary/50",
                 )}
               >

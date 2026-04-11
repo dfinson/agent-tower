@@ -17,7 +17,7 @@ export function Sheet({ open, onClose, title, children, side = "right" }: SheetP
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           className={cn(
-            "fixed inset-y-0 z-50 w-[min(18rem,85vw)] bg-card shadow-xl flex flex-col",
+            "fixed inset-y-0 z-50 w-[min(18rem,80vw)] sm:w-[min(18rem,85vw)] bg-card shadow-xl flex flex-col",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "duration-200",
             side === "left"
