@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Loader2, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -52,6 +52,46 @@ class TabErrorBoundary extends Component<{ children: ReactNode }, { error: Error
     }
     return this.props.children;
   }
+}
+
+/** Terminal job states where the agent is no longer working. */
+const TERMINAL_JOB_STATES = new Set(["review", "completed", "failed", "canceled", "archived"]);
+
+/** Full-width strip below tab bar showing current activity — visible on < lg, Live tab only. */
+function MobileActivityStrip({
+  activities,
+  jobState,
+  onClick,
+}: {
+  activities?: { label: string; status: "active" | "done" }[];
+  jobState?: string;
+  onClick: () => void;
+}) {
+  const jobFinished = !!jobState && TERMINAL_JOB_STATES.has(jobState);
+  // When job is terminal, treat all activities as done (same as ActivityTimeline)
+  const active = jobFinished ? undefined : activities?.find((a) => a.status === "active");
+  const total = activities?.length ?? 0;
+  const doneCount = jobFinished ? total : (activities?.filter((a) => a.status === "done").length ?? 0);
+
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Open activity timeline"
+      className="flex lg:hidden items-center gap-2 w-full px-3 py-2 rounded-lg border border-border bg-card text-sm transition-colors hover:bg-accent/50 mb-2"
+    >
+      {active ? (
+        <Loader2 size={14} className="text-blue-400 animate-spin shrink-0" />
+      ) : total > 0 ? (
+        <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+      ) : (
+        <ListTree size={14} className="text-muted-foreground shrink-0" />
+      )}
+      <span className="truncate flex-1 text-left text-foreground/80">
+        {active ? active.label : total > 0 ? `${doneCount} of ${total} activities done` : "Activity"}
+      </span>
+      <ChevronRight size={14} className="text-muted-foreground shrink-0" />
+    </button>
+  );
 }
 
 export function JobDetailScreen() {
@@ -150,11 +190,15 @@ export function JobDetailScreen() {
     setTab(v);
     if (v !== "diff") setStepFilter(null);
     if (v !== "live") setScrollToSeq(null);
-    // After tab content swaps, scroll the tab bar back into view so the user
-    // sees the new content instead of being stranded at the top of the page.
-    requestAnimationFrame(() => {
-      tabBarRef.current?.scrollIntoView({ block: "nearest" });
-    });
+    // On mobile, immediately pin the scroll container so the tab bar sits at
+    // the top of the viewport. We do this synchronously before React swaps the
+    // content to avoid the browser clamping an out-of-range scrollTop.
+    if (window.innerWidth < 640 && tabBarRef.current) {
+      const main = tabBarRef.current.closest("main");
+      if (main) {
+        main.scrollTop = tabBarRef.current.offsetTop - main.offsetTop;
+      }
+    }
   }, []);
 
   const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
@@ -756,86 +800,94 @@ export function JobDetailScreen() {
               </button>
             </Tooltip>
           )}
+
         </div>
 
-        {/* Mobile layout: 3 primary tabs + activity toggle + ••• overflow menu (hidden on desktop) */}
+        {/* Mobile layout: primary tabs + ••• overflow menu (hidden on desktop) */}
         <div className="flex sm:hidden items-center gap-2">
           <TabsList>
             <TabsTrigger value="live">Live</TabsTrigger>
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
-            <TabsTrigger value="metrics"><BarChart3 size={13} className="mr-1.5" />Metrics</TabsTrigger>
           </TabsList>
 
-          {(hasArtifacts || hasWorktree) && (
-            <PopoverPrimitive.Root open={overflowOpen} onOpenChange={setOverflowOpen}>
-              <PopoverPrimitive.Trigger asChild>
+          <PopoverPrimitive.Root open={overflowOpen} onOpenChange={setOverflowOpen}>
+            <PopoverPrimitive.Trigger asChild>
+              <button
+                aria-label="More options"
+                className={cn(
+                  "flex items-center justify-center w-9 h-9 rounded-md border text-xs font-medium transition-colors shrink-0",
+                  (tab === "metrics" || tab === "artifacts")
+                    ? "border-transparent bg-background text-foreground shadow"
+                    : "border-border text-muted-foreground hover:text-foreground hover:bg-accent",
+                )}
+              >
+                <MoreHorizontal size={15} />
+              </button>
+            </PopoverPrimitive.Trigger>
+            <PopoverPrimitive.Portal>
+              <PopoverPrimitive.Content
+                side="top"
+                align="end"
+                sideOffset={6}
+                className="z-50 min-w-[140px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
+              >
                 <button
-                  aria-label="More options"
+                  onClick={() => { handleTabChange("metrics"); setOverflowOpen(false); }}
                   className={cn(
-                    "flex items-center justify-center w-9 h-9 rounded-md border text-xs font-medium transition-colors shrink-0",
-                    tab === "artifacts"
-                      ? "border-transparent bg-background text-foreground shadow"
-                      : "border-border text-muted-foreground hover:text-foreground hover:bg-accent",
+                    "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
+                    tab === "metrics"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
-                  <MoreHorizontal size={15} />
+                  <BarChart3 size={13} />
+                  Metrics
                 </button>
-              </PopoverPrimitive.Trigger>
-              <PopoverPrimitive.Portal>
-                <PopoverPrimitive.Content
-                  side="top"
-                  align="end"
-                  sideOffset={6}
-                  className="z-50 min-w-[140px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
-                >
-                  {hasArtifacts && (
-                    <button
-                      onClick={() => { setTab("artifacts"); setOverflowOpen(false); }}
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
-                        tab === "artifacts"
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                      )}
-                    >
-                      <Package size={13} />
-                      Artifacts
-                      {artifactCount > 0 && (
-                        <span className="ml-auto text-[10px] font-semibold text-muted-foreground">{artifactCount}</span>
-                      )}
-                    </button>
-                  )}
-                  {hasWorktree && (
-                    <button
-                      onClick={() => { handleOpenJobTerminal(); setOverflowOpen(false); }}
-                      className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
-                      <TerminalSquare size={13} />
-                      <span>Terminal</span>
-                      {jobTerminalCount > 0 && (
-                        <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>
-                      )}
-                    </button>
-                  )}
-                </PopoverPrimitive.Content>
-              </PopoverPrimitive.Portal>
-            </PopoverPrimitive.Root>
-          )}
+                {hasArtifacts && (
+                  <button
+                    onClick={() => { handleTabChange("artifacts"); setOverflowOpen(false); }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
+                      tab === "artifacts"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    <Package size={13} />
+                    Artifacts
+                    {artifactCount > 0 && (
+                      <span className="ml-auto text-[10px] font-semibold text-muted-foreground">{artifactCount}</span>
+                    )}
+                  </button>
+                )}
+                {hasWorktree && (
+                  <button
+                    onClick={() => { handleOpenJobTerminal(); setOverflowOpen(false); }}
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <TerminalSquare size={13} />
+                    <span>Terminal</span>
+                    {jobTerminalCount > 0 && (
+                      <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>
+                    )}
+                  </button>
+                )}
+              </PopoverPrimitive.Content>
+            </PopoverPrimitive.Portal>
+          </PopoverPrimitive.Root>
 
-          {tab === "live" && (
-            <button
-              onClick={() => setMobileActivityOpen(true)}
-              aria-label="Open activity timeline"
-              className="flex items-center justify-center w-9 h-9 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
-            >
-              <ListTree size={15} />
-            </button>
-          )}
         </div>
       </Tabs>
 
-      {/* Mobile activity timeline sheet (hidden on lg+) */}
+      {/* Mobile activity strip + sheet (hidden on lg+) */}
+      {tab === "live" && (
+        <MobileActivityStrip
+          activities={activityTimeline?.activities}
+          jobState={job?.state}
+          onClick={() => setMobileActivityOpen(true)}
+        />
+      )}
       <div className="lg:hidden">
         <Sheet open={mobileActivityOpen} onClose={() => setMobileActivityOpen(false)} title="Activity" side="left">
           <div className="-mx-4 -mt-4">
@@ -854,6 +906,8 @@ export function JobDetailScreen() {
         </Sheet>
       </div>
 
+      {/* Tab content — min-height prevents scroll collapse when switching tabs */}
+      <div className="min-h-[80dvh]">
       {tab === "live" && (
         <div className="flex flex-row">
           {/* Activity Timeline sidebar — hidden on small screens */}
@@ -907,7 +961,7 @@ export function JobDetailScreen() {
               <div className="w-0.5 h-8 rounded-full bg-border group-hover:bg-muted-foreground/60 transition-colors" />
             </div>
           )}
-          <div className="flex flex-col gap-4 flex-1 min-w-0 pl-2">
+          <div className="flex flex-col gap-4 flex-1 min-w-0 lg:pl-2">
             <div className="h-[80dvh] min-h-[22rem]">
               <CuratedFeed
                 jobId={jobId}
@@ -969,6 +1023,7 @@ export function JobDetailScreen() {
           </Suspense>
         </TabErrorBoundary>
       )}
+      </div>{/* end tab content min-height wrapper */}
 
       <ConfirmDialog
         open={cancelOpen}
