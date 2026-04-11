@@ -77,7 +77,7 @@ function MobileActivityStrip({
     <button
       onClick={onClick}
       aria-label="Open activity timeline"
-      className="flex lg:hidden items-center gap-2 w-full px-3 py-2 rounded-lg border border-border bg-card text-sm transition-colors hover:bg-accent/50 mb-2"
+      className="flex lg:hidden items-center gap-2 w-full px-3 py-2.5 rounded-lg border border-border bg-card text-sm transition-colors hover:bg-accent/50 mb-3"
     >
       {active ? (
         <Loader2 size={14} className="text-blue-400 animate-spin shrink-0" />
@@ -494,7 +494,7 @@ export function JobDetailScreen() {
   const canArchive = (job.state === "failed" || job.state === "canceled" || (job.state === "completed" && !isResolved)) && !job.archivedAt;
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 lg:px-0">
       <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4">
         <ArrowLeft size={14} />
         Dashboard
