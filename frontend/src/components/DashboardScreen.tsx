@@ -80,7 +80,8 @@ export function DashboardScreen() {
       {/* Mobile FAB — thumb-zone primary action, hidden on tablet/desktop */}
       <Button
         size="icon"
-        className="sm:hidden fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg"
+        className="sm:hidden fixed right-6 z-50 h-14 w-14 rounded-full shadow-lg"
+        style={{ bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}
         onClick={() => navigate("/jobs/new")}
         aria-label="New Job"
       >

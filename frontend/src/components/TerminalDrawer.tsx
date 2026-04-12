@@ -91,7 +91,7 @@ export function TerminalDrawer() {
   return (
     <div
       className="border-t border-border bg-card flex flex-col shrink-0"
-      style={{ height }}
+      style={{ height, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
     >
       {/* Drag handle */}
       <div
@@ -132,7 +132,7 @@ export function TerminalDrawer() {
             {session.jobId && (
               <GitBranch size={9} className="text-muted-foreground/60 shrink-0 -mr-0.5" />
             )}
-            <span className="max-w-[120px] truncate">
+            <span className="max-w-[80px] sm:max-w-[120px] truncate">
               {session.label || session.cwd?.split("/").pop() || "Terminal"}
             </span>
             <button

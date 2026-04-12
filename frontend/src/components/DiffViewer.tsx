@@ -550,7 +550,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
       )}
 
       {diffs.length > 0 && (
-      <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[calc(100vh-14rem)] md:h-[60vh] min-h-[300px] max-h-[600px]">
+      <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[calc(100dvh-14rem)] md:h-[60vh] min-h-[300px] max-h-[600px]">
         {/* File list sidebar */}
         <div
           className="shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card max-md:max-h-[30%]"
@@ -701,7 +701,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 }}
                 disabled={askSending || micState !== "idle"}
                 rows={1}
-                className="flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none pr-8 overflow-y-auto"
+                className="flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-base sm:text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none pr-8 overflow-y-auto"
                 style={{ maxHeight: isMobile ? 240 : 160 }}
               />
               <div className="absolute right-2 bottom-1.5">

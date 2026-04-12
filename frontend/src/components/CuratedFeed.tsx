@@ -1586,7 +1586,7 @@ export function CuratedFeed({
                 onKeyDown={handleKeyDown}
                 placeholder={isTerminal ? "Send follow-up instruction…" : "Message the agent…"}
                 rows={1}
-                className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/30 outline-none py-2 pr-8 max-h-32"
+                className="w-full resize-none bg-transparent text-base sm:text-sm text-foreground placeholder:text-muted-foreground/30 outline-none py-2 pr-8 max-h-32"
                 style={{ minHeight: "2.25rem" }}
                 disabled={sending}
               />

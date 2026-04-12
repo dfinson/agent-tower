@@ -108,7 +108,7 @@ export function HistoryScreen() {
               key={f.value}
               onClick={() => setFilter(f.value)}
               aria-pressed={filter === f.value}
-              className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors min-h-[44px] sm:min-h-0 flex items-center ${
                 filter === f.value
                   ? "bg-background text-foreground shadow"
                   : "text-muted-foreground hover:text-foreground"

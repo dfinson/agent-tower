@@ -157,37 +157,50 @@ RULES:
 """
 
 
-_ACTIVITY_PROMPT = """\
-You are summarizing work completed by a coding agent for a session timeline.
+_TITLE_PROMPT = """\
+Summarize this completed agent turn for a progress timeline.
 
-Current activity: "{current_activity_label}"
-Steps so far in this activity:
+Job task: {job_prompt}
+Active plan item: {active_plan_label} ({done_count}/{total_count} plan items done)
+
+This turn:
+- Files read: {files_read}
+- Files written: {files_written}
+- Tools used: {tools}
+- Duration: {duration_s}s
+- Agent message: {agent_msg}
+
+Previous steps in this activity:
 {recent_step_titles}
 
-Latest completed work:
-- Agent message: {agent_msg}
-- Tools used: {tools}
+Generate a concise title (4-10 words) describing the OUTCOME, not the action.
+Bad: "Reading loop.py"           Good: "Found 8 unannotated functions in loop.py"
+Bad: "Editing files"              Good: "Annotated 3 functions in prompts.py"
+Bad: "Exploring codebase"         Good: "Mapped 22 Python files across 8 modules"
+Bad: "Fixing docstrings in loop"  Good: "Added docstrings to 5 functions in loop.py"
+
+Include file names and quantities when relevant.
+When this turn is a minor continuation of the previous step (e.g. fixing a lint
+error, retrying, or tweaking the same change), set merge_with_previous to true
+so the title replaces the prior step instead of adding a new line.
 
 Respond with JSON only:
-{{"turn_title": "<3-8 word title>", "merge_with_previous": <true|false>, "continues_activity": <true|false>, "new_activity_label": "<label if new activity, else null>", "updated_activity_label": "<refined label if same activity evolved, else null>"}}
+{{"title": "<4-10 word outcome-focused title>", "merge_with_previous": <true|false>}}
+"""
 
-RULES:
-- turn_title: concrete and specific — mention file names, function names, endpoints.
-  3-8 words. Describe what THIS turn did, not the overall activity.
-- merge_with_previous: true when this turn is essentially completing, retrying,
-  or continuing the SAME work as the last step listed above.  Examples:
-  fixing a lint error from the previous edit, re-running the same test,
-  narrowing a type annotation that was just added, addressing review feedback
-  on the same change.  When true the turn is folded into the previous step
-  rather than creating a separate line in the timeline.  false when the agent
-  has moved on to meaningfully different work.
-- continues_activity: true if this work is part of the same logical task
-  as the current activity.  false ONLY when the agent has clearly shifted
-  to a different concern (e.g. backend to frontend, building to testing,
-  feature to bugfixing).  Activity boundaries = chapter breaks, not paragraph breaks.
-- new_activity_label: only when continues_activity is false.  3-10 words.
-- updated_activity_label: only when the activity label should be refined
-  because the scope has evolved.  null in most cases.
+
+_REFINE_ACTIVITY_LABEL_PROMPT = """\
+Refine this activity group label based on the completed work.
+
+Current label: {current_label}
+Steps completed:
+{step_titles}
+
+Generate a refined 4-10 word label that accurately summarizes ALL the work.
+Include quantities when helpful (e.g. "Annotated 4 files in agent/ module").
+
+Respond with JSON only:
+{{"label": "<4-10 word refined label>"}}
 """
 
 
@@ -231,6 +244,8 @@ class ProgressTrackingService:
         # Activity timeline state (retrospective grouping)
         self._activities: dict[str, list[Activity]] = {}
         self._activity_steps: dict[str, list[ActivityStep]] = {}
+        # Track last classified plan item per job for activity boundary detection
+        self._last_classified_plan_item: dict[str, str] = {}  # job_id → plan_step_id
 
     # -- Lifecycle -----------------------------------------------------------
 
@@ -245,6 +260,7 @@ class ProgressTrackingService:
         self._job_prompts[job_id] = prompt
         self._activities[job_id] = []
         self._activity_steps[job_id] = []
+        self._last_classified_plan_item[job_id] = ""
 
     def stop_tracking(self, job_id: str) -> None:
         pass
@@ -254,7 +270,7 @@ class ProgressTrackingService:
             self._plan_steps, self._active_idx, self._plan_established,
             self._recent_messages, self._recent_tool_intents,
             self._recent_tool_names, self._tool_call_count, self._job_prompts,
-            self._activities, self._activity_steps,
+            self._activities, self._activity_steps, self._last_classified_plan_item,
         ):
             store.pop(job_id, None)  # type: ignore[arg-type]
         self._native_plan_active.discard(job_id)
@@ -457,15 +473,17 @@ class ProgressTrackingService:
         tool_count = turn_payload.get("tool_count", 0)
         agent_msg = turn_payload.get("agent_message", "") or ""
         files_written = turn_payload.get("files_written", []) or []
+        files_read = turn_payload.get("files_read", []) or []
         duration_ms = turn_payload.get("duration_ms", 0) or 0
         start_sha = turn_payload.get("start_sha")
         end_sha = turn_payload.get("end_sha")
         turn_id = turn_payload.get("turn_id")
 
         # Classify turn to a plan item using sister session.
-        # Works for both native (manage_todo_list) and inferred plans.
+        # Returns the plan_step_id this turn was assigned to.
+        assigned_plan_step_id: str | None = None
         if sister and steps:
-            await self._classify_and_update(
+            assigned_plan_step_id = await self._classify_and_update(
                 job_id, sister, steps,
                 agent_msg=agent_msg,
                 tool_count=tool_count,
@@ -491,30 +509,115 @@ class ProgressTrackingService:
                     ps.end_sha = end_sha
                 await self._emit_plan_step(job_id, ps)
                 await self._emit_card_headline(job_id, ps)
+                assigned_plan_step_id = ps.plan_step_id
 
-        # Activity timeline: summarize this turn and assign to an activity.
-        # Only fires when there's a visible agent message (= one feed block).
-        if sister and agent_msg and turn_id:
-            await self._summarize_for_activity_timeline(
-                job_id, sister, agent_msg=agent_msg, turn_id=turn_id,
+        # Activity timeline: generate title and assign to plan-derived activity.
+        if turn_id:
+            await self._emit_activity_step(
+                job_id,
+                sister=sister,
+                turn_id=turn_id,
+                agent_msg=agent_msg,
+                files_read=files_read,
+                files_written=files_written,
+                duration_ms=duration_ms,
+                assigned_plan_step_id=assigned_plan_step_id,
             )
 
-    async def _summarize_for_activity_timeline(
+    # -- Activity timeline: plan-derived grouping + focused title generation --
+
+    def _resolve_activity_boundary(
         self,
         job_id: str,
-        sister: SisterSession,
+        assigned_plan_step_id: str | None,
+        files_written: list[str],
+    ) -> tuple[bool, str]:
+        """Determine if a new activity should start and return the activity label.
+
+        Activity boundaries are derived from plan step transitions (when a plan
+        exists) or file-scope shifts (fallback).
+
+        Returns (is_new_activity, activity_label).
+        """
+        activities = self._activities.get(job_id, [])
+        prev_plan_id = self._last_classified_plan_item.get(job_id, "")
+
+        # Plan-based boundary: different plan step → new activity
+        if assigned_plan_step_id and assigned_plan_step_id != prev_plan_id and prev_plan_id:
+            # Find label from the plan step
+            steps = self._plan_steps.get(job_id, [])
+            label = next(
+                (s.label for s in steps if s.plan_step_id == assigned_plan_step_id),
+                "Working",
+            )
+            return True, label
+
+        if not activities:
+            # First activity — use plan step label or fallback
+            steps = self._plan_steps.get(job_id, [])
+            if assigned_plan_step_id:
+                label = next(
+                    (s.label for s in steps if s.plan_step_id == assigned_plan_step_id),
+                    "Starting work",
+                )
+            else:
+                label = "Starting work"
+            return True, label
+
+        # Sub-split heuristic: within the same plan step, split if the
+        # dominant directory of files_written shifts significantly.
+        current_activity = activities[-1]
+        act_steps = self._activity_steps.get(job_id, [])
+        current_act_steps = [
+            s for s in act_steps if s.activity_id == current_activity.activity_id
+        ]
+        if len(current_act_steps) >= 5:
+            # Check if file scope shifted — basic heuristic based on
+            # common directory prefix of recent writes vs current writes
+            # (lightweight, no LLM needed). Skip for now — only plan
+            # transitions drive boundaries. Can be added later.
+            pass
+
+        return False, current_activity.label
+
+    async def _generate_turn_title(
+        self,
+        job_id: str,
+        sister: SisterSession | None,
         *,
         agent_msg: str,
-        turn_id: str,
-    ) -> None:
-        """Generate a step title and decide activity grouping for the timeline."""
+        files_read: list[str],
+        files_written: list[str],
+        duration_ms: int,
+        assigned_plan_step_id: str | None,
+    ) -> tuple[str, bool]:
+        """Generate an outcome-focused title for a completed turn.
+
+        Returns (title, merge_with_previous).
+        """
+        if not sister:
+            # Fallback: derive title from files written or agent message
+            if files_written:
+                return f"Edited {', '.join(files_written[:3])}", False
+            if agent_msg:
+                return agent_msg[:60].split("\n")[0], False
+            return "Work in progress", False
+
+        # Build rich context
+        steps = self._plan_steps.get(job_id, [])
+        active_label = "Unknown"
+        done_count = 0
+        total_count = len(steps)
+        if assigned_plan_step_id:
+            for s in steps:
+                if s.plan_step_id == assigned_plan_step_id:
+                    active_label = s.label
+                if s.status == "done":
+                    done_count += 1
+
         activities = self._activities.get(job_id, [])
         act_steps = self._activity_steps.get(job_id, [])
-
         current_activity = activities[-1] if activities else None
-        current_label = current_activity.label if current_activity else "(none — this is the first step)"
-
-        # Collect recent step titles in the current activity
         current_act_id = current_activity.activity_id if current_activity else None
         recent_titles = [
             s.title for s in act_steps
@@ -523,19 +626,23 @@ class ProgressTrackingService:
         recent_block = "\n".join(f"  - {t}" for t in recent_titles) if recent_titles else "  (none yet)"
 
         tools = ", ".join(self._recent_tool_names.get(job_id, [])[-6:])
+        job_prompt = self._job_prompts.get(job_id, "")
 
-        prompt = _ACTIVITY_PROMPT.format(
-            current_activity_label=current_label,
-            recent_step_titles=recent_block,
-            agent_msg=agent_msg[:_MSG_MAX],
+        prompt = _TITLE_PROMPT.format(
+            job_prompt=job_prompt[:300] if job_prompt else "(unknown)",
+            active_plan_label=active_label,
+            done_count=done_count,
+            total_count=total_count,
+            files_read=", ".join(files_read[:8]) or "(none)",
+            files_written=", ".join(files_written[:8]) or "(none)",
             tools=tools or "(none)",
+            duration_s=round(duration_ms / 1000, 1),
+            agent_msg=agent_msg[:_MSG_MAX] if agent_msg else "(no message)",
+            recent_step_titles=recent_block,
         )
 
-        turn_title = "Work in progress"
-        continues = True
+        title = "Work in progress"
         merge_prev = False
-        new_label: str | None = None
-        updated_label: str | None = None
 
         try:
             raw = await sister.complete(prompt, timeout=15)
@@ -546,29 +653,63 @@ class ProgressTrackingService:
                 raw = raw.strip()
 
             parsed = json.loads(raw)
-            tt = parsed.get("turn_title")
+            tt = parsed.get("title")
             if isinstance(tt, str) and tt.strip():
-                turn_title = tt.strip()[:80]
-            ca = parsed.get("continues_activity")
-            if isinstance(ca, bool):
-                continues = ca
-            nl = parsed.get("new_activity_label")
-            if isinstance(nl, str) and nl.strip():
-                new_label = nl.strip()[:80]
-            ul = parsed.get("updated_activity_label")
-            if isinstance(ul, str) and ul.strip():
-                updated_label = ul.strip()[:80]
+                title = tt.strip()[:80]
             mp = parsed.get("merge_with_previous")
             if isinstance(mp, bool):
                 merge_prev = mp
         except Exception:
-            log.debug("activity_summary_failed", job_id=job_id, exc_info=True)
+            log.debug("turn_title_generation_failed", job_id=job_id, exc_info=True)
+            # Fallback from file context
+            if files_written:
+                title = f"Edited {', '.join(files_written[:3])}"
+            elif agent_msg:
+                title = agent_msg[:60].split("\n")[0]
 
-        # Merge with the previous step: update its title and emit an
-        # update so the frontend refreshes, but don't add a new line.
+        return title, merge_prev
+
+    async def _emit_activity_step(
+        self,
+        job_id: str,
+        *,
+        sister: SisterSession | None,
+        turn_id: str,
+        agent_msg: str,
+        files_read: list[str],
+        files_written: list[str],
+        duration_ms: int,
+        assigned_plan_step_id: str | None,
+    ) -> None:
+        """Generate step title, resolve activity boundary, and emit turn_summary."""
+        activities = self._activities.get(job_id, [])
+        act_steps = self._activity_steps.get(job_id, [])
+
+        # 1. Resolve activity boundary from plan classification
+        is_new_activity, activity_label = self._resolve_activity_boundary(
+            job_id, assigned_plan_step_id, files_written,
+        )
+
+        # Update plan item tracking
+        if assigned_plan_step_id:
+            self._last_classified_plan_item[job_id] = assigned_plan_step_id
+
+        # 2. Generate outcome-focused title (separate, focused LLM call)
+        title, merge_prev = await self._generate_turn_title(
+            job_id, sister,
+            agent_msg=agent_msg,
+            files_read=files_read,
+            files_written=files_written,
+            duration_ms=duration_ms,
+            assigned_plan_step_id=assigned_plan_step_id,
+        )
+
+        current_activity = activities[-1] if activities else None
+
+        # 3. Merge with previous step if indicated
         prev_step = act_steps[-1] if act_steps else None
-        if merge_prev and prev_step and current_activity is not None:
-            prev_step.title = turn_title
+        if merge_prev and prev_step and current_activity is not None and not is_new_activity:
+            prev_step.title = title
             await self._event_bus.publish(DomainEvent(
                 event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
@@ -576,43 +717,44 @@ class ProgressTrackingService:
                 kind=DomainEventKind.turn_summary,
                 payload={
                     "turn_id": prev_step.turn_id,
-                    "title": turn_title,
+                    "title": title,
                     "activity_id": current_activity.activity_id,
                     "activity_label": current_activity.label,
                     "activity_status": current_activity.status,
                     "is_new_activity": False,
+                    "plan_item_id": assigned_plan_step_id,
                 },
             ))
             return
 
-        is_new_activity = False
-
-        if not continues or current_activity is None:
-            # Start a new activity
+        # 4. Handle activity boundary
+        if is_new_activity or current_activity is None:
+            # Close previous activity and refine its label
             if current_activity is not None:
                 current_activity.status = "done"
+                # Fire-and-forget label refinement for the closed activity
+                if sister:
+                    asyncio.ensure_future(
+                        self._refine_activity_label(job_id, sister, current_activity)
+                    )
             new_act = Activity(
                 activity_id=_make_activity_id(),
-                label=new_label or turn_title,
+                label=activity_label,
                 status="active",
             )
             activities.append(new_act)
             self._activities[job_id] = activities
             current_activity = new_act
-            is_new_activity = True
-        elif updated_label and current_activity:
-            current_activity.label = updated_label
 
-        # Record the step
+        # 5. Record the step and emit
         step = ActivityStep(
             turn_id=turn_id,
-            title=turn_title,
+            title=title,
             activity_id=current_activity.activity_id,
         )
         act_steps.append(step)
         self._activity_steps[job_id] = act_steps
 
-        # Emit the turn_summary event
         await self._event_bus.publish(DomainEvent(
             event_id=DomainEvent.make_event_id(),
             job_id=job_id,
@@ -620,13 +762,68 @@ class ProgressTrackingService:
             kind=DomainEventKind.turn_summary,
             payload={
                 "turn_id": turn_id,
-                "title": turn_title,
+                "title": title,
                 "activity_id": current_activity.activity_id,
                 "activity_label": current_activity.label,
                 "activity_status": current_activity.status,
                 "is_new_activity": is_new_activity,
+                "plan_item_id": assigned_plan_step_id,
             },
         ))
+
+    async def _refine_activity_label(
+        self,
+        job_id: str,
+        sister: SisterSession,
+        activity: Activity,
+    ) -> None:
+        """Refine a closed activity's label based on completed work."""
+        act_steps = self._activity_steps.get(job_id, [])
+        step_titles = [s.title for s in act_steps if s.activity_id == activity.activity_id]
+        if not step_titles:
+            return
+
+        prompt = _REFINE_ACTIVITY_LABEL_PROMPT.format(
+            current_label=activity.label,
+            step_titles="\n".join(f"  - {t}" for t in step_titles),
+        )
+
+        try:
+            raw = await sister.complete(prompt, timeout=10)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+                raw = re.sub(r"\n?```$", "", raw)
+                raw = raw.strip()
+
+            parsed = json.loads(raw)
+            new_label = parsed.get("label")
+            if isinstance(new_label, str) and new_label.strip():
+                activity.label = new_label.strip()[:80]
+                # Emit an update so the frontend refreshes the activity label.
+                # Re-emit the last step in this activity to carry the updated label.
+                last_step = next(
+                    (s for s in reversed(act_steps) if s.activity_id == activity.activity_id),
+                    None,
+                )
+                if last_step:
+                    await self._event_bus.publish(DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.turn_summary,
+                        payload={
+                            "turn_id": last_step.turn_id,
+                            "title": last_step.title,
+                            "activity_id": activity.activity_id,
+                            "activity_label": activity.label,
+                            "activity_status": "done",
+                            "is_new_activity": False,
+                            "plan_item_id": None,
+                        },
+                    ))
+        except Exception:
+            log.debug("activity_label_refinement_failed", job_id=job_id, exc_info=True)
 
     async def _classify_and_update(
         self,
@@ -641,7 +838,11 @@ class ProgressTrackingService:
         start_sha: str | None,
         end_sha: str | None,
         turn_id: str | None = None,
-    ) -> None:
+    ) -> str | None:
+        """Classify a turn to a plan item and accumulate metrics.
+
+        Returns the plan_step_id this turn was assigned to (or None).
+        """
         active_idx = self._active_idx.get(job_id, 0)
         active_idx = max(0, min(active_idx, len(steps) - 1))
 
@@ -757,6 +958,8 @@ class ProgressTrackingService:
 
         await self._emit_plan_step(job_id, ps)
         await self._emit_card_headline(job_id, ps)
+
+        return ps.plan_step_id
 
     async def _generate_summary(
         self,

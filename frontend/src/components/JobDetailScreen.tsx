@@ -923,8 +923,9 @@ export function JobDetailScreen() {
         </Sheet>
       </div>
 
-      {/* Tab content — min-height prevents scroll collapse when switching tabs */}
-      <div className="min-h-[80dvh]">
+      {/* Tab content — min-height prevents scroll collapse when switching tabs.
+          pb-20 on mobile for the Live tab accounts for the MobilePlanDrawer fixed bar. */}
+      <div className={cn("min-h-[80dvh]", tab === "live" && "pb-20 lg:pb-0")}>
       {tab === "live" && (
         <div className="flex flex-row">
           {/* Activity Timeline sidebar — hidden on small screens */}

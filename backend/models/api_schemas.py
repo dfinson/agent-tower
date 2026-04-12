@@ -922,6 +922,7 @@ class TurnSummaryPayload(CamelModel):
     activity_label: str
     activity_status: str = "active"  # active | done
     is_new_activity: bool = False
+    plan_item_id: str | None = None
 
 
 class StepDiffPayload(CamelModel):

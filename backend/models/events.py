@@ -247,6 +247,7 @@ class TurnSummaryPayloadDict(TypedDict, total=False):
     activity_label: str
     activity_status: str  # active | done
     is_new_activity: bool
+    plan_item_id: str | None
 
 
 # Union of all known payload shapes.  Used as the DomainEvent.payload type so

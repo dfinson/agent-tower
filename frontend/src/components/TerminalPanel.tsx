@@ -37,6 +37,7 @@ export function TerminalPanel({ sessionId, onExit, className }: TerminalPanelPro
       cursorBlink: true,
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, monospace",
+      allowTransparency: true,
       theme: {
         background: "#0a0a0f",
         foreground: "#e4e4e7",
