@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree } from "lucide-react";
-import { useStore, selectActivityTimeline, selectJobPlan } from "../store";
+import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId } from "../store";
 import type { ActivityTimelineActivity } from "../store";
 import { PlanPanel } from "./PlanPanel";
 import { cn } from "../lib/utils";
@@ -33,14 +33,19 @@ function ActivitySection({
   selectedTurnId,
   onStepClick,
   searchActive,
+  highlightPlanItemId,
 }: {
   activity: ActivityTimelineActivity;
   isLast: boolean;
   selectedTurnId: string | null;
   onStepClick: (turnId: string) => void;
   searchActive?: boolean;
+  highlightPlanItemId?: string | null;
 }) {
   const [expanded, setExpanded] = useState(activity.status === "active");
+
+  // Highlight when the hovered plan item matches this activity's plan link
+  const isLinkedToHoveredPlan = !!highlightPlanItemId && activity.planItemId === highlightPlanItemId;
 
   // When search is driving the sidebar, auto-expand the activity containing
   // the matched step and collapse everything else.
@@ -54,7 +59,10 @@ function ActivitySection({
     <div>
       <button
         onClick={() => setExpanded((e) => !e)}
-        className="flex items-center gap-1.5 w-full text-left py-1.5 hover:bg-accent/50 rounded-sm transition-colors group"
+        className={cn(
+          "flex items-center gap-1.5 w-full text-left py-1.5 hover:bg-accent/50 rounded-sm transition-colors group",
+          isLinkedToHoveredPlan && "bg-primary/5 ring-1 ring-primary/30",
+        )}
       >
         {expanded ? (
           <ChevronDown size={13} className="text-muted-foreground shrink-0" />
@@ -121,6 +129,7 @@ export function ActivityTimeline({
 }) {
   const timeline = useStore(selectActivityTimeline(jobId));
   const planSteps = useStore(selectJobPlan(jobId));
+  const hoveredPlanItemId = useStore(selectHoveredPlanItemId);
 
   // When the job has reached a terminal state, force all activities to "done"
   // so the spinner stops.
@@ -151,6 +160,7 @@ export function ActivityTimeline({
             selectedTurnId={selectedTurnId ?? null}
             onStepClick={onStepClick}
             searchActive={searchActive}
+            highlightPlanItemId={hoveredPlanItemId}
           />
         ))}
       </div>

@@ -74,7 +74,7 @@ export function KanbanBoard() {
   const currentSortLabel = SORT_OPTIONS.find((o) => o.key === sort)!.label;
 
   return (
-    <div className="flex flex-col gap-3 h-[calc(100vh-140px)] max-sm:hidden">
+    <div className="flex flex-col gap-3 h-[calc(100dvh-140px)] max-sm:hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-2 shrink-0">
         <div className="relative flex-1">

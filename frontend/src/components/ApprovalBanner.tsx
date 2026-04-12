@@ -53,7 +53,7 @@ export function ApprovalBanner({ jobId }: { jobId: string }) {
   return (
     <div className="flex flex-col gap-2">
       {pending.length > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-2.5">
           <span className="text-sm text-orange-300">
             {pending.length} pending approval{pending.length !== 1 ? "s" : ""}
             {hasExplicitPending && autoResolvableCount > 0 && (
@@ -105,10 +105,10 @@ export function ApprovalBanner({ jobId }: { jobId: string }) {
               {a.proposedAction}
             </pre>
           )}
-          <div className="flex gap-2">
+          <div className="flex gap-2 w-full sm:w-auto">
             <Button
               size="sm"
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className="bg-green-600 hover:bg-green-700 text-white flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
               loading={loading === a.id}
               onClick={() => handleResolve(a.id, "approved")}
             >
@@ -117,7 +117,7 @@ export function ApprovalBanner({ jobId }: { jobId: string }) {
             <Button
               size="sm"
               variant="outline"
-              className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+              className="border-red-500/40 text-red-400 hover:bg-red-500/10 flex-1 sm:flex-none min-h-[44px] sm:min-h-0"
               loading={loading === a.id}
               onClick={() => setRejectTarget(a.id)}
             >

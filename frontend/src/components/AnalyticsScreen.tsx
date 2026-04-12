@@ -103,7 +103,7 @@ function CollapsibleSection({
           className={`text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
         />
       </button>
-      {open && <div className="px-4 pb-4">{children}</div>}
+      {open && <div className="px-4 pb-4 min-w-0 overflow-x-auto">{children}</div>}
     </div>
   );
 }
@@ -855,7 +855,7 @@ export function AnalyticsScreen() {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
             <BarChart3 size={20} />
@@ -888,14 +888,14 @@ export function AnalyticsScreen() {
       </div>
 
       {/* Cost trend */}
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4 min-w-0">
         <h2 className="text-sm font-medium text-foreground mb-1">Cost Trend</h2>
         <p className="text-xs text-muted-foreground mb-3">Daily API-equivalent spend — for subscriptions this reflects usage value, not billing</p>
         <CostTrendChart data={scorecard.costTrend} />
       </div>
 
       {/* Model Comparison */}
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4 min-w-0">
         <h2 className="text-sm font-medium text-foreground mb-1 flex items-center gap-2">
           <Zap size={14} />
           Model Comparison
@@ -905,7 +905,7 @@ export function AnalyticsScreen() {
       </div>
 
       {/* Repo breakdown */}
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4 min-w-0">
         <h2 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
           <GitBranch size={14} />
           Repository Breakdown

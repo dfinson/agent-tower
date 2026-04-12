@@ -101,6 +101,7 @@ export interface TranscriptEntry {
 }
 
 export interface PlanStep {
+  planStepId?: string;
   label: string;
   status: "done" | "active" | "pending" | "skipped";
   summary?: string;
@@ -122,6 +123,7 @@ export interface ActivityTimelineStep {
   turnId: string;
   title: string;
   activityId: string;
+  planItemId?: string | null;
 }
 
 /** A retrospective grouping of steps in the activity timeline. */
@@ -130,6 +132,7 @@ export interface ActivityTimelineActivity {
   label: string;
   status: "active" | "done";
   steps: ActivityTimelineStep[];
+  planItemId?: string | null;
 }
 
 /** Per-job activity timeline state. */
@@ -222,10 +225,12 @@ function _rebuildActivityTimeline(
     const turnId = s.turnId ?? "";
     if (seenTurnIds.has(turnId)) continue;
     seenTurnIds.add(turnId);
+    const planItemId = (s.planItemId as string | null) ?? null;
     const step: ActivityTimelineStep = {
       turnId,
       title: s.title ?? "",
       activityId: s.activityId ?? "",
+      planItemId,
     };
     const isNew = s.isNewActivity as boolean;
     if (isNew || activities.length === 0) {
@@ -236,6 +241,7 @@ function _rebuildActivityTimeline(
         label: s.activityLabel ?? "",
         status: (s.activityStatus as "active" | "done") ?? "active",
         steps: [step],
+        planItemId,
       });
     } else {
       const last = activities[activities.length - 1];
@@ -296,6 +302,8 @@ interface AppState {
   // UI state
   connectionStatus: ConnectionStatus;
   reconnectAttempt: number;
+  /** Plan item ID being hovered — used to highlight linked activities. */
+  hoveredPlanItemId: string | null;
 
   // Actions
   setConnectionStatus: (status: ConnectionStatus) => void;
@@ -324,6 +332,7 @@ interface AppState {
   addTerminalSession: (session: TerminalSession) => void;
   removeTerminalSession: (id: string) => void;
   createTerminalSession: (opts?: { cwd?: string; jobId?: string; label?: string }) => void;
+  setHoveredPlanItemId: (id: string | null) => void;
 }
 
 // Module-level singleton guard: ensures initSdksAndModels is only ever
@@ -348,6 +357,7 @@ export const useStore = create<AppState>((set, get) => ({
   telemetryVersions: {},
   connectionStatus: "reconnecting",
   reconnectAttempt: 0,
+  hoveredPlanItemId: null,
 
   // SDK + model catalogue
   sdks: [],
@@ -1014,6 +1024,40 @@ export const useStore = create<AppState>((set, get) => ({
           };
         }
 
+        case "plan_step_updated": {
+          const jobId = payload.jobId as string;
+          const planStepId = payload.planStepId as string;
+          const label = payload.label as string;
+          const status = (payload.status as PlanStep["status"]) || "pending";
+          const summary = payload.summary as string | undefined;
+          const toolCount = payload.toolCount as number | undefined;
+          const filesWritten = payload.filesWritten as string[] | undefined;
+          const durationMs = payload.durationMs as number | undefined;
+
+          const existing = state.plans[jobId] ?? [];
+          const idx = existing.findIndex((s) => s.planStepId === planStepId);
+          const updated: PlanStep = {
+            planStepId,
+            label,
+            status,
+            summary,
+            toolCount,
+            filesWritten,
+            durationMs,
+          };
+
+          let newPlan: PlanStep[];
+          if (idx >= 0) {
+            newPlan = [...existing];
+            newPlan[idx] = updated;
+          } else {
+            newPlan = [...existing, updated];
+          }
+          return {
+            plans: { ...state.plans, [jobId]: newPlan },
+          };
+        }
+
         case "turn_summary": {
           const jobId = payload.jobId as string;
           const turnId = payload.turnId as string;
@@ -1022,6 +1066,7 @@ export const useStore = create<AppState>((set, get) => ({
           const activityLabel = payload.activityLabel as string;
           const activityStatus = (payload.activityStatus as "active" | "done") || "active";
           const isNewActivity = payload.isNewActivity as boolean;
+          const planItemId = (payload.planItemId as string | null) ?? null;
 
           // Read FRESH state (not the captured `state` from the top of dispatchSSEEvent)
           // because two SSE connections (global + job-scoped) may deliver the same event
@@ -1058,7 +1103,7 @@ export const useStore = create<AppState>((set, get) => ({
 
           const activities = [...freshTimeline.activities];
 
-          const step: ActivityTimelineStep = { turnId, title, activityId };
+          const step: ActivityTimelineStep = { turnId, title, activityId, planItemId };
 
           if (isNewActivity || activities.length === 0) {
             // Mark previous activity as done
@@ -1071,6 +1116,7 @@ export const useStore = create<AppState>((set, get) => ({
               label: activityLabel,
               status: activityStatus,
               steps: [step],
+              planItemId,
             });
           } else {
             // Add step to the last activity and optionally update its label
@@ -1175,10 +1221,11 @@ export const useStore = create<AppState>((set, get) => ({
         jobId: data.jobId ?? opts?.jobId,
       };
 
-      // On mobile, auto-maximise the drawer when opening a job terminal
+      // On mobile, auto-maximise the drawer when opening a job terminal.
+      // Cap at 50% of viewport height to match the drag-resize max for small screens.
       const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
       const drawerHeight = isMobile
-        ? Math.floor(window.innerHeight * 0.9)
+        ? Math.floor(window.innerHeight * 0.5)
         : get().terminalDrawerHeight;
 
       set((s) => ({
@@ -1191,6 +1238,8 @@ export const useStore = create<AppState>((set, get) => ({
       console.error("[terminal] Error creating session:", e);
     }
   },
+
+  setHoveredPlanItemId: (id) => set({ hoveredPlanItemId: id }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1286,6 +1335,7 @@ export const selectJobPlan = (jobId: string) => (state: AppState) =>
 const EMPTY_ACTIVITY_TIMELINE: ActivityTimelineState = { activities: [] };
 export const selectActivityTimeline = (jobId: string) => (state: AppState) =>
   state.activityTimelines[jobId] ?? EMPTY_ACTIVITY_TIMELINE;
+export const selectHoveredPlanItemId = (state: AppState) => state.hoveredPlanItemId;
 
 // Per-column selectors — only recompute when jobs in that column change
 

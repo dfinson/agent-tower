@@ -148,7 +148,7 @@ export function App() {
   });
 
   return (
-    <div className="flex flex-col h-screen overflow-x-hidden">
+    <div className="flex flex-col h-[100dvh] overflow-x-hidden">
       <header className="flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card">
         <Link to="/" className="no-underline flex items-center gap-3.5 hover:opacity-80 transition-opacity">
           <img src="/mark.png" alt="" className="h-8 w-8 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />

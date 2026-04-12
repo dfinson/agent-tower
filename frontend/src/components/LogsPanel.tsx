@@ -137,7 +137,7 @@ export function LogsPanel({ jobId }: { jobId: string }) {
       {!collapsed && (
         <div
           ref={viewportRef}
-          className="h-64 min-h-0 overflow-y-auto overscroll-contain font-mono"
+          className="h-48 sm:h-64 min-h-0 overflow-y-auto overscroll-contain font-mono"
           style={{ contain: "strict" }}
           onScroll={handleScroll}
         >

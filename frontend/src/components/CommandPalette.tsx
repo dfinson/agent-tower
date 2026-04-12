@@ -183,7 +183,7 @@ export function CommandPalette() {
     >
       <DialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
-        <div className="flex items-center border-b border-border px-3 pr-14">
+        <div className="flex items-center border-b border-border px-3 sm:pr-14">
           <Search className="h-4 w-4 text-muted-foreground shrink-0" />
           <input
             value={query}
@@ -191,7 +191,7 @@ export function CommandPalette() {
             onKeyDown={handleKeyDown}
             placeholder="Search or navigate..."
             aria-label="Search jobs and navigate"
-            className="flex-1 bg-transparent border-0 outline-none px-3 py-3 text-sm placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent border-0 outline-none px-3 py-3 text-base sm:text-sm placeholder:text-muted-foreground"
             autoFocus
           />
           <kbd className="hidden sm:inline text-xs text-muted-foreground border border-border rounded px-1.5 py-0.5 font-mono shrink-0">

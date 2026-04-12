@@ -39,7 +39,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           ref={setRef}
           aria-invalid={error ? true : undefined}
           className={cn(
-            "flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none",
+            "flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base sm:text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none",
             autoResize && "overflow-hidden",
             error && "border-red-500 focus-visible:ring-red-500",
             className,

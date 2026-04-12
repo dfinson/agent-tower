@@ -64,7 +64,7 @@ export function MobileJobList() {
   }, [jobs, tab, query]);
 
   return (
-    <div className="sm:hidden pb-24">
+    <div className="sm:hidden" style={{ paddingBottom: "calc(6rem + env(safe-area-inset-bottom, 0px))" }}>
       <div className="relative mb-3">
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         <Input
@@ -87,7 +87,7 @@ export function MobileJobList() {
               aria-selected={tab === t}
               onClick={() => setTab(t)}
               className={cn(
-                "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                "flex-1 rounded-md px-2 py-2 text-xs font-medium transition-colors min-h-[44px] flex items-center justify-center",
                 tab === t
                   ? "bg-background text-foreground shadow"
                   : "text-muted-foreground hover:text-foreground",

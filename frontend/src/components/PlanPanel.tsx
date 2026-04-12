@@ -32,12 +32,12 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
   );
 }
 
-function StepList({ steps }: { steps: PlanStep[] }) {
+function StepList({ steps, onHover }: { steps: PlanStep[]; onHover: (id: string | null) => void }) {
   return (
     <div className="space-y-1.5">
       {steps.map((step, i) => (
         <div
-          key={i}
+          key={step.planStepId ?? i}
           className={cn(
             "flex items-start gap-2 transition-opacity duration-300",
             step.status === "done" && "text-muted-foreground/60",
@@ -45,6 +45,8 @@ function StepList({ steps }: { steps: PlanStep[] }) {
             step.status === "skipped" && "text-muted-foreground/40 line-through",
             step.status === "pending" && "text-muted-foreground",
           )}
+          onMouseEnter={() => step.planStepId && onHover(step.planStepId)}
+          onMouseLeave={() => onHover(null)}
         >
           <div className="mt-0.5">
             <StepIcon status={step.status} />
@@ -68,6 +70,7 @@ function StepList({ steps }: { steps: PlanStep[] }) {
 /** Sidebar-embedded plan panel for the activity timeline. */
 export function PlanPanel({ jobId }: { jobId: string }) {
   const steps = useStore(selectJobPlan(jobId));
+  const setHoveredPlanItemId = useStore((s) => s.setHoveredPlanItemId);
   const [expanded, setExpanded] = useState(true);
 
   if (steps.length === 0) return null;
@@ -106,7 +109,7 @@ export function PlanPanel({ jobId }: { jobId: string }) {
 
       {expanded && (
         <div className="px-3 pb-3">
-          <StepList steps={steps} />
+          <StepList steps={steps} onHover={setHoveredPlanItemId} />
         </div>
       )}
     </div>
@@ -128,8 +131,9 @@ export function MobilePlanDrawer({ jobId }: { jobId: string }) {
     <div
       className={cn(
         "lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border shadow-[0_-4px_12px_rgba(0,0,0,0.15)] transition-all duration-300",
-        expanded ? "max-h-[60vh]" : "max-h-14",
+        expanded ? "max-h-[50dvh] sm:max-h-[60vh]" : "max-h-14",
       )}
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
     >
       {/* Collapsed bar — always visible */}
       <button
@@ -163,7 +167,7 @@ export function MobilePlanDrawer({ jobId }: { jobId: string }) {
       {/* Expanded step list */}
       {expanded && (
         <div className="px-4 pb-4 pt-1 overflow-y-auto max-h-[calc(60vh-3.5rem)]">
-          <StepList steps={steps} />
+          <StepList steps={steps} onHover={() => {}} />
         </div>
       )}
     </div>
