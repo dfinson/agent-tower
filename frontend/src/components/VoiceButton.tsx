@@ -193,10 +193,16 @@ export function MicButton({ onTranscript, onStateChange, waveformContainerRef }:
   const wsRef = useRef<WaveSurfer | null>(null);
   const initedRef = useRef(false);
 
+  // Keep stable refs so the record-end closure always calls the latest callbacks
+  const onTranscriptRef = useRef(onTranscript);
+  useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
+  const onStateChangeRef = useRef(onStateChange);
+  useEffect(() => { onStateChangeRef.current = onStateChange; }, [onStateChange]);
+
   const updateState = useCallback((s: RecordingState) => {
     setState(s);
-    onStateChange?.(s);
-  }, [onStateChange]);
+    onStateChangeRef.current?.(s);
+  }, []);
 
   // Initialise WaveSurfer once — requires the waveform container to be mounted.
   const ensureInit = useCallback(() => {
@@ -231,7 +237,7 @@ export function MicButton({ onTranscript, onStateChange, waveformContainerRef }:
       updateState("transcribing");
       try {
         const text = await transcribeAudio(blob);
-        if (text) onTranscript(text);
+        if (text) onTranscriptRef.current(text);
       } catch {
         toast.error("Transcription failed");
       } finally {
@@ -241,7 +247,7 @@ export function MicButton({ onTranscript, onStateChange, waveformContainerRef }:
 
     wsRef.current = ws;
     recordRef.current = record;
-  }, [waveformContainerRef, onTranscript, updateState]);
+  }, [waveformContainerRef, updateState]);
 
   useEffect(() => {
     return () => {
