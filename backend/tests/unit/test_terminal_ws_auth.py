@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -57,12 +58,14 @@ class TestCheckWebsocketAuth:
         assert check_websocket_auth(client_host=None, cookies={"cpl_session": token}) is True
         assert check_websocket_auth(client_host=None, cookies={}) is False
 
-    def test_cf_access_jwt_bypasses_auth(self) -> None:
+    @patch("backend.services.cf_access.is_configured", return_value=True)
+    @patch("backend.services.cf_access.verify_token", return_value=True)
+    def test_cf_access_jwt_bypasses_auth(self, _mock_verify, _mock_configured) -> None:
         set_password("secret")
         assert check_websocket_auth(
             client_host="203.0.113.1",
             cookies={},
-            cf_access_jwt="eyJhbGciOiJSUzI1NiJ9.test.sig",
+            cf_access_jwt="eyJhbGciOiJSUzI1NiJ9.valid.sig",
         ) is True
 
     def test_empty_cf_access_jwt_does_not_bypass(self) -> None:
@@ -71,4 +74,14 @@ class TestCheckWebsocketAuth:
             client_host="203.0.113.1",
             cookies={},
             cf_access_jwt="",
+        ) is False
+
+    @patch("backend.services.cf_access.is_configured", return_value=True)
+    @patch("backend.services.cf_access.verify_token", return_value=False)
+    def test_forged_cf_access_jwt_does_not_bypass(self, _mock_verify, _mock_configured) -> None:
+        set_password("secret")
+        assert check_websocket_auth(
+            client_host="203.0.113.1",
+            cookies={},
+            cf_access_jwt="eyJhbGciOiJSUzI1NiJ9.forged.sig",
         ) is False

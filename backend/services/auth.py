@@ -16,11 +16,11 @@ through ``auth_middleware`` before reaching any route handler.
 ``localhost`` are unconditionally trusted and never challenged.  This allows
 same-machine tools and CLIs to access the API without credentials.
 
-**Cloudflare Access bypass**: requests carrying a ``Cf-Access-Jwt-Assertion``
-header are treated as pre-authenticated by Cloudflare Access and skip the
-local password gate.  This covers deployments where ``cloudflared`` is managed
-externally (systemd service, Docker side-car, etc.) and CodePlane was not
-started with ``--remote --provider cloudflare``.
+**Cloudflare Access bypass**: when ``CPL_CF_ACCESS_TEAM`` and
+``CPL_CF_ACCESS_AUD`` are configured, requests carrying a valid
+``Cf-Access-Jwt-Assertion`` header (signature, audience, and expiry
+verified against Cloudflare's public JWKS) skip the local password gate.
+If the variables are not set the header is ignored entirely.
 
 **WebSocket auth**: WebSocket upgrades are *not* wrapped by the HTTP
 middleware (Starlette handles them on a different code-path).  Instead, each
@@ -162,13 +162,25 @@ def is_localhost(request: Request) -> bool:
 
 
 def _has_cloudflare_access(request: Request) -> bool:
-    """Return True when the request carries a Cloudflare Access JWT.
+    """Return True when the request carries a *valid* Cloudflare Access JWT.
 
     Cloudflare Access sets ``Cf-Access-Jwt-Assertion`` on every request that
-    has passed its identity gate.  When present we treat the user as already
-    authenticated and skip the internal password challenge.
+    has passed its identity gate.  We verify the JWT signature, audience, and
+    expiration against Cloudflare's public JWKS before trusting it.
+
+    Returns False (and the request falls through to password auth) when:
+    - CF Access is not configured (``CPL_CF_ACCESS_TEAM`` / ``…_AUD`` unset)
+    - The header is missing or empty
+    - The JWT fails signature / audience / expiry validation
     """
-    return bool(request.headers.get("cf-access-jwt-assertion"))
+    from backend.services import cf_access
+
+    if not cf_access.is_configured():
+        return False
+    token = request.headers.get("cf-access-jwt-assertion")
+    if not token:
+        return False
+    return cf_access.verify_token(token)
 
 
 def is_request_authenticated(request: Request) -> bool:
@@ -223,7 +235,10 @@ def check_websocket_auth(
     if client_host and client_host in LOCALHOST_ADDRS:
         return True
     if cf_access_jwt:
-        return True
+        from backend.services import cf_access
+
+        if cf_access.is_configured() and cf_access.verify_token(cf_access_jwt):
+            return True
     ip = client_host or "unknown"
     if _is_ws_rate_limited(ip):
         return False
