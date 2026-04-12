@@ -27,6 +27,9 @@ const HistoryScreen = lazyRetry(() =>
 const AnalyticsScreen = lazyRetry(() =>
   import("./components/AnalyticsScreen").then((module) => ({ default: module.AnalyticsScreen })),
 );
+const SharedJobView = lazyRetry(() =>
+  import("./components/SharedJobView").then((module) => ({ default: module.SharedJobView })),
+);
 const TerminalDrawer = lazyRetry(() =>
   import("./components/TerminalDrawer").then((module) => ({ default: module.TerminalDrawer })),
 );
@@ -191,6 +194,7 @@ export function App() {
               <Route path="/history" element={<HistoryScreen />} />
               <Route path="/analytics" element={<AnalyticsScreen />} />
               <Route path="/settings" element={<SettingsScreen />} />
+              <Route path="/shared/:token" element={<SharedJobView />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>

@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
-import { Trash2, Plus, Save } from "lucide-react";
+import { Trash2, Plus, Save, Bell } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchSettings, updateSettings,
   fetchRepos, unregisterRepo,
+  fetchVapidKey, subscribePush, unsubscribePush,
 } from "../api/client";
 import type { Settings } from "../api/types";
 import { AddRepoModal } from "./AddRepoModal";
@@ -108,6 +109,10 @@ export function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [addRepoOpen, setAddRepoOpen] = useState(false);
   const [removeRepoTarget, setRemoveRepoTarget] = useState<string | null>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
+  const pushSupported = "serviceWorker" in navigator && "PushManager" in window;
 
   useEffect(() => {
     Promise.all([fetchSettings(), fetchRepos()])
@@ -119,6 +124,56 @@ export function SettingsScreen() {
       .catch(() => toast.error("Failed to load settings"))
       .finally(() => setLoading(false));
   }, []);
+
+  // Check whether a push subscription already exists
+  useEffect(() => {
+    if (!pushSupported) return;
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => setPushEnabled(sub !== null))
+      .catch(() => {});
+  }, [pushSupported]);
+
+  const togglePush = useCallback(async () => {
+    if (!pushSupported) return;
+    setPushLoading(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (pushEnabled) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await unsubscribePush(sub.endpoint);
+          await sub.unsubscribe();
+        }
+        setPushEnabled(false);
+        toast.success("Push notifications disabled");
+      } else {
+        const { publicKey } = await fetchVapidKey();
+        // Convert URL-safe base64 to Uint8Array
+        const padding = "=".repeat((4 - (publicKey.length % 4)) % 4);
+        const raw = atob(publicKey.replace(/-/g, "+").replace(/_/g, "/") + padding);
+        const key = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) key[i] = raw.charCodeAt(i);
+
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: key,
+        });
+        await subscribePush(sub.toJSON());
+        setPushEnabled(true);
+        toast.success("Push notifications enabled");
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("denied") || msg.includes("NotAllowedError")) {
+        toast.error("Notification permission denied by browser");
+      } else {
+        toast.error(`Push notification error: ${msg}`);
+      }
+    } finally {
+      setPushLoading(false);
+    }
+  }, [pushEnabled, pushSupported]);
 
   const dirty = settings !== null && saved !== null && JSON.stringify(settings) !== JSON.stringify(saved);
 
@@ -339,6 +394,39 @@ export function SettingsScreen() {
           </div>
         </div>
       </div>
+
+      {/* Notifications */}
+      {pushSupported && (
+        <div className="rounded-lg border border-border bg-card p-5">
+          <p className="text-sm font-semibold mb-4">Notifications</p>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <button
+              type="button"
+              onClick={togglePush}
+              disabled={pushLoading}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                pushEnabled ? "bg-primary" : "bg-muted"
+              } ${pushLoading ? "opacity-50" : ""}`}
+              role="switch"
+              aria-checked={pushEnabled}
+              aria-label="Push notifications"
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  pushEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+            <div className="flex items-center gap-2">
+              <Bell size={14} className="text-muted-foreground" />
+              <span className="text-sm">Push notifications</span>
+            </div>
+          </label>
+          <p className="text-xs text-muted-foreground mt-2">
+            Receive browser notifications when a job needs approval, completes, or fails.
+          </p>
+        </div>
+      )}
 
       <ConfirmDialog
         open={!!removeRepoTarget}

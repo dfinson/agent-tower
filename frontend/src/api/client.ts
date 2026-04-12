@@ -935,4 +935,34 @@ export function dismissObservation(observationId: number): Promise<{ status: str
   return request(`/analytics/observations/${observationId}/dismiss`, { method: "POST" });
 }
 
+// ---------------------------------------------------------------------------
+// Push notifications
+// ---------------------------------------------------------------------------
+
+export function fetchVapidKey(): Promise<{ publicKey: string }> {
+  return request("/notifications/vapid-key");
+}
+
+export function subscribePush(subscription: PushSubscriptionJSON): Promise<void> {
+  return request("/notifications/subscribe", {
+    method: "POST",
+    body: JSON.stringify(subscription),
+  });
+}
+
+export function unsubscribePush(endpoint: string): Promise<void> {
+  return request("/notifications/unsubscribe", {
+    method: "POST",
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Job sharing
+// ---------------------------------------------------------------------------
+
+export function createShareLink(jobId: string): Promise<{ token: string; jobId: string; url: string }> {
+  return request(`/jobs/${jobId}/share`, { method: "POST" });
+}
+
 export { ApiError };

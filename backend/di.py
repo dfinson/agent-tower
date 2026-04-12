@@ -24,6 +24,8 @@ from backend.services.runtime_service import RuntimeService
 from backend.services.sse_manager import SSEManager
 from backend.services.sister_session import SisterSessionManager
 from backend.services.voice_service import VoiceService
+from backend.services.push_service import PushService
+from backend.services.share_service import ShareService
 
 # NewType wrappers for plain values that need unique DI keys
 CachedModelsBySdk = NewType("CachedModelsBySdk", dict[str, Any])
@@ -49,6 +51,8 @@ class AppProvider(Provider):
     voice_service = from_context(provides=VoiceService)
     cached_models = from_context(provides=CachedModelsBySdk)
     voice_max_bytes = from_context(provides=VoiceMaxBytes)
+    push_service = from_context(provides=PushService)
+    share_service = from_context(provides=ShareService)
 
 
 class RequestProvider(Provider):

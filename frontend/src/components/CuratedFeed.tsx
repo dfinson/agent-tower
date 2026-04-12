@@ -1018,11 +1018,8 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
       {/* Agent bubble — message + reasoning grouped together */}
       {(hasMessage || (hasReasoning && !hasTools)) && (
-        <div className="flex gap-2 sm:gap-3">
-          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
-            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
-          </div>
-          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-2.5 sm:px-3 py-2 space-y-1.5">
+        <div>
+          <div className="flex-1 min-w-0 rounded-lg bg-muted/5 px-2.5 sm:px-3 py-2 space-y-1.5">
             {/* Reasoning — expandable inside the bubble */}
             {hasReasoning && (
               <ReasoningHint content={turn.reasoning!.content!} />
@@ -1048,11 +1045,8 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
       {/* Streaming with no committed message yet and no reasoning bubble shown */}
       {!displayMessage && isStreaming && streamingText && !hasReasoning && (
-        <div className="flex gap-3">
-          <div className="shrink-0 w-6 h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
-            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
-          </div>
-          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-3 py-2">
+        <div>
+          <div className="flex-1 min-w-0 rounded-lg bg-muted/5 px-3 py-2">
             <div className="text-sm text-foreground/90 leading-relaxed">
               <HighlightedMarkdown content={streamingText} />
               <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
@@ -1084,11 +1078,8 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
           : <PhaseBox key={i} cluster={c} defaultExpanded={false} onViewStepChanges={onViewStepChanges} />
       ))}
       {turn.reasoning?.content && (
-        <div className="flex gap-2 sm:gap-3 mt-1">
-          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/30 flex items-center justify-center mt-0.5">
-            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
-          </div>
-          <div className="flex-1 min-w-0 rounded-lg border-l-2 border-primary/20 bg-muted/5 px-2.5 sm:px-3 py-2">
+        <div className="mt-1">
+          <div className="flex-1 min-w-0 rounded-lg bg-muted/5 px-2.5 sm:px-3 py-2">
             <ReasoningHint content={turn.reasoning.content} />
           </div>
         </div>

@@ -17,7 +17,7 @@ from dishka import make_async_container
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, load_config
+from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, get_codeplane_dir, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
 from backend.models.events import DomainEventKind
 from backend.persistence.database import create_engine, create_session_factory
@@ -39,6 +39,9 @@ from backend.services.step_tracker import StepTracker
 from backend.services.summarization_service import SummarizationService
 from backend.services.sister_session import SisterSessionManager
 from backend.services.voice_service import VoiceService
+from backend.services.push_service import PushService
+from backend.services.share_service import ShareService
+from backend.services.vapid_keys import get_or_create_vapid_keys
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -458,6 +461,44 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         services,
     )
 
+    # --- Push notification service ---
+    vapid_keys = get_or_create_vapid_keys(get_codeplane_dir())
+    push_service = PushService(
+        vapid_private_key=vapid_keys["private_key"],
+        vapid_public_key=vapid_keys["public_key"],
+    )
+
+    async def _push_subscriber(event: DomainEvent) -> None:
+        """Send push notifications for approval requests and terminal job states."""
+        if event.kind == DomainEventKind.approval_requested:
+            desc = event.payload.get("description", "Action requires your approval")
+            await push_service.notify(
+                title="Approval needed",
+                body=desc[:200],
+                tag=f"approval-{event.payload.get('approval_id', event.job_id)}",
+                url=f"/jobs/{event.job_id}",
+            )
+        elif event.kind == DomainEventKind.job_completed:
+            await push_service.notify(
+                title="Job completed",
+                body=event.payload.get("resolution", "done"),
+                tag=f"job-{event.job_id}",
+                url=f"/jobs/{event.job_id}",
+            )
+        elif event.kind == DomainEventKind.job_failed:
+            reason = event.payload.get("reason", "unknown error")
+            await push_service.notify(
+                title="Job failed",
+                body=reason[:200],
+                tag=f"job-{event.job_id}",
+                url=f"/jobs/{event.job_id}",
+            )
+
+    event_bus.subscribe(_push_subscriber)
+
+    # --- Share service ---
+    share_service = ShareService()
+
     # Build the dishka DI container with all services as context values
     container = make_async_container(
         AppProvider(),
@@ -475,6 +516,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             VoiceService: optional.voice_service,
             CachedModelsBySdk: CachedModelsBySdk(optional.cached_models_by_sdk),
             VoiceMaxBytes: VoiceMaxBytes(optional.voice_max_bytes),
+            PushService: push_service,
+            ShareService: share_service,
         },
     )
     app.state.dishka_container = container
