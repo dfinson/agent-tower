@@ -637,6 +637,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
               onMount={handleEditorMount}
               options={{
                 readOnly: true,
+                domReadOnly: true,
                 minimap: { enabled: false },
                 renderSideBySide: !isMobile,
                 scrollBeyondLastLine: false,
