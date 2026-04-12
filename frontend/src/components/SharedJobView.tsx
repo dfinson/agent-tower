@@ -108,12 +108,15 @@ export function SharedJobView() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
-        <span>CodePlane</span>
-        <span className="text-muted-foreground/50">/</span>
-        <span>Shared View</span>
-      </div>
+      <nav aria-label="Breadcrumb" className="mb-2">
+        <ol className="flex items-center gap-2 text-xs sm:text-xs text-sm text-muted-foreground">
+          <li>CodePlane</li>
+          <li aria-hidden="true" className="text-muted-foreground/50">/</li>
+          <li aria-current="page">Shared View</li>
+        </ol>
+      </nav>
 
+      <main>
       {/* Job header */}
       <div className="rounded-lg border border-border bg-card p-5 mb-4">
         <div className="flex items-center justify-between gap-3 mb-3">
@@ -131,16 +134,16 @@ export function SharedJobView() {
           <p className="text-sm text-muted-foreground mb-3">{job.description ?? job.prompt}</p>
         )}
 
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-6 gap-y-2 text-sm">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-x-6 gap-y-2 text-sm">
           {[
-            ["Branch", job.branch ?? "—"],
+            ["Branch", job.branch ?? "\u2014"],
             ["Base", job.baseRef],
             ...(job.model ? [["Model", job.model]] : []),
             ["Created", new Date(job.createdAt).toLocaleString()],
             ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
           ].map(([label, value]) => (
             <div key={label}>
-              <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wide">{label}</p>
+              <p className="text-[11px] sm:text-xs text-muted-foreground uppercase font-semibold tracking-wide">{label}</p>
               <p className="text-sm break-all">{value}</p>
             </div>
           ))}
@@ -156,15 +159,16 @@ export function SharedJobView() {
       {/* Live logs */}
       {logs.length > 0 && (
         <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm font-semibold mb-3">Live Logs</p>
-          <div className="bg-background rounded-md p-3 max-h-96 overflow-y-auto font-mono text-xs leading-relaxed">
+          <h2 className="text-sm font-semibold mb-3">Live Logs</h2>
+          <div className="bg-background rounded-md p-3 max-h-96 overflow-y-auto font-mono text-[13px] sm:text-xs leading-relaxed">
             {logs.map((line, i) => (
-              <div key={i} className="text-muted-foreground whitespace-pre-wrap">{line}</div>
+              <div key={`log-${i}`} className="text-muted-foreground whitespace-pre-wrap">{line}</div>
             ))}
             <div ref={logsEndRef} />
           </div>
         </div>
       )}
+      </main>
     </div>
   );
 }

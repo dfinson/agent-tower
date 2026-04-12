@@ -398,30 +398,33 @@ export function SettingsScreen() {
       {/* Notifications */}
       {pushSupported && (
         <div className="rounded-lg border border-border bg-card p-5">
-          <p className="text-sm font-semibold mb-4">Notifications</p>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <button
-              type="button"
-              onClick={togglePush}
-              disabled={pushLoading}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          <h3 className="text-sm font-semibold mb-4">Notifications</h3>
+          <div
+            className="flex items-center gap-3 cursor-pointer min-h-[44px]"
+            role="switch"
+            aria-checked={pushEnabled}
+            aria-label="Push notifications"
+            tabIndex={0}
+            onClick={togglePush}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); togglePush(); } }}
+          >
+            <span
+              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${
                 pushEnabled ? "bg-primary" : "bg-muted"
               } ${pushLoading ? "opacity-50" : ""}`}
-              role="switch"
-              aria-checked={pushEnabled}
-              aria-label="Push notifications"
+              aria-hidden="true"
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
                   pushEnabled ? "translate-x-6" : "translate-x-1"
                 }`}
               />
-            </button>
+            </span>
             <div className="flex items-center gap-2">
-              <Bell size={14} className="text-muted-foreground" />
+              <Bell size={16} className="text-muted-foreground" />
               <span className="text-sm">Push notifications</span>
             </div>
-          </label>
+          </div>
           <p className="text-xs text-muted-foreground mt-2">
             Receive browser notifications when a job needs approval, completes, or fails.
           </p>

@@ -622,7 +622,7 @@ export function JobDetailScreen() {
             )}
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               className="gap-1"
               onClick={async () => {
                 try {
