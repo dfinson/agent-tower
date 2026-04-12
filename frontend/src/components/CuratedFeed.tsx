@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useStore, selectJobTranscript, selectApprovals } from "../store";
 import type { TranscriptEntry, ApprovalRequest } from "../store";
-import { sendOperatorMessage, continueJob, pauseJob, resolveApproval } from "../api/client";
+import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { SdkIcon } from "./SdkBadge";
 import { MicButton } from "./VoiceButton";
@@ -1312,7 +1312,8 @@ export function CuratedFeed({
   const [searchOpen, setSearchOpen] = useState(false);
   const waveformContainerRef = useRef<HTMLDivElement>(null);
 
-  const isTerminal = ["review", "completed", "failed", "canceled"].includes(jobState ?? "");
+  const isReview = jobState === "review";
+  const isTerminal = ["completed", "failed", "canceled"].includes(jobState ?? "");
 
   const handleSend = useCallback(async () => {
     if (!msg.trim() || !jobId || sending) return;
@@ -1320,10 +1321,15 @@ export function CuratedFeed({
     setMsg("");
     setSending(true);
     try {
-      if (isTerminal) {
-        const resumed = await continueJob(jobId, text);
+      if (isReview) {
+        // Resume the SAME job in-place (review → running)
+        await resumeJob(jobId, text);
+        toast.success("Job resumed");
+      } else if (isTerminal) {
+        // Create a new follow-up job for truly terminal states
+        const followup = await continueJob(jobId, text);
         toast.success("Follow-up job started");
-        navigate(`/jobs/${resumed.id}`);
+        navigate(`/jobs/${followup.id}`);
       } else {
         await sendOperatorMessage(jobId, text);
       }
@@ -1334,7 +1340,7 @@ export function CuratedFeed({
     } finally {
       setSending(false);
     }
-  }, [msg, jobId, sending, isTerminal, navigate]);
+  }, [msg, jobId, sending, isReview, isTerminal, navigate]);
 
   const handlePause = useCallback(async () => {
     if (!jobId) return;
@@ -1584,7 +1590,7 @@ export function CuratedFeed({
                 value={msg}
                 onChange={(e) => setMsg(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isTerminal ? "Send follow-up instruction…" : "Message the agent…"}
+                placeholder={isReview ? "Send follow-up instruction…" : isTerminal ? "Start a follow-up job…" : "Message the agent…"}
                 rows={1}
                 className="w-full resize-none bg-transparent text-base sm:text-sm text-foreground placeholder:text-muted-foreground/30 outline-none py-2 pr-8 max-h-32"
                 style={{ minHeight: "2.25rem" }}
@@ -1615,7 +1621,7 @@ export function CuratedFeed({
                   "p-1.5 rounded-md transition-colors",
                   msg.trim() ? "text-primary hover:bg-primary/10" : "text-muted-foreground/20",
                 )}
-                title={isTerminal ? "Send follow-up" : "Send message"}
+                title={isReview ? "Resume job" : isTerminal ? "Create follow-up job" : "Send message"}
               >
                 {sending ? <Spinner className="w-4 h-4" /> : <Send size={15} />}
               </button>
