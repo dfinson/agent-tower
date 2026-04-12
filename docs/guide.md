@@ -147,6 +147,59 @@ The UI is fully responsive — optimized layouts for mobile, tablet, and desktop
 
 Scan the QR code from `cpl info` to open CodePlane on your phone instantly.
 
+Use `--phone` as a shortcut for `--remote` when you're primarily accessing from a mobile device:
+
+```bash
+cpl up --phone                               # same as --remote
+```
+
+### Push Notifications
+
+Enable browser push notifications in **Settings → Notifications** to receive alerts even when the browser tab is in the background or closed:
+
+- **Approval needed** — a job is waiting for your decision
+- **Job completed** — the agent finished successfully
+- **Job failed** — something went wrong
+
+Notifications work on desktop browsers and on mobile when CodePlane is installed as a PWA (see below).
+
+### Install as PWA
+
+CodePlane serves a Progressive Web App manifest. On supported browsers (Chrome, Safari, Edge), you'll see an "Install" or "Add to Home Screen" option. The installed app:
+
+- Launches full-screen without browser chrome
+- Receives push notifications like a native app
+- Caches static assets for faster loading
+
+---
+
+## Sharing Jobs
+
+Share a read-only view of any job with a colleague or team member — no CodePlane password required.
+
+1. Open a job's detail page
+2. Click the **Share** button in the toolbar
+3. A link is copied to your clipboard
+
+The share link provides a minimal, non-interactive view showing the job's status, progress headline, and live logs via SSE. Share tokens expire after 24 hours.
+
+Share viewers **cannot** approve actions, send messages, cancel jobs, or access the full workspace.
+
+!!! note "Access scope"
+    Share links bypass CodePlane's password but **not** the tunnel provider's identity gate. The viewer must already be able to reach the server (same tunnel, LAN, or localhost). Share links are designed for team members with tunnel access who shouldn't need the CodePlane password to view a job.
+
+---
+
+## Port Preview
+
+If a job (or you via the terminal) starts a development server on a local port, you can access it remotely through the tunnel:
+
+```
+https://{tunnel-url}/api/preview/{port}/
+```
+
+For example, a Vite dev server on port 5173 would be accessible at `/api/preview/5173/`. Ports must be in the range 1024–65535.
+
 ---
 
 ## Additional Features

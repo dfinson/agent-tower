@@ -137,9 +137,12 @@ Access CodePlane from your phone or any other device:
 ```bash
 cpl up --remote                              # Dev Tunnels (default)
 cpl up --remote --provider cloudflare        # Cloudflare Tunnels
+cpl up --phone                               # shortcut for --remote
 ```
 
 The UI is fully responsive — monitor jobs, approve actions, and send messages from anywhere.
+
+CodePlane is a Progressive Web App — on mobile browsers you can "Add to Home Screen" for a native-like experience with push notifications.
 
 ## What's Next
 

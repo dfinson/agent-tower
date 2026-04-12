@@ -57,6 +57,10 @@ CodePlane turns autonomous coding agents into something observable, controllable
 | Operator intervention | Send messages, cancel, or rerun jobs at any time |
 | Workspace isolation | Every job gets its own isolated worktree under `.codeplane-worktrees/` |
 | Remote access | Dev Tunnels exposes the UI over HTTPS for phone/remote control |
+| PWA & mobile install | Progressive Web App manifest enables install-to-home-screen on phones and tablets |
+| Push notifications | Web Push alerts for approvals, completions, and failures — even with the browser closed |
+| Job sharing | Generate read-only share links for password-free viewing within the existing access boundary |
+| Port preview | Reverse-proxy localhost ports through the tunnel for previewing dev servers remotely |
 | Voice input | Speak prompts, operator instructions, and terminal commands into the browser |
 | Artifact inspection | Browse files, diffs, and produced outputs from every job |
 | Integrated terminal | PTY-backed terminal sessions with optional AI agent assistance |
@@ -2396,9 +2400,51 @@ All errors return a consistent envelope:
 | `APPROVAL_NOT_FOUND` | 404 | Approval ID does not exist |
 | `ARTIFACT_NOT_FOUND` | 404 | Artifact ID does not exist |
 | `FILE_NOT_FOUND` | 404 | Workspace file path does not exist |
+| `SHARE_TOKEN_INVALID` | 404 | Share token does not exist or has expired |
 | `STATE_CONFLICT` | 409 | Action invalid for current job state |
 | `PAYLOAD_TOO_LARGE` | 413 | Upload exceeds size limit |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
+
+### 17.12 Job Sharing
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/jobs/{job_id}/share` | Generate a read-only share token (24 h TTL) |
+| `GET` | `/api/share/{token}/job` | Job detail via share token (bypasses password auth) |
+| `GET` | `/api/share/{token}/events` | SSE stream for the shared job (bypasses password auth) |
+
+#### Create Share Link — Response
+
+```json
+201 Created
+{
+  "token": "dGhpcyBpcyBhIHRva2Vu...",
+  "jobId": "job-104",
+  "url": "https://tunnel-url/shared/dGhpcyBpcyBhIHRva2Vu..."
+}
+```
+
+Share tokens are ephemeral (in-memory, 24-hour TTL). If the server restarts, all tokens are invalidated. Share endpoints bypass CodePlane's password authentication but provide strictly read-only access — no approval, cancel, or message operations are possible.
+
+> **Scope:** Share tokens bypass CodePlane's password gate only. They do **not** bypass tunnel-level identity gates (Dev Tunnels requires Microsoft login; Cloudflare Tunnels requires the Access policy). Share links are useful for giving read-only access to team members who can already reach the server — e.g. via the same tunnel, LAN, or localhost.
+
+### 17.13 Push Notifications
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/notifications/vapid-key` | Fetch the VAPID application server key |
+| `POST` | `/api/notifications/subscribe` | Register a browser push subscription |
+| `POST` | `/api/notifications/unsubscribe` | Remove a push subscription |
+
+Push notification delivery is triggered automatically by the event bus when `approval_requested`, `job_completed`, or `job_failed` events are published. Subscriptions are stored in-memory; clients re-subscribe via the service worker on reconnect.
+
+### 17.14 Port Preview Proxy
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/preview/{port}/{path}` | Reverse-proxy to `127.0.0.1:{port}` |
+
+Ports are restricted to 1024–65535. The proxy only forwards to `127.0.0.1` (no SSRF). Returns `502` if the target port is not listening.
 
 ---
 
@@ -2913,7 +2959,37 @@ The backend enforces CORS:
 
 SSE connections are capped at `max_sse_connections` (default: 5) to prevent resource exhaustion from too many open connections. No per-request rate limiting is applied.
 
-### 21.7 Tunnel Security
+### 21.7 Share Token Security
+
+Share tokens provide **read-only** access to a single job. Security properties:
+
+- Tokens are 256-bit cryptographically random values (`secrets.token_urlsafe(32)`)
+- 24-hour TTL, stored in-memory only (lost on server restart)
+- Share endpoints bypass CodePlane's password authentication but expose only: job metadata, SSE event stream, and progress state
+- No mutation operations are possible via share tokens — approvals, cancellation, messages, and resolution are all blocked
+- The port preview proxy is **not** accessible via share tokens
+- **Share tokens do not bypass tunnel-level identity gates.** Dev Tunnels still requires Microsoft login; Cloudflare Tunnels still requires the Access policy. The viewer must be able to reach the server before the share token matters
+- No audit trail is kept for token creation or access — treat share URLs as sensitive
+
+### 21.8 Push Notification Security
+
+Web Push uses the VAPID (Voluntary Application Server Identification) protocol:
+
+- VAPID EC P-256 key pair generated at first use and persisted in `~/.codeplane/vapid.json` (chmod 600)
+- Browsers verify the VAPID signature on every push message — forged messages are rejected
+- Subscriptions are stored in-memory only; stale subscriptions (HTTP 410/404) are automatically pruned
+- Notification payloads contain only: title, body text, a tag for deduplication, and a relative URL path — no secrets or sensitive data
+
+### 21.9 Port Preview Proxy Security
+
+The reverse proxy enforces strict boundaries:
+
+- Only proxies to `127.0.0.1` — prevents SSRF against internal networks
+- Only ports 1024–65535 — system/privileged ports are blocked
+- Subject to normal password authentication (not accessible via share tokens)
+- Returns `502 Bad Gateway` when the target port is not listening
+
+### 21.10 Tunnel Security
 
 Both tunnel providers enforce HTTPS and require password authentication. The key difference is the relay-level identity gate:
 

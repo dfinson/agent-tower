@@ -145,6 +145,32 @@ Every HTTP response includes:
 - Reconnection replay bounded: max 500 events or 5 minutes
 - Job-scoped streams: clients only receive events for their requested job
 
+### Share Token Security
+
+Share tokens provide **read-only** access to a single job:
+
+- 256-bit cryptographically random tokens (`secrets.token_urlsafe(32)`)
+- 24-hour TTL, stored in-memory only (invalidated on server restart)
+- Share endpoints bypass CodePlane's password auth but expose only job metadata and SSE events
+- Mutation operations (approvals, cancellation, messages, resolution) are not accessible via share tokens
+- The port preview proxy is not accessible via share tokens
+- **Share tokens do not bypass tunnel-level identity gates** — Dev Tunnels still requires Microsoft login; Cloudflare still requires the Access policy
+- No audit trail is kept for token creation or access — treat share URLs as sensitive
+
+### Push Notification Security
+
+- VAPID EC P-256 key pair generated at first use, persisted in `~/.codeplane/vapid.json` (chmod 600)
+- Browsers verify VAPID signatures on push messages — forged messages are rejected
+- Subscriptions stored in-memory; stale subscriptions (HTTP 410/404) auto-pruned
+- Notification payloads contain only: title, body text, a tag, and a relative URL — no secrets
+
+### Port Preview Proxy Security
+
+- Only proxies to `127.0.0.1` — prevents SSRF against internal networks
+- Only ports 1024–65535 — system/privileged ports blocked
+- Requires normal authentication (not accessible via share tokens)
+- Returns 502 when target port is not listening
+
 ## Best Practices
 
 1. **Keep password enabled** for any non-localhost access
@@ -154,6 +180,7 @@ Every HTTP response includes:
 5. **Review approval requests carefully** — agents can be persuasive
 6. **Use defaults on shared networks** — avoid `--host 0.0.0.0` on Wi-Fi you don't control
 7. **Close when done** — CodePlane is a development tool, not a persistent service
+8. **Treat share links as sensitive** — they bypass the CodePlane password for read-only access; tokens expire after 24 hours but can't be revoked individually. The viewer must still pass the tunnel identity gate (if any)
 
 ## Reporting Vulnerabilities
 
