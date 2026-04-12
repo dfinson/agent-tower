@@ -38,6 +38,16 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
+
+  // Offline fallback for navigation requests (HTML pages)
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(() =>
+        caches.match("/").then((cached) => cached || new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } }))
+      )
+    );
+    return;
+  }
 });
 
 // Web Push notification handler
@@ -59,9 +69,10 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = event.notification.data?.url || "/";
   event.waitUntil(
-    self.clients.matchAll({ type: "window" }).then((clients) => {
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
-        if (client.url.includes(url) && "focus" in client) {
+        if (new URL(client.url).pathname === url && "focus" in client) {
+          client.navigate(url);
           return client.focus();
         }
       }

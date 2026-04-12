@@ -31,16 +31,16 @@ def get_or_create_vapid_keys(codeplane_dir: Path) -> dict[str, str]:
 
     vapid = Vapid()
     vapid.generate_keys()
-    raw_private = vapid.private_pem()
     raw_public = vapid.public_key
 
     # Application server key is the raw uncompressed point encoded as URL-safe base64
     import base64
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-    public_key_urlsafe = base64.urlsafe_b64encode(raw_public.public_bytes_raw()).decode().rstrip("=")
-    private_key_urlsafe = base64.urlsafe_b64encode(
-        raw_private if isinstance(raw_private, bytes) else raw_private.encode()
-    ).decode().rstrip("=")
+    public_bytes = raw_public.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+    public_key_urlsafe = base64.urlsafe_b64encode(public_bytes).decode().rstrip("=")
+    private_bytes = vapid.private_key.private_numbers().private_value.to_bytes(32, "big")
+    private_key_urlsafe = base64.urlsafe_b64encode(private_bytes).decode().rstrip("=")
 
     # For pywebpush we need the PEM or raw keys
     keys = {
