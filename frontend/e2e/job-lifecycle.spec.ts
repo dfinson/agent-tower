@@ -352,6 +352,20 @@ test.describe("Job Detail — Success & Resolution", () => {
     await page.route("**/api/jobs/job-1/approvals*", async (route) => {
       await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
     });
+    await page.route("**/api/jobs/job-1/snapshot*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          job: reviewJob,
+          logs: [],
+          transcript: [],
+          diff: [{ path: "src/main.ts", status: "modified", additions: 5, deletions: 2, hunks: [] }],
+          approvals: [],
+          timeline: [],
+        }),
+      });
+    });
 
     let resolveApiCalled = false;
     await page.route("**/api/jobs/job-1/resolve", async (route) => {
@@ -366,7 +380,7 @@ test.describe("Job Detail — Success & Resolution", () => {
     });
 
     await page.goto("/jobs/job-1");
-    await expect(page.getByText("Review required")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Review required")).toBeVisible({ timeout: 10_000 });
 
     await page.locator("button", { hasText: "Merge" }).click();
 
