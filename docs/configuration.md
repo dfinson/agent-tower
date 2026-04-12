@@ -187,4 +187,28 @@ This prevents the `postgres` MCP server from starting for jobs in this repo, eve
 
 ## UI Settings
 
-Additional preferences are available in **Settings** (`Ctrl+,`): registered repositories, default agent, and model preferences.
+Additional preferences are available in **Settings** (`Ctrl+,`): registered repositories, default agent, model preferences, and push notification settings.
+
+### Push Notifications
+
+Toggle push notifications in **Settings → Notifications**. Notifications are delivered via the Web Push protocol. When enabled for the first time, your browser will ask for permission.
+
+VAPID keys are generated automatically on first startup and stored in `~/.codeplane/vapid.json`. No manual configuration is required.
+
+Notifications fire on three events:
+
+| Event | Notification |
+|-------|--------------|
+| `approval_requested` | "Approval needed" — a job is waiting for your decision |
+| `job_completed` | "Job completed" — the agent finished |
+| `job_failed` | "Job failed" — the run encountered an error |
+
+### Job Sharing
+
+Share tokens are generated on demand from the job detail toolbar (**Share** button). Tokens expire after 24 hours and are stored in-memory — a server restart invalidates all tokens.
+
+Shared links bypass CodePlane's password for read-only access to job status and live events. The viewer must still be able to reach the server (e.g. via the same tunnel or LAN). No configuration is required.
+
+### Port Preview Proxy
+
+A reverse proxy at `/api/preview/{port}/` forwards to `127.0.0.1:{port}`. This is useful when combined with `--remote` to access development servers from another device. Only ports 1024–65535 are allowed.

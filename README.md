@@ -39,6 +39,8 @@ Open `http://localhost:8080`, register a repository in Settings, and create your
 
 - **Headless** — Runs as a standalone server, no editor session required. Start a task and close your laptop
 - **Remote & mobile** — Pick up from your phone via Dev Tunnels or Cloudflare Tunnels — approve, review, and steer from anywhere
+- **PWA & push notifications** — Install to your home screen; get notified when a job needs approval, completes, or fails
+- **Job sharing** — Generate read-only share links so team members can watch a job without the CodePlane password
 - **Deep visibility** — Watch agent reasoning, tool calls, plan progress, diffs, and costs streaming in real time — not a summary after the fact
 - **Approval gates** — Risky operations (file writes, shell commands) pause for your review
 - **Diff review & merge** — Syntax-highlighted diffs, workspace browsing, merge/PR/discard controls
@@ -51,6 +53,7 @@ Open `http://localhost:8080`, register a repository in Settings, and create your
 ```bash
 cpl up                                       # start server
 cpl up --remote                              # enable Dev Tunnels for remote access
+cpl up --phone                               # shortcut for --remote
 cpl up --remote --provider cloudflare        # use Cloudflare Tunnel
 cpl up --port 9090                           # custom port
 cpl down                                     # stop server

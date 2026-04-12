@@ -60,3 +60,17 @@ When an agent tries to perform a risky action (file write, shell command), the a
 ## Data Storage
 
 CodePlane stores job data, events, and metrics in a local SQLite database at `~/.codeplane/`. No data leaves your machine unless you explicitly configure OTEL export or create a PR on a remote.
+
+## Sharing & Public Access
+
+Jobs can be shared via **share tokens** — ephemeral, read-only authorization strings. A share token grants access to a single job's metadata and SSE stream without requiring authentication. Tokens are stored in-memory with a 24-hour TTL and are lost on server restart.
+
+Public share endpoints serve a minimal read-only view. No mutation operations (approvals, messages, cancellation) are exposed.
+
+## Push Notifications
+
+CodePlane uses the **Web Push** protocol (VAPID) to deliver browser notifications for approval requests, job completions, and failures. VAPID keys are generated at first startup and stored in `~/.codeplane/vapid.json`. Subscriptions are managed in-memory — the service worker re-subscribes automatically after a server restart.
+
+## Port Preview Proxy
+
+The backend includes a reverse proxy that forwards requests from `/api/preview/{port}/` to `127.0.0.1:{port}`. Combined with a tunnel, this lets you access development servers running on the workstation from a remote device. Only user ports (1024–65535) are allowed; the proxy never connects to external hosts (SSRF protection).

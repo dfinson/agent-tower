@@ -21,6 +21,7 @@ cpl up [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--remote` | Enable Dev Tunnels for remote access | disabled |
+| `--phone` | Shortcut for `--remote` (same behavior, convenient alias) | disabled |
 | `--dev` | Skip frontend build (backend-only development) | disabled |
 | `--port PORT` | Server port | `8080` |
 | `--password SECRET` | Remote access password | from `CPL_PASSWORD` env var |

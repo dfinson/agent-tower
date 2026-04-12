@@ -134,3 +134,29 @@ See [SSE Events](sse-events.md) for event type documentation.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/settings/browse` | Browse filesystem directories (query: `path`) |
+
+## Push Notifications
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/notifications/vapid-key` | Get VAPID application server key for browser push subscriptions |
+| `POST` | `/api/notifications/subscribe` | Register a browser push subscription |
+| `POST` | `/api/notifications/unsubscribe` | Remove a push subscription (body: `{"endpoint": "..."}`) |
+
+Push notifications are sent automatically when `approval_requested`, `job_completed`, or `job_failed` events fire.
+
+## Job Sharing
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/jobs/{job_id}/share` | Generate a read-only share token (24 h TTL) |
+| `GET` | `/api/share/{token}/job` | Job detail via share token (bypasses password auth) |
+| `GET` | `/api/share/{token}/events` | SSE stream for shared job (bypasses password auth) |
+
+Share endpoints bypass CodePlane's password but not tunnel-level identity gates. Strictly read-only — no mutation operations are available.
+
+## Port Preview Proxy
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/preview/{port}/{path}` | Reverse-proxy to `127.0.0.1:{port}` (ports 1024–65535 only) |
