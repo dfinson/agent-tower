@@ -317,13 +317,18 @@ export function JobDetailScreen() {
   const jobState = job?.state;
   useEffect(() => {
     if (!jobId) return;
+    let cancelled = false;
     fetchJobDiff(jobId)
       .then((files) => {
+        if (cancelled) return;
         useStore.setState((s) => ({
           diffs: { ...s.diffs, [jobId]: files },
         }));
       })
-      .catch((err) => console.error("Failed to fetch job diff", err));
+      .catch((err) => {
+        if (!cancelled) console.error("Failed to fetch job diff", err);
+      });
+    return () => { cancelled = true; };
   }, [jobId, jobState]);
 
   const doCancelJob = useCallback(async () => {

@@ -48,18 +48,23 @@ export function DashboardScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     fetchJobs({ limit: 100, archived: false })
       .then((result) => {
+        if (cancelled) return;
         useStore.setState((state) => {
           const updated = { ...state.jobs };
           for (const job of result.items) updated[job.id] = enrichJob(job as JobSummary);
           return { jobs: updated };
         });
       })
-      .catch((err) => console.error("Failed to fetch jobs", err))
+      .catch((err) => {
+        if (!cancelled) console.error("Failed to fetch jobs", err);
+      })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+    return () => { cancelled = true; };
   }, []);
 
   if (loading && !hasJobs) return <KanbanSkeleton />;

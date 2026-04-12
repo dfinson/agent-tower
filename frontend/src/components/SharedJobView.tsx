@@ -77,6 +77,13 @@ export function SharedJobView() {
       } catch { /* ignore parse errors */ }
     });
 
+    es.onerror = () => {
+      // EventSource will auto-reconnect, but if readyState is CLOSED the link is dead
+      if (es.readyState === EventSource.CLOSED) {
+        setError("Connection lost — share link may have expired");
+      }
+    };
+
     return () => es.close();
   }, [token, job?.id]);
 
@@ -134,7 +141,7 @@ export function SharedJobView() {
           <p className="text-sm text-muted-foreground mb-3">{job.description ?? job.prompt}</p>
         )}
 
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-x-6 gap-y-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-x-6 gap-y-2 text-sm">
           {[
             ["Branch", job.branch ?? "\u2014"],
             ["Base", job.baseRef],
@@ -151,23 +158,27 @@ export function SharedJobView() {
 
         {job.failureReason && (
           <div className="mt-3 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
-            <p className="text-sm text-destructive">{job.failureReason}</p>
+            <p className="text-sm text-destructive whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto">{job.failureReason}</p>
           </div>
         )}
       </div>
 
       {/* Live logs */}
-      {logs.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <h2 className="text-sm font-semibold mb-3">Live Logs</h2>
-          <div className="bg-background rounded-md p-3 max-h-96 overflow-y-auto font-mono text-[13px] sm:text-xs leading-relaxed">
+      <div className="rounded-lg border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold mb-3">Live Logs</h2>
+        {logs.length > 0 ? (
+          <div className="bg-background rounded-md p-3 max-h-[50vh] sm:max-h-96 overflow-y-auto font-mono text-[13px] sm:text-xs leading-relaxed">
             {logs.map((line, i) => (
               <div key={`log-${i}`} className="text-muted-foreground whitespace-pre-wrap">{line}</div>
             ))}
             <div ref={logsEndRef} />
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            {["running", "agent_running", "queued"].includes(job.state) ? "Waiting for logs…" : "No logs recorded."}
+          </p>
+        )}
+      </div>
       </main>
     </div>
   );

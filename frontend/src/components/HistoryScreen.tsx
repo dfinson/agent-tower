@@ -30,9 +30,11 @@ export function HistoryScreen() {
 
   // Load archived jobs on mount
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     fetchJobs({ state: "review,completed,failed,canceled", limit: 100, archived: true } as Parameters<typeof fetchJobs>[0])
       .then((result) => {
+        if (cancelled) return;
         useStore.setState((state) => {
           const updated = { ...state.jobs };
           for (const job of result.items) updated[job.id] = enrichJob(job as JobSummary);
@@ -41,8 +43,13 @@ export function HistoryScreen() {
         setCursor(result.cursor);
         setHasMore(result.hasMore);
       })
-      .catch((err) => console.error("Failed to fetch job history", err))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (!cancelled) console.error("Failed to fetch job history", err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const loadMore = useCallback(async () => {
@@ -98,7 +105,7 @@ export function HistoryScreen() {
             placeholder="Search by title, prompt, repo..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 h-8 text-sm"
+            className="pl-8 h-8 sm:h-8 min-h-[44px] sm:min-h-0 text-sm"
             aria-label="Search jobs"
           />
         </div>
@@ -154,7 +161,7 @@ function HistoryRow({ job, onNavigate }: { job: JobSummary; onNavigate: () => vo
 
   return (
     <button
-      className="w-full flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left cursor-pointer hover:border-primary/60 hover:bg-accent transition-colors"
+      className="w-full flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left cursor-pointer hover:border-primary/60 hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
       onClick={onNavigate}
     >
       <div className="flex-1 min-w-0">
@@ -172,7 +179,7 @@ function HistoryRow({ job, onNavigate }: { job: JobSummary; onNavigate: () => vo
           <span className="font-mono">{job.id}</span>
           {job.completedAt && <span>{new Date(job.completedAt).toLocaleDateString()}</span>}
         </div>
-        <p className="text-xs text-foreground/60 truncate mt-0.5">{job.prompt}</p>
+        <p className="text-xs text-foreground/60 truncate mt-0.5" title={job.prompt}>{job.prompt}</p>
       </div>
     </button>
   );

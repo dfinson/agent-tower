@@ -81,7 +81,7 @@ function TreeNode({ entry, depth, selected, onSelect, jobId, isMobile, diffMap, 
         type="button"
         onClick={handleToggle}
         className={cn(
-          "flex items-center gap-1.5 py-1 px-2 rounded text-sm w-full transition-colors text-left",
+          "flex items-center gap-1.5 py-1 sm:py-1 min-h-[44px] sm:min-h-0 px-2 rounded text-sm w-full transition-colors text-left",
           selected === entry.path ? "bg-accent" : "hover:bg-accent/50",
         )}
         style={{ paddingLeft: depth * 16 + 8 }}

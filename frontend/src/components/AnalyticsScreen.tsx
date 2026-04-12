@@ -404,7 +404,7 @@ function ObservationsPanel({ observations, onDismiss }: { observations: Observat
             </div>
             <button
               onClick={() => onDismiss(obs.id)}
-              className="shrink-0 p-1 rounded hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
+              className="shrink-0 p-1 sm:p-1 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 rounded hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center"
               aria-label="Dismiss observation"
             >
               <X size={14} aria-hidden="true" />

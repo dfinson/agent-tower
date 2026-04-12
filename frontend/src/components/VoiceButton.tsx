@@ -130,7 +130,7 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown, onS
                   onClick={handleToggle}
                   disabled={state === "transcribing"}
                   aria-label={state === "transcribing" ? "Transcribing audio" : "Voice input"}
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  className="h-8 w-8 sm:h-8 sm:w-8 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {state === "transcribing" ? <Spinner size="sm" /> : <Mic size={16} />}
                 </button>
@@ -151,7 +151,7 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown, onS
             <button
               type="button"
               onClick={handleToggle}
-              className="h-9 w-9 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80 transition-colors"
+              className="h-11 w-11 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80 transition-colors"
             >
               <Square size={18} />
             </button>
