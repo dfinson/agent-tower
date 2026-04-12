@@ -261,6 +261,12 @@ function buildFeedItems(
 function clusterToolCalls(calls: TranscriptEntry[]): ActionCluster[] {
   if (calls.length === 0) return [];
 
+  // For file-based kinds, count unique files rather than total operations
+  const countForLabel = (kind: ClusterKind, entries: TranscriptEntry[]): number =>
+    (kind === "read" || kind === "write" || kind === "create")
+      ? new Set(entries.map(e => extractFileKey(e))).size
+      : entries.length;
+
   // Filter out file operations on artifact/temp paths (not in the repo worktree)
   const filtered = calls.filter((call) => {
     const kind = classifyTool(call.toolName);
@@ -281,7 +287,7 @@ function clusterToolCalls(calls: TranscriptEntry[]): ActionCluster[] {
     // "other" tools never cluster — each gets its own chip with its toolDisplay label
     if (kind === "other") {
       if (currentKind !== null && currentEntries.length > 0) {
-        clusters.push({ kind: currentKind, label: clusterLabel(currentKind, currentEntries.length), entries: currentEntries });
+        clusters.push({ kind: currentKind, label: clusterLabel(currentKind, countForLabel(currentKind, currentEntries)), entries: currentEntries });
         currentKind = null;
         currentEntries = [];
       }
@@ -291,14 +297,14 @@ function clusterToolCalls(calls: TranscriptEntry[]): ActionCluster[] {
       currentEntries.push(call);
     } else {
       if (currentKind !== null && currentEntries.length > 0) {
-        clusters.push({ kind: currentKind, label: clusterLabel(currentKind, currentEntries.length), entries: currentEntries });
+        clusters.push({ kind: currentKind, label: clusterLabel(currentKind, countForLabel(currentKind, currentEntries)), entries: currentEntries });
       }
       currentKind = kind;
       currentEntries = [call];
     }
   }
   if (currentKind !== null && currentEntries.length > 0) {
-    clusters.push({ kind: currentKind, label: clusterLabel(currentKind, currentEntries.length), entries: currentEntries });
+    clusters.push({ kind: currentKind, label: clusterLabel(currentKind, countForLabel(currentKind, currentEntries)), entries: currentEntries });
   }
 
   return clusters;
@@ -973,8 +979,6 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   sdk,
   isStreaming,
   streamingText,
-  isLastTurn,
-  isJobLive,
   onViewStepChanges,
 }: {
   turn: AgentTurn;
@@ -982,14 +986,11 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   sdk?: string;
   isStreaming?: boolean;
   streamingText?: string;
-  isLastTurn?: boolean;
-  isJobLive?: boolean;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
   const hasTools = clusters.length > 0;
   const messageContent = turn.message?.content?.trim() ?? "";
   const displayMessage = streamingText || messageContent;
-  const turnComplete = !!turn.message;
   const hasMessage = !!displayMessage;
   const hasReasoning = !!turn.reasoning?.content;
 
@@ -1003,12 +1004,11 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
               return <SubAgentBubble key={i} cluster={c} sdk={sdk} />;
             }
             // Last cluster in an active turn → expanded
-            const isActivePhase = !turnComplete && !!isLastTurn && !!isJobLive && i === clusters.length - 1;
             return (
               <PhaseBox
                 key={i}
                 cluster={c}
-                defaultExpanded={isActivePhase}
+                defaultExpanded={true}
                 onViewStepChanges={onViewStepChanges}
               />
             );
@@ -1075,7 +1075,7 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
       {clusters.map((c, i) => (
         c.kind === "agent"
           ? <SubAgentBubble key={i} cluster={c} sdk={sdk} />
-          : <PhaseBox key={i} cluster={c} defaultExpanded={false} onViewStepChanges={onViewStepChanges} />
+          : <PhaseBox key={i} cluster={c} defaultExpanded={true} onViewStepChanges={onViewStepChanges} />
       ))}
       {turn.reasoning?.content && (
         <div className="mt-1">
@@ -1557,7 +1557,6 @@ export function CuratedFeed({
                       sdk={sdk}
                       streamingMessages={streamingMessages}
                       isJobLive={isJobLive}
-                      isLast={vItem.index === feedItems.length - 1}
                       onViewStepChanges={onViewStepChanges}
                     />
                   </SearchHighlightCtx.Provider>
@@ -1643,7 +1642,6 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
   sdk,
   streamingMessages,
   isJobLive,
-  isLast,
   onViewStepChanges,
 }: {
   item: FeedItem;
@@ -1651,7 +1649,6 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
   sdk?: string;
   streamingMessages: Record<string, string>;
   isJobLive: boolean;
-  isLast: boolean;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
   switch (item.type) {
@@ -1668,8 +1665,6 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
           sdk={sdk}
           isStreaming={isStreaming}
           streamingText={streamingText}
-          isLastTurn={isLast}
-          isJobLive={isJobLive}
           onViewStepChanges={onViewStepChanges}
         />
       );
