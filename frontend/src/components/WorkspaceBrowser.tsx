@@ -368,6 +368,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
                 onMount={handleEditorMount}
                 options={{
                   readOnly: true,
+                  domReadOnly: true,
                   minimap: { enabled: false },
                   scrollBeyondLastLine: false,
                   fontSize: 13,
