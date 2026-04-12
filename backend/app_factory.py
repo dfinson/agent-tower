@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
 from backend import __version__
-from backend.api import analytics, approvals, artifacts, events, health, jobs, settings, terminal, voice, workspace
+from backend.api import analytics, approvals, artifacts, events, health, jobs, notifications, preview, settings, share, terminal, voice, workspace
 from backend.lifespan import lifespan
 from backend.services.agent_adapter import SDKModelMismatchError
 from backend.services.approval_service import ApprovalAlreadyResolvedError, ApprovalNotFoundError
@@ -172,8 +172,13 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(voice.router, prefix="/api")
     app.include_router(settings.router, prefix="/api")
     app.include_router(analytics.router, prefix="/api")
+    app.include_router(notifications.router, prefix="/api")
     # Terminal router has its own /api/terminal prefix
     app.include_router(terminal.router)
+    # Port preview proxy
+    app.include_router(preview.router, prefix="/api")
+    # Job sharing (read-only via share tokens)
+    app.include_router(share.router, prefix="/api")
 
 
 def _register_domain_exception_handlers(app: FastAPI) -> None:

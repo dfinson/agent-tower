@@ -8,6 +8,11 @@ import { App } from "./App";
 import { useStore } from "./store";
 import "./index.css";
 
+// Register service worker for PWA + push notifications
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
 // Expose the store for e2e test assertions.
 (window as unknown as Record<string, unknown>)["__cpl__"] = { store: useStore };
 
