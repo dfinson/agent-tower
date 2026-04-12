@@ -307,7 +307,7 @@ export function JobCreationScreen() {
                   <button
                     type="button"
                     onClick={() => setPermissionMode(value)}
-                    className={`flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    className={`flex-1 rounded-md border px-3 py-1.5 sm:py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium transition-colors ${
                       permissionMode === value
                         ? "border-primary bg-primary text-primary-foreground"
                         : "border-border bg-transparent text-muted-foreground hover:text-foreground hover:border-foreground/40"

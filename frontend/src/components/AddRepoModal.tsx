@@ -214,8 +214,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                           <button
                             type="button"
                             onClick={() => loadCloneDirectory(cloneBrowseParent)}
-                            className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-                          >
+                            className="p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center"                          >
                             <ArrowUp size={14} />
                           </button>
                         )}
@@ -243,7 +242,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                               <button
                                 key={entry.path}
                                 type="button"
-                                className="flex w-full items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-left"
+                                className="flex w-full items-center gap-2 px-2 py-1.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded hover:bg-accent cursor-pointer text-left"
                                 onClick={() => loadCloneDirectory(entry.path)}
                               >
                                 <FolderOpen size={14} className="text-yellow-500 shrink-0" />
@@ -273,7 +272,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                   <button
                     type="button"
                     onClick={() => loadDirectory(browseParent)}
-                    className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                    className="p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center"
                   >
                     <ArrowUp size={14} />
                   </button>
@@ -296,7 +295,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                         <button
                           key={entry.path}
                           type="button"
-                          className="flex w-full items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-left"
+                          className="flex w-full items-center justify-between gap-2 px-2 py-1.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded hover:bg-accent cursor-pointer text-left"
                           onClick={() =>
                             isGit ? handleAdd(entry.path) : loadDirectory(entry.path)
                           }
@@ -329,7 +328,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                       <button
                         type="button"
                         onClick={() => loadCreateDirectory(createBrowseParent)}
-                        className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                        className="p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center"
                       >
                         <ArrowUp size={14} />
                       </button>
@@ -349,7 +348,7 @@ export function AddRepoModal({ opened, onClose, onAdded }: AddRepoModalProps) {
                           <button
                             key={entry.path}
                             type="button"
-                            className="flex w-full items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer text-left"
+                            className="flex w-full items-center gap-2 px-2 py-1.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded hover:bg-accent cursor-pointer text-left"
                             onClick={() => loadCreateDirectory(entry.path)}
                           >
                             <FolderOpen size={14} className="text-yellow-500 shrink-0" />

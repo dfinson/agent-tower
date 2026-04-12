@@ -505,11 +505,11 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
               </>
             ) : "Showing all changes"}
           </span>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex items-center gap-1.5 shrink-0">
             <button
               onClick={() => setShowAllChanges(!showAllChanges)}
               className={cn(
-                "px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
+                "px-2 py-1 sm:py-0.5 rounded text-[11px] font-medium transition-colors min-h-[44px] sm:min-h-0",
                 isFiltered
                   ? "bg-primary/15 text-primary border border-primary/30"
                   : "bg-muted/30 text-muted-foreground hover:bg-accent/40 border border-transparent",
@@ -520,7 +520,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
             <button
               onClick={() => setShowAllChanges(!showAllChanges)}
               className={cn(
-                "px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
+                "px-2 py-1 sm:py-0.5 rounded text-[11px] font-medium transition-colors min-h-[44px] sm:min-h-0",
                 !isFiltered
                   ? "bg-primary/15 text-primary border border-primary/30"
                   : "bg-muted/30 text-muted-foreground hover:bg-accent/40 border border-transparent",
@@ -530,7 +530,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
             </button>
             <button
               onClick={onClearStepFilter}
-              className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground transition-colors ml-1"
+              className="p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground transition-colors ml-1"
               title="Clear filter"
             >
               <X size={13} />

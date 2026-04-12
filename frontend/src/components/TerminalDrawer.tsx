@@ -95,7 +95,7 @@ export function TerminalDrawer() {
     >
       {/* Drag handle */}
       <div
-        className="h-3 cursor-row-resize hover:bg-primary/30 transition-colors shrink-0 flex items-center justify-center touch-none"
+        className="h-6 cursor-row-resize hover:bg-primary/30 transition-colors shrink-0 flex items-center justify-center touch-none"
         {...dragHandlers}
       >
         <div className="w-8 h-0.5 bg-muted-foreground/30 rounded-full" />
@@ -139,7 +139,7 @@ export function TerminalDrawer() {
               type="button"
               onClick={(e) => handleCloseSession(session.id, e)}
               aria-label="Close terminal tab"
-              className="ml-0.5 p-1.5 rounded hover:bg-muted-foreground/20"
+              className="ml-0.5 p-1.5 sm:p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 rounded hover:bg-muted-foreground/20 flex items-center justify-center"
             >
               <X size={12} aria-hidden="true" />
             </button>

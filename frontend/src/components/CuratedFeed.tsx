@@ -1152,7 +1152,7 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
                 variant="outline"
                 onClick={() => handleResolve("approved")}
                 disabled={!!resolving}
-                className="text-xs h-7 border-emerald-700/40 text-emerald-400 hover:bg-emerald-950/30"
+                className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-emerald-700/40 text-emerald-400 hover:bg-emerald-950/30"
               >
                 {resolving === "approved" ? <Spinner className="w-3 h-3" /> : "Approve"}
               </Button>
@@ -1161,7 +1161,7 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
                 variant="outline"
                 onClick={() => handleResolve("rejected")}
                 disabled={!!resolving}
-                className="text-xs h-7 border-red-700/40 text-red-400 hover:bg-red-950/30"
+                className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-red-700/40 text-red-400 hover:bg-red-950/30"
               >
                 {resolving === "rejected" ? <Spinner className="w-3 h-3" /> : "Reject"}
               </Button>
@@ -1499,15 +1499,15 @@ export function CuratedFeed({
                 )}
                 {matchCount !== null && matchCount > 0 && (
                   <div className="flex items-center shrink-0">
-                    <button onClick={prevMatch} className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground" aria-label="Previous match">
+                    <button onClick={prevMatch} className="p-1.5 min-h-[44px] min-w-[32px] flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground" aria-label="Previous match">
                       <ChevronUp size={14} />
                     </button>
-                    <button onClick={nextMatch} className="p-0.5 text-muted-foreground/50 hover:text-muted-foreground" aria-label="Next match">
+                    <button onClick={nextMatch} className="p-1.5 min-h-[44px] min-w-[32px] flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground" aria-label="Next match">
                       <ChevronDown size={14} />
                     </button>
                   </div>
                 )}
-                <button onClick={() => { setSearchOpen(false); setSearchQuery(""); onSearchHighlightRef.current?.(null); }} className="text-muted-foreground/40 hover:text-muted-foreground shrink-0">
+                <button onClick={() => { setSearchOpen(false); setSearchQuery(""); onSearchHighlightRef.current?.(null); }} className="p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground shrink-0">
                   <X size={14} />
                 </button>
               </>
