@@ -174,15 +174,16 @@ test.describe("Transcript — Activity Timeline", () => {
     await page.goto("/jobs/job-1");
     await expect(page.getByText("job-1", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
-    // ActivityTimeline sidebar shows activity labels
+    // ActivityTimeline sidebar shows activity labels (use getByRole to skip
+    // hidden mobile-strip duplicates that share the active label text).
     await expect(
-      page.getByText("Investigating the bug").first(),
+      page.getByRole("button", { name: "Investigating the bug" }),
     ).toBeVisible({ timeout: 5_000 });
     await expect(
-      page.getByText("Fixing authentication").first(),
+      page.getByRole("button", { name: "Fixing authentication" }),
     ).toBeVisible();
-      await expect(
-      page.getByText("Adding tests").first(),
+    await expect(
+      page.getByRole("button", { name: "Adding tests" }),
     ).toBeVisible();
   });
 
@@ -205,7 +206,7 @@ test.describe("Transcript — Activity Timeline", () => {
 
     // The last activity "Adding tests" should be active
     await expect(
-      page.getByText("Adding tests").first(),
+      page.getByRole("button", { name: "Adding tests" }),
     ).toBeVisible({ timeout: 5_000 });
   });
 });

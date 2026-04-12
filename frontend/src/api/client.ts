@@ -965,4 +965,20 @@ export function createShareLink(jobId: string): Promise<{ token: string; jobId: 
   return request(`/jobs/${jobId}/share`, { method: "POST" });
 }
 
+export function fetchSharedSnapshot(token: string): Promise<{
+  job: import("../store").JobSummary;
+  logs: import("../store").LogLine[];
+  transcript: import("../store").TranscriptEntry[];
+  diff: DiffFileModel[];
+  approvals: import("../store").ApprovalRequest[];
+  timeline: import("../store").TimelineEntry[];
+  turnSummaries?: Array<Record<string, unknown>>;
+}> {
+  return request(`/share/${encodeURIComponent(token)}/snapshot`);
+}
+
+export function fetchSharedTelemetry(token: string): Promise<Record<string, unknown>> {
+  return request(`/share/${encodeURIComponent(token)}/telemetry`);
+}
+
 export { ApiError };

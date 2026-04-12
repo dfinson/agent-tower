@@ -1,84 +1,119 @@
 /**
  * Read-only shared job view — accessed via /shared/:token.
  *
- * Fetches job data through the share token endpoints and displays a
- * minimal, non-interactive view of the job status, logs, and diff.
+ * Fetches a full snapshot through the share token, hydrates the Zustand
+ * store, and reuses the same rich components (CuratedFeed, DiffViewer)
+ * as the main job detail screen — in read-only mode.
  */
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, Suspense, Component, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import type { Job } from "../api/types";
+import { useStore, enrichJob } from "../store";
+import type { JobSummary } from "../store";
+import { fetchSharedSnapshot } from "../api/client";
+import { CuratedFeed } from "./CuratedFeed";
+import { ActivityTimeline } from "./ActivityTimeline";
 import { StateBadge } from "./StateBadge";
+import { SdkBadge } from "./SdkBadge";
 import { Spinner } from "./ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import { cn } from "../lib/utils";
+import { lazyRetry } from "../lib/lazyRetry";
+import { GitBranch, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
-/** Extended job with fields populated from SSE events. */
-interface SharedJob extends Job {
-  progressHeadline?: string | null;
-  description?: string | null;
-}
+const DiffViewer = lazyRetry(() => import("./DiffViewer"));
 
 const BASE = "/api";
 
+/** Terminal job states where the agent is no longer working. */
+const TERMINAL_STATES = new Set(["review", "completed", "failed", "canceled", "archived"]);
+
+/** Min sidebar width for the activity timeline drag-resize. */
+const MIN_SIDEBAR_W = 160;
+const MAX_SIDEBAR_W = 480;
+const DEFAULT_SIDEBAR_W = 260;
+
+/** Error boundary for lazy-loaded tabs. */
+class TabErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 gap-3">
+          <p className="text-sm text-muted-foreground">This panel failed to load.</p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="px-3 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function SharedJobView() {
   const { token } = useParams<{ token: string }>();
-  const [job, setJob] = useState<SharedJob | null>(null);
+  const [job, setJob] = useState<JobSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("live");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_W);
+  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
+  const sidebarResizing = useRef(false);
 
-  // Fetch job data
+  // Fetch snapshot and hydrate store
   useEffect(() => {
     if (!token) return;
-    fetch(`${BASE}/share/${token}/job`)
-      .then((r) => {
-        if (!r.ok) throw new Error(r.status === 404 ? "Share link expired or invalid" : "Failed to load job");
-        return r.json();
+    let cancelled = false;
+
+    fetchSharedSnapshot(token)
+      .then((snapshot) => {
+        if (cancelled) return;
+        useStore.getState().hydrateJob(snapshot);
+        setJob(enrichJob(snapshot.job));
+        setLoading(false);
       })
-      .then(setJob)
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e.status === 404 ? "Share link expired or invalid" : "Failed to load shared job");
+        setLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, [token]);
 
-  // SSE event stream
+  // SSE for live updates via share endpoint
   useEffect(() => {
     if (!token || !job) return;
-    const es = new EventSource(`${BASE}/share/${token}/events`);
+    const { dispatchSSEEvent } = useStore.getState();
 
-    es.addEventListener("job_state_changed", (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        setJob((prev) => prev ? { ...prev, state: data.new_state ?? data.state ?? prev.state } : prev);
-      } catch { /* ignore parse errors */ }
-    });
+    const es = new EventSource(`${BASE}/share/${encodeURIComponent(token)}/events`);
 
-    es.addEventListener("log_line_emitted", (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.message) {
-          setLogs((prev) => [...prev.slice(-999), data.message]);
-        }
-      } catch { /* ignore parse errors */ }
-    });
+    const eventTypes = [
+      "job_state_changed", "log_line", "transcript_update", "diff_update",
+      "approval_requested", "approval_resolved", "session_heartbeat",
+      "snapshot", "job_review", "job_completed", "job_failed", "job_resolved",
+      "job_archived", "session_resumed", "job_title_updated", "model_downgraded",
+      "tool_group_summary", "merge_completed", "merge_conflict",
+      "telemetry_updated", "plan_step_updated", "turn_summary",
+    ];
 
-    es.addEventListener("progress_headline", (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        setJob((prev) => prev ? { ...prev, progressHeadline: data.headline } : prev);
-      } catch { /* ignore parse errors */ }
-    });
-
-    es.addEventListener("job_completed", () => {
-      setJob((prev) => prev ? { ...prev, state: "completed" } : prev);
-    });
-
-    es.addEventListener("job_failed", (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        setJob((prev) => prev ? { ...prev, state: "failed", failureReason: data.reason } : prev);
-      } catch { /* ignore parse errors */ }
-    });
+    for (const eventType of eventTypes) {
+      es.addEventListener(eventType, (ev: MessageEvent) => {
+        try {
+          const data: unknown = JSON.parse(ev.data as string);
+          setTimeout(() => dispatchSSEEvent(eventType, data), 0);
+        } catch { /* ignore */ }
+      });
+    }
 
     es.onerror = () => {
-      // EventSource will auto-reconnect, but if readyState is CLOSED the link is dead
       if (es.readyState === EventSource.CLOSED) {
         setError("Connection lost — share link may have expired");
       }
@@ -87,14 +122,31 @@ export function SharedJobView() {
     return () => es.close();
   }, [token, job?.id]);
 
-  // Auto-scroll logs
-  const scrollToBottom = useCallback(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
+  // Keep local job state in sync with store updates
+  const storeJob = useStore((s) => job ? s.jobs[job.id] : undefined);
   useEffect(() => {
-    scrollToBottom();
-  }, [logs, scrollToBottom]);
+    if (storeJob) setJob(storeJob);
+  }, [storeJob]);
+
+  // Sidebar resize handler
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    sidebarResizing.current = true;
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!sidebarResizing.current) return;
+      const newW = Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, startW + ev.clientX - startX));
+      setSidebarWidth(newW);
+    };
+    const onUp = () => {
+      sidebarResizing.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [sidebarWidth]);
 
   if (error) {
     return (
@@ -105,7 +157,7 @@ export function SharedJobView() {
     );
   }
 
-  if (!job) {
+  if (loading || !job) {
     return (
       <div className="flex justify-center py-20">
         <Spinner size="lg" />
@@ -113,27 +165,32 @@ export function SharedJobView() {
     );
   }
 
+  const isRunning = !TERMINAL_STATES.has(job.state);
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-[1400px] mx-auto px-4 py-6">
+      {/* Breadcrumb */}
       <nav aria-label="Breadcrumb" className="mb-2">
-        <ol className="flex items-center gap-2 text-xs sm:text-xs text-sm text-muted-foreground">
+        <ol className="flex items-center gap-2 text-xs text-muted-foreground">
           <li>CodePlane</li>
           <li aria-hidden="true" className="text-muted-foreground/50">/</li>
           <li aria-current="page">Shared View</li>
         </ol>
       </nav>
 
-      <main>
       {/* Job header */}
       <div className="rounded-lg border border-border bg-card p-5 mb-4">
         <div className="flex items-center justify-between gap-3 mb-3">
-          <h1 className="text-lg font-bold text-foreground break-words">
-            {job.title || job.id}
-          </h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-lg font-bold text-foreground break-words">
+              {job.title || job.id}
+            </h1>
+            {job.sdk && <SdkBadge sdk={job.sdk} />}
+          </div>
           <span aria-live="polite"><StateBadge state={job.state} /></span>
         </div>
 
-        {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
+        {job.progressHeadline && isRunning && (
           <p className="text-sm italic text-primary/70 mb-3">{job.progressHeadline}</p>
         )}
 
@@ -163,23 +220,95 @@ export function SharedJobView() {
         )}
       </div>
 
-      {/* Live logs */}
-      <div className="rounded-lg border border-border bg-card p-4">
-        <h2 className="text-sm font-semibold mb-3">Live Logs</h2>
-        {logs.length > 0 ? (
-          <div className="bg-background rounded-md p-3 max-h-[50vh] sm:max-h-96 overflow-y-auto font-mono text-[13px] sm:text-xs leading-relaxed">
-            {logs.map((line, i) => (
-              <div key={`log-${i}`} className="text-muted-foreground whitespace-pre-wrap">{line}</div>
-            ))}
-            <div ref={logsEndRef} />
+      {/* Tabs */}
+      <Tabs value={tab} onValueChange={setTab} className="mb-4">
+        <TabsList>
+          <TabsTrigger value="live">Live</TabsTrigger>
+          <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {/* Tab content */}
+      <div className="min-h-[80dvh]">
+        {tab === "live" && (
+          <div className="flex flex-row">
+            {/* Activity Timeline sidebar */}
+            <div
+              className={cn(
+                "hidden lg:flex flex-col flex-shrink-0 h-[80dvh] min-h-[22rem] rounded-lg border border-border bg-card overflow-hidden",
+                sidebarCollapsed && "w-10",
+              )}
+              style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
+            >
+              {sidebarCollapsed ? (
+                <button
+                  onClick={() => setSidebarCollapsed(false)}
+                  className="flex items-center justify-center h-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  title="Expand activity timeline"
+                >
+                  <PanelLeftOpen size={18} />
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setSidebarCollapsed(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-border hover:bg-accent/50 transition-colors"
+                    title="Collapse activity timeline"
+                  >
+                    <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
+                    <span className="text-sm font-semibold text-muted-foreground">Activity</span>
+                  </button>
+                  <div className="flex-1 overflow-hidden">
+                    <ActivityTimeline
+                      jobId={job.id}
+                      jobState={job.state}
+                      onStepClick={(turnId) => {
+                        setScrollToTurnId(turnId);
+                        setSelectedTurnId(turnId);
+                      }}
+                      selectedTurnId={selectedTurnId}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            {/* Drag handle */}
+            {!sidebarCollapsed && (
+              <div
+                className="hidden lg:flex items-center justify-center w-2 cursor-col-resize group flex-shrink-0"
+                onMouseDown={handleSidebarResizeStart}
+                title="Drag to resize"
+              >
+                <div className="w-0.5 h-8 rounded-full bg-border group-hover:bg-muted-foreground/60 transition-colors" />
+              </div>
+            )}
+            <div className="flex flex-col gap-4 flex-1 min-w-0 lg:pl-2">
+              <div className="h-[80dvh] min-h-[22rem]">
+                <CuratedFeed
+                  jobId={job.id}
+                  sdk={job.sdk}
+                  interactive={false}
+                  jobState={job.state}
+                  prompt={job.prompt}
+                  promptTimestamp={job.createdAt}
+                  scrollToTurnId={scrollToTurnId}
+                />
+              </div>
+            </div>
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground text-center py-6">
-            {["running", "agent_running", "queued"].includes(job.state) ? "Waiting for logs…" : "No logs recorded."}
-          </p>
+        )}
+
+        {tab === "diff" && (
+          <TabErrorBoundary>
+            <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+              <DiffViewer
+                jobId={job.id}
+                jobState={job.state}
+              />
+            </Suspense>
+          </TabErrorBoundary>
         )}
       </div>
-      </main>
     </div>
   );
 }

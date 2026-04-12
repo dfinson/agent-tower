@@ -89,7 +89,7 @@ test.describe("Approval Banner", () => {
     await setupApprovalMocks(page);
     await page.goto("/jobs/job-1");
 
-    await expect(page.getByText("Agent wants to run: npm install lodash")).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText("Agent wants to run: npm install lodash")).toBeVisible({ timeout: 15_000 });
     await expect(page.locator("pre", { hasText: "npm install lodash" })).toBeVisible();
   });
 

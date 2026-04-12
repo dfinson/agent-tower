@@ -286,10 +286,10 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
     await page.getByRole("tab", { name: "Artifacts" }).click();
 
     // Groups are collapsed — headers should be visible
-    await expect(page.getByText("Agent Summaries").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Session Summaries").first()).toBeVisible({ timeout: 5_000 });
 
     // Click to expand a group, then check for artifact name
-    await page.getByText("Agent Summaries").first().click();
+    await page.getByText("Session Summaries").first().click();
     await expect(page.getByText("agent_summary.md")).toBeVisible({ timeout: 5_000 });
   });
 
@@ -300,8 +300,8 @@ test.describe("Artifact Viewer — Artifacts Tab", () => {
     await page.getByRole("tab", { name: "Artifacts" }).click();
 
     // Should show type labels (human-readable)
-    await expect(page.getByText("Agent Summaries").first()).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText("Diff Snapshots").first()).toBeVisible();
+    await expect(page.getByText("Session Summaries").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Code Changes").first()).toBeVisible();
   });
 
   test("hides artifacts tab when no artifacts exist", async ({ page }) => {
