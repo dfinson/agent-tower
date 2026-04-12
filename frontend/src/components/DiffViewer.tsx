@@ -208,7 +208,9 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   const [askMsg, setAskMsg] = useState("");
   const [askSending, setAskSending] = useState(false);
   const { canAsk, reason: disabledReason } = computeAskState();
-  const isTerminal = ["review", "completed", "failed", "canceled"].includes(jobState ?? "");
+  const isReview = jobState === "review";
+  const isTerminal = ["completed", "failed", "canceled"].includes(jobState ?? "");
+  const needsResume = isReview || isTerminal;
 
   const hunkKey = (fi: number, hi: number) => `${fi}:${hi}`;
 
@@ -446,7 +448,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
 
     setAskSending(true);
     try {
-      if (isTerminal) {
+      if (needsResume) {
         try {
           await resumeJob(jobId, fullMessage);
         } catch {
@@ -467,7 +469,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
     } finally {
       setAskSending(false);
     }
-  }, [jobId, askMsg, checkedHunks, diffs, isTerminal, navigate, onAskSent]);
+  }, [jobId, askMsg, checkedHunks, diffs, needsResume, navigate, onAskSent]);
 
   const totalAdditions = diffs.reduce((sum, f) => sum + (f.additions ?? 0), 0);
   const totalDeletions = diffs.reduce((sum, f) => sum + (f.deletions ?? 0), 0);
