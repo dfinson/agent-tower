@@ -141,6 +141,7 @@ def _cloudflare_access_enabled(tunnel_origin: str) -> bool:
 @click.option("--no-password", is_flag=True, help="Disable password auth (not allowed with --remote)")
 @click.option("--tunnel-name", default=None, help="Dev Tunnel name (default: random, reused across restarts)")
 @click.option("--skip-preflight", is_flag=True, help="Skip preflight checks")
+@click.option("--phone", is_flag=True, help="Shortcut for --remote: enable tunnel + QR code for mobile access")
 def up(
     host: str | None,
     port: int | None,
@@ -151,8 +152,13 @@ def up(
     no_password: bool,
     tunnel_name: str | None,
     skip_preflight: bool,
+    phone: bool,
 ) -> None:
     """Start the CodePlane server."""
+    # --phone implies --remote
+    if phone:
+        remote = True
+
     config = load_config()
     host = host or config.server.host
     port = port or config.server.port
@@ -190,6 +196,9 @@ def up(
     cloudflare_token = _env("CPL_CLOUDFLARE_TUNNEL_TOKEN")
     cloudflare_hostname = _env("CPL_CLOUDFLARE_HOSTNAME")
     tunnel_name = tunnel_name or _env("CPL_DEVTUNNEL_NAME")
+
+    cf_access_team = _env("CPL_CF_ACCESS_TEAM")
+    cf_access_aud = _env("CPL_CF_ACCESS_AUD")
 
     # Auto-detect Cloudflare when --provider wasn't explicitly set but credentials exist
     if remote and provider == "devtunnel" and cloudflare_token and cloudflare_hostname:
@@ -303,6 +312,34 @@ def up(
             if effective_password:
                 log.info("cloudflare_access_detected", msg="Disabling local password auth — Cloudflare Access is active")
                 effective_password = None
+
+    # --- Cloudflare Access JWT verification ---
+    # When CPL_CF_ACCESS_TEAM and CPL_CF_ACCESS_AUD are set, CodePlane will
+    # verify the Cf-Access-Jwt-Assertion header on every request.  The JWKS
+    # fetch here doubles as a startup-time check that the Access gate exists.
+    if cf_access_team and cf_access_aud:
+        from backend.services.cf_access import CfAccessConfigError, configure as configure_cf_access
+
+        try:
+            configure_cf_access(team=cf_access_team, aud=cf_access_aud)
+        except CfAccessConfigError as exc:
+            click.secho(
+                f"ERROR: Cloudflare Access verification failed at startup:\n  {exc}\n\n"
+                "  Check CPL_CF_ACCESS_TEAM and CPL_CF_ACCESS_AUD in your .env file.\n"
+                "  The team name must match your Cloudflare Zero Trust organization and\n"
+                "  the AUD tag must match the Access application protecting this hostname.",
+                fg="red",
+                err=True,
+            )
+            raise SystemExit(1) from exc
+    elif cf_access_team or cf_access_aud:
+        click.secho(
+            "WARNING: Both CPL_CF_ACCESS_TEAM and CPL_CF_ACCESS_AUD must be set to "
+            "enable Cloudflare Access JWT verification.  The Cf-Access-Jwt-Assertion "
+            "header will be ignored.",
+            fg="yellow",
+            err=True,
+        )
 
     app = create_app(dev=dev, tunnel_origin=tunnel_origin, password=effective_password)
 

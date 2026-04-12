@@ -104,6 +104,19 @@ cpl up --remote --provider cloudflare
 
 At startup, CodePlane probes the hostname for a Cloudflare Access gate. If none is detected, the server exits with an error.
 
+#### Cloudflare Access JWT Verification
+
+When `cloudflared` is managed externally (e.g., a systemd service or Docker sidecar) and CodePlane is not started with `--remote --provider cloudflare`, you can still delegate authentication to Cloudflare Access by configuring JWT verification:
+
+```bash
+export CPL_CF_ACCESS_TEAM=yourteam            # <team> in <team>.cloudflareaccess.com
+export CPL_CF_ACCESS_AUD=your-aud-tag-here    # Application Audience Tag from Zero Trust dashboard
+```
+
+At startup CodePlane fetches Cloudflare's JWKS signing keys (validating the Access gate exists) and then cryptographically verifies the `Cf-Access-Jwt-Assertion` header on every request — checking signature, audience, and expiry. If either variable is missing, the header is ignored and normal password auth applies.
+
+You can find the AUD tag in the Cloudflare Zero Trust dashboard under **Access → Applications → your app → Overview → Application Audience (AUD) Tag**.
+
 ### All Remote Options
 
 | CLI Flag | Env Var | Description |
@@ -114,6 +127,8 @@ At startup, CodePlane probes the hostname for a Cloudflare Access gate. If none 
 | `--tunnel-name NAME` | `CPL_DEVTUNNEL_NAME` | Reuse a named Dev Tunnel across restarts |
 | — | `CPL_CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare Tunnel token |
 | — | `CPL_CLOUDFLARE_HOSTNAME` | Cloudflare public hostname |
+| — | `CPL_CF_ACCESS_TEAM` | CF Access team name (for JWT verification) |
+| — | `CPL_CF_ACCESS_AUD` | CF Access Application Audience tag |
 
 ## Other Environment Variables
 

@@ -24,6 +24,7 @@ The risk depends on how you run CodePlane. There are four access modes:
 | **Localhost** (default) | `cpl up` | Local processes only | Auto-password (optional) | ✅ Low |
 | **Dev Tunnels** | `cpl up --remote` | Tunnel owner only | Microsoft login + password | ✅ Low |
 | **Cloudflare Tunnels** | `cpl up --remote --provider cloudflare` | Cloudflare Access policy | Identity gate (OTP/SSO) + password | ✅ Low |
+| **Cloudflare (external tunnel)** | `cpl up` + external `cloudflared` | Cloudflare Access policy | JWT verification (signature + audience) | ✅ Low |
 | **All interfaces** | `cpl up --host 0.0.0.0` | Any device on your network | Password required | ⚠️ Medium |
 
 ### Safe Defaults
@@ -35,6 +36,7 @@ Out of the box, CodePlane is configured conservatively:
 - ✅ **Dangerous combos blocked** — `--host 0.0.0.0 --no-password` is rejected at startup; `--remote --no-password` is also rejected
 - ✅ **Dev Tunnels identity gate** — `--remote` with the default provider creates a Dev Tunnel that requires Microsoft account login (tunnel-owner only); the URL is unguessable and access is gated by both MS auth and the CodePlane password
 - ✅ **Cloudflare Tunnels** — `--remote --provider cloudflare` requires a Cloudflare Access application on the hostname. The server refuses to start without one, ensuring two-factor auth (Cloudflare identity + CodePlane password). See [Configuration > Cloudflare Tunnels](configuration.md#cloudflare-tunnels) for setup
+- ✅ **CF Access JWT verification** — when `CPL_CF_ACCESS_TEAM` and `CPL_CF_ACCESS_AUD` are set, CodePlane validates the `Cf-Access-Jwt-Assertion` header (RS256 signature, audience, expiry) against Cloudflare's public JWKS. JWKS keys are fetched at startup (validating the gate exists) and refreshed hourly. Forged or expired tokens are rejected.
 - ✅ **Worktree isolation** — agents operate in a dedicated Git worktree, never on your main branch
 - ✅ **Approval system** — destructive Git commands always require operator approval
 - ✅ **Secure cookies** — httpOnly, SameSite=Strict, Secure (when over HTTPS)
