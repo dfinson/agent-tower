@@ -675,12 +675,32 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
   const args = parseArgs(entry.toolArgs);
   const command = trimWorktreePaths((args.command as string) ?? "");
   const failed = entry.toolSuccess === false;
+  const jobs = useStore((s) => s.jobs);
+  const createTerminalSession = useStore((s) => s.createTerminalSession);
+  const job = jobs[entry.jobId];
+  const canOpenTerminal = !!job?.worktreePath;
+
+  const handleOpenTerminal = useCallback(() => {
+    if (!job?.worktreePath) return;
+    createTerminalSession({ cwd: job.worktreePath, jobId: entry.jobId, label: job.branch ?? job.repo?.split("/").pop() ?? "Terminal" });
+  }, [job, entry.jobId, createTerminalSession]);
 
   return (
     <div className="font-mono text-[13px] sm:text-xs">
-      <div className={cn("px-3 py-1.5", failed ? "bg-red-950/20" : "bg-zinc-950/30")}>
-        <span className="text-muted-foreground">$ </span>
-        <span className="text-foreground/90">{command}</span>
+      <div className={cn("px-3 py-1.5 flex items-start gap-2", failed ? "bg-red-950/20" : "bg-zinc-950/30")}>
+        <div className="flex-1 min-w-0">
+          <span className="text-muted-foreground">$ </span>
+          <span className="text-foreground/90">{command}</span>
+        </div>
+        {canOpenTerminal && (
+          <button
+            onClick={handleOpenTerminal}
+            className="shrink-0 p-0.5 rounded text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors"
+            title="Open terminal in worktree"
+          >
+            <Terminal size={12} />
+          </button>
+        )}
       </div>
       {entry.toolResult && (
         <div className="px-3 py-1.5">
