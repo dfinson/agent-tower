@@ -14,6 +14,15 @@ router = APIRouter(tags=["preview"])
 
 log = structlog.get_logger()
 
+_MAX_RESPONSE_BYTES = 50 * 1024 * 1024  # 50 MB cap on proxied responses
+
+# Headers that MUST NOT be forwarded to upstream (hop-by-hop + spoofable).
+_BLOCKED_REQUEST_HEADERS = frozenset({
+    "host", "connection", "transfer-encoding",
+    "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
+    "x-real-ip", "forwarded",
+})
+
 # Shared httpx client — created lazily to avoid import-time side effects.
 _client = None
 
@@ -37,11 +46,10 @@ async def preview_proxy(port: int, path: str, request: Request) -> Response:
     if request.url.query:
         upstream_url += f"?{request.url.query}"
 
-    # Forward headers (except Host which must match upstream)
+    # Forward headers (except blocked ones)
     forward_headers = {}
     for key, value in request.headers.items():
-        lower = key.lower()
-        if lower not in ("host", "connection", "transfer-encoding"):
+        if key.lower() not in _BLOCKED_REQUEST_HEADERS:
             forward_headers[key] = value
 
     try:
@@ -68,8 +76,15 @@ async def preview_proxy(port: int, path: str, request: Request) -> Response:
         if lower not in ("transfer-encoding", "connection", "content-encoding", "content-length"):
             response_headers[key] = value
 
+    content = upstream_response.content
+    if len(content) > _MAX_RESPONSE_BYTES:
+        return JSONResponse(
+            {"detail": f"Upstream response too large ({len(content)} bytes, limit {_MAX_RESPONSE_BYTES})"},
+            status_code=502,
+        )
+
     return Response(
-        content=upstream_response.content,
+        content=content,
         status_code=upstream_response.status_code,
         headers=response_headers,
         media_type=upstream_response.headers.get("content-type"),

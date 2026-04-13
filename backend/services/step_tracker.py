@@ -26,8 +26,11 @@ if TYPE_CHECKING:
     from backend.services.git_service import GitService
 
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.services.git_service import GitError
 
 log = structlog.get_logger()
+
+_MAX_FILES_PER_STEP = 200
 
 _READ_TOOLS = frozenset({
     "read_file", "grep_search", "file_search", "semantic_search", "view_image",
@@ -179,9 +182,11 @@ class StepTracker:
                     if wt and path.startswith(wt):
                         path = path[len(wt):].lstrip("/")
                     if tool_name in _READ_TOOLS and path not in current.files_read:
-                        current.files_read.append(path)
+                        if len(current.files_read) < _MAX_FILES_PER_STEP:
+                            current.files_read.append(path)
                     elif tool_name in _WRITE_TOOLS and path not in current.files_written:
-                        current.files_written.append(path)
+                        if len(current.files_written) < _MAX_FILES_PER_STEP:
+                            current.files_written.append(path)
             if role == "agent" and len(content) > 20:
                 current.last_agent_message = content
 
@@ -206,8 +211,8 @@ class StepTracker:
             if cwd:
                 try:
                     start_sha = await self._git_service.rev_parse("HEAD", cwd=cwd)
-                except Exception:
-                    pass  # No worktree yet, or git error — not fatal
+                except GitError:
+                    log.debug("step_open_rev_parse_failed", job_id=job_id, exc_info=True)
 
         state = _StepState(
             step_id=step_id,
@@ -255,8 +260,8 @@ class StepTracker:
                         message=f"codeplane: step {state.step_number}",
                     )
                     end_sha = await self._git_service.rev_parse("HEAD", cwd=cwd)
-                except Exception:
-                    pass
+                except GitError:
+                    log.debug("step_close_git_failed", job_id=job_id, exc_info=True)
 
         await self._event_bus.publish(DomainEvent(
             event_id=DomainEvent.make_event_id(),
