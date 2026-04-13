@@ -317,6 +317,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 total_llm_duration_ms=int(duration_ms),
                 llm_call_count=num_turns,
                 total_turns=num_turns,
+                subagent_cost_usd=cost_usd if is_subagent else 0.0,
             )
         )
 

@@ -182,6 +182,7 @@ class JobTelemetrySummaryRow(Base):
     diff_lines_added = Column(Integer, nullable=False, default=0, server_default="0")
     diff_lines_removed = Column(Integer, nullable=False, default=0, server_default="0")
     agent_error_count = Column(Integer, nullable=False, default=0, server_default="0")
+    subagent_cost_usd = Column(Float, nullable=False, default=0.0, server_default="0")
 
 
 class JobTelemetrySpanRow(Base):

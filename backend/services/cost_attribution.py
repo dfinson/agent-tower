@@ -34,7 +34,8 @@ _TOOL_CATEGORY_ACTIVITY = {
     "browser": "search_discovery",
     "shell": "command_execution",
     "agent": "delegation",
-    "system": "reasoning",
+    "thinking": "reasoning",
+    "bookkeeping": "bookkeeping",
     "other": "other_tools",
 }
 

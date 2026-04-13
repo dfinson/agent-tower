@@ -87,6 +87,7 @@ class TelemetrySummaryRepo(BaseRepository):
         file_read_count: int = 0,
         file_write_count: int = 0,
         agent_error_count: int = 0,
+        subagent_cost_usd: float = 0.0,
     ) -> None:
         """Atomically increment counters for a job.  Idempotent per field."""
         now = datetime.now(UTC).isoformat()
@@ -116,6 +117,7 @@ class TelemetrySummaryRepo(BaseRepository):
                     file_read_count       = file_read_count + :file_read_count,
                     file_write_count      = file_write_count + :file_write_count,
                     agent_error_count     = agent_error_count + :agent_error_count,
+                    subagent_cost_usd     = subagent_cost_usd + :subagent_cost_usd,
                     updated_at            = :now
                 WHERE job_id = :job_id
             """),
@@ -144,6 +146,7 @@ class TelemetrySummaryRepo(BaseRepository):
                 "file_read_count": file_read_count,
                 "file_write_count": file_write_count,
                 "agent_error_count": agent_error_count,
+                "subagent_cost_usd": subagent_cost_usd,
                 "now": now,
             },
         )
@@ -330,7 +333,8 @@ class TelemetrySummaryRepo(BaseRepository):
                     COALESCE(SUM(tool_failure_count), 0) as total_tool_failures,
                     COALESCE(SUM(agent_error_count), 0) as total_agent_errors,
                     COALESCE(SUM(cache_read_tokens), 0) as total_cache_read,
-                    COALESCE(SUM(input_tokens), 0) as total_input_tokens
+                    COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                    COALESCE(SUM(subagent_cost_usd), 0) as total_subagent_cost_usd
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', '-{int(period_days)} days')
             """),

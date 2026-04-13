@@ -82,6 +82,7 @@ async def analytics_overview(
         "toolSuccessRate": round(tool_success_rate, 1),
         "cacheHitRate": round(cache_rate, 1),
         "costTrend": cost_trend,
+        "totalSubagentCostUsd": float(agg.get("total_subagent_cost_usd", 0) or 0),
     }
 
 

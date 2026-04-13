@@ -45,6 +45,9 @@ def test_derive_activity_weights_maps_useful_buckets() -> None:
     assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["git_write"]) == {"code_changes": 1}
     # "other" category → other_tools (not command_execution)
     assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["other"]) == {"other_tools": 1}
+    # thinking → reasoning, bookkeeping → bookkeeping (split from old "system")
+    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["thinking"]) == {"reasoning": 1}
+    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["bookkeeping"]) == {"bookkeeping": 1}
 
 
 def test_allocate_weighted_totals_splits_turn_cost_across_activities() -> None:
