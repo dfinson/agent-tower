@@ -1493,7 +1493,7 @@ export function CuratedFeed({
         className="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
       >
         {/* Inline search — sticky so it stays visible on scroll */}
-        <div className="sticky top-0 z-10 px-3 sm:px-4 pt-2.5 pb-3" style={{ background: "linear-gradient(to bottom, hsl(var(--card)) 60%, hsl(var(--card) / 0) 100%)" }}>
+        <div className="sticky top-0 z-10 px-3 sm:px-4 pt-2.5 pb-6" style={{ background: "linear-gradient(to bottom, hsl(var(--card)) 40%, hsl(var(--card) / 0) 100%)" }}>
           <div
             className={cn(
               "flex items-center gap-2 transition-colors cursor-text",
