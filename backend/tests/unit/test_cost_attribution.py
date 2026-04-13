@@ -3,6 +3,7 @@ from backend.services.cost_attribution import (
     _derive_activity_weights,
     _infer_execution_phases,
 )
+from backend.services.tool_classifier import classify_tool
 
 
 def test_infer_execution_phases_uses_neighboring_valid_phases() -> None:
@@ -71,3 +72,16 @@ def test_allocate_weighted_totals_splits_turn_cost_across_activities() -> None:
         "code_reading": {"cost_usd": 3.0, "input_tokens": 30, "output_tokens": 15},
         "code_changes": {"cost_usd": 6.0, "input_tokens": 60, "output_tokens": 30},
     }
+
+
+def test_classify_tool_list_agents() -> None:
+    assert classify_tool("list_agents") == "agent"
+
+
+def test_user_communication_bucket() -> None:
+    # Turn with no tools but output tokens → user_communication
+    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=[], output_tokens=500) == {
+        "user_communication": 1
+    }
+    # Turn with no tools and no output tokens → reasoning
+    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=[], output_tokens=0) == {"reasoning": 1}

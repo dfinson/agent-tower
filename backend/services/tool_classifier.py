@@ -105,6 +105,7 @@ TOOL_CATEGORIES: dict[str, str] = {
     "skill": "agent",
     "Task": "agent",
     "read_agent": "agent",
+    "list_agents": "agent",
     # thinking — agent reasoning / planning
     "Think": "thinking",
     "Computer": "thinking",

@@ -50,13 +50,22 @@ class CostAttributionRepo(BaseRepository):
         )
         await self._session.flush()
 
+    async def delete_for_job(self, job_id: str) -> None:
+        """Remove all attribution rows for a job (idempotent)."""
+        await self._session.execute(
+            text("DELETE FROM job_cost_attribution WHERE job_id = :job_id"),
+            {"job_id": job_id},
+        )
+        await self._session.flush()
+
     async def insert_batch(
         self,
         *,
         job_id: str,
         rows: list[dict[str, Any]],
     ) -> None:
-        """Insert multiple attribution rows for a job."""
+        """Replace all attribution rows for a job (delete + re-insert)."""
+        await self.delete_for_job(job_id)
         if not rows:
             return
         now = datetime.now(UTC).isoformat()
