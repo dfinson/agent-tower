@@ -617,31 +617,26 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
   const activityLabels: Record<string, string> = {
     command_execution: "Command Execution",
     code_reading: "Code Reading",
-    verification: "Verification",
     reasoning: "Reasoning",
     code_changes: "Code Changes",
     delegation: "Delegation",
     search_discovery: "Search & Discovery",
-    setup: "Setup",
-    wrap_up: "Wrap-up",
     other_tools: "Other Tools",
     bookkeeping: "Bookkeeping",
     // Phase dimension values
     environment_setup: "Setup",
     agent_reasoning: "Reasoning",
+    verification: "Verification",
     finalization: "Finalization",
     post_completion: "Post-completion",
   };
   const activityDescriptions: Record<string, string> = {
     command_execution: "LLM cost for turns where the agent ran shell commands (bash, terminal, sql)",
     code_reading: "LLM cost for turns where the agent read files or checked git status/diffs",
-    verification: "LLM cost for turns spent running tests or verifying changes",
     reasoning: "LLM cost for turns with no tool calls or explicit thinking — pure planning",
     code_changes: "LLM cost for turns where the agent edited/created files or committed git changes",
     delegation: "LLM cost for turns where the agent delegated to sub-agents",
     search_discovery: "LLM cost for turns where the agent searched code or fetched URLs",
-    setup: "LLM cost for environment setup at the start of a job",
-    wrap_up: "LLM cost for finalization and cleanup at the end of a job",
     other_tools: "LLM cost for turns using unclassified or custom tools",
     bookkeeping: "LLM cost for turns where the agent managed todos, memory, or intent",
   };

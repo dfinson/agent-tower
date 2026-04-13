@@ -83,6 +83,7 @@ interface CostDriverBucket {
 
 interface CostDriversData {
   activity?: CostDriverBucket[];
+  phase?: CostDriverBucket[];
 }
 
 interface TurnEconomicsData {
@@ -218,14 +219,8 @@ function formatActivityBucket(bucket: string): string {
       return "Command Execution";
     case "delegation":
       return "Sub-agents";
-    case "verification":
-      return "Verification";
     case "reasoning":
       return "Reasoning";
-    case "setup":
-      return "Setup";
-    case "wrap_up":
-      return "Wrap-up";
     case "other_tools":
       return "Other Tools";
     case "bookkeeping":
