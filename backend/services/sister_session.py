@@ -29,7 +29,7 @@ import asyncio
 import contextlib
 import secrets
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from typing import TYPE_CHECKING
 
 import structlog
@@ -50,6 +50,9 @@ _ORPHAN_CHECK_INTERVAL_S = 30.0
 
 # Standby pool — keep this many sessions ready to hand off instantly
 _STANDBY_POOL_SIZE = 2
+
+# Maximum number of closed-job metric snapshots to retain
+_CLOSED_JOBS_MAX = 500
 
 # Retry count for one-shot callers
 _TIMEOUT_RETRIES = 1
@@ -88,6 +91,15 @@ class SisterSession:
         self.total_output_tokens: int = 0
         self.total_cost_usd: float = 0.0
         self.last_call_at: float | None = None
+
+    def _reset_metrics(self) -> None:
+        """Zero out all metric counters (used when recycling back to pool)."""
+        self.call_count = 0
+        self.total_latency_ms = 0.0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cost_usd = 0.0
+        self.last_call_at = None
 
     async def _ensure_primed(self, prompt: str) -> str:
         """Prepend system prompt on the very first call, then let all
@@ -158,8 +170,8 @@ class SisterSessionManager:
         # Adopted sessions bound to a job (job_id → session)
         self._jobs: dict[str, SisterSession] = {}
 
-        # Snapshots of per-job metrics preserved after close_job()
-        self._closed_jobs: dict[str, dict[str, object]] = {}
+        # Snapshots of per-job metrics preserved after close_job() (LRU-bounded)
+        self._closed_jobs: OrderedDict[str, dict[str, object]] = OrderedDict()
 
         self._bg_tasks: list[asyncio.Task[None]] = []
 
@@ -242,6 +254,7 @@ class SisterSessionManager:
         # Recycle back into the pool if there's room
         if len(self._pool) < self._pool_size:
             session._primed = False  # noqa: SLF001
+            session._reset_metrics()  # noqa: SLF001
             self._pool.append(session)
         log.debug("sister_session_released", token=token[:8])
         return True
@@ -289,6 +302,9 @@ class SisterSessionManager:
                     "outputTokens": session.total_output_tokens,
                     "costUsd": round(session.total_cost_usd, 6),
                 }
+                # Evict oldest entries if over the cap
+                while len(self._closed_jobs) > _CLOSED_JOBS_MAX:
+                    self._closed_jobs.popitem(last=False)
             # Accumulate into global metrics before dropping
             self._global_call_count += session.call_count
             self._global_latency_ms += session.total_latency_ms
@@ -316,6 +332,12 @@ class SisterSessionManager:
                     timeout=timeout,
                 )
                 elapsed_ms = (time.monotonic() - t0) * 1000
+                # Track fast-path calls in global metrics
+                self._global_call_count += 1
+                self._global_latency_ms += elapsed_ms
+                self._global_input_tokens += result.input_tokens
+                self._global_output_tokens += result.output_tokens
+                self._global_cost_usd += result.cost_usd
                 log.debug(
                     "fast_complete_ok",
                     elapsed_ms=round(elapsed_ms, 1),
@@ -340,9 +362,16 @@ class SisterSessionManager:
             log.warning("sister_oneshot_failed", exc_info=True)
             return ""
         finally:
+            # Accumulate one-shot session metrics into globals before recycling
+            self._global_call_count += session.call_count
+            self._global_latency_ms += session.total_latency_ms
+            self._global_input_tokens += session.total_input_tokens
+            self._global_output_tokens += session.total_output_tokens
+            self._global_cost_usd += session.total_cost_usd
             # Recycle
             if len(self._pool) < self._pool_size:
                 session._primed = False  # noqa: SLF001
+                session._reset_metrics()  # noqa: SLF001
                 self._pool.append(session)
 
     # -- Background tasks ----------------------------------------------------

@@ -281,10 +281,13 @@ class RuntimeService:
 
         # Adopt or create the sister session for this job
         if self._sister_sessions is not None:
-            if session_token:
-                await self._sister_sessions.adopt(session_token, job.id)
-            else:
-                await self._sister_sessions.create_for_job(job.id)
+            try:
+                if session_token:
+                    await self._sister_sessions.adopt(session_token, job.id)
+                else:
+                    await self._sister_sessions.create_for_job(job.id)
+            except Exception:
+                log.warning("sister_session_setup_failed", job_id=job.id, exc_info=True)
 
         if self._shutting_down:
             log.warning("job_rejected_shutting_down", job_id=job.id)
@@ -1078,7 +1081,10 @@ class RuntimeService:
         self._queued_override_prompts.pop(job_id, None)
         self._queued_resume_session_ids.pop(job_id, None)
         if self._sister_sessions is not None:
-            await self._sister_sessions.close_job(job_id)
+            try:
+                await self._sister_sessions.close_job(job_id)
+            except Exception:
+                log.warning("sister_session_close_failed", job_id=job_id, exc_info=True)
         if self._approval_service is not None:
             self._approval_service.cleanup_job(job_id)
         if self._diff_service is not None:
