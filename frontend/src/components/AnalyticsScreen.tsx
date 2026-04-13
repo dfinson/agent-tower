@@ -618,6 +618,7 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
     command_execution: "Command Execution",
     code_reading: "Code Reading",
     reasoning: "Reasoning",
+    user_communication: "User Messages",
     code_changes: "Code Changes",
     delegation: "Delegation",
     search_discovery: "Search & Discovery",
@@ -633,7 +634,8 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
   const activityDescriptions: Record<string, string> = {
     command_execution: "LLM cost for turns where the agent ran shell commands (bash, terminal, sql)",
     code_reading: "LLM cost for turns where the agent read files or checked git status/diffs",
-    reasoning: "LLM cost for turns with no tool calls or explicit thinking — pure planning",
+    reasoning: "LLM cost for explicit thinking (Think tool) with no user-facing output",
+    user_communication: "LLM cost for turns where the agent composed a message to you (no tool calls)",
     code_changes: "LLM cost for turns where the agent edited/created files or committed git changes",
     delegation: "LLM cost for turns where the agent delegated to sub-agents",
     search_discovery: "LLM cost for turns where the agent searched code or fetched URLs",

@@ -95,6 +95,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         weights = _derive_activity_weights(
             phase=context.get("phase"),
             tool_categories=context.get("tool_categories", []),
+            output_tokens=context.get("output_tokens", 0),
         )
         if not weights:
             continue
@@ -233,7 +234,7 @@ def _infer_execution_phases(spans: list[dict[str, Any]]) -> list[str | None]:
     return inferred
 
 
-def _derive_activity_weights(*, phase: str | None, tool_categories: list[str]) -> dict[str, int]:
+def _derive_activity_weights(*, phase: str | None, tool_categories: list[str], output_tokens: int = 0) -> dict[str, int]:
     # Always derive activity from actual tool usage, regardless of phase.
     # The phase dimension (verification, setup, wrap_up) is tracked separately
     # via the phase-dimension attribution rows — collapsing all activity into
@@ -244,6 +245,12 @@ def _derive_activity_weights(*, phase: str | None, tool_categories: list[str]) -
         weights[activity] = weights.get(activity, 0) + 1
 
     if not weights:
+        # Zero tool calls — the agent spent this turn composing a message to
+        # the user (output_tokens > 0) or doing internal reasoning.  Explicit
+        # thinking tool calls (Think, Computer) already land in the "reasoning"
+        # bucket above, so a zero-tool turn with output is user communication.
+        if output_tokens > 0:
+            return {"user_communication": 1}
         return {"reasoning": 1}
     return weights
 
