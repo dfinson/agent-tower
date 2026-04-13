@@ -106,6 +106,9 @@ quota_remaining_gauge = meter.create_gauge("cp.quota.remaining_pct", unit="%", d
 
 _job_spans: dict[str, trace.Span] = {}
 
+# Safety cap — prevent unbounded growth if end_job_span is never called
+_JOB_SPANS_MAX = 200
+
 
 def start_job_span(
     job_id: str,
@@ -115,6 +118,11 @@ def start_job_span(
     branch: str = "",
 ) -> None:
     """Create a root span for a job run."""
+    # Evict oldest entries if over the safety cap
+    while len(_job_spans) >= _JOB_SPANS_MAX:
+        oldest_key = next(iter(_job_spans))
+        stale = _job_spans.pop(oldest_key)
+        stale.end()
     span = tracer.start_span(
         "cp.job",
         attributes={

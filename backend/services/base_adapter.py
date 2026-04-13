@@ -173,6 +173,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
         # Drop writes when too many are in-flight to prevent pool exhaustion
         if len(self._write_tasks) >= self._MAX_PENDING_WRITES:
+            log.debug("telemetry_write_dropped_backpressure", pending=len(self._write_tasks))
             return
 
         task = loop.create_task(coro)

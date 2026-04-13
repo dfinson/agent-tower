@@ -516,6 +516,9 @@ class SSEManager:
         frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
         selective = self._active_job_count > 20
 
+        # Prune connections closed since last broadcast
+        self._connections = [c for c in self._connections if not c.closed]
+
         for conn in list(self._connections):
             if conn.closed:
                 continue

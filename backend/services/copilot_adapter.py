@@ -787,7 +787,15 @@ class CopilotAdapter(BaseAgentAdapter):
             return
         try:
             while True:
-                event = await queue.get()
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=330)
+                except TimeoutError:
+                    log.error("copilot_stream_queue_timeout", session_id=session_id)
+                    yield SessionEvent(
+                        kind=SessionEventKind.error,
+                        payload={"message": "Copilot SDK stream timed out (no events for 330s)"},
+                    )
+                    return
                 if event is None:
                     return
                 yield event
