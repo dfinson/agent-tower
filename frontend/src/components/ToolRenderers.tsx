@@ -62,10 +62,10 @@ export function trimWorktreePaths(text: string): string {
 
 export function TruncatedPayload({ content, maxLength = 500 }: { content: string; maxLength?: number }) {
   const [expanded, setExpanded] = useState(false);
-  if (!content || content.length <= maxLength) return <pre className="text-xs whitespace-pre-wrap break-all">{content}</pre>;
+  if (!content || content.length <= maxLength) return <pre className="text-[13px] sm:text-xs whitespace-pre-wrap break-all">{content}</pre>;
   return (
     <div>
-      <pre className="text-xs whitespace-pre-wrap break-all">
+      <pre className="text-[13px] sm:text-xs whitespace-pre-wrap break-all">
         {expanded ? content : content.slice(0, maxLength) + "…"}
       </pre>
       <button
@@ -408,7 +408,7 @@ export function hasStructuredRenderer(toolName?: string): boolean {
 
 export function ToolDetail({ entry }: { entry: TranscriptEntry }) {
   return (
-    <div className="ml-0 mt-1 mb-2 rounded border border-border/40 bg-muted/20 text-xs overflow-hidden">
+    <div className="ml-0 mt-1 mb-2 rounded border border-border/40 bg-muted/20 text-[13px] sm:text-xs overflow-hidden">
       {entry.toolSuccess === false && entry.toolIssue && (
         <div className="px-3 py-1.5 bg-red-500/5 border-b border-border/30">
           <span className="text-red-400 font-medium">{entry.toolIssue}</span>

@@ -49,9 +49,9 @@ export const AgentMarkdown = memo(function AgentMarkdown({ content, highlight }:
         ul: ({ children }) => <ul className="mb-2 pl-4 list-disc space-y-0.5">{children}</ul>,
         ol: ({ children }) => <ol className="mb-2 pl-4 list-decimal space-y-0.5">{children}</ol>,
         li: ({ children }) => <li className="leading-relaxed">{hl(children)}</li>,
-        h1: ({ children }) => <h1 className="text-base font-semibold mb-1 mt-2 first:mt-0">{hl(children)}</h1>,
-        h2: ({ children }) => <h2 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{hl(children)}</h2>,
-        h3: ({ children }) => <h3 className="text-sm font-medium mb-1 mt-1 first:mt-0">{hl(children)}</h3>,
+        h1: ({ children }) => <h1 className="text-[17px] sm:text-base font-semibold mb-1 mt-2 first:mt-0">{hl(children)}</h1>,
+        h2: ({ children }) => <h2 className="text-[15px] sm:text-sm font-semibold mb-1 mt-2 first:mt-0">{hl(children)}</h2>,
+        h3: ({ children }) => <h3 className="text-[15px] sm:text-sm font-medium mb-1 mt-1 first:mt-0">{hl(children)}</h3>,
         blockquote: ({ children }) => (
           <blockquote className="border-l-2 border-muted-foreground/40 pl-3 text-muted-foreground italic my-2">
             {children}
@@ -60,11 +60,11 @@ export const AgentMarkdown = memo(function AgentMarkdown({ content, highlight }:
         code: ({ className, children }) => {
           const isBlock = className?.startsWith("language-");
           return isBlock ? (
-            <pre className="bg-background border border-border rounded-md p-2 sm:p-3 my-2 overflow-x-auto max-w-full text-xs font-mono">
+            <pre className="bg-background border border-border rounded-md p-2 sm:p-3 my-2 overflow-x-auto max-w-full text-[13px] sm:text-xs font-mono">
               <code>{children}</code>
             </pre>
           ) : (
-            <code className="bg-background border border-border rounded px-1 py-0.5 text-xs font-mono">
+            <code className="bg-background border border-border rounded px-1 py-0.5 text-[13px] sm:text-xs font-mono">
               {children}
             </code>
           );

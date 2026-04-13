@@ -677,7 +677,7 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
   const failed = entry.toolSuccess === false;
 
   return (
-    <div className="font-mono text-xs">
+    <div className="font-mono text-[13px] sm:text-xs">
       <div className={cn("px-3 py-1.5", failed ? "bg-red-950/20" : "bg-zinc-950/30")}>
         <span className="text-muted-foreground">$ </span>
         <span className="text-foreground/90">{command}</span>
@@ -821,7 +821,7 @@ function DiffLines({ oldStr, newStr }: { oldStr: string; newStr: string }) {
 
 function EditPreview({ entries }: { entries: TranscriptEntry[] }) {
   return (
-    <div className="text-xs space-y-0">
+    <div className="text-[13px] sm:text-xs space-y-0">
       {entries.map((entry, i) => {
         const args = parseArgs(entry.toolArgs);
         const name = stripMcpPrefix(entry.toolName ?? "");
@@ -883,7 +883,7 @@ function ReadPreview({ entries }: { entries: TranscriptEntry[] }) {
   const range = startLine && endLine ? `lines ${startLine}–${endLine}` : null;
 
   return (
-    <div className="text-xs">
+    <div className="text-[13px] sm:text-xs">
       {range && (
         <div className="px-3 py-1 text-muted-foreground/60">{range}</div>
       )}
@@ -928,7 +928,7 @@ function SearchPreview({ entries }: { entries: TranscriptEntry[] }) {
   const lines = entry.toolResult?.split("\n").filter((l) => l.trim()).length;
 
   return (
-    <div className="text-xs">
+    <div className="text-[13px] sm:text-xs">
       {lines != null && (
         <div className="px-3 py-1 text-muted-foreground/60">→ {lines} results</div>
       )}
@@ -944,7 +944,7 @@ function SearchPreview({ entries }: { entries: TranscriptEntry[] }) {
 function GenericPreview({ entries }: { entries: TranscriptEntry[] }) {
   const entry = entries[entries.length - 1]!;
   return (
-    <div className="px-3 py-1.5 text-xs">
+    <div className="px-3 py-1.5 text-[13px] sm:text-xs">
       {entry.toolDisplay && (
         <div className="text-muted-foreground mb-1">{entry.toolDisplay}</div>
       )}
@@ -1028,7 +1028,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
             {/* Agent message — the high-signal content */}
             {displayMessage && (
-              <div className="text-sm text-foreground/90 leading-relaxed">
+              <div className="text-[15px] sm:text-sm text-foreground/90 leading-relaxed">
                 <HighlightedMarkdown content={displayMessage} />
                 {isStreaming && (
                   <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
@@ -1048,7 +1048,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
       {!displayMessage && isStreaming && streamingText && !hasReasoning && (
         <div>
           <div className="flex-1 min-w-0 rounded-lg bg-muted/5 px-3 py-2">
-            <div className="text-sm text-foreground/90 leading-relaxed">
+            <div className="text-[15px] sm:text-sm text-foreground/90 leading-relaxed">
               <HighlightedMarkdown content={streamingText} />
               <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
             </div>
