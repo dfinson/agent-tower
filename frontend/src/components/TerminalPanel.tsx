@@ -12,18 +12,22 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import { useTerminalSocket } from "../hooks/useTerminalSocket";
+import { useTerminalSocket, type TerminalConnectionStatus } from "../hooks/useTerminalSocket";
 
 interface TerminalPanelProps {
   /** Session ID to attach to. */
   sessionId: string | null;
   /** Called when the underlying shell process exits. */
   onExit?: (code: number) => void;
+  /** Called when connection status changes. */
+  onStatusChange?: (status: TerminalConnectionStatus) => void;
   /** Additional CSS class for the container. */
   className?: string;
+  /** Ref for the SearchAddon so parent can trigger find. */
+  searchAddonRef?: React.MutableRefObject<import("@xterm/addon-search").SearchAddon | null>;
 }
 
-export function TerminalPanel({ sessionId, onExit, className }: TerminalPanelProps) {
+export function TerminalPanel({ sessionId, onExit, onStatusChange, className, searchAddonRef }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -75,6 +79,7 @@ export function TerminalPanel({ sessionId, onExit, className }: TerminalPanelPro
 
     termRef.current = term;
     fitAddonRef.current = fitAddon;
+    if (searchAddonRef) searchAddonRef.current = searchAddon;
     setTerminal(term);
 
     // Handle container resize via ResizeObserver
@@ -94,7 +99,7 @@ export function TerminalPanel({ sessionId, onExit, className }: TerminalPanelPro
   }, []);
 
   // Bridge terminal <-> WebSocket
-  useTerminalSocket({ terminal, sessionId, onExit });
+  useTerminalSocket({ terminal, sessionId, onExit, onStatusChange });
 
   // Re-fit and focus when sessionId changes (switching sessions or first mount)
   useEffect(() => {
