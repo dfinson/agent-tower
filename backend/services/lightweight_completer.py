@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import TYPE_CHECKING
 
 import httpx
@@ -24,6 +25,9 @@ log = structlog.get_logger()
 
 # Timeout for a single lightweight completion call (seconds)
 _HTTP_TIMEOUT = 15.0
+
+# Recreate the httpx client after this many seconds to avoid stale connections
+_CLIENT_MAX_AGE_S = 300.0
 
 
 class LightweightCompleter:
@@ -42,6 +46,7 @@ class LightweightCompleter:
         self._adapter = adapter
         self._model = model
         self._client: httpx.AsyncClient | None = None
+        self._client_created_at: float = 0.0
         self._provider: str | None = None  # "anthropic" | "openai" | None
         self._api_key: str | None = None
         self._base_url: str | None = None
@@ -89,8 +94,12 @@ class LightweightCompleter:
         return self._provider is not None
 
     async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is not None and (time.monotonic() - self._client_created_at) > _CLIENT_MAX_AGE_S:
+            await self._client.aclose()
+            self._client = None
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=_HTTP_TIMEOUT)
+            self._client_created_at = time.monotonic()
         return self._client
 
     async def complete(self, prompt: str) -> CompletionResult:
