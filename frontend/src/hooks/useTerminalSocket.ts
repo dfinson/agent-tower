@@ -14,6 +14,8 @@ function getWsBase(): string {
   return `${proto}//${window.location.host}`;
 }
 
+export type TerminalConnectionStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
+
 interface UseTerminalSocketOptions {
   /** The xterm.js Terminal instance to bridge. */
   terminal: Terminal | null;
@@ -21,17 +23,22 @@ interface UseTerminalSocketOptions {
   sessionId: string | null;
   /** Called when the server reports the session has exited. */
   onExit?: (code: number) => void;
+  /** Called when the connection status changes. */
+  onStatusChange?: (status: TerminalConnectionStatus) => void;
 }
 
-export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSocketOptions) {
+export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange }: UseTerminalSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionIdRef = useRef(sessionId);
   const attemptRef = useRef(0);
+  const inputBufferRef = useRef<string[]>([]);
   sessionIdRef.current = sessionId;
 
   const connect = useCallback(() => {
     if (!terminal || !sessionIdRef.current) return;
+
+    onStatusChange?.(attemptRef.current > 0 ? "reconnecting" : "connecting");
 
     const ws = new WebSocket(`${getWsBase()}/api/terminal/ws`);
     wsRef.current = ws;
@@ -50,8 +57,14 @@ export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSo
             terminal.write(msg.data);
             break;
           case "attached":
+            onStatusChange?.("connected");
             // Send initial size
             ws.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
+            // Flush any input buffered during reconnect
+            while (inputBufferRef.current.length > 0) {
+              const buffered = inputBufferRef.current.shift()!;
+              ws.send(JSON.stringify({ type: "input", data: buffered }));
+            }
             break;
           case "exit":
             onExit?.(msg.code);
@@ -73,8 +86,10 @@ export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSo
         const MAX_WS_ATTEMPTS = 20;
         if (attemptRef.current > MAX_WS_ATTEMPTS) {
           console.warn("[terminal] Max reconnect attempts reached");
+          onStatusChange?.("disconnected");
           return;
         }
+        onStatusChange?.("reconnecting");
         const delay = Math.min(1000 * 2 ** (attemptRef.current - 1), 30_000);
         reconnectTimer.current = setTimeout(connect, delay);
       }
@@ -83,7 +98,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSo
     ws.onerror = () => {
       ws.close();
     };
-  }, [terminal, onExit]);
+  }, [terminal, onExit, onStatusChange]);
 
   // Connect when terminal and sessionId are ready
   useEffect(() => {
@@ -91,10 +106,12 @@ export function useTerminalSocket({ terminal, sessionId, onExit }: UseTerminalSo
 
     connect();
 
-    // Bridge xterm input → WebSocket
+    // Bridge xterm input → WebSocket (buffer if reconnecting)
     const inputDisposable = terminal.onData((data: string) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "input", data }));
+      } else {
+        inputBufferRef.current.push(data);
       }
     });
 

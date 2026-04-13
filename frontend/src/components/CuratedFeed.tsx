@@ -31,6 +31,7 @@ import { MicButton } from "./VoiceButton";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
+import { Tooltip } from "./ui/tooltip";
 import {
   formatDuration,
   trimWorktreePaths,
@@ -693,13 +694,15 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
           <span className="text-foreground/90">{command}</span>
         </div>
         {canOpenTerminal && (
-          <button
-            onClick={handleOpenTerminal}
-            className="shrink-0 p-0.5 rounded text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors"
-            title="Open terminal in worktree"
-          >
-            <Terminal size={12} />
-          </button>
+          <Tooltip content="Open terminal in worktree">
+            <button
+              onClick={handleOpenTerminal}
+              className="shrink-0 p-1.5 sm:p-1 rounded text-foreground/60 hover:text-primary hover:bg-primary/20 transition-colors min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center"
+              aria-label="Open terminal"
+            >
+              <Terminal size={15} className="sm:w-3 sm:h-3" />
+            </button>
+          </Tooltip>
         )}
       </div>
       {entry.toolResult && (

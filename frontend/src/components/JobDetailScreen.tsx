@@ -827,13 +827,29 @@ export function JobDetailScreen() {
 
         </div>
 
-        {/* Mobile layout: primary tabs + ••• overflow menu (hidden on desktop) */}
+        {/* Mobile layout: primary tabs + terminal button + ••• overflow menu (hidden on desktop) */}
         <div className="flex sm:hidden items-center gap-2">
           <TabsList>
             <TabsTrigger value="live">Live</TabsTrigger>
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
           </TabsList>
+
+          {hasWorktree && (
+            <button
+              onClick={handleOpenJobTerminal}
+              aria-label={jobTerminalCount > 0 ? `Open new terminal (${jobTerminalCount} open)` : "Open terminal in worktree"}
+              className={cn(
+                "flex items-center justify-center w-9 h-9 rounded-md border text-xs font-medium transition-colors shrink-0",
+                "border-border text-muted-foreground hover:text-foreground hover:bg-accent",
+              )}
+            >
+              <TerminalSquare size={15} />
+              {jobTerminalCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center text-[9px] font-semibold bg-primary text-primary-foreground rounded-full px-0.5">{jobTerminalCount}</span>
+              )}
+            </button>
+          )}
 
           <PopoverPrimitive.Root open={overflowOpen} onOpenChange={setOverflowOpen}>
             <PopoverPrimitive.Trigger asChild>
