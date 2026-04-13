@@ -33,7 +33,16 @@ def test_infer_execution_phases_does_not_invent_unknown_bucket() -> None:
 
 
 def test_derive_activity_weights_maps_useful_buckets() -> None:
-    assert _derive_activity_weights(phase="verification", tool_categories=["file_write"]) == {"verification": 1}
+    # Verification phase uses actual tool categories (not a catch-all)
+    assert _derive_activity_weights(phase="verification", tool_categories=["file_write"]) == {"code_changes": 1}
+    assert _derive_activity_weights(phase="verification", tool_categories=["shell", "file_read"]) == {
+        "command_execution": 1,
+        "code_reading": 1,
+    }
+    # Verification with no tools → reasoning (same as agent_reasoning)
+    assert _derive_activity_weights(phase="verification", tool_categories=[]) == {"reasoning": 1}
+    # Setup phase also uses actual tool categories
+    assert _derive_activity_weights(phase="environment_setup", tool_categories=["shell"]) == {"command_execution": 1}
     assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["file_read", "file_write", "shell"]) == {
         "code_reading": 1,
         "code_changes": 1,

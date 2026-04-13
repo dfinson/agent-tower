@@ -225,14 +225,14 @@ async def _analyse_phase_imbalance(session: AsyncSession, repo: ObservationsRepo
         text("""
             SELECT
                 ca.job_id,
-                SUM(CASE WHEN ca.bucket = 'verification' THEN ca.cost_usd ELSE 0 END) as verification_cost,
-                SUM(CASE WHEN ca.bucket NOT IN ('verification', 'setup', 'wrap_up')
+                SUM(CASE WHEN ca.dimension = 'phase' AND ca.bucket = 'verification'
+                    THEN ca.cost_usd ELSE 0 END) as verification_cost,
+                SUM(CASE WHEN ca.dimension = 'phase' AND ca.bucket = 'agent_reasoning'
                     THEN ca.cost_usd ELSE 0 END) as reasoning_cost,
-                SUM(ca.cost_usd) as total_cost
+                SUM(CASE WHEN ca.dimension = 'phase' THEN ca.cost_usd ELSE 0 END) as total_cost
             FROM cost_attribution ca
             JOIN job_telemetry_summary jts ON jts.job_id = ca.job_id
-            WHERE ca.dimension = 'activity'
-                AND jts.created_at >= datetime('now', '-30 days')
+            WHERE jts.created_at >= datetime('now', '-30 days')
                 AND jts.status = 'completed'
             GROUP BY ca.job_id
             HAVING verification_cost > 0

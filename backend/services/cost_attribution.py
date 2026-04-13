@@ -59,6 +59,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
     # --- Aggregate by dimension ---
     by_activity: dict[str, dict[str, Any]] = defaultdict(lambda: _zero_bucket())
     by_turn: dict[int, dict[str, Any]] = defaultdict(lambda: _zero_bucket())
+    by_phase: dict[str, dict[str, Any]] = defaultdict(lambda: _zero_bucket())
     turn_contexts: dict[int, dict[str, Any]] = defaultdict(_zero_turn_context)
     normalized_phases = _infer_execution_phases(spans)
     spans_missing_phase = 0
@@ -98,11 +99,15 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         if not weights:
             continue
 
+        turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
+        turn_in = int(context.get("input_tokens", 0) or 0)
+        turn_out = int(context.get("output_tokens", 0) or 0)
+
         allocations = _allocate_weighted_totals(
             weights=weights,
-            cost_usd=float(context.get("cost_usd", 0.0) or 0.0),
-            input_tokens=int(context.get("input_tokens", 0) or 0),
-            output_tokens=int(context.get("output_tokens", 0) or 0),
+            cost_usd=turn_cost,
+            input_tokens=turn_in,
+            output_tokens=turn_out,
         )
         for bucket, allocated in allocations.items():
             _accumulate(
@@ -113,12 +118,19 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
                 call_count=1,
             )
 
+        # Phase dimension — aggregate by execution phase
+        phase = context.get("phase")
+        if phase:
+            _accumulate(by_phase[phase], turn_cost, turn_in, turn_out)
+
     # --- Write attribution rows ---
     rows: list[dict[str, Any]] = []
     for bucket, data in by_activity.items():
         rows.append({"dimension": "activity", "bucket": bucket, **data})
     for turn_num, data in sorted(by_turn.items()):
         rows.append({"dimension": "turn", "bucket": str(turn_num), **data})
+    for phase_name, data in by_phase.items():
+        rows.append({"dimension": "phase", "bucket": phase_name, **data})
 
     await attr_repo.insert_batch(job_id=job_id, rows=rows)
     log.info(
@@ -126,6 +138,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         job_id=job_id,
         activity_buckets=len(by_activity),
         turn_buckets=len(by_turn),
+        phase_buckets=len(by_phase),
         spans_missing_phase=spans_missing_phase,
     )
 
@@ -221,13 +234,10 @@ def _infer_execution_phases(spans: list[dict[str, Any]]) -> list[str | None]:
 
 
 def _derive_activity_weights(*, phase: str | None, tool_categories: list[str]) -> dict[str, int]:
-    if phase == ExecutionPhase.verification.value:
-        return {"verification": 1}
-    if phase == ExecutionPhase.environment_setup.value:
-        return {"setup": 1}
-    if phase in {ExecutionPhase.finalization.value, ExecutionPhase.post_completion.value}:
-        return {"wrap_up": 1}
-
+    # Always derive activity from actual tool usage, regardless of phase.
+    # The phase dimension (verification, setup, wrap_up) is tracked separately
+    # via the phase-dimension attribution rows — collapsing all activity into
+    # a single phase bucket makes the activity breakdown useless for those phases.
     weights: dict[str, int] = {}
     for category in tool_categories:
         activity = _TOOL_CATEGORY_ACTIVITY.get(category, "other_tools")

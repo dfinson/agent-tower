@@ -626,6 +626,11 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
     wrap_up: "Wrap-up",
     other_tools: "Other Tools",
     bookkeeping: "Bookkeeping",
+    // Phase dimension values
+    environment_setup: "Setup",
+    agent_reasoning: "Reasoning",
+    finalization: "Finalization",
+    post_completion: "Post-completion",
   };
   const activityDescriptions: Record<string, string> = {
     command_execution: "LLM cost for turns where the agent ran shell commands (bash, terminal, sql)",
