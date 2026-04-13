@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component,
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree } from "lucide-react";
 import { toast } from "sonner";
-import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
+import { useStore, selectJobs, enrichJob, selectJobDiffs, selectJobPlan } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
@@ -92,6 +92,7 @@ export function JobDetailScreen() {
   // walking backward through the transcript finds the closest preceding step.
   const activityTimeline = useStore((s) => jobId ? s.activityTimelines[jobId] : undefined);
   const transcript = useStore((s) => jobId ? s.transcript[jobId] : undefined);
+  const hasPlanSteps = useStore(selectJobPlan(jobId ?? "")).length > 0;
   const stepTurnIdSet = useMemo(() => {
     if (!activityTimeline) return new Set<string>();
     return new Set(activityTimeline.activities.flatMap((a) => a.steps.map((s) => s.turnId)));
@@ -919,8 +920,8 @@ export function JobDetailScreen() {
       </div>
 
       {/* Tab content — min-height prevents scroll collapse when switching tabs.
-          pb-10 on mobile for the Live tab accounts for the MobilePlanDrawer fixed bar. */}
-      <div className={cn("min-h-[80dvh]", tab === "live" && "pb-10 lg:pb-0")}>
+          Bottom padding on mobile only when plan drawer is visible. */}
+      <div className={cn("min-h-[80dvh]", tab === "live" && hasPlanSteps && "pb-10 lg:pb-0")}>
       {tab === "live" && (
         <div className="flex flex-row">
           {/* Activity Timeline sidebar — hidden on small screens */}
