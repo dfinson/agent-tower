@@ -121,7 +121,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             session_factory=session_factory,
         )
         self._consumer_tasks: dict[str, asyncio.Task[None]] = {}
-        self._current_turn_id: str = ""
+        self._current_turn_ids: dict[str, str] = {}  # session_id → turn_id
         self._requested_models: dict[str, str] = {}
         self._model_verified: dict[str, bool] = {}
         # Stderr capture files for debugging failed sessions
@@ -139,6 +139,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         if stderr_path:
             with contextlib.suppress(OSError):
                 os.unlink(stderr_path)
+        self._current_turn_ids.pop(session_id, None)
         # Claude-specific model tracking
         job_id = self._session_to_job.get(session_id)
         if job_id:
@@ -160,14 +161,6 @@ class ClaudeAdapter(BaseAgentAdapter):
                 return f.read()[-4096:]
         except OSError:
             return ""
-
-    @staticmethod
-    async def _disconnect_client(client: ClaudeSDKClient) -> None:
-        """Disconnect a ClaudeSDKClient, terminating its backing subprocess."""
-        try:
-            await asyncio.wait_for(client.disconnect(), timeout=10)
-        except (Exception, asyncio.CancelledError):
-            log.warning("claude_client_disconnect_failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Permission callback builder
@@ -221,14 +214,6 @@ class ClaudeAdapter(BaseAgentAdapter):
             return PermissionResultDeny(message="Blocked by CodePlane policy")
 
         return _can_use_tool
-
-    @staticmethod
-    async def _disconnect_client(client: ClaudeSDKClient) -> None:
-        """Disconnect a ClaudeSDKClient, terminating its backing subprocess."""
-        try:
-            await asyncio.wait_for(client.disconnect(), timeout=10)
-        except (Exception, asyncio.CancelledError):
-            log.warning("claude_client_disconnect_failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Message consumer — runs in a background task per session
@@ -359,6 +344,9 @@ class ClaudeAdapter(BaseAgentAdapter):
                     self._process_tool_result_block(session_id, block, seq, job_id)
         elif isinstance(content, str) and content.strip() and job_id:
             # Human / operator follow-up message
+            from backend.services import telemetry as tel
+
+            tel.messages_counter.add(1, {"job_id": job_id, "sdk": "claude", "role": "operator"})
             self._schedule_db_write(self._db_write("increment", job_id=job_id, operator_messages=1))
 
     def _process_assistant_message(
@@ -375,7 +363,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         job_id = self._session_to_job.get(session_id)
 
         # Each AssistantMessage starts a new turn for grouping
-        self._current_turn_id = str(uuid.uuid4())
+        self._current_turn_ids[session_id] = str(uuid.uuid4())
 
         # Turn counting is deferred to ResultMessage.num_turns for accuracy
         # (the SDK streams many AssistantMessages per actual API turn).
@@ -396,6 +384,9 @@ class ClaudeAdapter(BaseAgentAdapter):
                 if not text.strip():
                     continue
                 if job_id:
+                    from backend.services import telemetry as tel
+
+                    tel.messages_counter.add(1, {"job_id": job_id, "sdk": "claude", "role": "agent"})
                     self._schedule_db_write(
                         self._db_write(
                             "increment",
@@ -410,7 +401,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                         payload={
                             "role": "agent",
                             "content": text,
-                            "turn_id": self._current_turn_id,
+                            "turn_id": self._current_turn_ids.get(session_id, ""),
                         },
                     ),
                 )
@@ -446,9 +437,10 @@ class ClaudeAdapter(BaseAgentAdapter):
         self._tool_start_times[tool_id] = time.monotonic()
 
         # Synthesize a turn_id for grouping (one per AssistantMessage stream)
-        if not self._current_turn_id:
-            self._current_turn_id = str(uuid.uuid4())
-        turn_id = self._current_turn_id
+        turn_id = self._current_turn_ids.get(session_id, "")
+        if not turn_id:
+            turn_id = str(uuid.uuid4())
+            self._current_turn_ids[session_id] = turn_id
 
         # Buffer for the completion event
         self._tool_call_buffer[tool_id] = {
@@ -470,6 +462,8 @@ class ClaudeAdapter(BaseAgentAdapter):
                         "tool_name": tool_name,
                         "tool_args": args_str,
                         "turn_id": turn_id,
+                        "tool_intent": None,
+                        "tool_title": None,
                         "tool_display": format_tool_display(tool_name, args_str),
                         "tool_display_full": format_tool_display_full(tool_name, args_str),
                         "tool_visibility": classify_tool_visibility(tool_name, args_str),
@@ -543,6 +537,8 @@ class ClaudeAdapter(BaseAgentAdapter):
                         "tool_success": success,
                         "tool_issue": tool_issue,
                         "turn_id": turn_id,
+                        "tool_intent": None,
+                        "tool_title": None,
                         "tool_display": format_tool_display(
                             tool_name,
                             tool_args_str,
