@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Loader2, ChevronRight, Share2 } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Loader2, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot, createShareLink } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { MobilePlanDrawer } from "./PlanPanel";
@@ -625,6 +625,7 @@ export function JobDetailScreen() {
                 {job.state === "failed" ? "Abandon" : "Archive"}
               </Button>
             )}
+            {/* Share disabled — read-only view not useful yet
             <Button
               size="sm"
               variant="outline"
@@ -642,6 +643,7 @@ export function JobDetailScreen() {
               <Share2 size={14} />
               Share
             </Button>
+            */}
           </div>
         </div>
 
