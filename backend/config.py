@@ -424,7 +424,7 @@ def discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, Any]:
     servers: dict[str, MCPServerConfig] = {}
 
     # 1. Global config: tools.mcp section
-    global_config_path = Path.home() / ".codeplane" / "config.yaml"
+    global_config_path = get_codeplane_dir() / "config.yaml"
     if global_config_path.exists():
         try:
             with open(global_config_path) as f:

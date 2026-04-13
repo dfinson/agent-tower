@@ -28,8 +28,8 @@ class RetryTracker:
     """
 
     def __init__(self) -> None:
-        # Maps (tool_name, tool_target) → list of (span_id, success)
-        self._history: dict[tuple[str, str], list[tuple[int, bool]]] = defaultdict(list)
+        # Maps (tool_name, tool_target) → most-recent failure span_id (or None)
+        self._last_failure: dict[tuple[str, str], int | None] = defaultdict(lambda: None)
 
     def record(
         self,
@@ -44,16 +44,10 @@ class RetryTracker:
         if so, which prior span it retries.
         """
         key = (tool_name, tool_target)
-        prior_calls = self._history[key]
+        prior_failure_id = self._last_failure[key]
 
-        # Find the most recent failed call for this exact (name, target)
-        prior_failure_id: int | None = None
-        for past_span_id, past_success in reversed(prior_calls):
-            if not past_success:
-                prior_failure_id = past_span_id
-                break
-
-        self._history[key].append((span_id, success))
+        if not success:
+            self._last_failure[key] = span_id
 
         return RetryResult(
             is_retry=prior_failure_id is not None,
@@ -62,4 +56,4 @@ class RetryTracker:
 
     def reset(self) -> None:
         """Clear all tracked history (e.g. at start of a new job)."""
-        self._history.clear()
+        self._last_failure.clear()

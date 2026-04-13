@@ -161,17 +161,20 @@ class MergeService:
         except GitError:
             log.warning("merge_auto_commit_failed", job_id=job_id, exc_info=True)
 
-        # --- Step 1: Try fast-forward via ref update (no checkout needed) ---
-        try:
-            ff_result = await self._try_ff_via_ref(job_id, repo_path, branch, base_ref)
-            if ff_result is not None:
-                return ff_result
-        except GitError:
-            log.debug("merge_ff_ref_failed", job_id=job_id, exc_info=True)
-
-        # --- Step 2: Full merge requires the main worktree. Acquire lock. ---
+        # Acquire per-repo lock BEFORE attempting FF — two concurrent FF
+        # merges to the same base_ref would race on update_ref, and the
+        # second would silently overwrite the first, losing commits.
         lock = self._repo_locks.setdefault(repo_path, asyncio.Lock())
         async with lock:
+            # --- Step 1: Try fast-forward via ref update (no checkout needed) ---
+            try:
+                ff_result = await self._try_ff_via_ref(job_id, repo_path, branch, base_ref)
+                if ff_result is not None:
+                    return ff_result
+            except GitError:
+                log.debug("merge_ff_ref_failed", job_id=job_id, exc_info=True)
+
+            # --- Step 2: Regular merge in worktree (lock already held) ---
             return await self._merge_in_worktree(
                 job_id,
                 repo_path,
@@ -442,11 +445,8 @@ class MergeService:
                 log.warning("worktree_cleanup_failed", job_id=job_id, exc_info=True)
 
         if self._config.delete_branch_after_merge:
-            try:
-                with contextlib.suppress(GitError):
-                    await self._git._run_git("branch", "-d", branch, cwd=repo_path)  # noqa: SLF001
-            except GitError:
-                log.warning("branch_cleanup_failed", job_id=job_id, exc_info=True)
+            with contextlib.suppress(GitError):
+                await self._git._run_git("branch", "-d", branch, cwd=repo_path)  # noqa: SLF001
 
     _MERGE_STATUS_MAX_ATTEMPTS = 3
     _MERGE_STATUS_RETRY_DELAY_S = 0.05
@@ -627,17 +627,18 @@ class MergeService:
         except GitError:
             log.warning("resolve_auto_commit_failed", job_id=job_id, exc_info=True)
 
-        # --- Step 1: Try fast-forward via ref update (no checkout needed) ---
-        try:
-            ff_result = await self._try_ff_via_ref(job_id, repo_path, branch, base_ref)
-            if ff_result is not None:
-                return ff_result
-        except GitError:
-            log.debug("resolve_ff_ref_failed", job_id=job_id, exc_info=True)
-
-        # --- Step 2: Full merge requires the main worktree. Acquire lock. ---
+        # Acquire per-repo lock BEFORE FF — same race protection as _auto_merge.
         lock = self._repo_locks.setdefault(repo_path, asyncio.Lock())
         async with lock:
+            # --- Step 1: Try fast-forward via ref update (no checkout needed) ---
+            try:
+                ff_result = await self._try_ff_via_ref(job_id, repo_path, branch, base_ref)
+                if ff_result is not None:
+                    return ff_result
+            except GitError:
+                log.debug("resolve_ff_ref_failed", job_id=job_id, exc_info=True)
+
+            # --- Step 2: Regular merge in worktree (lock already held) ---
             return await self._operator_merge_in_worktree(
                 job_id,
                 repo_path,
