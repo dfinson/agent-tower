@@ -148,7 +148,11 @@ class ApprovalService:
             return await repo.list_pending(job_id)
 
     def cleanup_job(self, job_id: str) -> None:
-        """Cancel any pending futures for a job (e.g. on job cancel/fail)."""
+        """Cancel any pending futures for a job (e.g. on job cancel/fail).
+
+        Also marks orphaned DB approvals as denied so they don't accumulate
+        as unresolved rows across restarts.
+        """
         self._trusted_jobs.discard(job_id)
         to_remove = [
             aid
@@ -161,6 +165,30 @@ class ApprovalService:
             self._explicit_approval_ids.discard(aid)
             if fut is not None and not fut.done():
                 fut.cancel()
+        if to_remove:
+            # Best-effort DB cleanup — resolve orphaned approvals so they
+            # don't remain as pending rows after a restart.
+            import asyncio
+
+            async def _resolve_orphans() -> None:
+                try:
+                    from datetime import UTC, datetime
+
+                    async with self._session_factory() as session:
+                        repo = self._make_repo(session)
+                        now = datetime.now(UTC)
+                        for aid in to_remove:
+                            await repo.resolve(aid, "denied", now)
+                        await session.commit()
+                except Exception:
+                    log.debug("cleanup_orphan_resolve_failed", job_id=job_id, exc_info=True)
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_resolve_orphans(), name=f"approval-cleanup-{job_id[:8]}")
+            except RuntimeError:
+                pass
+            log.debug("approval_futures_canceled", job_id=job_id, count=len(to_remove))
 
     def is_trusted(self, job_id: str) -> bool:
         """Return True if the operator has approved all for this job."""
