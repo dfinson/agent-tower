@@ -1183,11 +1183,18 @@ class RuntimeService:
             )
         )
 
+        self._waiting_for_approval.discard(job_id)
+
+        if resolution == "rejected":
+            # Leave job in waiting_for_approval — the caller will fail it
+            # via _fail_job which handles the waiting_for_approval → failed
+            # transition.  Do NOT transition to running first.
+            return resolution
+
         async with self._session_factory() as sess:
             svc = self._make_job_service(sess)
             await svc.transition_state(job_id, JobState.running)
             await sess.commit()
-        self._waiting_for_approval.discard(job_id)
         await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
         self._last_activity[job_id] = time.monotonic()
 

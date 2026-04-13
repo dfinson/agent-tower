@@ -484,12 +484,11 @@ class TestPaginationEdgeCases:
 
 class TestUpdateStateEdgeCases:
     @pytest.mark.asyncio
-    async def test_update_nonexistent_job_is_noop(self, session: AsyncSession) -> None:
+    async def test_update_nonexistent_job_raises(self, session: AsyncSession) -> None:
         repo = JobRepository(session)
         now = datetime.now(UTC)
-        # Should not raise
-        await repo.update_state("nonexistent", "failed", now)
-        await session.commit()
+        with pytest.raises(ValueError, match="not found"):
+            await repo.update_state("nonexistent", "failed", now)
 
     @pytest.mark.asyncio
     async def test_update_to_invalid_state(self, session: AsyncSession) -> None:
