@@ -572,17 +572,20 @@ class TelemetrySummaryRepo(BaseRepository):
         flags: list[dict[str, str]] = []
         cost_first = job_row.get("cost_first_half_usd") or 0
         cost_second = job_row.get("cost_second_half_usd") or 0
-        if cost_first > 0 and cost_second > 1.5 * cost_first:
-            pct = round(cost_second / (cost_first + cost_second) * 100)
+        total_cost = cost_first + cost_second
+        # Only flag escalation when the job spent enough for it to matter
+        # and the 2nd half is significantly worse than the 1st
+        if total_cost >= 0.50 and cost_first > 0 and cost_second > 2.0 * cost_first:
+            pct = round(cost_second / total_cost * 100)
             msg = f"Cost escalation: {pct}% of spend in second half of turns"
             flags.append({"type": "turn_escalation", "message": msg})
 
         reread_count = job_row.get("file_reread_count") or 0
-        if reread_count > 10:
+        if reread_count > 50:
             flags.append({"type": "high_rereads", "message": f"High file re-reads: {reread_count} re-reads detected"})
 
         tool_failures = job_row.get("tool_failure_count") or 0
-        if tool_failures > 0:
+        if tool_failures >= 5:
             suffix = "s" if tool_failures > 1 else ""
             flags.append({"type": "tool_failures", "message": f"{tool_failures} tool failure{suffix} during this job"})
 
