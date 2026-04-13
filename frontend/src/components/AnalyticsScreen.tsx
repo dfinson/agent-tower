@@ -624,17 +624,19 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
     search_discovery: "Search & Discovery",
     setup: "Setup",
     wrap_up: "Wrap-up",
+    other_tools: "Other Tools",
   };
   const activityDescriptions: Record<string, string> = {
     command_execution: "LLM cost for turns where the agent ran shell commands (bash, terminal, sql)",
-    code_reading: "LLM cost for turns where the agent read files (view, read_file, cat)",
+    code_reading: "LLM cost for turns where the agent read files or checked git status/diffs",
     verification: "LLM cost for turns spent running tests or verifying changes",
     reasoning: "LLM cost for turns with no tool calls — pure thinking and planning",
-    code_changes: "LLM cost for turns where the agent edited or created files",
+    code_changes: "LLM cost for turns where the agent edited/created files or committed git changes",
     delegation: "LLM cost for turns where the agent delegated to sub-agents",
     search_discovery: "LLM cost for turns where the agent searched code or fetched URLs",
     setup: "LLM cost for environment setup at the start of a job",
     wrap_up: "LLM cost for finalization and cleanup at the end of a job",
+    other_tools: "LLM cost for turns using unclassified or custom tools",
   };
 
   const activityRows = useMemo(

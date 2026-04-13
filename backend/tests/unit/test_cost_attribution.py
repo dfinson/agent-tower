@@ -40,6 +40,11 @@ def test_derive_activity_weights_maps_useful_buckets() -> None:
         "command_execution": 1,
     }
     assert _derive_activity_weights(phase="agent_reasoning", tool_categories=[]) == {"reasoning": 1}
+    # git_read → code_reading, git_write → code_changes
+    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["git_read"]) == {"code_reading": 1}
+    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["git_write"]) == {"code_changes": 1}
+    # "other" category → other_tools (not command_execution)
+    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["other"]) == {"other_tools": 1}
 
 
 def test_allocate_weighted_totals_splits_turn_cost_across_activities() -> None:
