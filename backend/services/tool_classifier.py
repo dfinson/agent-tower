@@ -75,11 +75,19 @@ TOOL_CATEGORIES: dict[str, str] = {
     "write_bash": "shell",
     "stop_bash": "shell",
     "sql": "shell",
-    # git — version control operations
-    "git_diff": "git",
-    "git_status": "git",
-    "git_log": "git",
-    "get_changed_files": "git",
+    # git — version control operations (split read vs write)
+    "git_diff": "git_read",
+    "git_status": "git_read",
+    "git_log": "git_read",
+    "get_changed_files": "git_read",
+    "git_commit": "git_write",
+    "git_push": "git_write",
+    "git_add": "git_write",
+    "git_checkout": "git_write",
+    "git_merge": "git_write",
+    "git_rebase": "git_write",
+    "git_reset": "git_write",
+    "git_stash": "git_write",
     # browser — web fetches and browsing
     "fetch_url": "browser",
     "web_search": "browser",
@@ -157,7 +165,7 @@ def extract_tool_target(tool_name: str, tool_args: str | None) -> str:
         # Return first word of command as the target
         return cmd.split()[0] if cmd else ""
 
-    if category == "git":
+    if category in ("git_read", "git_write"):
         return str(parsed.get("path", "") or parsed.get("file", ""))
 
     if category == "browser":

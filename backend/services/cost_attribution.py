@@ -27,14 +27,15 @@ log = structlog.get_logger()
 
 _TOOL_CATEGORY_ACTIVITY = {
     "file_write": "code_changes",
-    "git": "code_changes",
+    "git_write": "code_changes",
+    "git_read": "code_reading",
     "file_read": "code_reading",
     "file_search": "search_discovery",
     "browser": "search_discovery",
     "shell": "command_execution",
     "agent": "delegation",
     "system": "reasoning",
-    "other": "command_execution",
+    "other": "other_tools",
 }
 
 

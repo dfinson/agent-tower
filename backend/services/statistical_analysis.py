@@ -33,6 +33,7 @@ async def run_analysis(session: AsyncSession) -> int:
     count += await _analyse_tool_failures(session, repo)
     count += await _analyse_turn_escalation(session, repo)
     count += await _analyse_retry_waste(session, repo)
+    count += await _analyse_phase_imbalance(session, repo)
     log.info("statistical_analysis_complete", observations=count)
     return count
 
@@ -207,3 +208,63 @@ async def _analyse_retry_waste(session: AsyncSession, repo: ObservationsRepo) ->
         )
         count += 1
     return count
+
+
+async def _analyse_phase_imbalance(session: AsyncSession, repo: ObservationsRepo) -> int:
+    """Detect jobs where verification cost exceeds reasoning cost.
+
+    When verification consistently outweighs the actual reasoning/coding
+    phase, it signals the agent is spending too much on self-review relative
+    to productive work.
+    """
+    result = await session.execute(
+        text("""
+            SELECT
+                ca.job_id,
+                SUM(CASE WHEN ca.bucket = 'verification' THEN ca.cost_usd ELSE 0 END) as verification_cost,
+                SUM(CASE WHEN ca.bucket NOT IN ('verification', 'setup', 'wrap_up')
+                    THEN ca.cost_usd ELSE 0 END) as reasoning_cost,
+                SUM(ca.cost_usd) as total_cost
+            FROM cost_attribution ca
+            JOIN job_telemetry_summary jts ON jts.job_id = ca.job_id
+            WHERE ca.dimension = 'activity'
+                AND jts.created_at >= datetime('now', '-30 days')
+                AND jts.status = 'completed'
+            GROUP BY ca.job_id
+            HAVING verification_cost > 0
+                AND reasoning_cost > 0
+                AND verification_cost > reasoning_cost
+                AND total_cost >= 0.05
+        """)
+    )
+    rows = result.mappings().all()
+    if len(rows) < 2:
+        return 0
+
+    total_excess = sum(
+        max(0, float(r["verification_cost"]) - float(r["reasoning_cost"]))
+        for r in rows
+    )
+    await repo.upsert(
+        category="phase_imbalance",
+        severity="warning" if total_excess >= 1.0 else "info",
+        title=f"Verification outweighs reasoning in {len(rows)} jobs",
+        detail=(
+            f"{len(rows)} completed jobs had verification costs exceeding "
+            f"reasoning costs. Excess verification spend: ${total_excess:.2f}."
+        ),
+        evidence={
+            "affected_jobs": [
+                {
+                    "job_id": r["job_id"],
+                    "verification_cost": round(float(r["verification_cost"]), 4),
+                    "reasoning_cost": round(float(r["reasoning_cost"]), 4),
+                }
+                for r in rows[:5]
+            ],
+            "total_jobs": len(rows),
+        },
+        job_count=len(rows),
+        total_waste_usd=total_excess,
+    )
+    return 1
