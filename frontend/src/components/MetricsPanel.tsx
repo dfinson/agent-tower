@@ -228,6 +228,8 @@ function formatActivityBucket(bucket: string): string {
       return "Wrap-up";
     case "other_tools":
       return "Other Tools";
+    case "bookkeeping":
+      return "Bookkeeping";
     default:
       return bucket.replace(/_/g, " ");
   }

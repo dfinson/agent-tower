@@ -6,6 +6,8 @@ Analyses accumulated telemetry to surface actionable cost observations:
 - Turn cost escalation (cost/turn increases significantly late in jobs)
 - Retry waste (retries that cost more than the original attempt)
 - Phase imbalance (verification consuming more than reasoning)
+- Compaction storms (excessive context compactions signaling context pressure)
+- Cache efficiency regression (cache hit rate drops between periods)
 
 Run periodically or after each job completion.
 """
@@ -34,6 +36,8 @@ async def run_analysis(session: AsyncSession) -> int:
     count += await _analyse_turn_escalation(session, repo)
     count += await _analyse_retry_waste(session, repo)
     count += await _analyse_phase_imbalance(session, repo)
+    count += await _analyse_compaction_storms(session, repo)
+    count += await _analyse_cache_efficiency_regression(session, repo)
     log.info("statistical_analysis_complete", observations=count)
     return count
 
@@ -266,5 +270,125 @@ async def _analyse_phase_imbalance(session: AsyncSession, repo: ObservationsRepo
         },
         job_count=len(rows),
         total_waste_usd=total_excess,
+    )
+    return 1
+
+
+async def _analyse_compaction_storms(session: AsyncSession, repo: ObservationsRepo) -> int:
+    """Detect jobs with excessive context compactions.
+
+    Frequent compactions signal the agent is hitting context limits
+    repeatedly, wasting tokens and causing potential information loss.
+    """
+    result = await session.execute(
+        text("""
+            SELECT
+                job_id,
+                compactions,
+                tokens_compacted,
+                total_cost_usd,
+                total_turns
+            FROM job_telemetry_summary
+            WHERE compactions >= 5
+                AND created_at >= datetime('now', '-30 days')
+                AND status IN ('completed', 'failed')
+            ORDER BY compactions DESC
+            LIMIT 20
+        """)
+    )
+    rows = result.mappings().all()
+    if len(rows) < 2:
+        return 0
+
+    total_tokens_wasted = sum(int(r["tokens_compacted"] or 0) for r in rows)
+    max_compactions = max(int(r["compactions"] or 0) for r in rows)
+    await repo.upsert(
+        category="compaction_storm",
+        severity="warning" if max_compactions >= 10 else "info",
+        title=f"Excessive compactions in {len(rows)} jobs",
+        detail=(
+            f"{len(rows)} jobs required ≥5 context compactions. "
+            f"Total tokens compacted: {total_tokens_wasted:,}. "
+            f"Peak: {max_compactions} compactions in a single job."
+        ),
+        evidence={
+            "affected_jobs": [
+                {
+                    "job_id": r["job_id"],
+                    "compactions": int(r["compactions"]),
+                    "tokens_compacted": int(r["tokens_compacted"] or 0),
+                }
+                for r in rows[:5]
+            ],
+            "total_jobs": len(rows),
+            "total_tokens_compacted": total_tokens_wasted,
+        },
+        job_count=len(rows),
+    )
+    return 1
+
+
+async def _analyse_cache_efficiency_regression(session: AsyncSession, repo: ObservationsRepo) -> int:
+    """Detect drops in cache hit rate compared to the prior period.
+
+    Compares the cache read ratio (cache_read / input_tokens) for the
+    last 7 days against the prior 7 days.  A significant drop signals
+    a configuration issue, provider change, or prompt mutation.
+    """
+    result = await session.execute(
+        text("""
+            SELECT
+                SUM(CASE WHEN created_at >= datetime('now', '-7 days')
+                    THEN cache_read_tokens ELSE 0 END) as recent_cache,
+                SUM(CASE WHEN created_at >= datetime('now', '-7 days')
+                    THEN input_tokens ELSE 0 END) as recent_input,
+                SUM(CASE WHEN created_at < datetime('now', '-7 days')
+                         AND created_at >= datetime('now', '-14 days')
+                    THEN cache_read_tokens ELSE 0 END) as prior_cache,
+                SUM(CASE WHEN created_at < datetime('now', '-7 days')
+                         AND created_at >= datetime('now', '-14 days')
+                    THEN input_tokens ELSE 0 END) as prior_input
+            FROM job_telemetry_summary
+            WHERE created_at >= datetime('now', '-14 days')
+                AND status IN ('completed', 'failed')
+        """)
+    )
+    row = result.mappings().first()
+    if not row:
+        return 0
+
+    recent_input = int(row["recent_input"] or 0)
+    recent_cache = int(row["recent_cache"] or 0)
+    prior_input = int(row["prior_input"] or 0)
+    prior_cache = int(row["prior_cache"] or 0)
+
+    # Need sufficient data in both periods
+    if recent_input < 10000 or prior_input < 10000:
+        return 0
+
+    recent_rate = recent_cache / recent_input * 100
+    prior_rate = prior_cache / prior_input * 100
+
+    # Alert if cache rate dropped by ≥15 percentage points
+    drop = prior_rate - recent_rate
+    if drop < 15:
+        return 0
+
+    await repo.upsert(
+        category="cache_regression",
+        severity="warning" if drop >= 25 else "info",
+        title=f"Cache hit rate dropped {drop:.0f}pp (last 7d vs prior 7d)",
+        detail=(
+            f"Cache read rate fell from {prior_rate:.1f}% to {recent_rate:.1f}% "
+            f"({drop:.1f} percentage point drop). This may indicate a provider "
+            f"change, prompt mutation, or caching misconfiguration."
+        ),
+        evidence={
+            "recent_rate_pct": round(recent_rate, 1),
+            "prior_rate_pct": round(prior_rate, 1),
+            "drop_pp": round(drop, 1),
+            "recent_input_tokens": recent_input,
+            "prior_input_tokens": prior_input,
+        },
     )
     return 1

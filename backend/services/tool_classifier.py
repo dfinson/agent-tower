@@ -105,13 +105,14 @@ TOOL_CATEGORIES: dict[str, str] = {
     "skill": "agent",
     "Task": "agent",
     "read_agent": "agent",
-    # system — agent-internal bookkeeping
-    "report_intent": "system",
-    "store_memory": "system",
-    "manage_todo_list": "system",
-    "memory": "system",
-    "Think": "system",
-    "Computer": "system",
+    # thinking — agent reasoning / planning
+    "Think": "thinking",
+    "Computer": "thinking",
+    # bookkeeping — agent-internal housekeeping
+    "report_intent": "bookkeeping",
+    "store_memory": "bookkeeping",
+    "manage_todo_list": "bookkeeping",
+    "memory": "bookkeeping",
 }
 
 
