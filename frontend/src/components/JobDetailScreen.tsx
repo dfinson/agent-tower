@@ -148,11 +148,6 @@ export function JobDetailScreen() {
   const tabBarRef = useRef<HTMLDivElement>(null);
 
   const handleTabChange = useCallback((v: string) => {
-    // Mobile-only: "activity" opens the sheet instead of switching tab content
-    if (v === "activity") {
-      setMobileActivityOpen(true);
-      return;
-    }
     setTab(v);
     if (v !== "diff") setStepFilter(null);
     if (v !== "live") setScrollToSeq(null);
@@ -797,7 +792,13 @@ export function JobDetailScreen() {
         <div className="flex sm:hidden items-center gap-2">
           <TabsList>
             <TabsTrigger value="live">Live</TabsTrigger>
-            <TabsTrigger value="activity"><ListTree size={13} className="mr-1.5" />Activity</TabsTrigger>
+            <button
+              type="button"
+              onClick={() => setMobileActivityOpen(true)}
+              className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              <ListTree size={13} className="mr-1.5" />Activity
+            </button>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
           </TabsList>
 
