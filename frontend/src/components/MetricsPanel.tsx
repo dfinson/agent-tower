@@ -221,6 +221,8 @@ function formatActivityBucket(bucket: string): string {
       return "Sub-agents";
     case "reasoning":
       return "Reasoning";
+    case "user_communication":
+      return "User Messages";
     case "other_tools":
       return "Other Tools";
     case "bookkeeping":
@@ -937,7 +939,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                         <Wrench size={12} className="text-yellow-400" /> Cost by Activity
                       </div>
                       <p className="text-[11px] text-muted-foreground">
-                        Turn cost is allocated to the activities used within that turn. Mixed turns are split across their activities, and reasoning-only turns stay in Reasoning.
+                        Turn cost is allocated to the activities used within that turn. Mixed turns are split across their activities. Turns with no tool calls that produce output are User Messages; pure thinking stays in Reasoning.
                       </p>
                       {activityBuckets
                         .slice()
