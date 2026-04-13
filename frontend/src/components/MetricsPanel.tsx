@@ -230,6 +230,14 @@ function formatActivityBucket(bucket: string): string {
       return "Other Tools";
     case "bookkeeping":
       return "Bookkeeping";
+    case "environment_setup":
+      return "Setup";
+    case "agent_reasoning":
+      return "Reasoning";
+    case "finalization":
+      return "Finalization";
+    case "post_completion":
+      return "Post-completion";
     default:
       return bucket.replace(/_/g, " ");
   }
@@ -683,6 +691,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   // Dynamic model pricing from backend
   const modelPricing = useModelPricing(data?.model ?? data?.mainModel);
   const activityBuckets = data?.costDrivers?.activity ?? [];
+  const phaseBuckets = data?.costDrivers?.phase ?? [];
   const turnEconomics = data?.turnEconomics;
   const turnCurve = turnEconomics?.turnCurve ?? [];
   const showCacheEfficiency = (data?.inputTokens ?? 0) > 0 || (data?.cacheReadTokens ?? 0) > 0 || (data?.cacheWriteTokens ?? 0) > 0;
@@ -955,6 +964,34 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                               </div>
                               <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                                 <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+
+                  {phaseBuckets.length > 0 && (
+                    <div className="rounded-md border border-border bg-background p-3 space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                        <Wrench size={12} className="text-purple-400" /> Cost by Phase
+                      </div>
+                      {phaseBuckets
+                        .slice()
+                        .sort((a, b) => b.costUsd - a.costUsd)
+                        .map((bucket) => {
+                          const total = phaseBuckets.reduce((sum, entry) => sum + entry.costUsd, 0);
+                          const widthPct = total > 0 ? (bucket.costUsd / total) * 100 : 0;
+                          return (
+                            <div key={bucket.bucket} className="space-y-1">
+                              <div className="flex items-center justify-between gap-2 text-xs">
+                                <div className="truncate text-foreground">{formatActivityBucket(bucket.bucket)}</div>
+                                <div className="text-right tabular-nums">
+                                  <div>{formatUsd(bucket.costUsd)}</div>
+                                </div>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                <div className="h-full rounded-full bg-purple-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
                               </div>
                             </div>
                           );
