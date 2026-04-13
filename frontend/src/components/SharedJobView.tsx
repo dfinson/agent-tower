@@ -120,6 +120,7 @@ export function SharedJobView() {
     };
 
     return () => es.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reconnect SSE only when job.id changes, not on every job state update
   }, [token, job?.id]);
 
   // Keep local job state in sync with store updates

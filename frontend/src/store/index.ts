@@ -481,7 +481,7 @@ export const useStore = create<AppState>((set, get) => ({
         streamingMessages,
         timelines: {
           ...s.timelines,
-          [jobId]: (snapshot.timeline ?? []).map((t: any) => ({ ...t, active: false })),
+          [jobId]: (snapshot.timeline ?? []).map((t: TimelineEntry) => ({ ...t, active: false })),
         },
         activityTimelines: {
           ...s.activityTimelines,

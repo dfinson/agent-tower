@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- exports useSearchHighlight alongside components */
 /**
  * CuratedFeed — curated, structured activity view with progressive disclosure.
  *
@@ -1486,7 +1487,7 @@ export function CuratedFeed({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); e.shiftKey ? prevMatch() : nextMatch(); }
+                    if (e.key === "Enter") { e.preventDefault(); if (e.shiftKey) { prevMatch(); } else { nextMatch(); } }
                   }}
                   placeholder="Search transcript…"
                   className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"

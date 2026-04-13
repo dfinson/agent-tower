@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- intentionally exports helpers alongside components */
 import { useState } from "react";
 import { ChevronDown, Network, Brain } from "lucide-react";
 import { cn } from "../lib/utils";
