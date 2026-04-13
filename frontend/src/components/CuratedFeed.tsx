@@ -1493,7 +1493,7 @@ export function CuratedFeed({
         className="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
       >
         {/* Inline search — sticky so it stays visible on scroll */}
-        <div className="sticky top-0 z-10 bg-card px-3 sm:px-4 pt-2.5 pb-0">
+        <div className="sticky top-0 z-10 px-3 sm:px-4 pt-2.5 pb-0" style={{ background: "linear-gradient(to bottom, hsl(var(--card)) 70%, hsl(var(--card) / 0))" }}>
           <div
             className={cn(
               "flex items-center gap-2 transition-colors cursor-text",
@@ -1543,7 +1543,7 @@ export function CuratedFeed({
             )}
           </div>
           {/* Divider line with margin on both sides */}
-          <div className="mx-2 mt-2.5 border-b border-border/40" />
+          <div className="mx-2 mt-2.5 mb-1 border-b border-border/40" />
         </div>
 
         <div
@@ -1606,7 +1606,7 @@ export function CuratedFeed({
 
       {/* Message composer */}
       {interactive && (
-        <div className="rounded-lg border border-border bg-card px-3 py-2 mt-2">
+        <div className="rounded-lg border border-border bg-card px-3 py-2 mt-1">
           <div className="flex items-end gap-2">
             <div className="flex-1 relative">
               <textarea

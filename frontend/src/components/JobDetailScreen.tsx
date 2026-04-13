@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Loader2, ChevronRight } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -54,45 +54,6 @@ class TabErrorBoundary extends Component<{ children: ReactNode }, { error: Error
   }
 }
 
-/** Terminal job states where the agent is no longer working. */
-const TERMINAL_JOB_STATES = new Set(["review", "completed", "failed", "canceled", "archived"]);
-
-/** Full-width strip below tab bar showing current activity — visible on < lg, Live tab only. */
-function MobileActivityStrip({
-  activities,
-  jobState,
-  onClick,
-}: {
-  activities?: { label: string; status: "active" | "done" }[];
-  jobState?: string;
-  onClick: () => void;
-}) {
-  const jobFinished = !!jobState && TERMINAL_JOB_STATES.has(jobState);
-  // When job is terminal, treat all activities as done (same as ActivityTimeline)
-  const active = jobFinished ? undefined : activities?.find((a) => a.status === "active");
-  const total = activities?.length ?? 0;
-  const doneCount = jobFinished ? total : (activities?.filter((a) => a.status === "done").length ?? 0);
-
-  return (
-    <button
-      onClick={onClick}
-      aria-label="Open activity timeline"
-      className="flex lg:hidden items-center gap-2 w-full px-3 py-2.5 rounded-lg border border-border bg-card text-sm transition-colors hover:bg-accent/50 mb-3"
-    >
-      {active ? (
-        <Loader2 size={14} className="text-blue-400 animate-spin shrink-0" />
-      ) : total > 0 ? (
-        <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
-      ) : (
-        <ListTree size={14} className="text-muted-foreground shrink-0" />
-      )}
-      <span className="truncate flex-1 text-left text-foreground/80">
-        {active ? active.label : total > 0 ? `${doneCount} of ${total} activities done` : "Activity"}
-      </span>
-      <ChevronRight size={14} className="text-muted-foreground shrink-0" />
-    </button>
-  );
-}
 
 export function JobDetailScreen() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -187,6 +148,11 @@ export function JobDetailScreen() {
   const tabBarRef = useRef<HTMLDivElement>(null);
 
   const handleTabChange = useCallback((v: string) => {
+    // Mobile-only: "activity" opens the sheet instead of switching tab content
+    if (v === "activity") {
+      setMobileActivityOpen(true);
+      return;
+    }
     setTab(v);
     if (v !== "diff") setStepFilter(null);
     if (v !== "live") setScrollToSeq(null);
@@ -499,7 +465,7 @@ export function JobDetailScreen() {
   const canArchive = (job.state === "failed" || job.state === "canceled" || (job.state === "completed" && !isResolved)) && !job.archivedAt;
 
   return (
-    <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 lg:px-0">
+    <div className="max-w-6xl mx-auto px-1.5 sm:px-4 md:px-6 lg:px-0">
       <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4">
         <ArrowLeft size={14} />
         Dashboard
@@ -831,7 +797,7 @@ export function JobDetailScreen() {
         <div className="flex sm:hidden items-center gap-2">
           <TabsList>
             <TabsTrigger value="live">Live</TabsTrigger>
-            <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
+            <TabsTrigger value="activity"><ListTree size={13} className="mr-1.5" />Activity</TabsTrigger>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
           </TabsList>
 
@@ -857,7 +823,7 @@ export function JobDetailScreen() {
                 aria-label="More options"
                 className={cn(
                   "flex items-center justify-center w-9 h-9 rounded-md border text-xs font-medium transition-colors shrink-0",
-                  (tab === "metrics" || tab === "artifacts")
+                  (tab === "files" || tab === "metrics" || tab === "artifacts")
                     ? "border-transparent bg-background text-foreground shadow"
                     : "border-border text-muted-foreground hover:text-foreground hover:bg-accent",
                 )}
@@ -872,6 +838,18 @@ export function JobDetailScreen() {
                 sideOffset={6}
                 className="z-50 min-w-[140px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
               >
+                <button
+                  onClick={() => { handleTabChange("files"); setOverflowOpen(false); }}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
+                    tab === "files"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <FolderTree size={13} />
+                  Files
+                </button>
                 <button
                   onClick={() => { handleTabChange("metrics"); setOverflowOpen(false); }}
                   className={cn(
@@ -920,14 +898,7 @@ export function JobDetailScreen() {
         </div>
       </Tabs>
 
-      {/* Mobile activity strip + sheet (hidden on lg+) */}
-      {tab === "live" && (
-        <MobileActivityStrip
-          activities={activityTimeline?.activities}
-          jobState={job?.state}
-          onClick={() => setMobileActivityOpen(true)}
-        />
-      )}
+      {/* Mobile activity sheet (hidden on lg+ where sidebar is used) */}
       <div className="lg:hidden">
         <Sheet open={mobileActivityOpen} onClose={() => setMobileActivityOpen(false)} title="Activity" side="left">
           <div className="-mx-4 -mt-4">

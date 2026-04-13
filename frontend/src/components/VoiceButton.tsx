@@ -283,13 +283,13 @@ export function MicButton({ onTranscript, onStateChange, waveformContainerRef }:
         onClick={handleClick}
         disabled={state === "transcribing"}
         aria-label={state === "recording" ? "Stop recording" : state === "transcribing" ? "Transcribing audio" : "Voice input"}
-        className={`h-6 w-6 rounded-full flex items-center justify-center transition-colors ${
+        className={`h-8 w-8 sm:h-6 sm:w-6 rounded-full flex items-center justify-center transition-colors ${
           state === "recording"
             ? "bg-destructive text-destructive-foreground hover:bg-destructive/80"
             : "text-muted-foreground hover:text-foreground hover:bg-accent"
         }`}
       >
-        {state === "recording" ? <Square size={12} /> : <Mic size={14} />}
+        {state === "recording" ? <Square size={14} className="sm:w-3 sm:h-3" /> : <Mic size={18} className="sm:w-3.5 sm:h-3.5" />}
       </button>
     </Tooltip>
   );
