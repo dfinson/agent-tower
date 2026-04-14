@@ -105,7 +105,6 @@ class ActivityStep:
 # ---------------------------------------------------------------------------
 
 
-
 _CLASSIFY_PROMPT = """\
 You manage a plan for a coding task.  Given the current plan items and the \
 latest completed work, determine:
@@ -124,7 +123,8 @@ Latest completed work:
 - Tool intents: {intents}
 
 Respond with JSON only:
-{{"assign_to": <index>, "summary": "<1-2 sentence summary>", "status": "<active|done>", "updated_label": "<new label or null>"}}
+{{"assign_to": <index>, "summary": "<1-2 sentence summary>",
+"status": "<active|done>", "updated_label": "<new label or null>"}}
 
 RULES:
 - assign_to is the 1-based index of the plan item this work belongs to.
@@ -267,10 +267,17 @@ class ProgressTrackingService:
 
     def cleanup(self, job_id: str) -> None:
         for store in (
-            self._plan_steps, self._active_idx, self._plan_established,
-            self._recent_messages, self._recent_tool_intents,
-            self._recent_tool_names, self._tool_call_count, self._job_prompts,
-            self._activities, self._activity_steps, self._last_classified_plan_item,
+            self._plan_steps,
+            self._active_idx,
+            self._plan_established,
+            self._recent_messages,
+            self._recent_tool_intents,
+            self._recent_tool_names,
+            self._tool_call_count,
+            self._job_prompts,
+            self._activities,
+            self._activity_steps,
+            self._last_classified_plan_item,
         ):
             store.pop(job_id, None)  # type: ignore[arg-type]
         self._native_plan_active.discard(job_id)
@@ -296,13 +303,12 @@ class ProgressTrackingService:
                 if len(buf) == 1 and not self._plan_established.get(job_id, False):
                     await self._try_early_plan(job_id)
 
-        if role == "tool_call":
-            if tool_intent:
-                ibuf = self._recent_tool_intents.get(job_id)
-                if ibuf is not None:
-                    ibuf.append(tool_intent[:_TOOL_INTENT_MAX])
-                    if len(ibuf) > 10:
-                        self._recent_tool_intents[job_id] = ibuf[-10:]
+        if role == "tool_call" and tool_intent:
+            ibuf = self._recent_tool_intents.get(job_id)
+            if ibuf is not None:
+                ibuf.append(tool_intent[:_TOOL_INTENT_MAX])
+                if len(ibuf) > 10:
+                    self._recent_tool_intents[job_id] = ibuf[-10:]
 
     async def _try_early_plan(self, job_id: str) -> None:
         """Infer plan from the first agent message without waiting for step_completed."""
@@ -345,9 +351,7 @@ class ProgressTrackingService:
 
         new_labels: list[tuple[str, str]] = []
         for item in items:
-            label = str(
-                item.get("title") or item.get("content") or item.get("label") or ""
-            ).strip()
+            label = str(item.get("title") or item.get("content") or item.get("label") or "").strip()
             if not label:
                 continue
             raw_status = str(item.get("status", "pending")).strip().lower()
@@ -390,9 +394,7 @@ class ProgressTrackingService:
         self._plan_steps[job_id] = updated
         self._plan_established[job_id] = True
 
-        self._active_idx[job_id] = next(
-            (i for i, s in enumerate(updated) if s.status == "active"), -1
-        )
+        self._active_idx[job_id] = next((i for i, s in enumerate(updated) if s.status == "active"), -1)
 
         for ps in updated:
             await self._emit_plan_step(job_id, ps)
@@ -435,13 +437,15 @@ class ProgressTrackingService:
             for i, label in enumerate(labels[:8]):
                 if not isinstance(label, str) or not label.strip():
                     continue
-                steps.append(PlanStep(
-                    plan_step_id=_make_plan_step_id(),
-                    label=label.strip()[:60],
-                    status="active" if i == 0 else "pending",
-                    order=i,
-                    started_at=now if i == 0 else None,
-                ))
+                steps.append(
+                    PlanStep(
+                        plan_step_id=_make_plan_step_id(),
+                        label=label.strip()[:60],
+                        status="active" if i == 0 else "pending",
+                        order=i,
+                        started_at=now if i == 0 else None,
+                    )
+                )
 
             if steps:
                 self._plan_steps[job_id] = steps
@@ -484,7 +488,9 @@ class ProgressTrackingService:
         assigned_plan_step_id: str | None = None
         if sister and steps:
             assigned_plan_step_id = await self._classify_and_update(
-                job_id, sister, steps,
+                job_id,
+                sister,
+                steps,
                 agent_msg=agent_msg,
                 tool_count=tool_count,
                 files_written=files_written,
@@ -568,9 +574,7 @@ class ProgressTrackingService:
         # dominant directory of files_written shifts significantly.
         current_activity = activities[-1]
         act_steps = self._activity_steps.get(job_id, [])
-        current_act_steps = [
-            s for s in act_steps if s.activity_id == current_activity.activity_id
-        ]
+        current_act_steps = [s for s in act_steps if s.activity_id == current_activity.activity_id]
         if len(current_act_steps) >= 5:
             # Check if file scope shifted — basic heuristic based on
             # common directory prefix of recent writes vs current writes
@@ -619,10 +623,7 @@ class ProgressTrackingService:
         act_steps = self._activity_steps.get(job_id, [])
         current_activity = activities[-1] if activities else None
         current_act_id = current_activity.activity_id if current_activity else None
-        recent_titles = [
-            s.title for s in act_steps
-            if s.activity_id == current_act_id
-        ][-5:]
+        recent_titles = [s.title for s in act_steps if s.activity_id == current_act_id][-5:]
         recent_block = "\n".join(f"  - {t}" for t in recent_titles) if recent_titles else "  (none yet)"
 
         tools = ", ".join(self._recent_tool_names.get(job_id, [])[-6:])
@@ -687,7 +688,9 @@ class ProgressTrackingService:
 
         # 1. Resolve activity boundary from plan classification
         is_new_activity, activity_label = self._resolve_activity_boundary(
-            job_id, assigned_plan_step_id, files_written,
+            job_id,
+            assigned_plan_step_id,
+            files_written,
         )
 
         # Update plan item tracking
@@ -696,7 +699,8 @@ class ProgressTrackingService:
 
         # 2. Generate outcome-focused title (separate, focused LLM call)
         title, merge_prev = await self._generate_turn_title(
-            job_id, sister,
+            job_id,
+            sister,
             agent_msg=agent_msg,
             files_read=files_read,
             files_written=files_written,
@@ -710,21 +714,23 @@ class ProgressTrackingService:
         prev_step = act_steps[-1] if act_steps else None
         if merge_prev and prev_step and current_activity is not None and not is_new_activity:
             prev_step.title = title
-            await self._event_bus.publish(DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.turn_summary,
-                payload={
-                    "turn_id": prev_step.turn_id,
-                    "title": title,
-                    "activity_id": current_activity.activity_id,
-                    "activity_label": current_activity.label,
-                    "activity_status": current_activity.status,
-                    "is_new_activity": False,
-                    "plan_item_id": assigned_plan_step_id,
-                },
-            ))
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.turn_summary,
+                    payload={
+                        "turn_id": prev_step.turn_id,
+                        "title": title,
+                        "activity_id": current_activity.activity_id,
+                        "activity_label": current_activity.label,
+                        "activity_status": current_activity.status,
+                        "is_new_activity": False,
+                        "plan_item_id": assigned_plan_step_id,
+                    },
+                )
+            )
             return
 
         # 4. Handle activity boundary
@@ -734,9 +740,7 @@ class ProgressTrackingService:
                 current_activity.status = "done"
                 # Fire-and-forget label refinement for the closed activity
                 if sister:
-                    asyncio.ensure_future(
-                        self._refine_activity_label(job_id, sister, current_activity)
-                    )
+                    asyncio.ensure_future(self._refine_activity_label(job_id, sister, current_activity))
             new_act = Activity(
                 activity_id=_make_activity_id(),
                 label=activity_label,
@@ -755,21 +759,23 @@ class ProgressTrackingService:
         act_steps.append(step)
         self._activity_steps[job_id] = act_steps
 
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=DomainEventKind.turn_summary,
-            payload={
-                "turn_id": turn_id,
-                "title": title,
-                "activity_id": current_activity.activity_id,
-                "activity_label": current_activity.label,
-                "activity_status": current_activity.status,
-                "is_new_activity": is_new_activity,
-                "plan_item_id": assigned_plan_step_id,
-            },
-        ))
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.turn_summary,
+                payload={
+                    "turn_id": turn_id,
+                    "title": title,
+                    "activity_id": current_activity.activity_id,
+                    "activity_label": current_activity.label,
+                    "activity_status": current_activity.status,
+                    "is_new_activity": is_new_activity,
+                    "plan_item_id": assigned_plan_step_id,
+                },
+            )
+        )
 
     async def _refine_activity_label(
         self,
@@ -807,21 +813,23 @@ class ProgressTrackingService:
                     None,
                 )
                 if last_step:
-                    await self._event_bus.publish(DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.turn_summary,
-                        payload={
-                            "turn_id": last_step.turn_id,
-                            "title": last_step.title,
-                            "activity_id": activity.activity_id,
-                            "activity_label": activity.label,
-                            "activity_status": "done",
-                            "is_new_activity": False,
-                            "plan_item_id": None,
-                        },
-                    ))
+                    await self._event_bus.publish(
+                        DomainEvent(
+                            event_id=DomainEvent.make_event_id(),
+                            job_id=job_id,
+                            timestamp=datetime.now(UTC),
+                            kind=DomainEventKind.turn_summary,
+                            payload={
+                                "turn_id": last_step.turn_id,
+                                "title": last_step.title,
+                                "activity_id": activity.activity_id,
+                                "activity_label": activity.label,
+                                "activity_status": "done",
+                                "is_new_activity": False,
+                                "plan_item_id": None,
+                            },
+                        )
+                    )
         except Exception:
             log.debug("activity_label_refinement_failed", job_id=job_id, exc_info=True)
 
@@ -902,17 +910,19 @@ class ProgressTrackingService:
         # transcript entries from the old step to the correct one.
         stamped_step_id = steps[active_idx].plan_step_id
         if target_idx != active_idx and turn_id and ps.plan_step_id != stamped_step_id:
-            await self._event_bus.publish(DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=now,
-                kind=DomainEventKind.step_entries_reassigned,
-                payload={
-                    "turn_id": turn_id,
-                    "old_step_id": stamped_step_id,
-                    "new_step_id": ps.plan_step_id,
-                },
-            ))
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=now,
+                    kind=DomainEventKind.step_entries_reassigned,
+                    payload={
+                        "turn_id": turn_id,
+                        "old_step_id": stamped_step_id,
+                        "new_step_id": ps.plan_step_id,
+                    },
+                )
+            )
 
         # Accumulate metrics on the target step.
         ps.tool_count += tool_count
@@ -1024,10 +1034,7 @@ class ProgressTrackingService:
             activities[-1].status = "done"
 
     def get_plan_steps(self, job_id: str) -> list[dict[str, str]]:
-        return [
-            {"label": s.label, "status": s.status}
-            for s in self._plan_steps.get(job_id, [])
-        ]
+        return [{"label": s.label, "status": s.status} for s in self._plan_steps.get(job_id, [])]
 
     # -- Event emission helpers ----------------------------------------------
 

@@ -17,11 +17,18 @@ log = structlog.get_logger()
 _MAX_RESPONSE_BYTES = 50 * 1024 * 1024  # 50 MB cap on proxied responses
 
 # Headers that MUST NOT be forwarded to upstream (hop-by-hop + spoofable).
-_BLOCKED_REQUEST_HEADERS = frozenset({
-    "host", "connection", "transfer-encoding",
-    "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
-    "x-real-ip", "forwarded",
-})
+_BLOCKED_REQUEST_HEADERS = frozenset(
+    {
+        "host",
+        "connection",
+        "transfer-encoding",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "x-real-ip",
+        "forwarded",
+    }
+)
 
 # Shared httpx client — created lazily to avoid import-time side effects.
 _client = None

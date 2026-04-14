@@ -20,12 +20,12 @@ from backend.services.job_service import JobService
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.platform_adapter import PlatformRegistry
-from backend.services.runtime_service import RuntimeService
-from backend.services.sse_manager import SSEManager
-from backend.services.sister_session import SisterSessionManager
-from backend.services.voice_service import VoiceService
 from backend.services.push_service import PushService
+from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
+from backend.services.sister_session import SisterSessionManager
+from backend.services.sse_manager import SSEManager
+from backend.services.voice_service import VoiceService
 
 # NewType wrappers for plain values that need unique DI keys
 CachedModelsBySdk = NewType("CachedModelsBySdk", dict[str, Any])

@@ -234,7 +234,12 @@ def _infer_execution_phases(spans: list[dict[str, Any]]) -> list[str | None]:
     return inferred
 
 
-def _derive_activity_weights(*, phase: str | None, tool_categories: list[str], output_tokens: int = 0) -> dict[str, int]:
+def _derive_activity_weights(
+    *,
+    phase: str | None,
+    tool_categories: list[str],
+    output_tokens: int = 0,
+) -> dict[str, int]:
     # Always derive activity from actual tool usage, regardless of phase.
     # The phase dimension (verification, setup, wrap_up) is tracked separately
     # via the phase-dimension attribution rows — collapsing all activity into

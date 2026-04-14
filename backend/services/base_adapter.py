@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -469,11 +468,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 duration_ms=duration_ms,
                 attrs={
                     "success": success,
-                    **(
-                        {"error_snippet": result_text[:500]}
-                        if not success and result_text
-                        else {}
-                    ),
+                    **({"error_snippet": result_text[:500]} if not success and result_text else {}),
                 },
                 tool_category=category,
                 tool_target=target,
@@ -522,7 +517,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
             shell_cmd = str(tool_input.get("command", "")) if tool_kind == "shell" or tool_name == "Bash" else ""
         if shell_cmd and is_git_reset_hard(shell_cmd):
             resolution = await self._hard_block_approval(
-                session_id, job_id, shell_cmd, tool_input,
+                session_id,
+                job_id,
+                shell_cmd,
+                tool_input,
             )
             return PermissionDecision.allow if resolution == "approved" else PermissionDecision.deny
 
@@ -548,11 +546,17 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
         # ask → route to operator
         description = self._build_permission_description(
-            tool_kind, tool_name, tool_input, full_command_text,
+            tool_kind,
+            tool_name,
+            tool_input,
+            full_command_text,
         )
+        proposed = full_command_text or (json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX] if tool_input else None)
         resolution = await self._route_to_operator(
-            session_id, job_id, description,
-            proposed_action=full_command_text or (json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX] if tool_input else None),
+            session_id,
+            job_id,
+            description,
+            proposed_action=proposed,
         )
         return PermissionDecision.allow if resolution == "approved" else PermissionDecision.deny
 
@@ -572,11 +576,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             "⚠️ git reset --hard — this will discard ALL uncommitted changes and "
             f"move HEAD: {shell_cmd[:_TOOL_SUMMARY_MAX]}"
         )
-        proposed = (
-            json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX]
-            if tool_input
-            else shell_cmd
-        )
+        proposed = json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX] if tool_input else shell_cmd
         approval = await self._approval_service.create_request(
             job_id=job_id,
             description=description,

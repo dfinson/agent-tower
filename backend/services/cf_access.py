@@ -167,9 +167,7 @@ def _refresh_jwks(*, force: bool = False) -> None:
         data = json.loads(resp.read())
     except Exception as exc:
         if force:
-            raise CfAccessConfigError(
-                f"Failed to fetch Cloudflare Access JWKS from {_certs_url}: {exc}"
-            ) from exc
+            raise CfAccessConfigError(f"Failed to fetch Cloudflare Access JWKS from {_certs_url}: {exc}") from exc
         return
 
     keys = data.get("keys")

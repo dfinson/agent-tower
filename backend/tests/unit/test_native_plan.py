@@ -105,7 +105,11 @@ class TestFeedNativePlan:
         assert event_bus.publish.call_count >= first_count
 
     @pytest.mark.asyncio()
-    async def test_updated_plan_publishes_new_events(self, service: ProgressTrackingService, event_bus: AsyncMock) -> None:
+    async def test_updated_plan_publishes_new_events(
+        self,
+        service: ProgressTrackingService,
+        event_bus: AsyncMock,
+    ) -> None:
         """When plan steps change, new step events are published."""
         await service.start_tracking("job-1")
         items_v1 = [

@@ -287,9 +287,12 @@ def _find_cpl_processes() -> list[int]:
                     continue
                 pid = int(parts[0])
                 args_lower = parts[2].lower()
-                if ("cpl up" in args_lower or "cpl restart" in args_lower) and "doctor" not in args_lower:
-                    if pid not in exclude:
-                        pids.append(pid)
+                if (
+                    ("cpl up" in args_lower or "cpl restart" in args_lower)
+                    and "doctor" not in args_lower
+                    and pid not in exclude
+                ):
+                    pids.append(pid)
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 

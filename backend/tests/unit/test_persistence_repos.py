@@ -16,10 +16,10 @@ from backend.models.db import Base, StepRow
 from backend.persistence.cost_attribution_repo import CostAttributionRepo
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.file_access_repo import FileAccessRepo
+from backend.persistence.job_repo import JobRepository
 from backend.persistence.observations_repo import ObservationsRepo
 from backend.persistence.step_repo import StepRepository
 from backend.tests.unit.conftest import make_job
-from backend.persistence.job_repo import JobRepository
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -183,7 +183,6 @@ class CopilotAdapter(BaseAgentAdapter):
         model_verified: list[bool],
         queue: asyncio.Queue[SessionEvent | None],
     ) -> None:
-        import time as _time
 
         from backend.services import telemetry as tel
 
@@ -503,19 +502,29 @@ class CopilotAdapter(BaseAgentAdapter):
                     delta = (data.delta_content or "") if data else ""
                     if not delta:
                         return
+                    turn_id = (
+                        self._get_turn_id(job_id, data)
+                        if job_id
+                        else (str(data.turn_id) if data and data.turn_id else None)
+                    )
                     event_payload = {
                         "role": "agent_delta",
                         "content": delta,
-                        "turn_id": self._get_turn_id(job_id, data) if job_id else (str(data.turn_id) if data and data.turn_id else None),
+                        "turn_id": turn_id,
                     }
                 elif kind_str == "assistant.reasoning_delta":
                     delta = (getattr(data, "delta_content", "") or "") if data else ""
                     if not delta:
                         return
+                    turn_id = (
+                        self._get_turn_id(job_id, data)
+                        if job_id
+                        else (str(data.turn_id) if data and data.turn_id else None)
+                    )
                     event_payload = {
                         "role": "reasoning_delta",
                         "content": delta,
-                        "turn_id": self._get_turn_id(job_id, data) if job_id else (str(data.turn_id) if data and data.turn_id else None),
+                        "turn_id": turn_id,
                     }
                 elif kind_str == "assistant.reasoning":
                     content = (data.content or getattr(data, "reasoning_text", "") or "") if data else ""
@@ -564,7 +573,11 @@ class CopilotAdapter(BaseAgentAdapter):
                         }
                         queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
                         return
-                    from backend.services.tool_formatters import classify_tool_visibility, format_tool_display, format_tool_display_full
+                    from backend.services.tool_formatters import (
+                        classify_tool_visibility,
+                        format_tool_display,
+                        format_tool_display_full,
+                    )
 
                     turn_id = buffered.get("turn_id") or (
                         str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None

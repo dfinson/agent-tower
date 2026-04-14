@@ -245,10 +245,7 @@ async def _analyse_phase_imbalance(session: AsyncSession, repo: ObservationsRepo
     if len(rows) < 2:
         return 0
 
-    total_excess = sum(
-        max(0, float(r["verification_cost"]) - float(r["reasoning_cost"]))
-        for r in rows
-    )
+    total_excess = sum(max(0, float(r["verification_cost"]) - float(r["reasoning_cost"])) for r in rows)
     await repo.upsert(
         category="phase_imbalance",
         severity="warning" if total_excess >= 1.0 else "info",

@@ -10,7 +10,6 @@ Supports Anthropic Messages API (Claude) and OpenAI Chat Completions API
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from typing import TYPE_CHECKING
@@ -58,9 +57,7 @@ class LightweightCompleter:
         if anthropic_key and self._is_anthropic_model(self._model):
             self._provider = "anthropic"
             self._api_key = anthropic_key
-            self._base_url = os.environ.get(
-                "ANTHROPIC_BASE_URL", "https://api.anthropic.com"
-            )
+            self._base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
             log.debug(
                 "lightweight_completer_ready",
                 provider="anthropic",
@@ -72,9 +69,7 @@ class LightweightCompleter:
         if openai_key and not self._is_anthropic_model(self._model):
             self._provider = "openai"
             self._api_key = openai_key
-            self._base_url = os.environ.get(
-                "OPENAI_BASE_URL", "https://api.openai.com"
-            )
+            self._base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com")
             log.debug(
                 "lightweight_completer_ready",
                 provider="openai",
@@ -104,7 +99,6 @@ class LightweightCompleter:
 
     async def complete(self, prompt: str) -> CompletionResult:
         """Fast completion — direct HTTP when possible, adapter fallback otherwise."""
-        from backend.services.agent_adapter import CompletionResult
 
         if self._provider == "anthropic":
             try:

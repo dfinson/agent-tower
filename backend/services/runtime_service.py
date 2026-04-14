@@ -31,13 +31,13 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.progress_tracking_service import ProgressTrackingService
-from backend.services.step_tracker import StepTracker
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.persistence.job_repo import JobRepository
+    from backend.services.progress_tracking_service import ProgressTrackingService
+    from backend.services.step_tracker import StepTracker
 
 
 class _AgentSession:

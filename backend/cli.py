@@ -93,8 +93,8 @@ def _cloudflare_access_enabled(tunnel_origin: str) -> bool:
     False if no Access gate is detected or if the probe is inconclusive.
     """
     import time
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     # Give cloudflared a moment to register with the edge
     time.sleep(2)
@@ -104,17 +104,13 @@ def _cloudflare_access_enabled(tunnel_origin: str) -> bool:
         req.add_header("User-Agent", "cpl-preflight/1.0")
         response = urllib.request.urlopen(req, timeout=10)  # noqa: S310
         # Cloudflare Access intercepts and serves its login page with this header
-        if response.headers.get("CF-Access-Domain"):
-            return True
-        return False
+        return bool(response.headers.get("CF-Access-Domain"))
     except urllib.error.HTTPError as exc:
         # A redirect to cloudflareaccess.com or a response with CF-Access-Domain
         location = exc.headers.get("Location", "")
         if "cloudflareaccess.com" in location:
             return True
-        if exc.headers.get("CF-Access-Domain"):
-            return True
-        return False
+        return bool(exc.headers.get("CF-Access-Domain"))
     except Exception:
         # Network error, timeout — probe inconclusive, fail closed
         return False
@@ -310,7 +306,10 @@ def up(
             # Cloudflare Access is handling authentication — disable the
             # redundant internal password gate.
             if effective_password:
-                log.info("cloudflare_access_detected", msg="Disabling local password auth — Cloudflare Access is active")
+                log.info(
+                    "cloudflare_access_detected",
+                    msg="Disabling local password auth — Cloudflare Access is active",
+                )
                 effective_password = None
 
     # --- Cloudflare Access JWT verification ---
@@ -318,7 +317,8 @@ def up(
     # verify the Cf-Access-Jwt-Assertion header on every request.  The JWKS
     # fetch here doubles as a startup-time check that the Access gate exists.
     if cf_access_team and cf_access_aud:
-        from backend.services.cf_access import CfAccessConfigError, configure as configure_cf_access
+        from backend.services.cf_access import CfAccessConfigError
+        from backend.services.cf_access import configure as configure_cf_access
 
         try:
             configure_cf_access(team=cf_access_team, aud=cf_access_aud)

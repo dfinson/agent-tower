@@ -4,18 +4,13 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import jwt as pyjwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
 
 from backend.services import cf_access
-
-if TYPE_CHECKING:
-    pass
 
 # ---------------------------------------------------------------------------
 # Key helpers
@@ -108,9 +103,11 @@ class TestConfigure:
         assert len(cf_access._jwks_keys) == 1
 
     def test_configure_raises_on_network_error(self):
-        with patch("backend.services.cf_access.urllib.request.urlopen", side_effect=Exception("timeout")):
-            with pytest.raises(cf_access.CfAccessConfigError, match="Failed to fetch"):
-                cf_access.configure(team="badteam", aud="aud")
+        with (
+            patch("backend.services.cf_access.urllib.request.urlopen", side_effect=Exception("timeout")),
+            pytest.raises(cf_access.CfAccessConfigError, match="Failed to fetch"),
+        ):
+            cf_access.configure(team="badteam", aud="aud")
 
     def test_configure_raises_on_empty_keys(self):
         with patch("backend.services.cf_access.urllib.request.urlopen") as mock_urlopen:

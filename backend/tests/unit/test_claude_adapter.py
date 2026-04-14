@@ -189,12 +189,12 @@ _fake_errors = ModuleType("claude_code_sdk._errors")
 _fake_errors.MessageParseError = type("MessageParseError", (Exception,), {})
 sys.modules.setdefault("claude_code_sdk._errors", _fake_errors)
 
+from backend.services.base_adapter import BaseAgentAdapter  # noqa: E402
 from backend.services.claude_adapter import (  # noqa: E402
     _HIDDEN_TOOLS,
     _PERMISSION_MODE_MAP,
     ClaudeAdapter,
 )
-from backend.services.base_adapter import BaseAgentAdapter  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -235,19 +235,49 @@ class TestBuildPermissionDescription:
         assert "ls -la" in BaseAgentAdapter._build_permission_description("shell", "Bash", {"command": "ls -la"}, None)
 
     def test_edit_file_path(self) -> None:
-        assert "/tmp/foo.py" in BaseAgentAdapter._build_permission_description("write", "Edit", {"file_path": "/tmp/foo.py"}, None)
+        result = BaseAgentAdapter._build_permission_description(
+            "write",
+            "Edit",
+            {"file_path": "/tmp/foo.py"},
+            None,
+        )
+        assert "/tmp/foo.py" in result
 
     def test_write_file_path(self) -> None:
-        assert "/tmp/bar.py" in BaseAgentAdapter._build_permission_description("write", "Write", {"path": "/tmp/bar.py"}, None)
+        result = BaseAgentAdapter._build_permission_description(
+            "write",
+            "Write",
+            {"path": "/tmp/bar.py"},
+            None,
+        )
+        assert "/tmp/bar.py" in result
 
     def test_read_file_path(self) -> None:
-        assert "readme.md" in BaseAgentAdapter._build_permission_description("read", "Read", {"file_path": "readme.md"}, None)
+        result = BaseAgentAdapter._build_permission_description(
+            "read",
+            "Read",
+            {"file_path": "readme.md"},
+            None,
+        )
+        assert "readme.md" in result
 
     def test_webfetch_url(self) -> None:
-        assert "example.com" in BaseAgentAdapter._build_permission_description("url", "WebFetch", {"url": "https://example.com"}, None)
+        result = BaseAgentAdapter._build_permission_description(
+            "url",
+            "WebFetch",
+            {"url": "https://example.com"},
+            None,
+        )
+        assert "example.com" in result
 
     def test_websearch_query(self) -> None:
-        assert "python async" in BaseAgentAdapter._build_permission_description("url", "WebSearch", {"query": "python async"}, None)
+        result = BaseAgentAdapter._build_permission_description(
+            "url",
+            "WebSearch",
+            {"query": "python async"},
+            None,
+        )
+        assert "python async" in result
 
     def test_fallback_json(self) -> None:
         result = BaseAgentAdapter._build_permission_description("custom-tool", "CustomTool", {"a": 1}, None)

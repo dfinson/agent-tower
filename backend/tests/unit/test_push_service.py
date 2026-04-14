@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -20,10 +20,12 @@ def svc() -> PushService:
 
 class TestPushServiceSubscribe:
     def test_valid_subscription(self, svc: PushService) -> None:
-        svc.subscribe({
-            "endpoint": "https://push.example.com/sub1",
-            "keys": {"p256dh": "abc", "auth": "xyz"},
-        })
+        svc.subscribe(
+            {
+                "endpoint": "https://push.example.com/sub1",
+                "keys": {"p256dh": "abc", "auth": "xyz"},
+            }
+        )
         assert len(svc._subscriptions) == 1
 
     def test_missing_endpoint(self, svc: PushService) -> None:
@@ -78,10 +80,12 @@ class TestPushServiceNotify:
 
     @pytest.mark.asyncio
     async def test_successful_notification(self, svc: PushService) -> None:
-        svc.subscribe({
-            "endpoint": "https://push.example.com/sub1",
-            "keys": {"p256dh": "a", "auth": "b"},
-        })
+        svc.subscribe(
+            {
+                "endpoint": "https://push.example.com/sub1",
+                "keys": {"p256dh": "a", "auth": "b"},
+            }
+        )
         with patch.object(svc, "_send_one") as mock_send:
             await svc.notify(title="Hi", body="World", tag="test", url="/jobs")
             mock_send.assert_called_once()
@@ -113,10 +117,12 @@ class TestPushServiceNotify:
     @pytest.mark.asyncio
     async def test_multiple_subscribers(self, svc: PushService) -> None:
         for i in range(3):
-            svc.subscribe({
-                "endpoint": f"https://push.example.com/sub{i}",
-                "keys": {"p256dh": "a", "auth": "b"},
-            })
+            svc.subscribe(
+                {
+                    "endpoint": f"https://push.example.com/sub{i}",
+                    "keys": {"p256dh": "a", "auth": "b"},
+                }
+            )
         with patch.object(svc, "_send_one") as mock_send:
             await svc.notify(title="Hi", body="World")
             assert mock_send.call_count == 3
