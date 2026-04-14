@@ -165,9 +165,11 @@ class CopilotAdapter(BaseAgentAdapter):
         "assistant.message": SessionEventKind.transcript,
         "assistant.streaming_delta": SessionEventKind.transcript,
         "assistant.reasoning": SessionEventKind.transcript,
+        "assistant.reasoning_delta": SessionEventKind.transcript,
         "user.message": SessionEventKind.transcript,
         "tool.execution_complete": SessionEventKind.transcript,
         "tool.execution_start": SessionEventKind.transcript,
+        "tool.execution_partial_result": SessionEventKind.transcript,
         "session.workspace_file_changed": SessionEventKind.file_changed,
     }
 
@@ -506,6 +508,15 @@ class CopilotAdapter(BaseAgentAdapter):
                         "content": delta,
                         "turn_id": self._get_turn_id(job_id, data) if job_id else (str(data.turn_id) if data and data.turn_id else None),
                     }
+                elif kind_str == "assistant.reasoning_delta":
+                    delta = (getattr(data, "delta_content", "") or "") if data else ""
+                    if not delta:
+                        return
+                    event_payload = {
+                        "role": "reasoning_delta",
+                        "content": delta,
+                        "turn_id": self._get_turn_id(job_id, data) if job_id else (str(data.turn_id) if data and data.turn_id else None),
+                    }
                 elif kind_str == "assistant.reasoning":
                     content = (data.content or getattr(data, "reasoning_text", "") or "") if data else ""
                     event_payload = {
@@ -569,6 +580,29 @@ class CopilotAdapter(BaseAgentAdapter):
                         "tool_display": format_tool_display(tool_name, buffered.get("tool_args")),
                         "tool_display_full": format_tool_display_full(tool_name, buffered.get("tool_args")),
                         "tool_visibility": classify_tool_visibility(tool_name, buffered.get("tool_args")),
+                    }
+                elif kind_str == "tool.execution_partial_result":
+                    # Streaming stdout/stderr chunk from a running tool (typically Bash).
+                    tool_id = (data.tool_call_id or "") if data else ""
+                    chunk = (data.partial_output or "") if data else ""
+                    if not chunk:
+                        return
+                    buffered = self._tool_call_buffer.get(tool_id, {})
+                    tool_name = buffered.get("tool_name", "tool")
+                    # Don't stream internal tools
+                    if tool_name in ("report_intent",):
+                        return
+                    from backend.services.tool_formatters import classify_tool_visibility
+
+                    vis = classify_tool_visibility(tool_name, buffered.get("tool_args"))
+                    if vis == "hidden":
+                        return
+                    event_payload = {
+                        "role": "tool_output_delta",
+                        "content": chunk,
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_id,
+                        "turn_id": buffered.get("turn_id"),
                     }
                 elif kind_str == "tool.execution_complete":
                     tool_id = (data.tool_call_id or "") if data else ""

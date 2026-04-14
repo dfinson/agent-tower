@@ -184,7 +184,7 @@ function touchJob(jobId: string): string[] {
 
 /** Evict per-job data for stale jobs from a state snapshot. */
 function evictStaleJobs(
-  state: Pick<AppState, "logs" | "transcript" | "diffs" | "plans" | "timelines" | "activityTimelines" | "streamingMessages">,
+  state: Pick<AppState, "logs" | "transcript" | "diffs" | "plans" | "timelines" | "activityTimelines" | "streamingMessages" | "streamingToolOutput">,
   evictIds: string[],
 ): Partial<AppState> | null {
   if (evictIds.length === 0) return null;
@@ -195,7 +195,9 @@ function evictStaleJobs(
   const timelines = { ...state.timelines };
   const activityTimelines = { ...state.activityTimelines };
   let streamingMessages = state.streamingMessages;
+  let streamingToolOutput = state.streamingToolOutput;
   let streamingChanged = false;
+  let toolOutputChanged = false;
   for (const id of evictIds) {
     delete logs[id];
     delete transcript[id];
@@ -210,8 +212,14 @@ function evictStaleJobs(
         delete streamingMessages[key];
       }
     }
+    for (const key of Object.keys(streamingToolOutput)) {
+      if (key.startsWith(`${id}:`)) {
+        if (!toolOutputChanged) { streamingToolOutput = { ...streamingToolOutput }; toolOutputChanged = true; }
+        delete streamingToolOutput[key];
+      }
+    }
   }
-  return { logs, transcript, diffs, plans, timelines, activityTimelines, streamingMessages };
+  return { logs, transcript, diffs, plans, timelines, activityTimelines, streamingMessages, streamingToolOutput };
 }
 
 /** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
@@ -281,6 +289,14 @@ interface AppState {
    * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
    * Cleared when the complete agent message arrives for that turn. */
   streamingMessages: Record<string, string>;
+  /** Accumulated streaming tool output for in-progress tool execution, keyed by
+   * "${jobId}:${toolCallId}" (or "${jobId}:${toolName}" as fallback).
+   * Cleared when the tool_call completion arrives. */
+  streamingToolOutput: Record<string, string>;
+  /** Accumulated streaming reasoning text for in-progress thinking, keyed by
+   * "${jobId}:${turnId}" (or "${jobId}:__default__" when turnId is absent).
+   * Cleared when the complete reasoning message arrives for that turn. */
+  streamingReasoning: Record<string, string>;
   /** Monotonically-increasing counter per job, bumped on each telemetry_updated
    * SSE event. Components watching this trigger a telemetry re-fetch. */
   telemetryVersions: Record<string, number>; // keyed by jobId
@@ -354,6 +370,8 @@ export const useStore = create<AppState>((set, get) => ({
   timelines: {},
   activityTimelines: {},
   streamingMessages: {},
+  streamingToolOutput: {},
+  streamingReasoning: {},
   telemetryVersions: {},
   connectionStatus: "reconnecting",
   reconnectAttempt: 0,
@@ -453,6 +471,9 @@ export const useStore = create<AppState>((set, get) => ({
       const streamingMessages = Object.fromEntries(
         Object.entries(s.streamingMessages).filter(([k]) => !k.startsWith(`${jobId}:`)),
       );
+      const streamingToolOutput = Object.fromEntries(
+        Object.entries(s.streamingToolOutput).filter(([k]) => !k.startsWith(`${jobId}:`)),
+      );
       // Deduplicate transcript: remove tool_running entries whose tool has a
       // completed tool_call — both are persisted but only one should render.
       // Use turnId-scoped keys when available to avoid false-positive removal
@@ -479,6 +500,7 @@ export const useStore = create<AppState>((set, get) => ({
           ...Object.fromEntries(snapshot.approvals.map((a) => [a.id, a])),
         },
         streamingMessages,
+        streamingToolOutput,
         timelines: {
           ...s.timelines,
           [jobId]: (snapshot.timeline ?? []).map((t: TimelineEntry) => ({ ...t, active: false })),
@@ -574,6 +596,32 @@ export const useStore = create<AppState>((set, get) => ({
             };
           }
 
+          // tool_output_delta: accumulate streaming tool output, don't add to transcript
+          if (role === "tool_output_delta") {
+            const toolCallId = (payload.toolCallId as string | undefined) ?? (payload.toolName as string | undefined) ?? "__tool__";
+            const key = `${jobId}:${toolCallId}`;
+            const chunk = (payload.content as string) ?? "";
+            return {
+              streamingToolOutput: {
+                ...state.streamingToolOutput,
+                [key]: (state.streamingToolOutput[key] ?? "") + chunk,
+              },
+            };
+          }
+
+          // reasoning_delta: accumulate streaming reasoning per turn, don't add to transcript
+          if (role === "reasoning_delta") {
+            const turnId = (payload.turnId as string | undefined) ?? "__default__";
+            const key = `${jobId}:${turnId}`;
+            const delta = (payload.content as string) ?? "";
+            return {
+              streamingReasoning: {
+                ...state.streamingReasoning,
+                [key]: (state.streamingReasoning[key] ?? "") + delta,
+              },
+            };
+          }
+
           const entry: TranscriptEntry = {
             jobId,
             seq: payload.seq as number,
@@ -635,9 +683,34 @@ export const useStore = create<AppState>((set, get) => ({
             }
           }
 
+          // When a tool_call (completion) arrives, clear streaming tool output.
+          let streamingToolOutput = state.streamingToolOutput;
+          if (entry.role === "tool_call") {
+            // Clear all streaming entries for this job (tool call IDs vary)
+            const prefix = `${jobId}:`;
+            const keys = Object.keys(streamingToolOutput).filter((k) => k.startsWith(prefix));
+            if (keys.length > 0) {
+              streamingToolOutput = { ...streamingToolOutput };
+              for (const k of keys) delete streamingToolOutput[k];
+            }
+          }
+
+          // When a complete reasoning message arrives, clear streaming reasoning for that turn.
+          let streamingReasoning = state.streamingReasoning;
+          if (entry.role === "reasoning") {
+            const key = entry.turnId ? `${jobId}:${entry.turnId}` : `${jobId}:__default__`;
+            if (key in streamingReasoning) {
+              streamingReasoning = { ...streamingReasoning };
+              delete streamingReasoning[key];
+            }
+          }
+
           return {
             transcript: { ...state.transcript, [jobId]: updated.length > 10_000 ? updated.slice(-10_000) : updated },
             streamingMessages,
+            streamingToolOutput,
+            streamingReasoning,
+            streamingToolOutput,
           };
         }
 
@@ -1266,6 +1339,30 @@ export const selectJobTranscript = (jobId: string) => (state: AppState) =>
   state.transcript[jobId] ?? EMPTY_TRANSCRIPT;
 export const selectJobDiffs = (jobId: string) => (state: AppState) =>
   state.diffs[jobId] ?? EMPTY_DIFFS;
+
+/** Select accumulated streaming tool output for a job, keyed by toolCallId. */
+export const selectStreamingToolOutput = (jobId: string) => (state: AppState) => {
+  const prefix = `${jobId}:`;
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(state.streamingToolOutput)) {
+    if (key.startsWith(prefix)) {
+      result[key.slice(prefix.length)] = value;
+    }
+  }
+  return result;
+};
+
+/** Select accumulated streaming reasoning for a job, keyed by turnId. */
+export const selectStreamingReasoning = (jobId: string) => (state: AppState) => {
+  const prefix = `${jobId}:`;
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(state.streamingReasoning)) {
+    if (key.startsWith(prefix)) {
+      result[key.slice(prefix.length)] = value;
+    }
+  }
+  return result;
+};
 
 // Per-column selectors — only recompute when jobs in that column change
 function sortByUpdatedDesc(jobs: JobSummary[]): JobSummary[] {
