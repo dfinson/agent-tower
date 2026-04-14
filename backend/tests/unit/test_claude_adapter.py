@@ -60,6 +60,26 @@ class _FakeToolResultBlock:
         self.is_error = is_error
 
 
+class _FakeThinkingBlock:
+    def __init__(self, thinking: str = "", signature: str = "") -> None:
+        self.thinking = thinking
+        self.signature = signature
+
+
+class _FakeStreamEvent:
+    def __init__(
+        self,
+        uuid: str = "",
+        session_id: str = "",
+        event: dict[str, Any] | None = None,
+        parent_tool_use_id: str | None = None,
+    ) -> None:
+        self.uuid = uuid
+        self.session_id = session_id
+        self.event = event or {}
+        self.parent_tool_use_id = parent_tool_use_id
+
+
 class _FakeSystemMessage:
     pass
 
@@ -147,12 +167,14 @@ def _build_fake_sdk_module() -> ModuleType:
     mod.TextBlock = _FakeTextBlock
     mod.ToolUseBlock = _FakeToolUseBlock
     mod.ToolResultBlock = _FakeToolResultBlock
+    mod.ThinkingBlock = _FakeThinkingBlock
     mod.SystemMessage = _FakeSystemMessage
     mod.UserMessage = _FakeUserMessage
     mod.AssistantMessage = _FakeAssistantMessage
     mod.ResultMessage = _FakeResultMessage
     mod.ClaudeCodeOptions = _FakeClaudeCodeOptions
     mod.ClaudeSDKClient = _FakeClaudeSDKClient
+    mod.StreamEvent = _FakeStreamEvent
     mod.query = AsyncMock()
     return mod
 
@@ -160,6 +182,12 @@ def _build_fake_sdk_module() -> ModuleType:
 # Inject the fake module before importing the adapter
 _fake_sdk = _build_fake_sdk_module()
 sys.modules.setdefault("claude_code_sdk", _fake_sdk)
+
+# Also provide the _errors submodule so ``from claude_code_sdk._errors import``
+# works inside _consume_messages.
+_fake_errors = ModuleType("claude_code_sdk._errors")
+_fake_errors.MessageParseError = type("MessageParseError", (Exception,), {})
+sys.modules.setdefault("claude_code_sdk._errors", _fake_errors)
 
 from backend.services.claude_adapter import (  # noqa: E402
     _HIDDEN_TOOLS,
@@ -622,6 +650,28 @@ class TestProcessAssistantMessage:
 
         assert adapter._queues[sid].empty()
 
+    def test_thinking_block_emits_reasoning(self, adapter: ClaudeAdapter) -> None:
+        sid = "sess-1"
+        adapter._queues[sid] = asyncio.Queue()
+        msg = _FakeAssistantMessage(content=[_FakeThinkingBlock("I need to think about this")])
+
+        adapter._process_assistant_message(sid, msg, [0])
+
+        event = adapter._queues[sid].get_nowait()
+        assert event is not None
+        assert event.kind == SessionEventKind.transcript
+        assert event.payload["role"] == "reasoning"
+        assert event.payload["content"] == "I need to think about this"
+
+    def test_empty_thinking_block_skipped(self, adapter: ClaudeAdapter) -> None:
+        sid = "sess-1"
+        adapter._queues[sid] = asyncio.Queue()
+        msg = _FakeAssistantMessage(content=[_FakeThinkingBlock("   ")])
+
+        adapter._process_assistant_message(sid, msg, [0])
+
+        assert adapter._queues[sid].empty()
+
 
 class TestProcessResultMessage:
     def test_successful_result(self, adapter: ClaudeAdapter) -> None:
@@ -715,6 +765,82 @@ class TestProcessResultMessage:
         log_events = [e for e in events if e is not None and e.kind == SessionEventKind.log]
         # Should contain "0+0 tokens"
         assert any("0+0" in e.payload.get("message", "") for e in log_events)
+
+
+# ---------------------------------------------------------------------------
+# Tests: _process_stream_event (thinking deltas + tool output deltas)
+# ---------------------------------------------------------------------------
+
+
+class TestProcessStreamEvent:
+    def test_thinking_delta_emits_reasoning_delta(self, adapter: ClaudeAdapter) -> None:
+        sid = "sess-1"
+        adapter._queues[sid] = asyncio.Queue()
+        adapter._current_turn_ids[sid] = "turn-1"
+
+        stream_event = _FakeStreamEvent(
+            event={
+                "type": "content_block_delta",
+                "delta": {"type": "thinking_delta", "thinking": "Let me consider..."},
+            },
+            parent_tool_use_id=None,
+        )
+
+        adapter._process_stream_event(sid, stream_event)
+
+        event = adapter._queues[sid].get_nowait()
+        assert event is not None
+        assert event.kind == SessionEventKind.transcript
+        assert event.payload["role"] == "reasoning_delta"
+        assert event.payload["content"] == "Let me consider..."
+        assert event.payload["turn_id"] == "turn-1"
+
+    def test_empty_thinking_delta_skipped(self, adapter: ClaudeAdapter) -> None:
+        sid = "sess-1"
+        adapter._queues[sid] = asyncio.Queue()
+
+        stream_event = _FakeStreamEvent(
+            event={
+                "type": "content_block_delta",
+                "delta": {"type": "thinking_delta", "thinking": ""},
+            },
+        )
+
+        adapter._process_stream_event(sid, stream_event)
+
+        assert adapter._queues[sid].empty()
+
+    @patch("backend.services.tool_formatters.classify_tool_visibility", return_value="visible")
+    def test_text_delta_emits_tool_output_delta(self, mock_vis: MagicMock, adapter: ClaudeAdapter) -> None:
+        sid = "sess-1"
+        adapter._queues[sid] = asyncio.Queue()
+        parent_id = "tool-1"
+        adapter._tool_call_buffer[parent_id] = {"tool_name": "Bash", "turn_id": "turn-1"}
+
+        stream_event = _FakeStreamEvent(
+            event={
+                "type": "content_block_delta",
+                "delta": {"text": "output line"},
+            },
+            parent_tool_use_id=parent_id,
+        )
+
+        adapter._process_stream_event(sid, stream_event)
+
+        event = adapter._queues[sid].get_nowait()
+        assert event is not None
+        assert event.payload["role"] == "tool_output_delta"
+        assert event.payload["content"] == "output line"
+
+    def test_no_event_dict_returns_early(self, adapter: ClaudeAdapter) -> None:
+        sid = "sess-1"
+        adapter._queues[sid] = asyncio.Queue()
+
+        stream_event = _FakeStreamEvent(event=None)
+
+        adapter._process_stream_event(sid, stream_event)
+
+        assert adapter._queues[sid].empty()
 
 
 # ---------------------------------------------------------------------------

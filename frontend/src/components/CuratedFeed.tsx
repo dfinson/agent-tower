@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useStore, selectJobTranscript, selectApprovals, selectStreamingToolOutput, selectStreamingReasoning } from "../store";
+import { useStore, selectJobTranscript, selectApprovals, selectStreamingToolOutput } from "../store";
 import type { TranscriptEntry, ApprovalRequest } from "../store";
 import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -1295,7 +1295,7 @@ export function CuratedFeed({
   const rawEntries = useStore(selectJobTranscript(jobId));
   const allApprovals = useStore(selectApprovals);
   const streamingMessages = useStore((s) => s.streamingMessages);
-  const streamingReasoning = useStore(selectStreamingReasoning(jobId));
+  const allStreamingReasoning = useStore((s) => s.streamingReasoning);
   const jobApprovals = Object.values(allApprovals).filter((a) => a.jobId === jobId);
   const isJobLive = jobState === "running" || jobState === "waiting_for_approval";
 
@@ -1634,7 +1634,7 @@ export function CuratedFeed({
                       jobId={jobId}
                       sdk={sdk}
                       streamingMessages={streamingMessages}
-                      streamingReasoning={streamingReasoning}
+                      streamingReasoning={allStreamingReasoning}
                       isJobLive={isJobLive}
                       onViewStepChanges={onViewStepChanges}
                     />
@@ -1738,7 +1738,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
     case "turn": {
       const streamKey = item.turn.turnId ? `${jobId}:${item.turn.turnId}` : `${jobId}:__default__`;
       const streamingText = isJobLive ? streamingMessages[streamKey] : undefined;
-      const streamingReasoningText = isJobLive ? streamingReasoning[item.turn.turnId ?? "__default__"] : undefined;
+      const streamingReasoningText = isJobLive ? streamingReasoning[streamKey] : undefined;
       const isStreaming = !!streamingText && !item.turn.message?.content;
       return (
         <AgentTurnBlock

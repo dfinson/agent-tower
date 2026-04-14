@@ -577,6 +577,43 @@ class TestOnEventCallback:
         ]
         assert len(mapped) == 0
 
+    @pytest.mark.asyncio
+    async def test_reasoning_delta_emits_reasoning_delta(self, adapter: CopilotAdapter) -> None:
+        sid, queue, session = await self._setup_session(adapter)
+
+        data = _FakeEventData(delta_content="Let me think...", turn_id=None)
+        session.fire_event(_FakeSdkSessionEvent("assistant.reasoning_delta", data))
+
+        events = self._drain_queue(queue)
+        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        assert len(transcripts) == 1
+        assert transcripts[0].payload["role"] == "reasoning_delta"
+        assert transcripts[0].payload["content"] == "Let me think..."
+
+    @pytest.mark.asyncio
+    async def test_empty_reasoning_delta_skipped(self, adapter: CopilotAdapter) -> None:
+        sid, queue, session = await self._setup_session(adapter)
+
+        data = _FakeEventData(delta_content="", turn_id=None)
+        session.fire_event(_FakeSdkSessionEvent("assistant.reasoning_delta", data))
+
+        events = self._drain_queue(queue)
+        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        assert len(transcripts) == 0
+
+    @pytest.mark.asyncio
+    async def test_reasoning_emits_reasoning(self, adapter: CopilotAdapter) -> None:
+        sid, queue, session = await self._setup_session(adapter)
+
+        data = _FakeEventData(content="Full reasoning block", reasoning_text=None, turn_id=None)
+        session.fire_event(_FakeSdkSessionEvent("assistant.reasoning", data))
+
+        events = self._drain_queue(queue)
+        transcripts = [e for e in events if e.kind == SessionEventKind.transcript]
+        assert len(transcripts) == 1
+        assert transcripts[0].payload["role"] == "reasoning"
+        assert transcripts[0].payload["content"] == "Full reasoning block"
+
 
 # ---------------------------------------------------------------------------
 # Tests: SDK event telemetry extraction
