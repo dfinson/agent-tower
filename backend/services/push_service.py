@@ -89,7 +89,7 @@ class PushService:
 
     def _send_one(self, sub: PushSubscription, payload: str) -> None:
         """Synchronous push to a single subscription (runs in executor)."""
-        from pywebpush import webpush
+        from pywebpush import webpush  # type: ignore[import-untyped]
 
         webpush(
             subscription_info={"endpoint": sub.endpoint, "keys": sub.keys},

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import jwt as pyjwt
@@ -17,7 +18,7 @@ from backend.services import cf_access
 # ---------------------------------------------------------------------------
 
 
-def _generate_rsa_keypair() -> tuple[rsa.RSAPrivateKey, dict]:
+def _generate_rsa_keypair() -> tuple[rsa.RSAPrivateKey, dict[str, Any]]:
     """Generate an RSA keypair and return (private_key, jwk_dict)."""
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     # Build a JWK dict from the public key

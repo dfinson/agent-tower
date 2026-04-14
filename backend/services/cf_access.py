@@ -107,7 +107,7 @@ def verify_token(token: str) -> bool:
         try:
             jwt.decode(
                 token,
-                key=jwt.algorithms.RSAAlgorithm.from_jwk(key),
+                key=jwt.algorithms.RSAAlgorithm.from_jwk(key),  # type: ignore[arg-type]
                 algorithms=["RS256"],
                 audience=_cf_aud,
                 options={"require": ["exp", "iat", "iss"]},

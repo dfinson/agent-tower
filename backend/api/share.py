@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
@@ -323,7 +323,7 @@ async def get_shared_snapshot(
     ]
 
     # Plan steps
-    step_latest: dict[str, dict] = {}
+    step_latest: dict[str, dict[str, Any]] = {}
     step_order: list[str] = []
     for ev in step_events:
         sid = ev.payload.get("plan_step_id", "")
