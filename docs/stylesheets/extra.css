@@ -163,6 +163,12 @@ body {
   margin-top: 1.5rem;
 }
 
+.md-typeset .works-with {
+  margin-top: 1rem;
+  font-size: 0.82rem;
+  color: var(--cp-foreground-muted);
+}
+
 .md-typeset .hero-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

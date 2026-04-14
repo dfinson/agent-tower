@@ -4,35 +4,33 @@ Every job in CodePlane follows a state machine that governs its lifecycle.
 
 ## State Machine
 
-```
-                    ┌──────────┐
-                    │  queued   │
-                    └────┬─────┘
-                         │ agent session starts
-                         ▼
-                    ┌──────────┐
-              ┌─────│ running  │◄────────────────────┐
-              │     └────┬─────┘─────┐               │
-              │          │           │               │
-    approval  │   agent  │    error/ │        approve│
-    requested │   done   │   cancel  │               │
-              │          │           │               │
-              ▼          ▼           ▼               │
-    ┌─────────────┐ ┌────────┐ ┌──────────┐         │
-    │  waiting_   │ │ review │ │  failed   │         │
-    │for_approval │ │        │ │           │         │
-    └──────┬──────┘ └───┬────┘ └──────────┘         │
-           │            │           ▲                │
-    reject │     resolve│           │                │
-           └────────────┼───────────┘                │
-                        ▼                            │
-                 ┌───────────┐                       │
-                 │ completed │───────────────────────┘
-                 └───────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> queued
+    queued --> running : session starts
+    queued --> canceled : operator cancels
+
+    running --> waiting_for_approval : approval requested
+    running --> review : agent done
+    running --> failed : error / timeout
+    running --> canceled : operator cancels
+
+    waiting_for_approval --> running : approve
+    waiting_for_approval --> failed : reject
+    waiting_for_approval --> canceled : operator cancels
+
+    review --> completed : resolve (merge / PR / discard)
+    review --> running : follow-up prompt
+    review --> canceled : operator cancels
+
+    completed --> running : rerun
+    failed --> running : rerun
+    canceled --> running : rerun
 ```
 
 - **Approve** transitions `waiting_for_approval` → `running`
 - **Reject** transitions `waiting_for_approval` → `failed`
+- **Rerun** is available from any terminal state (`completed`, `failed`, `canceled`)
 
 ## States
 

@@ -7,16 +7,6 @@ hide:
 
 Get CodePlane running and complete your first supervised agent job. No editor required — just a terminal and a browser.
 
-## Prerequisites
-
-| Requirement | Details |
-|-------------|---------|
-| **Python** | 3.11 or later |
-| **Git** | Any recent version |
-| **Agent CLI** | At least one installed and authenticated: [GitHub Copilot CLI](https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/using-github-copilot-in-the-cli) or [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) |
-
-You also need a **local Git repository** to run jobs against.
-
 ## Install
 
 ```bash
@@ -30,6 +20,15 @@ cpl doctor
 ```
 
 This checks that Python, Git, and your agent CLIs are installed and authenticated.
+
+??? note "Prerequisites"
+    | Requirement | Details |
+    |-------------|---------|
+    | **Python** | 3.11 or later |
+    | **Git** | Any recent version |
+    | **Agent CLI** | At least one installed and authenticated: [GitHub Copilot CLI](https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/using-github-copilot-in-the-cli) or [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) |
+
+    You also need a **local Git repository** to run jobs against.
 
 ## Start the Server
 
