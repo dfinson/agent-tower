@@ -710,7 +710,6 @@ export const useStore = create<AppState>((set, get) => ({
             streamingMessages,
             streamingToolOutput,
             streamingReasoning,
-            streamingToolOutput,
           };
         }
 
