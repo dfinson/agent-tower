@@ -7,6 +7,7 @@ import type { JobSummary } from "../../store";
 
 vi.mock("../../api/client", () => ({
   fetchJob: vi.fn(),
+  fetchJobSnapshot: vi.fn().mockResolvedValue(null),
   cancelJob: vi.fn(),
   rerunJob: vi.fn(),
   resumeJob: vi.fn(),

@@ -13,6 +13,7 @@ vi.mock("../../api/client", () => ({
   fetchRepoDetail: vi.fn(),
   suggestNames: vi.fn(),
   fetchModelComparison: vi.fn().mockResolvedValue({ models: [] }),
+  warmUtilitySession: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock sonner toast

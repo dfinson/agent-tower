@@ -512,30 +512,23 @@ describe("fetchSDKs", () => {
 
 describe("request error handling", () => {
   it("uses statusText when json body is null", async () => {
-    mockFetch.mockResolvedValueOnce({
+    // Use mockResolvedValue (not Once) so retries also get the same response
+    mockFetch.mockResolvedValue({
       ok: false,
       status: 500,
       statusText: "Internal Server Error",
       json: async () => { throw new Error("no json"); },
     });
-    try {
-      await fetchHealth();
-    } catch (e) {
-      expect((e as ApiError).detail).toBe("Internal Server Error");
-    }
+    await expect(fetchHealth()).rejects.toMatchObject({ detail: "Internal Server Error" });
   });
 
   it("uses HTTP status when detail is not a string or array", async () => {
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: false,
       status: 500,
       statusText: "Server Error",
       json: async () => ({ detail: 42 }),
     });
-    try {
-      await fetchHealth();
-    } catch (e) {
-      expect((e as ApiError).detail).toBe("Server Error");
-    }
+    await expect(fetchHealth()).rejects.toMatchObject({ detail: "Server Error" });
   });
 });
