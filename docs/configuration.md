@@ -60,7 +60,7 @@ Place a `.codeplane.yml` file in any repository root to override global settings
 agent:
   default_sdk: claude
   default_model: claude-sonnet-4-5
-  permission_mode: approval_required
+  permission_mode: review_and_approve
 ```
 
 ## Remote Access

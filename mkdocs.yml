@@ -35,7 +35,11 @@ extra_css:
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.highlight:
@@ -55,9 +59,9 @@ nav:
   - Home: index.md
   - Quick Start: quick-start.md
   - Usage Guide: guide.md
+  - How It Works: architecture.md
   - Analytics: analytics.md
   - MCP Server: mcp-server.md
-  - How It Works: architecture.md
   - Configuration: configuration.md
   - Security: security.md
   - Reference:

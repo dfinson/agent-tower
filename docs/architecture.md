@@ -16,7 +16,7 @@ CodePlane is an **orchestration layer** for coding agents. It does not contain i
 ## What CodePlane Is Not
 
 - Not an AI model or agent. It orchestrates agents built by others.
-- Not a task decomposer. You write one prompt, one agent executes it, you see everything it does. The depth is in the supervision, not the fan-out.
+- Not a task decomposer — by design. One prompt, one agent, full transparency into every action it takes. The value is deep supervision of a single focused run, not multi-agent fan-out.
 - Not a cloud service. It runs locally with optional remote access via tunnels.
 - Not a replacement for your existing tools. It uses your Git installation, your CLI credentials, and your repositories as-is.
 
@@ -31,7 +31,7 @@ If the agent CLIs work on your machine, CodePlane can use them. Run `cpl doctor`
 
 ## High-Level Architecture
 
-![High-Level Architecture](images/architecture-overview.png)
+![Architecture diagram: You — Browser — CodePlane — Agent CLI — Repository](images/architecture-overview.png)
 
 **You → Browser → CodePlane → Agent CLI → Repository**
 

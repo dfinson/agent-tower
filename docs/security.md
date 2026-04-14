@@ -5,6 +5,8 @@ hide:
 
 # Security
 
+By default, CodePlane binds to localhost only and never exposes itself to the network. Remote access always requires a password. This page documents the full threat model and configuration options for teams that need them.
+
 ## Overview
 
 CodePlane runs coding agents that execute real shell commands on your machine.

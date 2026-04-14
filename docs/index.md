@@ -12,19 +12,19 @@ hide:
 
 # CodePlane
 
-<span class="eyebrow">A control plane for coding agents, your browser is the cockpit</span>
+<span class="eyebrow">Run coding agents. Supervise from anywhere.</span>
 
 **No IDE. No terminal. Just a prompt.**
 
-CodePlane orchestrates coding agents headless on your workstation — from your desktop, phone, or tablet. Start work, talk through the diffs, and merge when you're ready. Track every token and dollar, and let other agents orchestrate jobs through the built-in MCP server.
-
-:material-cellphone-link:{ .lg .middle } **Mobile is a first-class citizen. Supervise from any device.**
+CodePlane runs Claude Code and GitHub Copilot on your workstation — supervise from any browser on your desktop, phone, or tablet. Review diffs, approve risky actions, track costs, and merge when you're ready.
 
 <div class="hero-actions" markdown>
-[Quick Start](quick-start.md){ .md-button }
+[Quick Start](quick-start.md){ .md-button .md-button--primary }
 [Usage Guide](guide.md){ .md-button }
 [How It Works](architecture.md){ .md-button }
 </div>
+
+<p class="works-with">Works with <strong>Claude Code CLI</strong> and <strong>GitHub Copilot CLI</strong> &nbsp;·&nbsp; Open source, MIT license</p>
 
 </div>
 
@@ -66,6 +66,12 @@ Review the diff, then merge, create a PR, or discard — based on what the agent
 
 </div>
 
+## Supported Agents
+
+CodePlane works with **GitHub Copilot CLI** and **Claude Code CLI**. Install and authenticate either CLI, select your agent and model per job — CodePlane manages the underlying SDKs and handles the rest.
+
+External agents can orchestrate CodePlane programmatically through its built-in [MCP server](mcp-server.md) — compatible with VS Code, Claude Desktop, Cursor, and any MCP-compatible client.
+
 ## What You Get
 
 <div class="feature-grid" markdown>
@@ -77,7 +83,7 @@ Launch jobs with a prompt and model selection. Each job runs in its own Git work
 
 <div class="feature-card" markdown>
 ### :material-cellphone-link: Mobile-First & Remote
-No editor required. CodePlane runs as a standalone server — kick off a task from your phone, close your laptop, and supervise from anywhere. The entire UI is optimized for touch: approve actions, review diffs, send messages, and create jobs — all from a mobile browser. Connect via Dev Tunnels or Cloudflare Tunnels.
+Run on your workstation, control from any browser — phone, tablet, or desktop. UI is touch-optimised. Remote access out of the box via Dev Tunnels or Cloudflare Tunnels.
 </div>
 
 <div class="feature-card" markdown>
@@ -102,6 +108,3 @@ Track token usage, costs, model performance, and tool health across all jobs.
 
 </div>
 
-## Supported Agents
-
-CodePlane works with **GitHub Copilot CLI** and **Claude Code CLI**. Install and authenticate the CLI, select your agent and model per job — CodePlane manages the SDKs and handles the rest.
