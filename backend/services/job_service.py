@@ -222,7 +222,9 @@ class JobService:
         if pre_named:
             # Still verify the pre-computed worktree_name doesn't collide
             existing_job_ids = await self._job_repo.list_ids()
-            if worktree_name in existing_job_ids or await self._job_repo.get(worktree_name) is not None:
+            if worktree_name in existing_job_ids or (
+                worktree_name is not None and await self._job_repo.get(worktree_name) is not None
+            ):
                 # Collision — fall through to LLM naming below
                 log.info("pre_named_collision", worktree_name=worktree_name)
                 pre_named = False

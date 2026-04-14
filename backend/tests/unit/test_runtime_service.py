@@ -41,7 +41,7 @@ from backend.models.domain import (
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.adapter_registry import AdapterRegistry
-from backend.services.agent_adapter import AgentAdapterInterface
+from backend.services.agent_adapter import AgentAdapterInterface, CompletionResult
 from backend.services.event_bus import EventBus
 from backend.services.job_service import StateConflictError
 from backend.services.runtime_service import (
@@ -117,8 +117,8 @@ class FakeAgentAdapter(AgentAdapterInterface):
     async def abort_session(self, session_id: str) -> None:
         self._aborted.add(session_id)
 
-    async def complete(self, prompt: str) -> str:
-        return "{}"
+    async def complete(self, prompt: str) -> CompletionResult:
+        return CompletionResult(text="{}")
 
 
 class FakeAdapterRegistry(AdapterRegistry):
@@ -346,8 +346,8 @@ class ResumeFallbackAdapter(AgentAdapterInterface):
     async def abort_session(self, session_id: str) -> None:
         return None
 
-    async def complete(self, prompt: str) -> str:
-        return "{}"
+    async def complete(self, prompt: str) -> CompletionResult:
+        return CompletionResult(text="{}")
 
 
 # ---------------------------------------------------------------------------
@@ -1558,8 +1558,8 @@ class ErrorAdapter(AgentAdapterInterface):
     async def abort_session(self, session_id: str) -> None:
         pass
 
-    async def complete(self, prompt: str) -> str:
-        return "{}"
+    async def complete(self, prompt: str) -> CompletionResult:
+        return CompletionResult(text="{}")
 
 
 class TestErrorEventCausesFailure:

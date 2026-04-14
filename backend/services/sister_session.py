@@ -30,7 +30,7 @@ import contextlib
 import secrets
 import time
 from collections import OrderedDict, deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -372,7 +372,7 @@ class SisterSessionManager:
 
     # -- Background tasks ----------------------------------------------------
 
-    def get_metrics(self) -> dict:
+    def get_metrics(self) -> dict[str, Any]:
         """Return global + per-job sister session metrics."""
         # Live metrics from active job sessions
         active_calls = sum(s.call_count for s in self._jobs.values())

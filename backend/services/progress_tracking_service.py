@@ -279,7 +279,7 @@ class ProgressTrackingService:
             self._activity_steps,
             self._last_classified_plan_item,
         ):
-            store.pop(job_id, None)  # type: ignore[arg-type]
+            store.pop(job_id, None)
         self._native_plan_active.discard(job_id)
 
     # -- Data ingestion ------------------------------------------------------

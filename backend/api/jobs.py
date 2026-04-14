@@ -532,7 +532,7 @@ async def get_job_steps(
     """
     events = await svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
     # De-duplicate: keep the latest event per plan_step_id (events are ordered chronologically)
-    latest_by_id: dict[str, dict] = {}
+    latest_by_id: dict[str, dict[str, Any]] = {}
     for ev in events:
         step_id = ev.payload.get("plan_step_id", "")
         if step_id:
@@ -674,7 +674,7 @@ async def search_transcript(
                 content=str(p.get("content", "")),
                 tool_name=str(p.get("tool_name")) if p.get("tool_name") else None,
                 step_id=str(p.get("step_id")) if p.get("step_id") else None,
-                step_number=int(p.get("step_number")) if p.get("step_number") is not None else None,
+                step_number=int(p["step_number"]) if p.get("step_number") is not None else None,
                 timestamp=evt.timestamp,
             )
         )
@@ -687,7 +687,7 @@ async def restore_to_sha(
     body: RestoreRequest,
     svc: FromDishka[JobService],
     config: FromDishka[CPLConfig],
-) -> dict:
+) -> dict[str, Any]:
     """Reset the job's worktree to a specific commit SHA.
 
     Destructive — requires frontend confirmation dialog.
@@ -914,7 +914,7 @@ async def get_job_snapshot(
     ]
 
     # Build plan steps (de-duplicate: keep latest event per step_id, preserve plan order)
-    step_latest: dict[str, dict] = {}
+    step_latest: dict[str, dict[str, Any]] = {}
     step_order: list[str] = []
     for ev in step_events:
         sid = ev.payload.get("plan_step_id", "")

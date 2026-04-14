@@ -6,9 +6,14 @@ Routes: ``/api/preview/{port}/{path}``
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
+
+if TYPE_CHECKING:
+    import httpx
 
 router = APIRouter(tags=["preview"])
 
@@ -34,7 +39,7 @@ _BLOCKED_REQUEST_HEADERS = frozenset(
 _client = None
 
 
-def _get_client():  # noqa: ANN202
+def _get_client() -> httpx.AsyncClient:  # noqa: ANN202
     global _client  # noqa: PLW0603
     if _client is None:
         import httpx

@@ -1014,7 +1014,7 @@ class TestSendMessage:
     @pytest.mark.asyncio
     async def test_send_to_existing_session(self, adapter: ClaudeAdapter) -> None:
         client = _FakeClaudeSDKClient()
-        adapter._clients["sess-1"] = client  # type: ignore[assignment]
+        adapter._clients["sess-1"] = client
 
         await adapter.send_message("sess-1", "follow up")
 
@@ -1040,7 +1040,7 @@ class TestAbortSession:
     @pytest.mark.asyncio
     async def test_abort_existing_session(self, adapter: ClaudeAdapter) -> None:
         client = _FakeClaudeSDKClient()
-        adapter._clients["sess-1"] = client  # type: ignore[assignment]
+        adapter._clients["sess-1"] = client
         adapter._queues["sess-1"] = asyncio.Queue()
         adapter._session_to_job["sess-1"] = "job-1"
 

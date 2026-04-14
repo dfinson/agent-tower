@@ -219,7 +219,7 @@ class ClaudeAdapter(BaseAgentAdapter):
 
     async def _consume_messages(self, session_id: str, client: object) -> None:
         """Consume messages from the ClaudeSDKClient and translate to SessionEvents."""
-        from claude_code_sdk import (
+        from claude_code_sdk import (  # type: ignore[attr-defined]
             AssistantMessage,
             ResultMessage,
             StreamEvent,
@@ -977,9 +977,9 @@ class ClaudeAdapter(BaseAgentAdapter):
             return CompletionResult()
         return CompletionResult(
             text="\n".join(collected),
-            input_tokens=int(result_meta.get("input_tokens", 0) or 0),
-            output_tokens=int(result_meta.get("output_tokens", 0) or 0),
-            cost_usd=float(result_meta.get("cost_usd", 0.0) or 0.0),
+            input_tokens=int(result_meta.get("input_tokens", 0) or 0),  # type: ignore[call-overload]
+            output_tokens=int(result_meta.get("output_tokens", 0) or 0),  # type: ignore[call-overload]
+            cost_usd=float(result_meta.get("cost_usd", 0.0) or 0.0),  # type: ignore[arg-type]
             model=str(result_meta.get("model", "") or ""),
         )
 

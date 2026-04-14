@@ -8,7 +8,7 @@ subscriptions remain valid.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 
@@ -26,11 +26,11 @@ def get_or_create_vapid_keys(codeplane_dir: Path) -> dict[str, str]:
         try:
             data = json.loads(vapid_path.read_text())
             if data.get("public_key") and data.get("private_key"):
-                return data
+                return cast("dict[str, str]", data)
         except (json.JSONDecodeError, KeyError):
             log.warning("vapid_keys_corrupt_regenerating", path=str(vapid_path))
 
-    from py_vapid import Vapid
+    from py_vapid import Vapid  # type: ignore[import-untyped]
 
     vapid = Vapid()
     vapid.generate_keys()
