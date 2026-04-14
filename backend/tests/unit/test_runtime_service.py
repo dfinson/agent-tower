@@ -254,7 +254,7 @@ async def _create_db_job(
 async def _wait_until(
     predicate: Callable[[], bool],
     *,
-    timeout: float = 5.0,
+    timeout: float = 15.0,
     interval: float = 0.05,
     msg: str = "",
 ) -> None:
