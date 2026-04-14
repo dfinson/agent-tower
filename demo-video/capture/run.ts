@@ -28,11 +28,12 @@ import {
   runningJobTranscript,
   runningJobTimeline,
   runningJobPlan,
+  runningJobTurnSummaries,
   approvalJobApprovals,
   reviewJobDiff,
 } from "./fixtures";
 
-const BASE = "http://localhost:5173";
+const BASE = process.env.CAPTURE_BASE_URL ?? "http://localhost:8080";
 const OUT = path.resolve(__dirname, "..", "public", "captures");
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,8 @@ async function setupRoutes(page: Page | BrowserContext) {
         diff: jobId === "ticket-list-pagination" ? reviewJobDiff : [],
         approvals: jobId === "keyboard-shortcut-hints" ? approvalJobApprovals : [],
         timeline: jobId === "customer-email-search" ? runningJobTimeline : [],
+        steps: jobId === "customer-email-search" ? runningJobPlan : [],
+        turnSummaries: jobId === "customer-email-search" ? runningJobTurnSummaries : [],
       },
     });
   });
@@ -331,6 +334,26 @@ async function captureAnalytics(page: Page) {
   });
 }
 
+async function captureJobMetrics(page: Page) {
+  console.log("  → Job detail — metrics tab");
+  await page.goto(`${BASE}/jobs/customer-email-search`);
+  await page.waitForSelector("text=Add customer email search", {
+    timeout: 10_000,
+  });
+  await page.waitForTimeout(800);
+  // Click the Metrics tab
+  const metricsTab = page.getByRole("tab", { name: /metrics/i });
+  if (await metricsTab.isVisible()) {
+    await metricsTab.click();
+    await page.waitForTimeout(1200);
+  }
+  await patchConnectionBadge(page);
+  await page.screenshot({
+    path: path.join(OUT, "job-metrics.png"),
+    type: "png",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Video captures — record real interactions as WebM clips
 // ---------------------------------------------------------------------------
@@ -465,37 +488,6 @@ async function captureVideoApprovalClick(browser: Browser) {
   console.log("    ✓ video-approval-click.webm");
 }
 
-async function captureMobileDashboard(context: BrowserContext) {
-  console.log("  → Dashboard (mobile)");
-  const page = await context.newPage();
-  await setupRoutes(page);
-  await page.goto(BASE);
-  await page.waitForSelector('button:has-text("In Progress")', {
-    timeout: 10_000,
-  });
-  await page.waitForTimeout(800);
-  await patchConnectionBadge(page);
-  await page.screenshot({
-    path: path.join(OUT, "dashboard-mobile.png"),
-    type: "png",
-  });
-
-  // Also capture mobile job detail
-  console.log("  → Job detail (mobile)");
-  await page.goto(`${BASE}/jobs/customer-email-search`);
-  await page.waitForSelector("text=Add customer email search", {
-    timeout: 10_000,
-  });
-  await page.waitForTimeout(1200);
-  await patchConnectionBadge(page);
-  await page.screenshot({
-    path: path.join(OUT, "job-mobile.png"),
-    type: "png",
-  });
-
-  await page.close();
-}
-
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -504,7 +496,13 @@ async function main() {
   console.log(`\nCapturing CodePlane screenshots → ${OUT}\n`);
   fs.mkdirSync(OUT, { recursive: true });
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--use-fake-device-for-media-stream",
+      "--use-fake-ui-for-media-stream",
+    ],
+  });
 
   // Desktop context: 1920×1080 @ 2x = 3840×2160
   console.log("Desktop captures (1920×1080 @ 2x):");
@@ -574,6 +572,7 @@ async function main() {
   await captureJobDiff(page);
   await captureJobApproval(page);
   await captureAnalytics(page);
+  await captureJobMetrics(page);
 
   await desktopCtx.close();
 
@@ -593,6 +592,13 @@ async function main() {
   });
   // Apply the same init scripts to the mobile context
   const mobilePage = await mobileCtx.newPage();
+  await mobilePage.addInitScript(
+    (data: { jobs: unknown[]; approvals: unknown[] }) => {
+      (window as any).__mockJobs = data.jobs;
+      (window as any).__mockApprovals = data.approvals;
+    },
+    { jobs: mockJobs, approvals: approvalJobApprovals },
+  );
   await mobilePage.addInitScript(() => {
     (window as any).EventSource = class FakeEventSource extends EventTarget {
       readyState = 0;
@@ -615,6 +621,12 @@ async function main() {
           const openEvt = new Event("open");
           this.onopen?.(openEvt as any);
           this.dispatchEvent(openEvt);
+          const snapshotData = JSON.stringify({
+            jobs: (window as any).__mockJobs ?? [],
+            pendingApprovals: (window as any).__mockApprovals ?? [],
+          });
+          const snapshotEvt = new MessageEvent("snapshot", { data: snapshotData });
+          this.dispatchEvent(snapshotEvt);
           const hb = new MessageEvent("session_heartbeat", { data: "{}" });
           this.dispatchEvent(hb);
         });
@@ -645,6 +657,221 @@ async function main() {
   await patchConnectionBadge(mobilePage);
   await mobilePage.screenshot({
     path: path.join(OUT, "job-mobile.png"),
+    type: "png",
+  });
+
+  // Capture mobile voice input with REAL WaveSurfer waveform
+  // Close the existing page and create a fresh CONTEXT with fake audio device
+  console.log("  → Job detail (mobile) — voice input (real waveform)");
+  await mobilePage.close();
+
+  // Create a separate mobile context with Chromium's fake audio device
+  // This provides a real sine wave MediaStream that WaveSurfer renders
+  const voiceCtx = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 3,
+    colorScheme: "dark",
+    isMobile: true,
+    hasTouch: true,
+    permissions: ["microphone"],
+  });
+
+  const voiceMobilePage = await voiceCtx.newPage();
+  // Inject SSE mock
+  await voiceMobilePage.addInitScript(
+    (data: { jobs: unknown[]; approvals: unknown[] }) => {
+      (window as any).__mockJobs = data.jobs;
+      (window as any).__mockApprovals = data.approvals;
+    },
+    { jobs: mockJobs, approvals: approvalJobApprovals },
+  );
+  await voiceMobilePage.addInitScript(() => {
+    (window as any).EventSource = class FakeEventSource extends EventTarget {
+      readyState = 0;
+      url: string;
+      withCredentials = false;
+      onopen: ((ev: Event) => void) | null = null;
+      onmessage: ((ev: MessageEvent) => void) | null = null;
+      onerror: ((ev: Event) => void) | null = null;
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+      readonly CONNECTING = 0;
+      readonly OPEN = 1;
+      readonly CLOSED = 2;
+      constructor(url: string | URL, _init?: EventSourceInit) {
+        super();
+        this.url = String(url);
+        queueMicrotask(() => {
+          this.readyState = 1;
+          this.dispatchEvent(new Event("open"));
+          this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify({
+            jobs: (window as any).__mockJobs ?? [],
+            pendingApprovals: (window as any).__mockApprovals ?? [],
+          })}));
+          this.dispatchEvent(new MessageEvent("session_heartbeat", { data: "{}" }));
+        });
+      }
+      close() { this.readyState = 2; }
+    } as any;
+  });
+  // Mock the transcribe endpoint to hang (keep recording state active)
+  await voiceMobilePage.route("**/voice/transcribe", () => { /* never respond */ });
+  await setupRoutes(voiceMobilePage);
+
+  await voiceMobilePage.goto(BASE + "/jobs/customer-email-search");
+  await voiceMobilePage.waitForSelector("text=Add customer email search", { timeout: 10_000 });
+  await voiceMobilePage.waitForTimeout(1000);
+  await patchConnectionBadge(voiceMobilePage);
+
+  // Scroll to expose composer at bottom
+  await voiceMobilePage.evaluate(() => {
+    const main = document.querySelector("main");
+    if (main) main.scrollTop = main.scrollHeight;
+  });
+  await voiceMobilePage.waitForTimeout(400);
+
+  // Click the mic button — triggers real WaveSurfer recording
+  const voiceMicBtn = voiceMobilePage.locator('button[aria-label="Voice input"]');
+  if (await voiceMicBtn.isVisible()) {
+    await voiceMicBtn.click();
+    // Let WaveSurfer render the scrolling waveform for ~3 seconds
+    await voiceMobilePage.waitForTimeout(3000);
+  }
+
+  // Check if waveform rendered — if not, inject a CSS-based fallback
+  const hasWaveform = await voiceMobilePage.evaluate(() => {
+    // WaveSurfer renders into a shadow DOM canvas; check for any canvas or wave element
+    const canvases = document.querySelectorAll("canvas");
+    for (const c of canvases) {
+      if (c.width > 10 && c.height > 10) return true;
+    }
+    // Also check for WaveSurfer's container div
+    const wsContainer = document.querySelector('[data-wavesurfer]') || document.querySelector('.wavesurfer-wrapper');
+    return wsContainer !== null;
+  });
+  console.log("    Waveform canvas detected:", hasWaveform);
+
+  if (!hasWaveform) {
+    // Fallback: inject a realistic SVG waveform into the waveform container
+    console.log("    Injecting SVG waveform fallback");
+    await voiceMobilePage.evaluate(() => {
+      // Find the waveform container ref div (empty div after textarea)
+      const composerArea = document.querySelector('button[aria-label="Stop recording"]')?.closest(".rounded-lg.border");
+      if (!composerArea) return;
+      const textareaParent = composerArea.querySelector("textarea")?.parentElement;
+      if (!textareaParent) return;
+
+      // Hide the textarea and insert a full-width waveform
+      const textarea = textareaParent.querySelector("textarea") as HTMLElement;
+      if (textarea) {
+        textarea.style.display = "none";
+      }
+
+      // Create SVG waveform that fills the parent width
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNS, "svg");
+      const w = 800; // viewBox units — scales to fill container
+      const h = 40;
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      svg.setAttribute("width", "100%");
+      svg.setAttribute("height", "40");
+      svg.style.display = "block";
+      svg.style.marginTop = "4px";
+
+      // Dense bars simulating scrolling waveform
+      const barW = 2;
+      const gap = 1.5;
+      const numBars = Math.floor(w / (barW + gap));
+      for (let i = 0; i < numBars; i++) {
+        const rect = document.createElementNS(svgNS, "rect");
+        const x = i * (barW + gap);
+        // Simulate natural speech amplitude: clusters of activity with quiet gaps
+        var t = i / numBars;
+        // Multiple overlapping sine waves for organic feel
+        var wave1 = Math.sin(t * Math.PI * 5.3) * 0.4;
+        var wave2 = Math.sin(t * Math.PI * 11.7 + 1.2) * 0.25;
+        var wave3 = Math.sin(t * Math.PI * 23.1 + 0.7) * 0.15;
+        var noise = Math.sin(i * 17.3) * 0.1 + Math.sin(i * 31.7) * 0.08;
+        var amp = Math.abs(wave1 + wave2 + wave3 + noise) + 0.08;
+        var barH = Math.max(2, Math.min(h - 2, amp * h * 1.2));
+        var y = (h - barH) / 2;
+        rect.setAttribute("x", String(x.toFixed(1)));
+        rect.setAttribute("y", String(y.toFixed(1)));
+        rect.setAttribute("width", String(barW));
+        rect.setAttribute("height", String(barH.toFixed(1)));
+        rect.setAttribute("rx", "1");
+        var opacity = (0.35 + (barH / h) * 0.65).toFixed(2);
+        rect.setAttribute("fill", "hsl(217 91% 60% / " + opacity + ")");
+        svg.appendChild(rect);
+      }
+
+      // Insert a "Recording…" label
+      const label = document.createElement("div");
+      label.textContent = "Recording\u2026";
+      label.style.cssText = "color:hsl(217 91% 60%);font-size:13px;margin-top:2px;opacity:0.7;";
+
+      textareaParent.insertBefore(svg, textareaParent.firstChild);
+      textareaParent.insertBefore(label, svg.nextSibling);
+    });
+    await voiceMobilePage.waitForTimeout(200);
+  }
+
+  await voiceMobilePage.screenshot({
+    path: path.join(OUT, "mobile-voice-input.png"),
+    type: "png",
+  });
+  await voiceCtx.close();
+
+  // Capture mobile approval
+  console.log("  → Job approval (mobile)");
+  const approvalMobilePage = await mobileCtx.newPage();
+  await approvalMobilePage.addInitScript(
+    (data: { jobs: unknown[]; approvals: unknown[] }) => {
+      (window as any).__mockJobs = data.jobs;
+      (window as any).__mockApprovals = data.approvals;
+    },
+    { jobs: mockJobs, approvals: approvalJobApprovals },
+  );
+  await approvalMobilePage.addInitScript(() => {
+    (window as any).EventSource = class FakeEventSource extends EventTarget {
+      readyState = 0;
+      url: string;
+      withCredentials = false;
+      onopen: ((ev: Event) => void) | null = null;
+      onmessage: ((ev: MessageEvent) => void) | null = null;
+      onerror: ((ev: Event) => void) | null = null;
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+      readonly CONNECTING = 0;
+      readonly OPEN = 1;
+      readonly CLOSED = 2;
+      constructor(url: string | URL, _init?: EventSourceInit) {
+        super();
+        this.url = String(url);
+        queueMicrotask(() => {
+          this.readyState = 1;
+          this.dispatchEvent(new Event("open"));
+          this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify({
+            jobs: (window as any).__mockJobs ?? [],
+            pendingApprovals: (window as any).__mockApprovals ?? [],
+          })}));
+          this.dispatchEvent(new MessageEvent("session_heartbeat", { data: "{}" }));
+        });
+      }
+      close() { this.readyState = 2; }
+    } as any;
+  });
+  await setupRoutes(approvalMobilePage);
+  await approvalMobilePage.goto(`${BASE}/jobs/keyboard-shortcut-hints`);
+  await approvalMobilePage.waitForSelector("text=Add keyboard shortcut hints", {
+    timeout: 10_000,
+  });
+  await approvalMobilePage.waitForTimeout(1000);
+  await patchConnectionBadge(approvalMobilePage);
+  await approvalMobilePage.screenshot({
+    path: path.join(OUT, "mobile-approval.png"),
     type: "png",
   });
 

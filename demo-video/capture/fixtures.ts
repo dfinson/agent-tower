@@ -440,6 +440,44 @@ export const runningJobPlan = [
   { label: "Run full test suite", status: "active" as const },
 ];
 
+// Turn summaries that populate the activity timeline sidebar
+const ACT_A = "act-001";
+const ACT_B = "act-002";
+const ACT_C = "act-003";
+
+export const runningJobTurnSummaries = [
+  {
+    jobId: "customer-email-search",
+    turnId: TURN_A,
+    title: "Analyzed ticket list endpoint and service layer",
+    activityId: ACT_A,
+    activityLabel: "Analyzing codebase",
+    activityStatus: "done",
+    isNewActivity: true,
+    planItemId: null,
+  },
+  {
+    jobId: "customer-email-search",
+    turnId: TURN_B,
+    title: "Added email search filter with ilike matching",
+    activityId: ACT_B,
+    activityLabel: "Implementing email search",
+    activityStatus: "done",
+    isNewActivity: true,
+    planItemId: null,
+  },
+  {
+    jobId: "customer-email-search",
+    turnId: TURN_C,
+    title: "Writing and running email search tests",
+    activityId: ACT_C,
+    activityLabel: "Writing tests",
+    activityStatus: "active",
+    isNewActivity: true,
+    planItemId: null,
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Job detail: approval job j-0008
 // ---------------------------------------------------------------------------
@@ -838,6 +876,138 @@ export const mockCostDrivers = {
 
 export const mockObservations = {
   observations: [],
+};
+
+// Realistic telemetry data for the running job — matches the shape of
+// GET /api/jobs/{id}/telemetry from the real backend.
+export const runningJobTelemetry = {
+  available: true,
+  jobId: "customer-email-search",
+  sdk: "copilot",
+  model: "claude-sonnet-4.6",
+  mainModel: "claude-sonnet-4.6",
+  durationMs: 264000,
+  inputTokens: 4_218_400,
+  outputTokens: 28_350,
+  totalTokens: 8_012_750,
+  cacheReadTokens: 3_766_000,
+  cacheWriteTokens: 0,
+  totalCost: 0.65,
+  contextWindowSize: 200_000,
+  currentContextTokens: 67_420,
+  contextUtilization: 0.337,
+  compactions: 0,
+  tokensCompacted: 0,
+  toolCallCount: 47,
+  totalToolDurationMs: 18_230,
+  toolCalls: [
+    { name: "report_intent", durationMs: 0.5, success: true, offsetSec: 2.1 },
+    { name: "bash", durationMs: 812, success: true, offsetSec: 3.0 },
+    { name: "bash", durationMs: 745, success: true, offsetSec: 4.2 },
+    { name: "grep", durationMs: 34, success: true, offsetSec: 8.5 },
+    { name: "glob", durationMs: 41, success: true, offsetSec: 8.6 },
+    { name: "grep", durationMs: 68, success: false, offsetSec: 9.1 },
+    { name: "view", durationMs: 12, success: true, offsetSec: 12.4 },
+    { name: "view", durationMs: 65, success: true, offsetSec: 13.0 },
+    { name: "view", durationMs: 71, success: true, offsetSec: 13.1 },
+    { name: "grep", durationMs: 25, success: true, offsetSec: 16.8 },
+    { name: "view", durationMs: 330, success: true, offsetSec: 19.2 },
+    { name: "bash", durationMs: 798, success: true, offsetSec: 22.0 },
+    { name: "edit", durationMs: 290, success: true, offsetSec: 28.5 },
+    { name: "edit", durationMs: 185, success: true, offsetSec: 31.2 },
+    { name: "bash", durationMs: 515, success: true, offsetSec: 34.0 },
+    { name: "bash", durationMs: 590, success: true, offsetSec: 38.7 },
+    { name: "view", durationMs: 228, success: true, offsetSec: 42.1 },
+    { name: "edit", durationMs: 310, success: true, offsetSec: 45.3 },
+    { name: "bash", durationMs: 1045, success: true, offsetSec: 48.8 },
+    { name: "bash", durationMs: 2340, success: false, offsetSec: 52.1 },
+    { name: "edit", durationMs: 175, success: true, offsetSec: 56.4 },
+    { name: "bash", durationMs: 3120, success: true, offsetSec: 60.0 },
+    { name: "view", durationMs: 18, success: true, offsetSec: 68.2 },
+    { name: "view", durationMs: 92, success: true, offsetSec: 70.5 },
+    { name: "edit", durationMs: 220, success: true, offsetSec: 74.3 },
+    { name: "bash", durationMs: 4510, success: true, offsetSec: 78.0 },
+  ],
+  llmCallCount: 38,
+  totalLlmDurationMs: 186_400,
+  llmCalls: [
+    { model: "claude-sonnet-4.6", inputTokens: 61_350, outputTokens: 182, cacheReadTokens: 7_430, cacheWriteTokens: 0, cost: 0.02, durationMs: 4450, isSubagent: false, offsetSec: 0.5, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 66_720, outputTokens: 210, cacheReadTokens: 7_430, cacheWriteTokens: 0, cost: 0.02, durationMs: 5260, isSubagent: false, offsetSec: 5.0, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 20_710, outputTokens: 287, cacheReadTokens: 6_800, cacheWriteTokens: 0, cost: 0.01, durationMs: 6670, isSubagent: false, offsetSec: 10.0, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 74_450, outputTokens: 186, cacheReadTokens: 22_670, cacheWriteTokens: 0, cost: 0.02, durationMs: 4650, isSubagent: false, offsetSec: 15.2, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 67_230, outputTokens: 119, cacheReadTokens: 66_520, cacheWriteTokens: 0, cost: 0.01, durationMs: 3930, isSubagent: false, offsetSec: 20.5, callCount: 1 },
+    { model: "claude-haiku-4.5", inputTokens: 5_445, outputTokens: 689, cacheReadTokens: 0, cacheWriteTokens: 0, cost: 0.003, durationMs: 4310, isSubagent: true, offsetSec: 25.0, callCount: 1 },
+    { model: "claude-haiku-4.5", inputTokens: 10_200, outputTokens: 331, cacheReadTokens: 0, cacheWriteTokens: 0, cost: 0.003, durationMs: 3220, isSubagent: true, offsetSec: 30.0, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 67_370, outputTokens: 198, cacheReadTokens: 67_230, cacheWriteTokens: 0, cost: 0.02, durationMs: 4570, isSubagent: false, offsetSec: 35.0, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 76_040, outputTokens: 599, cacheReadTokens: 74_300, cacheWriteTokens: 0, cost: 0.02, durationMs: 16_180, isSubagent: false, offsetSec: 40.0, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 78_200, outputTokens: 420, cacheReadTokens: 76_040, cacheWriteTokens: 0, cost: 0.02, durationMs: 5800, isSubagent: false, offsetSec: 58.0, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 80_100, outputTokens: 350, cacheReadTokens: 78_200, cacheWriteTokens: 0, cost: 0.02, durationMs: 4200, isSubagent: false, offsetSec: 65.0, callCount: 1 },
+    { model: "claude-sonnet-4.6", inputTokens: 82_400, outputTokens: 280, cacheReadTokens: 80_100, cacheWriteTokens: 0, cost: 0.02, durationMs: 3900, isSubagent: false, offsetSec: 72.0, callCount: 1 },
+  ],
+  approvalCount: 0,
+  totalApprovalWaitMs: 0,
+  agentMessages: 38,
+  operatorMessages: 2,
+  premiumRequests: 38,
+  quotaSnapshots: {
+    "github-models": {
+      usedRequests: 847,
+      entitlementRequests: 999999,
+      remainingPercentage: 99.9,
+      overage: 0,
+      overageAllowed: false,
+      isUnlimited: true,
+      usageAllowedWithExhaustedQuota: true,
+      resetDate: "2026-04-15T00:00:00Z",
+    },
+  },
+  costDrivers: {
+    activity: [
+      { dimension: "activity", bucket: "command_execution", costUsd: 0.22, inputTokens: 1_580_000, outputTokens: 8_400, callCount: 18 },
+      { dimension: "activity", bucket: "code_reading", costUsd: 0.18, inputTokens: 1_210_000, outputTokens: 6_200, callCount: 14 },
+      { dimension: "activity", bucket: "code_changes", costUsd: 0.14, inputTokens: 890_000, outputTokens: 7_800, callCount: 8 },
+      { dimension: "activity", bucket: "search_discovery", costUsd: 0.06, inputTokens: 340_000, outputTokens: 2_100, callCount: 5 },
+      { dimension: "activity", bucket: "verification", costUsd: 0.04, inputTokens: 150_000, outputTokens: 3_200, callCount: 3 },
+      { dimension: "activity", bucket: "user_communication", costUsd: 0.01, inputTokens: 48_400, outputTokens: 650, callCount: 1 },
+    ],
+  },
+  turnEconomics: {
+    totalTurns: 12,
+    peakTurnCostUsd: 0.08,
+    avgTurnCostUsd: 0.054,
+    costFirstHalfUsd: 0.38,
+    costSecondHalfUsd: 0.27,
+    turnCurve: [
+      { dimension: "turn", bucket: "1", costUsd: 0.04, inputTokens: 128_000, outputTokens: 860, callCount: 2 },
+      { dimension: "turn", bucket: "2", costUsd: 0.05, inputTokens: 154_000, outputTokens: 1_200, callCount: 3 },
+      { dimension: "turn", bucket: "3", costUsd: 0.06, inputTokens: 168_000, outputTokens: 1_800, callCount: 4 },
+      { dimension: "turn", bucket: "4", costUsd: 0.08, inputTokens: 190_000, outputTokens: 2_400, callCount: 5 },
+      { dimension: "turn", bucket: "5", costUsd: 0.07, inputTokens: 178_000, outputTokens: 2_100, callCount: 4 },
+      { dimension: "turn", bucket: "6", costUsd: 0.06, inputTokens: 172_000, outputTokens: 1_600, callCount: 3 },
+      { dimension: "turn", bucket: "7", costUsd: 0.08, inputTokens: 195_000, outputTokens: 2_800, callCount: 5 },
+      { dimension: "turn", bucket: "8", costUsd: 0.06, inputTokens: 170_000, outputTokens: 1_900, callCount: 3 },
+      { dimension: "turn", bucket: "9", costUsd: 0.05, inputTokens: 155_000, outputTokens: 1_400, callCount: 3 },
+      { dimension: "turn", bucket: "10", costUsd: 0.04, inputTokens: 142_000, outputTokens: 1_100, callCount: 2 },
+      { dimension: "turn", bucket: "11", costUsd: 0.05, inputTokens: 158_000, outputTokens: 1_600, callCount: 3 },
+      { dimension: "turn", bucket: "12", costUsd: 0.06, inputTokens: 165_000, outputTokens: 2_000, callCount: 3 },
+    ],
+  },
+  fileAccess: {
+    stats: {
+      totalAccesses: 42,
+      uniqueFiles: 8,
+      totalReads: 38,
+      totalWrites: 4,
+      rereadCount: 12,
+    },
+    topFiles: [
+      { filePath: "src/routes/tickets.py", accessCount: 8, readCount: 6, writeCount: 2 },
+      { filePath: "src/services/ticket_service.py", accessCount: 6, readCount: 5, writeCount: 1 },
+      { filePath: "tests/test_tickets.py", accessCount: 5, readCount: 4, writeCount: 1 },
+      { filePath: "src/models/ticket.py", accessCount: 4, readCount: 4, writeCount: 0 },
+      { filePath: "src/routes/__init__.py", accessCount: 3, readCount: 3, writeCount: 0 },
+    ],
+  },
 };
 
 export const mockOverview = {
