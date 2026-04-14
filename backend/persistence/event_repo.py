@@ -120,12 +120,9 @@ class EventRepository(BaseRepository):
         """Full-text search within a job's transcript events."""
         from sqlalchemy import func, or_
 
-        stmt = (
-            select(EventRow)
-            .where(
-                EventRow.job_id == job_id,
-                EventRow.kind == DomainEventKind.transcript_updated.value,
-            )
+        stmt = select(EventRow).where(
+            EventRow.job_id == job_id,
+            EventRow.kind == DomainEventKind.transcript_updated.value,
         )
         if roles:
             role_conditions = [EventRow.payload.contains(f'"role": "{r}"') for r in roles]

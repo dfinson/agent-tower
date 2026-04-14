@@ -73,6 +73,7 @@ def run_migrations(db_path: Path | None = None) -> None:
     except command.util.CommandError as exc:
         if "Can't locate revision" in str(exc):
             import sqlite3
+
             import structlog
 
             log = structlog.get_logger()
@@ -88,9 +89,7 @@ def run_migrations(db_path: Path | None = None) -> None:
                 script = ScriptDirectory.from_config(alembic_cfg)
                 heads = script.get_heads()
                 head_rev = heads[0] if heads else "head"
-                conn.execute(
-                    "UPDATE alembic_version SET version_num = ?", (head_rev,)
-                )
+                conn.execute("UPDATE alembic_version SET version_num = ?", (head_rev,))
                 conn.commit()
             finally:
                 conn.close()

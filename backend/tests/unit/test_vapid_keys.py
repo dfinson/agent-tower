@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from backend.services.vapid_keys import get_or_create_vapid_keys
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestGetOrCreateVapidKeys:
@@ -46,10 +49,10 @@ class TestGetOrCreateVapidKeys:
 
         mock_vapid = MagicMock()
         mock_pub_key = MagicMock()
-        mock_pub_key.public_bytes.return_value = b"\x04" + b"\xAA" * 64
+        mock_pub_key.public_bytes.return_value = b"\x04" + b"\xaa" * 64
         mock_vapid.public_key = mock_pub_key
         mock_priv_numbers = MagicMock()
-        mock_priv_numbers.private_value = int.from_bytes(b"\xBB" * 32, "big")
+        mock_priv_numbers.private_value = int.from_bytes(b"\xbb" * 32, "big")
         mock_vapid.private_key.private_numbers.return_value = mock_priv_numbers
 
         with patch("py_vapid.Vapid", return_value=mock_vapid):
@@ -64,10 +67,10 @@ class TestGetOrCreateVapidKeys:
 
         mock_vapid = MagicMock()
         mock_pub_key = MagicMock()
-        mock_pub_key.public_bytes.return_value = b"\x04" + b"\xCC" * 64
+        mock_pub_key.public_bytes.return_value = b"\x04" + b"\xcc" * 64
         mock_vapid.public_key = mock_pub_key
         mock_priv_numbers = MagicMock()
-        mock_priv_numbers.private_value = int.from_bytes(b"\xDD" * 32, "big")
+        mock_priv_numbers.private_value = int.from_bytes(b"\xdd" * 32, "big")
         mock_vapid.private_key.private_numbers.return_value = mock_priv_numbers
 
         with patch("py_vapid.Vapid", return_value=mock_vapid):
@@ -80,13 +83,13 @@ class TestGetOrCreateVapidKeys:
 
         mock_vapid = MagicMock()
         mock_pub_key = MagicMock()
-        mock_pub_key.public_bytes.return_value = b"\x04" + b"\xEE" * 64
+        mock_pub_key.public_bytes.return_value = b"\x04" + b"\xee" * 64
         mock_vapid.public_key = mock_pub_key
         mock_priv_numbers = MagicMock()
-        mock_priv_numbers.private_value = int.from_bytes(b"\xFF" * 32, "big")
+        mock_priv_numbers.private_value = int.from_bytes(b"\xff" * 32, "big")
         mock_vapid.private_key.private_numbers.return_value = mock_priv_numbers
 
         with patch("py_vapid.Vapid", return_value=mock_vapid):
-            result = get_or_create_vapid_keys(nested)
+            get_or_create_vapid_keys(nested)
 
         assert (nested / "vapid.json").exists()

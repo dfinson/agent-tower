@@ -46,7 +46,7 @@ Field rules:
   Good examples: "add-user-search", "fix-login-bug", "upgrade-deps"
 
 Output format — respond with ONLY this JSON, no markdown, no explanation:
-{"title": "Fix null pointer in login", "description": "Fix the null pointer exception in the login flow when the user profile is missing.", "branch_name": "fix/null-pointer-login", "worktree_name": "null-pointer-login"}
+{"title": "...", "description": "...", "branch_name": "fix/...", "worktree_name": "..."}
 
 Task description:
 """

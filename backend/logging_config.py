@@ -41,9 +41,7 @@ _CONSOLE_NOISE_PREFIXES: tuple[str, ...] = (
 
 # Warning-level messages that are safe to suppress on the console.
 # They still reach the log file.
-_SUPPRESSED_WARNINGS: tuple[tuple[str, str], ...] = (
-    ("uvicorn.error", "Invalid HTTP request received."),
-)
+_SUPPRESSED_WARNINGS: tuple[tuple[str, str], ...] = (("uvicorn.error", "Invalid HTTP request received."),)
 
 
 class _ConsoleNoiseFilter(logging.Filter):

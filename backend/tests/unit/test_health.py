@@ -30,8 +30,8 @@ def _make_mock_services() -> dict[type, object]:
     from backend.services.merge_service import MergeService
     from backend.services.platform_adapter import PlatformRegistry
     from backend.services.runtime_service import RuntimeService
-    from backend.services.sse_manager import SSEManager
     from backend.services.sister_session import SisterSessionManager
+    from backend.services.sse_manager import SSEManager
     from backend.services.voice_service import VoiceService
 
     return {

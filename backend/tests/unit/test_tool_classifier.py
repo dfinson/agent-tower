@@ -13,7 +13,6 @@ from backend.services.tool_classifier import (
     extract_tool_target,
 )
 
-
 # --- classify_tool ---
 
 
@@ -55,8 +54,16 @@ class TestClassifyTool:
     def test_all_categories_are_known_strings(self) -> None:
         """Sanity: every value in TOOL_CATEGORIES is one of the expected buckets."""
         expected_buckets = {
-            "file_read", "file_write", "file_search", "shell",
-            "git_read", "git_write", "browser", "agent", "thinking", "bookkeeping",
+            "file_read",
+            "file_write",
+            "file_search",
+            "shell",
+            "git_read",
+            "git_write",
+            "browser",
+            "agent",
+            "thinking",
+            "bookkeeping",
         }
         for cat in TOOL_CATEGORIES.values():
             assert cat in expected_buckets, f"Unexpected category: {cat}"
@@ -70,7 +77,7 @@ class TestExtractToolTarget:
         args = json.dumps({"path": "/src/main.py"})
         assert extract_tool_target("read_file", args) == "/src/main.py"
 
-    def test_file_write_target_filePath(self) -> None:
+    def test_file_write_target_file_path(self) -> None:
         args = json.dumps({"filePath": "/src/app.ts"})
         assert extract_tool_target("edit_file", args) == "/src/app.ts"
 

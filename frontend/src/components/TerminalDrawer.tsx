@@ -301,7 +301,11 @@ export function TerminalDrawer() {
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                e.shiftKey ? handleSearchPrev() : handleSearchNext();
+                if (e.shiftKey) {
+                  handleSearchPrev();
+                } else {
+                  handleSearchNext();
+                }
               }
               if (e.key === "Escape") {
                 e.preventDefault();

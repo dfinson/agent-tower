@@ -34,8 +34,6 @@ from backend.services.base_adapter import BaseAgentAdapter, PermissionDecision
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from claude_code_sdk import ClaudeSDKClient
-
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
 
@@ -175,7 +173,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         from claude_code_sdk import PermissionResultAllow, PermissionResultDeny
 
         # Map Claude tool names to permission_policy kinds
-        _CLAUDE_TOOL_KIND: dict[str, str] = {
+        _claude_tool_kind: dict[str, str] = {
             "Bash": "shell",
             "Edit": "write",
             "Write": "write",
@@ -194,7 +192,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             context: object,
         ) -> PermissionResultAllow | PermissionResultDeny:
             job_id = self._session_to_job.get(session_id)
-            tool_kind = _CLAUDE_TOOL_KIND.get(tool_name, "custom-tool")
+            tool_kind = _claude_tool_kind.get(tool_name, "custom-tool")
             full_cmd = str(input_data.get("command", "")) if tool_name == "Bash" else None
             file_name = str(input_data.get("file_path", "") or input_data.get("path", "")) or None
             decision = await self._evaluate_permission(
@@ -469,7 +467,11 @@ class ClaudeAdapter(BaseAgentAdapter):
         }
 
         if tool_name not in _HIDDEN_TOOLS:
-            from backend.services.tool_formatters import classify_tool_visibility, format_tool_display, format_tool_display_full
+            from backend.services.tool_formatters import (
+                classify_tool_visibility,
+                format_tool_display,
+                format_tool_display_full,
+            )
 
             self._enqueue(
                 session_id,
@@ -541,7 +543,11 @@ class ClaudeAdapter(BaseAgentAdapter):
             tool_issue = extract_tool_issue(result_text) or "Tool reported an issue"
 
         if tool_name not in _HIDDEN_TOOLS:
-            from backend.services.tool_formatters import classify_tool_visibility, format_tool_display, format_tool_display_full
+            from backend.services.tool_formatters import (
+                classify_tool_visibility,
+                format_tool_display,
+                format_tool_display_full,
+            )
 
             self._enqueue(
                 session_id,
@@ -905,7 +911,6 @@ class ClaudeAdapter(BaseAgentAdapter):
             await client.interrupt()
         except Exception:
             log.warning("claude_interrupt_failed", session_id=session_id, exc_info=True)
-
 
     async def abort_session(self, session_id: str) -> None:
         client = self._clients.get(session_id)

@@ -191,9 +191,7 @@ class SisterSessionManager:
     async def start(self) -> None:
         """Seed the standby pool and start background maintenance tasks."""
         self._fill_pool()
-        self._bg_tasks.append(
-            asyncio.create_task(self._orphan_reaper(), name="sister-orphan-reaper")
-        )
+        self._bg_tasks.append(asyncio.create_task(self._orphan_reaper(), name="sister-orphan-reaper"))
         log.debug("sister_session_manager_started", pool_size=self._pool_size)
 
     async def shutdown(self) -> None:
@@ -326,9 +324,7 @@ class SisterSessionManager:
             try:
                 t0 = time.monotonic()
                 result = await asyncio.wait_for(
-                    self._fast_completer.complete(
-                        f"{_UTILITY_SYSTEM_PROMPT}\n\n{prompt}"
-                    ),
+                    self._fast_completer.complete(f"{_UTILITY_SYSTEM_PROMPT}\n\n{prompt}"),
                     timeout=timeout,
                 )
                 elapsed_ms = (time.monotonic() - t0) * 1000
@@ -353,7 +349,7 @@ class SisterSessionManager:
             for attempt in range(_TIMEOUT_RETRIES + 1):
                 try:
                     return await session.complete(prompt, timeout=timeout)
-                except (TimeoutError, asyncio.TimeoutError):
+                except TimeoutError:
                     if attempt >= _TIMEOUT_RETRIES:
                         raise
                     session._primed = False  # noqa: SLF001  # retry without context
@@ -416,9 +412,7 @@ class SisterSessionManager:
                 await asyncio.sleep(_ORPHAN_CHECK_INTERVAL_S)
                 now = time.monotonic()
                 expired = [
-                    token
-                    for token, created in self._warm_created_at.items()
-                    if now - created > _ORPHAN_EXPIRY_S
+                    token for token, created in self._warm_created_at.items() if now - created > _ORPHAN_EXPIRY_S
                 ]
                 for token in expired:
                     self._warm.pop(token, None)

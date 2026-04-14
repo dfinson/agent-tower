@@ -22,8 +22,8 @@ from backend.models.api_schemas import (
     JobResponse,
     LogLinePayload,
     ModelInfoResponse,
-    ProgressHeadlinePayload,
     PlanStepPayload,
+    ProgressHeadlinePayload,
     ResolutionAction,
     ResolveJobRequest,
     ResolveJobResponse,
@@ -42,8 +42,8 @@ from backend.services.job_service import JobService, ProgressPreview
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
-from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 from backend.services.sister_session import SisterSessionManager
+from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -170,7 +170,12 @@ async def suggest_names(
     except NamingError as exc:
         raise HTTPException(status_code=503, detail=f"Naming failed: {exc}") from exc
 
-    return SuggestNamesResponse(title=title, description=description, branch_name=branch_name, worktree_name=worktree_name)
+    return SuggestNamesResponse(
+        title=title,
+        description=description,
+        branch_name=branch_name,
+        worktree_name=worktree_name,
+    )
 
 
 @router.post("/jobs", response_model=CreateJobResponse, status_code=201)
@@ -525,9 +530,7 @@ async def get_job_steps(
     endpoint lets late-joining clients catch up on steps that were emitted
     before they connected.
     """
-    events = await svc.list_events_by_job(
-        job_id, [DomainEventKind.plan_step_updated], limit=5000
-    )
+    events = await svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
     # De-duplicate: keep the latest event per plan_step_id (events are ordered chronologically)
     latest_by_id: dict[str, dict] = {}
     for ev in events:
@@ -548,21 +551,23 @@ async def get_job_steps(
         # Skip pending steps that were never started (dropped on finalization)
         if p.get("status") == "pending":
             continue
-        result.append(PlanStepPayload(
-            job_id=job_id,
-            plan_step_id=p.get("plan_step_id", ""),
-            label=p.get("label", ""),
-            summary=p.get("summary"),
-            status=p.get("status", "pending"),
-            order=p.get("order", 0),
-            tool_count=p.get("tool_count", 0),
-            files_written=p.get("files_written"),
-            started_at=p.get("started_at"),
-            completed_at=p.get("completed_at"),
-            duration_ms=p.get("duration_ms"),
-            start_sha=p.get("start_sha"),
-            end_sha=p.get("end_sha"),
-        ))
+        result.append(
+            PlanStepPayload(
+                job_id=job_id,
+                plan_step_id=p.get("plan_step_id", ""),
+                label=p.get("label", ""),
+                summary=p.get("summary"),
+                status=p.get("status", "pending"),
+                order=p.get("order", 0),
+                tool_count=p.get("tool_count", 0),
+                files_written=p.get("files_written"),
+                started_at=p.get("started_at"),
+                completed_at=p.get("completed_at"),
+                duration_ms=p.get("duration_ms"),
+                start_sha=p.get("start_sha"),
+                end_sha=p.get("end_sha"),
+            )
+        )
     return result
 
 
@@ -587,9 +592,7 @@ async def get_step_diff(
     end_sha: str | None = None
 
     # Try plan_step_updated events first (plan step IDs like ps-XXXX)
-    events = await svc.list_events_by_job(
-        job_id, [DomainEventKind.plan_step_updated], limit=5000
-    )
+    events = await svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
     for ev in events:
         if ev.payload.get("plan_step_id") == step_id:
             # Take the latest event for this step (events are chronological)
@@ -618,9 +621,7 @@ async def get_step_diff(
 
         from backend.models.db import StepRow
 
-        result = await session.execute(
-            _select(StepRow).where(StepRow.job_id == job_id, StepRow.turn_id == step_id)
-        )
+        result = await session.execute(_select(StepRow).where(StepRow.job_id == job_id, StepRow.turn_id == step_id))
         step = result.scalar_one_or_none()
         if step and step.start_sha and step.end_sha:
             start_sha = str(step.start_sha)
@@ -638,6 +639,7 @@ async def get_step_diff(
     files_changed = diff_text.count("\ndiff --git ") + (1 if diff_text.startswith("diff --git ") else 0)
 
     from backend.services.diff_service import DiffService
+
     changed_files = DiffService._parse_unified_diff(diff_text)
 
     return StepDiffPayload(step_id=step_id, diff=diff_text, files_changed=files_changed, changed_files=changed_files)
@@ -647,10 +649,10 @@ async def get_step_diff(
 async def search_transcript(
     job_id: str,
     session: FromDishka[AsyncSession],
-    q: str = Query(..., min_length=2, max_length=200),
-    roles: list[str] | None = Query(None),
+    q: str = Query(..., min_length=2, max_length=200),  # noqa: B008
+    roles: list[str] | None = Query(None),  # noqa: B008
     step_id: str | None = None,
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, le=200),  # noqa: B008
 ) -> list[TranscriptSearchResult]:
     """Full-text search within a job's transcript events."""
     from backend.models.api_schemas import TranscriptRole
@@ -665,15 +667,17 @@ async def search_transcript(
     results = []
     for evt in events:
         p = evt.payload
-        results.append(TranscriptSearchResult(
-            seq=int(p.get("seq", 0)),
-            role=str(p.get("role", "")),
-            content=str(p.get("content", "")),
-            tool_name=str(p.get("tool_name")) if p.get("tool_name") else None,
-            step_id=str(p.get("step_id")) if p.get("step_id") else None,
-            step_number=int(p.get("step_number")) if p.get("step_number") is not None else None,
-            timestamp=evt.timestamp,
-        ))
+        results.append(
+            TranscriptSearchResult(
+                seq=int(p.get("seq", 0)),
+                role=str(p.get("role", "")),
+                content=str(p.get("content", "")),
+                tool_name=str(p.get("tool_name")) if p.get("tool_name") else None,
+                step_id=str(p.get("step_id")) if p.get("step_id") else None,
+                step_number=int(p.get("step_number")) if p.get("step_number") is not None else None,
+                timestamp=evt.timestamp,
+            )
+        )
     return results
 
 
@@ -768,8 +772,22 @@ async def get_job_snapshot(
     reassign_coro = svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=5000)
     turn_summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=5000)
 
-    log_events, transcript_events, timeline_events, summary_events, step_events, reassign_events, turn_summary_events = await _aio.gather(
-        logs_coro, transcript_coro, timeline_coro, summary_coro, steps_coro, reassign_coro, turn_summary_coro
+    (
+        log_events,
+        transcript_events,
+        timeline_events,
+        summary_events,
+        step_events,
+        reassign_events,
+        turn_summary_events,
+    ) = await _aio.gather(
+        logs_coro,
+        transcript_coro,
+        timeline_coro,
+        summary_coro,
+        steps_coro,
+        reassign_coro,
+        turn_summary_coro,
     )
 
     # Build logs

@@ -861,6 +861,7 @@ class JobContextResponse(CamelModel):
 
 class StepPayload(CamelModel):
     """Step data for REST API and SSE."""
+
     step_id: str
     step_number: int
     job_id: str
@@ -883,12 +884,14 @@ class StepPayload(CamelModel):
 
 class StepTitlePayload(CamelModel):
     """SSE payload for step title generation."""
+
     step_id: str
     title: str
 
 
 class StepGroupPayload(CamelModel):
     """SSE payload for step grouping updates."""
+
     job_id: str
     group_id: str
     headline: str
@@ -898,6 +901,7 @@ class StepGroupPayload(CamelModel):
 
 class PlanStepPayload(CamelModel):
     """SSE payload for unified plan-step updates."""
+
     job_id: str
     plan_step_id: str
     label: str
@@ -915,6 +919,7 @@ class PlanStepPayload(CamelModel):
 
 class TurnSummaryPayload(CamelModel):
     """SSE payload for activity timeline turn summaries."""
+
     job_id: str
     turn_id: str
     title: str
@@ -927,6 +932,7 @@ class TurnSummaryPayload(CamelModel):
 
 class StepDiffPayload(CamelModel):
     """Response for step-scoped Git diff."""
+
     step_id: str
     diff: str
     files_changed: int
@@ -935,6 +941,7 @@ class StepDiffPayload(CamelModel):
 
 class TranscriptSearchResult(CamelModel):
     """A transcript event matching a search query."""
+
     seq: int
     role: str
     content: str

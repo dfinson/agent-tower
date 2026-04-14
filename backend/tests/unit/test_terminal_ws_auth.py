@@ -62,26 +62,35 @@ class TestCheckWebsocketAuth:
     @patch("backend.services.cf_access.verify_token", return_value=True)
     def test_cf_access_jwt_bypasses_auth(self, _mock_verify, _mock_configured) -> None:
         set_password("secret")
-        assert check_websocket_auth(
-            client_host="203.0.113.1",
-            cookies={},
-            cf_access_jwt="eyJhbGciOiJSUzI1NiJ9.valid.sig",
-        ) is True
+        assert (
+            check_websocket_auth(
+                client_host="203.0.113.1",
+                cookies={},
+                cf_access_jwt="eyJhbGciOiJSUzI1NiJ9.valid.sig",
+            )
+            is True
+        )
 
     def test_empty_cf_access_jwt_does_not_bypass(self) -> None:
         set_password("secret")
-        assert check_websocket_auth(
-            client_host="203.0.113.1",
-            cookies={},
-            cf_access_jwt="",
-        ) is False
+        assert (
+            check_websocket_auth(
+                client_host="203.0.113.1",
+                cookies={},
+                cf_access_jwt="",
+            )
+            is False
+        )
 
     @patch("backend.services.cf_access.is_configured", return_value=True)
     @patch("backend.services.cf_access.verify_token", return_value=False)
     def test_forged_cf_access_jwt_does_not_bypass(self, _mock_verify, _mock_configured) -> None:
         set_password("secret")
-        assert check_websocket_auth(
-            client_host="203.0.113.1",
-            cookies={},
-            cf_access_jwt="eyJhbGciOiJSUzI1NiJ9.forged.sig",
-        ) is False
+        assert (
+            check_websocket_auth(
+                client_host="203.0.113.1",
+                cookies={},
+                cf_access_jwt="eyJhbGciOiJSUzI1NiJ9.forged.sig",
+            )
+            is False
+        )

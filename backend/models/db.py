@@ -124,12 +124,10 @@ class StepRow(Base):
     duration_ms = Column(Integer, nullable=True)
     start_sha = Column(String(40), nullable=True)
     end_sha = Column(String(40), nullable=True)
-    files_read = Column(Text, nullable=True)    # JSON array
+    files_read = Column(Text, nullable=True)  # JSON array
     files_written = Column(Text, nullable=True)  # JSON array
 
-    __table_args__ = (
-        Index("ix_steps_job_number", "job_id", "step_number"),
-    )
+    __table_args__ = (Index("ix_steps_job_number", "job_id", "step_number"),)
 
 
 class JobTelemetrySummaryRow(Base):

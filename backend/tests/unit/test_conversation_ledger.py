@@ -8,7 +8,6 @@ from backend.services.conversation_ledger import (
     ConversationLedger,
     LedgerEntry,
     MessageCategory,
-    PromptComposition,
     TokenCounter,
     make_counter,
 )

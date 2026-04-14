@@ -8,9 +8,12 @@ subscriptions remain valid.
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 log = structlog.get_logger()
 
@@ -35,6 +38,7 @@ def get_or_create_vapid_keys(codeplane_dir: Path) -> dict[str, str]:
 
     # Application server key is the raw uncompressed point encoded as URL-safe base64
     import base64
+
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
     public_bytes = raw_public.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)

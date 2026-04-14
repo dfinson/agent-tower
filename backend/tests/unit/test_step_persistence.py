@@ -46,7 +46,11 @@ class TestStepPersistence:
         assert row.trigger == "tool_call"
 
     @pytest.mark.asyncio
-    async def test_step_completed_updates_row(self, subscriber: StepPersistenceSubscriber, step_repo: AsyncMock) -> None:
+    async def test_step_completed_updates_row(
+        self,
+        subscriber: StepPersistenceSubscriber,
+        step_repo: AsyncMock,
+    ) -> None:
         now = datetime.now(UTC)
         event = DomainEvent(
             event_id="evt-2",

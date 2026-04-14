@@ -32,20 +32,47 @@ log = structlog.get_logger()
 
 _MAX_FILES_PER_STEP = 200
 
-_READ_TOOLS = frozenset({
-    "read_file", "grep_search", "file_search", "semantic_search", "view_image",
-    "list_dir", "glob", "grep", "open_file",
-    # Claude SDK PascalCase
-    "Glob", "LS", "Grep", "NotebookRead",
-})
-_WRITE_TOOLS = frozenset({
-    "replace_string_in_file", "create_file", "multi_replace_string_in_file", "create_directory",
-    "edit", "write", "str_replace_based_edit_tool", "str_replace_editor",
-    "insert_edit_into_file", "edit_file", "write_file", "delete_file",
-    "create", "create_or_update_file", "apply_patch",
-    # Claude SDK PascalCase
-    "Edit", "Write", "NotebookEdit",
-})
+_READ_TOOLS = frozenset(
+    {
+        "read_file",
+        "grep_search",
+        "file_search",
+        "semantic_search",
+        "view_image",
+        "list_dir",
+        "glob",
+        "grep",
+        "open_file",
+        # Claude SDK PascalCase
+        "Glob",
+        "LS",
+        "Grep",
+        "NotebookRead",
+    }
+)
+_WRITE_TOOLS = frozenset(
+    {
+        "replace_string_in_file",
+        "create_file",
+        "multi_replace_string_in_file",
+        "create_directory",
+        "edit",
+        "write",
+        "str_replace_based_edit_tool",
+        "str_replace_editor",
+        "insert_edit_into_file",
+        "edit_file",
+        "write_file",
+        "delete_file",
+        "create",
+        "create_or_update_file",
+        "apply_patch",
+        # Claude SDK PascalCase
+        "Edit",
+        "Write",
+        "NotebookEdit",
+    }
+)
 
 
 def _extract_file_path(tool_name: str, tool_args: str) -> str | None:
@@ -124,6 +151,7 @@ class StepTracker:
                 args_raw = payload.get("tool_args") or ""
                 if isinstance(args_raw, str):
                     import json as _json
+
                     try:
                         args_obj = _json.loads(args_raw)
                     except (ValueError, TypeError):
@@ -180,13 +208,19 @@ class StepTracker:
                     # Strip worktree prefix to get repo-relative path
                     wt = self._worktree_paths.get(job_id, "")
                     if wt and path.startswith(wt):
-                        path = path[len(wt):].lstrip("/")
-                    if tool_name in _READ_TOOLS and path not in current.files_read:
-                        if len(current.files_read) < _MAX_FILES_PER_STEP:
-                            current.files_read.append(path)
-                    elif tool_name in _WRITE_TOOLS and path not in current.files_written:
-                        if len(current.files_written) < _MAX_FILES_PER_STEP:
-                            current.files_written.append(path)
+                        path = path[len(wt) :].lstrip("/")
+                    if (
+                        tool_name in _READ_TOOLS
+                        and path not in current.files_read
+                        and len(current.files_read) < _MAX_FILES_PER_STEP
+                    ):
+                        current.files_read.append(path)
+                    elif (
+                        tool_name in _WRITE_TOOLS
+                        and path not in current.files_written
+                        and len(current.files_written) < _MAX_FILES_PER_STEP
+                    ):
+                        current.files_written.append(path)
             if role == "agent" and len(content) > 20:
                 current.last_agent_message = content
 
@@ -199,7 +233,11 @@ class StepTracker:
         await self._close(job_id, current, status)
 
     async def _open(
-        self, job_id: str, intent: str, turn_id: str | None, trigger: str,
+        self,
+        job_id: str,
+        intent: str,
+        turn_id: str | None,
+        trigger: str,
     ) -> None:
         n = self._counters.get(job_id, 0) + 1
         self._counters[job_id] = n
@@ -224,22 +262,27 @@ class StepTracker:
             start_sha=start_sha,
         )
         self._current[job_id] = state
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=state.started_at,
-            kind=DomainEventKind.step_started,
-            payload={
-                "step_id": step_id,
-                "step_number": n,
-                "turn_id": turn_id,
-                "intent": intent,
-                "trigger": trigger,
-            },
-        ))
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=state.started_at,
+                kind=DomainEventKind.step_started,
+                payload={
+                    "step_id": step_id,
+                    "step_number": n,
+                    "turn_id": turn_id,
+                    "intent": intent,
+                    "trigger": trigger,
+                },
+            )
+        )
 
     async def _close(
-        self, job_id: str, state: _StepState, status: str,
+        self,
+        job_id: str,
+        state: _StepState,
+        status: str,
     ) -> None:
         if job_id not in self._current:
             return  # Already closed — idempotent
@@ -263,25 +306,27 @@ class StepTracker:
                 except GitError:
                     log.debug("step_close_git_failed", job_id=job_id, exc_info=True)
 
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=now,
-            kind=DomainEventKind.step_completed,
-            payload={
-                "step_id": state.step_id,
-                "turn_id": state.turn_id,
-                "status": status,
-                "tool_count": state.tool_count,
-                "duration_ms": duration_ms,
-                "has_summary": state.last_agent_message is not None,
-                "agent_message": state.last_agent_message,
-                "files_read": state.files_read[:20],
-                "files_written": state.files_written[:20],
-                "start_sha": state.start_sha,
-                "end_sha": end_sha,
-            },
-        ))
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.step_completed,
+                payload={
+                    "step_id": state.step_id,
+                    "turn_id": state.turn_id,
+                    "status": status,
+                    "tool_count": state.tool_count,
+                    "duration_ms": duration_ms,
+                    "has_summary": state.last_agent_message is not None,
+                    "agent_message": state.last_agent_message,
+                    "files_read": state.files_read[:20],
+                    "files_written": state.files_written[:20],
+                    "start_sha": state.start_sha,
+                    "end_sha": end_sha,
+                },
+            )
+        )
         self._current.pop(job_id, None)
 
     def cleanup(self, job_id: str) -> None:

@@ -219,9 +219,7 @@ def _record_ws_attempt(ip: str) -> None:
     _ws_auth_attempts[ip].append(time.monotonic())
 
 
-def check_websocket_auth(
-    *, client_host: str | None, cookies: dict[str, str], cf_access_jwt: str | None = None
-) -> bool:
+def check_websocket_auth(*, client_host: str | None, cookies: dict[str, str], cf_access_jwt: str | None = None) -> bool:
     """Validate authentication for a WebSocket connection.
 
     Mirrors the HTTP middleware logic: if password auth is not enabled

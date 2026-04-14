@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
-from typing import cast
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.models.db import StepRow
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 class StepRepository:
@@ -63,17 +65,12 @@ class StepRepository:
 
     async def get(self, step_id: str) -> StepRow | None:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(StepRow).where(StepRow.id == step_id)
-            )
+            result = await session.execute(select(StepRow).where(StepRow.id == step_id))
             return result.scalar_one_or_none()
 
     async def get_by_job(self, job_id: str, limit: int = 200) -> list[StepRow]:
         async with self._session_factory() as session:
             result = await session.execute(
-                select(StepRow)
-                .where(StepRow.job_id == job_id)
-                .order_by(StepRow.step_number)
-                .limit(limit)
+                select(StepRow).where(StepRow.job_id == job_id).order_by(StepRow.step_number).limit(limit)
             )
             return list(result.scalars().all())

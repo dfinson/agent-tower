@@ -8,7 +8,7 @@ clients re-subscribe automatically via the service worker.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -27,7 +27,12 @@ class PushSubscription:
 class PushService:
     """Manages Web Push subscriptions and notification delivery."""
 
-    def __init__(self, vapid_private_key: str, vapid_public_key: str, vapid_mailto: str = "mailto:noreply@codeplane.dev") -> None:
+    def __init__(
+        self,
+        vapid_private_key: str,
+        vapid_public_key: str,
+        vapid_mailto: str = "mailto:noreply@codeplane.dev",
+    ) -> None:
         self._vapid_private_key = vapid_private_key
         self._vapid_public_key = vapid_public_key
         self._vapid_mailto = vapid_mailto

@@ -560,7 +560,6 @@ _RESULT_HINTS: dict[str, Callable[[str, bool], str]] = {
     "rg": _count_hint("matches", empty="→ no matches"),
     "fetch_url": _hint_fetch_webpage,
     "web_fetch": _hint_fetch_webpage,
-    "WebFetch": _hint_fetch_webpage,
 }
 
 # Hint functions that also receive tool_args (third parameter) to compute
@@ -642,10 +641,7 @@ def format_tool_display(
         # back to the raw (humanized) tool name.
         desc = _extract_description_from_args(tool_args)
         humanized = _humanize_tool_name(lookup_name)
-        if desc:
-            label = f"{humanized}: {desc}" if humanized != "Tool action" else desc
-        else:
-            label = humanized
+        label = (f"{humanized}: {desc}" if humanized != "Tool action" else desc) if desc else humanized
     else:
         args = _parse_args(tool_args)
         try:
@@ -685,10 +681,7 @@ def format_tool_display_full(
     if formatter is None:
         desc = _extract_description_from_args(tool_args, max_len=200)
         humanized = _humanize_tool_name(lookup_name)
-        if desc:
-            label = f"{humanized}: {desc}" if humanized != "Tool action" else desc
-        else:
-            label = humanized
+        label = (f"{humanized}: {desc}" if humanized != "Tool action" else desc) if desc else humanized
     else:
         args = _parse_args(tool_args)
         try:
@@ -715,46 +708,50 @@ def format_tool_display_full(
 # ---------------------------------------------------------------------------
 
 # Always hidden regardless of args — pure SDK/agent bookkeeping.
-_ALWAYS_HIDDEN: frozenset[str] = frozenset({
-    "report_intent",
-    "manage_todo_list",
-    "TodoWrite",
-    "TodoRead",
-    "Think",
-    "Sql",
-    "sql",
-    "ListMcpResourceTemplates",
-    "ListMcpResources",
-})
+_ALWAYS_HIDDEN: frozenset[str] = frozenset(
+    {
+        "report_intent",
+        "manage_todo_list",
+        "TodoWrite",
+        "TodoRead",
+        "Think",
+        "Sql",
+        "sql",
+        "ListMcpResourceTemplates",
+        "ListMcpResources",
+    }
+)
 
 # Always collapsed regardless of args — read-only reconnaissance.
-_ALWAYS_COLLAPSED: frozenset[str] = frozenset({
-    "read_file",
-    "list_dir",
-    "get_errors",
-    "grep_search",
-    "file_search",
-    "semantic_search",
-    "tool_search_tool_regex",
-    "view_image",
-    "view",
-    "Read",
-    "View",
-    "read_files",
-    "list_files",
-    "Glob",
-    "LS",
-    "Grep",
-    "glob",
-    "grep",
-    "search_subagent",
-    "get_terminal_output",
-    "memory",
-    "get_changed_files",
-    "open_file",
-    "vscode_listCodeUsages",
-    "skill",
-})
+_ALWAYS_COLLAPSED: frozenset[str] = frozenset(
+    {
+        "read_file",
+        "list_dir",
+        "get_errors",
+        "grep_search",
+        "file_search",
+        "semantic_search",
+        "tool_search_tool_regex",
+        "view_image",
+        "view",
+        "Read",
+        "View",
+        "read_files",
+        "list_files",
+        "Glob",
+        "LS",
+        "Grep",
+        "glob",
+        "grep",
+        "search_subagent",
+        "get_terminal_output",
+        "memory",
+        "get_changed_files",
+        "open_file",
+        "vscode_listCodeUsages",
+        "skill",
+    }
+)
 
 # Patterns in tool args that indicate agent-internal metadata (→ hidden).
 _HIDDEN_ARG_PATTERNS: tuple[str, ...] = (
@@ -868,27 +865,26 @@ _EDIT_FAILURE_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 # Tools whose success flag we're willing to correct.
-_EDIT_TOOL_NAMES: frozenset[str] = frozenset({
-    "replace_string_in_file",
-    "multi_replace_string_in_file",
-    "str_replace_based_edit_tool",
-    "str_replace_editor",
-    "insert_edit_into_file",
-    "edit_file",
-    "edit",
-    "Edit",
-    "MultiEdit",
-    "editFile",
-    "apply_patch",
-})
+_EDIT_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "replace_string_in_file",
+        "multi_replace_string_in_file",
+        "str_replace_based_edit_tool",
+        "str_replace_editor",
+        "insert_edit_into_file",
+        "edit_file",
+        "edit",
+        "Edit",
+        "MultiEdit",
+        "editFile",
+        "apply_patch",
+    }
+)
 
 
 def _is_definite_edit_failure(result_text: str) -> bool:
     """Return True if the result text clearly indicates the edit was not applied."""
-    for pattern in _EDIT_FAILURE_PATTERNS:
-        if pattern.search(result_text):
-            return True
-    return False
+    return any(pattern.search(result_text) for pattern in _EDIT_FAILURE_PATTERNS)
 
 
 def correct_edit_success(
@@ -911,7 +907,5 @@ def correct_edit_success(
         return sdk_success
     if not result_text or not result_text.strip():
         return sdk_success
-    if _is_definite_edit_failure(result_text):
-        return False
     # SDK says error but no evidence the edit failed — override to success.
-    return True
+    return not _is_definite_edit_failure(result_text)

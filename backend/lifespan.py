@@ -30,18 +30,18 @@ from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
 from backend.services.merge_service import MergeService
 from backend.services.platform_adapter import PlatformRegistry
+from backend.services.progress_tracking_service import ProgressTrackingService, _ProgressSubscriber
+from backend.services.push_service import PushService
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
+from backend.services.share_service import ShareService
+from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.step_persistence import StepPersistenceSubscriber
-from backend.services.progress_tracking_service import ProgressTrackingService, _ProgressSubscriber
 from backend.services.step_tracker import StepTracker
 from backend.services.summarization_service import SummarizationService
-from backend.services.sister_session import SisterSessionManager
-from backend.services.voice_service import VoiceService
-from backend.services.push_service import PushService
-from backend.services.share_service import ShareService
 from backend.services.vapid_keys import get_or_create_vapid_keys
+from backend.services.voice_service import VoiceService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
