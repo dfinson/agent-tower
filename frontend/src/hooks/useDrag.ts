@@ -35,6 +35,7 @@ export function useDrag({ axis, onDrag, onDragEnd }: UseDragOptions) {
         if (!dragging.current) return;
         const currentPos = axis === "y" ? ev.clientY : ev.clientX;
         onDragRef.current(startPos.current - currentPos);
+        startPos.current = currentPos;
       };
 
       const onUp = () => {
@@ -67,6 +68,7 @@ export function useDrag({ axis, onDrag, onDragEnd }: UseDragOptions) {
         if (!t) return;
         const currentPos = axis === "y" ? t.clientY : t.clientX;
         onDragRef.current(startPos.current - currentPos);
+        startPos.current = currentPos;
       };
 
       const onEnd = () => {

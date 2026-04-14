@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useStore, selectJobTranscript, selectApprovals } from "../store";
+import { useStore, selectJobTranscript, selectApprovals, selectStreamingToolOutput, selectStreamingReasoning } from "../store";
 import type { TranscriptEntry, ApprovalRequest } from "../store";
 import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -676,10 +676,28 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
   const args = parseArgs(entry.toolArgs);
   const command = trimWorktreePaths((args.command as string) ?? "");
   const failed = entry.toolSuccess === false;
+  const isRunning = entry.role === "tool_running";
   const jobs = useStore((s) => s.jobs);
   const createTerminalSession = useStore((s) => s.createTerminalSession);
   const job = jobs[entry.jobId];
   const canOpenTerminal = !!job?.worktreePath;
+  const streamingOutput = useStore(selectStreamingToolOutput(entry.jobId));
+  const outputRef = useRef<HTMLPreElement>(null);
+
+  // Find streaming output for this tool call (match by any available key)
+  const liveOutput = useMemo(() => {
+    if (!isRunning || !streamingOutput) return "";
+    // Values are keyed by toolCallId — just return the first non-empty match
+    const values = Object.values(streamingOutput);
+    return values.length > 0 ? values[values.length - 1] : "";
+  }, [isRunning, streamingOutput]);
+
+  // Auto-scroll streaming output to bottom
+  useEffect(() => {
+    if (outputRef.current && liveOutput) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [liveOutput]);
 
   const handleOpenTerminal = useCallback(() => {
     if (!job?.worktreePath) return;
@@ -692,6 +710,9 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
         <div className="flex-1 min-w-0">
           <span className="text-muted-foreground">$ </span>
           <span className="text-foreground/90">{command}</span>
+          {isRunning && !liveOutput && (
+            <span className="ml-2 inline-block w-1.5 h-3 bg-primary/70 animate-pulse rounded-sm align-middle" />
+          )}
         </div>
         {canOpenTerminal && (
           <Tooltip content="Open terminal in worktree">
@@ -705,6 +726,16 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
           </Tooltip>
         )}
       </div>
+      {/* Live streaming output while command is running */}
+      {isRunning && liveOutput && (
+        <pre
+          ref={outputRef}
+          className="px-3 py-1.5 text-[12px] sm:text-[11px] text-muted-foreground/80 whitespace-pre-wrap break-all max-h-48 overflow-y-auto border-l-2 border-primary/30 bg-zinc-950/20"
+        >
+          {liveOutput}
+          <span className="inline-block w-1.5 h-3 bg-primary/70 animate-pulse rounded-sm align-middle ml-0.5" />
+        </pre>
+      )}
       {entry.toolResult && (
         <div className="px-3 py-1.5">
           <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={600} />
@@ -1003,6 +1034,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   sdk,
   isStreaming,
   streamingText,
+  streamingReasoningText,
   onViewStepChanges,
 }: {
   turn: AgentTurn;
@@ -1010,13 +1042,14 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
   sdk?: string;
   isStreaming?: boolean;
   streamingText?: string;
+  streamingReasoningText?: string;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
   const hasTools = clusters.length > 0;
   const messageContent = turn.message?.content?.trim() ?? "";
   const displayMessage = streamingText || messageContent;
   const hasMessage = !!displayMessage;
-  const hasReasoning = !!turn.reasoning?.content;
+  const hasReasoning = !!(turn.reasoning?.content || streamingReasoningText);
 
   return (
     <div className="py-3 space-y-2">
@@ -1046,7 +1079,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
           <div className="flex-1 min-w-0 rounded-lg bg-muted/5 px-2.5 sm:px-3 py-2 space-y-1.5">
             {/* Reasoning — expandable inside the bubble */}
             {hasReasoning && (
-              <ReasoningHint content={turn.reasoning!.content!} />
+              <ReasoningHint content={turn.reasoning?.content ?? ""} streamingText={streamingReasoningText} />
             )}
 
             {/* Agent message — the high-signal content */}
@@ -1064,7 +1097,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
       {/* Reasoning only (no message yet, but tools present) — show below tools */}
       {hasReasoning && hasTools && !hasMessage && (
-        <ReasoningHint content={turn.reasoning!.content!} />
+        <ReasoningHint content={turn.reasoning?.content ?? ""} streamingText={streamingReasoningText} />
       )}
 
       {/* Streaming with no committed message yet and no reasoning bubble shown */}
@@ -1112,20 +1145,40 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
   );
 });
 
-function ReasoningHint({ content }: { content: string }) {
+function ReasoningHint({ content, streamingText }: { content: string; streamingText?: string }) {
   const [expanded, setExpanded] = useState(false);
-  const preview = content.length > 120 ? content.slice(0, 120) + "…" : content;
+  const isLiveStreaming = !!streamingText && !content;
+  const displayContent = streamingText || content;
+  const preview = displayContent.length > 120 ? displayContent.slice(0, 120) + "…" : displayContent;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll streaming reasoning to bottom
+  useEffect(() => {
+    if (isLiveStreaming && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [isLiveStreaming, displayContent]);
+
+  // Auto-expand while streaming, collapse when streaming ends
+  const showExpanded = expanded || isLiveStreaming;
 
   return (
     <div className="text-xs text-muted-foreground/60 leading-snug">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-start gap-1.5 hover:text-muted-foreground/80 transition-colors text-left"
+        className="flex items-start gap-1.5 hover:text-muted-foreground/80 transition-colors text-left w-full"
       >
         <Brain size={12} className="shrink-0 mt-0.5 opacity-60" />
-        <span className={expanded ? "whitespace-pre-wrap" : "line-clamp-2"}>
-          {expanded ? trimWorktreePaths(content) : preview}
-        </span>
+        {showExpanded ? (
+          <div ref={scrollRef} className="whitespace-pre-wrap max-h-48 overflow-y-auto flex-1 min-w-0">
+            {trimWorktreePaths(displayContent)}
+            {isLiveStreaming && (
+              <span className="inline-block w-1 h-3 bg-primary/50 animate-pulse ml-0.5 align-text-bottom" />
+            )}
+          </div>
+        ) : (
+          <span className="line-clamp-2">{preview}</span>
+        )}
       </button>
     </div>
   );
@@ -1242,6 +1295,7 @@ export function CuratedFeed({
   const rawEntries = useStore(selectJobTranscript(jobId));
   const allApprovals = useStore(selectApprovals);
   const streamingMessages = useStore((s) => s.streamingMessages);
+  const streamingReasoning = useStore(selectStreamingReasoning(jobId));
   const jobApprovals = Object.values(allApprovals).filter((a) => a.jobId === jobId);
   const isJobLive = jobState === "running" || jobState === "waiting_for_approval";
 
@@ -1580,6 +1634,7 @@ export function CuratedFeed({
                       jobId={jobId}
                       sdk={sdk}
                       streamingMessages={streamingMessages}
+                      streamingReasoning={streamingReasoning}
                       isJobLive={isJobLive}
                       onViewStepChanges={onViewStepChanges}
                     />
@@ -1665,6 +1720,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
   jobId,
   sdk,
   streamingMessages,
+  streamingReasoning,
   isJobLive,
   onViewStepChanges,
 }: {
@@ -1672,6 +1728,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
   jobId: string;
   sdk?: string;
   streamingMessages: Record<string, string>;
+  streamingReasoning: Record<string, string>;
   isJobLive: boolean;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
 }) {
@@ -1681,6 +1738,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
     case "turn": {
       const streamKey = item.turn.turnId ? `${jobId}:${item.turn.turnId}` : `${jobId}:__default__`;
       const streamingText = isJobLive ? streamingMessages[streamKey] : undefined;
+      const streamingReasoningText = isJobLive ? streamingReasoning[item.turn.turnId ?? "__default__"] : undefined;
       const isStreaming = !!streamingText && !item.turn.message?.content;
       return (
         <AgentTurnBlock
@@ -1689,6 +1747,7 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
           sdk={sdk}
           isStreaming={isStreaming}
           streamingText={streamingText}
+          streamingReasoningText={streamingReasoningText}
           onViewStepChanges={onViewStepChanges}
         />
       );

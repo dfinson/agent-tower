@@ -224,6 +224,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         from claude_code_sdk import (
             AssistantMessage,
             ResultMessage,
+            StreamEvent,
             SystemMessage,
             UserMessage,
         )
@@ -262,7 +263,10 @@ class ClaudeAdapter(BaseAgentAdapter):
                             done = True
                             break
 
-                        # StreamEvent, TaskStartedMessage etc. are logged but not
+                        elif isinstance(message, StreamEvent):
+                            self._process_stream_event(session_id, message)
+
+                        # TaskStartedMessage etc. are logged but not
                         # forwarded as transcript events (they are internal SDK bookkeeping).
                     else:
                         # Iterator exhausted without ResultMessage — session ended
@@ -356,7 +360,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         seq: list[int],
     ) -> None:
         """Translate an AssistantMessage's content blocks into SessionEvents."""
-        from claude_code_sdk import TextBlock, ToolResultBlock, ToolUseBlock
+        from claude_code_sdk import TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock
 
         content_blocks = getattr(message, "content", []) or []
         model = getattr(message, "model", "") or ""
@@ -411,6 +415,21 @@ class ClaudeAdapter(BaseAgentAdapter):
 
             elif isinstance(block, ToolResultBlock):
                 self._process_tool_result_block(session_id, block, seq, job_id)
+
+            elif isinstance(block, ThinkingBlock):
+                thinking = block.thinking or ""
+                if thinking.strip():
+                    self._enqueue(
+                        session_id,
+                        SessionEvent(
+                            kind=SessionEventKind.transcript,
+                            payload={
+                                "role": "reasoning",
+                                "content": thinking,
+                                "turn_id": self._current_turn_ids.get(session_id, ""),
+                            },
+                        ),
+                    )
 
     def _process_tool_use_block(
         self,
@@ -647,6 +666,85 @@ class ClaudeAdapter(BaseAgentAdapter):
                 SessionEvent(kind=SessionEventKind.done, payload={"result": result_text}),
             )
 
+    def _process_stream_event(
+        self,
+        session_id: str,
+        message: object,
+    ) -> None:
+        """Handle a StreamEvent — extract partial tool output and emit deltas.
+
+        The Claude SDK's ``include_partial_messages=True`` mode emits
+        ``StreamEvent`` objects that wrap raw Anthropic API deltas. For tool
+        execution, these carry ``content_block_delta`` events with incremental
+        text output (stdout/stderr chunks from Bash commands, etc.).
+
+        ``parent_tool_use_id`` links the delta back to the originating
+        ToolUseBlock so the frontend can associate it with the right
+        ``tool_running`` entry.
+        """
+        parent_id = getattr(message, "parent_tool_use_id", None) or ""
+        event = getattr(message, "event", None)
+        if not event or not isinstance(event, dict):
+            return
+
+        # Extract text delta from various Anthropic API stream event shapes
+        chunk = ""
+        event_type = event.get("type", "")
+        if event_type == "content_block_delta":
+            delta = event.get("delta", {})
+            delta_type = delta.get("type", "")
+
+            # Thinking deltas — emit as reasoning_delta (not tool output)
+            if delta_type == "thinking_delta":
+                thinking_chunk = delta.get("thinking", "")
+                if thinking_chunk:
+                    self._enqueue(
+                        session_id,
+                        SessionEvent(
+                            kind=SessionEventKind.transcript,
+                            payload={
+                                "role": "reasoning_delta",
+                                "content": thinking_chunk,
+                                "turn_id": self._current_turn_ids.get(session_id, ""),
+                            },
+                        ),
+                    )
+                return
+
+            chunk = delta.get("text", "") or delta.get("partial_json", "") or ""
+        elif event_type == "content_block_start":
+            block = event.get("content_block", {})
+            chunk = block.get("text", "")
+
+        if not chunk:
+            return
+
+        # Look up buffered tool info
+        buffered = self._tool_call_buffer.get(parent_id, {})
+        tool_name = buffered.get("tool_name", "")
+        if not tool_name:
+            return
+
+        from backend.services.tool_formatters import classify_tool_visibility
+
+        vis = classify_tool_visibility(tool_name, buffered.get("tool_args"))
+        if vis == "hidden":
+            return
+
+        self._enqueue(
+            session_id,
+            SessionEvent(
+                kind=SessionEventKind.transcript,
+                payload={
+                    "role": "tool_output_delta",
+                    "content": chunk,
+                    "tool_name": tool_name,
+                    "tool_call_id": parent_id,
+                    "turn_id": buffered.get("turn_id"),
+                },
+            ),
+        )
+
     # ------------------------------------------------------------------
     # AgentAdapterInterface implementation
     # ------------------------------------------------------------------
@@ -677,6 +775,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             append_system_prompt=CODEPLANE_SYSTEM_PROMPT,
             extra_args={"debug-to-stderr": None},
             debug_stderr=stderr_file,
+            include_partial_messages=True,
         )
 
         # MCP servers from CodePlane config

@@ -50,8 +50,31 @@ export function TerminalDrawer() {
   const [searchQuery, setSearchQuery] = useState("");
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   const sessionList = Object.values(terminalSessions);
+
+  // Track on-screen keyboard on mobile via visualViewport API.
+  // When the keyboard opens, the visual viewport shrinks — shift the drawer up
+  // so it isn't obscured.
+  useEffect(() => {
+    if (!terminalDrawerOpen) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      // offsetTop = gap between layout viewport top and visual viewport top (keyboard push)
+      // The keyboard shrinks the visual viewport height; the difference is the keyboard height.
+      const keyboardH = window.innerHeight - vv.height;
+      setKeyboardOffset(keyboardH > 50 ? keyboardH : 0);
+    };
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    return () => {
+      vv.removeEventListener("resize", onResize);
+      vv.removeEventListener("scroll", onResize);
+      setKeyboardOffset(0);
+    };
+  }, [terminalDrawerOpen]);
 
   // Auto-create a session when the drawer opens with no sessions at all
   useEffect(() => {
@@ -136,6 +159,12 @@ export function TerminalDrawer() {
     setConnectionStatuses((prev) => ({ ...prev, [sessionId]: status }));
   }, []);
 
+  const handleExit = useCallback((sessionId: string) => {
+    // Mark the session as disconnected so the status dot goes red.
+    // Don't auto-remove — let the user close it to see exit output.
+    setConnectionStatuses((prev) => ({ ...prev, [sessionId]: "disconnected" }));
+  }, []);
+
   if (!terminalDrawerOpen) return null;
 
   const height = terminalDrawerHeight || DEFAULT_HEIGHT;
@@ -144,7 +173,11 @@ export function TerminalDrawer() {
   return (
     <div
       className="border-t border-border bg-card flex flex-col shrink-0"
-      style={{ height, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      style={{
+        height,
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        transform: keyboardOffset > 0 ? `translateY(-${keyboardOffset}px)` : undefined,
+      }}
     >
       {/* Drag handle */}
       <div
@@ -290,12 +323,11 @@ export function TerminalDrawer() {
       <div className="flex-1 min-h-0">
         {activeTerminalTab && terminalSessions[activeTerminalTab] ? (
           <TerminalPanel
+            key={activeTerminalTab}
             sessionId={activeTerminalTab}
             searchAddonRef={searchAddonRef}
             onStatusChange={(status) => handleStatusChange(activeTerminalTab, status)}
-            onExit={() => {
-              // Terminal process exited — no action needed
-            }}
+            onExit={() => handleExit(activeTerminalTab)}
           />
         ) : sessionList.length === 0 ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

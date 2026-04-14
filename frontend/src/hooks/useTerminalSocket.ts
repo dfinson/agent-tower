@@ -35,10 +35,19 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
   const inputBufferRef = useRef<string[]>([]);
   sessionIdRef.current = sessionId;
 
+  // Store callbacks in refs to avoid recreating `connect` on every render.
+  // Without this, inline arrow props (onExit, onStatusChange) cause connect
+  // to be recreated → effect teardown → WS close → reconnect → status change
+  // → re-render → infinite loop.
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+
   const connect = useCallback(() => {
     if (!terminal || !sessionIdRef.current) return;
 
-    onStatusChange?.(attemptRef.current > 0 ? "reconnecting" : "connecting");
+    onStatusChangeRef.current?.(attemptRef.current > 0 ? "reconnecting" : "connecting");
 
     const ws = new WebSocket(`${getWsBase()}/api/terminal/ws`);
     wsRef.current = ws;
@@ -57,7 +66,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
             terminal.write(msg.data);
             break;
           case "attached":
-            onStatusChange?.("connected");
+            onStatusChangeRef.current?.("connected");
             // Send initial size
             ws.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
             // Flush any input buffered during reconnect
@@ -67,7 +76,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
             }
             break;
           case "exit":
-            onExit?.(msg.code);
+            onExitRef.current?.(msg.code);
             break;
           case "error":
             console.warn("[terminal] Server error:", msg.message);
@@ -86,10 +95,10 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
         const MAX_WS_ATTEMPTS = 20;
         if (attemptRef.current > MAX_WS_ATTEMPTS) {
           console.warn("[terminal] Max reconnect attempts reached");
-          onStatusChange?.("disconnected");
+          onStatusChangeRef.current?.("disconnected");
           return;
         }
-        onStatusChange?.("reconnecting");
+        onStatusChangeRef.current?.("reconnecting");
         const delay = Math.min(1000 * 2 ** (attemptRef.current - 1), 30_000);
         reconnectTimer.current = setTimeout(connect, delay);
       }
@@ -98,7 +107,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
     ws.onerror = () => {
       ws.close();
     };
-  }, [terminal, onExit, onStatusChange]);
+  }, [terminal]);
 
   // Connect when terminal and sessionId are ready
   useEffect(() => {
