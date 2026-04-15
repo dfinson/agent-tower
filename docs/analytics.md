@@ -122,3 +122,52 @@ Every job tracks token usage in detail:
 - **Cache read tokens** and **cache write tokens** (prompt caching)
 - **Cache hit rate** — percentage of input tokens served from cache
 - Per-model and per-repo token aggregations
+
+---
+
+## Daily Spend Limit
+
+Set a personal daily budget in your config:
+
+```yaml
+telemetry:
+  daily_spend_limit_usd: 10.00
+```
+
+When configured, the Budget card shows a progress bar for today's spend vs. your limit. Warnings appear when you cross 80%.
+
+---
+
+## Observations (Smart Alerts)
+
+CodePlane runs statistical analysis across your jobs to surface actionable cost observations:
+
+| Detector | What it catches |
+|----------|----------------|
+| **File rereads** | Files read excessively across jobs (≥10 reads, ≥3 jobs, >10KB total) |
+| **Tool failures** | Tools with ≥20% failure rate across ≥10 calls |
+| **Turn escalation** | Jobs where 2nd-half cost is ≥2× 1st-half and ≥$0.50 |
+| **Retry waste** | Tools retried ≥10% of the time |
+| **Compaction storms** | Jobs with ≥5 context compactions |
+| **Cache regression** | Cache hit rate drops ≥15pp vs. prior week |
+
+Observations appear as alert banners at the top of the analytics page. Dismiss them individually once reviewed.
+
+---
+
+## CSV Export
+
+Tables in the analytics dashboard (Jobs, Model Comparison) include a **CSV** button that exports the visible data for use in spreadsheets or external analysis tools.
+
+---
+
+## Hub Architecture (Future)
+
+CodePlane is designed as a **personal-first** tool. Each instance runs locally with its own SQLite database. For teams that want aggregate visibility, a future **CodePlane Hub** will accept telemetry pushes from personal instances:
+
+- Each instance has an auto-generated `instance_id` (in `telemetry` config)
+- The `JobTelemetryReport` schema defines the per-job payload
+- Instances push completed-job summaries to the Hub endpoint
+- The Hub aggregates fleet-wide analytics without accessing source code
+
+This is not yet implemented — the schema and instance ID are in place as foundations.

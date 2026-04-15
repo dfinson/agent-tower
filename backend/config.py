@@ -188,6 +188,11 @@ class TelemetryConfig:
     claude_monthly_budget_usd: float = 0.0
     # Copilot entitlement auto-detected from SDK quota snapshots, but overridable.
     copilot_premium_entitlement: int = 0
+    # Personal daily spend limit (0 = no limit).  Shown in the analytics Budget card.
+    daily_spend_limit_usd: float = 0.0
+    # Unique identifier for this CodePlane instance.  Auto-generated on first run
+    # if not set.  Used for future Hub telemetry push.
+    instance_id: str = ""
 
 
 @dataclass
@@ -237,7 +242,7 @@ def load_config(path: Path | None = None) -> CPLConfig:
                     repos=[str(r) for r in pdata.get("repos", []) if r] if isinstance(pdata.get("repos"), list) else [],
                 )
 
-    return CPLConfig(
+    cfg = CPLConfig(
         server=_parse_section(raw, ServerConfig, "server"),
         runtime=_parse_section(raw, RuntimeConfig, "runtime"),
         retention=_parse_section(raw, RetentionConfig, "retention"),
@@ -250,6 +255,19 @@ def load_config(path: Path | None = None) -> CPLConfig:
         platforms=platforms,
         repos=[str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else [],
     )
+
+    # Auto-generate instance_id on first run if not set
+    if not cfg.telemetry.instance_id:
+        import uuid
+
+        cfg.telemetry.instance_id = str(uuid.uuid4())
+        # Persist so the ID is stable across restarts
+        try:
+            save_config(cfg, path)
+        except Exception:
+            pass  # best-effort — config dir may not exist yet
+
+    return cfg
 
 
 def save_config(config: CPLConfig, path: Path | None = None) -> None:

@@ -213,6 +213,9 @@ async def fleet_cost_drivers(
         rows = await repo.by_dimension(dimension, period_days=period)
         return {"period": period, "dimension": dimension, "buckets": rows}
     summary = await repo.fleet_summary(period_days=period)
+    # Activity-dimension costs use an equal-weight heuristic per turn, flag them.
+    for row in summary:
+        row["confidence"] = "approximate" if row.get("dimension") == "activity" else "exact"
     return {"period": period, "summary": summary}
 
 
@@ -276,9 +279,12 @@ async def analytics_scorecard(
     period: Annotated[int, Query(ge=1, le=365)] = 7,
 ) -> ScorecardResponse:
     """Top-level scorecard: budget per SDK, activity with resolution, quota, cost trend."""
+    from backend.config import load_config
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
 
     data = await TelemetrySummaryRepo(session).scorecard(period_days=period)
+    cfg = load_config()
+    data["dailySpendLimitUsd"] = cfg.telemetry.daily_spend_limit_usd
     return ScorecardResponse(**data)
 
 
