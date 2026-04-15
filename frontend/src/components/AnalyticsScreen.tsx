@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   BarChart3, DollarSign, Clock, Wrench, GitBranch,
   ChevronUp, ChevronDown, ChevronRight, AlertTriangle,
-  Activity, Zap, X, Loader2,
+  Activity, Zap, X, Loader2, Download,
 } from "lucide-react";
 import { Tooltip } from "./ui/tooltip";
 import {
@@ -71,6 +71,34 @@ const STATUS_COLORS: Record<string, string> = {
   running: "#3b82f6",
 };
 
+function downloadCsv(filename: string, headers: string[], rows: (string | number)[][]) {
+  const escape = (v: string | number) => {
+    const s = String(v ?? "");
+    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [headers.map(escape).join(","), ...rows.map((r) => r.map(escape).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function CsvButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+      title="Export as CSV"
+    >
+      <Download size={10} />
+      CSV
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Collapsible section wrapper
 // ---------------------------------------------------------------------------
@@ -113,9 +141,14 @@ function CollapsibleSection({
 // ---------------------------------------------------------------------------
 
 function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
-  const { budget, quotaJson } = scorecard;
+  const { budget, quotaJson, dailySpendLimitUsd, costTrend } = scorecard;
   const totalCost = budget.reduce((s, b) => s + b.totalCostUsd, 0);
   const totalJobs = budget.reduce((s, b) => s + b.jobCount, 0);
+
+  // Today's spend from costTrend (last entry is today/most recent day)
+  const todaysCost = costTrend.length > 0 ? Number(costTrend[costTrend.length - 1]?.cost ?? 0) : 0;
+  const dailyLimit = dailySpendLimitUsd || 0;
+  const dailyPct = dailyLimit > 0 ? (todaysCost / dailyLimit) * 100 : 0;
 
   let quotaInfo: { pct: number } | null = null;
   if (quotaJson) {
@@ -168,6 +201,31 @@ function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
           </div>
         ))}
       </div>
+
+      {dailyLimit > 0 && (
+        <div className="pt-2 border-t border-border">
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-muted-foreground">Daily Limit</span>
+            <span className={dailyPct > 80 ? "text-red-400 font-medium" : "text-foreground"}>
+              {formatUsd(todaysCost)} / {formatUsd(dailyLimit)}
+            </span>
+          </div>
+          <div className="h-1.5 rounded-full bg-border overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                dailyPct > 80 ? "bg-red-500" : dailyPct > 60 ? "bg-yellow-500" : "bg-green-500"
+              }`}
+              style={{ width: `${Math.min(dailyPct, 100)}%` }}
+            />
+          </div>
+          {dailyPct > 80 && (
+            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400">
+              <AlertTriangle size={11} />
+              Approaching daily limit
+            </div>
+          )}
+        </div>
+      )}
 
       {quotaInfo && (
         <div className="pt-2 border-t border-border">
@@ -290,6 +348,14 @@ function ModelComparison({
   const models = data.models;
   if (!models.length) return <p className="text-muted-foreground text-sm">No model data yet.</p>;
 
+  const exportModelsCsv = () => {
+    downloadCsv(
+      "codeplane-models.csv",
+      ["Model", "SDK", "Jobs", "Avg Cost", "Avg Duration (ms)", "Total Cost", "Merged", "PR Created", "Discarded", "Failed"],
+      models.map((m) => [m.model, m.sdk, m.jobCount, m.avgCost, m.avgDurationMs, m.totalCostUsd, m.merged, m.prCreated, m.discarded, m.failed]),
+    );
+  };
+
   return (
     <div className="space-y-3">
       {repos && repos.repos.length > 1 && (
@@ -308,6 +374,9 @@ function ModelComparison({
         </div>
       )}
 
+      <div className="flex justify-end mb-1">
+        <CsvButton onClick={exportModelsCsv} />
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -573,6 +642,12 @@ function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
               <Tooltip content="Average time per call"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Avg Time</span></Tooltip>
             </th>
             <th className="text-right py-1.5 px-2 font-medium">
+              <Tooltip content="Median (50th percentile) latency"><span className="cursor-help border-b border-dotted border-muted-foreground/50">p50</span></Tooltip>
+            </th>
+            <th className="text-right py-1.5 px-2 font-medium">
+              <Tooltip content="95th percentile latency"><span className="cursor-help border-b border-dotted border-muted-foreground/50">p95</span></Tooltip>
+            </th>
+            <th className="text-right py-1.5 px-2 font-medium">
               <Tooltip content="Total cumulative time spent in this tool"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Total Time</span></Tooltip>
             </th>
           </tr>
@@ -597,6 +672,8 @@ function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
                   </span>
                 </td>
                 <td className="text-right py-1.5 px-2">{formatDuration(Number(t.avg_duration_ms) || 0)}</td>
+                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.p50_duration_ms) || 0)}</td>
+                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.p95_duration_ms) || 0)}</td>
                 <td className="text-right py-1.5 px-2">{formatDuration(Number(t.total_duration_ms) || 0)}</td>
               </tr>
             );
@@ -683,6 +760,11 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
                   <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
                     <td className="py-1.5 px-2">
                       {desc ? <Tooltip content={desc}><span className="cursor-help border-b border-dotted border-muted-foreground/50">{label}</span></Tooltip> : label}
+                      {row.confidence === "approximate" && (
+                        <Tooltip content="Activity cost is estimated using an equal-weight heuristic — the actual split may differ">
+                          <span className="ml-1 text-[10px] text-muted-foreground cursor-help">~approx</span>
+                        </Tooltip>
+                      )}
                     </td>
                     <td className="text-right py-1.5 px-2">{formatUsd(Number(row.cost_usd) || 0)}</td>
                     <td className="text-right py-1.5 px-2">{row.call_count}</td>
@@ -734,16 +816,32 @@ function JobsTable({ period }: { period: number }) {
   const [sortField, setSortField] = useState<SortField>("completed_at");
   const [sortDesc, setSortDesc] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const PAGE_SIZE = 100;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchAnalyticsJobs({ period, sort: sortField, desc: sortDesc, limit: 100 })
-      .then((data) => { if (!cancelled) setJobs(data.jobs); })
+    setHasMore(true);
+    fetchAnalyticsJobs({ period, sort: sortField, desc: sortDesc, limit: PAGE_SIZE })
+      .then((data) => { if (!cancelled) { setJobs(data.jobs); setHasMore(data.jobs.length >= PAGE_SIZE); } })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [period, sortField, sortDesc]);
+
+  const loadMore = () => {
+    setLoadingMore(true);
+    fetchAnalyticsJobs({ period, sort: sortField, desc: sortDesc, limit: PAGE_SIZE, offset: jobs.length })
+      .then((data) => {
+        setJobs((prev) => [...prev, ...data.jobs]);
+        setHasMore(data.jobs.length >= PAGE_SIZE);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  };
 
   const handleSort = (field: SortField) => {
     if (field === sortField) setSortDesc(!sortDesc);
@@ -753,8 +851,19 @@ function JobsTable({ period }: { period: number }) {
   if (loading) return <div className="flex justify-center py-8"><Spinner size="sm" /></div>;
   if (!jobs.length) return <p className="text-muted-foreground text-sm">No jobs in this period.</p>;
 
+  const exportJobsCsv = () => {
+    downloadCsv(
+      "codeplane-jobs.csv",
+      ["Job ID", "SDK", "Model", "Repo", "Status", "Cost (USD)", "Duration (ms)", "When"],
+      jobs.map((j) => [j.job_id, j.sdk, j.model, j.repo, j.status, j.total_cost_usd, j.duration_ms, j.completed_at || j.created_at || ""]),
+    );
+  };
+
   return (
     <div className="overflow-x-auto">
+      <div className="flex justify-end mb-2">
+        <CsvButton onClick={exportJobsCsv} />
+      </div>
       <table className="w-full text-xs">
         <thead>
           <tr className="text-muted-foreground border-b border-border">
@@ -796,6 +905,35 @@ function JobsTable({ period }: { period: number }) {
           })}
         </tbody>
       </table>
+      {hasMore && (
+        <div className="flex justify-center pt-3">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-4 py-1.5 text-xs text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+          >
+            {loadingMore ? <Loader2 size={12} className="animate-spin" /> : null}
+            Load more
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton placeholder for loading sections
+// ---------------------------------------------------------------------------
+
+function SectionSkeleton({ height = "h-40" }: { height?: string }) {
+  return (
+    <div className={`rounded-lg border border-border bg-card p-4 ${height} animate-pulse`}>
+      <div className="h-3 w-24 bg-muted rounded mb-3" />
+      <div className="h-6 w-16 bg-muted rounded mb-2" />
+      <div className="space-y-2">
+        <div className="h-2 w-full bg-muted rounded" />
+        <div className="h-2 w-3/4 bg-muted rounded" />
+      </div>
     </div>
   );
 }
@@ -813,38 +951,67 @@ export function AnalyticsScreen() {
   const [repos, setRepos] = useState<AnalyticsRepos | null>(null);
   const [fleetDrivers, setFleetDrivers] = useState<FleetCostDriversResponse | null>(null);
   const [observations, setObservations] = useState<Observation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Per-section loading states
+  const [scorecardLoading, setScorecardLoading] = useState(true);
+  const [modelLoading, setModelLoading] = useState(true);
+  const [toolsLoading, setToolsLoading] = useState(true);
+  const [reposLoading, setReposLoading] = useState(true);
+  const [driversLoading, setDriversLoading] = useState(true);
+  const [obsLoading, setObsLoading] = useState(true);
+
+  const [scorecardError, setScorecardError] = useState<string | null>(null);
+
+  // Timestamp of last successful data load
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+
+    setScorecardLoading(true);
+    setModelLoading(true);
+    setToolsLoading(true);
+    setReposLoading(true);
+    setDriversLoading(true);
+    setObsLoading(true);
+    setScorecardError(null);
+
+    // Fire all fetches independently
+    fetchScorecard(period)
+      .then((sc) => { setScorecard(sc); setLastUpdated(new Date()); })
+      .catch((err) => setScorecardError(err.message || "Failed to load scorecard"))
+      .finally(() => { setScorecardLoading(false); if (isRefresh) setRefreshing(false); });
+
+    fetchModelComparison(Math.max(period, 30), selectedRepo || undefined)
+      .then(setModelComparison)
+      .catch(() => {})
+      .finally(() => setModelLoading(false));
+
+    fetchAnalyticsTools(Math.max(period, 30))
+      .then(setTools)
+      .catch(() => {})
+      .finally(() => setToolsLoading(false));
+
+    fetchAnalyticsRepos(period)
+      .then(setRepos)
+      .catch(() => {})
+      .finally(() => setReposLoading(false));
+
+    fetchFleetCostDrivers(Math.max(period, 30))
+      .then(setFleetDrivers)
+      .catch(() => setFleetDrivers(null))
+      .finally(() => setDriversLoading(false));
+
+    fetchObservations()
+      .then((obs) => setObservations(obs?.observations ?? []))
+      .catch(() => {})
+      .finally(() => setObsLoading(false));
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    Promise.all([
-      fetchScorecard(period),
-      fetchModelComparison(Math.max(period, 30), selectedRepo || undefined),
-      fetchAnalyticsTools(Math.max(period, 30)),
-      fetchAnalyticsRepos(period),
-      fetchFleetCostDrivers(Math.max(period, 30)).catch(() => null),
-      fetchObservations().catch(() => ({ observations: [] })),
-    ])
-      .then(([sc, mc, t, r, fd, obs]) => {
-        if (cancelled) return;
-        setScorecard(sc);
-        setModelComparison(mc);
-        setTools(t);
-        setRepos(r);
-        setFleetDrivers(fd);
-        setObservations(obs?.observations ?? []);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err.message || "Failed to load analytics");
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
-    return () => { cancelled = true; };
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, selectedRepo]);
 
   const handleDismissObservation = async (id: number) => {
@@ -854,9 +1021,9 @@ export function AnalyticsScreen() {
     } catch { /* ignore */ }
   };
 
-  if (loading) return <div className="flex items-center justify-center py-20"><Spinner size="lg" /></div>;
-  if (error) return <div className="max-w-4xl mx-auto p-6"><div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-400">{error}</div></div>;
-  if (!scorecard) return null;
+  const updatedAgo = lastUpdated
+    ? `Updated ${formatRelativeTime(lastUpdated.toISOString())}`
+    : "";
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -867,37 +1034,52 @@ export function AnalyticsScreen() {
             <BarChart3 size={20} />
             Analytics
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Budget, activity, and model effectiveness</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Budget, activity, and model effectiveness
+            {updatedAgo && <span className="ml-2 text-xs text-muted-foreground/60">· {updatedAgo}</span>}
+          </p>
         </div>
-        <select
-          value={period}
-          onChange={(e) => setPeriod(Number(e.target.value))}
-          className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground"
-        >
-          <option value={1}>Last 24h</option>
-          <option value={7}>Last 7 days</option>
-          <option value={14}>Last 14 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={90}>Last 90 days</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => loadData(true)}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+          >
+            <Loader2 size={14} className={refreshing ? "animate-spin" : ""} />
+            Refresh
+          </button>
+          <select
+            value={period}
+            onChange={(e) => setPeriod(Number(e.target.value))}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground"
+          >
+            <option value={1}>Last 24h</option>
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </select>
+        </div>
       </div>
 
       {/* Observations — alerts at the top */}
-      {observations.length > 0 && (
+      {!obsLoading && observations.length > 0 && (
         <ObservationsPanel observations={observations} onDismiss={handleDismissObservation} />
       )}
 
       {/* Top row: Budget + Activity */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <BudgetCard scorecard={scorecard} />
-        <ActivityCard scorecard={scorecard} />
+        {scorecardLoading ? <SectionSkeleton height="h-48" /> : scorecardError ? (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">{scorecardError}</div>
+        ) : scorecard ? <BudgetCard scorecard={scorecard} /> : null}
+        {scorecardLoading ? <SectionSkeleton height="h-48" /> : scorecard ? <ActivityCard scorecard={scorecard} /> : null}
       </div>
 
       {/* Cost trend */}
       <div className="rounded-lg border border-border bg-card p-4 min-w-0">
         <h2 className="text-sm font-medium text-foreground mb-1">Cost Trend</h2>
         <p className="text-xs text-muted-foreground mb-3">Daily API-equivalent spend — for subscriptions this reflects usage value, not billing</p>
-        <CostTrendChart data={scorecard.costTrend} />
+        {scorecardLoading ? <div className="h-[220px] animate-pulse bg-muted rounded" /> : scorecard ? <CostTrendChart data={scorecard.costTrend} /> : null}
       </div>
 
       {/* Model Comparison */}
@@ -907,7 +1089,7 @@ export function AnalyticsScreen() {
           Model Comparison
         </h2>
         <p className="text-xs text-muted-foreground mb-3">Cost, speed, and outcomes per model — use this to pick models for future jobs</p>
-        {modelComparison && <ModelComparison data={modelComparison} repos={repos} selectedRepo={selectedRepo} onRepoChange={setSelectedRepo} />}
+        {modelLoading ? <div className="h-[200px] animate-pulse bg-muted rounded" /> : modelComparison && <ModelComparison data={modelComparison} repos={repos} selectedRepo={selectedRepo} onRepoChange={setSelectedRepo} />}
       </div>
 
       {/* Repo breakdown */}
@@ -916,7 +1098,7 @@ export function AnalyticsScreen() {
           <GitBranch size={14} />
           Repository Breakdown
         </h2>
-        {repos && <RepoBreakdown repos={repos.repos} />}
+        {reposLoading ? <div className="h-[200px] animate-pulse bg-muted rounded" /> : repos && <RepoBreakdown repos={repos.repos} />}
       </div>
 
       {/* Collapsed detail sections */}
@@ -925,10 +1107,10 @@ export function AnalyticsScreen() {
       </CollapsibleSection>
 
       <CollapsibleSection title="Tool Health" icon={Wrench}>
-        {tools && <ToolHealth tools={tools.tools} />}
+        {toolsLoading ? <div className="h-[100px] animate-pulse bg-muted rounded" /> : tools && <ToolHealth tools={tools.tools} />}
       </CollapsibleSection>
 
-      {fleetDrivers?.summary && fleetDrivers.summary.length > 0 && (
+      {!driversLoading && fleetDrivers?.summary && fleetDrivers.summary.length > 0 && (
         <CollapsibleSection title="Cost Drivers" icon={DollarSign}>
           <FleetCostDriverInsights fleetDrivers={fleetDrivers} />
         </CollapsibleSection>

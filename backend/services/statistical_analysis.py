@@ -35,7 +35,9 @@ async def run_analysis(session: AsyncSession) -> int:
     count += await _analyse_tool_failures(session, repo)
     count += await _analyse_turn_escalation(session, repo)
     count += await _analyse_retry_waste(session, repo)
-    count += await _analyse_phase_imbalance(session, repo)
+    # phase_imbalance disabled: relies on forward/backward-fill inference
+    # which produces unreliable results at personal-tool scale.
+    # count += await _analyse_phase_imbalance(session, repo)
     count += await _analyse_compaction_storms(session, repo)
     count += await _analyse_cache_efficiency_regression(session, repo)
     log.info("statistical_analysis_complete", observations=count)
@@ -56,6 +58,7 @@ async def _analyse_file_rereads(session: AsyncSession, repo: ObservationsRepo) -
                 AND created_at >= datetime('now', '-30 days')
             GROUP BY file_path
             HAVING COUNT(*) >= 10 AND COUNT(DISTINCT job_id) >= 3
+                AND SUM(CASE WHEN access_type = 'read' THEN byte_count ELSE 0 END) > 10240
             ORDER BY total_reads DESC
             LIMIT 20
         """)
@@ -143,6 +146,7 @@ async def _analyse_turn_escalation(session: AsyncSession, repo: ObservationsRepo
             WHERE total_turns >= 6
                 AND cost_second_half_usd > 0
                 AND cost_first_half_usd > 0
+                AND cost_second_half_usd >= 0.50
                 AND (cost_second_half_usd / cost_first_half_usd) >= 2.0
                 AND created_at >= datetime('now', '-30 days')
             ORDER BY (cost_second_half_usd - cost_first_half_usd) DESC

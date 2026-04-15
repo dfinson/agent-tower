@@ -728,6 +728,7 @@ class CostAttributionBucket(CamelModel):
     input_tokens: int = 0
     output_tokens: int = 0
     call_count: int = 0
+    confidence: str = "exact"  # exact | approximate
 
 
 class TurnEconomics(CamelModel):
@@ -797,6 +798,7 @@ class ScorecardResponse(CamelModel):
     budget: list[ScorecardBudget] = []
     quota_json: str | None = None
     cost_trend: list[dict[str, object]] = []
+    daily_spend_limit_usd: float = 0.0
 
 
 class ModelComparisonRow(CamelModel):
@@ -953,3 +955,37 @@ class TranscriptSearchResult(CamelModel):
 
 class RestoreRequest(CamelModel):
     sha: str
+
+
+# ---------------------------------------------------------------------------
+# Hub Telemetry Push (future)
+# ---------------------------------------------------------------------------
+
+
+class JobTelemetryReport(CamelModel):
+    """Per-job telemetry report for future Hub telemetry push.
+
+    Designed to be sent from a personal CodePlane instance to an optional
+    shared CodePlane Hub for team-level analytics aggregation.
+    """
+
+    instance_id: str
+    job_id: str
+    sdk: str
+    model: str = ""
+    repo: str = ""
+    status: str = ""
+    resolution: str = ""
+    total_cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    premium_requests: int = 0
+    duration_ms: float = 0.0
+    total_turns: int = 0
+    tool_call_count: int = 0
+    diff_lines_added: int = 0
+    diff_lines_removed: int = 0
+    subagent_cost_usd: float = 0.0
+    created_at: datetime
+    completed_at: datetime | None = None

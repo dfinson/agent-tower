@@ -413,6 +413,9 @@ export interface AnalyticsTools {
     avg_duration_ms: number;
     total_duration_ms: number;
     failure_count: number;
+    p50_duration_ms: number;
+    p95_duration_ms: number;
+    p99_duration_ms: number;
   }[];
 }
 
@@ -729,6 +732,7 @@ export interface CostAttributionBucket {
   input_tokens: number;
   output_tokens: number;
   call_count: number;
+  confidence: "exact" | "approximate";
 }
 
 export interface FleetCostDriversResponse {
@@ -736,6 +740,7 @@ export interface FleetCostDriversResponse {
   summary?: Array<CostAttributionBucket & {
     job_count?: number;
     avg_cost_per_job?: number;
+    confidence?: "exact" | "approximate";
   }>;
   dimension?: string;
   buckets?: Array<CostAttributionBucket & {
@@ -828,6 +833,7 @@ export interface ScorecardResponse {
   budget: ScorecardBudget[];
   quotaJson: string | null;
   costTrend: { date: string; cost: number; jobs: number }[];
+  dailySpendLimitUsd: number;
 }
 
 export interface ModelComparisonRow {

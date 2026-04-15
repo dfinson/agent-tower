@@ -135,4 +135,30 @@ class TelemetrySpansRepo(BaseRepository):
                 ORDER BY count DESC
             """),
         )
-        return [dict(r) for r in result.mappings().all()]
+        rows = [dict(r) for r in result.mappings().all()]
+
+        # Compute percentiles per tool via ordered subqueries (SQLite compatible).
+        for row in rows:
+            pct_result = await self._session.execute(
+                text(f"""
+                    SELECT duration_ms
+                    FROM job_telemetry_spans
+                    WHERE span_type = 'tool'
+                        AND name = :name
+                        AND created_at >= datetime('now', '-{int(period_days)} days')
+                    ORDER BY duration_ms
+                """),
+                {"name": row["name"]},
+            )
+            durations = [r[0] for r in pct_result.fetchall() if r[0] is not None]
+            if durations:
+                n = len(durations)
+                row["p50_duration_ms"] = durations[int(n * 0.50)] if n > 0 else 0
+                row["p95_duration_ms"] = durations[min(int(n * 0.95), n - 1)] if n > 0 else 0
+                row["p99_duration_ms"] = durations[min(int(n * 0.99), n - 1)] if n > 0 else 0
+            else:
+                row["p50_duration_ms"] = 0
+                row["p95_duration_ms"] = 0
+                row["p99_duration_ms"] = 0
+
+        return rows
