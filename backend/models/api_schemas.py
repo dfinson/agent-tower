@@ -932,6 +932,22 @@ class TurnSummaryPayload(CamelModel):
     plan_item_id: str | None = None
 
 
+class HunkMotivation(CamelModel):
+    """Per-hunk motivation annotation."""
+
+    edit_key: str
+    title: str
+    why: str
+
+
+class FileMotivation(CamelModel):
+    """Per-file motivation annotation."""
+
+    title: str
+    why: str
+    unmatched_edits: list[HunkMotivation] = []
+
+
 class StepDiffPayload(CamelModel):
     """Response for step-scoped Git diff."""
 
@@ -939,6 +955,9 @@ class StepDiffPayload(CamelModel):
     diff: str
     files_changed: int
     changed_files: list[DiffFileModel] = []
+    step_context: str | None = None
+    file_motivations: dict[str, FileMotivation] = {}
+    hunk_motivations: dict[str, HunkMotivation] = {}
 
 
 class TranscriptSearchResult(CamelModel):
