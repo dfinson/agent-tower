@@ -37,6 +37,7 @@ class StepRepository:
         end_sha: str | None = None,
         files_read: str | None = None,
         files_written: str | None = None,
+        preceding_context: str | None = None,
     ) -> None:
         async with self._session_factory() as session:
             stmt = (
@@ -52,6 +53,7 @@ class StepRepository:
                     end_sha=end_sha,
                     files_read=files_read,
                     files_written=files_written,
+                    preceding_context=preceding_context,
                 )
             )
             await session.execute(stmt)

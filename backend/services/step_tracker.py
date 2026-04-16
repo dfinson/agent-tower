@@ -121,6 +121,12 @@ class StepTracker:
         self._current: dict[str, _StepState] = {}
         self._counters: dict[str, int] = {}
         self._worktree_paths: dict[str, str] = {}  # job_id → worktree cwd
+        # Ring buffer of recent transcript entries per job — used to build
+        # preceding_context snapshots at step close time.
+        self._transcript_buffers: dict[str, list[dict[str, str]]] = {}
+
+    _BUFFER_SIZE = 10
+    _CONTENT_MAX = 800
 
     def register_worktree(self, job_id: str, worktree_path: str) -> None:
         """Set the worktree path for a job. Called from _execute_session_attempt."""
@@ -139,6 +145,23 @@ class StepTracker:
 
         if role == "agent_delta":
             return
+
+        # Buffer non-delta transcript entries for preceding_context
+        if role not in ("reasoning_delta", "tool_output_delta", "tool_running"):
+            entry: dict[str, str] = {
+                "role": role,
+                "content": str(content)[:self._CONTENT_MAX],
+            }
+            t_name = payload.get("tool_name")
+            if t_name:
+                entry["tool_name"] = str(t_name)
+                t_args = payload.get("tool_args")
+                if t_args:
+                    entry["tool_args"] = str(t_args)[:self._CONTENT_MAX]
+            buf = self._transcript_buffers.setdefault(job_id, [])
+            buf.append(entry)
+            if len(buf) > self._BUFFER_SIZE:
+                del buf[: len(buf) - self._BUFFER_SIZE]
 
         # Skip SDK-internal tools (they carry a new turn_id but shouldn't
         # trigger a step boundary).
@@ -306,6 +329,12 @@ class StepTracker:
                 except GitError:
                     log.debug("step_close_git_failed", job_id=job_id, exc_info=True)
 
+        # Snapshot preceding context from the ring buffer
+        preceding_context: str | None = None
+        buf = self._transcript_buffers.get(job_id)
+        if buf:
+            preceding_context = json.dumps(buf[-5:], ensure_ascii=False)
+
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
@@ -324,6 +353,7 @@ class StepTracker:
                     "files_written": state.files_written[:20],
                     "start_sha": state.start_sha,
                     "end_sha": end_sha,
+                    "preceding_context": preceding_context,
                 },
             )
         )
@@ -334,3 +364,4 @@ class StepTracker:
         self._current.pop(job_id, None)
         self._counters.pop(job_id, None)
         self._worktree_paths.pop(job_id, None)
+        self._transcript_buffers.pop(job_id, None)
