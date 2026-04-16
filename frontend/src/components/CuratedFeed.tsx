@@ -223,6 +223,10 @@ function buildFeedItems(
     }
 
     if (entry.role === "thinking" || entry.role === "reasoning") {
+      // Flush on turnId boundary (mirrors backend step_tracker turn_change detection)
+      if (currentTurn && entry.turnId && currentTurn.turnId && entry.turnId !== currentTurn.turnId) {
+        flushTurn();
+      }
       // Start a new turn if needed, or attach to current
       if (!currentTurn) {
         currentTurn = { key: `t-${entry.seq}`, reasoning: entry, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
@@ -233,6 +237,10 @@ function buildFeedItems(
     }
 
     if (entry.role === "tool_call" || entry.role === "tool_running") {
+      // Flush on turnId boundary
+      if (currentTurn && entry.turnId && currentTurn.turnId && entry.turnId !== currentTurn.turnId) {
+        flushTurn();
+      }
       if (!currentTurn) {
         currentTurn = { key: `t-${entry.seq}`, reasoning: null, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
       }
@@ -241,6 +249,10 @@ function buildFeedItems(
     }
 
     if (entry.role === "agent") {
+      // Flush on turnId boundary (before starting new turn for this message)
+      if (currentTurn && entry.turnId && currentTurn.turnId && entry.turnId !== currentTurn.turnId) {
+        flushTurn();
+      }
       if (!currentTurn) {
         currentTurn = { key: `t-${entry.seq}`, reasoning: null, toolCalls: [], message: null, firstTimestamp: entry.timestamp, turnId: entry.turnId ?? null };
       }
@@ -1363,15 +1375,6 @@ export function CuratedFeed({
       }
       return false;
     });
-    // Fallback: search within tool calls for the turnId
-    if (idx < 0) {
-      idx = feedItems.findIndex((item) => {
-        if (item.type === "turn" || item.type === "condensed") {
-          return item.turn.toolCalls.some((tc) => tc.turnId === scrollToTurnId);
-        }
-        return false;
-      });
-    }
     if (idx >= 0) {
       handledTurnIdRef.current = scrollToTurnId;
       virtualizer.scrollToIndex(idx, { align: "start", behavior: "smooth" });
