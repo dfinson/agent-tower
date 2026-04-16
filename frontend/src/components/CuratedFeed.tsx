@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useStore, selectJobTranscript, selectApprovals, selectStreamingToolOutput } from "../store";
+import { useShallow } from "zustand/react/shallow";
 import type { TranscriptEntry, ApprovalRequest } from "../store";
 import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -681,7 +682,7 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
   const createTerminalSession = useStore((s) => s.createTerminalSession);
   const job = jobs[entry.jobId];
   const canOpenTerminal = !!job?.worktreePath;
-  const streamingOutput = useStore(selectStreamingToolOutput(entry.jobId));
+  const streamingOutput = useStore(useShallow(selectStreamingToolOutput(entry.jobId)));
   const outputRef = useRef<HTMLPreElement>(null);
 
   // Find streaming output for this tool call (match by any available key)
@@ -1345,8 +1346,8 @@ export function CuratedFeed({
     });
     if (idx >= 0) {
       handledSeqRef.current = scrollToSeq;
-      virtualizer.scrollToIndex(idx, { align: "start" });
-      setHighlightIdx(idx);
+      virtualizer.scrollToIndex(idx, { align: "start", behavior: "smooth" });
+      setTimeout(() => setHighlightIdx(idx), 300);
     }
   }, [scrollToSeq, feedItems, virtualizer]);
 
@@ -1356,16 +1357,26 @@ export function CuratedFeed({
     if (scrollToTurnId == null) { handledTurnIdRef.current = null; return; }
     if (feedItems.length === 0) return;
     if (handledTurnIdRef.current === scrollToTurnId) return;
-    const idx = feedItems.findIndex((item) => {
+    let idx = feedItems.findIndex((item) => {
       if (item.type === "turn" || item.type === "condensed") {
         return item.turn.turnId === scrollToTurnId;
       }
       return false;
     });
+    // Fallback: search within tool calls for the turnId
+    if (idx < 0) {
+      idx = feedItems.findIndex((item) => {
+        if (item.type === "turn" || item.type === "condensed") {
+          return item.turn.toolCalls.some((tc) => tc.turnId === scrollToTurnId);
+        }
+        return false;
+      });
+    }
     if (idx >= 0) {
       handledTurnIdRef.current = scrollToTurnId;
-      virtualizer.scrollToIndex(idx, { align: "start" });
-      setHighlightIdx(idx);
+      virtualizer.scrollToIndex(idx, { align: "start", behavior: "smooth" });
+      // Delay highlight slightly so user can track the smooth scroll
+      setTimeout(() => setHighlightIdx(idx), 300);
     }
   }, [scrollToTurnId, feedItems, virtualizer]);
 

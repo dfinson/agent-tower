@@ -338,6 +338,7 @@ interface AppState {
     diff: DiffFileModel[];
     approvals: ApprovalRequest[];
     timeline: TimelineEntry[];
+    steps?: Array<{ planStepId?: string; label: string; status: string; summary?: string; toolCount?: number; filesWritten?: string[]; durationMs?: number }>;
     turnSummaries?: Array<Record<string, unknown>>;
   }) => void;
 
@@ -508,6 +509,19 @@ export const useStore = create<AppState>((set, get) => ({
         activityTimelines: {
           ...s.activityTimelines,
           [jobId]: _rebuildActivityTimeline(snapshot.turnSummaries ?? []),
+        },
+        // Hydrate plan steps from snapshot so plan survives page refresh
+        plans: {
+          ...s.plans,
+          [jobId]: (snapshot.steps ?? []).map((p) => ({
+            planStepId: p.planStepId,
+            label: p.label,
+            status: (p.status as PlanStep["status"]) || "pending",
+            summary: p.summary,
+            toolCount: p.toolCount,
+            filesWritten: p.filesWritten,
+            durationMs: p.durationMs,
+          })),
         },
       };
     });

@@ -151,6 +151,14 @@ export function ActivityTimeline({
     <div className="flex flex-col h-full">
       {/* Plan panel — pinned at top of sidebar */}
       {planSteps.length > 0 && <PlanPanel jobId={jobId} />}
+      {/* Activity log section header — only when plan is visible to separate them */}
+      {planSteps.length > 0 && activities.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+          <ListTree size={12} className="text-muted-foreground shrink-0" />
+          <span className="text-xs font-semibold text-muted-foreground">Activity Log</span>
+          <span className="ml-auto text-[11px] text-muted-foreground/50 tabular-nums shrink-0">{activities.length}</span>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
         {activities.map((activity, i) => (
           <ActivitySection
