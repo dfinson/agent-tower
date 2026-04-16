@@ -40,18 +40,32 @@ export const SyntaxBlock = memo(function SyntaxBlock({
           style={oneDark}
           customStyle={{
             margin: 0,
-            padding: "0.375rem 0.75rem",
+            padding: showLineNumbers ? 0 : "0.375rem 0.75rem",
             background: "transparent",
             fontSize: "12px",
             lineHeight: "1.55",
           }}
+          codeTagProps={{
+            style: { background: "transparent" },
+          }}
           showLineNumbers={showLineNumbers}
           startingLineNumber={startLine}
+          lineNumberContainerStyle={{
+            float: "left",
+            paddingRight: 0,
+            paddingTop: "0.375rem",
+            paddingBottom: "0.375rem",
+            marginRight: 0,
+            borderRight: "1px solid rgba(255,255,255,0.06)",
+            textAlign: "right",
+            userSelect: "none" as const,
+            background: "transparent",
+          }}
           lineNumberStyle={{
-            minWidth: "2em",
+            minWidth: "2.5em",
             paddingRight: "0.75em",
+            paddingLeft: "0.75em",
             color: "rgba(255,255,255,0.2)",
-            userSelect: "none",
           }}
           wrapLongLines={false}
         >

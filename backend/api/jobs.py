@@ -1073,6 +1073,11 @@ async def get_job_telemetry(
             }
             if span.get("motivation_summary"):
                 entry["motivationSummary"] = span["motivation_summary"]
+            if span.get("edit_motivations"):
+                try:
+                    entry["editMotivations"] = json.loads(span["edit_motivations"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
             tool_calls.append(entry)
         elif span.get("span_type") == "llm":
             llm_calls.append(

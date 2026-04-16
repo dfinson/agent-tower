@@ -83,6 +83,91 @@ def _build_user_prompt(
     return "\n".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Edit-level helpers
+# ---------------------------------------------------------------------------
+
+
+def _compute_edit_key(tool_name: str, parsed_args: dict[str, Any]) -> str:
+    """Compute a stable fingerprint for a single edit operation."""
+    if tool_name in ("create", "create_file", "Write"):
+        # Whole-file create — fingerprint from first 200 chars of content
+        content = str(parsed_args.get("file_text", "") or parsed_args.get("content", ""))[:200]
+        h = hashlib.sha256(content.encode("utf-8", errors="replace")).hexdigest()[:12]
+        return f"create:{h}"
+    # Replace/edit tools — fingerprint from old_str
+    old_str = str(
+        parsed_args.get("old_str", "")
+        or parsed_args.get("oldString", "")
+        or parsed_args.get("old_string", "")
+        or ""
+    )[:200]
+    if old_str:
+        h = hashlib.sha256(old_str.encode("utf-8", errors="replace")).hexdigest()[:12]
+        return f"replace:{h}"
+    # Insert tools
+    line = parsed_args.get("insert_line") or parsed_args.get("insertLine")
+    if line is not None:
+        return f"insert:L{line}"
+    return f"unknown:{hashlib.sha256(json.dumps(parsed_args, sort_keys=True)[:200].encode()).hexdigest()[:12]}"
+
+
+def _format_mini_diff(tool_name: str, parsed_args: dict[str, Any], file_path: str | None) -> str:
+    """Format tool_args into a readable mini-diff for the LLM prompt."""
+    header = f"FILE: {file_path}" if file_path else "FILE: (unknown)"
+
+    if tool_name in ("create", "create_file", "Write"):
+        content = str(parsed_args.get("file_text", "") or parsed_args.get("content", ""))
+        preview = content[:_DIFF_DISPLAY_MAX]
+        suffix = "..." if len(content) > _DIFF_DISPLAY_MAX else ""
+        return f"{header}\nCREATED (new file):\n+ {preview}{suffix}"
+
+    old_str = str(
+        parsed_args.get("old_str", "")
+        or parsed_args.get("oldString", "")
+        or parsed_args.get("old_string", "")
+        or ""
+    )
+    new_str = str(
+        parsed_args.get("new_str", "")
+        or parsed_args.get("newString", "")
+        or parsed_args.get("new_string", "")
+        or ""
+    )
+    if old_str or new_str:
+        old_display = old_str[:_DIFF_DISPLAY_MAX]
+        new_display = new_str[:_DIFF_DISPLAY_MAX]
+        old_lines = "\n".join(f"- {line}" for line in old_display.splitlines()) if old_display else "- (empty)"
+        new_lines = "\n".join(f"+ {line}" for line in new_display.splitlines()) if new_display else "+ (empty)"
+        return f"{header}\nREPLACED:\n{old_lines}\nWITH:\n{new_lines}"
+
+    # Insert
+    line = parsed_args.get("insert_line") or parsed_args.get("insertLine")
+    new_text = str(parsed_args.get("new_text", "") or parsed_args.get("newText", "") or "")
+    if line is not None:
+        preview = new_text[:_DIFF_DISPLAY_MAX]
+        return f"{header}\nINSERTED at line {line}:\n+ {preview}"
+
+    return f"{header}\nTOOL: {tool_name}\nARGS: {json.dumps(parsed_args)[:_DIFF_DISPLAY_MAX]}"
+
+
+def _build_edit_prompt(
+    tool_name: str,
+    parsed_args: dict[str, Any],
+    file_path: str | None,
+    preceding_context: str | None,
+    file_level_summary: str | None,
+) -> str:
+    """Build the edit-level prompt with mini-diff and file context."""
+    parts: list[str] = []
+    if file_level_summary:
+        parts.append(f"FILE-LEVEL SUMMARY:\n{file_level_summary}\n")
+    if preceding_context:
+        parts.append(f"PRECEDING CONTEXT:\n{preceding_context[:1200]}\n")
+    parts.append(f"SPECIFIC EDIT:\n{_format_mini_diff(tool_name, parsed_args, file_path)}")
+    return "\n".join(parts)
+
+
 class MotivationService:
     """Generates motivation summaries for mutative tool spans."""
 
@@ -145,13 +230,85 @@ class MotivationService:
             await session.commit()
             return processed
 
+    async def drain_edit_motivations(self) -> int:
+        """Second pass: generate per-edit motivations for file_write spans."""
+        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+
+        async with self._session_factory() as session:
+            repo = TelemetrySpansRepo(session)
+            spans = await repo.unenriched_edit_spans(limit=_BATCH_SIZE)
+
+            if not spans:
+                return 0
+
+            processed = 0
+            for span in spans:
+                try:
+                    tool_args_raw = span.get("tool_args_json")
+                    if not tool_args_raw:
+                        # No args to parse — mark as empty array to skip next time
+                        await repo.set_edit_motivations(span["id"], "[]")
+                        processed += 1
+                        continue
+
+                    parsed_args: dict[str, Any] = {}
+                    try:
+                        parsed_args = json.loads(tool_args_raw) if isinstance(tool_args_raw, str) else tool_args_raw
+                    except (json.JSONDecodeError, TypeError):
+                        await repo.set_edit_motivations(span["id"], "[]")
+                        processed += 1
+                        continue
+
+                    if not isinstance(parsed_args, dict):
+                        await repo.set_edit_motivations(span["id"], "[]")
+                        processed += 1
+                        continue
+
+                    edit_key = _compute_edit_key(span["name"], parsed_args)
+                    prompt = _build_edit_prompt(
+                        tool_name=span["name"],
+                        parsed_args=parsed_args,
+                        file_path=span.get("tool_target"),
+                        preceding_context=span.get("preceding_context"),
+                        file_level_summary=span.get("motivation_summary"),
+                    )
+                    full_prompt = f"SYSTEM:\n{_EDIT_SYSTEM_PROMPT}\n\nUSER:\n{prompt}"
+                    result = await self._completer.complete(full_prompt)
+                    summary_text = result if isinstance(result, str) else getattr(result, "text", str(result))
+                    summary_text = summary_text.strip()
+
+                    edit_entry = {
+                        "edit_key": edit_key,
+                        "summary": summary_text or "",
+                    }
+                    await repo.set_edit_motivations(
+                        span["id"],
+                        json.dumps([edit_entry], ensure_ascii=False),
+                    )
+                    processed += 1
+                except Exception:
+                    log.debug(
+                        "edit_motivation_failed",
+                        span_id=span["id"],
+                        exc_info=True,
+                    )
+
+            await session.commit()
+            return processed
+
     async def drain_loop(self) -> None:
         """Run forever, periodically processing unsummarized spans."""
         while True:
             try:
+                # Pass 1: file-level summaries
                 count = await self.drain_unsummarized()
                 if count:
                     log.info("motivation_batch_processed", count=count)
+
+                # Pass 2: edit-level motivations
+                edit_count = await self.drain_edit_motivations()
+                if edit_count:
+                    log.info("edit_motivation_batch_processed", count=edit_count)
             except Exception:
                 log.debug("motivation_drain_error", exc_info=True)
             await asyncio.sleep(_DRAIN_INTERVAL)
