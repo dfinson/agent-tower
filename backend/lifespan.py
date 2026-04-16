@@ -496,6 +496,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus.subscribe(_push_subscriber)
 
+    # --- Motivation summarization service (background) ---
+    from backend.services.motivation_service import MotivationService
+
+    motivation_service = MotivationService(
+        session_factory=session_factory,
+        completer=services.sister_sessions,
+    )
+    motivation_task = asyncio.create_task(
+        motivation_service.drain_loop(), name="motivation-drain"
+    )
+
     # --- Share service ---
     share_service = ShareService()
 
@@ -550,6 +561,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await container.close()
     await optional.mcp_cleanup.__aexit__(None, None, None)
     optional.retention_task.cancel()
+    motivation_task.cancel()
     dead_letter_task.cancel()
     if optional.terminal_service is not None:
         await optional.terminal_service.shutdown()

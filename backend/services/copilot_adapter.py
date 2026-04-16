@@ -240,6 +240,7 @@ class CopilotAdapter(BaseAgentAdapter):
             cache_write=cache_write,
             cost_usd=cost,
             is_subagent=is_subagent,
+            turn_id=self._get_turn_id(job_id, data),
         )
 
         # Capture Copilot quota snapshots if present
@@ -346,6 +347,7 @@ class CopilotAdapter(BaseAgentAdapter):
             success=success,
             duration_ms=dur,
             result_text=result_text,
+            turn_id=buffered.get("turn_id"),
         )
 
     def _handle_context_changed(self, data: Any, job_id: str) -> None:
