@@ -172,6 +172,42 @@ class TelemetrySpansRepo(BaseRepository):
         )
         await self._session.flush()
 
+    async def file_write_spans_for_step(
+        self, *, job_id: str, turn_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return file_write spans with motivation data for a specific step (by turn_id)."""
+        result = await self._session.execute(
+            text("""
+                SELECT id, job_id, name, tool_target, tool_args_json,
+                       motivation_summary, edit_motivations, turn_id
+                FROM job_telemetry_spans
+                WHERE job_id = :job_id
+                  AND turn_id = :turn_id
+                  AND tool_category = 'file_write'
+                ORDER BY started_at ASC
+            """),
+            {"job_id": job_id, "turn_id": turn_id},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def motivated_spans_for_job(
+        self, *, job_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return all file_write spans with motivation data for a job."""
+        result = await self._session.execute(
+            text("""
+                SELECT id, job_id, name, tool_target, tool_args_json,
+                       motivation_summary, edit_motivations, turn_id
+                FROM job_telemetry_spans
+                WHERE job_id = :job_id
+                  AND tool_category = 'file_write'
+                  AND motivation_summary IS NOT NULL
+                ORDER BY started_at ASC
+            """),
+            {"job_id": job_id},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
     async def tool_stats(self, *, period_days: int = 30) -> list[dict[str, Any]]:
         """Aggregate tool performance stats for analytics."""
         result = await self._session.execute(

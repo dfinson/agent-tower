@@ -173,7 +173,7 @@ export function fetchJobDiff(jobId: string): Promise<DiffFileModel[]> {
 }
 
 /** Fetch the diff for a single step/turn (uses turn_id as the step lookup key). */
-export function fetchStepDiff(jobId: string, turnId: string): Promise<{ stepId: string; diff: string; filesChanged: number; changedFiles: DiffFileModel[] }> {
+export function fetchStepDiff(jobId: string, turnId: string): Promise<import("../api/types").StepDiffResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/steps/${encodeURIComponent(turnId)}/diff`);
 }
 

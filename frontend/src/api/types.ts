@@ -98,6 +98,30 @@ export interface DiffFileModel {
   hunks: DiffHunkModel[];
 }
 
+// --- Motivation types for intent-annotated diff review ---
+
+export interface HunkMotivation {
+  editKey: string;
+  title: string;
+  why: string;
+}
+
+export interface FileMotivation {
+  title: string;
+  why: string;
+  unmatchedEdits: HunkMotivation[];
+}
+
+export interface StepDiffResponse {
+  stepId: string;
+  diff: string;
+  filesChanged: number;
+  changedFiles: DiffFileModel[];
+  stepContext?: string | null;
+  fileMotivations?: Record<string, FileMotivation>;
+  hunkMotivations?: Record<string, HunkMotivation>;
+}
+
 export interface DiffUpdatePayload {
   jobId: string;
   changedFiles: DiffFileModel[];

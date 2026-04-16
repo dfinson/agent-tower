@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X } from "lucide-react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X, Lightbulb, Info } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
@@ -12,7 +12,7 @@ import { cn } from "../lib/utils";
 import { MicButton } from "./VoiceButton";
 import { Tooltip } from "./ui/tooltip";
 import { useDrag } from "../hooks/useDrag";
-import type { DiffFileModel, DiffHunkModel } from "../api/types";
+import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse } from "../api/types";
 
 export interface StepFilter {
   /** Relative file paths that belong to this step */
@@ -146,23 +146,40 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   const [stepDiffs, setStepDiffs] = useState<import("../api/types").DiffFileModel[] | null>(null);
   const [stepDiffsLoading, setStepDiffsLoading] = useState(false);
 
+  // Motivation data from the step-diff API
+  const [stepContext, setStepContext] = useState<string | null>(null);
+  const [fileMotivations, setFileMotivations] = useState<Record<string, FileMotivation>>({});
+  const [hunkMotivations, setHunkMotivations] = useState<Record<string, HunkMotivation>>({});
+  const [showIntent, setShowIntent] = useState(true);
+
   // Fetch step-specific diff from API when filter has a turnId
   useEffect(() => {
     if (!stepFilter?.turnId || showAllChanges) {
       setStepDiffs(null);
+      setStepContext(null);
+      setFileMotivations({});
+      setHunkMotivations({});
       return;
     }
     let cancelled = false;
     setStepDiffsLoading(true);
     fetchStepDiff(jobId, stepFilter.turnId)
-      .then((res) => {
+      .then((res: StepDiffResponse) => {
         const files = res.changedFiles ?? [];
-        // If API returned no files, set null so we fall through to path-based filtering
-        if (!cancelled) setStepDiffs(files.length > 0 ? files : null);
+        if (!cancelled) {
+          setStepDiffs(files.length > 0 ? files : null);
+          setStepContext(res.stepContext ?? null);
+          setFileMotivations(res.fileMotivations ?? {});
+          setHunkMotivations(res.hunkMotivations ?? {});
+        }
       })
       .catch(() => {
-        // Fallback: will use path-based filtering below
-        if (!cancelled) setStepDiffs(null);
+        if (!cancelled) {
+          setStepDiffs(null);
+          setStepContext(null);
+          setFileMotivations({});
+          setHunkMotivations({});
+        }
       })
       .finally(() => {
         if (!cancelled) setStepDiffsLoading(false);
@@ -187,7 +204,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   // Reset selection when filter changes
   useEffect(() => { setSelectedIdx(0); }, [isFiltered, stepFilter]);
   // Reset toggle when filter is cleared externally
-  useEffect(() => { if (!stepFilter) { setShowAllChanges(false); setStepDiffs(null); } }, [stepFilter]);
+  useEffect(() => { if (!stepFilter) { setShowAllChanges(false); setStepDiffs(null); setStepContext(null); setFileMotivations({}); setHunkMotivations({}); } }, [stepFilter]);
 
   const [original, setOriginal] = useState("");
   const [modified, setModified] = useState("");
@@ -379,6 +396,71 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
     return () => clearTimeout(timer);
   }, [selectedIdx, checkedHunks, hunkLineRanges, canAsk, modified]);
 
+  // Inject viewZones for hunk-level motivation banners in the modified editor
+  const viewZoneIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const editor = diffEditorRef.current;
+    if (!editor || !showIntent) return;
+    const modifiedEditor = editor.getModifiedEditor();
+    if (!modifiedEditor) return;
+
+    const filePath = selectedFile?.path;
+    if (!filePath || hunkLineRanges.length === 0) return;
+
+    // Collect motivations for this file's hunks
+    const zones: { line: number; title: string; why: string }[] = [];
+    hunkLineRanges.forEach((range, hi) => {
+      const mot = hunkMotivations[`${filePath}:${hi}`];
+      if (mot && (mot.title || mot.why)) {
+        zones.push({ line: range.startLine, title: mot.title, why: mot.why });
+      }
+    });
+
+    if (zones.length === 0) {
+      // Clear any existing zones
+      modifiedEditor.changeViewZones((accessor: { removeZone: (id: string) => void }) => {
+        viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
+        viewZoneIdsRef.current = [];
+      });
+      return;
+    }
+
+    // Apply after a short delay so Monaco has processed the models
+    const timer = setTimeout(() => {
+      const ed = diffEditorRef.current?.getModifiedEditor();
+      if (!ed) return;
+      ed.changeViewZones((accessor: { removeZone: (id: string) => void; addZone: (zone: { afterLineNumber: number; heightInPx: number; domNode: HTMLElement }) => string }) => {
+        // Remove old zones
+        viewZoneIdsRef.current.forEach((id: string) => accessor.removeZone(id));
+        const newIds: string[] = [];
+        for (const z of zones) {
+          const domNode = document.createElement("div");
+          domNode.className = "intent-banner";
+          domNode.style.cssText = "padding: 4px 12px; border-left: 2px solid rgba(14,99,156,0.5); background: rgba(14,99,156,0.06); font-size: 12px; line-height: 1.4; overflow: hidden;";
+          const titleSpan = document.createElement("span");
+          titleSpan.style.cssText = "font-weight: 500; color: var(--vscode-foreground, #ccc);";
+          titleSpan.textContent = z.title;
+          domNode.appendChild(titleSpan);
+          if (z.why) {
+            const whySpan = document.createElement("span");
+            whySpan.style.cssText = "margin-left: 8px; color: var(--vscode-descriptionForeground, #999);";
+            whySpan.textContent = z.why;
+            domNode.appendChild(whySpan);
+          }
+          const id = accessor.addZone({
+            afterLineNumber: z.line - 1,
+            heightInPx: 26,
+            domNode,
+          });
+          newIds.push(id);
+        }
+        viewZoneIdsRef.current = newIds;
+      });
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [selectedFile?.path, hunkLineRanges, hunkMotivations, showIntent, modified]);
+
   // DiffEditor mount handler — wires the glyph-margin click listener
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
@@ -539,6 +621,14 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
         </div>
       )}
 
+      {/* Layer 1: Step context banner — shows WHY this step was performed */}
+      {stepContext && isFiltered && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+          <Lightbulb size={14} className="text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{stepContext}</p>
+        </div>
+      )}
+
       {stepDiffsLoading && isFiltered && (
         <div className="flex justify-center py-6">
           <Spinner />
@@ -561,6 +651,19 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
             <span className="text-xs font-semibold text-muted-foreground">{diffs.length} files</span>
             <div className="flex items-center gap-2">
+              {Object.keys(hunkMotivations).length > 0 && (
+                <Tooltip content={showIntent ? "Hide intent annotations" : "Show intent annotations"}>
+                  <button
+                    onClick={() => setShowIntent(!showIntent)}
+                    className={cn(
+                      "p-0.5 rounded transition-colors",
+                      showIntent ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-muted-foreground",
+                    )}
+                  >
+                    <Lightbulb size={13} />
+                  </button>
+                </Tooltip>
+              )}
               <span className="text-xs text-green-400">+{totalAdditions}</span>
               <span className="text-xs text-red-400">-{totalDeletions}</span>
             </div>
@@ -570,6 +673,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
               const Icon = STATUS_ICON[file.status] ?? FileCode;
               const fileChecked = isFileFullyChecked(i);
               const filePartial = isFilePartiallyChecked(i);
+              const fileMot = fileMotivations[file.path];
               return (
                 <div key={i} className="flex flex-col">
                   <div
@@ -604,6 +708,29 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                       className="flex items-center gap-2 flex-1 min-w-0 text-left"
                     >
                       <Icon size={14} className={cn("shrink-0", STATUS_ICON_CLASS[file.status])} />
+                      {fileMot && (
+                        <Tooltip
+                          content={
+                            <div className="max-w-[280px]">
+                              <p className="font-medium text-foreground">{fileMot.title}</p>
+                              {fileMot.why && (
+                                <p className="mt-0.5 text-muted-foreground">{fileMot.why}</p>
+                              )}
+                              {(fileMot.unmatchedEdits?.length ?? 0) > 0 && (
+                                <div className="mt-1.5 pt-1.5 border-t border-border">
+                                  <p className="text-[10px] text-muted-foreground/60 mb-1">Other edits:</p>
+                                  {fileMot.unmatchedEdits.map((e, ei) => (
+                                    <p key={ei} className="text-muted-foreground">{e.title}</p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          }
+                          side="right"
+                        >
+                          <Info size={11} className="shrink-0 text-amber-400/70" />
+                        </Tooltip>
+                      )}
                       <TruncatedPath path={file.path} />
                       <span className={cn("text-xs border rounded px-1 hidden sm:inline", STATUS_BADGE[file.status])}>
                         +{file.additions} -{file.deletions}
