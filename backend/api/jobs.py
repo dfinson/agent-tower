@@ -769,6 +769,7 @@ async def get_job_snapshot(
     timeline_coro = svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=200)
     summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
     steps_coro = svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
+    plan_init_coro = svc.list_events_by_job(job_id, [DomainEventKind.agent_plan_updated], limit=10)
     reassign_coro = svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=5000)
     turn_summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=5000)
 
@@ -778,6 +779,7 @@ async def get_job_snapshot(
         timeline_events,
         summary_events,
         step_events,
+        plan_init_events,
         reassign_events,
         turn_summary_events,
     ) = await _aio.gather(
@@ -786,6 +788,7 @@ async def get_job_snapshot(
         timeline_coro,
         summary_coro,
         steps_coro,
+        plan_init_coro,
         reassign_coro,
         turn_summary_coro,
     )
@@ -913,9 +916,38 @@ async def get_job_snapshot(
         for a in db_approvals
     ]
 
-    # Build plan steps (de-duplicate: keep latest event per step_id, preserve plan order)
+    # Build plan steps: start from the initial plan (agent_plan_updated), then
+    # overlay individual step updates (plan_step_updated).  This ensures pending
+    # steps survive hydration so the full plan is visible after page refresh.
+    initial_plan_steps: list[dict[str, Any]] = []
+    if plan_init_events:
+        # Use the last agent_plan_updated event (in case plan was re-inferred)
+        raw_items = plan_init_events[-1].payload.get("steps", [])
+        for i, item in enumerate(raw_items):
+            initial_plan_steps.append({
+                "plan_step_id": item.get("plan_step_id", f"__init_{i}"),
+                "label": item.get("label", ""),
+                "status": item.get("status", "pending"),
+                "summary": item.get("summary"),
+                "order": item.get("order", i),
+                "tool_count": item.get("tool_count", 0),
+                "files_written": item.get("files_written"),
+                "started_at": item.get("started_at"),
+                "completed_at": item.get("completed_at"),
+                "duration_ms": item.get("duration_ms"),
+                "start_sha": item.get("start_sha"),
+                "end_sha": item.get("end_sha"),
+            })
+
+    # Overlay plan_step_updated events on top of initial plan
     step_latest: dict[str, dict[str, Any]] = {}
     step_order: list[str] = []
+    # Seed with initial plan
+    for p in initial_plan_steps:
+        sid = p["plan_step_id"]
+        step_latest[sid] = p
+        step_order.append(sid)
+    # Then overlay updates
     for ev in step_events:
         sid = ev.payload.get("plan_step_id", "")
         if not sid:
@@ -940,7 +972,7 @@ async def get_job_snapshot(
             end_sha=p.get("end_sha"),
         )
         for sid in step_order
-        if (p := step_latest[sid]).get("status") != "pending"
+        if (p := step_latest[sid])
     ]
 
     # Build turn summaries for the activity timeline

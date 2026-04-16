@@ -219,6 +219,8 @@ export function fetchJobSnapshot(jobId: string): Promise<{
   diff: DiffFileModel[];
   approvals: import("../store").ApprovalRequest[];
   timeline: import("../store").TimelineEntry[];
+  steps?: Array<{ planStepId?: string; label: string; status: string; summary?: string; toolCount?: number; filesWritten?: string[]; durationMs?: number }>;
+  turnSummaries?: Array<Record<string, unknown>>;
 }> {
   return request(`/jobs/${encodeURIComponent(jobId)}/snapshot`);
 }
