@@ -316,6 +316,7 @@ def save_config(config: CPLConfig, path: Path | None = None) -> None:
         existing["terminal"] = d
     # repos is intentionally omitted — managed by register_repo / unregister_repo
     existing["verification"] = _to_dict(config.verification)
+    existing["telemetry"] = _to_dict(config.telemetry)
     if config.platforms:
         existing["platforms"] = {name: _to_dict(pc) for name, pc in config.platforms.items()}
 

@@ -41,6 +41,7 @@ const SCORECARD = {
     { date: "2026-04-08", cost: 2.9, jobs: 10 },
     { date: "2026-04-09", cost: 2.2, jobs: 6 },
   ],
+  dailySpendLimitUsd: 20.0,
 };
 
 const MODEL_COMPARISON = {
@@ -95,9 +96,9 @@ const MODEL_COMPARISON = {
 const TOOLS = {
   period: 7,
   tools: [
-    { name: "edit_file", count: 156, avgDurationMs: 45, totalDurationMs: 7020, failureCount: 3 },
-    { name: "read_file", count: 312, avgDurationMs: 22, totalDurationMs: 6864, failureCount: 0 },
-    { name: "run_in_terminal", count: 89, avgDurationMs: 3500, totalDurationMs: 311500, failureCount: 12 },
+    { name: "edit_file", count: 156, avgDurationMs: 45, totalDurationMs: 7020, failureCount: 3, p50DurationMs: 40, p95DurationMs: 80, p99DurationMs: 120 },
+    { name: "read_file", count: 312, avgDurationMs: 22, totalDurationMs: 6864, failureCount: 0, p50DurationMs: 18, p95DurationMs: 55, p99DurationMs: 90 },
+    { name: "run_in_terminal", count: 89, avgDurationMs: 3500, totalDurationMs: 311500, failureCount: 12, p50DurationMs: 2800, p95DurationMs: 8000, p99DurationMs: 12000 },
   ],
 };
 
@@ -256,6 +257,26 @@ test.describe("Analytics — Tool Health", () => {
     await expect(
       page.getByText(/edit_file|read_file|run_in_terminal/i).first(),
     ).toBeVisible({ timeout: 5_000 });
+  });
+});
+
+test.describe("Analytics — Budget Bar", () => {
+  test("displays daily spend limit budget bar when configured", async ({ page }) => {
+    await setupAnalyticsMocks(page);
+    await page.goto("/analytics");
+
+    // The budget bar should show the daily spend limit
+    await expect(page.getByText(/\$20/i).first()).toBeVisible({ timeout: 5_000 });
+  });
+});
+
+test.describe("Analytics — Refresh", () => {
+  test("shows refresh button", async ({ page }) => {
+    await setupAnalyticsMocks(page);
+    await page.goto("/analytics");
+
+    const refreshBtn = page.getByRole("button", { name: /refresh/i });
+    await expect(refreshBtn).toBeVisible({ timeout: 5_000 });
   });
 });
 

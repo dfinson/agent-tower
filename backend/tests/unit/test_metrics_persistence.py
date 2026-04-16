@@ -218,3 +218,11 @@ async def test_spans_tool_stats(session: AsyncSession) -> None:
     assert stats[0]["name"] == "write_file"
     assert stats[0]["count"] == 5
     assert stats[0]["failure_count"] == 1
+    # Percentile fields must be present and numeric
+    assert "p50_duration_ms" in stats[0]
+    assert "p95_duration_ms" in stats[0]
+    assert "p99_duration_ms" in stats[0]
+    # Durations are 100, 110, 120, 130, 140 → p50=120, p95/p99=140
+    assert float(stats[0]["p50_duration_ms"]) == pytest.approx(120.0)
+    assert float(stats[0]["p95_duration_ms"]) == pytest.approx(140.0)
+    assert float(stats[0]["p99_duration_ms"]) == pytest.approx(140.0)
