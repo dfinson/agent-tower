@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId } from "../store";
 import type { ActivityTimelineActivity } from "../store";
 import { PlanPanel } from "./PlanPanel";
@@ -85,6 +85,7 @@ function ActivitySection({
   onStepClick,
   searchActive,
   highlightPlanItemId,
+  expandSignal,
 }: {
   activity: ActivityTimelineActivity;
   isLast: boolean;
@@ -92,8 +93,18 @@ function ActivitySection({
   onStepClick: (turnId: string) => void;
   searchActive?: boolean;
   highlightPlanItemId?: string | null;
+  expandSignal: { gen: number; expand: boolean };
 }) {
   const [expanded, setExpanded] = useState(activity.status === "active");
+
+  // Respond to expand-all / collapse-all signal from parent
+  const expandGen = useRef(expandSignal.gen);
+  useEffect(() => {
+    if (expandSignal.gen !== expandGen.current) {
+      expandGen.current = expandSignal.gen;
+      setExpanded(expandSignal.expand);
+    }
+  }, [expandSignal]);
 
   // Highlight when the hovered plan item matches this activity's plan link
   const isLinkedToHoveredPlan = !!highlightPlanItemId && activity.planItemId === highlightPlanItemId;
@@ -170,6 +181,15 @@ export function ActivityTimeline({
   const planSteps = useStore(selectJobPlan(jobId));
   const hoveredPlanItemId = useStore(selectHoveredPlanItemId);
 
+  // Expand-all / collapse-all toggle
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [expandSignal, setExpandSignal] = useState({ gen: 0, expand: false });
+  const toggleAll = useCallback(() => {
+    const next = !allExpanded;
+    setAllExpanded(next);
+    setExpandSignal((prev) => ({ gen: prev.gen + 1, expand: next }));
+  }, [allExpanded]);
+
   // When the job has reached a terminal state, force all activities to "done"
   // so the spinner stops.
   const jobFinished = !!jobState && TERMINAL_STATES.has(jobState);
@@ -195,7 +215,28 @@ export function ActivityTimeline({
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
           <ListTree size={12} className="text-muted-foreground shrink-0" />
           <span className="text-xs font-semibold text-muted-foreground">Activity Log</span>
-          <span className="ml-auto text-[11px] text-muted-foreground/50 tabular-nums shrink-0">{activities.length}</span>
+          {activities.length > 1 && (
+            <button
+              onClick={toggleAll}
+              className="ml-auto text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              title={allExpanded ? "Collapse all" : "Expand all"}
+            >
+              {allExpanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
+            </button>
+          )}
+          <span className={cn("text-[11px] text-muted-foreground/50 tabular-nums shrink-0", activities.length <= 1 && "ml-auto")}>{activities.length}</span>
+        </div>
+      )}
+      {/* Minimal toggle header when no plan panel but multiple activities */}
+      {planSteps.length === 0 && activities.length > 1 && (
+        <div className="flex items-center justify-end px-3 py-1.5">
+          <button
+            onClick={toggleAll}
+            className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            title={allExpanded ? "Collapse all" : "Expand all"}
+          >
+            {allExpanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
+          </button>
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
@@ -208,6 +249,7 @@ export function ActivityTimeline({
             onStepClick={onStepClick}
             searchActive={searchActive}
             highlightPlanItemId={hoveredPlanItemId}
+            expandSignal={expandSignal}
           />
         ))}
       </div>
