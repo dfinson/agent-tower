@@ -57,4 +57,5 @@ class StepPersistenceSubscriber:
             end_sha=p.get("end_sha"),
             files_read=json.dumps(p.get("files_read", [])),
             files_written=json.dumps(p.get("files_written", [])),
+            preceding_context=p.get("preceding_context"),
         )

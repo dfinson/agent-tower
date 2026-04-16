@@ -173,6 +173,9 @@ This turn:
 Previous steps in this activity:
 {recent_step_titles}
 
+Agent reasoning context (recent transcript before this turn):
+{preceding_context}
+
 Generate a concise title (4-10 words) describing the OUTCOME, not the action.
 Bad: "Reading loop.py"           Good: "Found 8 unannotated functions in loop.py"
 Bad: "Editing files"              Good: "Annotated 3 functions in prompts.py"
@@ -180,6 +183,8 @@ Bad: "Exploring codebase"         Good: "Mapped 22 Python files across 8 modules
 Bad: "Fixing docstrings in loop"  Good: "Added docstrings to 5 functions in loop.py"
 
 Include file names and quantities when relevant.
+Use the reasoning context to explain WHY when the turn is driven by a prior
+finding, error, or operator instruction — not just WHAT files changed.
 When this turn is a minor continuation of the previous step (e.g. fixing a lint
 error, retrying, or tweaking the same change), set merge_with_previous to true
 so the title replaces the prior step instead of adding a new line.
@@ -528,6 +533,7 @@ class ProgressTrackingService:
                 files_written=files_written,
                 duration_ms=duration_ms,
                 assigned_plan_step_id=assigned_plan_step_id,
+                preceding_context=turn_payload.get("preceding_context"),
             )
 
     # -- Activity timeline: plan-derived grouping + focused title generation --
@@ -594,6 +600,7 @@ class ProgressTrackingService:
         files_written: list[str],
         duration_ms: int,
         assigned_plan_step_id: str | None,
+        preceding_context: str | None = None,
     ) -> tuple[str, bool]:
         """Generate an outcome-focused title for a completed turn.
 
@@ -640,6 +647,7 @@ class ProgressTrackingService:
             duration_s=round(duration_ms / 1000, 1),
             agent_msg=agent_msg[:_MSG_MAX] if agent_msg else "(no message)",
             recent_step_titles=recent_block,
+            preceding_context=preceding_context[:1500] if preceding_context else "(none)",
         )
 
         title = "Work in progress"
@@ -681,6 +689,7 @@ class ProgressTrackingService:
         files_written: list[str],
         duration_ms: int,
         assigned_plan_step_id: str | None,
+        preceding_context: str | None = None,
     ) -> None:
         """Generate step title, resolve activity boundary, and emit turn_summary."""
         activities = self._activities.get(job_id, [])
@@ -706,6 +715,7 @@ class ProgressTrackingService:
             files_written=files_written,
             duration_ms=duration_ms,
             assigned_plan_step_id=assigned_plan_step_id,
+            preceding_context=preceding_context,
         )
 
         current_activity = activities[-1] if activities else None

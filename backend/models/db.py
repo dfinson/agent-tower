@@ -126,6 +126,8 @@ class StepRow(Base):
     end_sha = Column(String(40), nullable=True)
     files_read = Column(Text, nullable=True)  # JSON array
     files_written = Column(Text, nullable=True)  # JSON array
+    # Transcript context at step close (migration 0020)
+    preceding_context = Column(Text, nullable=True)  # JSON array
 
     __table_args__ = (Index("ix_steps_job_number", "job_id", "step_number"),)
 
