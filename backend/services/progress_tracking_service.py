@@ -185,9 +185,12 @@ Bad: "Fixing docstrings in loop"  Good: "Added docstrings to 5 functions in loop
 Include file names and quantities when relevant.
 Use the reasoning context to explain WHY when the turn is driven by a prior
 finding, error, or operator instruction — not just WHAT files changed.
-When this turn is a minor continuation of the previous step (e.g. fixing a lint
-error, retrying, or tweaking the same change), set merge_with_previous to true
-so the title replaces the prior step instead of adding a new line.
+
+merge_with_previous: set to true ONLY when this turn is a trivial retry of the
+exact same operation (e.g. re-running a failed command, fixing a typo in the same
+file). If the agent read new files, wrote to different files, or made meaningful
+progress, this is a NEW step — set merge_with_previous to false.
+When in doubt, set false.
 
 Respond with JSON only:
 {{"title": "<4-10 word outcome-focused title>", "merge_with_previous": <true|false>}}

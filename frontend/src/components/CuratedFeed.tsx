@@ -33,6 +33,7 @@ import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 import { Tooltip } from "./ui/tooltip";
+import Ansi from "ansi-to-react";
 import {
   formatDuration,
   trimWorktreePaths,
@@ -40,6 +41,8 @@ import {
   stripMcpPrefix,
   TruncatedPayload,
 } from "./ToolRenderers";
+import { SyntaxBlock } from "./SyntaxBlock";
+import { detectLanguage } from "../lib/detectLanguage";
 
 // ---------------------------------------------------------------------------
 // Search highlight context — provides the active search query to children
@@ -662,21 +665,21 @@ function InlinePreview({ file, kind }: { file: PhaseFile; kind: ClusterKind }) {
           {file.relativePath}
         </div>
       )}
-      <InlinePreviewContent entries={file.entries} kind={kind} />
+      <InlinePreviewContent entries={file.entries} kind={kind} filePath={file.relativePath} />
     </div>
   );
 }
 
-function InlinePreviewContent({ entries, kind }: { entries: TranscriptEntry[]; kind: ClusterKind }) {
+function InlinePreviewContent({ entries, kind, filePath }: { entries: TranscriptEntry[]; kind: ClusterKind; filePath?: string }) {
   switch (kind) {
     case "execute":
       return <CommandPreview entries={entries} />;
     case "write":
-      return <EditPreview entries={entries} />;
+      return <EditPreview entries={entries} filePath={filePath} />;
     case "read":
-      return <ReadPreview entries={entries} />;
+      return <ReadPreview entries={entries} filePath={filePath} />;
     case "create":
-      return <CreatePreview entries={entries} />;
+      return <CreatePreview entries={entries} filePath={filePath} />;
     case "search":
       return <SearchPreview entries={entries} />;
     default:
@@ -743,15 +746,15 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
       {isRunning && liveOutput && (
         <pre
           ref={outputRef}
-          className="px-3 py-1.5 text-[12px] sm:text-[11px] text-muted-foreground/80 whitespace-pre-wrap break-all max-h-48 overflow-y-auto border-l-2 border-primary/30 bg-zinc-950/20"
+          className="px-3 py-1.5 text-[12px] sm:text-[11px] text-muted-foreground/80 whitespace-pre-wrap break-words max-h-48 overflow-y-auto border-l-2 border-primary/30 bg-zinc-950/20"
         >
-          {liveOutput}
+          <Ansi>{liveOutput}</Ansi>
           <span className="inline-block w-1.5 h-3 bg-primary/70 animate-pulse rounded-sm align-middle ml-0.5" />
         </pre>
       )}
       {entry.toolResult && (
         <div className="px-3 py-1.5">
-          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={600} />
+          <SyntaxBlock content={trimWorktreePaths(entry.toolResult)} language="bash" maxLength={600} />
         </div>
       )}
       {failed && entry.toolIssue && (
@@ -886,7 +889,7 @@ function DiffLines({ oldStr, newStr }: { oldStr: string; newStr: string }) {
   );
 }
 
-function EditPreview({ entries }: { entries: TranscriptEntry[] }) {
+function EditPreview({ entries }: { entries: TranscriptEntry[]; filePath?: string }) {
   return (
     <div className="text-[13px] sm:text-xs space-y-0">
       {entries.map((entry, i) => {
@@ -941,13 +944,14 @@ function EditPreview({ entries }: { entries: TranscriptEntry[] }) {
   );
 }
 
-function ReadPreview({ entries }: { entries: TranscriptEntry[] }) {
+function ReadPreview({ entries, filePath }: { entries: TranscriptEntry[]; filePath?: string }) {
   // Show the content of the last read (most complete)
   const entry = entries[entries.length - 1]!;
   const args = parseArgs(entry.toolArgs);
   const startLine = (args.startLine ?? args.start_line) as number | undefined;
   const endLine = (args.endLine ?? args.end_line) as number | undefined;
   const range = startLine && endLine ? `lines ${startLine}–${endLine}` : null;
+  const lang = detectLanguage(filePath);
 
   return (
     <div className="text-[13px] sm:text-xs">
@@ -955,18 +959,23 @@ function ReadPreview({ entries }: { entries: TranscriptEntry[] }) {
         <div className="px-3 py-1 text-muted-foreground/60">{range}</div>
       )}
       {entry.toolResult && (
-        <div className="px-3 py-1.5 font-mono">
-          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={800} />
-        </div>
+        <SyntaxBlock
+          content={trimWorktreePaths(entry.toolResult)}
+          language={lang}
+          maxLength={800}
+          showLineNumbers={!!startLine}
+          startLine={startLine ?? 1}
+        />
       )}
     </div>
   );
 }
 
-function CreatePreview({ entries }: { entries: TranscriptEntry[] }) {
+function CreatePreview({ entries, filePath }: { entries: TranscriptEntry[]; filePath?: string }) {
   const entry = entries[0]!;
   const args = parseArgs(entry.toolArgs);
   const fileContent = (args.content ?? args.file_text) as string | undefined;
+  const lang = detectLanguage(filePath);
 
   return (
     <div className="px-3 py-1.5 text-xs">
@@ -978,8 +987,8 @@ function CreatePreview({ entries }: { entries: TranscriptEntry[] }) {
         )}
       </div>
       {fileContent ? (
-        <div className="mt-1 font-mono">
-          <TruncatedPayload content={trimWorktreePaths(fileContent)} maxLength={800} />
+        <div className="mt-1 border-l-2 border-green-500/30">
+          <SyntaxBlock content={trimWorktreePaths(fileContent)} language={lang} maxLength={800} />
         </div>
       ) : entry.toolResult ? (
         <div className="mt-1 font-mono">
@@ -1000,9 +1009,7 @@ function SearchPreview({ entries }: { entries: TranscriptEntry[] }) {
         <div className="px-3 py-1 text-muted-foreground/60">→ {lines} results</div>
       )}
       {entry.toolResult && (
-        <div className="px-3 py-1.5 font-mono">
-          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={600} />
-        </div>
+        <SyntaxBlock content={trimWorktreePaths(entry.toolResult)} maxLength={600} />
       )}
     </div>
   );
@@ -1016,9 +1023,7 @@ function GenericPreview({ entries }: { entries: TranscriptEntry[] }) {
         <div className="text-muted-foreground mb-1">{entry.toolDisplay}</div>
       )}
       {entry.toolResult && (
-        <div className="font-mono">
-          <TruncatedPayload content={trimWorktreePaths(entry.toolResult)} maxLength={400} />
-        </div>
+        <SyntaxBlock content={trimWorktreePaths(entry.toolResult)} maxLength={400} />
       )}
     </div>
   );

@@ -769,7 +769,6 @@ async def get_job_snapshot(
     timeline_coro = svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=200)
     summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
     steps_coro = svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
-    plan_init_coro = svc.list_events_by_job(job_id, [DomainEventKind.agent_plan_updated], limit=10)
     reassign_coro = svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=5000)
     turn_summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=5000)
 
@@ -779,7 +778,6 @@ async def get_job_snapshot(
         timeline_events,
         summary_events,
         step_events,
-        plan_init_events,
         reassign_events,
         turn_summary_events,
     ) = await _aio.gather(
@@ -788,7 +786,6 @@ async def get_job_snapshot(
         timeline_coro,
         summary_coro,
         steps_coro,
-        plan_init_coro,
         reassign_coro,
         turn_summary_coro,
     )
@@ -837,6 +834,7 @@ async def get_job_snapshot(
             step_number=e.payload.get("step_number"),
         )
         for e in transcript_events
+        if e.payload.get("role", "agent") not in ("tool_output_delta", "reasoning_delta")
     ]
 
     # Apply step reassignments so transcript entries have their final step_id.
@@ -916,45 +914,60 @@ async def get_job_snapshot(
         for a in db_approvals
     ]
 
-    # Build plan steps: start from the initial plan (agent_plan_updated), then
-    # overlay individual step updates (plan_step_updated).  This ensures pending
-    # steps survive hydration so the full plan is visible after page refresh.
-    initial_plan_steps: list[dict[str, Any]] = []
-    if plan_init_events:
-        # Use the last agent_plan_updated event (in case plan was re-inferred)
-        raw_items = plan_init_events[-1].payload.get("steps", [])
-        for i, item in enumerate(raw_items):
-            initial_plan_steps.append({
-                "plan_step_id": item.get("plan_step_id", f"__init_{i}"),
-                "label": item.get("label", ""),
-                "status": item.get("status", "pending"),
-                "summary": item.get("summary"),
-                "order": item.get("order", i),
-                "tool_count": item.get("tool_count", 0),
-                "files_written": item.get("files_written"),
-                "started_at": item.get("started_at"),
-                "completed_at": item.get("completed_at"),
-                "duration_ms": item.get("duration_ms"),
-                "start_sha": item.get("start_sha"),
-                "end_sha": item.get("end_sha"),
-            })
+    # Build plan steps: detect the latest plan generation and reconstruct it.
+    #
+    # The step tracker replaces the in-memory plan when re-inferring, but old
+    # plan_step_updated events remain in the DB.  We detect generation
+    # boundaries: a batch of ≥2 *new* step IDs appearing together marks a
+    # new plan generation.  We keep only the latest generation's IDs, then
+    # overlay subsequent individual updates for those IDs.
 
-    # Overlay plan_step_updated events on top of initial plan
-    step_latest: dict[str, dict[str, Any]] = {}
-    step_order: list[str] = []
-    # Seed with initial plan
-    for p in initial_plan_steps:
-        sid = p["plan_step_id"]
-        step_latest[sid] = p
-        step_order.append(sid)
-    # Then overlay updates
+    # 1. Walk step_events chronologically and identify generation boundaries.
+    #    A "generation" starts whenever we see ≥2 never-before-seen IDs in a
+    #    burst (events within 5 seconds of each other).
+    from itertools import groupby as _groupby
+
+    seen_ids: set[str] = set()
+    current_gen_ids: list[str] = []  # ordered IDs for the current generation
+    current_gen_start: float = 0.0
+
     for ev in step_events:
         sid = ev.payload.get("plan_step_id", "")
         if not sid:
             continue
+        ts = ev.timestamp.timestamp() if hasattr(ev.timestamp, "timestamp") else 0.0
+        is_new = sid not in seen_ids
+
+        if is_new:
+            # If this new ID is far from the current burst, start a fresh burst
+            if not current_gen_ids or (ts - current_gen_start > 5.0):
+                # Commit previous burst as a generation if it had ≥2 new IDs
+                if len(current_gen_ids) >= 2:
+                    pass  # We'll override below; just keep accumulating
+                current_gen_ids = [sid]
+                current_gen_start = ts
+            else:
+                current_gen_ids.append(sid)
+            seen_ids.add(sid)
+
+    # If the last burst had ≥2 IDs, that's the latest generation.
+    # Otherwise fall back to using all seen IDs (single-step updates only).
+    if len(current_gen_ids) >= 2:
+        latest_gen: set[str] = set(current_gen_ids)
+    else:
+        latest_gen = seen_ids
+
+    # 2. Build the plan from latest generation IDs only.
+    step_latest: dict[str, dict[str, Any]] = {}
+    step_order: list[str] = []
+    for ev in step_events:
+        sid = ev.payload.get("plan_step_id", "")
+        if not sid or sid not in latest_gen:
+            continue
         step_latest[sid] = ev.payload
         if sid not in step_order:
             step_order.append(sid)
+
     plan_steps = [
         PlanStepPayload(
             job_id=job_id,
