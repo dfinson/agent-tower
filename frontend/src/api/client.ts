@@ -806,6 +806,58 @@ export function fetchTurnEconomics(jobId: string): Promise<TurnEconomicsResponse
 }
 
 // ---------------------------------------------------------------------------
+// Shell command breakdown, retry cost, edit efficiency
+// ---------------------------------------------------------------------------
+
+export interface ShellCommandRow {
+  command: string;
+  call_count: number;
+  total_cost_usd: number;
+  avg_duration_ms: number;
+  job_count: number;
+}
+
+export interface ShellCommandsResponse {
+  period: number;
+  commands: ShellCommandRow[];
+}
+
+export function fetchShellCommands(period = 30): Promise<ShellCommandsResponse> {
+  return request(`/analytics/shell-commands?period=${period}`);
+}
+
+export interface RetryCostResponse {
+  period: number;
+  retryCostUsd: number;
+  retryCount: number;
+  totalSpans: number;
+  totalCostUsd: number;
+  retryPct: number;
+}
+
+export function fetchRetryCost(period = 30): Promise<RetryCostResponse> {
+  return request(`/analytics/retry-cost?period=${period}`);
+}
+
+export interface EditEfficiencyRow {
+  activity: string;
+  editTurns: number;
+  oneShotTurns: number;
+  retries: number;
+  oneShotRate: number;
+  jobCount: number;
+}
+
+export interface EditEfficiencyResponse {
+  period: number;
+  categories: EditEfficiencyRow[];
+}
+
+export function fetchEditEfficiency(period = 30): Promise<EditEfficiencyResponse> {
+  return request(`/analytics/edit-efficiency?period=${period}`);
+}
+
+// ---------------------------------------------------------------------------
 // Scorecard / Redesigned Analytics
 // ---------------------------------------------------------------------------
 

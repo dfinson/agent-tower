@@ -191,3 +191,48 @@ class TelemetrySpansRepo(BaseRepository):
                 row["p99_duration_ms"] = 0
 
         return rows
+
+    async def shell_command_breakdown(self, *, period_days: int = 30, limit: int = 30) -> list[dict[str, Any]]:
+        """Aggregate shell commands by tool_target (first word of command).
+
+        Groups shell-category tool spans by their extracted command name
+        (stored in ``tool_target``), returning call counts and total cost.
+        """
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    tool_target as command,
+                    COUNT(*) as call_count,
+                    COALESCE(SUM(cost_usd), 0) as total_cost_usd,
+                    COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+                    COUNT(DISTINCT job_id) as job_count
+                FROM job_telemetry_spans
+                WHERE span_type = 'tool'
+                    AND tool_category = 'shell'
+                    AND tool_target IS NOT NULL
+                    AND tool_target != ''
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY tool_target
+                ORDER BY call_count DESC
+                LIMIT :limit
+            """),
+            {"limit": limit},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def retry_cost_summary(self, *, period_days: int = 30) -> dict[str, Any]:
+        """Compute total cost and count of retry spans fleet-wide."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    COALESCE(SUM(CASE WHEN is_retry = 1 THEN cost_usd ELSE 0 END), 0) as retry_cost_usd,
+                    SUM(CASE WHEN is_retry = 1 THEN 1 ELSE 0 END) as retry_count,
+                    COUNT(*) as total_spans,
+                    COALESCE(SUM(cost_usd), 0) as total_cost_usd
+                FROM job_telemetry_spans
+                WHERE span_type IN ('llm', 'tool')
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+            """),
+        )
+        row = result.mappings().first()
+        return dict(row) if row else {"retry_cost_usd": 0, "retry_count": 0, "total_spans": 0, "total_cost_usd": 0}

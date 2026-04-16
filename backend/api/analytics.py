@@ -83,6 +83,8 @@ async def analytics_overview(
         "cacheHitRate": round(cache_rate, 1),
         "costTrend": cost_trend,
         "totalSubagentCostUsd": float(agg.get("total_subagent_cost_usd", 0) or 0),
+        "totalRetryCostUsd": float(agg.get("total_retry_cost_usd", 0) or 0),
+        "totalRetryCount": int(agg.get("total_retry_count", 0) or 0),
     }
 
 
@@ -356,3 +358,82 @@ async def trigger_analysis(
     count = await run_analysis(session)
     await session.commit()
     return {"observations_written": count}
+
+
+# ---------------------------------------------------------------------------
+# Shell command breakdown
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/shell-commands")
+async def shell_command_breakdown(
+    session: FromDishka[AsyncSession],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> dict[str, object]:
+    """Top shell commands by call count, aggregated from tool_target."""
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+
+    rows = await TelemetrySpansRepo(session).shell_command_breakdown(period_days=period)
+    return {"period": period, "commands": rows}
+
+
+# ---------------------------------------------------------------------------
+# Retry cost summary
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/retry-cost")
+async def retry_cost_summary(
+    session: FromDishka[AsyncSession],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> dict[str, object]:
+    """Fleet-wide retry cost and count."""
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+
+    data = await TelemetrySpansRepo(session).retry_cost_summary(period_days=period)
+    total = float(data.get("total_cost_usd") or 0)
+    retry = float(data.get("retry_cost_usd") or 0)
+    return {
+        "period": period,
+        "retryCostUsd": retry,
+        "retryCount": data.get("retry_count", 0),
+        "totalSpans": data.get("total_spans", 0),
+        "totalCostUsd": total,
+        "retryPct": round((retry / total * 100) if total > 0 else 0, 1),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Edit efficiency / one-shot rate
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/edit-efficiency")
+async def fleet_edit_efficiency(
+    session: FromDishka[AsyncSession],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> dict[str, object]:
+    """Fleet-wide one-shot success rate by activity category.
+
+    Reads the ``edit_efficiency`` dimension from cost attribution rows.
+    ``call_count`` = edit turns, ``input_tokens`` = one-shot turns,
+    ``output_tokens`` = total retries (repurposed columns).
+    """
+    from backend.persistence.cost_attribution_repo import CostAttributionRepo
+
+    rows = await CostAttributionRepo(session).by_dimension("edit_efficiency", period_days=period)
+    result = []
+    for row in rows:
+        edit_turns = int(row.get("call_count") or 0)
+        one_shot = int(row.get("input_tokens") or 0)
+        retries = int(row.get("output_tokens") or 0)
+        rate = round((one_shot / edit_turns * 100) if edit_turns > 0 else 0, 1)
+        result.append({
+            "activity": row.get("bucket", ""),
+            "editTurns": edit_turns,
+            "oneShotTurns": one_shot,
+            "retries": retries,
+            "oneShotRate": rate,
+            "jobCount": row.get("job_count", 0),
+        })
+    return {"period": period, "categories": result}

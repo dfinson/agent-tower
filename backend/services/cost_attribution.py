@@ -2,11 +2,13 @@
 
 Runs after a job completes to compute cost breakdowns by dimension
 (phase, tool category, turn) and write them to the attribution table.
-Also computes derived summary stats (turn economics, file I/O waste).
+Also computes derived summary stats (turn economics, file I/O waste,
+intent-refined activity classification, and edit one-shot rate).
 """
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
@@ -39,12 +41,88 @@ _TOOL_CATEGORY_ACTIVITY = {
     "other": "other_tools",
 }
 
+# ---------------------------------------------------------------------------
+# Keyword-based intent classification (adapted from CodeBurn, MIT license)
+# ---------------------------------------------------------------------------
+
+_RE_DEBUG = re.compile(
+    r"\b(fix|bug|error|broken|failing|crash|issue|debug|traceback|exception|"
+    r"stack\s*trace|not\s+working|wrong|unexpected)\b",
+    re.IGNORECASE,
+)
+_RE_FEATURE = re.compile(
+    r"\b(add|create|implement|new|build|feature|introduce|set\s*up|scaffold|generate)\b",
+    re.IGNORECASE,
+)
+_RE_REFACTOR = re.compile(
+    r"\b(refactor|clean\s*up|rename|reorganize|simplify|extract|restructure|move|migrate|split)\b",
+    re.IGNORECASE,
+)
+_RE_TEST = re.compile(
+    r"\b(test|pytest|vitest|jest|mocha|spec|coverage|npm\s+test|npx\s+vitest|npx\s+jest)\b",
+    re.IGNORECASE,
+)
+_RE_GIT = re.compile(
+    r"\bgit\s+(push|pull|commit|merge|rebase|checkout|branch|stash|tag|cherry-pick)\b",
+    re.IGNORECASE,
+)
+_RE_BUILD = re.compile(
+    r"\b(npm\s+run\s+build|npm\s+publish|pip\s+install|docker|deploy|make\s+build|"
+    r"npm\s+run\s+dev|npm\s+start|cargo\s+build|brew\s+install|apt\s+install)\b",
+    re.IGNORECASE,
+)
+
+# Categories that shell commands can refine into
+_SHELL_TOOL_CATEGORIES = {"shell"}
+# Categories that file-write tools can refine into
+_WRITE_TOOL_CATEGORIES = {"file_write", "git_write"}
+
+
+def _refine_activity_by_intent(
+    activity: str,
+    tool_categories: list[str],
+    prompt: str,
+) -> str:
+    """Refine a coarse activity label using keyword matching on the job prompt.
+
+    Only refines ``code_changes`` and ``command_execution`` — the two coarse
+    buckets that benefit most from intent disambiguation.
+    """
+    if not prompt:
+        return activity
+
+    has_writes = any(c in _WRITE_TOOL_CATEGORIES for c in tool_categories)
+    has_shell = any(c in _SHELL_TOOL_CATEGORIES for c in tool_categories)
+
+    if activity == "command_execution" and has_shell:
+        if _RE_TEST.search(prompt):
+            return "testing"
+        if _RE_GIT.search(prompt):
+            return "git_ops"
+        if _RE_BUILD.search(prompt):
+            return "build_deploy"
+
+    if activity == "code_changes" and has_writes:
+        if _RE_DEBUG.search(prompt):
+            return "debugging"
+        if _RE_REFACTOR.search(prompt):
+            return "refactoring"
+        if _RE_FEATURE.search(prompt):
+            return "feature_dev"
+        if _RE_TEST.search(prompt):
+            return "testing"
+
+    return activity
+
 
 async def compute_attribution(session: AsyncSession, job_id: str) -> None:
     """Compute and store cost attribution for a completed job.
 
     Reads all spans for the job, aggregates by dimension, writes
-    attribution rows, and updates summary turn stats.
+    attribution rows, and updates summary turn stats.  Uses keyword-based
+    intent analysis on the job prompt to refine coarse activity buckets
+    (e.g. ``code_changes`` → ``debugging``, ``refactoring``, ``feature_dev``).
+    Also detects edit→shell→edit retry loops for one-shot rate computation.
     """
     spans_repo = TelemetrySpansRepo(session)
     attr_repo = CostAttributionRepo(session)
@@ -55,6 +133,21 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
     if not spans:
         log.info("cost_attribution_skip_no_spans", job_id=job_id)
         return
+
+    # Fetch job prompt for keyword-based intent classification
+    job_prompt = ""
+    try:
+        from sqlalchemy import text as sa_text
+
+        result = await session.execute(
+            sa_text("SELECT prompt FROM jobs WHERE id = :job_id"),
+            {"job_id": job_id},
+        )
+        row = result.mappings().first()
+        if row:
+            job_prompt = row.get("prompt", "") or ""
+    except Exception:
+        log.debug("cost_attribution_prompt_fetch_failed", job_id=job_id, exc_info=True)
 
     # --- Aggregate by dimension ---
     by_activity: dict[str, dict[str, Any]] = defaultdict(lambda: _zero_bucket())
@@ -91,6 +184,12 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
             turn_contexts[int(turn)]["input_tokens"] += int(in_tok or 0)
             turn_contexts[int(turn)]["output_tokens"] += int(out_tok or 0)
 
+    # --- One-shot rate tracking ---
+    # Track edit→shell→edit retry patterns per turn, aggregated by activity.
+    one_shot_by_activity: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"edit_turns": 0, "one_shot_turns": 0, "retries": 0}
+    )
+
     for _turn_num, context in turn_contexts.items():
         weights = _derive_activity_weights(
             phase=context.get("phase"),
@@ -100,12 +199,19 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         if not weights:
             continue
 
+        # Apply keyword-based intent refinement
+        refined_weights: dict[str, int] = {}
+        tool_cats = context.get("tool_categories", [])
+        for raw_bucket, weight in weights.items():
+            refined = _refine_activity_by_intent(raw_bucket, tool_cats, job_prompt)
+            refined_weights[refined] = refined_weights.get(refined, 0) + weight
+
         turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
         turn_in = int(context.get("input_tokens", 0) or 0)
         turn_out = int(context.get("output_tokens", 0) or 0)
 
         allocations = _allocate_weighted_totals(
-            weights=weights,
+            weights=refined_weights,
             cost_usd=turn_cost,
             input_tokens=turn_in,
             output_tokens=turn_out,
@@ -118,6 +224,17 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
                 int(allocated["output_tokens"]),
                 call_count=1,
             )
+
+        # One-shot detection: does this turn have file_write tools?
+        has_edits = any(c in _WRITE_TOOL_CATEGORIES for c in tool_cats)
+        if has_edits:
+            retries = _count_edit_retries(context.get("tool_categories", []))
+            # Attribute to the dominant refined activity
+            dominant = max(refined_weights, key=refined_weights.get)  # type: ignore[arg-type]
+            one_shot_by_activity[dominant]["edit_turns"] += 1
+            one_shot_by_activity[dominant]["retries"] += retries
+            if retries == 0:
+                one_shot_by_activity[dominant]["one_shot_turns"] += 1
 
         # Phase dimension — aggregate by execution phase
         phase = context.get("phase")
@@ -132,6 +249,17 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         rows.append({"dimension": "turn", "bucket": str(turn_num), **data})
     for phase_name, data in by_phase.items():
         rows.append({"dimension": "phase", "bucket": phase_name, **data})
+    # One-shot rate rows (dimension="edit_efficiency")
+    for activity_bucket, stats in one_shot_by_activity.items():
+        if stats["edit_turns"] > 0:
+            rows.append({
+                "dimension": "edit_efficiency",
+                "bucket": activity_bucket,
+                "cost_usd": 0.0,
+                "input_tokens": stats["one_shot_turns"],
+                "output_tokens": stats["retries"],
+                "call_count": stats["edit_turns"],
+            })
 
     await attr_repo.insert_batch(job_id=job_id, rows=rows)
     log.info(
@@ -304,3 +432,31 @@ def _accumulate(bucket: dict[str, Any], cost: float, in_tok: int, out_tok: int, 
     bucket["input_tokens"] += int(in_tok or 0)
     bucket["output_tokens"] += int(out_tok or 0)
     bucket["call_count"] += int(call_count or 0)
+
+
+def _count_edit_retries(tool_categories: list[str]) -> int:
+    """Detect edit→shell→edit retry loops in a turn's tool sequence.
+
+    Walks the tool category sequence looking for the pattern:
+    file_write → shell → file_write (agent edited, ran test/build, had to edit again).
+    Each occurrence of this pattern counts as one retry.
+
+    Adapted from CodeBurn's ``countRetries`` (MIT license).
+    """
+    saw_edit = False
+    saw_shell_after_edit = False
+    retries = 0
+
+    for cat in tool_categories:
+        is_edit = cat in _WRITE_TOOL_CATEGORIES
+        is_shell = cat == "shell"
+
+        if is_edit:
+            if saw_shell_after_edit:
+                retries += 1
+            saw_edit = True
+            saw_shell_after_edit = False
+        if is_shell and saw_edit:
+            saw_shell_after_edit = True
+
+    return retries
