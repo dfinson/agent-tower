@@ -1435,4 +1435,9 @@ export const selectHoveredPlanItemId = (state: AppState) => state.hoveredPlanIte
 
 // Per-column selectors — only recompute when jobs in that column change
 
+// Expose the store on window so Playwright capture scripts can inject
+// test data (e.g. approval events) deterministically without relying on SSE timing.
+if (typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>)["__codeplane_store"] = useStore;
+}
 

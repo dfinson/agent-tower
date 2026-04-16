@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from backend.config import CPLConfig, init_config, load_config
+from backend.config import CPLConfig, init_config, load_config, save_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -76,3 +76,64 @@ def test_init_config_roundtrips(tmp_path: Path) -> None:
     assert config.server.port == 8080
     assert config.runtime.worktrees_dirname == ".codeplane-worktrees"
     assert config.retention.artifact_retention_days == 30
+
+
+# ---------------------------------------------------------------------------
+# TelemetryConfig
+# ---------------------------------------------------------------------------
+
+
+def test_telemetry_defaults(tmp_path: Path) -> None:
+    """Default TelemetryConfig has zero daily_spend_limit and empty instance_id field."""
+    cfg = CPLConfig()
+    assert cfg.telemetry.daily_spend_limit_usd == 0.0
+    assert cfg.telemetry.instance_id == ""  # before load_config auto-generates it
+
+
+def test_instance_id_auto_generated(tmp_path: Path) -> None:
+    """load_config auto-generates a UUID instance_id when not set in YAML."""
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("server:\n  port: 8080\n")
+    config = load_config(cfg_path)
+    assert config.telemetry.instance_id != ""
+    # Should look like a UUID
+    assert len(config.telemetry.instance_id) == 36
+    assert config.telemetry.instance_id.count("-") == 4
+
+
+def test_instance_id_stable_across_loads(tmp_path: Path) -> None:
+    """Once auto-generated, instance_id is persisted and stable across reloads."""
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("server:\n  port: 8080\n")
+    config1 = load_config(cfg_path)
+    config2 = load_config(cfg_path)
+    assert config1.telemetry.instance_id == config2.telemetry.instance_id
+
+
+def test_daily_spend_limit_roundtrip(tmp_path: Path) -> None:
+    """daily_spend_limit_usd survives save → load roundtrip."""
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("server:\n  port: 8080\n")
+    config = load_config(cfg_path)
+    config.telemetry.daily_spend_limit_usd = 5.0
+    save_config(config, cfg_path)
+
+    reloaded = load_config(cfg_path)
+    assert reloaded.telemetry.daily_spend_limit_usd == 5.0
+
+
+def test_telemetry_section_parsed_from_yaml(tmp_path: Path) -> None:
+    """Telemetry section in YAML is properly parsed."""
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        """\
+telemetry:
+  daily_spend_limit_usd: 10.0
+  instance_id: "my-instance-id"
+  otel_exporter_endpoint: "http://localhost:4317"
+"""
+    )
+    config = load_config(cfg_path)
+    assert config.telemetry.daily_spend_limit_usd == 10.0
+    assert config.telemetry.instance_id == "my-instance-id"
+    assert config.telemetry.otel_exporter_endpoint == "http://localhost:4317"

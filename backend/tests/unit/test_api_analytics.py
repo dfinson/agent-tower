@@ -104,7 +104,12 @@ async def test_scorecard_returns_data():
     with patch(
         "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepo",
         return_value=mock_repo_instance,
-    ):
+    ), patch("backend.config.load_config") as mock_load_config:
+        mock_cfg = SimpleNamespace(
+            telemetry=SimpleNamespace(daily_spend_limit_usd=25.0),
+        )
+        mock_load_config.return_value = mock_cfg
+
         from backend.api.analytics import analytics_scorecard
 
         result = await analytics_scorecard(session=session, period=7)
@@ -112,6 +117,7 @@ async def test_scorecard_returns_data():
     assert result.activity.total_jobs == 5
     assert len(result.budget) > 0
     assert result.budget[0].sdk == "copilot"
+    assert result.daily_spend_limit_usd == 25.0
 
 
 # ---------------------------------------------------------------------------
@@ -212,3 +218,40 @@ async def test_job_context_returns_error_on_missing():
         result = await analytics_job_context(job_id="nonexistent", session=session)
 
     assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Test fleet_cost_drivers confidence annotation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fleet_cost_drivers_confidence_annotation():
+    """fleet_cost_drivers adds confidence:'approximate' to activity dimension rows."""
+    session = AsyncMock()
+
+    mock_summary = [
+        {"dimension": "activity", "bucket": "edit", "cost_usd": 0.10},
+        {"dimension": "phase", "bucket": "agent_reasoning", "cost_usd": 0.50},
+        {"dimension": "activity", "bucket": "read", "cost_usd": 0.05},
+    ]
+
+    mock_repo_instance = SimpleNamespace(
+        fleet_summary=AsyncMock(return_value=mock_summary),
+    )
+
+    with patch(
+        "backend.persistence.cost_attribution_repo.CostAttributionRepo",
+        return_value=mock_repo_instance,
+    ):
+        from backend.api.analytics import fleet_cost_drivers
+
+        result = await fleet_cost_drivers(session=session, period=30, dimension=None)
+
+    summary = result["summary"]
+    assert len(summary) == 3
+    # Activity rows get "approximate"
+    assert summary[0]["confidence"] == "approximate"
+    assert summary[2]["confidence"] == "approximate"
+    # Non-activity rows get "exact"
+    assert summary[1]["confidence"] == "exact"
