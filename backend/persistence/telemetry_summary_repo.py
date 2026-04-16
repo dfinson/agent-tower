@@ -334,7 +334,9 @@ class TelemetrySummaryRepo(BaseRepository):
                     COALESCE(SUM(agent_error_count), 0) as total_agent_errors,
                     COALESCE(SUM(cache_read_tokens), 0) as total_cache_read,
                     COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-                    COALESCE(SUM(subagent_cost_usd), 0) as total_subagent_cost_usd
+                    COALESCE(SUM(subagent_cost_usd), 0) as total_subagent_cost_usd,
+                    COALESCE(SUM(retry_cost_usd), 0) as total_retry_cost_usd,
+                    COALESCE(SUM(retry_count), 0) as total_retry_count
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', '-{int(period_days)} days')
             """),

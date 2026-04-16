@@ -351,8 +351,8 @@ function ModelComparison({
   const exportModelsCsv = () => {
     downloadCsv(
       "codeplane-models.csv",
-      ["Model", "SDK", "Jobs", "Avg Cost", "Avg Duration (ms)", "Total Cost", "Merged", "PR Created", "Discarded", "Failed"],
-      models.map((m) => [m.model, m.sdk, m.jobCount, m.avgCost, m.avgDurationMs, m.totalCostUsd, m.merged, m.prCreated, m.discarded, m.failed]),
+      ["Model", "SDK", "Jobs", "Avg Cost", "Avg Duration (ms)", "Total Cost", "Merged", "PR Created", "Discarded", "Failed", "Cache Hit %"],
+      models.map((m) => [m.model, m.sdk, m.jobCount, m.avgCost, m.avgDurationMs, m.totalCostUsd, m.merged, m.prCreated, m.discarded, m.failed, m.cacheHitRate != null ? (m.cacheHitRate * 100).toFixed(1) : "0"]),
     );
   };
 
@@ -397,10 +397,16 @@ function ModelComparison({
                 <Tooltip content="Jobs whose output was discarded"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Discarded</span></Tooltip>
               </th>
               <th className="text-right py-1.5 px-2 font-medium">Failed</th>
+              <th className="text-right py-1.5 px-2 font-medium">
+                <Tooltip content="Cache hit rate — % of input tokens served from cache"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Cache %</span></Tooltip>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {models.map((m: ModelComparisonRow, i: number) => (
+            {models.map((m: ModelComparisonRow, i: number) => {
+              const cacheRate = m.cacheHitRate != null ? m.cacheHitRate * 100 : 0;
+              const cacheColor = cacheRate >= 60 ? "text-green-400" : cacheRate >= 30 ? "text-yellow-400" : "text-red-400";
+              return (
               <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
                 <td className="py-1.5 px-2">
                   <div className="flex items-center gap-1.5">
@@ -423,8 +429,9 @@ function ModelComparison({
                 <td className="text-right py-1.5 px-2">{m.prCreated > 0 ? <span className="text-cyan-400">{m.prCreated}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2">{m.discarded > 0 ? <span className="text-yellow-400">{m.discarded}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2">{m.failed > 0 ? <span className="text-red-400">{m.failed}</span> : <span className="text-muted-foreground">0</span>}</td>
+                <td className="text-right py-1.5 px-2"><span className={cacheColor}>{cacheRate.toFixed(0)}%</span></td>
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
       </div>
@@ -701,6 +708,13 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
     search_discovery: "Search & Discovery",
     other_tools: "Other Tools",
     bookkeeping: "Bookkeeping",
+    // Intent-refined activity categories
+    debugging: "Debugging",
+    refactoring: "Refactoring",
+    feature_dev: "Feature Dev",
+    testing: "Testing",
+    git_ops: "Git Ops",
+    build_deploy: "Build / Deploy",
     // Phase dimension values
     environment_setup: "Setup",
     agent_reasoning: "Reasoning",
@@ -718,6 +732,12 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
     search_discovery: "LLM cost for turns where the agent searched code or fetched URLs",
     other_tools: "LLM cost for turns using unclassified or custom tools",
     bookkeeping: "LLM cost for turns where the agent managed todos, memory, or intent",
+    debugging: "LLM cost for turns where the agent fixed bugs, errors, or failing code",
+    refactoring: "LLM cost for turns where the agent restructured, renamed, or simplified code",
+    feature_dev: "LLM cost for turns where the agent built new features or scaffolded components",
+    testing: "LLM cost for turns where the agent ran or wrote tests",
+    git_ops: "LLM cost for turns where the agent ran git commands (push, commit, merge, etc.)",
+    build_deploy: "LLM cost for turns where the agent ran build, install, or deploy commands",
   };
 
   const activityRows = useMemo(
