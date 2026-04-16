@@ -1119,6 +1119,7 @@ export const useStore = create<AppState>((set, get) => ({
           const toolCount = payload.toolCount as number | undefined;
           const filesWritten = payload.filesWritten as string[] | undefined;
           const durationMs = payload.durationMs as number | undefined;
+          const order = payload.order as number | undefined;
 
           const existing = state.plans[jobId] ?? [];
           const idx = existing.findIndex((s) => s.planStepId === planStepId);
@@ -1134,8 +1135,13 @@ export const useStore = create<AppState>((set, get) => ({
 
           let newPlan: PlanStep[];
           if (idx >= 0) {
+            // Update existing step in place
             newPlan = [...existing];
             newPlan[idx] = updated;
+          } else if (order === 0 && existing.length > 0) {
+            // New step with order=0 that doesn't exist in current plan →
+            // start of a new plan generation.  Replace the old plan.
+            newPlan = [updated];
           } else {
             newPlan = [...existing, updated];
           }

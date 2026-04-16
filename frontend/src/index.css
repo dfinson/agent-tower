@@ -52,3 +52,12 @@
 /* Monaco diff line highlighting */
 .diff-add-line { background: rgba(16, 185, 129, 0.12) !important; }
 .diff-add-decoration { background: #10b981 !important; width: 3px !important; margin-left: 2px; }
+
+/* Step title merge update — brief background flash */
+@keyframes step-title-update {
+  0%   { background: hsl(217 91% 60% / 0.15); }
+  100% { background: transparent; }
+}
+.animate-step-title-update {
+  animation: step-title-update 1.2s ease-out;
+}

@@ -4,6 +4,8 @@ import { ChevronDown, Network, Brain } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Codicon } from "./ui/codicon";
 import { resolveToolIcon, type ToolIconDef } from "../lib/toolIcons";
+import { detectLanguage } from "../lib/detectLanguage";
+import { SyntaxBlock } from "./SyntaxBlock";
 import type { TranscriptEntry } from "../store";
 
 // ---------------------------------------------------------------------------
@@ -129,9 +131,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             <span className="text-foreground/90">{command}</span>
           </div>
           {entry.toolResult && (
-            <div className="px-3 py-1.5">
-              <TruncatedPayload content={entry.toolResult} maxLength={600} />
-            </div>
+            <SyntaxBlock content={entry.toolResult} language="bash" maxLength={600} />
           )}
         </div>
       );
@@ -246,9 +246,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
           </div>
           {entry.toolResult && (
-            <div className="px-3 py-1.5">
-              <TruncatedPayload content={entry.toolResult} maxLength={800} />
-            </div>
+            <SyntaxBlock content={entry.toolResult} maxLength={800} />
           )}
         </div>
       );
@@ -272,6 +270,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
       const range = Array.isArray(viewRange) && viewRange.length >= 2
         ? `lines ${viewRange[0]}–${viewRange[1] === -1 ? "end" : viewRange[1]}`
         : null;
+      const lang = detectLanguage(path);
       return (
         <div className="font-mono text-xs">
           <div className={cn("px-3 py-1.5 flex items-center gap-2", entry.toolResult && "border-b border-border/30")}>
@@ -281,9 +280,13 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             {lines != null && <span className="text-muted-foreground/60">({lines} lines)</span>}
           </div>
           {entry.toolResult && (
-            <div className="px-3 py-1.5">
-              <TruncatedPayload content={entry.toolResult} maxLength={800} />
-            </div>
+            <SyntaxBlock
+              content={entry.toolResult}
+              language={lang}
+              maxLength={800}
+              showLineNumbers={!!viewRange}
+              startLine={Array.isArray(viewRange) ? viewRange[0] : 1}
+            />
           )}
         </div>
       );
@@ -302,9 +305,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             {lines != null && <span className="text-muted-foreground">→ {lines} files</span>}
           </div>
           {entry.toolResult && (
-            <div className="px-3 py-1.5">
-              <TruncatedPayload content={entry.toolResult} maxLength={800} />
-            </div>
+            <SyntaxBlock content={entry.toolResult} maxLength={800} />
           )}
         </div>
       );
@@ -326,9 +327,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             {lines != null && <span className="text-muted-foreground">→ {lines} matches</span>}
           </div>
           {entry.toolResult && (
-            <div className="px-3 py-1.5">
-              <TruncatedPayload content={entry.toolResult} maxLength={800} />
-            </div>
+            <SyntaxBlock content={entry.toolResult} maxLength={800} />
           )}
         </div>
       );
@@ -345,9 +344,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             {lines != null && <span className="text-muted-foreground/60">({lines} entries)</span>}
           </div>
           {entry.toolResult && (
-            <div className="px-3 py-1.5">
-              <TruncatedPayload content={entry.toolResult} maxLength={600} />
-            </div>
+            <SyntaxBlock content={entry.toolResult} maxLength={600} />
           )}
         </div>
       );
@@ -372,9 +369,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             )}
           </div>
           {entry.toolResult && (
-            <div className="px-3 py-1.5">
-              <TruncatedPayload content={entry.toolResult} maxLength={400} />
-            </div>
+            <SyntaxBlock content={entry.toolResult} maxLength={400} />
           )}
         </div>
       );
@@ -426,7 +421,7 @@ export function ToolDetail({ entry }: { entry: TranscriptEntry }) {
           {entry.toolResult && (
             <div className="px-3 py-1.5">
               <span className="text-muted-foreground font-medium text-[10px] uppercase">Output</span>
-              <TruncatedPayload content={entry.toolResult} />
+              <SyntaxBlock content={entry.toolResult} maxLength={500} />
             </div>
           )}
         </>
@@ -526,7 +521,7 @@ function SubAgentResult({ result }: { result: string }) {
       </button>
       {open && (
         <div className="px-2.5 pb-2 pt-1 border-t border-border/20 text-xs">
-          <TruncatedPayload content={result} maxLength={600} />
+          <SyntaxBlock content={result} maxLength={600} />
         </div>
       )}
     </div>

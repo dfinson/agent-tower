@@ -1,6 +1,8 @@
 import { memo, Component, Children, isValidElement, cloneElement, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-async-light";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 /** Error boundary for markdown rendering — shows raw text on crash. */
 class MarkdownErrorBoundary extends Component<{ fallback: string; children: ReactNode }, { hasError: boolean }> {
@@ -58,8 +60,27 @@ export const AgentMarkdown = memo(function AgentMarkdown({ content, highlight }:
           </blockquote>
         ),
         code: ({ className, children }) => {
-          const isBlock = className?.startsWith("language-");
-          return isBlock ? (
+          const match = /language-(\w+)/.exec(className ?? "");
+          const lang = match ? match[1] : undefined;
+          const code = String(children).replace(/\n$/, "");
+          return lang ? (
+            <div className="my-2 rounded-md border border-border overflow-hidden">
+              <SyntaxHighlighter
+                language={lang}
+                style={oneDark}
+                customStyle={{
+                  margin: 0,
+                  padding: "0.5rem 0.75rem",
+                  background: "var(--background)",
+                  fontSize: "12px",
+                  lineHeight: "1.55",
+                }}
+                wrapLongLines={false}
+              >
+                {code}
+              </SyntaxHighlighter>
+            </div>
+          ) : className?.startsWith("language-") ? (
             <pre className="bg-background border border-border rounded-md p-2 sm:p-3 my-2 overflow-x-auto max-w-full text-[13px] sm:text-xs font-mono">
               <code>{children}</code>
             </pre>

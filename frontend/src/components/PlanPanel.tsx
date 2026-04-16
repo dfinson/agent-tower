@@ -108,7 +108,7 @@ export function PlanPanel({ jobId }: { jobId: string }) {
       </div>
 
       {expanded && (
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-3 max-h-[200px] overflow-y-auto">
           <StepList steps={steps} onHover={setHoveredPlanItemId} />
         </div>
       )}

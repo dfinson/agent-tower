@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree } from "lucide-react";
 import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId } from "../store";
 import type { ActivityTimelineActivity } from "../store";
@@ -24,6 +24,57 @@ function StepDot({ active }: { active: boolean }) {
         active ? "bg-blue-400" : "bg-muted-foreground/70",
       )}
     />
+  );
+}
+
+/** Renders a single step with a brief flash when its title is updated (merge). */
+function StepButton({
+  step,
+  isActive,
+  isSelected,
+  searchActive,
+  onStepClick,
+}: {
+  step: { turnId: string; title: string };
+  isActive: boolean;
+  isSelected: boolean;
+  searchActive?: boolean;
+  onStepClick: (turnId: string) => void;
+}) {
+  const prevTitle = useRef(step.title);
+  const [updated, setUpdated] = useState(false);
+
+  useEffect(() => {
+    if (prevTitle.current !== step.title) {
+      prevTitle.current = step.title;
+      setUpdated(true);
+      const timer = setTimeout(() => setUpdated(false), 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [step.title]);
+
+  return (
+    <button
+      ref={isSelected && searchActive ? (el) => el?.scrollIntoView({ block: "nearest", behavior: "smooth" }) : undefined}
+      onClick={() => onStepClick(step.turnId)}
+      className={cn(
+        "flex items-start gap-1.5 w-full text-left py-2 px-2 rounded-sm transition-colors hover:bg-accent/50",
+        isSelected && "bg-primary/10 ring-1 ring-primary/50",
+        updated && "animate-step-title-update",
+      )}
+    >
+      <StepDot active={isActive} />
+      <span
+        className={cn(
+          "text-[13px] leading-snug transition-opacity duration-300",
+          isActive ? "text-foreground font-medium" : "text-foreground/70",
+          updated && "text-blue-400",
+        )}
+        title={step.title}
+      >
+        {step.title}
+      </span>
+    </button>
   );
 }
 
@@ -86,26 +137,14 @@ function ActivitySection({
             const isActive = isLast && i === activity.steps.length - 1 && activity.status === "active";
             const isSelected = selectedTurnId === step.turnId;
             return (
-              <button
+              <StepButton
                 key={step.turnId}
-                ref={isSelected && searchActive ? (el) => el?.scrollIntoView({ block: "nearest", behavior: "smooth" }) : undefined}
-                onClick={() => onStepClick(step.turnId)}
-                className={cn(
-                  "flex items-start gap-1.5 w-full text-left py-2 px-2 rounded-sm transition-colors hover:bg-accent/50",
-                  isSelected && "bg-primary/10 ring-1 ring-primary/50",
-                )}
-              >
-                <StepDot active={isActive} />
-                <span
-                  className={cn(
-                    "text-[13px] leading-snug",
-                    isActive ? "text-foreground font-medium" : "text-foreground/70",
-                  )}
-                  title={step.title}
-                >
-                  {step.title}
-                </span>
-              </button>
+                step={step}
+                isActive={isActive}
+                isSelected={isSelected}
+                searchActive={searchActive}
+                onStepClick={onStepClick}
+              />
             );
           })}
         </div>
