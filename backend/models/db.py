@@ -218,6 +218,8 @@ class JobTelemetrySpanRow(Base):
     # Motivation tracking (migration 0019)
     preceding_context = Column(Text, nullable=True)
     motivation_summary = Column(Text, nullable=True)
+    # Per-edit motivations with edit keys (migration 0021)
+    edit_motivations = Column(Text, nullable=True)  # JSON array
 
     __table_args__ = (
         Index("idx_spans_job", "job_id"),

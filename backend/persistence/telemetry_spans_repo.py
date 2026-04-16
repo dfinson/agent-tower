@@ -106,7 +106,8 @@ class TelemetrySpansRepo(BaseRepository):
                        is_retry, retries_span_id,
                        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                        cost_usd, tool_args_json, result_size_bytes, error_kind,
-                       turn_id, preceding_context, motivation_summary, created_at
+                       turn_id, preceding_context, motivation_summary,
+                       edit_motivations, created_at
                 FROM job_telemetry_spans
                 WHERE job_id = :job_id
                 ORDER BY started_at ASC
@@ -144,6 +145,32 @@ class TelemetrySpansRepo(BaseRepository):
             {"limit": limit},
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def unenriched_edit_spans(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """Return file_write spans that have motivation_summary but no edit_motivations."""
+        result = await self._session.execute(
+            text("""
+                SELECT id, job_id, name, tool_args_json, tool_target,
+                       preceding_context, motivation_summary
+                FROM job_telemetry_spans
+                WHERE preceding_context IS NOT NULL
+                  AND motivation_summary IS NOT NULL
+                  AND edit_motivations IS NULL
+                  AND tool_category = 'file_write'
+                ORDER BY id ASC
+                LIMIT :limit
+            """),
+            {"limit": limit},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def set_edit_motivations(self, span_id: int, edit_motivations_json: str) -> None:
+        """Store per-edit motivations JSON for a span."""
+        await self._session.execute(
+            text("UPDATE job_telemetry_spans SET edit_motivations = :em WHERE id = :span_id"),
+            {"span_id": span_id, "em": edit_motivations_json},
+        )
+        await self._session.flush()
 
     async def tool_stats(self, *, period_days: int = 30) -> list[dict[str, Any]]:
         """Aggregate tool performance stats for analytics."""

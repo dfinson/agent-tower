@@ -5,14 +5,19 @@ tool-call time for mutative actions) but no motivation_summary yet.
 Calls a cheap LLM (gpt-4o-mini via the configured utility model) to
 generate a concise explanation of *why* the change was made.
 
+Two-pass pipeline:
+1. File-level: preceding_context → motivation_summary (title + why per span)
+2. Edit-level: tool_args → edit_motivations (title + why per edit, with edit_key)
+
 Runs as a periodic drain loop during the application lifespan.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -36,11 +41,27 @@ _SYSTEM_PROMPT = (
     "Never fabricate references. Only cite what appears in the provided context."
 )
 
+_EDIT_SYSTEM_PROMPT = (
+    "You explain why a specific code edit was made. Write in abstract third person — no \"I\", "
+    "no \"the agent\", no \"this edit\", no \"this change\".\n\n"
+    "Output exactly two lines of plain text (no markdown, no headers, no bullets):\n"
+    "LINE 1: Title — ≤10 words. Name the specific change. No filler words.\n"
+    "LINE 2: WHY — 1-2 sentences. Only explain what isn't obvious from the diff. "
+    "Reference the specific prior finding, bug, or upstream change that caused this. "
+    "Cite concrete file paths, function names, finding IDs, or todo IDs from the context. "
+    "Never restate what the diff already shows. Never say \"aligns with\", \"ensures consistency\", "
+    "\"improves maintainability\", or similar filler.\n\n"
+    "Never fabricate references. Only cite what appears in the provided context."
+)
+
 # Batch size for each drain cycle
 _BATCH_SIZE = 20
 
 # Pause between drain cycles (seconds)
 _DRAIN_INTERVAL = 10.0
+
+# Max chars for old_str/new_str in the mini-diff display
+_DIFF_DISPLAY_MAX = 600
 
 
 def _build_user_prompt(
