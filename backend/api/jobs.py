@@ -1020,14 +1020,15 @@ async def get_job_telemetry(
     for span in spans:
         attrs = span.get("attrs", {})
         if span.get("span_type") == "tool":
-            tool_calls.append(
-                {
-                    "name": span["name"],
-                    "durationMs": float(span.get("duration_ms", 0)),
-                    "success": attrs.get("success", True),
-                    "offsetSec": float(span.get("started_at", 0)),
-                }
-            )
+            entry: dict[str, object] = {
+                "name": span["name"],
+                "durationMs": float(span.get("duration_ms", 0)),
+                "success": attrs.get("success", True),
+                "offsetSec": float(span.get("started_at", 0)),
+            }
+            if span.get("motivation_summary"):
+                entry["motivationSummary"] = span["motivation_summary"]
+            tool_calls.append(entry)
         elif span.get("span_type") == "llm":
             llm_calls.append(
                 {

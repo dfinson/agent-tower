@@ -42,6 +42,9 @@ class TelemetrySpansRepo(BaseRepository):
         tool_args_json: str | None = None,
         result_size_bytes: int | None = None,
         error_kind: str | None = None,
+        turn_id: str | None = None,
+        preceding_context: str | None = None,
+        motivation_summary: str | None = None,
     ) -> int:
         """Record a single LLM or tool call span. Returns the inserted row id."""
         now = datetime.now(UTC).isoformat()
@@ -54,14 +57,14 @@ class TelemetrySpansRepo(BaseRepository):
                      is_retry, retries_span_id,
                      input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                      cost_usd, tool_args_json, result_size_bytes, error_kind,
-                     created_at)
+                     turn_id, preceding_context, motivation_summary, created_at)
                 VALUES
                     (:job_id, :span_type, :name, :started_at, :duration_ms, :attrs_json,
                      :tool_category, :tool_target, :turn_number, :execution_phase,
                      :is_retry, :retries_span_id,
                      :input_tokens, :output_tokens, :cache_read_tokens, :cache_write_tokens,
                      :cost_usd, :tool_args_json, :result_size_bytes, :error_kind,
-                     :now)
+                     :turn_id, :preceding_context, :motivation_summary, :now)
             """),
             {
                 "job_id": job_id,
@@ -84,6 +87,9 @@ class TelemetrySpansRepo(BaseRepository):
                 "tool_args_json": tool_args_json,
                 "result_size_bytes": result_size_bytes,
                 "error_kind": error_kind,
+                "turn_id": turn_id,
+                "preceding_context": preceding_context,
+                "motivation_summary": motivation_summary,
                 "now": now,
             },
         )
@@ -100,7 +106,7 @@ class TelemetrySpansRepo(BaseRepository):
                        is_retry, retries_span_id,
                        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                        cost_usd, tool_args_json, result_size_bytes, error_kind,
-                       created_at
+                       turn_id, preceding_context, motivation_summary, created_at
                 FROM job_telemetry_spans
                 WHERE job_id = :job_id
                 ORDER BY started_at ASC
@@ -115,6 +121,29 @@ class TelemetrySpansRepo(BaseRepository):
                 row["is_retry"] = bool(row["is_retry"])
             rows.append(row)
         return rows
+
+    async def set_motivation_summary(self, span_id: int, summary: str) -> None:
+        """Update the motivation_summary for a span that has been summarized."""
+        await self._session.execute(
+            text("UPDATE job_telemetry_spans SET motivation_summary = :summary WHERE id = :span_id"),
+            {"span_id": span_id, "summary": summary},
+        )
+        await self._session.flush()
+
+    async def unsummarized_spans(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """Return spans that have preceding_context but no motivation_summary yet."""
+        result = await self._session.execute(
+            text("""
+                SELECT id, job_id, name, tool_args_json, preceding_context
+                FROM job_telemetry_spans
+                WHERE preceding_context IS NOT NULL
+                  AND motivation_summary IS NULL
+                ORDER BY id ASC
+                LIMIT :limit
+            """),
+            {"limit": limit},
+        )
+        return [dict(r) for r in result.mappings().all()]
 
     async def tool_stats(self, *, period_days: int = 30) -> list[dict[str, Any]]:
         """Aggregate tool performance stats for analytics."""

@@ -211,12 +211,18 @@ class JobTelemetrySpanRow(Base):
     tool_args_json = Column(Text, nullable=True)
     result_size_bytes = Column(Integer, nullable=True)
     error_kind = Column(String, nullable=True)
+    # Transcript linkage (migration 0018)
+    turn_id = Column(String, nullable=True)
+    # Motivation tracking (migration 0019)
+    preceding_context = Column(Text, nullable=True)
+    motivation_summary = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("idx_spans_job", "job_id"),
         Index("idx_spans_category", "tool_category"),
         Index("idx_spans_turn", "job_id", "turn_number"),
         Index("idx_spans_phase", "execution_phase"),
+        Index("idx_spans_turn_id", "job_id", "turn_id"),
     )
 
 

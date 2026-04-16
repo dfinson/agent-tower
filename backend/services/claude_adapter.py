@@ -599,6 +599,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 success=success,
                 duration_ms=duration_ms,
                 result_text=result_text,
+                turn_id=turn_id,
             )
 
     def _process_result_message(
@@ -649,6 +650,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 cost_usd=float(total_cost_usd),
                 is_subagent=False,
                 num_turns=int(num_turns),
+                turn_id=self._current_turn_ids.get(session_id),
             )
 
         self._enqueue_log(

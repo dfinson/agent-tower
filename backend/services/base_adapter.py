@@ -82,6 +82,12 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._current_phases: dict[str, str] = {}
         self._retry_trackers: dict[str, RetryTracker] = {}
         self._write_tasks: list[asyncio.Task[None]] = []
+        # Ring buffer of recent transcript entries per job for motivation capture.
+        # Each entry is a compact dict with role, content (truncated), and optional
+        # tool_name.  Kept to _TRANSCRIPT_BUFFER_SIZE entries per job.
+        self._transcript_buffers: dict[str, list[dict[str, str]]] = {}
+
+    _TRANSCRIPT_BUFFER_SIZE = 10  # keep last N entries per job
 
     # ------------------------------------------------------------------
     # Queue management
@@ -91,6 +97,87 @@ class BaseAgentAdapter(AgentAdapterInterface):
         q = self._queues.get(session_id)
         if q is not None:
             q.put_nowait(event)
+        # Buffer transcript events for motivation context capture
+        if event.kind == SessionEventKind.transcript:
+            self._buffer_transcript(session_id, event.payload)
+
+    # ------------------------------------------------------------------
+    # Transcript ring buffer for motivation context
+    # ------------------------------------------------------------------
+
+    _TRANSCRIPT_CONTENT_MAX = 800  # truncate content in buffer entries
+
+    def _buffer_transcript(self, session_id: str, payload: dict[str, Any]) -> None:
+        """Append a compact transcript entry to the per-job ring buffer."""
+        job_id = self._session_to_job.get(session_id)
+        if not job_id:
+            return
+        role = payload.get("role", "")
+        # Skip deltas — only buffer complete messages and tool calls
+        if role in ("agent_delta", "reasoning_delta", "tool_output_delta", "tool_running"):
+            return
+        content = str(payload.get("content", ""))[:self._TRANSCRIPT_CONTENT_MAX]
+        entry: dict[str, str] = {"role": role, "content": content}
+        tool_name = payload.get("tool_name")
+        if tool_name:
+            entry["tool_name"] = str(tool_name)
+            tool_args = payload.get("tool_args")
+            if tool_args:
+                entry["tool_args"] = str(tool_args)[:self._TRANSCRIPT_CONTENT_MAX]
+        buf = self._transcript_buffers.setdefault(job_id, [])
+        buf.append(entry)
+        # Trim to ring buffer size
+        if len(buf) > self._TRANSCRIPT_BUFFER_SIZE:
+            del buf[: len(buf) - self._TRANSCRIPT_BUFFER_SIZE]
+
+    def _snapshot_preceding_context(self, job_id: str, count: int = 5) -> str | None:
+        """Return JSON array of the last *count* transcript entries, or None."""
+        buf = self._transcript_buffers.get(job_id)
+        if not buf:
+            return None
+        entries = buf[-count:]
+        return json.dumps(entries, ensure_ascii=False)
+
+    # Mutative shell command prefixes — commands that modify the filesystem,
+    # repository, or environment.  Matched against the first token(s) of a
+    # bash tool's command string.
+    _MUTATIVE_SHELL_PREFIXES: frozenset[str] = frozenset({
+        "git commit", "git add", "git push", "git checkout", "git merge",
+        "git rebase", "git reset", "git stash", "git cherry-pick", "git tag",
+        "git branch -d", "git branch -D", "git branch -m",
+        "mkdir", "mv", "rm", "cp", "ln", "chmod", "chown", "touch",
+        "pip install", "pip uninstall",
+        "uv add", "uv remove", "uv sync", "uv pip install",
+        "npm install", "npm uninstall", "npm ci", "yarn add", "yarn remove",
+        "pnpm add", "pnpm remove",
+        "docker build", "docker run", "docker compose up",
+        "make", "cargo build", "go build",
+    })
+
+    @classmethod
+    def _is_mutative_shell(cls, tool_args_str: str | None) -> bool:
+        """Return True if the shell command appears to modify state."""
+        if not tool_args_str:
+            return False
+        try:
+            parsed = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
+        except (json.JSONDecodeError, TypeError):
+            return False
+        cmd = str(parsed.get("command", "")) if isinstance(parsed, dict) else ""
+        if not cmd:
+            return False
+        cmd_lower = cmd.strip().lower()
+        return any(cmd_lower.startswith(prefix) for prefix in cls._MUTATIVE_SHELL_PREFIXES)
+
+    def _maybe_capture_context(
+        self, job_id: str, category: str, tool_args_str: str | None,
+    ) -> str | None:
+        """Capture preceding transcript context for mutative tool actions."""
+        if category == "file_write" or category == "git_write":
+            return self._snapshot_preceding_context(job_id)
+        if category == "shell" and self._is_mutative_shell(tool_args_str):
+            return self._snapshot_preceding_context(job_id)
+        return None
 
     def _enqueue_log(
         self,
@@ -155,6 +242,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             self._turn_counters.pop(job_id, None)
             self._current_phases.pop(job_id, None)
             self._retry_trackers.pop(job_id, None)
+            self._transcript_buffers.pop(job_id, None)
 
     # ------------------------------------------------------------------
     # DB write pipeline
@@ -333,6 +421,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         cost_usd: float,
         is_subagent: bool = False,
         num_turns: int = 1,
+        turn_id: str | None = None,
     ) -> None:
         """Insert an LLM span into the telemetry_spans table."""
         turn_num = self._turn_counters.get(job_id, 0)
@@ -364,6 +453,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 cache_read_tokens=cache_read,
                 cache_write_tokens=cache_write,
                 cost_usd=cost_usd,
+                turn_id=turn_id,
             )
         )
 
@@ -378,6 +468,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         success: bool,
         duration_ms: float,
         result_text: str,
+        turn_id: str | None = None,
     ) -> None:
         """Record OTEL + DB metrics for a tool execution.
 
@@ -458,6 +549,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         # Span detail
         job_start = self._job_start_times.get(job_id, time.monotonic())
         offset = time.monotonic() - job_start
+
+        # Capture preceding context for mutative actions
+        preceding_context = self._maybe_capture_context(job_id, category, tool_args_str)
+
         self._schedule_db_write(
             self._db_write(
                 "insert_span",
@@ -478,6 +573,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 retries_span_id=retry_result.prior_failure_span_id,
                 tool_args_json=tool_args_str,
                 result_size_bytes=result_size,
+                turn_id=turn_id,
+                preceding_context=preceding_context,
             )
         )
 
