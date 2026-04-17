@@ -1041,7 +1041,9 @@ class ProgressTrackingService:
                     ps.completed_at = now
                 await self._emit_plan_step(job_id, ps)
             elif ps.status == "pending":
-                ps.status = "skipped"
+                ps.status = "done" if succeeded else "skipped"
+                if ps.status == "done":
+                    ps.completed_at = now
                 await self._emit_plan_step(job_id, ps)
 
         # Mark the last activity as done
