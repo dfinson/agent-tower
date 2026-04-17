@@ -5,54 +5,37 @@
  * filename links. Clicking a link selects that file in the diff sidebar.
  */
 
-import { useEffect, useState, useCallback, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useEffect, useState, useCallback } from "react";
 import { BookOpen, ChevronDown, RefreshCw } from "lucide-react";
 import { fetchJobStory } from "../api/client";
-import type { StoryBlock, StoryResponse } from "../api/types";
+import type { StoryBlock, StoryResponse, DiffFileModel } from "../api/types";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 
-export interface StoryRefHandler {
-  /** Called when the user clicks an inline file reference. */
-  onRefClick: (file: string, turnId?: string) => void;
-}
-
 interface StoryBannerProps {
   jobId: string;
-  handlers: StoryRefHandler;
+  diffs: DiffFileModel[];
+  onSelectFile: (idx: number) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Inline reference link
-// ---------------------------------------------------------------------------
-
-function RefLink({
-  block,
-  onClick,
-}: {
-  block: StoryBlock;
-  onClick: () => void;
-}) {
-  const fileName = block.file?.split("/").pop() ?? block.file ?? "file";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-0.5 text-primary hover:text-primary/80 font-mono text-[11px] underline underline-offset-2 decoration-primary/40 hover:decoration-primary transition-colors mx-0.5"
-      title={block.file ?? undefined}
-    >
-      {fileName}
-    </button>
-  );
+/** Find the index of a file in diffs by matching the tail of the path. */
+function findFileIdx(diffs: DiffFileModel[], file: string): number {
+  // Try exact match first
+  let idx = diffs.findIndex((d) => d.path === file);
+  if (idx >= 0) return idx;
+  // Try tail match — story paths are absolute, diff paths are relative
+  idx = diffs.findIndex((d) => file.endsWith("/" + d.path) || file.endsWith(d.path));
+  if (idx >= 0) return idx;
+  // Try basename match as last resort
+  const basename = file.split("/").pop() ?? "";
+  return diffs.findIndex((d) => d.path.split("/").pop() === basename);
 }
 
 // ---------------------------------------------------------------------------
 // Banner
 // ---------------------------------------------------------------------------
 
-export function StoryBanner({ jobId, handlers }: StoryBannerProps) {
+export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
   const [story, setStory] = useState<StoryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
@@ -68,7 +51,6 @@ export function StoryBanner({ jobId, handlers }: StoryBannerProps) {
         setStory(data);
         setLoaded(true);
       } catch {
-        // silently degrade — story is optional
         setLoaded(true);
       } finally {
         setLoading(false);
@@ -78,52 +60,24 @@ export function StoryBanner({ jobId, handlers }: StoryBannerProps) {
     [jobId],
   );
 
-  // Lazy load: only fetch when first expanded
   useEffect(() => {
     if (open && !loaded) load();
   }, [open, loaded, load]);
 
   const hasStory = story && story.blocks.length > 0;
 
-  // Build renderable content: interleave narrative spans and inline ref links
-  const renderBlocks = useCallback((): ReactNode[] => {
-    if (!story) return [];
-    const nodes: ReactNode[] = [];
-    for (const [i, block] of story.blocks.entries()) {
-      if (block.type === "narrative" && block.text) {
-        nodes.push(
-          <ReactMarkdown
-            key={`n-${i}`}
-            remarkPlugins={[remarkGfm]}
-            components={{
-              p: ({ children }) => <span className="[&:not(:first-child)]:mt-1.5 block">{children}</span>,
-              strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-              em: ({ children }) => <em>{children}</em>,
-              h1: ({ children }) => <span className="block font-semibold text-foreground mt-3 mb-1">{children}</span>,
-              h2: ({ children }) => <span className="block font-semibold text-foreground mt-3 mb-1">{children}</span>,
-              h3: ({ children }) => <span className="block font-semibold text-foreground mt-2 mb-1">{children}</span>,
-              code: ({ children }) => <code className="text-[11px] bg-muted/60 rounded px-1 py-0.5 font-mono">{children}</code>,
-            }}
-          >
-            {block.text}
-          </ReactMarkdown>,
-        );
-      } else if (block.type === "reference") {
-        nodes.push(
-          <RefLink
-            key={`r-${i}`}
-            block={block}
-            onClick={() => handlers.onRefClick(block.file ?? "", block.turnId ?? undefined)}
-          />,
-        );
-      }
-    }
-    return nodes;
-  }, [story, handlers]);
+  /** Handle ref click — resolve file index and select it. */
+  const handleRefClick = useCallback(
+    (block: StoryBlock) => {
+      if (!block.file) return;
+      const idx = findFileIdx(diffs, block.file);
+      if (idx >= 0) onSelectFile(idx);
+    },
+    [diffs, onSelectFile],
+  );
 
   return (
     <div className="rounded-lg border border-border/60 bg-card">
-      {/* Toggle header */}
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -140,7 +94,6 @@ export function StoryBanner({ jobId, handlers }: StoryBannerProps) {
         />
       </button>
 
-      {/* Expandable content */}
       {open && (
         <div className="border-t border-border/40 px-3 py-2.5">
           {loading && (
@@ -156,9 +109,28 @@ export function StoryBanner({ jobId, handlers }: StoryBannerProps) {
 
           {hasStory && (
             <>
-              <div className="text-sm text-muted-foreground leading-relaxed space-y-0.5">
-                {renderBlocks()}
-              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {story!.blocks.map((block, i) => {
+                  if (block.type === "narrative" && block.text) {
+                    return <span key={`n-${i}`}>{block.text}</span>;
+                  }
+                  if (block.type === "reference" && block.file) {
+                    const fileName = block.file.split("/").pop() ?? "file";
+                    return (
+                      <button
+                        key={`r-${i}`}
+                        type="button"
+                        onClick={() => handleRefClick(block)}
+                        className="inline text-primary hover:text-primary/80 font-mono text-[11px] underline underline-offset-2 decoration-primary/40 hover:decoration-primary transition-colors mx-0.5"
+                        title={block.file}
+                      >
+                        {fileName}
+                      </button>
+                    );
+                  }
+                  return null;
+                })}
+              </p>
               <div className="flex justify-end mt-2 pt-1.5 border-t border-border/30">
                 <button
                   type="button"
