@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -13,6 +13,7 @@ import { lazyRetry } from "../lib/lazyRetry";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
 import { MetricsPanel } from "./MetricsPanel";
+import { StoryPanel } from "./StoryPanel";
 import { CompleteJobDialog } from "./CompleteJobDialog";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
@@ -911,6 +912,7 @@ export function JobDetailScreen() {
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
             <TabsTrigger value="metrics"><BarChart3 size={13} className="mr-1.5" />Metrics</TabsTrigger>
+            <TabsTrigger value="story"><BookOpen size={13} className="mr-1.5" />Story</TabsTrigger>
             {hasArtifacts && (
               <TabsTrigger value="artifacts">
                 Artifacts
@@ -966,6 +968,9 @@ export function JobDetailScreen() {
             </TabsTrigger>
             <TabsTrigger value="metrics" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
               <BarChart3 size={12} className="mr-1" />Metrics
+            </TabsTrigger>
+            <TabsTrigger value="story" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
+              <BookOpen size={12} className="mr-1" />Story
             </TabsTrigger>
             {hasArtifacts && (
               <TabsTrigger value="artifacts" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
@@ -1105,6 +1110,16 @@ export function JobDetailScreen() {
 
       {tab === "metrics" && (
         <MetricsPanel jobId={jobId} isRunning={isRunning} />
+      )}
+
+      {tab === "story" && (
+        <StoryPanel
+          jobId={jobId}
+          onNavigateToStep={(stepNumber) => {
+            setStepFilter({ filePaths: [], label: `Step ${stepNumber}`, turnId: String(stepNumber) });
+            setTab("diff");
+          }}
+        />
       )}
 
       {tab === "artifacts" && (

@@ -976,6 +976,30 @@ class RestoreRequest(CamelModel):
     sha: str
 
 
+class StoryBlock(CamelModel):
+    """A single block in a structured code-review story."""
+
+    type: str  # "narrative" or "reference"
+    # Narrative fields
+    text: str | None = None
+    # Reference fields
+    span_id: int | None = None
+    step_number: int | None = None
+    step_title: str | None = None
+    file: str | None = None
+    why: str | None = None
+    turn_id: str | None = None
+    edit_count: int | None = None
+
+
+class StoryResponse(CamelModel):
+    """Structured code-review story with validated change references."""
+
+    job_id: str
+    blocks: list[StoryBlock] = []
+    cached: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Hub Telemetry Push (future)
 # ---------------------------------------------------------------------------

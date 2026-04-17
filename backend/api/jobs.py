@@ -33,6 +33,8 @@ from backend.models.api_schemas import (
     RestoreRequest,
     ResumeJobRequest,
     StepDiffPayload,
+    StoryBlock,
+    StoryResponse,
     SuggestNamesRequest,
     SuggestNamesResponse,
     TranscriptPayload,
@@ -1109,7 +1111,20 @@ async def get_job_snapshot(
         if (p := step_latest[sid])
     ]
 
-    # Build turn summaries for the activity timeline
+    # Build turn summaries for the activity timeline.
+    # De-duplicate by turn_id: keep the LAST event per turn_id so label
+    # refinements and merge updates are reflected, but preserve the FIRST
+    # event's is_new_activity flag (the re-emit from _refine_activity_label
+    # always sends is_new_activity=False which would erase the boundary).
+    _turn_first_new: dict[str, bool] = {}  # turn_id → first is_new_activity
+    _turn_latest: dict[str, int] = {}
+    for idx, ev in enumerate(turn_summary_events):
+        tid = ev.payload.get("turn_id", "")
+        if tid:
+            if tid not in _turn_first_new:
+                _turn_first_new[tid] = bool(ev.payload.get("is_new_activity", False))
+            _turn_latest[tid] = idx
+    _keep_idxs = set(_turn_latest.values())
     turn_summaries = [
         TurnSummaryPayload(
             job_id=job_id,
@@ -1118,10 +1133,10 @@ async def get_job_snapshot(
             activity_id=ev.payload.get("activity_id", ""),
             activity_label=ev.payload.get("activity_label", ""),
             activity_status=ev.payload.get("activity_status", "active"),
-            is_new_activity=bool(ev.payload.get("is_new_activity", False)),
+            is_new_activity=_turn_first_new.get(ev.payload.get("turn_id", ""), False),
         )
-        for ev in turn_summary_events
-        if ev.payload.get("turn_id") and ev.payload.get("title")
+        for idx, ev in enumerate(turn_summary_events)
+        if idx in _keep_idxs and ev.payload.get("turn_id") and ev.payload.get("title")
     ]
 
     resp = JobSnapshotResponse(
@@ -1432,3 +1447,33 @@ async def unarchive_job(
     """Archived jobs are final and cannot be returned to the active board."""
     await svc.get_job(job_id)
     raise HTTPException(status_code=409, detail="Archived jobs are complete; create a follow-up job instead.")
+
+
+@router.get("/jobs/{job_id}/story", response_model=StoryResponse)
+async def get_job_story(
+    job_id: str,
+    session: FromDishka[AsyncSession],
+    sister_sessions: FromDishka[SisterSessionManager],
+    regenerate: bool = False,
+) -> StoryResponse:
+    """Return a structured code-review story with validated change references.
+
+    Generated on demand using a cheap LLM for connective prose, with change
+    references built directly from telemetry spans.  Cached on the jobs table.
+    Pass ?regenerate=true to force a fresh generation.
+    """
+    from backend.services.story_service import StoryService
+
+    service = StoryService(completer=sister_sessions)
+
+    if regenerate:
+        payload = await service.regenerate(session, job_id)
+    else:
+        payload = await service.get_or_generate(session, job_id)
+
+    if not payload:
+        return StoryResponse(job_id=job_id, blocks=[], cached=False)
+
+    blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
+    cached = not regenerate and bool(blocks)
+    return StoryResponse(job_id=job_id, blocks=blocks, cached=cached)

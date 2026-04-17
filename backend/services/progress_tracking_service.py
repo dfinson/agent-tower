@@ -176,11 +176,14 @@ Previous steps in this activity:
 Agent reasoning context (recent transcript before this turn):
 {preceding_context}
 
-Generate a concise title (4-10 words) describing the OUTCOME, not the action.
-Bad: "Reading loop.py"           Good: "Found 8 unannotated functions in loop.py"
-Bad: "Editing files"              Good: "Annotated 3 functions in prompts.py"
-Bad: "Exploring codebase"         Good: "Mapped 22 Python files across 8 modules"
-Bad: "Fixing docstrings in loop"  Good: "Added docstrings to 5 functions in loop.py"
+Generate a concise title (4-10 words) describing WHAT WAS DONE, not observations.
+The title must be an action the agent performed, not a status or finding.
+Bad: "All 9 tests pass"              Good: "Ran test suite — all 9 pass"
+Bad: "Issues catalogued"             Good: "Catalogued 6 code smells across 3 files"
+Bad: "Reading loop.py"               Good: "Found 8 unannotated functions in loop.py"
+Bad: "Editing files"                 Good: "Annotated 3 functions in prompts.py"
+Bad: "Exploring codebase"            Good: "Mapped 22 Python files across 8 modules"
+Bad: "Code looks clean"              Good: "Reviewed 5 modules, found no issues"
 
 Include file names and quantities when relevant.
 Use the reasoning context to explain WHY when the turn is driven by a prior
