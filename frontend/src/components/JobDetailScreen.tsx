@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, BookOpen } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, BookOpen, Radio, Package } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -23,7 +23,6 @@ import { Tooltip } from "./ui/tooltip";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
-import { Sheet } from "./ui/sheet";
 import { BottomSheet } from "./ui/bottom-sheet";
 import type { StepFilter } from "./DiffViewer";
 
@@ -77,7 +76,6 @@ export function JobDetailScreen() {
   const [searchActive, setSearchActive] = useState(false);
   // Reset selectedTurnId when navigating to a different job
   useEffect(() => { setSelectedTurnId(null); setSearchActive(false); }, [jobId]);
-  const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
@@ -941,70 +939,10 @@ export function JobDetailScreen() {
           )}
 
         </div>
-
-        {/* Mobile layout: horizontally scrollable tab strip showing all tabs */}
-        <div className="flex sm:hidden items-center overflow-x-auto scrollbar-none border-b border-border bg-card/80 px-1">
-          <TabsList className="bg-transparent gap-0 p-0 h-auto">
-            <TabsTrigger value="live" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
-              Live
-            </TabsTrigger>
-            <button
-              type="button"
-              onClick={() => setMobileActivityOpen(true)}
-              className={cn(
-                "inline-flex items-center whitespace-nowrap px-3 py-2.5 text-xs font-medium transition-all border-b-2 shrink-0",
-                mobileActivityOpen
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <ListTree size={12} className="mr-1" />Activity
-            </button>
-            <TabsTrigger value="diff" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
-              <GitBranch size={12} className="mr-1" />Changes
-            </TabsTrigger>
-            <TabsTrigger value="files" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
-              <FolderTree size={12} className="mr-1" />Files
-            </TabsTrigger>
-            <TabsTrigger value="metrics" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
-              <BarChart3 size={12} className="mr-1" />Metrics
-            </TabsTrigger>
-            <TabsTrigger value="story" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
-              <BookOpen size={12} className="mr-1" />Story
-            </TabsTrigger>
-            {hasArtifacts && (
-              <TabsTrigger value="artifacts" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
-                Artifacts
-                {artifactCount > 0 && (
-                  <span className="ml-1 text-[10px] bg-muted text-muted-foreground rounded-full px-1 py-0.5 font-normal">{artifactCount}</span>
-                )}
-              </TabsTrigger>
-            )}
-          </TabsList>
-        </div>
       </Tabs>
 
-      {/* Mobile activity sheet (hidden on lg+ where sidebar is used) */}
-      <div className="lg:hidden">
-        <Sheet open={mobileActivityOpen} onClose={() => setMobileActivityOpen(false)} title="Activity" side="left">
-          <div className="-mx-4 -mt-4">
-            <ActivityTimeline
-              jobId={jobId}
-              jobState={job.state}
-              onStepClick={(turnId) => {
-                setMobileActivityOpen(false);
-                setScrollToTurnId(turnId);
-                setSelectedTurnId(turnId);
-              }}
-              selectedTurnId={selectedTurnId}
-              searchActive={searchActive}
-            />
-          </div>
-        </Sheet>
-      </div>
-
       {/* Tab content — full-bleed on mobile, min-height on desktop */}
-      <div className={cn("min-h-0 sm:min-h-[80dvh]")}>
+      <div className={cn("min-h-0 pb-[52px] sm:pb-0 sm:min-h-[80dvh]")}>
       {tab === "live" && (
         <div className="flex flex-row">
           {/* Activity Timeline sidebar — hidden on small screens */}
@@ -1059,7 +997,7 @@ export function JobDetailScreen() {
             </div>
           )}
           <div className="flex flex-col gap-4 flex-1 min-w-0 lg:pl-2">
-            <div className="h-[calc(100dvh-77px)] sm:h-[80dvh] min-h-[22rem]">
+            <div className="h-[calc(100dvh-92px)] sm:h-[80dvh] min-h-[22rem]">
               <CuratedFeed
                 jobId={jobId}
                 sdk={job.sdk}
@@ -1122,6 +1060,23 @@ export function JobDetailScreen() {
         />
       )}
 
+      {/* Mobile-only activity tab — on desktop activity lives in the sidebar */}
+      {tab === "activity" && (
+        <div className="sm:hidden h-[calc(100dvh-92px)] rounded-lg border border-border bg-card overflow-hidden">
+          <ActivityTimeline
+            jobId={jobId}
+            jobState={job.state}
+            onStepClick={(turnId) => {
+              setScrollToTurnId(turnId);
+              setSelectedTurnId(turnId);
+              setTab("live");
+            }}
+            selectedTurnId={selectedTurnId}
+            searchActive={searchActive}
+          />
+        </div>
+      )}
+
       {tab === "artifacts" && (
         <TabErrorBoundary>
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
@@ -1131,9 +1086,9 @@ export function JobDetailScreen() {
       )}
       </div>{/* end tab content min-height wrapper */}
 
-      {/* ── Mobile contextual footer — shows review actions when on Changes tab ── */}
+      {/* ── Mobile contextual footer — shows review actions above the bottom tab bar ── */}
       {needsResolution && hasChanges && tab === "diff" && (
-        <div className="fixed bottom-0 inset-x-0 z-40 flex sm:hidden items-center justify-center gap-2 px-3 py-2.5 border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb">
+        <div className="fixed bottom-[52px] inset-x-0 z-40 flex sm:hidden items-center justify-center gap-2 px-3 py-2 border-t border-border bg-card/95 backdrop-blur-sm">
           {!hasMergeConflict && (
             <Button size="sm" className="flex-1 gap-1" loading={resolveLoading === "smart_merge"} disabled={resolveLoading !== null} onClick={() => handleResolve("smart_merge")}>
               <GitMerge size={14} /> Merge
@@ -1152,6 +1107,32 @@ export function JobDetailScreen() {
           </Button>
         </div>
       )}
+
+      {/* ── Mobile bottom tab bar (iOS-style) ── */}
+      <nav className="fixed bottom-0 inset-x-0 z-50 sm:hidden flex items-end justify-around border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb" style={{ height: 52 }}>
+        {[
+          { id: "live", icon: Radio, label: "Live" },
+          { id: "activity", icon: ListTree, label: "Activity" },
+          { id: "diff", icon: GitBranch, label: "Changes" },
+          { id: "files", icon: FolderTree, label: "Files" },
+          { id: "metrics", icon: BarChart3, label: "Metrics" },
+          ...(hasArtifacts ? [{ id: "artifacts", icon: Package, label: "Artifacts" }] : []),
+        ].map(({ id, icon: Icon, label }) => (
+          <button
+            key={id}
+            onClick={() => handleTabChange(id)}
+            className={cn(
+              "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors",
+              tab === id
+                ? "text-primary"
+                : "text-muted-foreground active:text-foreground",
+            )}
+          >
+            <Icon size={20} strokeWidth={tab === id ? 2.5 : 1.5} />
+            <span className={cn("text-[10px] leading-tight truncate", tab === id && "font-semibold")}>{label}</span>
+          </button>
+        ))}
+      </nav>
 
       <ConfirmDialog
         open={cancelOpen}

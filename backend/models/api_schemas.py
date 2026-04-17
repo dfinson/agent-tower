@@ -98,7 +98,9 @@ class TranscriptRole(StrEnum):
     operator = "operator"
     tool_call = "tool_call"
     tool_running = "tool_running"
+    tool_output_delta = "tool_output_delta"  # streaming tool output chunk
     reasoning = "reasoning"
+    reasoning_delta = "reasoning_delta"  # streaming reasoning chunk
     divider = "divider"
 
 

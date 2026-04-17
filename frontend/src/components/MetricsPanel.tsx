@@ -551,7 +551,6 @@ function SortHeader({
 // ---------------------------------------------------------------------------
 
 export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRunning?: boolean }) {
-  const [collapsed, setCollapsed] = useState(false);
   const [toolsCollapsed, setToolsCollapsed] = useState(true);
   const [llmCollapsed, setLlmCollapsed] = useState(true);
   const [llmMainExpanded, setLlmMainExpanded] = useState(false);
@@ -619,10 +618,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
     loadCheckpoints();
     return () => { cancelled = true; };
   }, [jobId]);
-
-  const headerStats = data?.available
-    ? `${formatTokens(data.totalTokens ?? 0)} tokens · ${data.toolCallCount ?? 0} tools · ${formatDuration(data.durationMs ?? 0)}`
-    : null;
 
   const fails = (data?.toolCalls ?? []).filter((t) => !t.success).length;
 
@@ -697,22 +692,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
-      {/* Collapsible header */}
-      <button
-        type="button"
-        onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center gap-2 px-4 py-2.5 border-b border-border hover:bg-accent/30 transition-colors text-left"
-      >
-        {collapsed ? <ChevronRight size={14} className="text-muted-foreground shrink-0" /> : <ChevronDown size={14} className="text-muted-foreground shrink-0" />}
-        <BarChart3 size={14} className="text-muted-foreground shrink-0" />
-        <span className="text-sm font-semibold text-muted-foreground">Metrics</span>
-        {headerStats && (
-          <span className="text-xs text-muted-foreground ml-auto hidden sm:block">{headerStats}</span>
-        )}
-      </button>
-
-      {!collapsed && (
-        <div className="space-y-4 p-4">
+      <div className="space-y-4 p-4">
           {loading ? (
             <div className="flex justify-center py-8"><Spinner size="sm" /></div>
           ) : !data?.available ? (
@@ -1227,7 +1207,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
             </>
           )}
         </div>
-      )}
     </div>
   );
 }
