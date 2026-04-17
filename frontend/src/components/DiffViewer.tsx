@@ -13,7 +13,7 @@ import { MicButton } from "./VoiceButton";
 import { Tooltip } from "./ui/tooltip";
 import { useDrag } from "../hooks/useDrag";
 import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse } from "../api/types";
-import { StoryBanner, type StoryRefHandler } from "./StoryBanner";
+import { StoryBanner } from "./StoryBanner";
 
 export interface StepFilter {
   /** Relative file paths that belong to this step */
@@ -152,21 +152,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   const [fileMotivations, setFileMotivations] = useState<Record<string, FileMotivation>>({});
   const [hunkMotivations, setHunkMotivations] = useState<Record<string, HunkMotivation>>({});
   const [showIntent, setShowIntent] = useState(true);
-
-  // Story ref click → select file in sidebar by path
-  const storyHandlers = useMemo<StoryRefHandler>(() => ({
-    onRefClick: (file: string, turnId?: string) => {
-      // Find the file in current diffs and select it
-      const idx = allDiffs.findIndex((d) =>
-        d.path === file || d.path.endsWith(file) || file.endsWith(d.path),
-      );
-      if (idx >= 0) setSelectedIdx(idx);
-      // If we have a turnId, also set the step filter context
-      if (turnId && onClearStepFilter) {
-        // no-op for now — just selecting the file is enough
-      }
-    },
-  }), [allDiffs, onClearStepFilter]);
 
   // Fetch step-specific diff from API when filter has a turnId
   useEffect(() => {
@@ -647,7 +632,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
 
       {/* Story banner — collapsible code-review narrative */}
       {!isFiltered && diffs.length > 0 && (
-        <StoryBanner jobId={jobId} handlers={storyHandlers} />
+        <StoryBanner jobId={jobId} diffs={diffs} onSelectFile={setSelectedIdx} />
       )}
 
       {stepDiffsLoading && isFiltered && (
