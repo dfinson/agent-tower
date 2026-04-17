@@ -61,3 +61,17 @@
 .animate-step-title-update {
   animation: step-title-update 1.2s ease-out;
 }
+
+/* Mobile utilities */
+@layer utilities {
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}

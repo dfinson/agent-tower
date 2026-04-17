@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -23,6 +23,7 @@ import { ConfirmDialog } from "./ui/confirm-dialog";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
 import { Sheet } from "./ui/sheet";
+import { BottomSheet } from "./ui/bottom-sheet";
 import type { StepFilter } from "./DiffViewer";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
@@ -68,7 +69,6 @@ export function JobDetailScreen() {
   const [discardOpen, setDiscardOpen] = useState(false);
   const [markDoneOpen, setMarkDoneOpen] = useState(false);
   const [tab, setTab] = useState("live");
-  const [overflowOpen, setOverflowOpen] = useState(false);
   const [stepFilter, setStepFilter] = useState<StepFilter | null>(null);
   const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
   const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
@@ -77,6 +77,7 @@ export function JobDetailScreen() {
   // Reset selectedTurnId when navigating to a different job
   useEffect(() => { setSelectedTurnId(null); setSearchActive(false); }, [jobId]);
   const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
   const isResizingRef = useRef(false);
@@ -459,14 +460,166 @@ export function JobDetailScreen() {
   const canArchive = (job.state === "failed" || job.state === "canceled" || (job.state === "completed" && !isResolved)) && !job.archivedAt;
 
   return (
-    <div className="max-w-6xl mx-auto px-1.5 sm:px-4 md:px-6 lg:px-0">
-      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4">
+    <div className="max-w-6xl mx-auto px-0 sm:px-4 md:px-6 lg:px-0">
+      {/* ── Mobile compact status rail (< 640px) ── */}
+      <div className="flex sm:hidden items-center gap-2 h-10 px-2 border-b border-border bg-card shrink-0">
+        <button onClick={() => navigate("/")} className="p-1.5 -ml-1 text-muted-foreground hover:text-foreground transition-colors" aria-label="Back to dashboard">
+          <ArrowLeft size={16} />
+        </button>
+        <button
+          onClick={() => setMobileDetailOpen(true)}
+          className="flex-1 min-w-0 flex items-center gap-2 text-left"
+        >
+          <span className="text-sm font-semibold text-foreground truncate">
+            {job.title || job.id}
+          </span>
+        </button>
+        <span aria-live="polite"><StateBadge state={job.state} /></span>
+        <PopoverPrimitive.Root>
+          <PopoverPrimitive.Trigger asChild>
+            <button aria-label="Job actions" className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
+              <MoreHorizontal size={16} />
+            </button>
+          </PopoverPrimitive.Trigger>
+          <PopoverPrimitive.Portal>
+            <PopoverPrimitive.Content
+              side="bottom"
+              align="end"
+              sideOffset={4}
+              className="z-50 min-w-[160px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
+            >
+              {canCancel && (
+                <button
+                  onClick={() => setCancelOpen(true)}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive transition-colors hover:bg-accent"
+                >
+                  <XCircle size={13} /> Cancel Job
+                </button>
+              )}
+              {canResume && (
+                <button
+                  onClick={handleResume}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <RotateCcw size={13} /> Resume
+                </button>
+              )}
+              {hasWorktree && (
+                <button
+                  onClick={handleOpenJobTerminal}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <TerminalSquare size={13} /> Terminal
+                  {jobTerminalCount > 0 && <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>}
+                </button>
+              )}
+              <button
+                onClick={() => setMobileDetailOpen(true)}
+                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <FolderGit2 size={13} /> Job Details
+              </button>
+            </PopoverPrimitive.Content>
+          </PopoverPrimitive.Portal>
+        </PopoverPrimitive.Root>
+      </div>
+
+      {/* ── Mobile job detail bottom sheet ── */}
+      <BottomSheet open={mobileDetailOpen} onClose={() => setMobileDetailOpen(false)} title="Job Details">
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-base font-bold text-foreground break-words">{job.title || job.id}</h2>
+            {job.title && <p className="text-xs text-muted-foreground font-mono mt-0.5">{job.id}</p>}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <StateBadge state={job.state} />
+            <SdkBadge sdk={job.sdk} />
+          </div>
+          {(job.description || job.prompt) && (
+            <p className="text-sm text-muted-foreground">{job.description ?? job.prompt}</p>
+          )}
+          {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
+            <p className="text-sm italic text-primary/70">{job.progressHeadline}</p>
+          )}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            {[
+              ["Branch", job.branch ?? "—"],
+              ["Base", job.baseRef],
+              ["Repo", job.repo.split("/").pop() ?? job.repo],
+              ...(job.model ? [["Model", job.model]] : []),
+              ["Created", new Date(job.createdAt).toLocaleString()],
+              ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
+            ].map(([label, value]) => (
+              <div key={label}>
+                <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wide">{label}</p>
+                <p className="text-sm break-all">{value}</p>
+              </div>
+            ))}
+          </div>
+          {job.prUrl && (
+            <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+              <ExternalLink size={14} /> View Pull Request
+            </a>
+          )}
+          {/* Action buttons in sheet */}
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+            {canCancel && (
+              <Button size="sm" variant="outline" className="text-destructive border-destructive/40" onClick={() => { setMobileDetailOpen(false); setCancelOpen(true); }}>
+                <XCircle size={14} /> Cancel
+              </Button>
+            )}
+            {canResume && (
+              <Button size="sm" variant="outline" loading={actionLoading} onClick={() => { setMobileDetailOpen(false); handleResume(); }}>
+                <RotateCcw size={14} /> Resume
+              </Button>
+            )}
+            {needsResolution && hasChanges && (
+              <>
+                {!hasMergeConflict && (
+                  <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "smart_merge"} disabled={resolveLoading !== null} onClick={() => { setMobileDetailOpen(false); handleResolve("smart_merge"); }}>
+                    <GitMerge size={14} /> Merge
+                  </Button>
+                )}
+                {hasMergeConflict && (
+                  <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "agent_merge"} disabled={resolveLoading !== null} onClick={() => { setMobileDetailOpen(false); handleResolve("agent_merge"); }}>
+                    <GitMerge size={14} /> Resolve with Agent
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "create_pr"} disabled={resolveLoading !== null} onClick={() => { setMobileDetailOpen(false); handleResolve("create_pr"); }}>
+                  <GitPullRequest size={14} /> Create PR
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1 text-destructive border-destructive/40" onClick={() => { setMobileDetailOpen(false); setDiscardOpen(true); }}>
+                  <Trash2 size={14} /> Discard
+                </Button>
+              </>
+            )}
+            {needsResolution && !hasChanges && (
+              <Button size="sm" variant="outline" className="gap-1" onClick={() => { setMobileDetailOpen(false); setMarkDoneOpen(true); }}>
+                <CheckCircle2 size={14} /> Mark Done
+              </Button>
+            )}
+            {isResolved && !job.archivedAt && (
+              <Button size="sm" variant="outline" className="gap-1 text-green-600 border-green-500/40" onClick={() => { setMobileDetailOpen(false); setCompleteOpen(true); }}>
+                <CheckCircle2 size={14} /> Complete & Archive
+              </Button>
+            )}
+            {canArchive && (
+              <Button size="sm" variant="outline" className="gap-1" onClick={() => { setMobileDetailOpen(false); setCompleteOpen(true); }}>
+                <Archive size={14} /> {job.state === "failed" ? "Abandon" : "Archive"}
+              </Button>
+            )}
+          </div>
+        </div>
+      </BottomSheet>
+
+      {/* ── Desktop back button (hidden on mobile) ── */}
+      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4 hidden sm:inline-flex">
         <ArrowLeft size={14} />
         Dashboard
       </Button>
 
-      {/* Job header */}
-      <div className="rounded-lg border border-border bg-card p-4 mb-4">
+      {/* Job header — hidden on mobile (rail + bottom sheet replaces it) */}
+      <div className="hidden sm:block rounded-lg border border-border bg-card p-4 mb-4">
         <div className="mb-2">
           {job.title ? (
             <h1 className="text-lg font-bold text-foreground break-words">{job.title}</h1>
@@ -749,8 +902,8 @@ export function JobDetailScreen() {
         <CompleteJobDialog job={job} open onClose={() => setCompleteOpen(false)} onArchived={() => navigate("/")} />
       )}
 
-      {/* Tab bar — desktop shows all tabs + terminal button; mobile shows 3 tabs + ••• overflow */}
-      <Tabs value={tab} onValueChange={handleTabChange} className="mb-4" ref={tabBarRef}>
+      {/* Tab bar — desktop shows all tabs + terminal button; mobile shows scrollable strip */}
+      <Tabs value={tab} onValueChange={handleTabChange} className="sm:mb-4" ref={tabBarRef}>
         {/* Desktop layout (hidden on mobile) */}
         <div className="hidden sm:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
@@ -787,114 +940,42 @@ export function JobDetailScreen() {
 
         </div>
 
-        {/* Mobile layout: primary tabs + terminal button + ••• overflow menu (hidden on desktop) */}
-        <div className="flex sm:hidden items-center gap-2">
-          <TabsList>
-            <TabsTrigger value="live">Live</TabsTrigger>
+        {/* Mobile layout: horizontally scrollable tab strip showing all tabs */}
+        <div className="flex sm:hidden items-center overflow-x-auto scrollbar-none border-b border-border bg-card/80 px-1">
+          <TabsList className="bg-transparent gap-0 p-0 h-auto">
+            <TabsTrigger value="live" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
+              Live
+            </TabsTrigger>
             <button
               type="button"
               onClick={() => setMobileActivityOpen(true)}
-              className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            >
-              <ListTree size={13} className="mr-1.5" />Activity
-            </button>
-            <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
-          </TabsList>
-
-          {hasWorktree && (
-            <button
-              onClick={handleOpenJobTerminal}
-              aria-label={jobTerminalCount > 0 ? `Open new terminal (${jobTerminalCount} open)` : "Open terminal in worktree"}
               className={cn(
-                "flex items-center justify-center w-9 h-9 rounded-md border text-xs font-medium transition-colors shrink-0",
-                "border-border text-muted-foreground hover:text-foreground hover:bg-accent",
+                "inline-flex items-center whitespace-nowrap px-3 py-2.5 text-xs font-medium transition-all border-b-2 shrink-0",
+                mobileActivityOpen
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >
-              <TerminalSquare size={15} />
-              {jobTerminalCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center text-[9px] font-semibold bg-primary text-primary-foreground rounded-full px-0.5">{jobTerminalCount}</span>
-              )}
+              <ListTree size={12} className="mr-1" />Activity
             </button>
-          )}
-
-          <PopoverPrimitive.Root open={overflowOpen} onOpenChange={setOverflowOpen}>
-            <PopoverPrimitive.Trigger asChild>
-              <button
-                aria-label="More options"
-                className={cn(
-                  "flex items-center justify-center w-9 h-9 rounded-md border text-xs font-medium transition-colors shrink-0",
-                  (tab === "files" || tab === "metrics" || tab === "artifacts")
-                    ? "border-transparent bg-background text-foreground shadow"
-                    : "border-border text-muted-foreground hover:text-foreground hover:bg-accent",
+            <TabsTrigger value="diff" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
+              <GitBranch size={12} className="mr-1" />Changes
+            </TabsTrigger>
+            <TabsTrigger value="files" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
+              <FolderTree size={12} className="mr-1" />Files
+            </TabsTrigger>
+            <TabsTrigger value="metrics" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
+              <BarChart3 size={12} className="mr-1" />Metrics
+            </TabsTrigger>
+            {hasArtifacts && (
+              <TabsTrigger value="artifacts" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 py-2.5 text-xs">
+                Artifacts
+                {artifactCount > 0 && (
+                  <span className="ml-1 text-[10px] bg-muted text-muted-foreground rounded-full px-1 py-0.5 font-normal">{artifactCount}</span>
                 )}
-              >
-                <MoreHorizontal size={15} />
-              </button>
-            </PopoverPrimitive.Trigger>
-            <PopoverPrimitive.Portal>
-              <PopoverPrimitive.Content
-                side="top"
-                align="end"
-                sideOffset={6}
-                className="z-50 min-w-[140px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
-              >
-                <button
-                  onClick={() => { handleTabChange("files"); setOverflowOpen(false); }}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
-                    tab === "files"
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                >
-                  <FolderTree size={13} />
-                  Files
-                </button>
-                <button
-                  onClick={() => { handleTabChange("metrics"); setOverflowOpen(false); }}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
-                    tab === "metrics"
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                >
-                  <BarChart3 size={13} />
-                  Metrics
-                </button>
-                {hasArtifacts && (
-                  <button
-                    onClick={() => { handleTabChange("artifacts"); setOverflowOpen(false); }}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm transition-colors",
-                      tab === "artifacts"
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                    )}
-                  >
-                    <Package size={13} />
-                    Artifacts
-                    {artifactCount > 0 && (
-                      <span className="ml-auto text-[10px] font-semibold text-muted-foreground">{artifactCount}</span>
-                    )}
-                  </button>
-                )}
-                {hasWorktree && (
-                  <button
-                    onClick={() => { handleOpenJobTerminal(); setOverflowOpen(false); }}
-                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  >
-                    <TerminalSquare size={13} />
-                    <span>Terminal</span>
-                    {jobTerminalCount > 0 && (
-                      <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>
-                    )}
-                  </button>
-                )}
-              </PopoverPrimitive.Content>
-            </PopoverPrimitive.Portal>
-          </PopoverPrimitive.Root>
-
+              </TabsTrigger>
+            )}
+          </TabsList>
         </div>
       </Tabs>
 
@@ -917,9 +998,8 @@ export function JobDetailScreen() {
         </Sheet>
       </div>
 
-      {/* Tab content — min-height prevents scroll collapse when switching tabs.
-          Bottom padding on mobile only when plan drawer is visible. */}
-      <div className={cn("min-h-[80dvh]")}>
+      {/* Tab content — full-bleed on mobile, min-height on desktop */}
+      <div className={cn("min-h-0 sm:min-h-[80dvh]")}>
       {tab === "live" && (
         <div className="flex flex-row">
           {/* Activity Timeline sidebar — hidden on small screens */}
@@ -974,7 +1054,7 @@ export function JobDetailScreen() {
             </div>
           )}
           <div className="flex flex-col gap-4 flex-1 min-w-0 lg:pl-2">
-            <div className="h-[80dvh] min-h-[22rem]">
+            <div className="h-[calc(100dvh-77px)] sm:h-[80dvh] min-h-[22rem]">
               <CuratedFeed
                 jobId={jobId}
                 sdk={job.sdk}
@@ -1035,6 +1115,28 @@ export function JobDetailScreen() {
         </TabErrorBoundary>
       )}
       </div>{/* end tab content min-height wrapper */}
+
+      {/* ── Mobile contextual footer — shows review actions when on Changes tab ── */}
+      {needsResolution && hasChanges && tab === "diff" && (
+        <div className="fixed bottom-0 inset-x-0 z-40 flex sm:hidden items-center justify-center gap-2 px-3 py-2.5 border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb">
+          {!hasMergeConflict && (
+            <Button size="sm" className="flex-1 gap-1" loading={resolveLoading === "smart_merge"} disabled={resolveLoading !== null} onClick={() => handleResolve("smart_merge")}>
+              <GitMerge size={14} /> Merge
+            </Button>
+          )}
+          {hasMergeConflict && (
+            <Button size="sm" className="flex-1 gap-1" loading={resolveLoading === "agent_merge"} disabled={resolveLoading !== null} onClick={() => handleResolve("agent_merge")}>
+              <GitMerge size={14} /> Resolve
+            </Button>
+          )}
+          <Button size="sm" variant="outline" className="flex-1 gap-1" loading={resolveLoading === "create_pr"} disabled={resolveLoading !== null} onClick={() => handleResolve("create_pr")}>
+            <GitPullRequest size={14} /> PR
+          </Button>
+          <Button size="sm" variant="outline" className="gap-1 text-destructive border-destructive/40" onClick={() => setDiscardOpen(true)}>
+            <Trash2 size={14} />
+          </Button>
+        </div>
+      )}
 
       <ConfirmDialog
         open={cancelOpen}

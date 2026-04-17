@@ -1,6 +1,6 @@
 import { Component, type ReactNode, Suspense, useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { Routes, Route, Link, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, useNavigate, useLocation } from "react-router-dom";
 import { Search, ExternalLink } from "lucide-react";
 import { modKey } from "./lib/utils";
 import { CommandPalette } from "./components/CommandPalette";
@@ -112,6 +112,8 @@ function RouteFallback() {
 export function App() {
   useSSE();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isJobDetail = /^\/jobs\/[^/]+$/.test(location.pathname);
   const toggleTerminalDrawer = useStore((s) => s.toggleTerminalDrawer);
   const terminalDrawerOpen = useStore((s) => s.terminalDrawerOpen);
   const initSdksAndModels = useStore((s) => s.initSdksAndModels);
@@ -151,7 +153,7 @@ export function App() {
 
   return (
     <div className="flex flex-col h-[100dvh] overflow-x-hidden">
-      <header className="flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card">
+      <header className={`flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card ${isJobDetail ? "hidden sm:flex" : ""}`}>
         <Link to="/" className="no-underline flex items-center gap-3.5 hover:opacity-80 transition-opacity">
           <img src="/mark.png" alt="" className="h-8 w-8 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
           <span className="font-semibold text-white/95 tracking-tight leading-none">
@@ -186,7 +188,7 @@ export function App() {
         </div>
       </header>
 
-      <main className={`flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 ${terminalDrawerOpen ? "min-h-0" : ""}`}>
+      <main className={`flex-1 overflow-y-auto ${isJobDetail ? "p-0 sm:p-4 md:p-6" : "p-3 sm:p-4 md:p-6"} ${terminalDrawerOpen ? "min-h-0" : ""}`}>
         <ErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
