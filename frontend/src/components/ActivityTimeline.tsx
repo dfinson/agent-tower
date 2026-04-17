@@ -193,9 +193,27 @@ export function ActivityTimeline({
   // When the job has reached a terminal state, force all activities to "done"
   // so the spinner stops.
   const jobFinished = !!jobState && TERMINAL_STATES.has(jobState);
-  const activities = jobFinished
+  const rawActivities = jobFinished
     ? timeline.activities.map((a) => a.status === "active" ? { ...a, status: "done" as const } : a)
     : timeline.activities;
+
+  // Post-process: merge consecutive activities with the same label to
+  // eliminate duplicate headings, and keep the result cleaner.
+  const activities = rawActivities.reduce<typeof rawActivities>((acc, act) => {
+    const prev = acc[acc.length - 1];
+    if (prev && prev.label === act.label) {
+      // Merge into previous: combine steps, keep latest status
+      acc[acc.length - 1] = {
+        ...prev,
+        steps: [...prev.steps, ...act.steps],
+        status: act.status,
+        planItemId: act.planItemId ?? prev.planItemId,
+      };
+    } else {
+      acc.push(act);
+    }
+    return acc;
+  }, []);
 
   if (activities.length === 0 && planSteps.length === 0) {
     return (
@@ -240,18 +258,40 @@ export function ActivityTimeline({
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-        {activities.map((activity, i) => (
-          <ActivitySection
-            key={activity.activityId}
-            activity={activity}
-            isLast={i === activities.length - 1}
-            selectedTurnId={selectedTurnId ?? null}
-            onStepClick={onStepClick}
-            searchActive={searchActive}
-            highlightPlanItemId={hoveredPlanItemId}
-            expandSignal={expandSignal}
-          />
-        ))}
+        {activities.map((activity, i) => {
+          // Single-step activities: render flat — no collapsible header
+          if (activity.steps.length === 1) {
+            const step = activity.steps[0]!;
+            const isActive = i === activities.length - 1 && activity.status === "active";
+            const isLinkedToHoveredPlan = !!hoveredPlanItemId && activity.planItemId === hoveredPlanItemId;
+            return (
+              <div
+                key={activity.activityId}
+                className={cn(isLinkedToHoveredPlan && "bg-primary/5 ring-1 ring-primary/30 rounded-sm")}
+              >
+                <StepButton
+                  step={step}
+                  isActive={isActive}
+                  isSelected={selectedTurnId === step.turnId}
+                  searchActive={searchActive}
+                  onStepClick={onStepClick}
+                />
+              </div>
+            );
+          }
+          return (
+            <ActivitySection
+              key={activity.activityId}
+              activity={activity}
+              isLast={i === activities.length - 1}
+              selectedTurnId={selectedTurnId ?? null}
+              onStepClick={onStepClick}
+              searchActive={searchActive}
+              highlightPlanItemId={hoveredPlanItemId}
+              expandSignal={expandSignal}
+            />
+          );
+        })}
       </div>
     </div>
   );

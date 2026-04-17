@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, ListChecks, Circle, CheckCircle2, Loader2, SkipForward } from "lucide-react";
+import { ChevronDown, ChevronRight, ListChecks, Circle, CheckCircle2, Loader2 } from "lucide-react";
 import { useStore, selectJobPlan } from "../store";
 import type { PlanStep } from "../store";
 import { cn } from "../lib/utils";
@@ -10,8 +10,6 @@ function StepIcon({ status, size = 13 }: { status: PlanStep["status"]; size?: nu
       return <CheckCircle2 size={size} className="text-emerald-400 shrink-0" />;
     case "active":
       return <Loader2 size={size} className="text-blue-400 animate-spin shrink-0" />;
-    case "skipped":
-      return <SkipForward size={size} className="text-muted-foreground/50 shrink-0" />;
     default:
       return <Circle size={size} className="text-muted-foreground/40 shrink-0" />;
   }
@@ -33,16 +31,17 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
 }
 
 function StepList({ steps, onHover }: { steps: PlanStep[]; onHover: (id: string | null) => void }) {
+  // Filter out skipped steps entirely — they add no value to the UI
+  const visible = steps.filter((s) => s.status !== "skipped");
   return (
     <div className="space-y-1.5">
-      {steps.map((step, i) => (
+      {visible.map((step, i) => (
         <div
           key={step.planStepId ?? i}
           className={cn(
             "flex items-start gap-2 transition-opacity duration-300",
             step.status === "done" && "text-muted-foreground/60",
             step.status === "active" && "text-foreground",
-            step.status === "skipped" && "text-muted-foreground/40 line-through",
             step.status === "pending" && "text-muted-foreground",
           )}
           onMouseEnter={() => step.planStepId && onHover(step.planStepId)}
@@ -72,12 +71,13 @@ export function PlanPanel({ jobId }: { jobId: string }) {
   const steps = useStore(selectJobPlan(jobId));
   const setHoveredPlanItemId = useStore((s) => s.setHoveredPlanItemId);
   const [expanded, setExpanded] = useState(true);
+  const visible = steps.filter((s) => s.status !== "skipped");
 
-  if (steps.length === 0) return null;
+  if (visible.length === 0) return null;
 
-  const doneCount = steps.filter((s) => s.status === "done").length;
-  const activeStep = steps.find((s) => s.status === "active");
-  const isComplete = !steps.some((s) => s.status === "active" || s.status === "pending");
+  const doneCount = visible.filter((s) => s.status === "done").length;
+  const activeStep = visible.find((s) => s.status === "active");
+  const isComplete = !visible.some((s) => s.status === "active" || s.status === "pending");
 
   return (
     <div className="border-b border-border">
@@ -98,18 +98,18 @@ export function PlanPanel({ jobId }: { jobId: string }) {
           </span>
         )}
         <span className="ml-auto text-[11px] text-muted-foreground/50 tabular-nums shrink-0">
-          {doneCount}/{steps.length}
+          {doneCount}/{visible.length}
         </span>
       </button>
 
       {/* Progress bar — always visible */}
       <div className="px-3 pb-2">
-        <ProgressBar done={doneCount} total={steps.length} />
+        <ProgressBar done={doneCount} total={visible.length} />
       </div>
 
       {expanded && (
         <div className="px-3 pb-3 max-h-[200px] overflow-y-auto">
-          <StepList steps={steps} onHover={setHoveredPlanItemId} />
+          <StepList steps={visible} onHover={setHoveredPlanItemId} />
         </div>
       )}
     </div>
@@ -120,12 +120,13 @@ export function PlanPanel({ jobId }: { jobId: string }) {
 export function MobilePlanDrawer({ jobId }: { jobId: string }) {
   const steps = useStore(selectJobPlan(jobId));
   const [expanded, setExpanded] = useState(false);
+  const visible = steps.filter((s) => s.status !== "skipped");
 
-  if (steps.length === 0) return null;
+  if (visible.length === 0) return null;
 
-  const doneCount = steps.filter((s) => s.status === "done").length;
-  const activeStep = steps.find((s) => s.status === "active");
-  const isComplete = !steps.some((s) => s.status === "active" || s.status === "pending");
+  const doneCount = visible.filter((s) => s.status === "done").length;
+  const activeStep = visible.find((s) => s.status === "active");
+  const isComplete = !visible.some((s) => s.status === "active" || s.status === "pending");
 
   return (
     <div
@@ -152,10 +153,10 @@ export function MobilePlanDrawer({ jobId }: { jobId: string }) {
           </span>
         )}
         <span className="text-[11px] text-muted-foreground/50 tabular-nums shrink-0">
-          {doneCount}/{steps.length}
+          {doneCount}/{visible.length}
         </span>
         <div className="w-16 shrink-0">
-          <ProgressBar done={doneCount} total={steps.length} />
+          <ProgressBar done={doneCount} total={visible.length} />
         </div>
         {expanded ? (
           <ChevronDown size={14} className="text-muted-foreground shrink-0" />
@@ -167,7 +168,7 @@ export function MobilePlanDrawer({ jobId }: { jobId: string }) {
       {/* Expanded step list */}
       {expanded && (
         <div className="px-4 pb-4 pt-1 overflow-y-auto max-h-[calc(60vh-3.5rem)]">
-          <StepList steps={steps} onHover={() => {}} />
+          <StepList steps={visible} onHover={() => {}} />
         </div>
       )}
     </div>
