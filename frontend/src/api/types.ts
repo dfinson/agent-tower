@@ -127,6 +127,28 @@ export interface DiffUpdatePayload {
   changedFiles: DiffFileModel[];
 }
 
+// --- Story types ---
+
+export interface StoryBlock {
+  type: "narrative" | "reference";
+  // narrative fields
+  text?: string | null;
+  // reference fields
+  spanId?: number | null;
+  stepNumber?: number | null;
+  stepTitle?: string | null;
+  file?: string | null;
+  why?: string | null;
+  turnId?: string | null;
+  editCount?: number | null;
+}
+
+export interface StoryResponse {
+  jobId: string;
+  blocks: StoryBlock[];
+  cached: boolean;
+}
+
 // --- Resolve types ---
 
 export interface ResolveJobResponse {

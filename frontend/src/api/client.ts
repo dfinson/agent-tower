@@ -1041,4 +1041,16 @@ export function fetchSharedTelemetry(token: string): Promise<Record<string, unkn
   return request(`/share/${encodeURIComponent(token)}/telemetry`);
 }
 
+// ---------------------------------------------------------------------------
+// Job Story
+// ---------------------------------------------------------------------------
+
+export function fetchJobStory(
+  jobId: string,
+  regenerate = false,
+): Promise<import("./types").StoryResponse> {
+  const qs = regenerate ? "?regenerate=true" : "";
+  return request(`/jobs/${encodeURIComponent(jobId)}/story${qs}`);
+}
+
 export { ApiError };
