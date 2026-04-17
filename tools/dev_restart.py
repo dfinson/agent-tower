@@ -101,7 +101,7 @@ def _find_pids_on_port(port: int) -> list[int]:
     # Try lsof first (available on most POSIX systems)
     try:
         result = subprocess.run(
-            ["lsof", "-ti", f":{port}"],
+            ["lsof", "-ti", f":{port}", "-sTCP:LISTEN"],
             capture_output=True,
             text=True,
         )
