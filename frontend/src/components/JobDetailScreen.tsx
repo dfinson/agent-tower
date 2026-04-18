@@ -164,6 +164,7 @@ export function JobDetailScreen() {
     return tabs;
   }, [hasArtifacts]);
   const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
   const onSwipeTouchStart = useCallback((e: React.TouchEvent) => {
     if (window.innerWidth >= 640) return;
     const touch = e.touches[0];
@@ -184,7 +185,11 @@ export function JobDetailScreen() {
     const idx = mobileTabOrder.indexOf(tab);
     if (idx === -1) return;
     const next = dx < 0 ? mobileTabOrder[idx + 1] : mobileTabOrder[idx - 1];
-    if (next) handleTabChange(next);
+    if (next) {
+      // Swipe left (dx<0) → content slides in from right; swipe right → from left
+      setSlideDir(dx < 0 ? "right" : "left");
+      handleTabChange(next);
+    }
   }, [tab, mobileTabOrder, handleTabChange]);
 
   const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
@@ -968,9 +973,14 @@ export function JobDetailScreen() {
 
       {/* Tab content — full-bleed on mobile, min-height on desktop */}
       <div
-        className={cn("min-h-0 pb-[52px] sm:pb-0 sm:min-h-[80dvh]")}
+        className={cn(
+          "min-h-0 pb-[52px] sm:pb-0 sm:min-h-[80dvh]",
+          slideDir === "left" && "animate-slide-left",
+          slideDir === "right" && "animate-slide-right",
+        )}
         onTouchStart={onSwipeTouchStart}
         onTouchEnd={onSwipeTouchEnd}
+        onAnimationEnd={() => setSlideDir(null)}
       >
       {tab === "live" && (
         <div className="flex flex-row">
