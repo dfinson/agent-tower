@@ -30,6 +30,8 @@ interface TreeNodeProps {
   isMobile: boolean;
   diffMap: Map<string, DiffFileModel>;
   changedDirs: Set<string>;
+  diffFallback?: boolean;
+  allDiffs?: DiffFileModel[];
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -49,16 +51,42 @@ function FileIcon({ status }: { status?: string }) {
   }
 }
 
-function TreeNode({ entry, depth, selected, onSelect, jobId, isMobile, diffMap, changedDirs }: TreeNodeProps) {
+function TreeNode({ entry, depth, selected, onSelect, jobId, isMobile, diffMap, changedDirs, diffFallback, allDiffs }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<TreeEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const isDir = entry.type === "directory";
   const name = entry.path.split("/").pop() ?? entry.path;
 
+  // In fallback mode, compute children from diffs instead of calling the API
+  const fallbackChildren = useMemo(() => {
+    if (!diffFallback || !isDir || !allDiffs) return null;
+    const prefix = entry.path + "/";
+    const childMap = new Map<string, TreeEntry>();
+    for (const d of allDiffs) {
+      if (!d.path.startsWith(prefix)) continue;
+      const rest = d.path.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      if (slash === -1) {
+        childMap.set(d.path, { path: d.path, type: "file" });
+      } else {
+        const dir = entry.path + "/" + rest.slice(0, slash);
+        if (!childMap.has(dir)) childMap.set(dir, { path: dir, type: "directory" });
+      }
+    }
+    return Array.from(childMap.values()).sort((a, b) => {
+      if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+      return a.path.localeCompare(b.path);
+    });
+  }, [diffFallback, isDir, allDiffs, entry.path]);
+
   const handleToggle = useCallback(async () => {
     if (!isDir) {
       onSelect(entry.path);
+      return;
+    }
+    if (diffFallback) {
+      setExpanded(!expanded);
       return;
     }
     if (!expanded && children.length === 0) {
@@ -69,7 +97,7 @@ function TreeNode({ entry, depth, selected, onSelect, jobId, isMobile, diffMap, 
       } catch { /* */ } finally { setLoading(false); }
     }
     setExpanded(!expanded);
-  }, [isDir, expanded, children.length, entry.path, jobId, onSelect]);
+  }, [isDir, expanded, children.length, entry.path, jobId, onSelect, diffFallback]);
 
   const diff = !isDir ? diffMap.get(entry.path) : undefined;
   const hasChanges = isDir && changedDirs.has(entry.path);
@@ -111,8 +139,8 @@ function TreeNode({ entry, depth, selected, onSelect, jobId, isMobile, diffMap, 
         )}
         {loading && <Spinner size="sm" className="ml-auto" />}
       </button>
-      {expanded && children.map((c) => (
-        <TreeNode key={c.path} entry={c} depth={depth + 1} selected={selected} onSelect={onSelect} jobId={jobId} isMobile={isMobile} diffMap={diffMap} changedDirs={changedDirs} />
+      {expanded && (diffFallback ? fallbackChildren ?? [] : children).map((c) => (
+        <TreeNode key={c.path} entry={c} depth={depth + 1} selected={selected} onSelect={onSelect} jobId={jobId} isMobile={isMobile} diffMap={diffMap} changedDirs={changedDirs} diffFallback={diffFallback} allDiffs={allDiffs} />
       ))}
     </>
   );
@@ -187,6 +215,7 @@ function buildAddedDecorations(
 export default function WorkspaceBrowser({ jobId }: Props) {
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchFailed, setFetchFailed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
@@ -256,9 +285,30 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   useEffect(() => {
     fetchWorkspaceFiles(jobId)
       .then((res) => setEntries(res.items))
-      .catch((err) => console.error("Failed to fetch workspace files", err))
+      .catch(() => setFetchFailed(true))
       .finally(() => setLoading(false));
   }, [jobId]);
+
+  // When workspace API fails (e.g. archived job), build a tree from available diffs
+  const effectiveEntries = useMemo(() => {
+    if (entries.length > 0 || loading) return entries;
+    if (!fetchFailed || diffs.length === 0) return entries;
+    // Build unique top-level entries from diff paths
+    const topLevel = new Map<string, TreeEntry>();
+    for (const d of diffs) {
+      const slash = d.path.indexOf("/");
+      if (slash === -1) {
+        topLevel.set(d.path, { path: d.path, type: "file" });
+      } else {
+        const dir = d.path.slice(0, slash);
+        if (!topLevel.has(dir)) topLevel.set(dir, { path: dir, type: "directory" });
+      }
+    }
+    return Array.from(topLevel.values()).sort((a, b) => {
+      if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+      return a.path.localeCompare(b.path);
+    });
+  }, [entries, loading, fetchFailed, diffs]);
 
   const handleSelect = useCallback(async (path: string) => {
     setSelected(path);
@@ -268,7 +318,21 @@ export default function WorkspaceBrowser({ jobId }: Props) {
       const res = await fetchWorkspaceFile(jobId, path);
       setFileContent(res.content);
     } catch {
-      setFileContent("// Failed to load file");
+      // Workspace file unavailable — reconstruct from diff hunks if possible
+      const diff = diffMapRef.current.get(path);
+      if (diff && diff.hunks.length > 0) {
+        const lines: string[] = [];
+        for (const hunk of diff.hunks) {
+          for (const line of hunk.lines) {
+            if (line.type === "addition" || line.type === "context") {
+              lines.push(line.content);
+            }
+          }
+        }
+        setFileContent(lines.length > 0 ? lines.join("\n") : "// File content unavailable — workspace has been cleaned up");
+      } else {
+        setFileContent("// File content unavailable — workspace has been cleaned up");
+      }
     } finally {
       setFileLoading(false);
     }
@@ -295,8 +359,14 @@ export default function WorkspaceBrowser({ jobId }: Props) {
         </div>
       )}
       <div className="flex-1 overflow-y-auto py-1">
-        {entries.map((e) => (
-          <TreeNode key={e.path} entry={e} depth={0} selected={selected} onSelect={handleSelect} jobId={jobId} isMobile={isMobile} diffMap={diffMap} changedDirs={changedDirs} />
+        {effectiveEntries.length === 0 && !loading && (
+          <p className="text-xs text-muted-foreground text-center py-6 px-3">No files available</p>
+        )}
+        {fetchFailed && effectiveEntries.length > 0 && (
+          <p className="text-[10px] text-muted-foreground/70 text-center py-1">Showing changed files only</p>
+        )}
+        {effectiveEntries.map((e) => (
+          <TreeNode key={e.path} entry={e} depth={0} selected={selected} onSelect={handleSelect} jobId={jobId} isMobile={isMobile} diffMap={diffMap} changedDirs={changedDirs} diffFallback={fetchFailed} allDiffs={diffs} />
         ))}
       </div>
     </div>
