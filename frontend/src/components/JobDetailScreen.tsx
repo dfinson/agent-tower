@@ -76,6 +76,7 @@ export function JobDetailScreen() {
   // Reset selectedTurnId when navigating to a different job
   useEffect(() => { setSelectedTurnId(null); setSearchActive(false); }, [jobId]);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
   const isResizingRef = useRef(false);
@@ -159,7 +160,7 @@ export function JobDetailScreen() {
 
   // ── Mobile swipe-to-switch-tab ──
   const mobileTabOrder = useMemo(() => {
-    const tabs = ["live", "activity", "diff", "files", "metrics"];
+    const tabs = ["diff", "live", "files", "metrics"];
     if (hasArtifacts) tabs.push("artifacts");
     return tabs;
   }, [hasArtifacts]);
@@ -202,12 +203,13 @@ export function JobDetailScreen() {
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2 || dt > 400) return;
     const idx = mobileTabOrder.indexOf(tab);
     if (idx === -1) return;
-    const next = dx < 0 ? mobileTabOrder[idx + 1] : mobileTabOrder[idx - 1];
-    if (next) {
-      // Swipe left (dx<0) → content slides in from right; swipe right → from left
-      setSlideDir(dx < 0 ? "right" : "left");
-      handleTabChange(next);
-    }
+    const len = mobileTabOrder.length;
+    const nextIdx = dx < 0 ? (idx + 1) % len : (idx - 1 + len) % len;
+    const nextTab = mobileTabOrder[nextIdx];
+    if (!nextTab) return;
+    // Swipe left (dx<0) → content slides in from right; swipe right → from left
+    setSlideDir(dx < 0 ? "right" : "left");
+    handleTabChange(nextTab);
   }, [tab, mobileTabOrder, handleTabChange, isInsideHScrollable]);
 
   const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
@@ -1001,7 +1003,35 @@ export function JobDetailScreen() {
         onAnimationEnd={() => setSlideDir(null)}
       >
       {tab === "live" && (
-        <div className="flex flex-row">
+        <div className="flex flex-row relative">
+          {/* Mobile Activity overlay — slides in from left over the Live feed */}
+          {mobileActivityOpen && (
+            <div className="sm:hidden absolute inset-0 z-30 flex">
+              <div className="w-[85%] max-w-xs h-full bg-card border-r border-border shadow-xl animate-slide-left overflow-hidden">
+                <button
+                  onClick={() => setMobileActivityOpen(false)}
+                  className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-border hover:bg-accent/50 transition-colors"
+                >
+                  <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
+                  <span className="text-sm font-semibold text-muted-foreground">Activity</span>
+                </button>
+                <div className="flex-1 overflow-hidden" style={{ height: 'calc(100% - 41px)' }}>
+                  <ActivityTimeline
+                    jobId={jobId}
+                    jobState={job.state}
+                    onStepClick={(turnId) => {
+                      setMobileActivityOpen(false);
+                      setScrollToTurnId(turnId);
+                      setSelectedTurnId(turnId);
+                    }}
+                    selectedTurnId={selectedTurnId}
+                    searchActive={searchActive}
+                  />
+                </div>
+              </div>
+              <div className="flex-1 bg-black/40" onClick={() => setMobileActivityOpen(false)} />
+            </div>
+          )}
           {/* Activity Timeline sidebar — hidden on small screens */}
           <div
             className={cn(
@@ -1107,22 +1137,7 @@ export function JobDetailScreen() {
         <MetricsPanel jobId={jobId} isRunning={isRunning} />
       )}
 
-      {/* Mobile-only activity tab — on desktop activity lives in the sidebar */}
-      {tab === "activity" && (
-        <div className="sm:hidden h-[calc(100dvh-92px)] rounded-lg border border-border bg-card overflow-hidden">
-          <ActivityTimeline
-            jobId={jobId}
-            jobState={job.state}
-            onStepClick={(turnId) => {
-              setScrollToTurnId(turnId);
-              setSelectedTurnId(turnId);
-              setTab("live");
-            }}
-            selectedTurnId={selectedTurnId}
-            searchActive={searchActive}
-          />
-        </div>
-      )}
+
 
       {tab === "artifacts" && (
         <TabErrorBoundary>
@@ -1157,9 +1172,19 @@ export function JobDetailScreen() {
 
       {/* ── Mobile bottom tab bar (iOS-style) ── */}
       <nav className="fixed bottom-0 inset-x-0 z-50 sm:hidden flex items-end justify-around border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb" style={{ height: 52 }}>
+        {/* Activity toggle — always first, overlays Live */}
+        <button
+          onClick={() => { if (tab !== "live") handleTabChange("live"); setMobileActivityOpen((o) => !o); }}
+          className={cn(
+            "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors",
+            mobileActivityOpen ? "text-primary" : "text-muted-foreground active:text-foreground",
+          )}
+        >
+          <ListTree size={20} strokeWidth={mobileActivityOpen ? 2.5 : 1.5} />
+          <span className={cn("text-[10px] leading-tight truncate", mobileActivityOpen && "font-semibold")}>Activity</span>
+        </button>
         {[
           { id: "live", icon: Radio, label: "Live" },
-          { id: "activity", icon: ListTree, label: "Activity" },
           { id: "diff", icon: GitBranch, label: "Changes" },
           { id: "files", icon: FolderTree, label: "Files" },
           { id: "metrics", icon: BarChart3, label: "Metrics" },
@@ -1167,16 +1192,16 @@ export function JobDetailScreen() {
         ].map(({ id, icon: Icon, label }) => (
           <button
             key={id}
-            onClick={() => handleTabChange(id)}
+            onClick={() => { setMobileActivityOpen(false); handleTabChange(id); }}
             className={cn(
               "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors",
-              tab === id
+              tab === id && !mobileActivityOpen
                 ? "text-primary"
                 : "text-muted-foreground active:text-foreground",
             )}
           >
-            <Icon size={20} strokeWidth={tab === id ? 2.5 : 1.5} />
-            <span className={cn("text-[10px] leading-tight truncate", tab === id && "font-semibold")}>{label}</span>
+            <Icon size={20} strokeWidth={tab === id && !mobileActivityOpen ? 2.5 : 1.5} />
+            <span className={cn("text-[10px] leading-tight truncate", tab === id && !mobileActivityOpen && "font-semibold")}>{label}</span>
           </button>
         ))}
       </nav>
