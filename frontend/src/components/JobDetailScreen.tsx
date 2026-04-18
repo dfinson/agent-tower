@@ -149,9 +149,6 @@ export function JobDetailScreen() {
     setTab(v);
     if (v !== "diff") setStepFilter(null);
     if (v !== "live") setScrollToSeq(null);
-    // On mobile, immediately pin the scroll container so the tab bar sits at
-    // the top of the viewport. We do this synchronously before React swaps the
-    // content to avoid the browser clamping an out-of-range scrollTop.
     if (window.innerWidth < 640 && tabBarRef.current) {
       const main = tabBarRef.current.closest("main");
       if (main) {
@@ -159,6 +156,36 @@ export function JobDetailScreen() {
       }
     }
   }, []);
+
+  // ── Mobile swipe-to-switch-tab ──
+  const mobileTabOrder = useMemo(() => {
+    const tabs = ["live", "activity", "diff", "files", "metrics"];
+    if (hasArtifacts) tabs.push("artifacts");
+    return tabs;
+  }, [hasArtifacts]);
+  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const onSwipeTouchStart = useCallback((e: React.TouchEvent) => {
+    if (window.innerWidth >= 640) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+  }, []);
+  const onSwipeTouchEnd = useCallback((e: React.TouchEvent) => {
+    const start = touchRef.current;
+    if (!start || window.innerWidth >= 640) return;
+    touchRef.current = null;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const dt = Date.now() - start.t;
+    // Require: ≥60px horizontal, clearly horizontal (2:1 ratio), quick (<400ms)
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2 || dt > 400) return;
+    const idx = mobileTabOrder.indexOf(tab);
+    if (idx === -1) return;
+    const next = dx < 0 ? mobileTabOrder[idx + 1] : mobileTabOrder[idx - 1];
+    if (next) handleTabChange(next);
+  }, [tab, mobileTabOrder, handleTabChange]);
 
   const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
     setStepFilter({ filePaths, label, scrollToSeq: seq, turnId });
@@ -940,7 +967,11 @@ export function JobDetailScreen() {
       </Tabs>
 
       {/* Tab content — full-bleed on mobile, min-height on desktop */}
-      <div className={cn("min-h-0 pb-[52px] sm:pb-0 sm:min-h-[80dvh]")}>
+      <div
+        className={cn("min-h-0 pb-[52px] sm:pb-0 sm:min-h-[80dvh]")}
+        onTouchStart={onSwipeTouchStart}
+        onTouchEnd={onSwipeTouchEnd}
+      >
       {tab === "live" && (
         <div className="flex flex-row">
           {/* Activity Timeline sidebar — hidden on small screens */}
