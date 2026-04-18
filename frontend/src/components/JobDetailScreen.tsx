@@ -163,18 +163,36 @@ export function JobDetailScreen() {
     if (hasArtifacts) tabs.push("artifacts");
     return tabs;
   }, [hasArtifacts]);
-  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const touchRef = useRef<{ x: number; y: number; t: number; el: EventTarget | null } | null>(null);
   const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
+
+  /** Walk from `el` up to `boundary` — return true if any ancestor scrolls horizontally. */
+  const isInsideHScrollable = useCallback((el: EventTarget | null, boundary: HTMLElement) => {
+    let node = el as HTMLElement | null;
+    while (node && node !== boundary) {
+      // Monaco uses .monaco-scrollable-element; also catch any generic overflow-x
+      if (node.classList?.contains("monaco-scrollable-element") || node.classList?.contains("monaco-editor")) return true;
+      if (node.scrollWidth > node.clientWidth + 1) {
+        const ov = getComputedStyle(node).overflowX;
+        if (ov === "auto" || ov === "scroll") return true;
+      }
+      node = node.parentElement;
+    }
+    return false;
+  }, []);
+
   const onSwipeTouchStart = useCallback((e: React.TouchEvent) => {
     if (window.innerWidth >= 640) return;
     const touch = e.touches[0];
     if (!touch) return;
-    touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+    touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now(), el: e.target };
   }, []);
   const onSwipeTouchEnd = useCallback((e: React.TouchEvent) => {
     const start = touchRef.current;
     if (!start || window.innerWidth >= 640) return;
     touchRef.current = null;
+    // If touch originated inside a horizontally scrollable element, don't hijack the swipe
+    if (isInsideHScrollable(start.el, e.currentTarget as HTMLElement)) return;
     const touch = e.changedTouches[0];
     if (!touch) return;
     const dx = touch.clientX - start.x;
@@ -190,7 +208,7 @@ export function JobDetailScreen() {
       setSlideDir(dx < 0 ? "right" : "left");
       handleTabChange(next);
     }
-  }, [tab, mobileTabOrder, handleTabChange]);
+  }, [tab, mobileTabOrder, handleTabChange, isInsideHScrollable]);
 
   const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
     setStepFilter({ filePaths, label, scrollToSeq: seq, turnId });
