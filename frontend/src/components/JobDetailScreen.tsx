@@ -160,7 +160,7 @@ export function JobDetailScreen() {
 
   // ── Mobile swipe-to-switch-tab ──
   const mobileTabOrder = useMemo(() => {
-    const tabs = ["diff", "live", "files", "metrics"];
+    const tabs = ["live", "diff", "files", "metrics"];
     if (hasArtifacts) tabs.push("artifacts");
     return tabs;
   }, [hasArtifacts]);
@@ -201,16 +201,28 @@ export function JobDetailScreen() {
     const dt = Date.now() - start.t;
     // Require: ≥60px horizontal, clearly horizontal (2:1 ratio), quick (<400ms)
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2 || dt > 400) return;
+
+    // Activity overlay: swipe right (dx>0) on Live opens it; swipe left (dx<0) when open closes it
+    if (dx > 0 && tab === "live" && !mobileActivityOpen) {
+      setMobileActivityOpen(true);
+      return;
+    }
+    if (dx < 0 && mobileActivityOpen) {
+      setMobileActivityOpen(false);
+      return;
+    }
+
     const idx = mobileTabOrder.indexOf(tab);
     if (idx === -1) return;
     const len = mobileTabOrder.length;
+    // Swipe left (dx<0) = next tab; swipe right (dx>0) = previous tab
+    // Carousel: wrap around at edges
     const nextIdx = dx < 0 ? (idx + 1) % len : (idx - 1 + len) % len;
     const nextTab = mobileTabOrder[nextIdx];
     if (!nextTab) return;
-    // Swipe left (dx<0) → content slides in from right; swipe right → from left
     setSlideDir(dx < 0 ? "right" : "left");
     handleTabChange(nextTab);
-  }, [tab, mobileTabOrder, handleTabChange, isInsideHScrollable]);
+  }, [tab, mobileTabOrder, mobileActivityOpen, handleTabChange, isInsideHScrollable]);
 
   const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
     setStepFilter({ filePaths, label, scrollToSeq: seq, turnId });
