@@ -64,15 +64,15 @@
 
 /* Mobile tab-swipe transitions */
 @keyframes slide-in-from-right {
-  from { transform: translateX(30%); opacity: 0; }
+  from { transform: translateX(40%); opacity: 0; }
   to   { transform: translateX(0);   opacity: 1; }
 }
 @keyframes slide-in-from-left {
-  from { transform: translateX(-30%); opacity: 0; }
+  from { transform: translateX(-40%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
 }
-.animate-slide-left  { animation: slide-in-from-left  200ms ease-out; }
-.animate-slide-right { animation: slide-in-from-right 200ms ease-out; }
+.animate-slide-left  { animation: slide-in-from-left  350ms cubic-bezier(0.22, 1, 0.36, 1); }
+.animate-slide-right { animation: slide-in-from-right 350ms cubic-bezier(0.22, 1, 0.36, 1); }
 
 /* Mobile utilities */
 @layer utilities {
