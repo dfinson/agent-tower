@@ -62,6 +62,18 @@
   animation: step-title-update 1.2s ease-out;
 }
 
+/* Mobile tab-swipe transitions */
+@keyframes slide-in-from-right {
+  from { transform: translateX(30%); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
+@keyframes slide-in-from-left {
+  from { transform: translateX(-30%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.animate-slide-left  { animation: slide-in-from-left  200ms ease-out; }
+.animate-slide-right { animation: slide-in-from-right 200ms ease-out; }
+
 /* Mobile utilities */
 @layer utilities {
   .scrollbar-none {
