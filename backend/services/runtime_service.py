@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from backend.persistence.job_repo import JobRepository
     from backend.services.progress_tracking_service import ProgressTrackingService
     from backend.services.step_tracker import StepTracker
+    from backend.services.terminal_service import TerminalService
 
 
 class _AgentSession:
@@ -233,6 +234,18 @@ class RuntimeService:
         self._echo_suppress: dict[str, set[str]] = {}
         # Progress tracking (headline milestones + plan extraction)
         self._progress_tracking = progress_tracking
+        # Observer terminals: job_id → terminal session ID
+        self._terminal_service: TerminalService | None = None
+        self._observer_terminals: dict[str, str] = {}
+
+    def set_terminal_service(self, svc: TerminalService) -> None:
+        """Wire the TerminalService for agent observer terminals."""
+        self._terminal_service = svc
+        svc.set_observer_interrupt_callback(self._handle_observer_interrupt)
+
+    async def _handle_observer_interrupt(self, job_id: str) -> bool:
+        """Callback from TerminalService when Ctrl+C is received on an observer terminal."""
+        return await self.interrupt(job_id)
 
     def _resolve_adapter(self, sdk: str) -> AgentAdapterInterface:
         """Resolve the adapter for a given SDK via the registry."""
@@ -618,6 +631,14 @@ class RuntimeService:
                 log.warning("telemetry_init_failed", job_id=job_id, exc_info=True)
 
         asyncio.create_task(_init_telemetry_row(), name=f"telemetry-init-{job_id[:8]}")
+
+        # Create observer terminal for live agent shell output
+        if self._terminal_service is not None:
+            try:
+                observer = self._terminal_service.create_observer_session(job_id=job_id)
+                self._observer_terminals[job_id] = observer.id
+            except Exception:
+                log.warning("observer_terminal_create_failed", job_id=job_id, exc_info=True)
 
         # Emit environment_setup phase
         self._resolve_adapter(config.sdk).set_execution_phase(job_id, "environment_setup")
@@ -1080,6 +1101,7 @@ class RuntimeService:
         self._pending_starts.pop(job_id, None)
         self._queued_override_prompts.pop(job_id, None)
         self._queued_resume_session_ids.pop(job_id, None)
+        self._observer_terminals.pop(job_id, None)
         if self._sister_sessions is not None:
             try:
                 await self._sister_sessions.close_job(job_id)
@@ -1372,6 +1394,9 @@ class RuntimeService:
         async for session_event in agent_session.execute(config, self._resolve_adapter(config.sdk)):
             made_progress = made_progress or _session_event_counts_as_resume_progress(session_event)
 
+            # Forward shell events to observer terminal (before action filtering).
+            self._forward_to_observer(job_id, session_event)
+
             action, domain_event, evt_error = await self._process_agent_event(
                 job_id,
                 session_event,
@@ -1522,6 +1547,9 @@ class RuntimeService:
 
         try:
             async for event in followup_session.execute(followup_config, self._resolve_adapter(base_config.sdk)):
+                # Forward shell events to observer terminal.
+                self._forward_to_observer(job_id, event)
+
                 action, domain_event, evt_error = await self._process_agent_event(
                     job_id,
                     event,
@@ -1696,6 +1724,82 @@ class RuntimeService:
             log.info("job_cancel_requested", job_id=job_id)
         else:
             log.info("job_cancel_no_running_task", job_id=job_id)
+
+    async def interrupt(self, job_id: str) -> bool:
+        """Interrupt the agent's current turn without destroying the session.
+
+        Sends SIGINT-equivalent to the SDK subprocess: the currently running
+        shell command is killed, but the session stays alive and the agent can
+        recover or be given a new instruction.
+
+        Returns True if an active session was found and interrupted.
+        """
+        agent_session = self._agent_sessions.get(job_id)
+        if agent_session is None:
+            log.info("job_interrupt_no_session", job_id=job_id)
+            return False
+        await agent_session.interrupt()
+        log.info("job_interrupted", job_id=job_id)
+        return True
+
+    # ------------------------------------------------------------------
+    # Observer terminal bridge
+    # ------------------------------------------------------------------
+
+    # Tool names that represent shell execution across SDKs.
+    _SHELL_TOOL_NAMES: frozenset[str] = frozenset({
+        "bash", "Bash", "run_in_terminal", "execute_command",
+        "run_terminal_command", "shell",
+    })
+
+    def _forward_to_observer(self, job_id: str, event: SessionEvent) -> None:
+        """Forward shell-tool transcript events to the observer terminal."""
+        if self._terminal_service is None:
+            return
+        terminal_id = self._observer_terminals.get(job_id)
+        if not terminal_id:
+            return
+        if event.kind != SessionEventKind.transcript:
+            return
+
+        payload = event.payload
+        role = payload.get("role", "")
+        tool_name = payload.get("tool_name", "")
+        is_shell = tool_name in self._SHELL_TOOL_NAMES
+
+        if role == "tool_running" and is_shell:
+            # Show the command the agent is about to run.
+            cmd = ""
+            raw_args = payload.get("tool_args")
+            if raw_args:
+                import json as _json
+
+                try:
+                    args = _json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    cmd = args.get("command", "") or args.get("input", "")
+                except (ValueError, TypeError):
+                    cmd = str(raw_args)
+            if cmd:
+                self._terminal_service.write_observer_output(
+                    terminal_id,
+                    f"\x1b[1;34m$ \x1b[0m{cmd}\n",
+                )
+
+        elif role == "tool_output_delta" and is_shell:
+            # Streaming stdout/stderr — write chunks as they arrive.
+            chunk = payload.get("content", "")
+            if chunk:
+                self._terminal_service.write_observer_output(terminal_id, chunk)
+
+        elif role == "tool_call" and is_shell:
+            # Tool completed — write a separator line.
+            success = payload.get("tool_success", True)
+            if not success:
+                issue = payload.get("tool_issue") or "command failed"
+                self._terminal_service.write_observer_output(
+                    terminal_id,
+                    f"\x1b[1;31m✗ {issue}\x1b[0m\n",
+                )
 
     async def send_message(self, job_id: str, message: str) -> bool:
         """Send an operator message to a running job.

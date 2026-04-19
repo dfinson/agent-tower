@@ -232,6 +232,7 @@ def _mock_terminal_svc_for_ws(*, session_id: str = "s1", scrollback: str = "") -
     svc.get_scrollback = Mock(return_value=scrollback)
     svc.write = Mock()
     svc.resize = Mock()
+    svc.handle_observer_input = AsyncMock(return_value=False)
     return svc
 
 

@@ -19,6 +19,7 @@ import shutil
 import struct
 import subprocess  # noqa: S404
 import sys
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -140,6 +141,7 @@ class PtySession:
     clients: set[WebSocket] = field(default_factory=set)
     scrollback: str = ""
     scrollback_limit: int = 500 * 1024  # bytes
+    observer: bool = False
     _exit_task: asyncio.Task[None] | None = field(default=None, repr=False)
     _zdotdir: str | None = field(default=None, repr=False)
     _win_reader_task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -171,10 +173,85 @@ class TerminalService:
         self._default_shell = default_shell or _detect_shell()
         self._scrollback_limit = scrollback_size_kb * 1024
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._observer_interrupt_cb: Callable[[str], Awaitable[bool]] | None = None
 
     @property
     def sessions(self) -> dict[str, PtySession]:
         return self._sessions
+
+    def set_observer_interrupt_callback(
+        self,
+        cb: Callable[[str], Awaitable[bool]],
+    ) -> None:
+        """Register callback invoked when Ctrl+C is received on an observer session.
+
+        The callback receives the ``job_id`` and should return ``True`` if the
+        interrupt was delivered.
+        """
+        self._observer_interrupt_cb = cb
+
+    def create_observer_session(self, *, job_id: str) -> PtySession:
+        """Create a virtual observer session for watching agent shell output.
+
+        Observer sessions have no backing process — output is pushed via
+        :meth:`write_observer_output` and input is limited to Ctrl+C which
+        triggers the registered interrupt callback.
+        """
+        if self._loop is None:
+            self._loop = asyncio.get_event_loop()
+
+        session_id = secrets.token_hex(16)
+        session = PtySession(
+            id=session_id,
+            master_fd=-1,
+            process=None,
+            shell="observer",
+            cwd="",
+            job_id=job_id,
+            scrollback_limit=self._scrollback_limit,
+            observer=True,
+        )
+        # Observer sessions don't count toward max_sessions limit.
+        self._sessions[session_id] = session
+        log.info("observer_session_created", session_id=session_id, job_id=job_id)
+        return session
+
+    def write_observer_output(self, session_id: str, text: str) -> None:
+        """Write text to an observer session and broadcast to attached clients."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        self._broadcast_to_clients(session, text)
+
+    async def handle_observer_input(self, session_id: str, data: bytes) -> bool:
+        """Handle input on an observer session.  Returns True if handled.
+
+        Only Ctrl+C (``\\x03``) is meaningful — it triggers the registered
+        interrupt callback.  All other input is silently discarded.
+        """
+        session = self._sessions.get(session_id)
+        if session is None or not session.observer:
+            return False
+        if b"\x03" in data and session.job_id and self._observer_interrupt_cb:
+            await self._observer_interrupt_cb(session.job_id)
+        return True
+
+    def _broadcast_to_clients(self, session: PtySession, text: str) -> None:
+        """Append *text* to scrollback and fan-out to all attached WebSocket clients."""
+        session.append_scrollback(text)
+        if not session.clients:
+            return
+        import json as _json
+
+        msg = _json.dumps({"type": "output", "data": text})
+        dead: list[WebSocket] = []
+        for ws in session.clients:
+            try:
+                asyncio.ensure_future(ws.send_text(msg))
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            session.clients.discard(ws)
 
     def create_session(
         self,
@@ -365,7 +442,7 @@ class TerminalService:
     def get_session(self, session_id: str) -> PtySession | None:
         return self._sessions.get(session_id)
 
-    def list_sessions(self) -> list[dict[str, int | str | None]]:
+    def list_sessions(self) -> list[dict[str, int | str | bool | None]]:
         """Return summary info for all active sessions."""
         result = []
         for s in self._sessions.values():
@@ -375,8 +452,9 @@ class TerminalService:
                     "shell": s.shell,
                     "cwd": s.cwd,
                     "jobId": s.job_id,
-                    "pid": s.process.pid,
+                    "pid": s.process.pid if s.process else None,
                     "clients": len(s.clients),
+                    "observer": s.observer,
                 }
             )
         return result
@@ -461,20 +539,7 @@ class TerminalService:
             return
 
         text = data.decode("utf-8", errors="replace")
-        session.append_scrollback(text)
-
-        if session.clients:
-            import json
-
-            msg = json.dumps({"type": "output", "data": text})
-            dead: list[WebSocket] = []
-            for ws in session.clients:
-                try:
-                    asyncio.ensure_future(ws.send_text(msg))
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                session.clients.discard(ws)
+        self._broadcast_to_clients(session, text)
 
     # ------------------------------------------------------------------
     # Internal — Windows
@@ -487,8 +552,6 @@ class TerminalService:
         output out to all attached WebSocket clients, mirroring the behaviour
         of ``_on_pty_readable`` on POSIX.
         """
-        import json
-
         session = self._sessions.get(session_id)
         if session is None:
             return
@@ -504,17 +567,7 @@ class TerminalService:
                 await asyncio.sleep(0.01)
                 continue
             text = raw if isinstance(raw, str) else raw.decode("utf-8", errors="replace")
-            session.append_scrollback(text)
-            if session.clients:
-                msg = json.dumps({"type": "output", "data": text})
-                dead_ws: list[WebSocket] = []
-                for ws in list(session.clients):
-                    try:
-                        asyncio.ensure_future(ws.send_text(msg))
-                    except Exception:
-                        dead_ws.append(ws)
-                for ws in dead_ws:
-                    session.clients.discard(ws)
+            self._broadcast_to_clients(session, text)
 
     # ------------------------------------------------------------------
     # Internal — shared
@@ -567,22 +620,24 @@ class TerminalService:
             if not task.done():
                 task.cancel()
 
-        if sys.platform == "win32":
-            with contextlib.suppress(Exception):
-                session.process.close(force=True)
-        else:
-            if self._loop:
+        if not session.observer:
+            # Real PTY session — kill the backing process and close fds.
+            if sys.platform == "win32":
                 with contextlib.suppress(Exception):
-                    self._loop.remove_reader(session.master_fd)
-            try:
-                session.process.kill()
-                await asyncio.to_thread(session.process.wait)
-            except (OSError, ProcessLookupError):
-                pass
-            if session.master_fd >= 0:
-                with contextlib.suppress(OSError):
-                    os.close(session.master_fd)
-                session.master_fd = -1
+                    session.process.close(force=True)
+            else:
+                if self._loop:
+                    with contextlib.suppress(Exception):
+                        self._loop.remove_reader(session.master_fd)
+                try:
+                    session.process.kill()
+                    await asyncio.to_thread(session.process.wait)
+                except (OSError, ProcessLookupError):
+                    pass
+                if session.master_fd >= 0:
+                    with contextlib.suppress(OSError):
+                        os.close(session.master_fd)
+                    session.master_fd = -1
 
         msg = json.dumps({"type": "exit", "code": -1})
         for ws in list(session.clients):
@@ -590,7 +645,8 @@ class TerminalService:
                 await ws.send_text(msg)
         session.clients.clear()
 
-        log.info("terminal_session_cleaned_up", session_id=session.id, pid=session.process.pid)
+        pid = session.process.pid if session.process else None
+        log.info("terminal_session_cleaned_up", session_id=session.id, pid=pid)
 
         if session._zdotdir:
             with contextlib.suppress(Exception):

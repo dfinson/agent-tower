@@ -287,6 +287,21 @@ async def cancel_job(
     return _job_to_response(job)
 
 
+@router.post("/jobs/{job_id}/interrupt", status_code=204)
+async def interrupt_job(
+    job_id: str,
+    runtime_service: FromDishka[RuntimeService],
+) -> None:
+    """Interrupt the agent's current shell command without canceling the job.
+
+    Sends a non-destructive interrupt (SIGINT-equivalent) to the SDK subprocess.
+    The agent session stays alive and can recover or receive new instructions.
+    """
+    found = await runtime_service.interrupt(job_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="No active agent session for this job")
+
+
 @router.post("/jobs/{job_id}/rerun", response_model=CreateJobResponse, status_code=201)
 async def rerun_job(
     job_id: str,

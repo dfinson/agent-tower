@@ -28,6 +28,7 @@ import type { StepFilter } from "./DiffViewer";
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazyRetry(() => import("./DiffViewer"));
 const ArtifactViewer = lazyRetry(() => import("./ArtifactViewer"));
+const AgentTerminal = lazyRetry(() => import("./AgentTerminal").then((m) => ({ default: m.AgentTerminal })));
 
 const SKELETON_DELAY_MS = 500;
 
@@ -160,7 +161,7 @@ export function JobDetailScreen() {
 
   // ── Mobile swipe-to-switch-tab ──
   const mobileTabOrder = useMemo(() => {
-    const tabs = ["live", "diff", "files", "metrics"];
+    const tabs = ["live", "shell", "diff", "files", "metrics"];
     if (hasArtifacts) tabs.push("artifacts");
     return tabs;
   }, [hasArtifacts]);
@@ -970,6 +971,7 @@ export function JobDetailScreen() {
         <div className="hidden sm:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
             <TabsTrigger value="live">Live</TabsTrigger>
+            <TabsTrigger value="shell"><TerminalSquare size={13} className="mr-1.5" />Shell</TabsTrigger>
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
             <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
             <TabsTrigger value="metrics"><BarChart3 size={13} className="mr-1.5" />Metrics</TabsTrigger>
@@ -1149,6 +1151,16 @@ export function JobDetailScreen() {
         <MetricsPanel jobId={jobId} isRunning={isRunning} />
       )}
 
+      {tab === "shell" && (
+        <TabErrorBoundary>
+          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+            <div className="sm:h-[80dvh] h-[60dvh] rounded-lg overflow-hidden border border-border">
+              <AgentTerminal jobId={jobId} isRunning={isRunning} />
+            </div>
+          </Suspense>
+        </TabErrorBoundary>
+      )}
+
 
 
       {tab === "artifacts" && (
@@ -1197,6 +1209,7 @@ export function JobDetailScreen() {
         </button>
         {[
           { id: "live", icon: Radio, label: "Live" },
+          { id: "shell", icon: TerminalSquare, label: "Shell" },
           { id: "diff", icon: GitBranch, label: "Changes" },
           { id: "files", icon: FolderTree, label: "Files" },
           { id: "metrics", icon: BarChart3, label: "Metrics" },
