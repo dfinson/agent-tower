@@ -96,6 +96,16 @@ async def delete_session(session_id: str) -> None:
         raise HTTPException(status_code=404, detail="Session not found")
 
 
+@router.get("/observer/{job_id}", response_model=TerminalSessionInfo)
+async def get_observer_terminal(job_id: str) -> TerminalSessionInfo:
+    """Return the observer terminal session for a running job, if one exists."""
+    svc = _svc()
+    for info in svc.list_sessions():
+        if info.get("jobId") == job_id and info.get("observer"):
+            return TerminalSessionInfo(**info)
+    raise HTTPException(status_code=404, detail="No observer terminal for this job")
+
+
 @router.post("/ask", response_model=TerminalAskResponse)
 async def ask_ai(req: TerminalAskRequest) -> TerminalAskResponse:
     """Translate natural language to a shell command using the utility model."""
@@ -222,7 +232,10 @@ async def terminal_ws(ws: WebSocket) -> None:
                 if attached_session_id:
                     data = msg.get("data", "")
                     if isinstance(data, str):
-                        svc.write(attached_session_id, data.encode("utf-8"))
+                        raw = data.encode("utf-8")
+                        handled = await svc.handle_observer_input(attached_session_id, raw)
+                        if not handled:
+                            svc.write(attached_session_id, raw)
 
             elif msg_type == "resize":
                 if attached_session_id:

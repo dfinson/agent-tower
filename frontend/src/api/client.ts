@@ -258,6 +258,12 @@ export function cancelJob(jobId: string): Promise<Job> {
   });
 }
 
+export function interruptJob(jobId: string): Promise<void> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/interrupt`, {
+    method: "POST",
+  });
+}
+
 export function rerunJob(jobId: string): Promise<CreateJobResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/rerun`, {
     method: "POST",
@@ -716,6 +722,24 @@ export async function createTerminalSession(
     method: "POST",
     body: JSON.stringify({ cwd, jobId }),
   });
+}
+
+export interface ObserverTerminalInfo {
+  id: string;
+  jobId: string | null;
+  observer: boolean;
+}
+
+export async function fetchObserverTerminal(
+  jobId: string,
+): Promise<ObserverTerminalInfo | null> {
+  try {
+    return await request<ObserverTerminalInfo>(
+      `/terminal/observer/${encodeURIComponent(jobId)}`,
+    );
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -343,6 +343,7 @@ async def _init_optional_services(
         )
         terminal.set_terminal_service(terminal_service)
         terminal.set_utility_session(services.sister_sessions)
+        services.runtime_service.set_terminal_service(terminal_service)
         log.debug("terminal_service_enabled", max_sessions=config.terminal.max_sessions)
 
     # --- Model list cache ---

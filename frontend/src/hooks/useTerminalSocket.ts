@@ -33,6 +33,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
   const sessionIdRef = useRef(sessionId);
   const attemptRef = useRef(0);
   const inputBufferRef = useRef<string[]>([]);
+  const attachedRef = useRef(false);
   sessionIdRef.current = sessionId;
 
   // Store callbacks in refs to avoid recreating `connect` on every render.
@@ -54,6 +55,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
 
     ws.onopen = () => {
       attemptRef.current = 0;
+      attachedRef.current = false;
       // Attach to session
       ws.send(JSON.stringify({ type: "attach", sessionId: sessionIdRef.current }));
     };
@@ -66,6 +68,7 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
             terminal.write(msg.data);
             break;
           case "attached":
+            attachedRef.current = true;
             onStatusChangeRef.current?.("connected");
             // Send initial size
             ws.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
@@ -80,6 +83,15 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
             break;
           case "error":
             console.warn("[terminal] Server error:", msg.message);
+            // If the error arrived before "attached", the session is likely
+            // gone (e.g. backend restarted).  Stop reconnecting and surface
+            // the failure so the user can open a fresh terminal.
+            if (!attachedRef.current) {
+              sessionIdRef.current = null; // prevent reconnect
+              ws.close();
+              onStatusChangeRef.current?.("disconnected");
+              onExitRef.current?.(-1);
+            }
             break;
         }
       } catch {

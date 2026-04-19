@@ -674,8 +674,9 @@ class TerminalSessionInfo(CamelModel):
     shell: str
     cwd: str
     job_id: str | None = None
-    pid: int
+    pid: int | None = None
     clients: int
+    observer: bool = False
 
 
 class TerminalAskRequest(CamelModel):

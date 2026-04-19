@@ -861,6 +861,16 @@ class CopilotAdapter(BaseAgentAdapter):
         except Exception:
             log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
 
+    async def interrupt_session(self, session_id: str) -> None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        try:
+            await session.abort()
+            log.info("copilot_session_interrupted", session_id=session_id)
+        except Exception:
+            log.warning("copilot_interrupt_failed", session_id=session_id, exc_info=True)
+
     async def abort_session(self, session_id: str) -> None:
         session = self._sessions.get(session_id)
         if session is None:
