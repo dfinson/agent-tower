@@ -113,11 +113,7 @@ beforeEach(() => {
     artifactRetentionDays: 30,
     maxArtifactSizeMb: 100,
     autoArchiveDays: 90,
-    verify: false,
-    selfReview: false,
     maxTurns: 3,
-    verifyPrompt: "",
-    selfReviewPrompt: "",
   } as any);
   vi.mocked(suggestNames).mockResolvedValue({
     title: "Fix the bug",
