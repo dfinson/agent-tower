@@ -92,6 +92,7 @@ export function PromptWithVoice({ value, onChange, error, onBlur, onKeyDown, onS
 
     if (state === "recording") {
       record.stopRecording();
+      wsRef.current?.empty();
       setState("transcribing");
       return;
     }
@@ -260,6 +261,7 @@ export function MicButton({ onTranscript, onStateChange, waveformContainerRef }:
   const handleClick = useCallback(async () => {
     if (state === "recording") {
       recordRef.current?.stopRecording();
+      wsRef.current?.empty();
       updateState("transcribing");
       return;
     }
