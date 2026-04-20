@@ -35,6 +35,7 @@ from backend.api import (
     settings,
     share,
     terminal,
+    trail,
     voice,
     workspace,
 )
@@ -193,6 +194,8 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(preview.router, prefix="/api")
     # Job sharing (read-only via share tokens)
     app.include_router(share.router, prefix="/api")
+    # Agent audit trail
+    app.include_router(trail.router, prefix="/api")
 
 
 def _register_domain_exception_handlers(app: FastAPI) -> None:

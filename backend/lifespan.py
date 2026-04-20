@@ -508,6 +508,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         motivation_service.drain_loop(), name="motivation-drain"
     )
 
+    # --- Trail service (agent audit trail) ---
+    from backend.services.trail_service import TrailService
+
+    trail_service = TrailService(
+        session_factory=session_factory,
+        completer=services.sister_sessions,
+        config=config.trail,
+    )
+    event_bus.subscribe(trail_service.handle_event)
+    trail_task = asyncio.create_task(
+        trail_service.drain_loop(), name="trail-enrichment-drain"
+    )
+
     # --- Share service ---
     share_service = ShareService()
 
@@ -530,6 +543,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             VoiceMaxBytes: VoiceMaxBytes(optional.voice_max_bytes),
             PushService: push_service,
             ShareService: share_service,
+            TrailService: trail_service,
         },
     )
     app.state.dishka_container = container
@@ -563,6 +577,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await optional.mcp_cleanup.__aexit__(None, None, None)
     optional.retention_task.cancel()
     motivation_task.cancel()
+    trail_task.cancel()
     dead_letter_task.cancel()
     if optional.terminal_service is not None:
         await optional.terminal_service.shutdown()

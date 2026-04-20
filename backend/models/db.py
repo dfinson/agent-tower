@@ -293,3 +293,43 @@ class CostObservationRow(Base):
         Index("idx_obs_category", "category"),
         Index("idx_obs_severity", "severity"),
     )
+
+
+class TrailNodeRow(Base):
+    """Agent audit trail node — structured intent graph."""
+
+    __tablename__ = "trail_nodes"
+
+    id = Column(String(36), primary_key=True)
+    job_id = Column(String(36), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    seq = Column(Integer, nullable=False)
+    anchor_seq = Column(Integer, nullable=False)
+    parent_id = Column(String(36), nullable=True)
+    kind = Column(String(20), nullable=False)
+    deterministic_kind = Column(String(20), nullable=True)
+    phase = Column(String(30), nullable=True)
+    timestamp = Column(TZDateTime, nullable=False)
+    enrichment = Column(String(10), nullable=False, server_default="pending")
+    # Intent (populated by enrichment, nullable)
+    intent = Column(Text, nullable=True)
+    rationale = Column(Text, nullable=True)
+    outcome = Column(Text, nullable=True)
+    # Anchors (populated deterministically)
+    step_id = Column(String(36), nullable=True)
+    span_ids = Column(Text, nullable=True)  # JSON array
+    turn_id = Column(String(36), nullable=True)
+    files = Column(Text, nullable=True)  # JSON array
+    start_sha = Column(String(40), nullable=True)
+    end_sha = Column(String(40), nullable=True)
+    # Edges
+    supersedes = Column(String(36), nullable=True)
+    tags = Column(Text, nullable=True)  # JSON array
+
+    __table_args__ = (
+        Index("ix_trail_nodes_job_id", "job_id"),
+        Index("ix_trail_nodes_job_seq", "job_id", "seq"),
+        Index("ix_trail_nodes_display_order", "job_id", "anchor_seq", "seq"),
+        Index("ix_trail_nodes_parent", "parent_id"),
+        Index("ix_trail_nodes_kind", "job_id", "kind"),
+        Index("ix_trail_nodes_enrichment", "job_id", "enrichment"),
+    )
