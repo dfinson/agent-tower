@@ -19,13 +19,14 @@ import {
   ShieldQuestion, CheckCircle2, XCircle as XCircleIcon,
   ArrowDown, Search, PauseCircle, X, GitBranch, GitFork,
   FileText, Pencil, FilePlus, Terminal, Globe, Cpu,
+  Clock, Milestone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useStore, selectJobTranscript, selectApprovals, selectStreamingToolOutput } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import type { TranscriptEntry, ApprovalRequest } from "../store";
-import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval } from "../api/client";
+import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, ApiError } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { SdkIcon } from "./SdkBadge";
 import { MicButton } from "./VoiceButton";
@@ -108,6 +109,18 @@ const KIND_LABELS: Record<ClusterKind, { singular: string; plural: string; icon:
   agent:   { singular: "Sub-agent", plural: "Sub-agents", icon: Cpu },
   web:     { singular: "Fetched", plural: "Fetched", icon: Globe },
   other:   { singular: "Action", plural: "Actions", icon: Bot },
+};
+
+// Phase 3: Semantic icon colors — warm up tool cluster icons
+const KIND_ICON_COLORS: Record<ClusterKind, string> = {
+  read:    "text-blue-400/50",
+  write:   "text-amber-400/50",
+  create:  "text-emerald-400/50",
+  execute: "text-emerald-400/50",
+  search:  "text-violet-400/50",
+  agent:   "text-primary/50",
+  web:     "text-cyan-400/50",
+  other:   "text-muted-foreground/50",
 };
 
 function clusterLabel(kind: ClusterKind, count: number): string {
@@ -481,8 +494,14 @@ function PhaseBox({
             "border border-transparent hover:border-border/40",
           )}
         >
-          <Icon size={12} className="shrink-0 opacity-50" />
+          <Icon size={12} className={cn("shrink-0", KIND_ICON_COLORS[cluster.kind])} />
           <span className="font-medium">{cluster.label}</span>
+          {/* Phase 3: Show AI-generated tool group summary in collapsed view */}
+          {cluster.entries[0]?.toolGroupSummary && (
+            <span className="text-[11px] text-muted-foreground/40 italic truncate ml-1 flex-1 min-w-0">
+              {cluster.entries[0].toolGroupSummary}
+            </span>
+          )}
           {totalDuration > 0 && (
             <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
           )}
@@ -513,7 +532,7 @@ function PhaseBox({
           onClick={() => setExpanded(false)}
           className="flex items-center gap-2 px-3 py-1.5 flex-1 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/20 transition-colors"
         >
-          <Icon size={12} className="shrink-0 opacity-50" />
+          <Icon size={12} className={cn("shrink-0", KIND_ICON_COLORS[cluster.kind])} />
           <span className="font-medium">{cluster.label}</span>
           {totalDuration > 0 && (
             <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
@@ -1036,7 +1055,7 @@ function GenericPreview({ entries }: { entries: TranscriptEntry[] }) {
 const OperatorMessage = memo(function OperatorMessage({ entry }: { entry: TranscriptEntry }) {
   return (
     <div className="flex gap-2 sm:gap-3 py-3">
-      <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/10 flex items-center justify-center">
+      <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/15 flex items-center justify-center">
         <User size={13} className="text-primary" />
       </div>
       <div className="flex-1 min-w-0">
@@ -1078,7 +1097,6 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
             if (c.kind === "agent") {
               return <SubAgentBubble key={i} cluster={c} sdk={sdk} />;
             }
-            // Last cluster in an active turn → expanded
             return (
               <PhaseBox
                 key={i}
@@ -1093,8 +1111,15 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
       {/* Agent bubble — message + reasoning grouped together */}
       {(hasMessage || (hasReasoning && !hasTools)) && (
-        <div>
-          <div className="flex-1 min-w-0 rounded-lg bg-muted/5 px-2.5 sm:px-3 py-2 space-y-1.5">
+        <div className="flex gap-2 sm:gap-3">
+          {/* Phase 1: Agent identity avatar */}
+          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/50 border border-border/30 flex items-center justify-center mt-0.5">
+            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
+          </div>
+          <div className={cn(
+            "flex-1 min-w-0 rounded-lg px-2.5 sm:px-3 py-2 space-y-1.5",
+            isStreaming ? "bg-primary/5" : "bg-muted/5",
+          )}>
             {/* Reasoning — expandable inside the bubble */}
             {hasReasoning && (
               <ReasoningHint content={turn.reasoning?.content ?? ""} streamingText={streamingReasoningText} />
@@ -1120,8 +1145,11 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
       {/* Streaming with no committed message yet and no reasoning bubble shown */}
       {!displayMessage && isStreaming && streamingText && !hasReasoning && (
-        <div>
-          <div className="flex-1 min-w-0 rounded-lg bg-muted/5 px-3 py-2">
+        <div className="flex gap-2 sm:gap-3">
+          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/50 border border-border/30 flex items-center justify-center mt-0.5">
+            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
+          </div>
+          <div className="flex-1 min-w-0 rounded-lg bg-primary/5 px-3 py-2">
             <div className="text-[15px] sm:text-sm text-foreground/90 leading-relaxed">
               <HighlightedMarkdown content={streamingText} />
               <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
@@ -1167,7 +1195,9 @@ function ReasoningHint({ content, streamingText }: { content: string; streamingT
   const [expanded, setExpanded] = useState(false);
   const isLiveStreaming = !!streamingText && !content;
   const displayContent = streamingText || content;
-  const preview = displayContent.length > 120 ? displayContent.slice(0, 120) + "…" : displayContent;
+  // Phase 2: Show 2-3 lines by default (~200 chars) instead of nothing
+  const preview = displayContent.length > 200 ? displayContent.slice(0, 200) + "…" : displayContent;
+  const isLong = displayContent.length > 200;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll streaming reasoning to bottom
@@ -1181,21 +1211,27 @@ function ReasoningHint({ content, streamingText }: { content: string; streamingT
   const showExpanded = expanded || isLiveStreaming;
 
   return (
-    <div className="text-xs text-muted-foreground/60 leading-snug">
+    <div className={cn(
+      "text-xs text-foreground/50 leading-snug border-l-2 pl-2.5",
+      isLiveStreaming ? "animate-reasoning-pulse" : "border-primary/15",
+    )}>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-start gap-1.5 hover:text-muted-foreground/80 transition-colors text-left w-full"
+        className="flex items-start gap-1.5 hover:text-foreground/70 transition-colors text-left w-full"
       >
-        <Brain size={12} className="shrink-0 mt-0.5 opacity-60" />
+        <Brain size={14} className="shrink-0 mt-0.5 text-primary/40" />
         {showExpanded ? (
-          <div ref={scrollRef} className="whitespace-pre-wrap max-h-48 overflow-y-auto flex-1 min-w-0">
+          <div ref={scrollRef} className="whitespace-pre-wrap max-h-48 overflow-y-auto flex-1 min-w-0 italic">
             {trimWorktreePaths(displayContent)}
             {isLiveStreaming && (
               <span className="inline-block w-1 h-3 bg-primary/50 animate-pulse ml-0.5 align-text-bottom" />
             )}
           </div>
         ) : (
-          <span className="line-clamp-2">{preview}</span>
+          <div className="flex-1 min-w-0">
+            <span className="line-clamp-3 italic">{preview}</span>
+            {isLong && <span className="text-primary/40 text-[10px] ml-1">Show more</span>}
+          </div>
         )}
       </button>
     </div>
@@ -1269,13 +1305,56 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
 }
 
 function DividerLine({ entry }: { entry: TranscriptEntry }) {
+  const text = entry.content || "Session";
+  const isStep = text !== "Session";
   return (
-    <div className="flex items-center gap-3 py-3">
-      <div className="flex-1 border-t border-border/30" />
-      <span className="text-[10px] text-muted-foreground/30 uppercase tracking-wider">
-        {entry.content || "Session"}
-      </span>
-      <div className="flex-1 border-t border-border/30" />
+    <div className="flex items-center gap-2.5 py-4">
+      <div className="flex-1 border-t border-border/50" />
+      <div className="flex items-center gap-1.5 shrink-0">
+        {isStep ? (
+          <CheckCircle2 size={12} className="text-emerald-400/70" />
+        ) : (
+          <Milestone size={12} className="text-muted-foreground/40" />
+        )}
+        <span className={cn(
+          "text-[11px] font-medium tracking-wide",
+          isStep ? "text-foreground/60" : "text-muted-foreground/40 uppercase",
+        )}>
+          {text}
+        </span>
+      </div>
+      <div className="flex-1 border-t border-border/50" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Agent activity pulse bar — ambient heartbeat when agent is working
+// ---------------------------------------------------------------------------
+
+function AgentActivityBar({ jobId, sdk, jobState }: { jobId: string; sdk?: string; jobState?: string }) {
+  const job = useStore((s) => s.jobs[jobId]);
+  const streamingMessages = useStore((s) => s.streamingMessages);
+  const isJobLive = jobState === "running" || jobState === "waiting_for_approval";
+
+  // Hide when not live, or when agent is actively streaming a message
+  const hasStream = Object.keys(streamingMessages).some((k) => k.startsWith(`${jobId}:`));
+  if (!isJobLive || hasStream) return null;
+
+  const headline = job?.progressHeadline || "Working\u2026";
+  const isApproval = jobState === "waiting_for_approval";
+
+  return (
+    <div className="animate-activity-shimmer rounded-md border border-border/30 px-3 py-2 mb-1 flex items-center gap-2.5 transition-opacity duration-300">
+      <div className="relative shrink-0">
+        <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
+        <span className={cn(
+          "absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full",
+          isApproval ? "bg-amber-400 animate-pulse" : "bg-emerald-400",
+        )} style={{ animationDuration: "2s" }} />
+      </div>
+      <span className="text-xs text-muted-foreground/70 truncate flex-1 min-w-0">{headline}</span>
+      <Clock size={10} className="text-muted-foreground/30 shrink-0" />
     </div>
   );
 }
@@ -1343,6 +1422,14 @@ export function CuratedFeed({
     estimateSize: () => 120,
     overscan: 5,
   });
+
+  // Phase 2: Track which feed items existed at hydration time.
+  // Items appended after this threshold get entrance animations.
+  const hydratedCountRef = useRef(feedItems.length);
+  useEffect(() => {
+    // On initial load / job change, snapshot the count as "already seen"
+    hydratedCountRef.current = feedItems.length;
+  }, [jobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)
   // This is the ONLY programmatic scroll — explicit user-initiated navigation.
@@ -1418,21 +1505,34 @@ export function CuratedFeed({
     setMsg("");
     setSending(true);
     try {
-      if (isReview) {
-        // Resume the SAME job in-place (review → running)
-        await resumeJob(jobId, text);
-        toast.success("Job resumed");
-      } else if (isTerminal) {
+      if (isTerminal) {
         // Create a new follow-up job for truly terminal states
         const followup = await continueJob(jobId, text);
         toast.success("Follow-up job started");
         navigate(`/jobs/${followup.id}`);
+      } else if (isReview) {
+        // Review state: try sendOperatorMessage first — it handles both
+        // "actually running" (stale frontend state) and "needs resume"
+        // (auto-resume via _resume_orphaned) on the backend.  Only fall
+        // back to the explicit resumeJob path when that fails.
+        try {
+          await sendOperatorMessage(jobId, text);
+        } catch {
+          await resumeJob(jobId, text);
+          toast.success("Job resumed");
+        }
       } else {
         await sendOperatorMessage(jobId, text);
       }
     } catch (err) {
       setMsg(text);
-      toast.error("Failed to send message");
+      const detail =
+        err instanceof ApiError
+          ? err.detail
+          : err instanceof Error
+            ? err.message
+            : "Unknown error";
+      toast.error(`Failed to send: ${detail}`);
       console.error(err);
     } finally {
       setSending(false);
@@ -1629,13 +1729,18 @@ export function CuratedFeed({
             // (hiding breaks virtualizer position calculations)
             const dimmed = matchingIndices !== null && !matchingIndices.has(vItem.index);
             const isActiveMatch = vItem.index === highlightIdx;
+            // Phase 2: Entrance animation for items appended after hydration
+            const isNew = vItem.index >= hydratedCountRef.current;
 
             return (
               <div
                 key={vItem.key}
                 ref={virtualizer.measureElement}
                 data-index={vItem.index}
-                className={isActiveMatch ? "animate-glow-flicker" : undefined}
+                className={cn(
+                  isActiveMatch && "animate-glow-flicker",
+                  isNew && !isActiveMatch && "animate-feed-enter",
+                )}
                 onAnimationEnd={isActiveMatch ? () => setHighlightIdx(null) : undefined}
                 style={{
                   position: "absolute",
@@ -1678,16 +1783,30 @@ export function CuratedFeed({
         </div>
       )}
 
-      {/* Message composer */}
+      {/* Phase 1: Agent activity pulse — ambient heartbeat between turns */}
+      <AgentActivityBar jobId={jobId} sdk={sdk} jobState={jobState} />
+
+      {/* Phase 1: Stateful message composer */}
       {interactive && (
-        <div className="rounded-lg border border-border bg-card px-3 py-2 mt-1">
+        <div className={cn(
+          "rounded-lg border bg-card px-3 py-2 mt-1 transition-colors",
+          jobState === "waiting_for_approval" ? "border-amber-600/40" :
+          isReview ? "border-primary/40" :
+          isTerminal ? "border-border border-dashed" :
+          "border-border",
+        )}>
           <div className="flex items-end gap-2">
             <div className="flex-1 relative">
               <textarea
                 value={msg}
                 onChange={(e) => setMsg(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isReview ? "Send follow-up instruction…" : isTerminal ? "Start a follow-up job…" : "Message the agent…"}
+                placeholder={
+                  jobState === "waiting_for_approval" ? "The agent needs your decision above \u2191" :
+                  isReview ? "Send follow-up to resume\u2026" :
+                  isTerminal ? "Start a follow-up job\u2026" :
+                  "Message the agent\u2026"
+                }
                 rows={1}
                 className="w-full resize-none bg-transparent text-base sm:text-sm text-foreground placeholder:text-muted-foreground/30 outline-none py-2 pr-8 max-h-32"
                 style={{ minHeight: "2.25rem" }}
