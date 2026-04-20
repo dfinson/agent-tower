@@ -25,6 +25,7 @@ from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
+from backend.services.trail_service import TrailService
 from backend.services.voice_service import VoiceService
 
 # NewType wrappers for plain values that need unique DI keys
@@ -53,6 +54,7 @@ class AppProvider(Provider):
     voice_max_bytes = from_context(provides=VoiceMaxBytes)
     push_service = from_context(provides=PushService)
     share_service = from_context(provides=ShareService)
+    trail_service = from_context(provides=TrailService)
 
 
 class RequestProvider(Provider):

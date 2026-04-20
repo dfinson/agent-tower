@@ -196,6 +196,16 @@ class TelemetryConfig:
 
 
 @dataclass
+class TrailConfig:
+    """Agent audit trail enrichment tuning."""
+
+    enrich_batch_size: int = 20
+    enrich_interval_seconds: float = 10.0
+    enrich_max_retries: int = 10
+    enrich_decisions_context: int = 5
+
+
+@dataclass
 class CPLConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -206,6 +216,7 @@ class CPLConfig:
     terminal: TerminalConfig = field(default_factory=TerminalConfig)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
+    trail: TrailConfig = field(default_factory=TrailConfig)
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
     repos: list[str] = field(default_factory=list)
 
@@ -252,6 +263,7 @@ def load_config(path: Path | None = None) -> CPLConfig:
         terminal=_parse_section(raw, TerminalConfig, "terminal"),
         verification=_parse_section(raw, VerificationConfig, "verification"),
         telemetry=_parse_section(raw, TelemetryConfig, "telemetry"),
+        trail=_parse_section(raw, TrailConfig, "trail"),
         platforms=platforms,
         repos=[str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else [],
     )

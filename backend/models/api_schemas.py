@@ -1035,3 +1035,73 @@ class JobTelemetryReport(CamelModel):
     subagent_cost_usd: float = 0.0
     created_at: datetime
     completed_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# Trail (agent audit trail)
+# ---------------------------------------------------------------------------
+
+
+class TrailNodeResponse(CamelModel):
+    """A single trail node in the agent audit trail."""
+
+    id: str
+    seq: int
+    anchor_seq: int
+    kind: str
+    deterministic_kind: str | None = None
+    phase: str | None = None
+    timestamp: datetime
+    enrichment: str
+    intent: str | None = None
+    rationale: str | None = None
+    outcome: str | None = None
+    step_id: str | None = None
+    span_ids: list[int] = []
+    turn_id: str | None = None
+    files: list[str] = []
+    start_sha: str | None = None
+    end_sha: str | None = None
+    supersedes: str | None = None
+    tags: list[str] = []
+    children: list[TrailNodeResponse] = []
+
+
+class TrailResponse(CamelModel):
+    """Trail endpoint response — flat or nested."""
+
+    job_id: str
+    nodes: list[TrailNodeResponse] = []
+    total_nodes: int = 0
+    enriched_nodes: int = 0
+    complete: bool = False
+
+
+class TrailKeyDecision(CamelModel):
+    """A key decision from the trail summary."""
+
+    decision: str
+    rationale: str | None = None
+
+
+class TrailBacktrack(CamelModel):
+    """A backtrack from the trail summary."""
+
+    original: str
+    replacement: str
+    reason: str | None = None
+
+
+class TrailSummaryResponse(CamelModel):
+    """Lightweight trail summary for job list cards / PR descriptions."""
+
+    job_id: str
+    goals: list[str] = []
+    approach: str | None = None
+    key_decisions: list[TrailKeyDecision] = []
+    backtracks: list[TrailBacktrack] = []
+    files_explored: int = 0
+    files_modified: int = 0
+    verifications_passed: int = 0
+    verifications_failed: int = 0
+    enrichment_complete: bool = False
