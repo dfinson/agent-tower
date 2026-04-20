@@ -32,12 +32,14 @@ function StepButton({
   step,
   isActive,
   isSelected,
+  isVisible,
   searchActive,
   onStepClick,
 }: {
   step: { turnId: string; title: string };
   isActive: boolean;
   isSelected: boolean;
+  isVisible: boolean;
   searchActive?: boolean;
   onStepClick: (turnId: string) => void;
 }) {
@@ -60,6 +62,7 @@ function StepButton({
       className={cn(
         "flex items-start gap-1.5 w-full text-left py-2 px-2 rounded-sm transition-colors hover:bg-accent/50",
         isSelected && "bg-primary/10 ring-1 ring-primary/50",
+        !isSelected && isVisible && "bg-primary/5 border-l-2 border-primary/30",
         updated && "animate-step-title-update",
       )}
     >
@@ -82,6 +85,7 @@ function ActivitySection({
   activity,
   isLast,
   selectedTurnId,
+  visibleStepTurnId,
   onStepClick,
   searchActive,
   highlightPlanItemId,
@@ -90,6 +94,7 @@ function ActivitySection({
   activity: ActivityTimelineActivity;
   isLast: boolean;
   selectedTurnId: string | null;
+  visibleStepTurnId?: string | null;
   onStepClick: (turnId: string) => void;
   searchActive?: boolean;
   highlightPlanItemId?: string | null;
@@ -116,6 +121,12 @@ function ActivitySection({
     if (!searchActive) return; // only react when search is active
     setExpanded(containsSelected);
   }, [searchActive, containsSelected]);
+
+  // Phase 4: Auto-expand when the user scrolls to content belonging to this activity
+  const containsVisible = !!visibleStepTurnId && activity.steps.some((s) => s.turnId === visibleStepTurnId);
+  useEffect(() => {
+    if (containsVisible) setExpanded(true); // expand only — don't collapse others
+  }, [containsVisible]);
 
   return (
     <div>
@@ -147,12 +158,14 @@ function ActivitySection({
           {activity.steps.map((step, i) => {
             const isActive = isLast && i === activity.steps.length - 1 && activity.status === "active";
             const isSelected = selectedTurnId === step.turnId;
+            const isVisible = !!visibleStepTurnId && visibleStepTurnId === step.turnId;
             return (
               <StepButton
                 key={step.turnId}
                 step={step}
                 isActive={isActive}
                 isSelected={isSelected}
+                isVisible={isVisible}
                 searchActive={searchActive}
                 onStepClick={onStepClick}
               />
@@ -170,12 +183,14 @@ export function ActivityTimeline({
   onStepClick,
   selectedTurnId,
   searchActive,
+  visibleStepTurnId,
 }: {
   jobId: string;
   jobState?: string;
   onStepClick: (turnId: string) => void;
   selectedTurnId?: string | null;
   searchActive?: boolean;
+  visibleStepTurnId?: string | null;
 }) {
   const timeline = useStore(selectActivityTimeline(jobId));
   const planSteps = useStore(selectJobPlan(jobId));
@@ -294,6 +309,7 @@ export function ActivityTimeline({
             activity={activity}
             isLast={i === activities.length - 1}
             selectedTurnId={selectedTurnId ?? null}
+            visibleStepTurnId={visibleStepTurnId}
             onStepClick={onStepClick}
             searchActive={searchActive}
             highlightPlanItemId={hoveredPlanItemId}

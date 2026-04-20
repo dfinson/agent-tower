@@ -1373,6 +1373,8 @@ export function CuratedFeed({
   promptTimestamp,
   onViewStepChanges,
   onSearchHighlight,
+  onVisibleTurnId,
+  visibleStepTurnId,
   scrollToSeq,
   scrollToTurnId,
 }: {
@@ -1385,6 +1387,8 @@ export function CuratedFeed({
   promptTimestamp?: string;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
   onSearchHighlight?: (turnId: string | null) => void;
+  onVisibleTurnId?: (turnId: string | null) => void;
+  visibleStepTurnId?: string | null;
   scrollToSeq?: number | null;
   scrollToTurnId?: string | null;
 }) {
@@ -1475,10 +1479,25 @@ export function CuratedFeed({
     }
   }, [scrollToTurnId, feedItems, virtualizer]);
 
+  // Phase 4: Track topmost visible turnId for bidirectional sidebar linking
+  const onVisibleTurnIdRef = useRef(onVisibleTurnId);
+  onVisibleTurnIdRef.current = onVisibleTurnId;
+  const lastVisibleTurnIdRef = useRef<string | null>(null);
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     setShowScrollBtn(!atBottom);
+
+    // Emit the topmost visible turnId for sidebar cross-referencing
+    const vItems = virtualizer.getVirtualItems();
+    if (vItems.length > 0) {
+      const topTurnId = getTurnIdForIndexRef.current(vItems[0]!.index);
+      if (topTurnId !== lastVisibleTurnIdRef.current) {
+        lastVisibleTurnIdRef.current = topTurnId;
+        onVisibleTurnIdRef.current?.(topTurnId);
+      }
+    }
   };
 
   const scrollToBottom = useCallback(() => {
@@ -1751,7 +1770,10 @@ export function CuratedFeed({
                   ...(dimmed ? { opacity: 0.15, pointerEvents: "none" as const } : {}),
                 }}
               >
-                <div className="px-3 sm:px-4 overflow-x-hidden">
+                <div className={cn(
+                "px-3 sm:px-4 overflow-x-hidden transition-colors",
+                visibleStepTurnId && (item.type === "turn" || item.type === "condensed") && item.turn.turnId === visibleStepTurnId && "border-l-2 border-primary/30 pl-2 sm:pl-3",
+              )}>
                   <SearchHighlightCtx.Provider value={activeHighlight}>
                     <FeedItemRenderer
                       item={item}
