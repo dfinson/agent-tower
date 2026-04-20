@@ -11,7 +11,6 @@ import { AddRepoModal } from "./AddRepoModal";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Textarea } from "./ui/textarea";
 import { Spinner } from "./ui/spinner";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 
@@ -334,66 +333,7 @@ export function SettingsScreen() {
         </div>
       </div>
 
-      {/* Verification */}
-      <div className="rounded-lg border border-border bg-card p-5">
-        <p className="text-sm font-semibold mb-4">Verification</p>
-        <p className="text-xs text-muted-foreground mb-4">
-          Global defaults for post-completion verification. Individual jobs can override these.
-        </p>
-        <div className="flex flex-col gap-4">
-          <div className="flex gap-6">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.verify}
-                onChange={(e) => patch({ verify: e.target.checked })}
-                className="rounded border-border"
-              />
-              <span className="text-sm">Verify (run tests/lint)</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.selfReview}
-                onChange={(e) => patch({ selfReview: e.target.checked })}
-                className="rounded border-border"
-              />
-              <span className="text-sm">Self-review (review diff)</span>
-            </label>
-          </div>
-          <NumberField
-            label="Max Verify Turns"
-            value={settings.maxTurns}
-            onChange={(v) => patch({ maxTurns: v })}
-            min={1}
-            max={10}
-            placeholder="3"
-            description="Maximum number of verify loop iterations."
-          />
-          <div className="flex flex-col gap-1.5">
-            <Label>Verify Prompt</Label>
-            <Textarea
-              placeholder="You are a helpful coding assistant..."
-              value={settings.verifyPrompt}
-              onChange={(e) => patch({ verifyPrompt: e.target.value })}
-              rows={4}
-              autoResize
-            />
-            <p className="text-xs text-muted-foreground">Instructions prepended to every verification session. Leave empty to use the default.</p>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Self-Review Prompt</Label>
-            <Textarea
-              placeholder="Review the diff for potential issues..."
-              value={settings.selfReviewPrompt}
-              onChange={(e) => patch({ selfReviewPrompt: e.target.value })}
-              rows={4}
-              autoResize
-            />
-            <p className="text-xs text-muted-foreground">Instructions prepended to every self-review session. Leave empty to use the default.</p>
-          </div>
-        </div>
-      </div>
+
 
       {/* Notifications */}
       {pushSupported && (

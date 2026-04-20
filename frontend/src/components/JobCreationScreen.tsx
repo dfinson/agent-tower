@@ -10,7 +10,6 @@ import { AddRepoModal } from "./AddRepoModal";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Switch } from "./ui/switch";
 import { Combobox } from "./ui/combobox";
 import { Tooltip } from "./ui/tooltip";
 
@@ -46,8 +45,6 @@ export function JobCreationScreen() {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("review_and_approve");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [sdk, setSdk] = useState<string | null>(null);
-  const [verify, setVerify] = useState(false);
-  const [selfReview, setSelfReview] = useState(false);
   const [branchSuggesting, setBranchSuggesting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
@@ -99,8 +96,6 @@ export function JobCreationScreen() {
     fetchSettings()
       .then((settings) => {
         setPermissionMode(settings.permissionMode as PermissionMode);
-        setVerify(settings.verify);
-        setSelfReview(settings.selfReview);
         setSettingsLoaded(true);
       })
       .catch(() => {
@@ -215,8 +210,6 @@ export function JobCreationScreen() {
         permission_mode: permissionMode,
         model: model || undefined,
         sdk: activeSdk !== defaultSdk ? activeSdk : undefined,
-        verify: verify ?? undefined,
-        self_review: selfReview ?? undefined,
         session_token: sessionTokenRef.current ?? undefined,
       });
       jobCreatedRef.current = true;
@@ -227,7 +220,7 @@ export function JobCreationScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [repo, prompt, voiceState, baseRef, branch, model, navigate, permissionMode, activeSdk, defaultSdk, verify, selfReview]);
+  }, [repo, prompt, voiceState, baseRef, branch, model, navigate, permissionMode, activeSdk, defaultSdk]);
 
   const enabledSdks = sdks.filter((s) => s.enabled);
   const showSdkSelector = enabledSdks.length > 1;
@@ -391,31 +384,6 @@ export function JobCreationScreen() {
                 </div>
               </div>
 
-              <hr className="border-border" />
-
-              <div className="flex flex-col gap-2">
-                <Label className="text-xs text-muted-foreground">Post-completion</Label>
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-medium">Verify</span>
-                    <span className="text-xs text-muted-foreground">Run tests & lint</span>
-                  </div>
-                  <Switch
-                    checked={verify}
-                    onCheckedChange={setVerify}
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-medium">Self-review</span>
-                    <span className="text-xs text-muted-foreground">Review diff for issues</span>
-                  </div>
-                  <Switch
-                    checked={selfReview}
-                    onCheckedChange={setSelfReview}
-                  />
-                </label>
-              </div>
             </div>
           )}
 

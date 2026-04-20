@@ -28,11 +28,7 @@ export interface Settings {
   artifactRetentionDays: number;
   maxArtifactSizeMb: number;
   autoArchiveDays: number;
-  verify: boolean;
-  selfReview: boolean;
   maxTurns: number;
-  verifyPrompt: string;
-  selfReviewPrompt: string;
 }
 
 // SSE payload types — not in the OpenAPI schema since they're sent via SSE,
