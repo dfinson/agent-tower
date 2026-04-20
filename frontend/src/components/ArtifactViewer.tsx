@@ -15,6 +15,11 @@ import {
   Terminal,
   Package,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-async-light";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { fetchArtifacts, downloadArtifactUrl, fetchArtifactText } from "../api/client";
 import { Spinner } from "./ui/spinner";
 import { useStore } from "../store";
@@ -133,6 +138,30 @@ function isPreviewable(a: Artifact): boolean {
   return PREVIEWABLE_MIMES.has(a.mimeType) && a.sizeBytes < 512 * 1024;
 }
 
+function isMarkdownArtifact(a: Artifact): boolean {
+  return a.mimeType === "text/markdown" || a.name.split(".").pop()?.toLowerCase() === "md";
+}
+
+function isJsonArtifact(a: Artifact): boolean {
+  return a.mimeType === "application/json" || a.name.split(".").pop()?.toLowerCase() === "json";
+}
+
+function getLanguageFromName(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+    py: "python", rs: "rust", go: "go", rb: "ruby",
+    java: "java", kt: "kotlin", swift: "swift", cs: "csharp",
+    cpp: "cpp", c: "c", h: "c", hpp: "cpp",
+    css: "css", scss: "scss", html: "html", xml: "xml",
+    json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
+    md: "markdown", sql: "sql", sh: "bash", bash: "bash",
+    dockerfile: "docker", makefile: "makefile",
+    csv: "csv", log: "log", txt: "text",
+  };
+  return map[ext] || "text";
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -217,14 +246,41 @@ function JsonTreeViewer({ content }: { content: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Syntax-highlighted code block for artifact raw view
+// ---------------------------------------------------------------------------
+
+function ArtifactSyntaxView({ content, language }: { content: string; language: string }) {
+  return (
+    <div className="max-h-80 overflow-y-auto bg-background/50 rounded-md border border-border/50">
+      <SyntaxHighlighter
+        language={language}
+        style={oneDark}
+        customStyle={{ margin: 0, padding: "1rem", background: "transparent", fontSize: "0.75rem", lineHeight: "1.625" }}
+        wrapLongLines
+      >
+        {content}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Preview
 // ---------------------------------------------------------------------------
+
+type PreviewMode = "preview" | "raw";
 
 function ArtifactPreview({ artifact }: { artifact: Artifact }) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<PreviewMode>("preview");
+
+  const isMd = isMarkdownArtifact(artifact);
+  const isJson = isJsonArtifact(artifact);
+  const showToggle = isMd || isJson;
 
   useEffect(() => {
+    setMode("preview");
     fetchArtifactText(artifact.id)
       .then(setContent)
       .catch(() => setContent("(failed to load preview)"))
@@ -232,18 +288,63 @@ function ArtifactPreview({ artifact }: { artifact: Artifact }) {
   }, [artifact.id]);
 
   if (loading) return <div className="py-4 flex justify-center"><Spinner /></div>;
+  if (content == null) return null;
 
-  if (content && artifact.mimeType === "application/json") {
-    return <JsonTreeViewer content={content} />;
-  }
-
-  return (
-    <div className="max-h-80 overflow-y-auto bg-background/50 rounded-md border border-border/50 p-4">
-      <pre className="text-xs text-foreground/80 whitespace-pre-wrap break-words font-mono leading-relaxed">
-        {content}
-      </pre>
+  const toggleBar = showToggle && (
+    <div className="flex items-center gap-1 mb-2">
+      <button
+        type="button"
+        onClick={() => setMode("preview")}
+        className={`px-2.5 py-0.5 rounded text-xs font-medium transition-colors ${
+          mode === "preview" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        {isJson ? "Tree" : "Preview"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setMode("raw")}
+        className={`px-2.5 py-0.5 rounded text-xs font-medium transition-colors ${
+          mode === "raw" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        Raw
+      </button>
     </div>
   );
+
+  // Markdown: rendered preview or syntax-highlighted raw
+  if (isMd) {
+    return (
+      <div>
+        {toggleBar}
+        {mode === "preview" ? (
+          <div className="max-h-80 overflow-y-auto bg-background/50 rounded-md border border-border/50 p-5 prose prose-sm prose-invert max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{content}</ReactMarkdown>
+          </div>
+        ) : (
+          <ArtifactSyntaxView content={content} language="markdown" />
+        )}
+      </div>
+    );
+  }
+
+  // JSON: tree viewer or syntax-highlighted raw
+  if (isJson) {
+    return (
+      <div>
+        {toggleBar}
+        {mode === "preview" ? (
+          <JsonTreeViewer content={content} />
+        ) : (
+          <ArtifactSyntaxView content={content} language="json" />
+        )}
+      </div>
+    );
+  }
+
+  // All other text files: syntax-highlighted by detected language
+  return <ArtifactSyntaxView content={content} language={getLanguageFromName(artifact.name)} />;
 }
 
 // ---------------------------------------------------------------------------
