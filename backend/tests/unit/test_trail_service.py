@@ -45,7 +45,7 @@ def trail_repo(session_factory):
 
 
 def _make_event(
-    kind: DomainEventKind = DomainEventKind.job_created,
+    kind: DomainEventKind = DomainEventKind.job_state_changed,
     job_id: str = "job-1",
     payload: dict | None = None,
 ) -> DomainEvent:
@@ -55,6 +55,15 @@ def _make_event(
         timestamp=datetime.now(UTC),
         kind=kind,
         payload=payload or {},
+    )
+
+
+def _job_started_event(job_id: str = "job-1") -> DomainEvent:
+    """Create a job_state_changed event that triggers goal node creation."""
+    return _make_event(
+        DomainEventKind.job_state_changed,
+        job_id=job_id,
+        payload={"previous_state": "queued", "new_state": "running"},
     )
 
 
@@ -110,8 +119,8 @@ class TestParseEnrichmentResponse:
 
 
 class TestTrailServiceGoalNode:
-    async def test_job_created_creates_goal_node(self, trail_service, trail_repo):
-        event = _make_event(DomainEventKind.job_created, payload={})
+    async def test_job_started_creates_goal_node(self, trail_service, trail_repo):
+        event = _job_started_event()
         await trail_service.handle_event(event)
 
         nodes = await trail_repo.get_by_job("job-1")
@@ -125,7 +134,7 @@ class TestTrailServiceGoalNode:
 
     async def test_goal_node_intent_empty_without_job_row(self, trail_service, trail_repo):
         """When the job row doesn't exist, intent falls back to empty."""
-        event = _make_event(DomainEventKind.job_created)
+        event = _job_started_event()
         await trail_service.handle_event(event)
 
         nodes = await trail_repo.get_by_job("job-1")
@@ -136,7 +145,7 @@ class TestTrailServiceGoalNode:
 class TestTrailServiceStepNodes:
     async def test_step_completed_modify(self, trail_service, trail_repo):
         # First create the job
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
 
         event = _make_event(
             DomainEventKind.step_completed,
@@ -164,7 +173,7 @@ class TestTrailServiceStepNodes:
         assert "config.py" in files
 
     async def test_step_completed_explore(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
 
         event = _make_event(
             DomainEventKind.step_completed,
@@ -176,7 +185,7 @@ class TestTrailServiceStepNodes:
         assert nodes[1].kind == "explore"
 
     async def test_step_completed_shell(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
 
         event = _make_event(
             DomainEventKind.step_completed,
@@ -202,7 +211,7 @@ class TestTrailServiceStepNodes:
 
 class TestTrailServicePhaseNodes:
     async def test_phase_changed_creates_summarize(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
 
         event = _make_event(
             DomainEventKind.execution_phase_changed,
@@ -220,7 +229,7 @@ class TestTrailServicePhaseNodes:
 
 class TestTrailServiceTerminalNodes:
     async def test_job_completed_creates_terminal_summarize(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
 
         event = _make_event(DomainEventKind.job_completed, payload={})
         await trail_service.handle_event(event)
@@ -233,7 +242,7 @@ class TestTrailServiceTerminalNodes:
         assert terminal.intent == "Job completed"
 
     async def test_job_failed_creates_terminal_summarize(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
 
         event = _make_event(DomainEventKind.job_failed, payload={"reason": "timeout"})
         await trail_service.handle_event(event)
@@ -243,7 +252,7 @@ class TestTrailServiceTerminalNodes:
         assert terminal.intent == "Job failed"
 
     async def test_job_terminal_cleans_up_state(self, trail_service):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
         assert "job-1" in trail_service._job_state
 
         await trail_service.handle_event(_make_event(DomainEventKind.job_completed))
@@ -253,7 +262,7 @@ class TestTrailServiceTerminalNodes:
 class TestTrailServiceApprovalNodes:
     async def test_approval_deferred_until_step_completes(self, trail_service, trail_repo):
         """Approval requested while step is active gets deferred."""
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
         # Start a step
         await trail_service.handle_event(_make_event(
             DomainEventKind.step_started,
@@ -285,7 +294,7 @@ class TestTrailServiceApprovalNodes:
 
 class TestTrailServiceSequencing:
     async def test_seq_is_monotonic(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
         for i in range(5):
             await trail_service.handle_event(_make_event(
                 DomainEventKind.step_completed,
@@ -463,7 +472,7 @@ class TestTrailNodeRepository:
 
 class TestTrailServiceQueries:
     async def test_get_trail_flat(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
         await trail_service.handle_event(_make_event(
             DomainEventKind.step_completed,
             payload={"step_id": "step-1", "files_read": ["a.py"]},
@@ -477,7 +486,7 @@ class TestTrailServiceQueries:
         assert all(n.get("children", []) == [] for n in result["nodes"])
 
     async def test_get_trail_nested(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
         await trail_service.handle_event(_make_event(
             DomainEventKind.step_completed,
             payload={"step_id": "step-1", "files_read": ["a.py"]},
@@ -489,7 +498,7 @@ class TestTrailServiceQueries:
         assert len(result["nodes"][0]["children"]) == 1  # explore is a child
 
     async def test_get_summary(self, trail_service, trail_repo):
-        await trail_service.handle_event(_make_event(DomainEventKind.job_created))
+        await trail_service.handle_event(_job_started_event())
         for i in range(3):
             await trail_service.handle_event(_make_event(
                 DomainEventKind.step_completed,
@@ -514,9 +523,7 @@ class TestTrailFullLifecycle:
         job_id = "job-lifecycle"
 
         # Job starts
-        await trail_service.handle_event(_make_event(
-            DomainEventKind.job_created, job_id=job_id,
-        ))
+        await trail_service.handle_event(_job_started_event(job_id=job_id))
 
         # Phase change
         await trail_service.handle_event(_make_event(

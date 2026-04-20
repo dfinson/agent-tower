@@ -1067,6 +1067,9 @@ class TrailNodeResponse(CamelModel):
     children: list[TrailNodeResponse] = []
 
 
+TrailNodeResponse.model_rebuild()
+
+
 class TrailResponse(CamelModel):
     """Trail endpoint response — flat or nested."""
 

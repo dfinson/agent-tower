@@ -173,8 +173,10 @@ class TrailService:
     async def handle_event(self, event: DomainEvent) -> None:
         """Domain event subscriber — builds deterministic trail nodes."""
         try:
-            if event.kind == DomainEventKind.job_created:
-                await self._on_job_started(event)
+            if event.kind == DomainEventKind.job_state_changed:
+                new_state = (event.payload or {}).get("new_state")
+                if new_state == "running" and event.job_id not in self._job_state:
+                    await self._on_job_started(event)
             elif event.kind == DomainEventKind.step_completed:
                 await self._on_step_completed(event)
             elif event.kind == DomainEventKind.step_started:
@@ -187,6 +189,7 @@ class TrailService:
                 DomainEventKind.job_completed,
                 DomainEventKind.job_failed,
                 DomainEventKind.job_canceled,
+                DomainEventKind.job_review,
             ):
                 await self._on_job_terminal(event)
         except Exception:

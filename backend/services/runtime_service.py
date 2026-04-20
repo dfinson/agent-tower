@@ -1862,9 +1862,13 @@ class RuntimeService:
 
         Returns ``True`` if the resume was successfully initiated, ``False`` if
         the job does not exist.
+
+        Raises domain exceptions (``StateConflictError``, ``JobNotFoundError``)
+        so that callers can surface the real error instead of a generic failure.
         """
         from backend.models.domain import TERMINAL_STATES
         from backend.persistence.job_repo import JobRepository
+        from backend.services.job_service import JobNotFoundError, StateConflictError
 
         async with self._session_factory() as session:
             job_repo = JobRepository(session)
@@ -1883,6 +1887,8 @@ class RuntimeService:
             )
             try:
                 await self._recover_active_job(job_id, instruction=message)
+            except (StateConflictError, JobNotFoundError):
+                raise
             except Exception:
                 log.warning("send_message_auto_resume_failed", job_id=job_id, exc_info=True)
                 return False
@@ -1891,6 +1897,8 @@ class RuntimeService:
         log.info("send_message_auto_resume", job_id=job_id)
         try:
             await self.resume_job(job_id, message)
+        except (StateConflictError, JobNotFoundError):
+            raise
         except Exception:
             log.warning("send_message_auto_resume_failed", job_id=job_id, exc_info=True)
             return False

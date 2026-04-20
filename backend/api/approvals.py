@@ -78,7 +78,10 @@ async def send_message(
 
     sent = await runtime_service.send_message(job_id, body.content)
     if not sent:
-        raise HTTPException(status_code=409, detail="Job is not currently running")
+        raise HTTPException(
+            status_code=409,
+            detail="Job is not running and could not be auto-resumed",
+        )
     return SendMessageResponse(
         seq=0,
         timestamp=datetime.now(UTC),

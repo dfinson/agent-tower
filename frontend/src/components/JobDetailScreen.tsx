@@ -74,8 +74,9 @@ export function JobDetailScreen() {
   const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   const [searchActive, setSearchActive] = useState(false);
+  const [visibleTurnId, setVisibleTurnId] = useState<string | null>(null);
   // Reset selectedTurnId when navigating to a different job
-  useEffect(() => { setSelectedTurnId(null); setSearchActive(false); }, [jobId]);
+  useEffect(() => { setSelectedTurnId(null); setSearchActive(false); setVisibleTurnId(null); }, [jobId]);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -115,6 +116,12 @@ export function JobDetailScreen() {
     }
     return turnId;
   }, [stepTurnIdSet, transcript]);
+
+  // Map visible turnId from feed scroll position to the nearest activity step
+  const visibleStepTurnId = useMemo(
+    () => mapToStepTurnId(visibleTurnId),
+    [visibleTurnId, mapToStepTurnId],
+  );
 
   const resizeCleanupRef = useRef<(() => void) | null>(null);
   // Clean up sidebar resize listeners on unmount (prevents leak if nav away mid-resize)
@@ -1040,6 +1047,7 @@ export function JobDetailScreen() {
                     }}
                     selectedTurnId={selectedTurnId}
                     searchActive={searchActive}
+                    visibleStepTurnId={visibleStepTurnId}
                   />
                 </div>
               </div>
@@ -1082,6 +1090,7 @@ export function JobDetailScreen() {
                     }}
                     selectedTurnId={selectedTurnId}
                     searchActive={searchActive}
+                    visibleStepTurnId={visibleStepTurnId}
                   />
                 </div>
               </>
@@ -1112,6 +1121,8 @@ export function JobDetailScreen() {
                   setSelectedTurnId(turnId ? mapToStepTurnId(turnId) : null);
                   setSearchActive(turnId !== null);
                 }}
+                onVisibleTurnId={setVisibleTurnId}
+                visibleStepTurnId={visibleStepTurnId}
                 scrollToSeq={scrollToSeq}
                 scrollToTurnId={scrollToTurnId}
               />
