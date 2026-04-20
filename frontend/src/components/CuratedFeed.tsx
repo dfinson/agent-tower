@@ -730,7 +730,7 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
             <span className="ml-2 inline-block w-1.5 h-3 bg-primary/70 animate-pulse rounded-sm align-middle" />
           )}
         </div>
-        {canOpenTerminal && (
+        {isRunning && canOpenTerminal && (
           <Tooltip content="Open terminal in worktree">
             <button
               onClick={handleOpenTerminal}
