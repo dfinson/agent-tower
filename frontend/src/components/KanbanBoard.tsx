@@ -74,7 +74,7 @@ export function KanbanBoard() {
   const currentSortLabel = SORT_OPTIONS.find((o) => o.key === sort)!.label;
 
   return (
-    <div className="flex flex-col gap-3 h-[calc(100dvh-140px)] max-sm:hidden">
+    <div className="flex flex-col gap-3 h-[calc(100dvh-140px)] max-md:hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-2 shrink-0">
         <div className="relative flex-1">
@@ -93,7 +93,7 @@ export function KanbanBoard() {
             className="pl-8 pr-8 h-8 text-sm"
           />
           {!query && (
-            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline rounded border border-border px-1 py-px font-mono text-[10px] text-muted-foreground leading-none">
+            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 hidden md:inline rounded border border-border px-1 py-px font-mono text-[10px] text-muted-foreground leading-none">
               /
             </kbd>
           )}

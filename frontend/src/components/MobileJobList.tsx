@@ -64,7 +64,7 @@ export function MobileJobList() {
   }, [jobs, tab, query]);
 
   return (
-    <div className="sm:hidden" style={{ paddingBottom: "calc(6rem + env(safe-area-inset-bottom, 0px))" }}>
+    <div className="md:hidden" style={{ paddingBottom: "calc(6rem + env(safe-area-inset-bottom, 0px))" }}>
       <div className="relative mb-3">
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         <Input

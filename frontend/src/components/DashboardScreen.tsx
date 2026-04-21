@@ -74,7 +74,7 @@ export function DashboardScreen() {
       <QuotaWarningBanner />
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-foreground">Jobs</h3>
-        <Button size="sm" className="hidden sm:inline-flex" onClick={() => navigate("/jobs/new")}>
+        <Button size="sm" className="hidden md:inline-flex" onClick={() => navigate("/jobs/new")}>
           <Plus size={16} />
           New Job
           <kbd className="ml-1 rounded border border-white/20 px-1 py-px font-mono text-[10px] leading-none opacity-70">Alt+N</kbd>
@@ -85,7 +85,7 @@ export function DashboardScreen() {
       {/* Mobile FAB — thumb-zone primary action, hidden on tablet/desktop */}
       <Button
         size="icon"
-        className="sm:hidden fixed right-6 z-50 h-14 w-14 rounded-full shadow-lg"
+        className="md:hidden fixed right-6 z-50 h-14 w-14 rounded-full shadow-lg"
         style={{ bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}
         onClick={() => navigate("/jobs/new")}
         aria-label="New Job"

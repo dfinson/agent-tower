@@ -87,7 +87,7 @@ export function TerminalDrawer() {
   const dragHandlers = useDrag({
     axis: "y",
     onDrag: (delta) => {
-      const maxH = window.innerWidth < 640
+      const maxH = window.innerWidth < 768
         ? window.innerHeight * 0.5
         : window.innerHeight * MAX_HEIGHT_RATIO;
       setTerminalDrawerHeight(Math.min(Math.max(terminalDrawerHeight + delta, MIN_HEIGHT), maxH));
@@ -168,6 +168,10 @@ export function TerminalDrawer() {
   if (!terminalDrawerOpen) return null;
 
   const height = terminalDrawerHeight || DEFAULT_HEIGHT;
+  // Cap the effective height + keyboard offset so at least 100px of content remains visible
+  const effectiveTransformY = keyboardOffset > 0
+    ? Math.min(keyboardOffset, window.innerHeight - height - 100)
+    : 0;
   const activeStatus = activeTerminalTab ? connectionStatuses[activeTerminalTab] : undefined;
 
   return (
@@ -176,12 +180,12 @@ export function TerminalDrawer() {
       style={{
         height,
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        transform: keyboardOffset > 0 ? `translateY(-${keyboardOffset}px)` : undefined,
+        transform: effectiveTransformY > 0 ? `translateY(-${effectiveTransformY}px)` : undefined,
       }}
     >
-      {/* Drag handle */}
+      {/* Drag handle — visual 28px but touch target 44px on mobile via padding */}
       <div
-        className="h-7 cursor-row-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0 flex items-center justify-center touch-none group"
+        className="h-7 py-2 -my-2 md:py-0 md:my-0 cursor-row-resize hover:bg-primary/20 active:bg-primary/30 transition-colors shrink-0 flex items-center justify-center touch-none group"
         {...dragHandlers}
       >
         <div className="w-10 h-1 bg-muted-foreground/40 group-hover:bg-primary/50 group-active:bg-primary/70 rounded-full transition-colors" />
@@ -226,14 +230,14 @@ export function TerminalDrawer() {
             {session.jobId && (
               <GitBranch size={9} className="text-muted-foreground/60 shrink-0 -mr-0.5" />
             )}
-            <span className="max-w-[120px] sm:max-w-[180px] truncate">
+            <span className="max-w-[120px] md:max-w-[180px] truncate">
               {session.label || session.cwd?.split("/").pop() || "Terminal"}
             </span>
             <button
               type="button"
               onClick={(e) => handleCloseSession(session.id, e)}
               aria-label="Close terminal tab"
-              className="ml-0.5 p-1 sm:p-0.5 min-h-[44px] sm:min-h-7 min-w-[44px] sm:min-w-7 rounded hover:bg-muted-foreground/20 flex items-center justify-center"
+              className="ml-0.5 p-1 md:p-0.5 min-h-[44px] md:min-h-7 min-w-[44px] md:min-w-7 rounded hover:bg-muted-foreground/20 flex items-center justify-center"
             >
               <X size={12} aria-hidden="true" />
             </button>
