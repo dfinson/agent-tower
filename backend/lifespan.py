@@ -30,7 +30,6 @@ from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
 from backend.services.merge_service import MergeService
 from backend.services.platform_adapter import PlatformRegistry
-from backend.services.progress_tracking_service import ProgressTrackingService, _ProgressSubscriber
 from backend.services.push_service import PushService
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
@@ -272,12 +271,8 @@ async def _wire_core_services(
         adapter=sister_sessions,
     )
 
-    # Plan-step orchestration (plan items as visible steps)
-    progress_tracking = ProgressTrackingService(
-        sister_sessions=sister_sessions,
-        event_bus=event_bus,
-    )
-    event_bus.subscribe(_ProgressSubscriber(progress_tracking))
+    # Plan-step orchestration is now handled by TrailService (unified timeline)
+    # ProgressTrackingService has been retired.
 
     runtime_service = RuntimeService(
         session_factory=session_factory,
@@ -294,7 +289,6 @@ async def _wire_core_services(
             event_bus=event_bus,
             git_service=git_service,
         ),
-        progress_tracking=progress_tracking,
     )
 
     # Recover orphaned jobs from a previous crash
@@ -513,10 +507,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     trail_service = TrailService(
         session_factory=session_factory,
-        completer=services.sister_sessions,
+        event_bus=event_bus,
+        sister_sessions=services.sister_sessions,
         config=config.trail,
     )
     event_bus.subscribe(trail_service.handle_event)
+    services.runtime_service.set_trail_service(trail_service)
     trail_task = asyncio.create_task(
         trail_service.drain_loop(), name="trail-enrichment-drain"
     )

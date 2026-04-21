@@ -159,7 +159,7 @@ codeplane/
 │   │   ├── permission_policy.py       #   Permission mode enforcement
 │   │   ├── platform_adapter.py        #   GitHub/Azure DevOps/GitLab
 │   │   ├── naming_service.py          #   AI-powered job naming
-│   │   ├── progress_tracking_service.py #  Agent progress tracking
+│   │   ├── trail_service.py           #   Agent audit trail + progress tracking
 │   │   ├── summarization_service.py   #   AI summarization
 │   │   ├── retention_service.py       #   Job retention/cleanup
 │   │   ├── setup_service.py           #   First-time setup + doctor

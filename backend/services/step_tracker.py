@@ -99,6 +99,7 @@ class _StepState:
     last_agent_message: str | None = None
     files_read: list[str] = field(default_factory=list)
     files_written: list[str] = field(default_factory=list)
+    tool_names: list[str] = field(default_factory=list)
 
 
 class StepTracker:
@@ -224,6 +225,8 @@ class StepTracker:
             if role == "tool_call":
                 current.tool_count += 1
                 tool_name = payload.get("tool_name", "")
+                if tool_name and tool_name not in current.tool_names:
+                    current.tool_names.append(tool_name)
                 tool_args = payload.get("tool_args", "")
                 path = _extract_file_path(tool_name, tool_args)
                 if path:
@@ -350,6 +353,7 @@ class StepTracker:
                     "agent_message": state.last_agent_message,
                     "files_read": state.files_read,
                     "files_written": state.files_written,
+                    "tool_names": state.tool_names,
                     "start_sha": state.start_sha,
                     "end_sha": end_sha,
                     "preceding_context": preceding_context,

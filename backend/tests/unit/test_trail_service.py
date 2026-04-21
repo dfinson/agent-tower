@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.models.db import Base, TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
+from backend.services.event_bus import EventBus
 from backend.services.trail_service import TrailService, _classify_step, _parse_enrichment_response
 
 
@@ -36,7 +37,8 @@ async def session_factory(engine):
 
 @pytest.fixture
 def trail_service(session_factory):
-    return TrailService(session_factory=session_factory, completer=None)
+    event_bus = EventBus()
+    return TrailService(session_factory=session_factory, event_bus=event_bus)
 
 
 @pytest.fixture

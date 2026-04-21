@@ -111,6 +111,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "plan_step_updated",
         // Activity timeline
         "turn_summary",
+        // Step reassignment (classifier moved turn to different plan item)
+        "step_entries_reassigned",
       ];
 
       for (const eventType of eventTypes) {
