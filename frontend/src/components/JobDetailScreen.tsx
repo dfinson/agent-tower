@@ -77,8 +77,17 @@ export function JobDetailScreen() {
   const [visibleTurnId, setVisibleTurnId] = useState<string | null>(null);
   // Reset selectedTurnId when navigating to a different job
   useEffect(() => { setSelectedTurnId(null); setSearchActive(false); setVisibleTurnId(null); }, [jobId]);
+  // Update document title to show job identity in browser tabs
+  useEffect(() => {
+    const label = job?.title || jobId || "";
+    if (label) {
+      document.title = `${label} — CodePlane`;
+    }
+    return () => { document.title = "CodePlane"; };
+  }, [job?.title, jobId]);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
   const isResizingRef = useRef(false);
@@ -158,7 +167,7 @@ export function JobDetailScreen() {
     setTab(v);
     if (v !== "diff") setStepFilter(null);
     if (v !== "live") setScrollToSeq(null);
-    if (window.innerWidth < 640 && tabBarRef.current) {
+    if (window.innerWidth < 768 && tabBarRef.current) {
       const main = tabBarRef.current.closest("main");
       if (main) {
         main.scrollTop = tabBarRef.current.offsetTop - main.offsetTop;
@@ -191,14 +200,14 @@ export function JobDetailScreen() {
   }, []);
 
   const onSwipeTouchStart = useCallback((e: React.TouchEvent) => {
-    if (window.innerWidth >= 640) return;
+    if (window.innerWidth >= 768) return;
     const touch = e.touches[0];
     if (!touch) return;
     touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now(), el: e.target };
   }, []);
   const onSwipeTouchEnd = useCallback((e: React.TouchEvent) => {
     const start = touchRef.current;
-    if (!start || window.innerWidth >= 640) return;
+    if (!start || window.innerWidth >= 768) return;
     touchRef.current = null;
     // If touch originated inside a horizontally scrollable element, don't hijack the swipe
     if (isInsideHScrollable(start.el, e.currentTarget as HTMLElement)) return;
@@ -531,8 +540,8 @@ export function JobDetailScreen() {
 
   return (
     <div className="max-w-6xl mx-auto px-0 sm:px-4 md:px-6 lg:px-0">
-      {/* ── Mobile compact status rail (< 640px) ── */}
-      <div className="flex sm:hidden items-center gap-2 h-10 px-2 border-b border-border bg-card shrink-0">
+      {/* ── Mobile compact status rail (< 768px) ── */}
+      <div className="flex md:hidden items-center gap-2 h-10 px-2 border-b border-border bg-card shrink-0">
         <button onClick={() => navigate("/")} className="p-1.5 -ml-1 text-muted-foreground hover:text-foreground transition-colors" aria-label="Back to dashboard">
           <ArrowLeft size={16} />
         </button>
@@ -683,13 +692,13 @@ export function JobDetailScreen() {
       </BottomSheet>
 
       {/* ── Desktop back button (hidden on mobile) ── */}
-      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4 hidden sm:inline-flex">
+      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4 hidden md:inline-flex">
         <ArrowLeft size={14} />
         Dashboard
       </Button>
 
       {/* Job header — hidden on mobile (rail + bottom sheet replaces it) */}
-      <div className="hidden sm:block rounded-lg border border-border bg-card p-4 mb-4">
+      <div className="hidden md:block rounded-lg border border-border bg-card p-4 mb-4">
         <div className="mb-2">
           {job.title ? (
             <h1 className="text-lg font-bold text-foreground break-words">{job.title}</h1>
@@ -973,9 +982,9 @@ export function JobDetailScreen() {
       )}
 
       {/* Tab bar — desktop shows all tabs + terminal button; mobile shows scrollable strip */}
-      <Tabs value={tab} onValueChange={handleTabChange} className="sm:mb-4" ref={tabBarRef}>
+      <Tabs value={tab} onValueChange={handleTabChange} className="md:mb-4" ref={tabBarRef}>
         {/* Desktop layout (hidden on mobile) */}
-        <div className="hidden sm:flex items-center gap-2">
+        <div className="hidden md:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
             <TabsTrigger value="live">Live</TabsTrigger>
             <TabsTrigger value="shell"><TerminalSquare size={13} className="mr-1.5" />Shell</TabsTrigger>
@@ -1009,13 +1018,27 @@ export function JobDetailScreen() {
             </Tooltip>
           )}
 
+          {/* Activity toggle — visible at md–lg where the sidebar is hidden */}
+          <Tooltip content="Toggle activity timeline">
+            <button
+              onClick={() => setMobileActivityOpen((o) => !o)}
+              className={cn(
+                "hidden md:flex lg:hidden items-center gap-1.5 px-2.5 h-9 rounded-md border border-border text-xs font-medium transition-colors shrink-0",
+                mobileActivityOpen ? "text-primary border-primary/40 bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-accent",
+              )}
+            >
+              <ListTree size={13} />
+              <span>Activity</span>
+            </button>
+          </Tooltip>
+
         </div>
       </Tabs>
 
       {/* Tab content — full-bleed on mobile, min-height on desktop */}
       <div
         className={cn(
-          "min-h-0 pb-[52px] sm:pb-0 sm:min-h-[80dvh]",
+          "min-h-0 pb-[52px] md:pb-0 md:min-h-[80dvh]",
           slideDir === "left" && "animate-slide-left",
           slideDir === "right" && "animate-slide-right",
         )}
@@ -1025,9 +1048,9 @@ export function JobDetailScreen() {
       >
       {tab === "live" && (
         <div className="flex flex-row relative">
-          {/* Mobile Activity overlay — slides in from left over the Live feed */}
+          {/* Activity overlay — slides in from left (available below lg where sidebar is hidden) */}
           {mobileActivityOpen && (
-            <div className="sm:hidden absolute inset-0 z-30 flex">
+            <div className="lg:hidden absolute inset-0 z-30 flex">
               <div className="w-[85%] max-w-xs h-full bg-card border-r border-border shadow-xl animate-slide-left overflow-hidden">
                 <button
                   onClick={() => setMobileActivityOpen(false)}
@@ -1107,7 +1130,7 @@ export function JobDetailScreen() {
             </div>
           )}
           <div className="flex flex-col gap-4 flex-1 min-w-0 lg:pl-2">
-            <div className="h-[calc(100dvh-92px)] sm:h-[80dvh] min-h-[22rem]">
+            <div className="h-[calc(100dvh-92px)] md:h-[80dvh] min-h-[22rem]">
               <CuratedFeed
                 jobId={jobId}
                 sdk={job.sdk}
@@ -1165,7 +1188,7 @@ export function JobDetailScreen() {
       {tab === "shell" && (
         <TabErrorBoundary>
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <div className="sm:h-[80dvh] h-[60dvh] rounded-lg overflow-hidden border border-border">
+            <div className="md:h-[80dvh] h-[60dvh] rounded-lg overflow-hidden border border-border">
               <AgentTerminal jobId={jobId} isRunning={isRunning} />
             </div>
           </Suspense>
@@ -1185,7 +1208,7 @@ export function JobDetailScreen() {
 
       {/* ── Mobile contextual footer — shows review actions above the bottom tab bar ── */}
       {needsResolution && hasChanges && tab === "diff" && (
-        <div className="fixed bottom-[52px] inset-x-0 z-40 flex sm:hidden items-center justify-center gap-2 px-3 py-2 border-t border-border bg-card/95 backdrop-blur-sm">
+        <div className="fixed bottom-[52px] inset-x-0 z-40 flex md:hidden items-center justify-center gap-2 px-3 py-2 border-t border-border bg-card/95 backdrop-blur-sm">
           {!hasMergeConflict && (
             <Button size="sm" className="flex-1 gap-1" loading={resolveLoading === "smart_merge"} disabled={resolveLoading !== null} onClick={() => handleResolve("smart_merge")}>
               <GitMerge size={14} /> Merge
@@ -1205,41 +1228,71 @@ export function JobDetailScreen() {
         </div>
       )}
 
-      {/* ── Mobile bottom tab bar (iOS-style) ── */}
-      <nav className="fixed bottom-0 inset-x-0 z-50 sm:hidden flex items-end justify-around border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb" style={{ height: 52 }}>
-        {/* Activity toggle — always first, overlays Live */}
+      {/* ── Mobile bottom tab bar (iOS-style) — max 5 primary + More overflow ── */}
+      <nav className="fixed bottom-0 inset-x-0 z-50 md:hidden flex items-end justify-around border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb landscape:items-center" style={{ height: 52 }}>
+        {/* Activity toggle — visually distinct (opens overlay, not a tab) */}
         <button
-          onClick={() => { if (tab !== "live") handleTabChange("live"); setMobileActivityOpen((o) => !o); }}
+          onClick={() => { if (tab !== "live") handleTabChange("live"); setMobileActivityOpen((o) => !o); setMobileMoreOpen(false); }}
           className={cn(
-            "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors",
+            "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors landscape:flex-row landscape:gap-1 landscape:py-0.5",
             mobileActivityOpen ? "text-primary" : "text-muted-foreground active:text-foreground",
           )}
         >
-          <ListTree size={20} strokeWidth={mobileActivityOpen ? 2.5 : 1.5} />
-          <span className={cn("text-[10px] leading-tight truncate", mobileActivityOpen && "font-semibold")}>Activity</span>
+          <ListTree size={20} strokeWidth={mobileActivityOpen ? 2.5 : 1.5} className="landscape:!size-4" />
+          <span className={cn("text-[10px] leading-tight truncate landscape:hidden", mobileActivityOpen && "font-semibold")}>Activity</span>
         </button>
         {[
           { id: "live", icon: Radio, label: "Live" },
           { id: "shell", icon: TerminalSquare, label: "Shell" },
           { id: "diff", icon: GitBranch, label: "Changes" },
           { id: "files", icon: FolderTree, label: "Files" },
-          { id: "metrics", icon: BarChart3, label: "Metrics" },
-          ...(hasArtifacts ? [{ id: "artifacts", icon: Package, label: "Artifacts" }] : []),
         ].map(({ id, icon: Icon, label }) => (
           <button
             key={id}
-            onClick={() => { setMobileActivityOpen(false); handleTabChange(id); }}
+            onClick={() => { setMobileActivityOpen(false); setMobileMoreOpen(false); handleTabChange(id); }}
             className={cn(
-              "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors",
+              "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors landscape:flex-row landscape:gap-1 landscape:py-0.5",
               tab === id && !mobileActivityOpen
                 ? "text-primary"
                 : "text-muted-foreground active:text-foreground",
             )}
           >
-            <Icon size={20} strokeWidth={tab === id && !mobileActivityOpen ? 2.5 : 1.5} />
-            <span className={cn("text-[10px] leading-tight truncate", tab === id && !mobileActivityOpen && "font-semibold")}>{label}</span>
+            <Icon size={20} strokeWidth={tab === id && !mobileActivityOpen ? 2.5 : 1.5} className="landscape:!size-4" />
+            <span className={cn("text-[10px] leading-tight truncate landscape:hidden", tab === id && !mobileActivityOpen && "font-semibold")}>{label}</span>
           </button>
         ))}
+        {/* More overflow — Metrics, Artifacts */}
+        <div className="relative flex-1 min-w-0">
+          <button
+            onClick={() => setMobileMoreOpen((o) => !o)}
+            className={cn(
+              "flex flex-col items-center justify-center gap-0.5 w-full pt-1.5 pb-1 transition-colors landscape:flex-row landscape:gap-1 landscape:py-0.5",
+              mobileMoreOpen || ["metrics", "artifacts"].includes(tab) ? "text-primary" : "text-muted-foreground active:text-foreground",
+            )}
+          >
+            <MoreHorizontal size={20} strokeWidth={mobileMoreOpen || ["metrics", "artifacts"].includes(tab) ? 2.5 : 1.5} className="landscape:!size-4" />
+            <span className={cn("text-[10px] leading-tight truncate landscape:hidden", (mobileMoreOpen || ["metrics", "artifacts"].includes(tab)) && "font-semibold")}>More</span>
+          </button>
+          {mobileMoreOpen && (
+            <div className="absolute bottom-full right-0 mb-2 mr-1 rounded-md border border-border bg-popover shadow-lg py-1 min-w-[140px] animate-in fade-in-0 zoom-in-95">
+              <button
+                onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("metrics"); }}
+                className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "metrics" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
+              >
+                <BarChart3 size={15} /> Metrics
+              </button>
+              {hasArtifacts && (
+                <button
+                  onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("artifacts"); }}
+                  className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "artifacts" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
+                >
+                  <Package size={15} /> Artifacts
+                  {artifactCount > 0 && <span className="ml-auto text-[10px] font-semibold text-primary">{artifactCount}</span>}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </nav>
 
       <ConfirmDialog

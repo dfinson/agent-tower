@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X, Lightbulb, Info } from "lucide-react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X, Lightbulb, Info, FolderOpen } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
@@ -14,6 +14,7 @@ import { Tooltip } from "./ui/tooltip";
 import { useDrag } from "../hooks/useDrag";
 import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse } from "../api/types";
 import { StoryBanner } from "./StoryBanner";
+import { BottomSheet } from "./ui/bottom-sheet";
 
 export interface StepFilter {
   /** Relative file paths that belong to this step */
@@ -142,6 +143,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   const isMobile = useIsMobile();
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [showAllChanges, setShowAllChanges] = useState(false);
+  const [mobileFilePickerOpen, setMobileFilePickerOpen] = useState(false);
 
   // Step-specific diffs fetched from the API (when turnId is available)
   const [stepDiffs, setStepDiffs] = useState<import("../api/types").DiffFileModel[] | null>(null);
@@ -592,7 +594,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
             <button
               onClick={() => setShowAllChanges(!showAllChanges)}
               className={cn(
-                "px-2 py-1 sm:py-0.5 rounded text-[11px] font-medium transition-colors min-h-[44px] sm:min-h-0",
+                "px-2 py-1 md:py-0.5 rounded text-[11px] font-medium transition-colors min-h-[44px] md:min-h-0",
                 isFiltered
                   ? "bg-primary/15 text-primary border border-primary/30"
                   : "bg-muted/30 text-muted-foreground hover:bg-accent/40 border border-transparent",
@@ -603,7 +605,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
             <button
               onClick={() => setShowAllChanges(!showAllChanges)}
               className={cn(
-                "px-2 py-1 sm:py-0.5 rounded text-[11px] font-medium transition-colors min-h-[44px] sm:min-h-0",
+                "px-2 py-1 md:py-0.5 rounded text-[11px] font-medium transition-colors min-h-[44px] md:min-h-0",
                 !isFiltered
                   ? "bg-primary/15 text-primary border border-primary/30"
                   : "bg-muted/30 text-muted-foreground hover:bg-accent/40 border border-transparent",
@@ -613,7 +615,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
             </button>
             <button
               onClick={onClearStepFilter}
-              className="p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground transition-colors ml-1"
+              className="p-1.5 min-h-[44px] md:min-h-0 min-w-[44px] md:min-w-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground transition-colors ml-1"
               title="Clear filter"
             >
               <X size={13} />
@@ -648,11 +650,39 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
       )}
 
       {diffs.length > 0 && (
+      <>
+      {/* Mobile file picker bottom sheet */}
+      {isMobile && (
+        <BottomSheet open={mobileFilePickerOpen} onClose={() => setMobileFilePickerOpen(false)} title={`${diffs.length} files  +${totalAdditions} -${totalDeletions}`}>
+          <div className="flex flex-col -mx-4">
+            {diffs.map((file, i) => {
+              const Icon = STATUS_ICON[file.status] ?? FileCode;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => { setSelectedIdx(i); setMobileFilePickerOpen(false); }}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-3 text-sm transition-colors w-full min-h-[44px]",
+                    i === selectedIdx ? "bg-accent" : "hover:bg-accent/50",
+                  )}
+                >
+                  <Icon size={14} className={cn("shrink-0", STATUS_ICON_CLASS[file.status])} />
+                  <span className="flex-1 min-w-0 text-left truncate text-foreground">{file.path}</span>
+                  <span className={cn("text-xs border rounded px-1 shrink-0", STATUS_BADGE[file.status])}>
+                    +{file.additions} -{file.deletions}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </BottomSheet>
+      )}
       <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[calc(100dvh-14rem)] md:h-[60vh] min-h-[300px] max-h-[600px]">
-        {/* File list sidebar */}
+        {/* File list sidebar — hidden on mobile, replaced by bottom sheet */}
         <div
-          className="shrink-0 flex flex-col overflow-hidden rounded-lg border border-border bg-card max-md:max-h-[30%]"
-          style={isMobile ? undefined : { width: sidebarWidth }}
+          className="hidden md:flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
+          style={{ width: sidebarWidth }}
         >
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
             <span className="text-xs font-semibold text-muted-foreground">{diffs.length} files</span>
@@ -738,7 +768,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                         </Tooltip>
                       )}
                       <TruncatedPath path={file.path} />
-                      <span className={cn("text-xs border rounded px-1 hidden sm:inline", STATUS_BADGE[file.status])}>
+                      <span className={cn("text-xs border rounded px-1 hidden md:inline", STATUS_BADGE[file.status])}>
                         +{file.additions} -{file.deletions}
                       </span>
                     </button>
@@ -758,12 +788,13 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
         )}
 
         {/* Monaco Diff Editor */}
-        <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-border bg-card relative">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <Spinner />
             </div>
           ) : selectedFile ? (
+            <>
             <DiffEditor
               original={original}
               modified={modified}
@@ -783,9 +814,22 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 folding: true,
               }}
             />
+            {/* Mobile floating file picker button */}
+            {isMobile && (
+              <button
+                onClick={() => setMobileFilePickerOpen(true)}
+                className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border bg-card/90 backdrop-blur-sm text-xs font-medium text-muted-foreground hover:text-foreground shadow-sm transition-colors"
+              >
+                <FolderOpen size={13} />
+                <span className="max-w-[120px] truncate">{selectedFile.path.split("/").pop()}</span>
+                <span className="text-muted-foreground/60">{selectedIdx + 1}/{diffs.length}</span>
+              </button>
+            )}
+            </>
           ) : null}
         </div>
       </div>
+      </>
       )}
 
       {/* Ask-about-diff bar */}
@@ -836,7 +880,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 }}
                 disabled={askSending || micState !== "idle"}
                 rows={1}
-                className="flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-base sm:text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none pr-8 overflow-y-auto"
+                className="flex w-full rounded-md border border-input bg-transparent px-3 py-1.5 text-base md:text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none pr-8 overflow-y-auto"
                 style={{ maxHeight: isMobile ? 240 : 160 }}
               />
               <div className="absolute right-2 bottom-1.5">

@@ -114,6 +114,8 @@ export function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const isJobDetail = /^\/jobs\/[^/]+$/.test(location.pathname);
+  const jobId = isJobDetail ? location.pathname.split("/")[2] : null;
+  const jobTitle = useStore((s) => jobId ? s.jobs[jobId]?.title : null);
   const toggleTerminalDrawer = useStore((s) => s.toggleTerminalDrawer);
   const terminalDrawerOpen = useStore((s) => s.terminalDrawerOpen);
   const initSdksAndModels = useStore((s) => s.initSdksAndModels);
@@ -153,7 +155,7 @@ export function App() {
 
   return (
     <div className="flex flex-col h-[100dvh] overflow-x-hidden">
-      <header className={`flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card ${isJobDetail ? "hidden sm:flex" : ""}`}>
+      <header className={`flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card ${isJobDetail ? "hidden md:flex" : ""}`}>
         <Link to="/" className="no-underline flex items-center gap-3.5 hover:opacity-80 transition-opacity">
           <img src="/mark.png" alt="" className="h-8 w-8 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
           <span className="font-semibold text-white/95 tracking-tight leading-none">
@@ -161,24 +163,31 @@ export function App() {
           </span>
         </Link>
 
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
-          aria-label="Search or navigate"
-          className="hidden sm:flex sm:w-72 md:w-96 items-center justify-between gap-3 rounded-lg border border-border bg-background/70 px-4 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:text-foreground hover:bg-accent"
-        >
-          <span className="flex items-center gap-2">
-            <Search size={14} />
-            <span>Search or navigate...</span>
-          </span>
-          <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-xs">{modKey}+K</kbd>
-        </button>
+        {isJobDetail && jobTitle ? (
+          <div className="hidden md:flex items-center gap-2 flex-1 min-w-0 mx-4">
+            <span className="text-muted-foreground/60">/</span>
+            <span className="text-sm font-medium text-foreground/90 truncate max-w-[20rem]">{jobTitle}</span>
+          </div>
+        ) : (
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
+            aria-label="Search or navigate"
+            className="hidden md:flex md:w-72 lg:w-96 items-center justify-between gap-3 rounded-lg border border-border bg-background/70 px-4 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:text-foreground hover:bg-accent"
+          >
+            <span className="flex items-center gap-2">
+              <Search size={14} />
+              <span>Search or navigate...</span>
+            </span>
+            <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-xs">{modKey}+K</kbd>
+          </button>
+        )}
 
         <div className="flex items-center gap-1">
           <a
             href="https://dfinson.github.io/codeplane"
             target="_blank"
             rel="noreferrer"
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
             <span>Docs</span>
             <ExternalLink size={13} />
@@ -188,7 +197,7 @@ export function App() {
         </div>
       </header>
 
-      <main className={`flex-1 overflow-y-auto ${isJobDetail ? "p-0 sm:p-4 md:p-6" : "p-3 sm:p-4 md:p-6"} ${terminalDrawerOpen ? "min-h-0" : ""}`}>
+      <main className={`flex-1 overflow-y-auto ${isJobDetail ? "p-0 md:p-4 lg:p-6" : "p-3 sm:p-4 md:p-6"} ${terminalDrawerOpen ? "min-h-0" : ""}`}>
         <ErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
