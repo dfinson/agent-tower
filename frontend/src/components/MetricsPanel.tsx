@@ -70,6 +70,8 @@ interface TelemetryData {
   costDrivers?: CostDriversData;
   turnEconomics?: TurnEconomicsData;
   fileAccess?: FileAccessData;
+  reviewComplexity?: { tier: string; signals: string[] };
+  reviewSignals?: { testCoModifications: unknown[] };
 }
 
 interface CostDriverBucket {
@@ -1202,11 +1204,106 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                 </div>
               )}
 
+              {/* WS3: File access visualization */}
+              {data.fileAccess && data.fileAccess.stats.totalAccesses > 0 && (
+                <FileAccessSection fileAccess={data.fileAccess} />
+              )}
+
+              {/* WS6: Review complexity badge */}
+              {(() => {
+                const rc = data.reviewComplexity;
+                if (!rc || rc.tier === "quick") return null;
+                return (
+                  <div className="rounded-md bg-accent/20 border border-border/50 p-3 space-y-1">
+                    <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <AlertTriangle size={12} /> Review Complexity
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                        rc.tier === "deep" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",
+                      )}>
+                        {rc.tier.toUpperCase()}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        {rc.signals.map((s: string) => s.replace(/_/g, " ")).join(" · ")}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Sister session (utility LLM) metrics for this job */}
               <SisterSessionJobMetrics jobId={jobId} />
             </>
           )}
         </div>
+    </div>
+  );
+}
+
+function FileAccessSection({ fileAccess }: { fileAccess: FileAccessData }) {
+  const [expanded, setExpanded] = useState(false);
+  const [sortField, setSortField] = useState<"accessCount" | "readCount" | "writeCount">("accessCount");
+  const sorted = useMemo(
+    () => [...fileAccess.topFiles].sort((a, b) => b[sortField] - a[sortField]),
+    [fileAccess.topFiles, sortField],
+  );
+  const { stats } = fileAccess;
+  return (
+    <div className="rounded-md border border-border/50 overflow-hidden">
+      <button
+        className="flex items-center gap-2 w-full px-3 py-2 hover:bg-accent/30 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? <ChevronDown size={12} className="text-muted-foreground shrink-0" /> : <ChevronRight size={12} className="text-muted-foreground shrink-0" />}
+        <BookOpen size={12} className="text-muted-foreground shrink-0" />
+        <span className="text-xs font-medium text-foreground flex-1 text-left">File Access</span>
+        <span className="text-[10px] text-muted-foreground tabular-nums">
+          {stats.uniqueFiles} files · {stats.totalReads}R / {stats.totalWrites}W
+          {stats.rereadCount > 0 && <span className="text-yellow-400 ml-1">({stats.rereadCount} re-reads)</span>}
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-border/50">
+          <div className="grid grid-cols-4 gap-2 p-3 text-center text-xs">
+            <CompactStat label="Total" value={String(stats.totalAccesses)} />
+            <CompactStat label="Unique Files" value={String(stats.uniqueFiles)} />
+            <CompactStat label="Reads" value={String(stats.totalReads)} />
+            <CompactStat label="Re-reads" value={String(stats.rereadCount)} warn={stats.rereadCount > 20} />
+          </div>
+          {sorted.length > 0 && (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/20 text-muted-foreground">
+                  <th className="px-2 py-1 text-left font-medium">File</th>
+                  <th className="px-2 py-1 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => setSortField("accessCount")}>
+                    Total{sortField === "accessCount" ? " ↓" : ""}
+                  </th>
+                  <th className="px-2 py-1 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => setSortField("readCount")}>
+                    Reads{sortField === "readCount" ? " ↓" : ""}
+                  </th>
+                  <th className="px-2 py-1 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => setSortField("writeCount")}>
+                    Writes{sortField === "writeCount" ? " ↓" : ""}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {sorted.map((f, i) => (
+                  <tr key={i} className="hover:bg-accent/30">
+                    <td className="px-2 py-1 font-mono truncate max-w-[200px]" title={f.filePath}>
+                      {f.filePath.split("/").pop()}
+                    </td>
+                    <td className="px-2 py-1 text-right tabular-nums">{f.accessCount}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{f.readCount}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{f.writeCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }

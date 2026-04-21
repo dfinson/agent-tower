@@ -18,6 +18,8 @@ interface InlineDiffBlockProps {
   file: DiffFileModel;
   /** Clicking the filename header navigates to this file in the full diff viewer. */
   onNavigate?: () => void;
+  /** Number of edits the agent made to this file (from story span data). */
+  editCount?: number | null;
 }
 
 /** Trim context lines in a hunk down to `ctx` lines around each change span. */
@@ -74,7 +76,7 @@ const linePrefix: Record<string, string> = {
   context: " ",
 };
 
-export function InlineDiffBlock({ file, onNavigate }: InlineDiffBlockProps) {
+export function InlineDiffBlock({ file, onNavigate, editCount }: InlineDiffBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const fileName = file.path.split("/").pop() ?? file.path;
   const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/") + 1) : "";
@@ -132,6 +134,9 @@ export function InlineDiffBlock({ file, onNavigate }: InlineDiffBlockProps) {
         <span className="ml-auto flex items-center gap-1.5 text-[10px] shrink-0">
           {file.additions > 0 && <span className="text-emerald-400">+{file.additions}</span>}
           {file.deletions > 0 && <span className="text-red-400">-{file.deletions}</span>}
+          {editCount != null && editCount > 1 && (
+            <span className="text-muted-foreground/60 bg-muted/30 px-1 rounded">{editCount} edits</span>
+          )}
         </span>
       </div>
 

@@ -446,6 +446,8 @@ class DiffFileModel(CamelModel):
     additions: int
     deletions: int
     hunks: list[DiffHunkModel]
+    write_count: int | None = None
+    retry_count: int | None = None
 
 
 class JobStateChangedPayload(CamelModel):
@@ -1001,6 +1003,30 @@ class StoryResponse(CamelModel):
     job_id: str
     blocks: list[StoryBlock] = []
     cached: bool = False
+    verbosity: str = "standard"  # summary | standard | detailed
+
+
+class TestCoModification(CamelModel):
+    """A step where test and source files were both written."""
+
+    turn_id: str | None = None
+    step_number: int | None = None
+    step_title: str | None = None
+    test_files: list[str] = []
+    source_files: list[str] = []
+
+
+class ReviewSignals(CamelModel):
+    """Risk signals surfaced during review."""
+
+    test_co_modifications: list[TestCoModification] = []
+
+
+class ReviewComplexity(CamelModel):
+    """Review complexity tier for a job."""
+
+    tier: str = "standard"  # quick | standard | deep
+    signals: list[str] = []
 
 
 # ---------------------------------------------------------------------------

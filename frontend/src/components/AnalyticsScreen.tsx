@@ -745,6 +745,11 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
     [summary],
   );
 
+  const phaseRows = useMemo(
+    () => summary.filter((row) => row.dimension === "phase").sort((a, b) => b.cost_usd - a.cost_usd),
+    [summary],
+  );
+
   return (
     <div className="space-y-3">
       {activityRows.length > 0 ? (
@@ -798,6 +803,34 @@ function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriv
         </>
       ) : (
         <p className="text-sm text-muted-foreground">No cost-driver data yet.</p>
+      )}
+
+      {phaseRows.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-xs font-semibold text-muted-foreground mb-2">Cost by Execution Phase</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground border-b border-border">
+                  <th className="text-left py-1.5 px-2 font-medium">Phase</th>
+                  <th className="text-right py-1.5 px-2 font-medium">Cost</th>
+                  <th className="text-right py-1.5 px-2 font-medium">Jobs</th>
+                  <th className="text-right py-1.5 px-2 font-medium">Avg/Job</th>
+                </tr>
+              </thead>
+              <tbody>
+                {phaseRows.map((row, i) => (
+                  <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
+                    <td className="py-1.5 px-2">{activityLabels[row.bucket] || row.bucket.replace(/_/g, " ")}</td>
+                    <td className="text-right py-1.5 px-2">{formatUsd(Number(row.cost_usd) || 0)}</td>
+                    <td className="text-right py-1.5 px-2">{row.job_count ?? "—"}</td>
+                    <td className="text-right py-1.5 px-2">{formatUsd(Number(row.avg_cost_per_job) || 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
