@@ -9,6 +9,7 @@ import { useEffect, useState, useCallback } from "react";
 import { BookOpen, ChevronDown, RefreshCw } from "lucide-react";
 import { fetchJobStory } from "../api/client";
 import type { StoryBlock, StoryResponse, DiffFileModel } from "../api/types";
+import { InlineDiffBlock } from "./InlineDiffBlock";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 
@@ -109,12 +110,25 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
 
           {hasStory && (
             <>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <div className="text-sm text-muted-foreground leading-relaxed">
                 {story!.blocks.map((block, i) => {
                   if (block.type === "narrative" && block.text) {
                     return <span key={`n-${i}`}>{block.text}</span>;
                   }
                   if (block.type === "reference" && block.file) {
+                    const idx = findFileIdx(diffs, block.file);
+                    const diffFile = idx >= 0 ? diffs[idx] : null;
+
+                    if (diffFile) {
+                      return (
+                        <InlineDiffBlock
+                          key={`r-${i}`}
+                          file={diffFile}
+                          onNavigate={() => idx >= 0 && onSelectFile(idx)}
+                        />
+                      );
+                    }
+                    // Fallback: filename link when no diff data found
                     const fileName = block.file.split("/").pop() ?? "file";
                     return (
                       <button
@@ -130,7 +144,7 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
                   }
                   return null;
                 })}
-              </p>
+              </div>
               <div className="flex justify-end mt-2 pt-1.5 border-t border-border/30">
                 <button
                   type="button"
