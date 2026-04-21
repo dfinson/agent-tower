@@ -4,8 +4,9 @@ RuntimeService orchestrates the full lifecycle of agent jobs: session creation,
 event streaming, heartbeat monitoring, diff tracking, approval flow,
 cancellation, and post-job cleanup.
 
-Progress tracking (headline milestones and plan extraction) is delegated to
-``ProgressTrackingService`` — see ``backend/services/progress_tracking_service.py``.
+Progress tracking (plan management, turn classification, title generation,
+activity grouping) is handled by ``TrailService`` — see
+``backend/services/trail_service.py``.
 """
 
 from __future__ import annotations
@@ -36,9 +37,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.persistence.job_repo import JobRepository
-    from backend.services.progress_tracking_service import ProgressTrackingService
     from backend.services.step_tracker import StepTracker
     from backend.services.terminal_service import TerminalService
+    from backend.services.trail_service import TrailService
 
 
 class _AgentSession:
@@ -204,7 +205,7 @@ class RuntimeService:
         platform_registry: PlatformRegistry | None = None,
         sister_sessions: SisterSessionManager | None = None,
         step_tracker: StepTracker | None = None,
-        progress_tracking: ProgressTrackingService | None = None,
+        trail_service: TrailService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
@@ -232,11 +233,15 @@ class RuntimeService:
         self._queued_resume_session_ids: dict[str, str] = {}
         # Contents to suppress when the SDK echoes them back (already published locally)
         self._echo_suppress: dict[str, set[str]] = {}
-        # Progress tracking (headline milestones + plan extraction)
-        self._progress_tracking = progress_tracking
+        # Trail service (unified timeline, plan, activity tracking)
+        self._trail_service = trail_service
         # Observer terminals: job_id → terminal session ID
         self._terminal_service: TerminalService | None = None
         self._observer_terminals: dict[str, str] = {}
+
+    def set_trail_service(self, svc: TrailService) -> None:
+        """Wire the TrailService for plan/activity tracking (late binding)."""
+        self._trail_service = svc
 
     def set_terminal_service(self, svc: TerminalService) -> None:
         """Wire the TerminalService for agent observer terminals."""
@@ -588,9 +593,9 @@ class RuntimeService:
         )
         self._heartbeat_tasks[job_id] = heartbeat_task
 
-        # Start progress tracking (plan-step orchestration)
-        if self._progress_tracking is not None:
-            await self._progress_tracking.start_tracking(job_id, prompt=config.prompt or "")
+        # Start plan tracking via trail service
+        if self._trail_service is not None:
+            await self._trail_service.start_tracking(job_id, prompt=config.prompt or "")
 
         # Start telemetry tracking — init OTEL spans and SQLite summary row.
         import time as _time
@@ -953,10 +958,10 @@ class RuntimeService:
 
             heartbeat_task.cancel()
             self._heartbeat_tasks.pop(job_id, None)
-            if self._progress_tracking is not None:
-                self._progress_tracking.stop_tracking(job_id)
+            if self._trail_service is not None:
+                self._trail_service.stop_tracking(job_id)
                 succeeded = final_state == JobState.completed
-                await self._progress_tracking.finalize(job_id, succeeded=succeeded)
+                await self._trail_service.finalize(job_id, succeeded=succeeded)
             await self._cleanup_job_state(job_id)
 
     async def _store_post_completion_artifacts(
@@ -997,8 +1002,8 @@ class RuntimeService:
                     log.debug("telemetry_artifact_failed", job_id=job_id, exc_info=True)
 
                 # Agent plan steps (from in-memory progress tracker)
-                if self._progress_tracking is not None:
-                    steps = self._progress_tracking.get_plan_steps(job_id)
+                if self._trail_service is not None:
+                    steps = self._trail_service.get_plan_steps(job_id)
                     if steps:
                         try:
                             await artifact_svc.store_agent_plan(job_id, steps, slug=slug)
@@ -1088,8 +1093,8 @@ class RuntimeService:
         # handlers have run, force it to failed so it doesn't stay stuck.
         await self._ensure_terminal_state(job_id)
 
-        if self._progress_tracking is not None:
-            self._progress_tracking.cleanup(job_id)
+        if self._trail_service is not None:
+            self._trail_service.cleanup(job_id)
         if self._step_tracker is not None:
             self._step_tracker.cleanup(job_id)
         self._tasks.pop(job_id, None)
@@ -1442,19 +1447,19 @@ class RuntimeService:
                 downgrade = (requested, actual)
                 break
 
-            # Progress tracking (main loop only) — skip ephemeral delta chunks
-            if domain_event.kind == DomainEventKind.transcript_updated and self._progress_tracking is not None:
+            # Trail service feed (main loop only) — skip ephemeral delta chunks
+            if domain_event.kind == DomainEventKind.transcript_updated and self._trail_service is not None:
                 role = domain_event.payload.get("role", "")
                 if role != "agent_delta":
                     content = domain_event.payload.get("content", "")
                     tool_intent = str(domain_event.payload.get("tool_intent") or "")
-                    await self._progress_tracking.feed_transcript(job_id, role, content, tool_intent)
+                    await self._trail_service.feed_transcript(job_id, role, content, tool_intent)
 
-                # Feed tool names to progress tracker for summary context
+                # Feed tool names to trail service for summary context
                 if role == "tool_call":
                     tool_name = domain_event.payload.get("tool_name", "")
                     if tool_name:
-                        await self._progress_tracking.feed_tool_name(job_id, tool_name)
+                        await self._trail_service.feed_tool_name(job_id, tool_name)
                     # Native plan capture: extract structured plan data from the
                     # agent's own todo/plan tool.
                     if tool_name in ("manage_todo_list", "TodoWrite"):
@@ -1468,9 +1473,9 @@ class RuntimeService:
                     current = self._step_tracker.current_step(job_id)
                     if current:
                         domain_event.payload["step_number"] = current.step_number
-                    # ProgressTrackingService is the sole step_id authority (ps-* IDs)
-                    if self._progress_tracking is not None:
-                        plan_step_id = self._progress_tracking.get_active_plan_step_id(job_id)
+                    # TrailService is the sole step_id authority (ps-* IDs)
+                    if self._trail_service is not None:
+                        plan_step_id = self._trail_service.get_active_plan_step_id(job_id)
                         if plan_step_id:
                             domain_event.payload["step_id"] = plan_step_id
 
@@ -1492,7 +1497,7 @@ class RuntimeService:
         """Extract plan steps from a manage_todo_list / TodoWrite tool call."""
         import json as _json
 
-        if self._progress_tracking is None:
+        if self._trail_service is None:
             return
         raw_args = payload.get("tool_args")
         if not raw_args:
@@ -1511,7 +1516,7 @@ class RuntimeService:
             return
 
         try:
-            await self._progress_tracking.feed_native_plan(job_id, items)
+            await self._trail_service.feed_native_plan(job_id, items)
         except Exception:
             log.debug("native_plan_ingest_failed", job_id=job_id, exc_info=True)
 

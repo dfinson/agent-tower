@@ -321,6 +321,19 @@ class TrailNodeRow(Base):
     files = Column(Text, nullable=True)  # JSON array
     start_sha = Column(String(40), nullable=True)
     end_sha = Column(String(40), nullable=True)
+    # Transcript context (pass-through from step_completed)
+    preceding_context = Column(Text, nullable=True)  # JSON snapshot
+    agent_message = Column(Text, nullable=True)
+    tool_names = Column(Text, nullable=True)  # JSON array
+    tool_count = Column(Integer, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    # Plan/activity (populated by enrichment or native plan)
+    title = Column(Text, nullable=True)
+    plan_item_id = Column(String(36), nullable=True)
+    plan_item_label = Column(Text, nullable=True)
+    plan_item_status = Column(String(10), nullable=True)
+    activity_id = Column(String(36), nullable=True)
+    activity_label = Column(Text, nullable=True)
     # Edges
     supersedes = Column(String(36), nullable=True)
     tags = Column(Text, nullable=True)  # JSON array

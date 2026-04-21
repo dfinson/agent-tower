@@ -217,8 +217,10 @@ class StepCompletedPayloadDict(TypedDict, total=False):
     agent_message: str | None
     files_read: list[str]
     files_written: list[str]
+    tool_names: list[str]
     start_sha: str | None
     end_sha: str | None
+    preceding_context: str | None
 
 
 class StepTitlePayloadDict(TypedDict, total=False):

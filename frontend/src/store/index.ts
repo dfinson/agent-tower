@@ -1231,6 +1231,36 @@ export const useStore = create<AppState>((set, get) => ({
           };
         }
 
+        case "step_entries_reassigned": {
+          // Classifier moved a turn to a different plan item — update planItemId
+          const jobId = payload.jobId as string;
+          const turnId = payload.turnId as string;
+          const newStepId = payload.newStepId as string;
+
+          const freshTimeline = get().activityTimelines[jobId];
+          if (!freshTimeline) return null;
+
+          let changed = false;
+          const activities = freshTimeline.activities.map((a) => ({
+            ...a,
+            steps: a.steps.map((s) => {
+              if (s.turnId === turnId && s.planItemId !== newStepId) {
+                changed = true;
+                return { ...s, planItemId: newStepId };
+              }
+              return s;
+            }),
+          }));
+
+          if (!changed) return null;
+          return {
+            activityTimelines: {
+              ...state.activityTimelines,
+              [jobId]: { activities },
+            },
+          };
+        }
+
         default:
           return null;
       }
@@ -1315,7 +1345,7 @@ export const useStore = create<AppState>((set, get) => ({
 
       // On mobile, auto-maximise the drawer when opening a job terminal.
       // Cap at 50% of viewport height to match the drag-resize max for small screens.
-      const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+      const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
       const drawerHeight = isMobile
         ? Math.floor(window.innerHeight * 0.5)
         : get().terminalDrawerHeight;
