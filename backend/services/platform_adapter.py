@@ -181,11 +181,11 @@ class GitHubAdapter:
             if rc == 0:
                 log.info("github_pr_created", pr_url=stdout)
                 return PRResult(url=stdout)
-            log.warning("github_pr_failed", returncode=rc, stderr=stderr[:500])
-            return PRResult(error=stderr[:500] or f"gh exited {rc}")
+            log.warning("github_pr_failed", returncode=rc, stderr=stderr[:4000])
+            return PRResult(error=stderr[:4000] or f"gh exited {rc}")
         except Exception as exc:
             log.warning("github_pr_error", exc_info=True)
-            return PRResult(error=str(exc)[:200])
+            return PRResult(error=str(exc)[:2000])
 
 
 # ---------------------------------------------------------------------------
@@ -277,11 +277,11 @@ class AzureDevOpsAdapter:
                     pr_url = data["url"]
                 log.info("azdo_pr_created", pr_url=pr_url)
                 return PRResult(url=pr_url)
-            log.warning("azdo_pr_failed", returncode=rc, stderr=stderr[:500])
-            return PRResult(error=stderr[:500] or f"az exited {rc}")
+            log.warning("azdo_pr_failed", returncode=rc, stderr=stderr[:4000])
+            return PRResult(error=stderr[:4000] or f"az exited {rc}")
         except Exception as exc:
             log.warning("azdo_pr_error", exc_info=True)
-            return PRResult(error=str(exc)[:200])
+            return PRResult(error=str(exc)[:2000])
 
 
 # ---------------------------------------------------------------------------
@@ -368,11 +368,11 @@ class GitLabAdapter:
                 pr_url = stdout.splitlines()[-1] if stdout.strip() else None
                 log.info("gitlab_mr_created", pr_url=pr_url)
                 return PRResult(url=pr_url)
-            log.warning("gitlab_mr_failed", returncode=rc, stderr=stderr[:500])
-            return PRResult(error=stderr[:500] or f"glab exited {rc}")
+            log.warning("gitlab_mr_failed", returncode=rc, stderr=stderr[:4000])
+            return PRResult(error=stderr[:4000] or f"glab exited {rc}")
         except Exception as exc:
             log.warning("gitlab_mr_error", exc_info=True)
-            return PRResult(error=str(exc)[:200])
+            return PRResult(error=str(exc)[:2000])
 
 
 # ---------------------------------------------------------------------------
