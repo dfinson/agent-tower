@@ -60,9 +60,6 @@ _BATCH_SIZE = 20
 # Pause between drain cycles (seconds)
 _DRAIN_INTERVAL = 10.0
 
-# Max chars for old_str/new_str in the mini-diff display
-_DIFF_DISPLAY_MAX = 600
-
 
 def _build_user_prompt(
     tool_name: str,
@@ -77,9 +74,7 @@ def _build_user_prompt(
     parts.append(f"PRECEDING CONTEXT (most recent transcript):\n{preceding_context}\n")
     parts.append(f"TOOL CALLED: {tool_name}")
     if tool_args_json:
-        # Truncate very large args
-        args_display = tool_args_json[:2000]
-        parts.append(f"TOOL ARGS:\n{args_display}")
+        parts.append(f"TOOL ARGS:\n{tool_args_json}")
     return "\n".join(parts)
 
 
@@ -118,9 +113,8 @@ def _format_mini_diff(tool_name: str, parsed_args: dict[str, Any], file_path: st
 
     if tool_name in ("create", "create_file", "Write"):
         content = str(parsed_args.get("file_text", "") or parsed_args.get("content", ""))
-        preview = content[:_DIFF_DISPLAY_MAX]
-        suffix = "..." if len(content) > _DIFF_DISPLAY_MAX else ""
-        return f"{header}\nCREATED (new file):\n+ {preview}{suffix}"
+        preview = content
+        return f"{header}\nCREATED (new file):\n+ {preview}"
 
     old_str = str(
         parsed_args.get("old_str", "")
@@ -135,20 +129,18 @@ def _format_mini_diff(tool_name: str, parsed_args: dict[str, Any], file_path: st
         or ""
     )
     if old_str or new_str:
-        old_display = old_str[:_DIFF_DISPLAY_MAX]
-        new_display = new_str[:_DIFF_DISPLAY_MAX]
-        old_lines = "\n".join(f"- {line}" for line in old_display.splitlines()) if old_display else "- (empty)"
-        new_lines = "\n".join(f"+ {line}" for line in new_display.splitlines()) if new_display else "+ (empty)"
+        old_lines = "\n".join(f"- {line}" for line in old_str.splitlines()) if old_str else "- (empty)"
+        new_lines = "\n".join(f"+ {line}" for line in new_str.splitlines()) if new_str else "+ (empty)"
         return f"{header}\nREPLACED:\n{old_lines}\nWITH:\n{new_lines}"
 
     # Insert
     line = parsed_args.get("insert_line") or parsed_args.get("insertLine")
     new_text = str(parsed_args.get("new_text", "") or parsed_args.get("newText", "") or "")
     if line is not None:
-        preview = new_text[:_DIFF_DISPLAY_MAX]
+        preview = new_text
         return f"{header}\nINSERTED at line {line}:\n+ {preview}"
 
-    return f"{header}\nTOOL: {tool_name}\nARGS: {json.dumps(parsed_args)[:_DIFF_DISPLAY_MAX]}"
+    return f"{header}\nTOOL: {tool_name}\nARGS: {json.dumps(parsed_args)}"
 
 
 def _build_edit_prompt(
@@ -163,7 +155,7 @@ def _build_edit_prompt(
     if file_level_summary:
         parts.append(f"FILE-LEVEL SUMMARY:\n{file_level_summary}\n")
     if preceding_context:
-        parts.append(f"PRECEDING CONTEXT:\n{preceding_context[:1200]}\n")
+        parts.append(f"PRECEDING CONTEXT:\n{preceding_context}\n")
     parts.append(f"SPECIFIC EDIT:\n{_format_mini_diff(tool_name, parsed_args, file_path)}")
     return "\n".join(parts)
 
@@ -199,7 +191,7 @@ class MotivationService:
                 job_row = await job_repo.get(jid)
                 if job_row:
                     desc = getattr(job_row, "description", None) or getattr(job_row, "prompt", None)
-                    job_descriptions[jid] = str(desc)[:500] if desc else None
+                    job_descriptions[jid] = str(desc) if desc else None
                 else:
                     job_descriptions[jid] = None
 

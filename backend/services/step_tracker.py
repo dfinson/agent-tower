@@ -30,7 +30,7 @@ from backend.services.git_service import GitError
 
 log = structlog.get_logger()
 
-_MAX_FILES_PER_STEP = 200
+_MAX_FILES_PER_STEP = 50
 
 _READ_TOOLS = frozenset(
     {
@@ -126,7 +126,6 @@ class StepTracker:
         self._transcript_buffers: dict[str, list[dict[str, str]]] = {}
 
     _BUFFER_SIZE = 10
-    _CONTENT_MAX = 800
 
     def register_worktree(self, job_id: str, worktree_path: str) -> None:
         """Set the worktree path for a job. Called from _execute_session_attempt."""
@@ -150,14 +149,14 @@ class StepTracker:
         if role not in ("reasoning_delta", "tool_output_delta", "tool_running"):
             entry: dict[str, str] = {
                 "role": role,
-                "content": str(content)[:self._CONTENT_MAX],
+                "content": str(content),
             }
             t_name = payload.get("tool_name")
             if t_name:
                 entry["tool_name"] = str(t_name)
                 t_args = payload.get("tool_args")
                 if t_args:
-                    entry["tool_args"] = str(t_args)[:self._CONTENT_MAX]
+                    entry["tool_args"] = str(t_args)
             buf = self._transcript_buffers.setdefault(job_id, [])
             buf.append(entry)
             if len(buf) > self._BUFFER_SIZE:
@@ -183,7 +182,7 @@ class StepTracker:
                     args_obj = args_raw
                 intent_text = args_obj.get("intent") or args_obj.get("description") or ""
                 if intent_text:
-                    current.intent = intent_text[:120]
+                    current.intent = intent_text
             return
 
         if not turn_id and role not in ("operator", "divider"):
@@ -202,15 +201,15 @@ class StepTracker:
         if role == "operator":
             new_step_trigger = "operator_message"
             first_line = content.split("\n")[0].strip()
-            intent = first_line[:120] if first_line else "Operator request"
+            intent = first_line if first_line else "Operator request"
 
         elif current is None:
             new_step_trigger = "job_start"
-            intent = tool_intent or content[:120] or "Starting work"
+            intent = tool_intent or content or "Starting work"
 
         elif turn_id and turn_id != current.turn_id:
             new_step_trigger = "turn_change"
-            intent = tool_intent or content[:120] or "Continuing work"
+            intent = tool_intent or content or "Continuing work"
 
         # Idempotency: if turn_id matches current, no new step
         if new_step_trigger:
@@ -244,7 +243,7 @@ class StepTracker:
                         and len(current.files_written) < _MAX_FILES_PER_STEP
                     ):
                         current.files_written.append(path)
-            if role == "agent" and len(content) > 20:
+            if role == "agent" and content.strip():
                 current.last_agent_message = content
 
     async def on_job_terminal(self, job_id: str, outcome: str) -> None:
@@ -333,7 +332,7 @@ class StepTracker:
         preceding_context: str | None = None
         buf = self._transcript_buffers.get(job_id)
         if buf:
-            preceding_context = json.dumps(buf[-5:], ensure_ascii=False)
+            preceding_context = json.dumps(buf[-8:], ensure_ascii=False)
 
         await self._event_bus.publish(
             DomainEvent(
@@ -349,8 +348,8 @@ class StepTracker:
                     "duration_ms": duration_ms,
                     "has_summary": state.last_agent_message is not None,
                     "agent_message": state.last_agent_message,
-                    "files_read": state.files_read[:20],
-                    "files_written": state.files_written[:20],
+                    "files_read": state.files_read,
+                    "files_written": state.files_written,
                     "start_sha": state.start_sha,
                     "end_sha": end_sha,
                     "preceding_context": preceding_context,

@@ -32,7 +32,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-_MSG_MAX = 500
 _TOOL_INTENT_MAX = 80
 
 
@@ -64,7 +63,7 @@ class PlanStep:
             "status": self.status,
             "order": self.order,
             "tool_count": self.tool_count,
-            "files_written": self.files_written[:20] if self.files_written else [],
+            "files_written": self.files_written or [],
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "duration_ms": self.duration_ms or None,
@@ -123,23 +122,22 @@ Latest completed work:
 - Tool intents: {intents}
 
 Respond with JSON only:
-{{"assign_to": <index>, "summary": "<1-2 sentence summary>",
+{{"assign_to": <index>, "summary": "<brief summary of the specific work done>",
 "status": "<active|done>", "updated_label": "<new label or null>"}}
 
 RULES:
 - assign_to is the 1-based index of the plan item this work belongs to.
 - If the work clearly finishes this item, set status to "done".
 - If work is ongoing, keep status as "active".
-- Summary should describe what was specifically done in 1-2 sentences.
-- Be concrete: mention files, functions, endpoints, not abstractions.
+- Summary should describe what was specifically done. Be concrete: mention files, functions, endpoints.
 - updated_label: only set when the work scope has clearly diverged from the
   original label (e.g. label says "scan" but agent actually fixed bugs).
-  Use null when the original label is still accurate.  3-8 words, imperative.
+  Use null when the original label is still accurate.  Concise and specific.
 """
 
 _INFER_PLAN_PROMPT = """\
 A coding agent just started working on this task.  Based on the task \
-description and the agent's first message, infer a plan of 3-6 steps.
+description and the agent's first message, infer the natural steps for this task.
 
 Task: {task}
 
@@ -150,8 +148,7 @@ Respond with JSON only:
 {{"items": ["Step 1 label", "Step 2 label", ...]}}
 
 RULES:
-- 3-6 items total.
-- Each label: 3-8 words, imperative mood, concrete.
+- Each label: concise and specific.
 - Cover the full task arc from start to finish.
 - Be specific: mention files, components, endpoints where possible.
 """
@@ -176,7 +173,7 @@ Previous steps in this activity:
 Agent reasoning context (recent transcript before this turn):
 {preceding_context}
 
-Generate a concise title (4-10 words) describing WHAT WAS DONE, not observations.
+Generate a concise title describing WHAT WAS DONE, not observations.
 The title must be an action the agent performed, not a status or finding.
 Bad: "All 9 tests pass"              Good: "Ran test suite — all 9 pass"
 Bad: "Issues catalogued"             Good: "Catalogued 6 code smells across 3 files"
@@ -196,7 +193,7 @@ progress, this is a NEW step — set merge_with_previous to false.
 When in doubt, set false.
 
 Respond with JSON only:
-{{"title": "<4-10 word outcome-focused title>", "merge_with_previous": <true|false>}}
+{{"title": "<concise outcome-focused title>", "merge_with_previous": <true|false>}}
 """
 
 
@@ -305,7 +302,7 @@ class ProgressTrackingService:
         if role == "agent" and content:
             buf = self._recent_messages.get(job_id)
             if buf is not None:
-                buf.append(content[:_MSG_MAX])
+                buf.append(content)
                 if len(buf) > 5:
                     self._recent_messages[job_id] = buf[-5:]
 
@@ -426,12 +423,12 @@ class ProgressTrackingService:
             return
 
         prompt = _INFER_PLAN_PROMPT.format(
-            task=task[:500],
-            first_msg=first_msg[:500],
+            task=task,
+            first_msg=first_msg,
         )
 
         try:
-            raw = await sister.complete(prompt, timeout=15)
+            raw = await sister.complete(prompt)
             raw = raw.strip()
             if raw.startswith("```"):
                 raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
@@ -445,7 +442,7 @@ class ProgressTrackingService:
 
             now = datetime.now(UTC)
             steps: list[PlanStep] = []
-            for i, label in enumerate(labels[:8]):
+            for i, label in enumerate(labels[:20]):
                 if not isinstance(label, str) or not label.strip():
                     continue
                 steps.append(
@@ -582,19 +579,7 @@ class ProgressTrackingService:
                 label = "Starting work"
             return True, label
 
-        # Sub-split heuristic: within the same plan step, split if the
-        # dominant directory of files_written shifts significantly.
-        current_activity = activities[-1]
-        act_steps = self._activity_steps.get(job_id, [])
-        current_act_steps = [s for s in act_steps if s.activity_id == current_activity.activity_id]
-        if len(current_act_steps) >= 5:
-            # Check if file scope shifted — basic heuristic based on
-            # common directory prefix of recent writes vs current writes
-            # (lightweight, no LLM needed). Skip for now — only plan
-            # transitions drive boundaries. Can be added later.
-            pass
-
-        return False, current_activity.label
+        return False, activities[-1].label
 
     async def _generate_turn_title(
         self,
@@ -643,7 +628,7 @@ class ProgressTrackingService:
         job_prompt = self._job_prompts.get(job_id, "")
 
         prompt = _TITLE_PROMPT.format(
-            job_prompt=job_prompt[:300] if job_prompt else "(unknown)",
+            job_prompt=job_prompt or "(unknown)",
             active_plan_label=active_label,
             done_count=done_count,
             total_count=total_count,
@@ -651,16 +636,16 @@ class ProgressTrackingService:
             files_written=", ".join(files_written[:8]) or "(none)",
             tools=tools or "(none)",
             duration_s=round(duration_ms / 1000, 1),
-            agent_msg=agent_msg[:_MSG_MAX] if agent_msg else "(no message)",
+            agent_msg=agent_msg or "(no message)",
             recent_step_titles=recent_block,
-            preceding_context=preceding_context[:1500] if preceding_context else "(none)",
+            preceding_context=preceding_context or "(none)",
         )
 
         title = "Work in progress"
         merge_prev = False
 
         try:
-            raw = await sister.complete(prompt, timeout=15)
+            raw = await sister.complete(prompt)
             raw = raw.strip()
             if raw.startswith("```"):
                 raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
@@ -811,7 +796,7 @@ class ProgressTrackingService:
         )
 
         try:
-            raw = await sister.complete(prompt, timeout=10)
+            raw = await sister.complete(prompt)
             raw = raw.strip()
             if raw.startswith("```"):
                 raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
@@ -879,7 +864,7 @@ class ProgressTrackingService:
 
         prompt = _CLASSIFY_PROMPT.format(
             plan_block=plan_block,
-            agent_msg=agent_msg[:300] if agent_msg else "(no message)",
+            agent_msg=agent_msg or "(no message)",
             tools=tools or "(none)",
             intents=intents or "(none)",
         )
@@ -889,7 +874,7 @@ class ProgressTrackingService:
         updated_label: str | None = None
         target_idx = active_idx
         try:
-            raw = await sister.complete(prompt, timeout=15)
+            raw = await sister.complete(prompt)
             raw = raw.strip()
             if raw.startswith("```"):
                 raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
@@ -1000,14 +985,14 @@ class ProgressTrackingService:
         prompt = (
             f"Summarize this coding step in 1-2 sentences. Be specific.\n\n"
             f"Plan item: {ps.label}\n"
-            f"Agent message: {agent_msg[:300]}\n"
+            f"Agent message: {agent_msg}\n"
             f"Tools: {tools}\n"
             f"Tool intents: {intents}\n\n"
             f"Summary:"
         )
 
         try:
-            raw = await sister.complete(prompt, timeout=10)
+            raw = await sister.complete(prompt)
             summary = raw.strip().strip('"')[:200]
             if summary:
                 ps.summary = summary

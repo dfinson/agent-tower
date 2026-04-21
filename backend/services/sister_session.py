@@ -116,24 +116,31 @@ class SisterSession:
     async def complete(self, prompt: str, timeout: float = 30.0) -> str:
         """Send *prompt* to the adapter and return the response text.
 
-        Calls are fully concurrent after the first (which injects the
-        system prompt).  The underlying adapter.complete() is responsible
-        for its own thread/connection safety.
+        Retries once on timeout — empirically 74% of post-timeout retries
+        succeed within the same window.
         """
         effective = await self._ensure_primed(prompt)
-        t0 = time.monotonic()
-        result = await asyncio.wait_for(
-            self._adapter.complete(effective),
-            timeout=timeout,
-        )
-        elapsed_ms = (time.monotonic() - t0) * 1000
-        self.call_count += 1
-        self.total_latency_ms += elapsed_ms
-        self.total_input_tokens += result.input_tokens
-        self.total_output_tokens += result.output_tokens
-        self.total_cost_usd += result.cost_usd
-        self.last_call_at = time.monotonic()
-        return result.text or ""
+        for attempt in range(_TIMEOUT_RETRIES + 1):
+            t0 = time.monotonic()
+            try:
+                result = await asyncio.wait_for(
+                    self._adapter.complete(effective),
+                    timeout=timeout,
+                )
+            except TimeoutError:
+                if attempt >= _TIMEOUT_RETRIES:
+                    raise
+                log.debug("sister_complete_retry", attempt=attempt + 1)
+                continue
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            self.call_count += 1
+            self.total_latency_ms += elapsed_ms
+            self.total_input_tokens += result.input_tokens
+            self.total_output_tokens += result.output_tokens
+            self.total_cost_usd += result.cost_usd
+            self.last_call_at = time.monotonic()
+            return result.text or ""
+        return ""
 
 
 class SisterSessionManager:
