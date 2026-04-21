@@ -458,6 +458,7 @@ async def get_job_diff(
     svc: FromDishka[JobService],
     event_bus: FromDishka[EventBus],
     config: FromDishka[CPLConfig],
+    session: FromDishka[AsyncSession],
 ) -> list[DiffFileModel]:
     """Return the current diff for a job.
 
@@ -465,6 +466,8 @@ async def get_job_diff(
     For completed/archived jobs, returns the last stored diff snapshot.
     """
     job = await svc.get_job(job_id)
+
+    files: list[DiffFileModel] = []
 
     # For active jobs with a worktree, calculate a fresh diff
     if (
@@ -478,7 +481,7 @@ async def get_job_diff(
         git = GitService(config)
         ds = DiffService(git_service=git, event_bus=event_bus)
         try:
-            return await ds.calculate_diff(job.worktree_path, job.base_ref)
+            files = await ds.calculate_diff(job.worktree_path, job.base_ref)
         except Exception:
             structlog.get_logger(__name__).warning(
                 "get_job_diff_live_failed",
@@ -488,12 +491,27 @@ async def get_job_diff(
                 exc_info=True,
             )
 
-    # Fallback: read from event store (completed/archived/failed jobs)
-    events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
-    if not events:
-        return []
-    raw_files = events[-1].payload.get("changed_files", [])
-    return [DiffFileModel.model_validate(f) for f in raw_files]
+    if not files:
+        # Fallback: read from event store (completed/archived/failed jobs)
+        events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
+        if not events:
+            return []
+        raw_files = events[-1].payload.get("changed_files", [])
+        files = [DiffFileModel.model_validate(f) for f in raw_files]
+
+    # Enrich with per-file write/retry churn data
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+
+    churn_rows = await TelemetrySpansRepo(session).file_write_churn(job_id)
+    if churn_rows:
+        churn_by_file = {r["tool_target"]: r for r in churn_rows}
+        for f in files:
+            row = churn_by_file.get(f.path)
+            if row:
+                f.write_count = row["write_count"]
+                f.retry_count = row["retry_count"]
+
+    return files
 
 
 @router.get("/jobs/{job_id}/transcript", response_model=list[TranscriptPayload])
@@ -1307,6 +1325,8 @@ async def get_job_telemetry(
         "premiumRequests": float(summary.get("premium_requests", 0)),
         "costDrivers": {
             "activity": grouped_dimensions.get("activity", []),
+            "phase": grouped_dimensions.get("phase", []),
+            "editEfficiency": grouped_dimensions.get("edit_efficiency", []),
         },
         "turnEconomics": {
             "totalTurns": int(summary.get("total_turns", 0) or 0),
@@ -1350,6 +1370,29 @@ async def get_job_telemetry(
             for resource, snap in quota_snapshots.items()
             if isinstance(snap, dict)
         }
+
+    # Review signals: test co-modifications
+    spans_repo = TelemetrySpansRepo(session)
+    test_co_mods = await spans_repo.test_co_modifications(job_id)
+    result["reviewSignals"] = {"testCoModifications": test_co_mods}
+
+    # Review complexity tier
+    signals: list[str] = []
+    diff_lines = int(summary.get("diff_lines_added", 0) or 0) + int(
+        summary.get("diff_lines_removed", 0) or 0
+    )
+    total_turns = int(summary.get("total_turns", 0) or 0)
+    unique_files = int(file_stats.get("unique_files", 0) or 0)
+    if diff_lines > 500:
+        signals.append("large_diff")
+    if total_turns > 20:
+        signals.append("many_turns")
+    if unique_files > 15:
+        signals.append("many_files")
+    if test_co_mods:
+        signals.append("test_co_modifications")
+    tier = "quick" if not signals else ("deep" if len(signals) >= 3 else "standard")
+    result["reviewComplexity"] = {"tier": tier, "signals": signals}
 
     return result
 
@@ -1470,25 +1513,27 @@ async def get_job_story(
     session: FromDishka[AsyncSession],
     sister_sessions: FromDishka[SisterSessionManager],
     regenerate: bool = False,
+    verbosity: str = Query(default="standard", pattern="^(summary|standard|detailed)$"),
 ) -> StoryResponse:
     """Return a structured code-review story with validated change references.
 
     Generated on demand using a cheap LLM for connective prose, with change
     references built directly from telemetry spans.  Cached on the jobs table.
     Pass ?regenerate=true to force a fresh generation.
+    Verbosity: summary (one-sentence per file), standard (default), detailed (full rationale).
     """
     from backend.services.story_service import StoryService
 
     service = StoryService(completer=sister_sessions)
 
     if regenerate:
-        payload = await service.regenerate(session, job_id)
+        payload = await service.regenerate(session, job_id, verbosity=verbosity)
     else:
-        payload = await service.get_or_generate(session, job_id)
+        payload = await service.get_or_generate(session, job_id, verbosity=verbosity)
 
     if not payload:
-        return StoryResponse(job_id=job_id, blocks=[], cached=False)
+        return StoryResponse(job_id=job_id, blocks=[], cached=False, verbosity=verbosity)
 
     blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
     cached = not regenerate and bool(blocks)
-    return StoryResponse(job_id=job_id, blocks=blocks, cached=cached)
+    return StoryResponse(job_id=job_id, blocks=blocks, cached=cached, verbosity=verbosity)

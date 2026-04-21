@@ -35,6 +35,24 @@ _STORY_SYSTEM = (
     "and session context. Write a first-person walkthrough that references "
     "each change using [[N]] markers (e.g. [[1]], [[2]]).\n\n"
     #
+    # Rendering context — markers become embedded diff blocks
+    "RENDERING: Each [[N]] marker is rendered as a full embedded diff block "
+    "showing the filename, line counts, and actual code changes. The reader "
+    "sees your prose interrupted by a bordered code card — like a figure in "
+    "an article. Your text must set up each diff so it reads naturally:\n"
+    '  GOOD: "I added the validation middleware: [[3]]"\n'
+    '  GOOD: "The auth handler needed a null check, so I updated it: [[5]]"\n'
+    '  GOOD: "To fix the race condition, I changed how locks are acquired: [[2]] '
+    'This also required updating the tests: [[3]]"\n'
+    '  BAD:  "I updated the auth module [[3]] and then fixed tests [[4]]" '
+    "(markers dropped mid-sentence become visual noise)\n"
+    '  BAD:  "[[3]] was the next change" (leading with a diff block is disorienting)\n'
+    "Place each [[N]] at a sentence boundary where the reader expects to see "
+    "code — typically after a colon, at the end of a clause, or between two "
+    "related thoughts. Never stack markers back-to-back without connective "
+    "prose between them. The reader should always know what they are about "
+    "to see BEFORE the diff appears.\n\n"
+    #
     # Structure — inverted pyramid (Nielsen & Morkes 1997: +124% usability)
     "STRUCTURE: Open with a one-sentence summary of what was accomplished and "
     "why. Then walk through changes chronologically. Never bury the outcome "
@@ -61,6 +79,21 @@ _STORY_SYSTEM = (
     "Contractions fine. No jokes, emoji, or exclamation marks. "
     "Every change MUST be referenced by its [[N]] marker at least once."
 )
+
+
+_STORY_VERBOSITY_SUFFIX = {
+    "summary": (
+        "\n\nVERBOSITY=summary: Write only a 2-3 sentence executive summary. "
+        "Reference each change by [[N]] but keep the total under 80 words. "
+        "Think of it as a commit-message narrative."
+    ),
+    "standard": "",
+    "detailed": (
+        "\n\nVERBOSITY=detailed: Be thorough. For each change, explain the "
+        "reasoning, alternatives considered, and any setbacks. Target 400-600 "
+        "words. Include why decisions were made, not just what was done."
+    ),
+}
 
 
 def _truncate(s: str | None, max_len: int) -> str:
@@ -284,14 +317,15 @@ class StoryService:
         self._completer = completer
 
     async def get_or_generate(
-        self, session: "AsyncSession", job_id: str,
+        self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         """Return cached story blocks, or generate and cache them."""
         from sqlalchemy import text
 
         # Check cache
+        col = "story_text" if verbosity == "standard" else f"story_text_{verbosity}"
         row = await session.execute(
-            text("SELECT story_text FROM jobs WHERE id = :jid"),
+            text(f"SELECT {col} FROM jobs WHERE id = :jid"),  # noqa: S608
             {"jid": job_id},
         )
         cached = row.scalar_one_or_none()
@@ -302,11 +336,11 @@ class StoryService:
                 pass  # stale plain-text cache → regenerate
 
         # Serialize generation per job to avoid duplicate LLM calls.
-        lock = self._gen_locks.setdefault(job_id, asyncio.Lock())
+        lock = self._gen_locks.setdefault(f"{job_id}:{verbosity}", asyncio.Lock())
         async with lock:
             # Re-check cache — another coroutine may have populated it.
             row = await session.execute(
-                text("SELECT story_text FROM jobs WHERE id = :jid"),
+                text(f"SELECT {col} FROM jobs WHERE id = :jid"),  # noqa: S608
                 {"jid": job_id},
             )
             cached = row.scalar_one_or_none()
@@ -316,25 +350,26 @@ class StoryService:
                 except (json.JSONDecodeError, TypeError):
                     pass
             try:
-                return await self._generate(session, job_id)
+                return await self._generate(session, job_id, verbosity=verbosity)
             finally:
-                self._gen_locks.pop(job_id, None)
+                self._gen_locks.pop(f"{job_id}:{verbosity}", None)
 
     async def regenerate(
-        self, session: "AsyncSession", job_id: str,
+        self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         """Force regeneration, ignoring cache."""
         from sqlalchemy import text
 
+        col = "story_text" if verbosity == "standard" else f"story_text_{verbosity}"
         await session.execute(
-            text("UPDATE jobs SET story_text = NULL WHERE id = :jid"),
+            text(f"UPDATE jobs SET {col} = NULL WHERE id = :jid"),  # noqa: S608
             {"jid": job_id},
         )
         await session.commit()
-        return await self._generate(session, job_id)
+        return await self._generate(session, job_id, verbosity=verbosity)
 
     async def _generate(
-        self, session: "AsyncSession", job_id: str,
+        self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         from sqlalchemy import text
 
@@ -360,7 +395,8 @@ class StoryService:
             return None
 
         user_prompt = _build_prompt(refs, ctx)
-        full_prompt = f"SYSTEM:\n{_STORY_SYSTEM}\n\nUSER:\n{user_prompt}"
+        system = _STORY_SYSTEM + _STORY_VERBOSITY_SUFFIX.get(verbosity, "")
+        full_prompt = f"SYSTEM:\n{system}\n\nUSER:\n{user_prompt}"
 
         try:
             result = await self._completer.complete(full_prompt)
@@ -378,8 +414,9 @@ class StoryService:
         # Only cache when all motivation summaries are ready — otherwise
         # the next request will regenerate with richer "why" data.
         if pending_motivations == 0:
+            col = "story_text" if verbosity == "standard" else f"story_text_{verbosity}"
             await session.execute(
-                text("UPDATE jobs SET story_text = :story WHERE id = :jid"),
+                text(f"UPDATE jobs SET {col} = :story WHERE id = :jid"),  # noqa: S608
                 {"jid": job_id, "story": json.dumps(payload)},
             )
             await session.commit()

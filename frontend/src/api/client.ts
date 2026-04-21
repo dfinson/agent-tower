@@ -326,6 +326,22 @@ export function fetchJobTelemetry(jobId: string): Promise<{
       outputTokens: number;
       callCount: number;
     }>;
+    phase?: Array<{
+      dimension: string;
+      bucket: string;
+      costUsd: number;
+      inputTokens: number;
+      outputTokens: number;
+      callCount: number;
+    }>;
+    editEfficiency?: Array<{
+      dimension: string;
+      bucket: string;
+      costUsd: number;
+      inputTokens: number;
+      outputTokens: number;
+      callCount: number;
+    }>;
   };
   turnEconomics?: {
     totalTurns: number;
@@ -1072,8 +1088,12 @@ export function fetchSharedTelemetry(token: string): Promise<Record<string, unkn
 export function fetchJobStory(
   jobId: string,
   regenerate = false,
+  verbosity: "summary" | "standard" | "detailed" = "standard",
 ): Promise<import("./types").StoryResponse> {
-  const qs = regenerate ? "?regenerate=true" : "";
+  const params = new URLSearchParams();
+  if (regenerate) params.set("regenerate", "true");
+  if (verbosity !== "standard") params.set("verbosity", verbosity);
+  const qs = params.toString() ? `?${params.toString()}` : "";
   return request(`/jobs/${encodeURIComponent(jobId)}/story${qs}`);
 }
 

@@ -8,10 +8,13 @@
 import { useEffect, useState, useCallback } from "react";
 import { BookOpen, ChevronDown, RefreshCw } from "lucide-react";
 import { fetchJobStory } from "../api/client";
+import { useStore, selectJobStory } from "../store";
 import type { StoryBlock, StoryResponse, DiffFileModel } from "../api/types";
 import { InlineDiffBlock } from "./InlineDiffBlock";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
+
+type Verbosity = "summary" | "standard" | "detailed";
 
 interface StoryBannerProps {
   jobId: string;
@@ -32,24 +35,44 @@ function findFileIdx(diffs: DiffFileModel[], file: string): number {
   return diffs.findIndex((d) => d.path.split("/").pop() === basename);
 }
 
+/** Smart default verbosity based on file count. */
+function defaultVerbosity(fileCount: number): Verbosity {
+  if (fileCount <= 3) return "detailed";
+  if (fileCount >= 10) return "summary";
+  return "standard";
+}
+
 // ---------------------------------------------------------------------------
 // Banner
 // ---------------------------------------------------------------------------
 
 export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
-  const [story, setStory] = useState<StoryResponse | null>(null);
+  const cachedStory = useStore(selectJobStory(jobId));
+  const setStory = useStore((s) => s.setStory);
+  const [story, _setStoryLocal] = useState<StoryResponse | null>(cachedStory);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(!!cachedStory);
+  const [verbosity, setVerbosity] = useState<Verbosity>(() => defaultVerbosity(diffs.length));
+
+  // Sync from cache on mount / when cache updates
+  useEffect(() => {
+    if (cachedStory) {
+      _setStoryLocal(cachedStory);
+      setLoaded(true);
+    }
+  }, [cachedStory]);
 
   const load = useCallback(
-    async (regen = false) => {
+    async (regen = false, verb?: Verbosity) => {
+      const v = verb ?? verbosity;
       try {
         if (regen) setRegenerating(true);
         else setLoading(true);
-        const data = await fetchJobStory(jobId, regen);
-        setStory(data);
+        const data = await fetchJobStory(jobId, regen, v);
+        _setStoryLocal(data);
+        setStory(jobId, data);
         setLoaded(true);
       } catch {
         setLoaded(true);
@@ -58,12 +81,32 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
         setRegenerating(false);
       }
     },
-    [jobId],
+    [jobId, verbosity, setStory],
   );
 
   useEffect(() => {
     if (open && !loaded) load();
   }, [open, loaded, load]);
+
+  const handleVerbosityChange = useCallback(
+    (v: Verbosity) => {
+      setVerbosity(v);
+      setLoaded(false);
+      _setStoryLocal(null);
+      // Trigger fetch with new verbosity
+      if (open) {
+        load(false, v);
+      }
+    },
+    [open, load],
+  );
+
+  // Re-fetch when verbosity changes and banner is open
+  useEffect(() => {
+    if (open && !loaded && !loading) {
+      load(false, verbosity);
+    }
+  }, [verbosity, open, loaded, loading, load]);
 
   const hasStory = story && story.blocks.length > 0;
 
@@ -125,6 +168,7 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
                           key={`r-${i}`}
                           file={diffFile}
                           onNavigate={() => idx >= 0 && onSelectFile(idx)}
+                          editCount={block.editCount}
                         />
                       );
                     }
@@ -145,7 +189,25 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
                   return null;
                 })}
               </div>
-              <div className="flex justify-end mt-2 pt-1.5 border-t border-border/30">
+              <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-border/30">
+                {/* Verbosity toggle */}
+                <div className="flex items-center gap-0.5 bg-muted/30 rounded p-0.5">
+                  {(["summary", "standard", "detailed"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleVerbosityChange(v); }}
+                      className={cn(
+                        "px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors",
+                        verbosity === v
+                          ? "bg-primary/20 text-primary"
+                          : "text-muted-foreground/50 hover:text-muted-foreground",
+                      )}
+                    >
+                      {v === "summary" ? "Brief" : v === "standard" ? "Standard" : "Detailed"}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   disabled={regenerating}

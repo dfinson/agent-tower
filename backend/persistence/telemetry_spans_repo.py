@@ -283,6 +283,54 @@ class TelemetrySpansRepo(BaseRepository):
         )
         return [dict(r) for r in result.mappings().all()]
 
+    async def file_write_churn(self, job_id: str) -> list[dict[str, Any]]:
+        """Per-file write count and retry count for a job."""
+        result = await self._session.execute(
+            text("""
+                SELECT tool_target,
+                       COUNT(*) as write_count,
+                       SUM(CASE WHEN is_retry = 1 THEN 1 ELSE 0 END) as retry_count
+                FROM job_telemetry_spans
+                WHERE job_id = :jid AND tool_category = 'file_write'
+                GROUP BY tool_target
+            """),
+            {"jid": job_id},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def test_co_modifications(self, job_id: str) -> list[dict[str, Any]]:
+        """Find steps where both test and source files were written."""
+        result = await self._session.execute(
+            text("""
+                SELECT s.turn_id, st.step_number, st.title AS step_title,
+                       GROUP_CONCAT(s.tool_target) AS files
+                FROM job_telemetry_spans s
+                LEFT JOIN steps st ON st.job_id = s.job_id AND st.turn_id = s.turn_id
+                WHERE s.job_id = :jid AND s.tool_category = 'file_write'
+                GROUP BY s.turn_id
+                HAVING COUNT(DISTINCT s.tool_target) > 1
+            """),
+            {"jid": job_id},
+        )
+        import re
+        test_re = re.compile(
+            r"(^|/)tests?/|test_[^/]+\.py$|_test\.py$|\.(?:test|spec)\.(?:ts|tsx|js|jsx)$|__tests__/",
+        )
+        hits: list[dict[str, Any]] = []
+        for row in result.mappings():
+            files = (row["files"] or "").split(",")
+            test_files = [f for f in files if test_re.search(f)]
+            source_files = [f for f in files if not test_re.search(f)]
+            if test_files and source_files:
+                hits.append({
+                    "turnId": row["turn_id"],
+                    "stepNumber": row["step_number"],
+                    "stepTitle": row["step_title"],
+                    "testFiles": test_files,
+                    "sourceFiles": source_files,
+                })
+        return hits
+
     async def retry_cost_summary(self, *, period_days: int = 30) -> dict[str, Any]:
         """Compute total cost and count of retry spans fleet-wide."""
         result = await self._session.execute(

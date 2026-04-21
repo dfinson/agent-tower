@@ -14,7 +14,7 @@ import { create } from "zustand";
 // See: frontend/src/api/types.ts for the planned generated aliases.
 // ---------------------------------------------------------------------------
 
-import type { DiffFileModel, SDKInfo } from "../api/types";
+import type { DiffFileModel, SDKInfo, StoryResponse } from "../api/types";
 import { fetchSDKs, fetchModels } from "../api/client";
 
 function pickDefaultModelId(models: Array<{ value: string; isDefault: boolean }>): string | null {
@@ -184,13 +184,14 @@ function touchJob(jobId: string): string[] {
 
 /** Evict per-job data for stale jobs from a state snapshot. */
 function evictStaleJobs(
-  state: Pick<AppState, "logs" | "transcript" | "diffs" | "plans" | "timelines" | "activityTimelines" | "streamingMessages" | "streamingToolOutput">,
+  state: Pick<AppState, "logs" | "transcript" | "diffs" | "stories" | "plans" | "timelines" | "activityTimelines" | "streamingMessages" | "streamingToolOutput">,
   evictIds: string[],
 ): Partial<AppState> | null {
   if (evictIds.length === 0) return null;
   const logs = { ...state.logs };
   const transcript = { ...state.transcript };
   const diffs = { ...state.diffs };
+  const stories = { ...state.stories };
   const plans = { ...state.plans };
   const timelines = { ...state.timelines };
   const activityTimelines = { ...state.activityTimelines };
@@ -202,6 +203,7 @@ function evictStaleJobs(
     delete logs[id];
     delete transcript[id];
     delete diffs[id];
+    delete stories[id];
     delete plans[id];
     delete timelines[id];
     delete activityTimelines[id];
@@ -219,7 +221,7 @@ function evictStaleJobs(
       }
     }
   }
-  return { logs, transcript, diffs, plans, timelines, activityTimelines, streamingMessages, streamingToolOutput };
+  return { logs, transcript, diffs, stories, plans, timelines, activityTimelines, streamingMessages, streamingToolOutput };
 }
 
 /** Rebuild activity timeline state from a flat list of turn summary payloads (hydration). */
@@ -282,6 +284,7 @@ interface AppState {
   logs: Record<string, LogLine[]>; // keyed by jobId
   transcript: Record<string, TranscriptEntry[]>; // keyed by jobId
   diffs: Record<string, DiffFileModel[]>; // keyed by jobId
+  stories: Record<string, StoryResponse>; // keyed by jobId
   plans: Record<string, PlanStep[]>; // keyed by jobId
   timelines: Record<string, TimelineEntry[]>; // keyed by jobId
   activityTimelines: Record<string, ActivityTimelineState>; // keyed by jobId
@@ -350,6 +353,7 @@ interface AppState {
   removeTerminalSession: (id: string) => void;
   createTerminalSession: (opts?: { cwd?: string; jobId?: string; label?: string }) => void;
   setHoveredPlanItemId: (id: string | null) => void;
+  setStory: (jobId: string, story: StoryResponse) => void;
 }
 
 // Module-level singleton guard: ensures initSdksAndModels is only ever
@@ -367,6 +371,7 @@ export const useStore = create<AppState>((set, get) => ({
   logs: {},
   transcript: {},
   diffs: {},
+  stories: {},
   plans: {},
   timelines: {},
   activityTimelines: {},
@@ -1362,6 +1367,10 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setHoveredPlanItemId: (id) => set({ hoveredPlanItemId: id }),
+
+  setStory: (jobId, story) => set((state) => ({
+    stories: { ...state.stories, [jobId]: story },
+  })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1388,6 +1397,10 @@ export const selectJobTranscript = (jobId: string) => (state: AppState) =>
   state.transcript[jobId] ?? EMPTY_TRANSCRIPT;
 export const selectJobDiffs = (jobId: string) => (state: AppState) =>
   state.diffs[jobId] ?? EMPTY_DIFFS;
+
+const EMPTY_STORY: StoryResponse | null = null;
+export const selectJobStory = (jobId: string) => (state: AppState) =>
+  state.stories[jobId] ?? EMPTY_STORY;
 
 /** Select accumulated streaming tool output for a job, keyed by toolCallId. */
 export const selectStreamingToolOutput = (jobId: string) => (state: AppState) => {

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X, Lightbulb, Info, FolderOpen } from "lucide-react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X, Lightbulb, Info, FolderOpen, AlertTriangle, Eye, ArrowUpDown, BookOpenCheck } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
-import { sendOperatorMessage, resumeJob, continueJob, fetchStepDiff } from "../api/client";
+import { sendOperatorMessage, resumeJob, continueJob, fetchStepDiff, fetchJobTelemetry } from "../api/client";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
@@ -12,7 +12,7 @@ import { cn } from "../lib/utils";
 import { MicButton } from "./VoiceButton";
 import { Tooltip } from "./ui/tooltip";
 import { useDrag } from "../hooks/useDrag";
-import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse } from "../api/types";
+import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse, TestCoModification } from "../api/types";
 import { StoryBanner } from "./StoryBanner";
 import { BottomSheet } from "./ui/bottom-sheet";
 
@@ -155,6 +155,22 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   const [hunkMotivations, setHunkMotivations] = useState<Record<string, HunkMotivation>>({});
   const [showIntent, setShowIntent] = useState(true);
 
+  // WS7: Anti-skim — track which files the reviewer has viewed
+  const [viewedFiles, setViewedFiles] = useState<Set<number>>(new Set());
+
+  // WS2: Blast radius — context files read but not written
+  const [contextFiles, setContextFiles] = useState<{ filePath: string; readCount: number }[]>([]);
+  const [contextFilesOpen, setContextFilesOpen] = useState(false);
+
+  // WS5: Test co-modification warnings
+  const [testCoMods, setTestCoMods] = useState<TestCoModification[]>([]);
+
+  // WS6: Review complexity
+  const [reviewComplexity, setReviewComplexity] = useState<{ tier: string; signals: string[] } | null>(null);
+
+  // WS1: Sort by churn toggle
+  const [sortByChurn, setSortByChurn] = useState(false);
+
   // Fetch step-specific diff from API when filter has a turnId
   useEffect(() => {
     if (!stepFilter?.turnId || showAllChanges) {
@@ -190,19 +206,79 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
     return () => { cancelled = true; };
   }, [jobId, stepFilter?.turnId, showAllChanges]);
 
+  // Fetch telemetry for blast radius (context files) + review signals
+  useEffect(() => {
+    let cancelled = false;
+    fetchJobTelemetry(jobId)
+      .then((telem) => {
+        if (cancelled) return;
+        // WS2: Extract read-only context files (read but never written)
+        const topFiles = (telem as Record<string, unknown>).fileAccess as { topFiles?: { filePath: string; readCount: number; writeCount: number }[] } | undefined;
+        if (topFiles?.topFiles) {
+          setContextFiles(
+            topFiles.topFiles
+              .filter((f) => f.writeCount === 0 && f.readCount > 0)
+              .map((f) => ({ filePath: f.filePath, readCount: f.readCount })),
+          );
+        }
+        // WS5: Test co-modifications
+        const signals = (telem as Record<string, unknown>).reviewSignals as { testCoModifications?: TestCoModification[] } | undefined;
+        if (signals?.testCoModifications) {
+          setTestCoMods(signals.testCoModifications);
+        }
+        // WS6: Review complexity
+        const complexity = (telem as Record<string, unknown>).reviewComplexity as { tier: string; signals: string[] } | undefined;
+        if (complexity) {
+          setReviewComplexity(complexity);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [jobId]);
+
   // Filter diffs when step filter is active and not toggled to "all"
   const isFiltered = !!stepFilter && !showAllChanges;
   const diffs = useMemo(() => {
-    if (!isFiltered || !stepFilter) return allDiffs;
-    // Prefer API-fetched step diffs when available
-    if (stepDiffs !== null) return stepDiffs;
-    // Fallback: path-based filtering (for steps without turnId or API failure)
-    const filterPaths = new Set(stepFilter.filePaths);
-    return allDiffs.filter((f) =>
-      filterPaths.has(f.path) ||
-      stepFilter.filePaths.some((fp) => f.path.endsWith(fp) || fp.endsWith(f.path)),
-    );
-  }, [allDiffs, stepFilter, isFiltered, stepDiffs]);
+    let result: DiffFileModel[];
+    if (!isFiltered || !stepFilter) {
+      result = allDiffs;
+    } else if (stepDiffs !== null) {
+      result = stepDiffs;
+    } else {
+      const filterPaths = new Set(stepFilter.filePaths);
+      result = allDiffs.filter((f) =>
+        filterPaths.has(f.path) ||
+        stepFilter.filePaths.some((fp) => f.path.endsWith(fp) || fp.endsWith(f.path)),
+      );
+    }
+    // WS1: optionally sort by churn (write_count descending)
+    if (sortByChurn) {
+      return [...result].sort((a, b) => (b.writeCount ?? 0) - (a.writeCount ?? 0));
+    }
+    return result;
+  }, [allDiffs, stepFilter, isFiltered, stepDiffs, sortByChurn]);
+
+  // WS7: Mark file as viewed when selected
+  useEffect(() => {
+    if (diffs.length > 0 && selectedIdx >= 0 && selectedIdx < diffs.length) {
+      setViewedFiles((prev) => {
+        if (prev.has(selectedIdx)) return prev;
+        const next = new Set(prev);
+        next.add(selectedIdx);
+        return next;
+      });
+    }
+  }, [selectedIdx, diffs.length]);
+
+  // Build set of test file paths for co-mod warnings
+  const testCoModPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const m of testCoMods) {
+      for (const f of m.testFiles) paths.add(f);
+      for (const f of m.sourceFiles) paths.add(f);
+    }
+    return paths;
+  }, [testCoMods]);
 
   // Reset selection when filter changes
   useEffect(() => { setSelectedIdx(0); }, [isFiltered, stepFilter]);
@@ -637,6 +713,32 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
         <StoryBanner jobId={jobId} diffs={diffs} onSelectFile={setSelectedIdx} />
       )}
 
+      {/* WS5: Test co-modification warning */}
+      {testCoMods.length > 0 && !isFiltered && (
+        <div className="flex items-start gap-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-3 py-2">
+          <AlertTriangle size={14} className="text-yellow-400 shrink-0 mt-0.5" />
+          <div className="text-xs text-muted-foreground leading-relaxed">
+            <span className="font-medium text-yellow-400">Test co-modification detected</span>
+            <span> — {testCoMods.length} step{testCoMods.length > 1 ? "s" : ""} modified both test and source files together. Review test coverage carefully.</span>
+          </div>
+        </div>
+      )}
+
+      {/* WS6: Review complexity badge */}
+      {reviewComplexity && reviewComplexity.tier !== "quick" && !isFiltered && (
+        <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5">
+          <span className={cn(
+            "text-[10px] font-semibold px-1.5 py-0.5 rounded",
+            reviewComplexity.tier === "deep" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",
+          )}>
+            {reviewComplexity.tier === "deep" ? "Deep Review" : "Standard Review"}
+          </span>
+          <span className="text-[10px] text-muted-foreground/60">
+            {reviewComplexity.signals.map((s) => s.replace(/_/g, " ")).join(" · ")}
+          </span>
+        </div>
+      )}
+
       {stepDiffsLoading && isFiltered && (
         <div className="flex justify-center py-6">
           <Spinner />
@@ -687,6 +789,20 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
             <span className="text-xs font-semibold text-muted-foreground">{diffs.length} files</span>
             <div className="flex items-center gap-2">
+              {/* WS1: Sort by churn toggle */}
+              {diffs.some((f) => (f.writeCount ?? 0) > 1) && (
+                <Tooltip content={sortByChurn ? "Sort by file order" : "Sort by edit churn"}>
+                  <button
+                    onClick={() => setSortByChurn(!sortByChurn)}
+                    className={cn(
+                      "p-0.5 rounded transition-colors",
+                      sortByChurn ? "text-orange-400 hover:text-orange-300" : "text-muted-foreground/40 hover:text-muted-foreground",
+                    )}
+                  >
+                    <ArrowUpDown size={13} />
+                  </button>
+                </Tooltip>
+              )}
               {Object.keys(hunkMotivations).length > 0 && (
                 <Tooltip content={showIntent ? "Hide intent annotations" : "Show intent annotations"}>
                   <button
@@ -702,14 +818,33 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
               )}
               <span className="text-xs text-green-400">+{totalAdditions}</span>
               <span className="text-xs text-red-400">-{totalDeletions}</span>
+              {contextFiles.length > 0 && (
+                <span className="text-xs text-blue-400">· {contextFiles.length} read</span>
+              )}
             </div>
           </div>
+          {/* WS7: Review progress bar */}
+          {diffs.length > 1 && (
+            <div className="flex items-center gap-1.5 px-3 py-1 border-b border-border/50 bg-muted/10">
+              <BookOpenCheck size={11} className="text-muted-foreground/60 shrink-0" />
+              <span className="text-[10px] text-muted-foreground/70">{viewedFiles.size}/{diffs.length} reviewed</span>
+              <div className="flex-1 h-1 rounded-full bg-muted/30 overflow-hidden">
+                <div
+                  className="h-full bg-primary/60 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((viewedFiles.size / diffs.length) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto">
             {diffs.map((file, i) => {
               const Icon = STATUS_ICON[file.status] ?? FileCode;
               const fileChecked = isFileFullyChecked(i);
               const filePartial = isFilePartiallyChecked(i);
               const fileMot = fileMotivations[file.path];
+              const churn = file.writeCount ?? 0;
+              const isTestCoMod = testCoModPaths.has(file.path);
+              const isViewed = viewedFiles.has(i);
               return (
                 <div key={i} className="flex flex-col">
                   <div
@@ -718,6 +853,12 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                       i === selectedIdx ? "bg-accent" : "hover:bg-accent/50",
                     )}
                   >
+                    {/* WS7: Unviewed indicator */}
+                    {!isViewed && i !== selectedIdx ? (
+                      <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400" />
+                    ) : (
+                      <span className="shrink-0 w-1.5" />
+                    )}
                     {/* File checkbox — tri-state: unchecked / partial (minus) / fully checked */}
                     {canAsk ? (
                       <Tooltip content="Select to ask about this file's changes">
@@ -744,6 +885,12 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                       className="flex items-center gap-2 flex-1 min-w-0 text-left"
                     >
                       <Icon size={14} className={cn("shrink-0", STATUS_ICON_CLASS[file.status])} />
+                      {/* WS5: Test co-mod warning */}
+                      {isTestCoMod && (
+                        <Tooltip content="Modified alongside test files in the same step">
+                          <AlertTriangle size={11} className="shrink-0 text-yellow-400" />
+                        </Tooltip>
+                      )}
                       {fileMot && (
                         <Tooltip
                           content={
@@ -768,6 +915,17 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                         </Tooltip>
                       )}
                       <TruncatedPath path={file.path} />
+                      {/* WS1: Churn badge */}
+                      {churn >= 2 && (
+                        <Tooltip content={`${churn} writes${file.retryCount ? `, ${file.retryCount} retries` : ""}`}>
+                          <span className={cn(
+                            "text-[9px] font-bold rounded px-1 shrink-0",
+                            churn >= 4 ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",
+                          )}>
+                            {churn}×
+                          </span>
+                        </Tooltip>
+                      )}
                       <span className={cn("text-xs border rounded px-1 hidden md:inline", STATUS_BADGE[file.status])}>
                         +{file.additions} -{file.deletions}
                       </span>
@@ -777,6 +935,33 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
               );
             })}
           </div>
+
+          {/* WS2: Context files read but not modified */}
+          {contextFiles.length > 0 && (
+            <div className="border-t border-border">
+              <button
+                type="button"
+                onClick={() => setContextFilesOpen(!contextFilesOpen)}
+                className="flex items-center gap-1.5 w-full px-3 py-1.5 text-left hover:bg-accent/30 transition-colors"
+              >
+                <Eye size={11} className="text-blue-400/70 shrink-0" />
+                <span className="text-[10px] text-muted-foreground">Context files read ({contextFiles.length})</span>
+              </button>
+              {contextFilesOpen && (
+                <div className="max-h-32 overflow-y-auto">
+                  {contextFiles.map((cf, ci) => (
+                    <div key={ci} className="flex items-center gap-2 px-3 py-1 text-[10px] text-muted-foreground/70">
+                      <FileCode size={10} className="shrink-0 text-blue-400/40" />
+                      <span className="flex-1 min-w-0 truncate" title={cf.filePath}>
+                        {cf.filePath}
+                      </span>
+                      <span className="text-blue-400/50 shrink-0">{cf.readCount}×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Resize handle — desktop only */}

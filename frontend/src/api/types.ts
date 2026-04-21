@@ -92,6 +92,8 @@ export interface DiffFileModel {
   additions: number;
   deletions: number;
   hunks: DiffHunkModel[];
+  writeCount?: number | null;
+  retryCount?: number | null;
 }
 
 // --- Motivation types for intent-annotated diff review ---
@@ -143,6 +145,26 @@ export interface StoryResponse {
   jobId: string;
   blocks: StoryBlock[];
   cached: boolean;
+  verbosity: "summary" | "standard" | "detailed";
+}
+
+// --- Review signal types ---
+
+export interface TestCoModification {
+  turnId: string | null;
+  stepNumber: number | null;
+  stepTitle: string | null;
+  testFiles: string[];
+  sourceFiles: string[];
+}
+
+export interface ReviewSignals {
+  testCoModifications: TestCoModification[];
+}
+
+export interface ReviewComplexity {
+  tier: "quick" | "standard" | "deep";
+  signals: string[];
 }
 
 // --- Resolve types ---
