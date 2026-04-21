@@ -12,6 +12,7 @@ column.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import TYPE_CHECKING, Any
@@ -30,15 +31,35 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 _STORY_SYSTEM = (
-    "You narrate coding sessions. You will receive a numbered list of code "
-    "changes and contextual information about the session. Write a first-person "
-    "walkthrough (\"I started by…\") that references each change using [[N]] "
-    "markers (e.g. [[1]], [[2]]). Every change MUST be referenced at least once. "
-    "A [[N]] marker appears inline right where you describe that change — it will "
-    "be rendered as a clickable card. Between markers, write concise connective "
-    "prose: motivation, decisions, setbacks, or transitions. Use markdown. "
-    "Target 100-400 words, scaling with complexity. Do NOT repeat file paths or "
-    "details already in the change list — the marker card shows those."
+    "You narrate coding sessions. You receive a numbered list of code changes "
+    "and session context. Write a first-person walkthrough that references "
+    "each change using [[N]] markers (e.g. [[1]], [[2]]).\n\n"
+    #
+    # Structure — inverted pyramid (Nielsen & Morkes 1997: +124% usability)
+    "STRUCTURE: Open with a one-sentence summary of what was accomplished and "
+    "why. Then walk through changes chronologically. Never bury the outcome "
+    "at the end.\n\n"
+    #
+    # Conciseness (Nielsen & Morkes 1997: +58% usability at half word count)
+    "CONCISENESS: Target 100-250 words for ≤5 changes, 250-400 for 6+. One "
+    "idea per sentence. Do NOT repeat file paths or details already in the "
+    "change list — the [[N]] card shows those.\n\n"
+    #
+    # Objectivity (Nielsen & Morkes 1997: +27% usability)
+    "OBJECTIVITY: State what you did and why. No self-assessment of difficulty "
+    '("This was complex"), no hedging ("I thought maybe"), no flair ("elegant '
+    'refactor"). Let facts speak.\n\n'
+    #
+    # Connective prose — why, not what
+    "TRANSITIONS: Between [[N]] markers, write motivation, decisions, or "
+    "setbacks — why you moved to the next change, not a restatement of what "
+    "it is. If you don't know why, use 'then' rather than inventing a reason.\n\n"
+    #
+    # Format constraints
+    "FORMAT: Plain prose paragraphs only. No markdown headers, bullets, or "
+    "code blocks — output renders inline. First person ('I started by…'). "
+    "Contractions fine. No jokes, emoji, or exclamation marks. "
+    "Every change MUST be referenced by its [[N]] marker at least once."
 )
 
 
@@ -78,10 +99,17 @@ async def _build_references(
         {"jid": job_id},
     )
 
-    # Deduplicate by file+step — keep latest per group
+    # Deduplicate by file+step — keep latest per group.
+    # When file or step_number is NULL, fall back to span_id so that
+    # unrelated NULL-keyed spans are never falsely merged.
     seen: dict[str, dict[str, Any]] = {}
     for r in rows.mappings():
-        key = f"{r['file']}|{r['step_number']}"
+        file_val = r["file"] or ""
+        step_val = r["step_number"]
+        if not file_val or step_val is None:
+            key = f"__span_{r['span_id']}"
+        else:
+            key = f"{file_val}|{step_val}"
         ref: dict[str, Any] = {
             "spanId": r["span_id"],
             "file": r["file"] or "",
@@ -212,7 +240,8 @@ def _parse_blocks(
     referenced: set[int] = set()
 
     for m in _MARKER_RE.finditer(raw):
-        idx = int(m.group(1)) - 1  # 1-based → 0-based
+        raw_idx = int(m.group(1))
+        idx = raw_idx - 1  # 1-based → 0-based
         # Narrative text before this marker
         text_before = raw[last_end : m.start()].strip()
         if text_before:
@@ -221,6 +250,12 @@ def _parse_blocks(
         if 0 <= idx < len(refs):
             blocks.append({"type": "reference", **refs[idx]})
             referenced.add(idx)
+        else:
+            log.warning(
+                "story_marker_out_of_range",
+                marker=raw_idx,
+                ref_count=len(refs),
+            )
         last_end = m.end()
 
     # Trailing narrative
@@ -243,6 +278,8 @@ def _parse_blocks(
 class StoryService:
     """Generates and caches structured code-review stories for jobs."""
 
+    _gen_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(self, completer: "Completable") -> None:
         self._completer = completer
 
@@ -264,7 +301,24 @@ class StoryService:
             except (json.JSONDecodeError, TypeError):
                 pass  # stale plain-text cache → regenerate
 
-        return await self._generate(session, job_id)
+        # Serialize generation per job to avoid duplicate LLM calls.
+        lock = self._gen_locks.setdefault(job_id, asyncio.Lock())
+        async with lock:
+            # Re-check cache — another coroutine may have populated it.
+            row = await session.execute(
+                text("SELECT story_text FROM jobs WHERE id = :jid"),
+                {"jid": job_id},
+            )
+            cached = row.scalar_one_or_none()
+            if cached:
+                try:
+                    return json.loads(cached)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            try:
+                return await self._generate(session, job_id)
+            finally:
+                self._gen_locks.pop(job_id, None)
 
     async def regenerate(
         self, session: "AsyncSession", job_id: str,
@@ -288,6 +342,19 @@ class StoryService:
         if len(refs) < 2:
             return None  # not enough changes for a meaningful story
 
+        # Guard against motivation staleness — if there are file_write spans
+        # still missing their motivation summary, skip caching so the next
+        # request can pick up the complete data.
+        unsummarized = await session.execute(
+            text(
+                "SELECT COUNT(*) FROM job_telemetry_spans "
+                "WHERE job_id = :jid AND tool_category = 'file_write' "
+                "AND motivation_summary IS NULL"
+            ),
+            {"jid": job_id},
+        )
+        pending_motivations = unsummarized.scalar() or 0
+
         ctx = await _collect_context(session, job_id)
         if not ctx:
             return None
@@ -308,11 +375,19 @@ class StoryService:
         blocks = _parse_blocks(raw, refs)
         payload = {"blocks": blocks}
 
-        # Cache as JSON
-        await session.execute(
-            text("UPDATE jobs SET story_text = :story WHERE id = :jid"),
-            {"jid": job_id, "story": json.dumps(payload)},
-        )
-        await session.commit()
+        # Only cache when all motivation summaries are ready — otherwise
+        # the next request will regenerate with richer "why" data.
+        if pending_motivations == 0:
+            await session.execute(
+                text("UPDATE jobs SET story_text = :story WHERE id = :jid"),
+                {"jid": job_id, "story": json.dumps(payload)},
+            )
+            await session.commit()
+        else:
+            log.info(
+                "story_skip_cache",
+                job_id=job_id,
+                pending_motivations=pending_motivations,
+            )
 
         return payload
