@@ -520,15 +520,17 @@ export const useStore = create<AppState>((set, get) => ({
         // Hydrate plan steps from snapshot so plan survives page refresh
         plans: {
           ...s.plans,
-          [jobId]: (snapshot.steps ?? []).map((p) => ({
-            planStepId: p.planStepId,
-            label: p.label,
-            status: (p.status as PlanStep["status"]) || "pending",
-            summary: p.summary,
-            toolCount: p.toolCount,
-            filesWritten: p.filesWritten,
-            durationMs: p.durationMs,
-          })),
+          [jobId]: (snapshot.steps ?? [])
+            .filter((p) => p.planStepId && p.label)
+            .map((p) => ({
+              planStepId: p.planStepId,
+              label: p.label,
+              status: (["done", "active", "pending", "skipped"].includes(p.status) ? p.status as PlanStep["status"] : "pending"),
+              summary: p.summary,
+              toolCount: p.toolCount,
+              filesWritten: p.filesWritten,
+              durationMs: p.durationMs,
+            })),
         },
       };
     });
@@ -1136,7 +1138,12 @@ export const useStore = create<AppState>((set, get) => ({
           const jobId = payload.jobId as string;
           const planStepId = payload.planStepId as string;
           const label = payload.label as string;
-          const status = (payload.status as PlanStep["status"]) || "pending";
+          if (!jobId || !planStepId || !label) return null;
+          const validStatuses = ["done", "active", "pending", "skipped"] as const;
+          const rawStatus = payload.status as string;
+          const status: PlanStep["status"] = (validStatuses as readonly string[]).includes(rawStatus)
+            ? (rawStatus as PlanStep["status"])
+            : "pending";
           const summary = payload.summary as string | undefined;
           const toolCount = payload.toolCount as number | undefined;
           const filesWritten = payload.filesWritten as string[] | undefined;
