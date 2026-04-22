@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Radio, Package, Loader2 } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Radio, Package, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -698,297 +698,118 @@ export function JobDetailScreen() {
         </div>
       </BottomSheet>
 
-      {/* ── Desktop back button (hidden on mobile) ── */}
-      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-2 hidden md:inline-flex md:shrink-0">
-        <ArrowLeft size={14} />
-        Dashboard
-      </Button>
-
-      {/* Job header — hidden on mobile (rail + bottom sheet replaces it) */}
-      <div className="hidden md:block md:shrink-0 rounded-lg border border-border bg-card p-4 mb-3">
-        <div className="mb-2">
-          {job.title ? (
-            <h1 className="text-lg font-bold text-foreground break-words">{job.title}</h1>
-          ) : (
-            <h1 className="text-lg font-bold text-foreground break-words">{job.id}</h1>
+      {/* ── Desktop slim toolbar (hidden on mobile) ── */}
+      <div className="hidden md:flex md:shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 mb-2">
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => navigate("/")}>
+          <ArrowLeft size={14} />
+        </Button>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <h1 className="text-sm font-bold text-foreground truncate">{job.title || job.id}</h1>
+          <span aria-live="polite"><StateBadge state={job.state} /></span>
+          <SdkBadge sdk={job.sdk} />
+          <FolderGit2 size={12} className="text-muted-foreground/70 shrink-0 hidden lg:inline" />
+          <span className="text-xs text-muted-foreground font-mono truncate hidden lg:inline">{job.repo.split("/").pop() ?? job.repo}</span>
+          {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
+            <span className="text-xs italic text-primary/70 truncate hidden xl:inline">{job.progressHeadline}</span>
+          )}
+          {isPreparing && (
+            <span className="text-xs text-violet-400 animate-pulse hidden lg:inline-flex items-center gap-1">
+              <Loader2 size={12} className="animate-spin" />
+              {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
+            </span>
           )}
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm text-muted-foreground font-mono">{job.id}</span>
-            <span aria-live="polite"><StateBadge state={job.state} /></span>
-            <SdkBadge sdk={job.sdk} />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canCancel && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-destructive border-destructive/40 hover:bg-destructive/10"
-                onClick={() => setCancelOpen(true)}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Info popover for md breakpoint where sidebar is hidden */}
+          <PopoverPrimitive.Root>
+            <PopoverPrimitive.Trigger asChild>
+              <button className="lg:hidden flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label="Job details">
+                <Info size={14} />
+              </button>
+            </PopoverPrimitive.Trigger>
+            <PopoverPrimitive.Portal>
+              <PopoverPrimitive.Content
+                side="bottom"
+                align="end"
+                sideOffset={4}
+                className="z-50 w-80 max-h-[70vh] overflow-y-auto rounded-md border border-border bg-popover p-3 shadow-md animate-in fade-in-0 zoom-in-95 space-y-2"
               >
-                <XCircle size={14} />
-                Cancel
-              </Button>
-            )}
-            {canResume && (
-              <Button size="sm" variant="outline" loading={actionLoading} onClick={handleResume}>
-                <RotateCcw size={14} />
-                Resume
-              </Button>
-            )}
-            {needsResolution && hasChanges && (
-              <>
-                {!hasMergeConflict && (
-                  <Tooltip content="Ask the agent to merge changes onto the base branch">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1"
-                      loading={resolveLoading === "smart_merge"}
-                      disabled={resolveLoading !== null}
-                      onClick={() => handleResolve("smart_merge")}
-                    >
-                      <GitMerge size={14} />
-                      Merge
-                    </Button>
-                  </Tooltip>
+                {(job.description || job.prompt) && (
+                  <p className="text-sm text-muted-foreground line-clamp-4">{job.description ?? job.prompt}</p>
                 )}
-                {hasMergeConflict && (
-                  <Tooltip content="Ask the agent to resolve the merge conflict">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1"
-                      loading={resolveLoading === "agent_merge"}
-                      disabled={resolveLoading !== null}
-                      onClick={() => handleResolve("agent_merge")}
-                    >
-                      <GitMerge size={14} />
-                      Resolve with Agent
-                    </Button>
-                  </Tooltip>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1"
-                  loading={resolveLoading === "create_pr"}
-                  disabled={resolveLoading !== null}
-                  onClick={() => handleResolve("create_pr")}
-                >
-                  <GitPullRequest size={14} />
-                  Create PR
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1 text-destructive border-destructive/40 hover:bg-destructive/10"
-                  onClick={() => setDiscardOpen(true)}
-                >
-                  <Trash2 size={14} />
-                  Discard
-                </Button>
-              </>
-            )}
-            {needsResolution && !hasChanges && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1"
-                onClick={() => setMarkDoneOpen(true)}
-              >
-                <CheckCircle2 size={14} />
-                Mark Done
-              </Button>
-            )}
-            {isResolved && !job.archivedAt && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1 text-green-600 border-green-500/40 hover:bg-green-500/10"
-                onClick={() => setCompleteOpen(true)}
-              >
-                <CheckCircle2 size={14} />
-                Complete & Archive
-              </Button>
-            )}
-            {canArchive && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1"
-                onClick={() => setCompleteOpen(true)}
-              >
-                <Archive size={14} />
-                {job.state === "failed" ? "Abandon" : "Archive"}
-              </Button>
-            )}
-            {/* Share disabled — read-only view not useful yet
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1"
-              onClick={async () => {
-                try {
-                  const { url } = await createShareLink(job.id);
-                  await navigator.clipboard.writeText(url);
-                  toast.success("Share link copied to clipboard");
-                } catch {
-                  toast.error("Failed to create share link");
-                }
-              }}
-            >
-              <Share2 size={14} />
-              Share
-            </Button>
-            */}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 mb-3">
-          <FolderGit2 size={13} className="text-muted-foreground/70 shrink-0" />
-          <span className="text-sm text-muted-foreground font-mono">{job.repo.split("/").pop() ?? job.repo}</span>
-        </div>
-
-        {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
-          <p className="text-sm italic text-primary/70 mb-3">{job.progressHeadline}</p>
-        )}
-
-        {isPreparing && (
-          <div className="flex items-center gap-2 text-sm text-violet-400 animate-pulse mb-3">
-            <Loader2 size={14} className="animate-spin" />
-            {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up workspace…"}
-          </div>
-        )}
-
-        {(job.description || job.prompt) && (
-          <p className="text-sm text-muted-foreground mb-3 line-clamp-3">{job.description ?? job.prompt}</p>
-        )}
-
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-6 gap-y-2 text-sm mb-3">
-          {[
-            ["Branch", job.branch ?? "—"],
-            ["Base", job.baseRef],
-            ["Worktree", job.worktreePath ? job.worktreePath.split("/").pop() ?? job.worktreePath : "—"],
-            ...(job.model ? [["Model", job.model]] : []),
-            ...(job.sdk ? [["SDK", job.sdk]] : []),
-            ["Created", new Date(job.createdAt).toLocaleString()],
-            ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
-          ].map(([label, value]) => (
-            <div key={label}>
-              <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wide">{label}</p>
-              <p className="text-sm break-all">{value}</p>
-            </div>
-          ))}
-        </div>
-
-        {job.prUrl && (
-          <a
-            href={job.prUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-          >
-            <ExternalLink size={14} />
-            View Pull Request
-          </a>
-        )}
-
-        {/* Model downgrade banner */}
-        {job.modelDowngraded && (
-          <div className="flex items-start gap-2 mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
-            <ArrowDownCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-amber-500">Model downgraded</p>
-              <p className="text-sm text-amber-400 mt-0.5">
-                Requested <span className="font-semibold">{job.requestedModel}</span> but the SDK served <span className="font-semibold">{job.actualModel}</span>.
-                The job was stopped before the agent could proceed with the wrong model.
-              </p>
-              <p className="text-xs text-amber-400/70 mt-1">
-                You can discard this job, create a PR with any partial changes, or resume with additional instructions.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Failure banner */}
-        {job.state === "failed" && (
-          <div className="flex items-start gap-2 mt-3 rounded-md border border-red-500/30 bg-red-500/10 p-3">
-            <XCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-red-500">Job failed</p>
-              <p className="text-sm text-red-400 mt-0.5">{job.failureReason ?? "No additional details available"}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Review banner */}
-        {job.state === "review" && (() => {
-          const isConflict = hasMergeConflict;
-          const isSignOff = job.resolution === "unresolved" || !job.resolution;
-          return (
-            <div className={`mt-3 rounded-md border p-3 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
-              <div className="flex items-start gap-2">
-                {isConflict ? (
-                  <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
-                ) : isSignOff ? (
-                  <GitMerge size={16} className="text-blue-500 shrink-0 mt-0.5" />
-                ) : (
-                  <CheckCircle2 size={16} className="text-green-500 shrink-0 mt-0.5" />
-                )}
-                <div>
-                  <p className={`text-sm font-medium ${isConflict ? "text-amber-500" : isSignOff ? "text-blue-500" : "text-green-500"}`}>
-                    {isConflict ? "Merge conflict — user input required" : isSignOff ? "Review required" : "Ready for resolution"}
-                  </p>
-                  <p className={`text-sm mt-0.5 ${isConflict ? "text-amber-400" : isSignOff ? "text-blue-400" : "text-green-400"}`}>
-                    {isConflict
-                      ? "Merge conflict detected. Resolve with the agent, create a PR to fix manually, or discard."
-                      : null}
-                    {!isConflict && isSignOff && (
-                      hasChanges
-                        ? "Choose how to handle the changes: auto merge onto the main worktree, create a PR, or discard."
-                        : "Completed with no changes to merge."
-                    )}
-                  </p>
-                  {unresolvedResolutionError && (
-                    <p className="text-sm mt-1 text-blue-300/90">
-                      Automatic merge failed: {unresolvedResolutionError}
-                    </p>
-                  )}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                  {[
+                    ["Branch", job.branch ?? "—"],
+                    ["Base", job.baseRef],
+                    ["Repo", job.repo.split("/").pop() ?? job.repo],
+                    ...(job.model ? [["Model", job.model]] : []),
+                    ["Created", new Date(job.createdAt).toLocaleString()],
+                    ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-[11px] text-muted-foreground uppercase font-semibold tracking-wide">{label}</p>
+                      <p className="text-xs break-all">{value}</p>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Completed banner */}
-        {job.state === "completed" && (
-          <div className="mt-3 rounded-md border border-green-500/30 bg-green-500/10 p-3">
-            <div className="flex items-start gap-2">
-              <CheckCircle2 size={16} className="text-green-500 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-green-500">Job completed</p>
-                <p className="text-sm mt-0.5 text-green-400">
-                  {job.resolution === "merged" ? "Changes merged into base branch."
-                    : job.resolution === "pr_created" ? "Pull request created."
-                    : job.resolution === "discarded" ? (hasChanges ? "Changes discarded." : "Completed — no changes to merge.")
-                    : null}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Canceled banner */}
-        {job.state === "canceled" && (
-          <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
-            <div className="flex items-start gap-2">
-              <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
-              <p className="text-sm font-medium text-amber-500">Job canceled</p>
-            </div>
-          </div>
-        )}
+                {job.prUrl && (
+                  <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                    <ExternalLink size={12} /> Pull Request
+                  </a>
+                )}
+              </PopoverPrimitive.Content>
+            </PopoverPrimitive.Portal>
+          </PopoverPrimitive.Root>
+          {canCancel && (
+            <Button size="sm" variant="outline" className="h-7 text-xs text-destructive border-destructive/40 hover:bg-destructive/10" onClick={() => setCancelOpen(true)}>
+              <XCircle size={13} /> Cancel
+            </Button>
+          )}
+          {canResume && (
+            <Button size="sm" variant="outline" className="h-7 text-xs" loading={actionLoading} onClick={handleResume}>
+              <RotateCcw size={13} /> Resume
+            </Button>
+          )}
+          {needsResolution && hasChanges && (
+            <>
+              {!hasMergeConflict && (
+                <Tooltip content="Merge changes onto the base branch">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" loading={resolveLoading === "smart_merge"} disabled={resolveLoading !== null} onClick={() => handleResolve("smart_merge")}>
+                    <GitMerge size={13} /> Merge
+                  </Button>
+                </Tooltip>
+              )}
+              {hasMergeConflict && (
+                <Tooltip content="Resolve the merge conflict with the agent">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" loading={resolveLoading === "agent_merge"} disabled={resolveLoading !== null} onClick={() => handleResolve("agent_merge")}>
+                    <GitMerge size={13} /> Resolve
+                  </Button>
+                </Tooltip>
+              )}
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" loading={resolveLoading === "create_pr"} disabled={resolveLoading !== null} onClick={() => handleResolve("create_pr")}>
+                <GitPullRequest size={13} /> PR
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-destructive border-destructive/40 hover:bg-destructive/10" onClick={() => setDiscardOpen(true)}>
+                <Trash2 size={13} />
+              </Button>
+            </>
+          )}
+          {needsResolution && !hasChanges && (
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setMarkDoneOpen(true)}>
+              <CheckCircle2 size={13} /> Done
+            </Button>
+          )}
+          {isResolved && !job.archivedAt && (
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-green-600 border-green-500/40 hover:bg-green-500/10" onClick={() => setCompleteOpen(true)}>
+              <CheckCircle2 size={13} /> Complete
+            </Button>
+          )}
+          {canArchive && (
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setCompleteOpen(true)}>
+              <Archive size={13} /> {job.state === "failed" ? "Abandon" : "Archive"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {completeOpen && job && (
@@ -1117,6 +938,90 @@ export function JobDetailScreen() {
                   <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
                   <span className="text-sm font-semibold text-muted-foreground">Activity</span>
                 </button>
+                {/* ── Job metadata panel ── */}
+                <div className="px-3 py-2 border-b border-border space-y-1.5 text-xs shrink-0 overflow-y-auto max-h-[40%]">
+                  {(job.description || job.prompt) && (
+                    <p className="text-muted-foreground line-clamp-3 text-[12px]">{job.description ?? job.prompt}</p>
+                  )}
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {[
+                      ["Branch", job.branch ?? "—"],
+                      ["Base", job.baseRef],
+                      ...(job.model ? [["Model", job.model]] : []),
+                      ["Created", new Date(job.createdAt).toLocaleString()],
+                      ...(job.completedAt ? [["Done", new Date(job.completedAt).toLocaleString()]] : []),
+                    ].map(([label, value]) => (
+                      <div key={label} className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground/70 uppercase font-semibold tracking-wide">{label}</p>
+                        <p className="text-[12px] text-foreground/80 truncate" title={String(value)}>{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {job.prUrl && (
+                    <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-primary hover:underline">
+                      <ExternalLink size={11} /> Pull Request
+                    </a>
+                  )}
+                  {/* Status banners — compact in sidebar */}
+                  {job.modelDowngraded && (
+                    <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-1.5">
+                      <ArrowDownCircle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[11px] font-medium text-amber-500">Model downgraded</p>
+                        <p className="text-[11px] text-amber-400">
+                          {job.requestedModel} → {job.actualModel}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {job.state === "failed" && (
+                    <div className="flex items-start gap-1.5 rounded border border-red-500/30 bg-red-500/10 p-1.5">
+                      <XCircle size={13} className="text-red-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[11px] font-medium text-red-500">Failed</p>
+                        <p className="text-[11px] text-red-400 line-clamp-2">{job.failureReason ?? "No details"}</p>
+                      </div>
+                    </div>
+                  )}
+                  {job.state === "review" && (() => {
+                    const isConflict = hasMergeConflict;
+                    const isSignOff = job.resolution === "unresolved" || !job.resolution;
+                    return (
+                      <div className={`flex items-start gap-1.5 rounded border p-1.5 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
+                        {isConflict ? (
+                          <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                        ) : isSignOff ? (
+                          <GitMerge size={13} className="text-blue-500 shrink-0 mt-0.5" />
+                        ) : (
+                          <CheckCircle2 size={13} className="text-green-500 shrink-0 mt-0.5" />
+                        )}
+                        <p className={`text-[11px] font-medium ${isConflict ? "text-amber-500" : isSignOff ? "text-blue-500" : "text-green-500"}`}>
+                          {isConflict ? "Merge conflict" : isSignOff ? "Review required" : "Ready"}
+                        </p>
+                        {unresolvedResolutionError && (
+                          <p className="text-[11px] text-blue-300/90">Merge failed: {unresolvedResolutionError}</p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {job.state === "completed" && (
+                    <div className="flex items-start gap-1.5 rounded border border-green-500/30 bg-green-500/10 p-1.5">
+                      <CheckCircle2 size={13} className="text-green-500 shrink-0 mt-0.5" />
+                      <p className="text-[11px] font-medium text-green-500">
+                        {job.resolution === "merged" ? "Merged"
+                          : job.resolution === "pr_created" ? "PR created"
+                          : job.resolution === "discarded" ? "Discarded"
+                          : "Completed"}
+                      </p>
+                    </div>
+                  )}
+                  {job.state === "canceled" && (
+                    <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-1.5">
+                      <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-[11px] font-medium text-amber-500">Canceled</p>
+                    </div>
+                  )}
+                </div>
                 <div className="flex-1 overflow-hidden">
                   <ActivityTimeline
                     jobId={jobId}
