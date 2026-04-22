@@ -924,7 +924,7 @@ class TrailService:
         content: str,
         tool_intent: str = "",
     ) -> None:
-        """Buffer transcript data for plan inference and title generation."""
+        """Buffer transcript data for title generation context."""
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -934,29 +934,13 @@ class TrailService:
             if len(state.recent_messages) > 5:
                 state.recent_messages = state.recent_messages[-5:]
 
-            # Eagerly infer plan on first agent message
-            if len(state.recent_messages) == 1 and not state.plan_established:
-                await self._try_early_plan(job_id)
-
         if role == "tool_call" and tool_intent:
             state.recent_tool_intents.append(tool_intent)
             if len(state.recent_tool_intents) > 10:
                 state.recent_tool_intents = state.recent_tool_intents[-10:]
 
-    async def _try_early_plan(self, job_id: str) -> None:
-        """Infer plan from the first agent message."""
-        if not self._sister_sessions:
-            return
-        sister = self._sister_sessions.get(job_id)
-        if sister is None:
-            return
-        try:
-            await self._infer_plan(job_id, sister)
-        except Exception:
-            log.debug("early_plan_inference_failed", job_id=job_id, exc_info=True)
-
     async def feed_tool_name(self, job_id: str, tool_name: str) -> None:
-        """Track tool usage for summary context and early plan trigger."""
+        """Track tool usage for summary context."""
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -965,10 +949,6 @@ class TrailService:
             state.recent_tool_names.append(tool_name)
         if len(state.recent_tool_names) > 10:
             state.recent_tool_names = state.recent_tool_names[-10:]
-
-        state.tool_call_count += 1
-        if state.tool_call_count == self._config.early_plan_tool_call_threshold and not state.plan_established:
-            await self._try_early_plan(job_id)
 
     # ==================================================================
     # Native plan (manage_todo_list)
