@@ -260,6 +260,10 @@ class _TrailJobState:
     activity_steps: list[ActivityStep] = field(default_factory=list)
     last_classified_plan_item: str = ""
 
+    # Sister session circuit breaker
+    sister_consecutive_failures: int = 0
+    _inferring_plan: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Deterministic kind classification
@@ -320,6 +324,8 @@ class TrailService:
                 new_state = (event.payload or {}).get("new_state")
                 if new_state == "running" and event.job_id not in self._job_state:
                     await self._on_job_started(event)
+            elif event.kind == DomainEventKind.session_resumed:
+                await self._on_session_resumed(event)
             elif event.kind == DomainEventKind.step_completed:
                 await self._on_step_completed(event)
             elif event.kind == DomainEventKind.step_started:
@@ -337,6 +343,95 @@ class TrailService:
                 await self._on_job_terminal(event)
         except Exception:
             log.debug("trail_event_error", event_kind=event.kind, job_id=event.job_id, exc_info=True)
+
+    async def _on_session_resumed(self, event: DomainEvent) -> None:
+        """Rehydrate trail state when a job session resumes (e.g. after server restart)."""
+        job_id = event.job_id
+        if job_id in self._job_state:
+            return  # Already tracking
+
+        state = _TrailJobState()
+
+        # Restore seq counter from persisted nodes
+        max_seq = await self._repo.max_seq(job_id)
+        state.next_seq = max_seq + 1
+
+        # Restore goal and prompt from persisted goal node
+        goal_nodes = await self._repo.get_by_job(job_id, kinds=["goal"], limit=1)
+        if goal_nodes:
+            state.active_goal_id = goal_nodes[0].id
+            state.job_prompt = goal_nodes[0].intent or ""
+
+        # Restore plan steps from persisted PlanStepUpdated events
+        from backend.persistence.event_repo import EventRepository
+        async with self._session_factory() as session:
+            event_repo = EventRepository(session)
+            plan_events = await event_repo.list_by_job(
+                job_id, [DomainEventKind.plan_step_updated], limit=200,
+            )
+        if plan_events:
+            # Deduplicate: keep the last event per plan_step_id
+            latest_by_id: dict[str, DomainEvent] = {}
+            for ev in plan_events:
+                ps_id = ev.payload.get("plan_step_id")
+                if ps_id:
+                    latest_by_id[ps_id] = ev
+            steps: list[PlanStep] = []
+            for ps_id, ev in latest_by_id.items():
+                p = ev.payload
+                ps = PlanStep(
+                    plan_step_id=ps_id,
+                    label=str(p.get("label", ""))[:60],
+                    status=str(p.get("status", "pending")),
+                    order=p.get("order", 0) or 0,
+                    summary=p.get("summary"),
+                    tool_count=p.get("tool_count", 0) or 0,
+                    files_written=p.get("files_written") or [],
+                    duration_ms=p.get("duration_ms", 0) or 0,
+                    start_sha=p.get("start_sha"),
+                    end_sha=p.get("end_sha"),
+                )
+                steps.append(ps)
+            steps.sort(key=lambda s: s.order)
+            state.plan_steps = steps
+            state.plan_established = bool(steps)
+            state.active_idx = next(
+                (i for i, s in enumerate(steps) if s.status == "active"), -1
+            )
+
+        # Restore activity timeline from persisted trail nodes with titles
+        work_nodes = await self._repo.get_by_job(
+            job_id, kinds=["shell", "modify", "explore"], limit=500,
+        )
+        for node in work_nodes:
+            if node.turn_id and node.title and node.activity_id:
+                act = next(
+                    (a for a in state.activities if a.activity_id == node.activity_id),
+                    None,
+                )
+                if act is None:
+                    act = Activity(
+                        activity_id=node.activity_id,
+                        label=node.activity_label or "Working",
+                        status="active",
+                    )
+                    state.activities.append(act)
+                state.activity_steps.append(
+                    ActivityStep(
+                        turn_id=node.turn_id,
+                        title=node.title,
+                        activity_id=node.activity_id,
+                    )
+                )
+
+        self._job_state[job_id] = state
+        log.info(
+            "trail_state_rehydrated",
+            job_id=job_id,
+            seq=state.next_seq,
+            plan_steps=len(state.plan_steps),
+            activities=len(state.activities),
+        )
 
     async def _on_job_started(self, event: DomainEvent) -> None:
         """Create the goal node for a new job."""
@@ -478,15 +573,51 @@ class TrailService:
         Runs as a fire-and-forget task after deterministic node creation.
         Updates the trail node with plan/activity/title data.
         """
+        try:
+            await self._classify_and_emit_inner(job_id, node_id, payload)
+        except Exception:
+            log.warning(
+                "classify_and_emit_failed",
+                job_id=job_id,
+                node_id=node_id,
+                exc_info=True,
+            )
+            # Mark the trail node so the title drain loop can retry
+            try:
+                await self._repo.update_enrichment(node_id, enrichment="pending")
+            except Exception:
+                pass
+
+    async def _classify_and_emit_inner(
+        self,
+        job_id: str,
+        node_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Inner implementation of classify-and-emit (unwrapped)."""
         state = self._job_state.get(job_id)
         if not state:
             return
 
         sister = self._sister_sessions.get(job_id) if self._sister_sessions else None
 
-        # If plan not established and we have a sister session, infer one
-        if sister and not state.plan_established:
-            await self._infer_plan(job_id, sister)
+        # Circuit breaker: skip sister session if too many consecutive failures
+        _SISTER_FAILURE_THRESHOLD = 5
+        if sister and state.sister_consecutive_failures >= _SISTER_FAILURE_THRESHOLD:
+            sister = None
+
+        # If plan not established and we have a sister session, infer one.
+        # Guard against concurrent inferences from parallel fire-and-forget tasks.
+        if sister and not state.plan_established and not state._inferring_plan:
+            state._inferring_plan = True
+            try:
+                await self._infer_plan(job_id, sister)
+                state.sister_consecutive_failures = 0
+            except Exception:
+                state.sister_consecutive_failures += 1
+                log.debug("plan_inference_failed_circuit", job_id=job_id, failures=state.sister_consecutive_failures)
+            finally:
+                state._inferring_plan = False
 
         agent_msg = payload.get("agent_message", "") or ""
         files_written = payload.get("files_written") or []
@@ -745,6 +876,8 @@ class TrailService:
     # Native plan (manage_todo_list)
     # ==================================================================
 
+    _MAX_PLAN_ITEMS = 30
+
     async def feed_native_plan(self, job_id: str, items: list[dict[str, str]]) -> None:
         """Create/update plan steps from the agent's native todo tool."""
         state = self._job_state.get(job_id)
@@ -753,17 +886,22 @@ class TrailService:
 
         status_map = {
             "not-started": "pending",
+            "not_started": "pending",
             "in-progress": "active",
             "in_progress": "active",
+            "in progress": "active",
             "completed": "done",
+            "complete": "done",
             "done": "done",
             "pending": "pending",
             "active": "active",
             "skipped": "skipped",
+            "failed": "failed",
+            "blocked": "active",
         }
 
         new_labels: list[tuple[str, str]] = []
-        for item in items:
+        for item in items[:self._MAX_PLAN_ITEMS]:
             label = str(item.get("title") or item.get("content") or item.get("label") or "").strip()
             if not label:
                 continue
@@ -920,9 +1058,13 @@ class TrailService:
             raw_assign = parsed.get("assign_to")
             if isinstance(raw_assign, int) and 1 <= raw_assign <= len(steps):
                 candidate = raw_assign - 1
-                if steps[candidate].status in ("active", "pending") or candidate == active_idx:
+                # Allow assignment to any item including "done" (rework scenario).
+                # Only skip "skipped" items.
+                if steps[candidate].status != "skipped" or candidate == active_idx:
                     target_idx = candidate
+            state.sister_consecutive_failures = 0
         except Exception:
+            state.sister_consecutive_failures += 1
             log.debug("turn_classification_failed", job_id=job_id, exc_info=True)
 
         now = datetime.now(UTC)
@@ -963,6 +1105,10 @@ class TrailService:
         if ps.status == "pending":
             ps.status = "active"
             ps.started_at = now
+        elif ps.status == "done":
+            # Rework: reopen a previously completed item
+            ps.status = "active"
+            ps.completed_at = None
 
         # If target is ahead of active, mark intermediate steps done
         if target_idx > active_idx:
@@ -1063,7 +1209,9 @@ class TrailService:
             mp = parsed.get("merge_with_previous")
             if isinstance(mp, bool):
                 merge_prev = mp
+            state.sister_consecutive_failures = 0
         except Exception:
+            state.sister_consecutive_failures += 1
             log.debug("turn_title_generation_failed", job_id=job_id, exc_info=True)
             if files_written:
                 title = f"Edited {', '.join(files_written[:3])}"
@@ -1539,15 +1687,99 @@ class TrailService:
         return processed
 
     async def drain_loop(self) -> None:
-        """Run forever, periodically processing nodes needing enrichment."""
+        """Run forever, periodically processing nodes needing enrichment and title recovery."""
         while True:
             try:
                 count = await self.drain_enrichment()
                 if count:
                     log.info("trail_enrichment_batch_processed", count=count)
+                title_count = await self.drain_titles()
+                if title_count:
+                    log.info("trail_title_recovery_batch_processed", count=title_count)
             except Exception:
                 log.debug("trail_enrichment_drain_error", exc_info=True)
             await asyncio.sleep(self._config.enrich_interval_seconds)
+
+    async def drain_titles(self) -> int:
+        """Recover titles for trail nodes that were created but never got titles.
+
+        This handles the case where _classify_and_emit fire-and-forget tasks
+        were lost (e.g. server restart) before generating titles and emitting
+        turn_summary events.
+        """
+        nodes = await self._repo.get_untitled_work_nodes(limit=20)
+        if not nodes:
+            return 0
+
+        processed = 0
+        for node in nodes:
+            try:
+                # Generate a fallback title from persisted data
+                files_written: list[str] = []
+                if node.files:
+                    all_files = json.loads(node.files)
+                    files_written = [f for f in all_files if isinstance(f, str)]
+
+                if files_written:
+                    title = f"Edited {', '.join(files_written[:3])}"
+                elif node.agent_message:
+                    title = node.agent_message[:60].split("\n")[0]
+                else:
+                    title = "Work in progress"
+
+                # Determine activity grouping
+                state = self._job_state.get(node.job_id)
+                activity_id = node.activity_id or _make_activity_id()
+                activity_label = node.activity_label or "Working"
+
+                if state and not node.activity_id:
+                    # Assign to current activity
+                    if not state.activities:
+                        act = Activity(
+                            activity_id=activity_id,
+                            label=activity_label,
+                            status="active",
+                        )
+                        state.activities.append(act)
+                    current_act = state.activities[-1]
+                    activity_id = current_act.activity_id
+                    activity_label = current_act.label
+
+                # Update the trail node with the recovered title
+                async with self._session_factory() as session:
+                    from sqlalchemy import update as sa_update
+                    stmt = sa_update(TrailNodeRow).where(TrailNodeRow.id == node.id).values(
+                        title=title,
+                        activity_id=activity_id,
+                        activity_label=activity_label,
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+
+                # Emit the turn_summary event so the frontend gets it
+                is_new_activity = node.activity_id is None  # first time assigning
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=node.job_id,
+                        timestamp=node.timestamp,
+                        kind=DomainEventKind.turn_summary,
+                        payload={
+                            "turn_id": node.turn_id,
+                            "title": title,
+                            "activity_id": activity_id,
+                            "activity_label": activity_label,
+                            "activity_status": "active",
+                            "is_new_activity": is_new_activity,
+                            "plan_item_id": node.plan_item_id,
+                        },
+                    )
+                )
+                processed += 1
+            except Exception:
+                log.debug("trail_title_recovery_failed", node_id=node.id, exc_info=True)
+
+        return processed
 
     # ==================================================================
     # Query helpers (used by API routes)

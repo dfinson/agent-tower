@@ -151,3 +151,17 @@ class TrailNodeRepository:
                 )
             )
             return total.scalar_one(), enriched.scalar_one()
+
+    async def get_untitled_work_nodes(self, *, limit: int) -> list[TrailNodeRow]:
+        """Fetch work nodes that have a turn_id but no title (need title recovery)."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.turn_id.isnot(None))
+                .where(TrailNodeRow.title.is_(None))
+                .where(TrailNodeRow.kind.in_(["shell", "modify", "explore"]))
+                .order_by(TrailNodeRow.seq)
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
