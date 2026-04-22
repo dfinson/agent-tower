@@ -503,7 +503,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # --- Trail service (agent audit trail) ---
-    from backend.services.trail_service import TrailService
+    from backend.services.trail import TrailService
 
     trail_service = TrailService(
         session_factory=session_factory,

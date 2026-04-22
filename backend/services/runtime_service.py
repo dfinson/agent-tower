@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from backend.persistence.job_repo import JobRepository
     from backend.services.step_tracker import StepTracker
     from backend.services.terminal_service import TerminalService
-    from backend.services.trail_service import TrailService
+    from backend.services.trail import TrailService
 
 
 class _AgentSession:

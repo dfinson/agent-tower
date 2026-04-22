@@ -13,7 +13,9 @@ from backend.models.db import Base, TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.event_bus import EventBus
-from backend.services.trail_service import TrailService, _classify_step, _parse_enrichment_response
+from backend.services.trail import TrailService
+from backend.services.trail.node_builder import classify_step as _classify_step
+from backend.services.trail.prompts import parse_enrichment_response as _parse_enrichment_response
 
 
 # ---------------------------------------------------------------------------
