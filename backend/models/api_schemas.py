@@ -64,7 +64,6 @@ class ArtifactType(StrEnum):
     telemetry_report = "telemetry_report"
     approval_history = "approval_history"
     agent_log = "agent_log"
-    journey_report = "journey_report"
     document = "document"
     custom = "custom"
 
@@ -638,7 +637,6 @@ class JobSnapshotResponse(CamelModel):
     timeline: list[ProgressHeadlinePayload]
     steps: list[PlanStepPayload] = []
     turn_summaries: list[TurnSummaryPayload] = []
-    work_entries: list[WorkEntryPayload] = []
 
 
 class SDKInfoResponse(CamelModel):
@@ -939,31 +937,6 @@ class TurnSummaryPayload(CamelModel):
     plan_item_id: str | None = None
 
 
-class WorkEntryTurn(CamelModel):
-    """A single turn within a work entry."""
-
-    turn_id: str
-    title: str
-
-
-class WorkEntryPayload(CamelModel):
-    """SSE payload for work ledger entry updates."""
-
-    job_id: str
-    entry_id: str
-    label: str
-    label_source: str = "generated"  # agent | generated | refined
-    source: str = "observed"  # agent-plan | observed
-    status: str = "active"  # active | done | pending | paused
-    turns: list[WorkEntryTurn] = []
-    plan_step_id: str | None = None
-    agent_label: str | None = None
-    display_order: int = 0
-    files_written: list[str] | None = None
-    tool_count: int = 0
-    duration_ms: int = 0
-
-
 class HunkMotivation(CamelModel):
     """Per-hunk motivation annotation."""
 
@@ -1031,68 +1004,6 @@ class StoryResponse(CamelModel):
     blocks: list[StoryBlock] = []
     cached: bool = False
     verbosity: str = "standard"  # summary | standard | detailed
-
-
-# ---------------------------------------------------------------------------
-# Cognitive Journey Report
-# ---------------------------------------------------------------------------
-
-
-class JourneyPivot(CamelModel):
-    """A strategy change detected from retry/failure spans."""
-
-    from_approach: str
-    to_approach: str
-    reason: str
-    span_id: int | None = None
-
-
-class JourneyPhase(CamelModel):
-    """One phase of the agent's cognitive journey through a job."""
-
-    step_number: int | None = None
-    step_title: str | None = None
-    files_written: list[str] = []
-    files_read: list[str] = []
-    motivation: str | None = None
-    pivots: list[JourneyPivot] = []
-    confidence: str = "high"  # high | medium | low
-    retry_count: int = 0
-    failure_count: int = 0
-    duration_ms: float = 0.0
-
-
-class JourneyDeadEnd(CamelModel):
-    """A failed approach the agent abandoned."""
-
-    what: str
-    why_abandoned: str
-    span_ids: list[int] = []
-    duration_ms: float = 0.0
-
-
-class JourneyDecision(CamelModel):
-    """An approval or key decision point during the session."""
-
-    description: str
-    resolution: str
-    is_approval: bool = False
-
-
-class JourneyReport(CamelModel):
-    """Full cognitive journey report for a job session."""
-
-    job_id: str
-    title: str = ""
-    original_task: str = ""
-    phases: list[JourneyPhase] = []
-    dead_ends: list[JourneyDeadEnd] = []
-    decisions: list[JourneyDecision] = []
-    fragile_areas: list[str] = []
-    total_duration_ms: float = 0.0
-    total_tool_calls: int = 0
-    total_cost_usd: float = 0.0
-    cached: bool = False
 
 
 class TestCoModification(CamelModel):

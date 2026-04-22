@@ -46,12 +46,7 @@ _ENRICH_SYSTEM_PROMPT = (
     "You also detect semantic patterns (plan, insight, decide, backtrack, verify) "
     "from the agent's transcript. Be concrete: cite file names, function names, "
     "line numbers from the context. Keep fields terse — phrases not paragraphs. "
-    "Do NOT invent details not present in the context.\n\n"
-    "For each annotation, include outcome_status: one of 'success', 'failure', "
-    "or 'partial'. Use 'failure' when the step hit errors without producing useful "
-    "output. Use 'partial' when there was progress but with retries or caveats. "
-    "Use the span motivations (pre-computed) when available — build on them, "
-    "don't re-derive what they already say."
+    "Do NOT invent details not present in the context."
 )
 
 
@@ -158,14 +153,14 @@ Current label: {current_label}
 Steps completed:
 {step_titles}
 
-Generate a refined label that accurately summarizes ALL the work.
-Headline-length — scannable at a glance in a timeline UI.
+Generate a refined 4-10 word label that accurately summarizes ALL the work.
 Include quantities when helpful (e.g. "Annotated 4 files in agent/ module").
 
 Respond with JSON only:
-{{"label": "<headline-length refined label>"}}
+{{"label": "<4-10 word refined label>"}}
 """
 
+_TOOL_INTENT_MAX = 80
 
 
 # ---------------------------------------------------------------------------
@@ -174,78 +169,71 @@ Respond with JSON only:
 
 
 @dataclass
-class WorkEntryTurn:
-    """A single turn within a work entry."""
-
-    turn_id: str
-    title: str
-
-
-@dataclass
-class WorkEntry:
-    """Unified plan item + activity group."""
-
-    entry_id: str
+class PlanStep:
+    plan_step_id: str
     label: str
-    label_source: str = "generated"  # agent | generated | refined
-    source: str = "observed"  # agent-plan | observed
-    turns: list[WorkEntryTurn] = field(default_factory=list)
-    agent_status: str | None = None  # raw status from agent todo
-    agent_label: str | None = None  # raw label from agent todo
-    plan_step_id: str | None = None  # links to agent's native plan item
-    display_order: int = 0  # set once, never changes
+    summary: str | None = None
+    status: str = "pending"  # pending | active | done | failed | skipped
+    order: int = 0
     tool_count: int = 0
     files_written: list[str] = field(default_factory=list)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     duration_ms: int = 0
-    created_seq: int = 0
-    last_turn_seq: int = 0
-    label_seq: int = 0  # how many turns the label was computed from
+    start_sha: str | None = None
+    end_sha: str | None = None
 
-    @property
-    def effective_status(self) -> str:
-        """Compute display status from agent_status + turn evidence."""
-        if self.agent_status == "done":
-            return "done"
-        if self.agent_status == "skipped":
-            return "done"
-        if not self.turns:
-            return "pending"
-        return "active"
-
-    def to_event_payload(self, job_id: str) -> dict[str, Any]:
+    def to_event_payload(self) -> dict[str, Any]:
         return {
-            "job_id": job_id,
-            "entry_id": self.entry_id,
-            "label": self.label,
-            "label_source": self.label_source,
-            "source": self.source,
-            "status": self.effective_status,
-            "turns": [{"turn_id": t.turn_id, "title": t.title} for t in self.turns],
             "plan_step_id": self.plan_step_id,
-            "agent_label": self.agent_label,
-            "display_order": self.display_order,
-            "files_written": self.files_written or [],
+            "label": self.label,
+            "summary": self.summary,
+            "status": self.status,
+            "order": self.order,
             "tool_count": self.tool_count,
-            "duration_ms": self.duration_ms,
+            "files_written": self.files_written or [],
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "duration_ms": self.duration_ms or None,
+            "start_sha": self.start_sha,
+            "end_sha": self.end_sha,
         }
 
 
-def _make_entry_id() -> str:
-    return f"we-{uuid.uuid4().hex[:10]}"
+def _make_plan_step_id() -> str:
+    return f"ps-{uuid.uuid4().hex[:10]}"
+
+
+def _make_activity_id() -> str:
+    return f"act-{uuid.uuid4().hex[:10]}"
 
 
 def _make_node_id() -> str:
     return uuid.uuid4().hex
 
 
+@dataclass
+class Activity:
+    activity_id: str
+    label: str
+    status: str = "active"  # active | done
+
+
+@dataclass
+class ActivityStep:
+    turn_id: str
+    title: str
+    activity_id: str
+
+
 # ---------------------------------------------------------------------------
-# Per-job state (deterministic trail + work ledger)
+# Per-job state (deterministic trail + plan + activity tracking)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class _TrailJobState:
-    """Per-job transient state for the trail builder + work ledger."""
+    """Per-job transient state for the trail builder + plan orchestrator."""
 
     # Trail skeleton
     active_goal_id: str | None = None
@@ -254,22 +242,27 @@ class _TrailJobState:
     next_seq: int = 1
     pending_events: list[DomainEvent] = field(default_factory=list)
 
-    # Work ledger
-    work_entries: list[WorkEntry] = field(default_factory=list)
-    active_entry_id: str | None = None
-    next_display_order: int = 0
+    # Plan management (absorbed from ProgressTrackingService)
+    plan_steps: list[PlanStep] = field(default_factory=list)
+    active_idx: int = -1
+    plan_established: bool = False
+    native_plan_active: bool = False
     job_prompt: str = ""
 
     # Transcript context buffers
     recent_messages: list[str] = field(default_factory=list)
     recent_tool_intents: list[str] = field(default_factory=list)
     recent_tool_names: list[str] = field(default_factory=list)
+    tool_call_count: int = 0
 
-    # Boundary signals (set by event handlers, consumed by turn assignment)
-    _boundary_pending: bool = False
+    # Activity timeline (retrospective grouping)
+    activities: list[Activity] = field(default_factory=list)
+    activity_steps: list[ActivityStep] = field(default_factory=list)
+    last_classified_plan_item: str = ""
 
     # Sister session circuit breaker
     sister_consecutive_failures: int = 0
+    _inferring_plan: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -320,11 +313,6 @@ class TrailService:
         self._repo = TrailNodeRepository(session_factory)
         self._job_state: dict[str, _TrailJobState] = {}
 
-    @property
-    def repo(self) -> TrailNodeRepository:
-        """Public access to the trail node repository for consumers."""
-        return self._repo
-
     # ==================================================================
     # Event subscriber (deterministic skeleton)
     # ==================================================================
@@ -374,90 +362,75 @@ class TrailService:
             state.active_goal_id = goal_nodes[0].id
             state.job_prompt = goal_nodes[0].intent or ""
 
-        # Restore work entries from persisted WorkEntryUpdated events
+        # Restore plan steps from persisted PlanStepUpdated events
         from backend.persistence.event_repo import EventRepository
         async with self._session_factory() as session:
             event_repo = EventRepository(session)
-            entry_events = await event_repo.list_by_job(
-                job_id, [DomainEventKind.work_entry_updated],
+            plan_events = await event_repo.list_by_job(
+                job_id, [DomainEventKind.plan_step_updated], limit=200,
             )
-        if entry_events:
+        if plan_events:
+            # Deduplicate: keep the last event per plan_step_id
             latest_by_id: dict[str, DomainEvent] = {}
-            for ev in entry_events:
-                eid = ev.payload.get("entry_id")
-                if eid:
-                    latest_by_id[eid] = ev
-            entries: list[WorkEntry] = []
-            for eid, ev in latest_by_id.items():
+            for ev in plan_events:
+                ps_id = ev.payload.get("plan_step_id")
+                if ps_id:
+                    latest_by_id[ps_id] = ev
+            steps: list[PlanStep] = []
+            for ps_id, ev in latest_by_id.items():
                 p = ev.payload
-                we = WorkEntry(
-                    entry_id=eid,
-                    label=str(p.get("label", "Working")),
-                    label_source=str(p.get("label_source", "generated")),
-                    source=str(p.get("source", "observed")),
-                    agent_label=p.get("agent_label"),
-                    plan_step_id=p.get("plan_step_id"),
-                    display_order=p.get("display_order", 0) or 0,
+                ps = PlanStep(
+                    plan_step_id=ps_id,
+                    label=str(p.get("label", ""))[:60],
+                    status=str(p.get("status", "pending")),
+                    order=p.get("order", 0) or 0,
+                    summary=p.get("summary"),
                     tool_count=p.get("tool_count", 0) or 0,
                     files_written=p.get("files_written") or [],
                     duration_ms=p.get("duration_ms", 0) or 0,
+                    start_sha=p.get("start_sha"),
+                    end_sha=p.get("end_sha"),
                 )
-                # Restore turns from payload
-                for t in p.get("turns") or []:
-                    tid = t.get("turn_id", "")
-                    title = t.get("title", "")
-                    if tid:
-                        we.turns.append(WorkEntryTurn(turn_id=tid, title=title))
-                # Restore agent_status
-                status = str(p.get("status", "active"))
-                if status == "done":
-                    we.agent_status = "done"
-                elif status == "pending":
-                    we.agent_status = "pending"
-                entries.append(we)
-            entries.sort(key=lambda e: e.display_order)
-            state.work_entries = entries
-            state.next_display_order = max((e.display_order for e in entries), default=-1) + 1
-            # Set active entry to the last entry with turns
-            for e in reversed(entries):
-                if e.turns and e.effective_status == "active":
-                    state.active_entry_id = e.entry_id
-                    break
-
-        # Backfill from trail nodes if no work entry events exist
-        if not state.work_entries:
-            work_nodes = await self._repo.get_by_job(
-                job_id, kinds=["shell", "modify", "explore"],
+                steps.append(ps)
+            steps.sort(key=lambda s: s.order)
+            state.plan_steps = steps
+            state.plan_established = bool(steps)
+            state.active_idx = next(
+                (i for i, s in enumerate(steps) if s.status == "active"), -1
             )
-            entry_map: dict[str, WorkEntry] = {}
-            for node in work_nodes:
-                if not node.turn_id or not node.title:
-                    continue
-                eid = node.activity_id or _make_entry_id()
-                if eid not in entry_map:
-                    we = WorkEntry(
-                        entry_id=eid,
-                        label=node.activity_label or "Working",
-                        display_order=state.next_display_order,
-                    )
-                    state.next_display_order += 1
-                    entry_map[eid] = we
-                entry_map[eid].turns.append(
-                    WorkEntryTurn(turn_id=node.turn_id, title=node.title)
-                )
-            state.work_entries = sorted(entry_map.values(), key=lambda e: e.display_order)
-            if state.work_entries:
-                state.active_entry_id = state.work_entries[-1].entry_id
 
-        # Signal boundary so next turn starts a new entry
-        state._boundary_pending = True
+        # Restore activity timeline from persisted trail nodes with titles
+        work_nodes = await self._repo.get_by_job(
+            job_id, kinds=["shell", "modify", "explore"], limit=500,
+        )
+        for node in work_nodes:
+            if node.turn_id and node.title and node.activity_id:
+                act = next(
+                    (a for a in state.activities if a.activity_id == node.activity_id),
+                    None,
+                )
+                if act is None:
+                    act = Activity(
+                        activity_id=node.activity_id,
+                        label=node.activity_label or "Working",
+                        status="active",
+                    )
+                    state.activities.append(act)
+                state.activity_steps.append(
+                    ActivityStep(
+                        turn_id=node.turn_id,
+                        title=node.title,
+                        activity_id=node.activity_id,
+                    )
+                )
 
         self._job_state[job_id] = state
         log.info(
             "trail_state_rehydrated",
             job_id=job_id,
             seq=state.next_seq,
-            work_entries=len(state.work_entries),
+            plan_steps=len(state.plan_steps),
+            activities=len(state.activities),
         )
 
     async def _on_job_started(self, event: DomainEvent) -> None:
@@ -595,11 +568,10 @@ class TrailService:
         node_id: str,
         payload: dict[str, Any],
     ) -> None:
-        """Assign turn to work entry, generate title, emit SSE.
+        """Classify turn to plan item, generate title, emit SSE events.
 
         Runs as a fire-and-forget task after deterministic node creation.
-        Turn assignment is deterministic (no LLM). Title generation uses
-        a sister session if available.
+        Updates the trail node with plan/activity/title data.
         """
         try:
             await self._classify_and_emit_inner(job_id, node_id, payload)
@@ -622,7 +594,7 @@ class TrailService:
         node_id: str,
         payload: dict[str, Any],
     ) -> None:
-        """Inner implementation — deterministic turn assignment + title + SSE."""
+        """Inner implementation of classify-and-emit (unwrapped)."""
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -634,142 +606,78 @@ class TrailService:
         if sister and state.sister_consecutive_failures >= _SISTER_FAILURE_THRESHOLD:
             sister = None
 
+        # If plan not established and we have a sister session, infer one.
+        # Guard against concurrent inferences from parallel fire-and-forget tasks.
+        if sister and not state.plan_established and not state._inferring_plan:
+            state._inferring_plan = True
+            try:
+                await self._infer_plan(job_id, sister)
+                state.sister_consecutive_failures = 0
+            except Exception:
+                state.sister_consecutive_failures += 1
+                log.debug("plan_inference_failed_circuit", job_id=job_id, failures=state.sister_consecutive_failures)
+            finally:
+                state._inferring_plan = False
+
         agent_msg = payload.get("agent_message", "") or ""
         files_written = payload.get("files_written") or []
         files_read = payload.get("files_read") or []
         tool_count = payload.get("tool_count", 0)
         duration_ms = payload.get("duration_ms", 0) or 0
+        start_sha = payload.get("start_sha")
+        end_sha = payload.get("end_sha")
         turn_id = payload.get("turn_id")
         preceding_context = payload.get("preceding_context")
 
-        if not turn_id:
-            return
+        # --- Plan classification ---
+        assigned_plan_step_id: str | None = None
+        steps = state.plan_steps
 
-        # --- Deterministic turn assignment ---
-        entry = self._assign_turn_to_entry(job_id, state)
-
-        # Generate title for this turn
-        title, merge_prev = await self._generate_turn_title(
-            job_id,
-            sister,
-            agent_msg=agent_msg,
-            files_read=files_read,
-            files_written=files_written,
-            duration_ms=duration_ms,
-            entry=entry,
-            preceding_context=preceding_context,
-        )
-
-        # Handle merge with previous turn
-        if merge_prev and entry.turns:
-            entry.turns[-1].title = title
-        else:
-            entry.turns.append(WorkEntryTurn(turn_id=turn_id, title=title))
-
-        # Accumulate metrics
-        entry.tool_count += tool_count
-        entry.duration_ms += duration_ms
-        entry.last_turn_seq = state.next_seq
-        for f in files_written:
-            if f not in entry.files_written:
-                entry.files_written.append(f)
-
-        # Emit work entry update + card headline
-        await self._emit_work_entry(job_id, entry)
-        await self._emit_card_headline(job_id, entry)
-
-        # Update trail node with entry + title data
-        await self._update_node_timeline(
-            node_id,
-            title=title,
-            entry_id=entry.entry_id,
-            entry_label=entry.label,
-            entry_status=entry.effective_status,
-        )
-
-        # Check if label refinement is needed (at turns 2 and 5)
-        turn_count = len(entry.turns)
-        if entry.label_source != "agent" and turn_count in (2, 5) and sister:
-            asyncio.ensure_future(self._refine_entry_label(job_id, sister, entry))
-
-    def _assign_turn_to_entry(
-        self,
-        job_id: str,
-        state: _TrailJobState,
-    ) -> WorkEntry:
-        """Deterministic turn-to-entry assignment. No LLM.
-
-        Priority:
-        1. Agent has an active plan item → use/create entry for that plan_step_id
-        2. Boundary signal pending → create a new observed entry
-        3. Default → continue current entry
-        """
-        # Check if agent has an active plan item
-        active_plan_id = self._get_active_plan_step_id_from_entries(state)
-
-        if active_plan_id:
-            # Find existing entry for this plan item
-            for e in state.work_entries:
-                if e.plan_step_id == active_plan_id:
-                    state.active_entry_id = e.entry_id
-                    state._boundary_pending = False
-                    return e
-            # Plan item changed — create new entry (shouldn't normally happen,
-            # feed_native_plan creates entries ahead of time)
-            new_entry = WorkEntry(
-                entry_id=_make_entry_id(),
-                label="Working",
-                source="agent-plan",
-                plan_step_id=active_plan_id,
-                display_order=state.next_display_order,
-                created_seq=state.next_seq,
+        if sister and steps:
+            assigned_plan_step_id = await self._classify_and_update_plan(
+                job_id,
+                sister,
+                steps,
+                agent_msg=agent_msg,
+                tool_count=tool_count,
+                files_written=files_written,
+                duration_ms=duration_ms,
+                start_sha=start_sha,
+                end_sha=end_sha,
+                turn_id=turn_id,
             )
-            state.next_display_order += 1
-            state.work_entries.append(new_entry)
-            state.active_entry_id = new_entry.entry_id
-            state._boundary_pending = False
-            return new_entry
+        elif steps:
+            # No sister session — accumulate on active step
+            active_idx = max(0, min(state.active_idx, len(steps) - 1))
+            if 0 <= active_idx < len(steps):
+                ps = steps[active_idx]
+                ps.tool_count += tool_count
+                ps.duration_ms += duration_ms
+                for f in files_written:
+                    if f not in ps.files_written:
+                        ps.files_written.append(f)
+                if start_sha and ps.start_sha is None:
+                    ps.start_sha = start_sha
+                if end_sha:
+                    ps.end_sha = end_sha
+                await self._emit_plan_step(job_id, ps)
+                await self._emit_card_headline(job_id, ps)
+                assigned_plan_step_id = ps.plan_step_id
 
-        # Check boundary signal
-        if state._boundary_pending:
-            state._boundary_pending = False
-            new_entry = WorkEntry(
-                entry_id=_make_entry_id(),
-                label="Working",
-                source="observed",
-                display_order=state.next_display_order,
-                created_seq=state.next_seq,
+        # --- Activity timeline: title + grouping + SSE ---
+        if turn_id:
+            await self._emit_activity_step(
+                job_id,
+                node_id=node_id,
+                sister=sister,
+                turn_id=turn_id,
+                agent_msg=agent_msg,
+                files_read=files_read,
+                files_written=files_written,
+                duration_ms=duration_ms,
+                assigned_plan_step_id=assigned_plan_step_id,
+                preceding_context=preceding_context,
             )
-            state.next_display_order += 1
-            state.work_entries.append(new_entry)
-            state.active_entry_id = new_entry.entry_id
-            return new_entry
-
-        # Default: continue current entry
-        if state.active_entry_id:
-            for e in state.work_entries:
-                if e.entry_id == state.active_entry_id:
-                    return e
-
-        # No current entry — create first one
-        new_entry = WorkEntry(
-            entry_id=_make_entry_id(),
-            label="Starting work",
-            source="observed",
-            display_order=state.next_display_order,
-            created_seq=state.next_seq,
-        )
-        state.next_display_order += 1
-        state.work_entries.append(new_entry)
-        state.active_entry_id = new_entry.entry_id
-        return new_entry
-
-    def _get_active_plan_step_id_from_entries(self, state: _TrailJobState) -> str | None:
-        """Get the plan_step_id of the currently active agent-plan entry."""
-        for e in state.work_entries:
-            if e.source == "agent-plan" and e.effective_status == "active" and e.agent_status not in ("done", "skipped"):
-                return e.plan_step_id
-        return None
 
     async def _emit_pending_event(
         self,
@@ -830,9 +738,6 @@ class TrailService:
         await self._repo.create(node)
         log.debug("trail_summarize_created", job_id=job_id, phase=phase)
 
-        # Signal boundary so next turn starts a new work entry
-        state._boundary_pending = True
-
     async def _on_approval_requested(self, event: DomainEvent) -> None:
         """Create a request node or defer if step hasn't completed yet."""
         job_id = event.job_id
@@ -863,9 +768,6 @@ class TrailService:
             )
             await self._repo.create(node)
             log.debug("trail_request_created", job_id=job_id, node_id=node_id)
-
-        # Signal boundary so next turn starts a new work entry
-        state._boundary_pending = True
 
     async def _on_job_terminal(self, event: DomainEvent) -> None:
         """Create a terminal summarize node and clean up."""
@@ -924,7 +826,7 @@ class TrailService:
         content: str,
         tool_intent: str = "",
     ) -> None:
-        """Buffer transcript data for title generation context."""
+        """Buffer transcript data for plan inference and title generation."""
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -934,13 +836,29 @@ class TrailService:
             if len(state.recent_messages) > 5:
                 state.recent_messages = state.recent_messages[-5:]
 
+            # Eagerly infer plan on first agent message
+            if len(state.recent_messages) == 1 and not state.plan_established:
+                await self._try_early_plan(job_id)
+
         if role == "tool_call" and tool_intent:
-            state.recent_tool_intents.append(tool_intent)
+            state.recent_tool_intents.append(tool_intent[:_TOOL_INTENT_MAX])
             if len(state.recent_tool_intents) > 10:
                 state.recent_tool_intents = state.recent_tool_intents[-10:]
 
+    async def _try_early_plan(self, job_id: str) -> None:
+        """Infer plan from the first agent message."""
+        if not self._sister_sessions:
+            return
+        sister = self._sister_sessions.get(job_id)
+        if sister is None:
+            return
+        try:
+            await self._infer_plan(job_id, sister)
+        except Exception:
+            log.debug("early_plan_inference_failed", job_id=job_id, exc_info=True)
+
     async def feed_tool_name(self, job_id: str, tool_name: str) -> None:
-        """Track tool usage for summary context."""
+        """Track tool usage for summary context and early plan trigger."""
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -950,9 +868,15 @@ class TrailService:
         if len(state.recent_tool_names) > 10:
             state.recent_tool_names = state.recent_tool_names[-10:]
 
+        state.tool_call_count += 1
+        if state.tool_call_count == 3 and not state.plan_established:
+            await self._try_early_plan(job_id)
+
     # ==================================================================
     # Native plan (manage_todo_list)
     # ==================================================================
+
+    _MAX_PLAN_ITEMS = 30
 
     async def feed_native_plan(self, job_id: str, items: list[dict[str, str]]) -> None:
         """Create/update plan steps from the agent's native todo tool."""
@@ -977,7 +901,7 @@ class TrailService:
         }
 
         new_labels: list[tuple[str, str]] = []
-        for item in items[:self._config.max_plan_items]:
+        for item in items[:self._MAX_PLAN_ITEMS]:
             label = str(item.get("title") or item.get("content") or item.get("label") or "").strip()
             if not label:
                 continue
@@ -1054,13 +978,13 @@ class TrailService:
 
             now = datetime.now(UTC)
             steps: list[PlanStep] = []
-            for i, label in enumerate(labels[:self._config.max_plan_items]):
+            for i, label in enumerate(labels[:20]):
                 if not isinstance(label, str) or not label.strip():
                     continue
                 steps.append(
                     PlanStep(
                         plan_step_id=_make_plan_step_id(),
-                        label=label.strip(),
+                        label=label.strip()[:60],
                         status="active" if i == 0 else "pending",
                         order=i,
                         started_at=now if i == 0 else None,
@@ -1123,13 +1047,13 @@ class TrailService:
             raw = await sister.complete(prompt)
             raw = _strip_code_fences(raw)
             parsed = json.loads(raw)
-            summary = str(parsed.get("summary", ""))
+            summary = str(parsed.get("summary", ""))[:200]
             new_status = str(parsed.get("status", "active"))
             if new_status not in ("active", "done"):
                 new_status = "active"
             ul = parsed.get("updated_label")
             if isinstance(ul, str) and ul.strip():
-                updated_label = ul.strip()
+                updated_label = ul.strip()[:60]
 
             raw_assign = parsed.get("assign_to")
             if isinstance(raw_assign, int) and 1 <= raw_assign <= len(steps):
@@ -1232,9 +1156,9 @@ class TrailService:
         """Generate an outcome-focused title for a completed turn."""
         if not sister:
             if files_written:
-                return f"Edited {len(files_written)} file{'s' if len(files_written) != 1 else ''}", False
+                return f"Edited {', '.join(files_written[:3])}", False
             if agent_msg:
-                return agent_msg.split("\n")[0], False
+                return agent_msg[:60].split("\n")[0], False
             return "Work in progress", False
 
         state = self._job_state.get(job_id)
@@ -1263,8 +1187,8 @@ class TrailService:
             active_plan_label=active_label,
             done_count=done_count,
             total_count=total_count,
-            files_read=", ".join(files_read) or "(none)",
-            files_written=", ".join(files_written) or "(none)",
+            files_read=", ".join(files_read[:8]) or "(none)",
+            files_written=", ".join(files_written[:8]) or "(none)",
             tools=tools or "(none)",
             duration_s=round(duration_ms / 1000, 1),
             agent_msg=agent_msg or "(no message)",
@@ -1281,7 +1205,7 @@ class TrailService:
             parsed = json.loads(raw)
             tt = parsed.get("title")
             if isinstance(tt, str) and tt.strip():
-                title = tt.strip()
+                title = tt.strip()[:80]
             mp = parsed.get("merge_with_previous")
             if isinstance(mp, bool):
                 merge_prev = mp
@@ -1290,9 +1214,9 @@ class TrailService:
             state.sister_consecutive_failures += 1
             log.debug("turn_title_generation_failed", job_id=job_id, exc_info=True)
             if files_written:
-                title = f"Edited {len(files_written)} file{'s' if len(files_written) != 1 else ''}"
+                title = f"Edited {', '.join(files_written[:3])}"
             elif agent_msg:
-                title = agent_msg.split("\n")[0]
+                title = agent_msg[:60].split("\n")[0]
 
         return title, merge_prev
 
@@ -1482,7 +1406,7 @@ class TrailService:
             parsed = json.loads(raw)
             new_label = parsed.get("label")
             if isinstance(new_label, str) and new_label.strip():
-                activity.label = new_label.strip()
+                activity.label = new_label.strip()[:80]
                 last_step = next(
                     (s for s in reversed(state.activity_steps) if s.activity_id == activity.activity_id),
                     None,
@@ -1647,14 +1571,6 @@ class TrailService:
 
         for job_id, job_nodes in by_job.items():
             try:
-                # Resolve span_ids for nodes that have turn_id but no span_ids yet
-                await self._repo.resolve_span_ids(job_nodes)
-
-                # Fetch motivation_summary data from spans (pre-computed by
-                # MotivationService) so enrichment can build on it instead
-                # of re-deriving intent from raw transcript.
-                motivation_data = await self._repo.fetch_motivation_summaries(job_nodes)
-
                 goal_nodes = await self._repo.get_by_job(job_id, kinds=["goal"], limit=1)
                 goal_intent = goal_nodes[0].intent if goal_nodes else None
 
@@ -1662,10 +1578,7 @@ class TrailService:
                     job_id, limit=self._config.enrich_decisions_context,
                 )
 
-                prompt = _build_enrichment_prompt(
-                    job_nodes, goal_intent, recent_decisions,
-                    motivation_data=motivation_data,
-                )
+                prompt = _build_enrichment_prompt(job_nodes, goal_intent, recent_decisions)
                 full_prompt = f"SYSTEM:\n{_ENRICH_SYSTEM_PROMPT}\n\nUSER:\n{prompt}"
                 result = await self._sister_sessions.complete(full_prompt)
                 result_text = result if isinstance(result, str) else str(result)
@@ -1703,16 +1616,12 @@ class TrailService:
                     else:
                         files = None
 
-                    os = annotation.get("outcome_status")
-                    outcome_status = os if os in ("success", "failure", "partial") else None
-
                     await self._repo.update_enrichment(
                         nid,
                         kind=new_kind,
                         intent=annotation.get("intent"),
                         rationale=annotation.get("rationale"),
                         outcome=annotation.get("outcome"),
-                        outcome_status=outcome_status,
                         tags=annotation.get("tags") if isinstance(annotation.get("tags"), list) else None,
                         supersedes=sup,
                         files=files,
@@ -1747,9 +1656,6 @@ class TrailService:
                         if not existing:
                             sup = None
 
-                    s_os = semantic.get("outcome_status")
-                    s_outcome_status = s_os if s_os in ("success", "failure", "partial") else None
-
                     s_node = TrailNodeRow(
                         id=_make_node_id(),
                         job_id=job_id,
@@ -1764,17 +1670,11 @@ class TrailService:
                         intent=semantic.get("intent"),
                         rationale=semantic.get("rationale"),
                         outcome=semantic.get("outcome"),
-                        outcome_status=s_outcome_status,
                         supersedes=sup,
                         tags=json.dumps(semantic.get("tags", []), ensure_ascii=False),
                     )
                     await self._repo.create(s_node)
                     processed += 1
-
-                # Backfill motivation_summary on spans that lack one.
-                # Uses the node-level intent as the canonical motivation —
-                # this replaces the separate MotivationService drain.
-                await self._backfill_span_motivations(job_nodes, enrichment_data)
 
             except Exception:
                 log.debug("trail_enrichment_failed", job_id=job_id, exc_info=True)
@@ -1785,43 +1685,6 @@ class TrailService:
                         pass
 
         return processed
-
-    async def _backfill_span_motivations(
-        self,
-        nodes: list[TrailNodeRow],
-        enrichment_data: dict,
-    ) -> None:
-        """Write node-level intent back to spans as motivation_summary.
-
-        Spans that already have motivation_summary are skipped — the
-        existing per-span summary is more granular. This covers spans
-        that the old MotivationService drain would have reached.
-        """
-        annotation_map = {
-            a["node_id"]: a
-            for a in enrichment_data.get("annotations", [])
-            if a.get("node_id") and a.get("intent")
-        }
-        if not annotation_map:
-            return
-
-        async with self._session_factory() as session:
-            from sqlalchemy import text as sa_text
-
-            for node in nodes:
-                intent = annotation_map.get(node.id, {}).get("intent")
-                if not intent or not node.turn_id:
-                    continue
-                await session.execute(
-                    sa_text(
-                        "UPDATE job_telemetry_spans "
-                        "SET motivation_summary = :ms "
-                        "WHERE job_id = :jid AND turn_id = :tid "
-                        "  AND motivation_summary IS NULL"
-                    ),
-                    {"ms": intent, "jid": node.job_id, "tid": node.turn_id},
-                )
-            await session.commit()
 
     async def drain_loop(self) -> None:
         """Run forever, periodically processing nodes needing enrichment and title recovery."""
@@ -1844,7 +1707,7 @@ class TrailService:
         were lost (e.g. server restart) before generating titles and emitting
         turn_summary events.
         """
-        nodes = await self._repo.get_untitled_work_nodes(limit=self._config.enrich_batch_size)
+        nodes = await self._repo.get_untitled_work_nodes(limit=20)
         if not nodes:
             return 0
 
@@ -1858,9 +1721,9 @@ class TrailService:
                     files_written = [f for f in all_files if isinstance(f, str)]
 
                 if files_written:
-                    title = f"Edited {len(files_written)} file{'s' if len(files_written) != 1 else ''}"
+                    title = f"Edited {', '.join(files_written[:3])}"
                 elif node.agent_message:
-                    title = node.agent_message.split("\n")[0]
+                    title = node.agent_message[:60].split("\n")[0]
                 else:
                     title = "Work in progress"
 
@@ -2033,8 +1896,6 @@ def _build_enrichment_prompt(
     nodes: list[TrailNodeRow],
     goal_intent: str | None,
     recent_decisions: list[TrailNodeRow],
-    *,
-    motivation_data: dict[str, list[dict[str, str]]] | None = None,
 ) -> str:
     """Build the enrichment prompt for a batch of nodes."""
     parts: list[str] = []
@@ -2072,19 +1933,6 @@ def _build_enrichment_prompt(
         if node.start_sha and node.end_sha and node.start_sha != node.end_sha:
             parts.append(f"  SHA changed: {node.start_sha} → {node.end_sha}")
 
-        # Include pre-computed motivation summaries from telemetry spans
-        motives = (motivation_data or {}).get(node.id)
-        if motives:
-            parts.append("  Span motivations (pre-computed):")
-            for m in motives:
-                target = m.get("tool_target") or "unknown"
-                summary = m.get("motivation_summary") or ""
-                cat = m.get("tool_category") or ""
-                error = m.get("error_kind") or ""
-                retry = " [RETRY]" if m.get("is_retry") else ""
-                err = f" [ERROR: {error}]" if error else ""
-                parts.append(f"    - [{cat}] {target}: {summary}{retry}{err}")
-
     if recent_decisions:
         parts.append("\nRECENT DECISIONS (for supersedes linking):")
         for d in recent_decisions:
@@ -2092,11 +1940,10 @@ def _build_enrichment_prompt(
 
     parts.append(
         "\nRespond with JSON only. Two arrays:\n"
-        '1. "annotations": [{node_id, kind, intent, rationale, outcome, outcome_status, files, tags}]\n'
-        '   - outcome_status: "success", "failure", or "partial"\n'
+        '1. "annotations": [{node_id, kind, intent, rationale, outcome, files, tags}]\n'
         '   - For kind=modify or kind=explore: do NOT change the kind\n'
         '   - For kind=shell: reclassify to modify, explore, or verify\n'
-        '2. "semantic_nodes": [{kind, intent, rationale, outcome, outcome_status, tags, supersedes, anchor_node_id}]\n'
+        '2. "semantic_nodes": [{kind, intent, rationale, outcome, tags, supersedes, anchor_node_id}]\n'
         '   - kind must be one of: plan, insight, decide, backtrack, verify\n'
         '   - anchor_node_id = the node_id of the deterministic node this semantic node relates to\n'
         '   - supersedes = node_id of prior decide node being reversed (for backtrack/decide only)\n'
@@ -2139,7 +1986,6 @@ def _node_to_dict(node: TrailNodeRow) -> dict:
         "intent": node.intent,
         "rationale": node.rationale,
         "outcome": node.outcome,
-        "outcome_status": node.outcome_status,
         "step_id": node.step_id,
         "span_ids": json.loads(node.span_ids) if node.span_ids else [],
         "turn_id": node.turn_id,

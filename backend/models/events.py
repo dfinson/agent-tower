@@ -46,7 +46,6 @@ class DomainEventKind(StrEnum):
     plan_step_updated = "PlanStepUpdated"
     step_entries_reassigned = "StepEntriesReassigned"
     turn_summary = "TurnSummary"
-    work_entry_updated = "WorkEntryUpdated"
 
 
 # ---------------------------------------------------------------------------

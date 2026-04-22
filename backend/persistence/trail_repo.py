@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, update
 
 from backend.models.db import TrailNodeRow
 
@@ -82,7 +82,6 @@ class TrailNodeRepository:
         intent: str | None = None,
         rationale: str | None = None,
         outcome: str | None = None,
-        outcome_status: str | None = None,
         tags: list[str] | None = None,
         supersedes: str | None = None,
         files: list[str] | None = None,
@@ -99,8 +98,6 @@ class TrailNodeRepository:
                 values["rationale"] = rationale
             if outcome is not None:
                 values["outcome"] = outcome
-            if outcome_status is not None:
-                values["outcome_status"] = outcome_status
             if tags is not None:
                 values["tags"] = json.dumps(tags, ensure_ascii=False)
             if supersedes is not None:
@@ -168,123 +165,3 @@ class TrailNodeRepository:
             )
             result = await session.execute(stmt)
             return list(result.scalars().all())
-
-    async def resolve_span_ids(self, nodes: list[TrailNodeRow]) -> dict[str, list[int]]:
-        """Look up telemetry span IDs for nodes that have a turn_id.
-
-        Returns {node_id: [span_id, ...]} for nodes whose spans were found.
-        Also persists the span_ids on the trail node row.
-        """
-        nodes_needing = [n for n in nodes if n.turn_id and not n.span_ids]
-        if not nodes_needing:
-            return {}
-
-        result: dict[str, list[int]] = {}
-        async with self._session_factory() as session:
-            for node in nodes_needing:
-                rows = await session.execute(
-                    text(
-                        "SELECT id FROM job_telemetry_spans "
-                        "WHERE job_id = :jid AND turn_id = :tid "
-                        "ORDER BY id"
-                    ),
-                    {"jid": node.job_id, "tid": node.turn_id},
-                )
-                ids = [r[0] for r in rows.fetchall()]
-                if ids:
-                    result[node.id] = ids
-                    await session.execute(
-                        update(TrailNodeRow)
-                        .where(TrailNodeRow.id == node.id)
-                        .values(span_ids=json.dumps(ids))
-                    )
-            await session.commit()
-        return result
-
-    async def fetch_motivation_summaries(
-        self, nodes: list[TrailNodeRow],
-    ) -> dict[str, list[dict[str, str]]]:
-        """Fetch motivation_summary data from telemetry spans for trail nodes.
-
-        Returns {node_id: [{tool_target, motivation_summary, tool_category}, ...]}.
-        """
-        nodes_with_turns = [n for n in nodes if n.turn_id]
-        if not nodes_with_turns:
-            return {}
-
-        result: dict[str, list[dict[str, str]]] = {}
-        async with self._session_factory() as session:
-            for node in nodes_with_turns:
-                rows = await session.execute(
-                    text(
-                        "SELECT tool_target, motivation_summary, tool_category, "
-                        "       error_kind, is_retry "
-                        "FROM job_telemetry_spans "
-                        "WHERE job_id = :jid AND turn_id = :tid "
-                        "  AND motivation_summary IS NOT NULL "
-                        "ORDER BY id"
-                    ),
-                    {"jid": node.job_id, "tid": node.turn_id},
-                )
-                spans = [
-                    {
-                        "tool_target": r["tool_target"] or "",
-                        "motivation_summary": r["motivation_summary"] or "",
-                        "tool_category": r["tool_category"] or "",
-                        "error_kind": r["error_kind"] or "",
-                        "is_retry": bool(r["is_retry"]),
-                    }
-                    for r in rows.mappings()
-                ]
-                if spans:
-                    result[node.id] = spans
-        return result
-
-    # ------------------------------------------------------------------
-    # Semantic scaffolding queries — consumers read trail as SSOT
-    # ------------------------------------------------------------------
-
-    async def get_enriched_nodes(
-        self,
-        job_id: str,
-        *,
-        kinds: list[str] | None = None,
-        exclude_kinds: list[str] | None = None,
-        outcome_status: str | None = None,
-    ) -> list[TrailNodeRow]:
-        """Fetch enriched trail nodes with optional filtering."""
-        async with self._session_factory() as session:
-            stmt = (
-                select(TrailNodeRow)
-                .where(TrailNodeRow.job_id == job_id)
-                .where(TrailNodeRow.enrichment == "complete")
-            )
-            if kinds:
-                stmt = stmt.where(TrailNodeRow.kind.in_(kinds))
-            if exclude_kinds:
-                stmt = stmt.where(TrailNodeRow.kind.notin_(exclude_kinds))
-            if outcome_status:
-                stmt = stmt.where(TrailNodeRow.outcome_status == outcome_status)
-            stmt = stmt.order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-
-    async def get_failed_nodes(self, job_id: str) -> list[TrailNodeRow]:
-        """Fetch nodes with outcome_status='failure' that indicate dead ends."""
-        return await self.get_enriched_nodes(job_id, outcome_status="failure")
-
-    async def get_decision_nodes(self, job_id: str) -> list[TrailNodeRow]:
-        """Fetch decide + request nodes (approval and strategic decision points)."""
-        return await self.get_enriched_nodes(
-            job_id, kinds=["decide", "request"],
-        )
-
-    async def get_backtrack_chains(self, job_id: str) -> list[TrailNodeRow]:
-        """Fetch backtrack nodes — pivots where the agent reversed course."""
-        return await self.get_enriched_nodes(job_id, kinds=["backtrack"])
-
-    async def get_work_nodes(self, job_id: str) -> list[TrailNodeRow]:
-        """Fetch modify + explore + shell nodes — the actual work."""
-        return await self.get_enriched_nodes(
-            job_id, kinds=["modify", "explore", "shell"],
-        )

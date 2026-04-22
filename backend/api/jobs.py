@@ -23,10 +23,6 @@ from backend.models.api_schemas import (
     HunkMotivation,
     JobListResponse,
     JobResponse,
-    JourneyDeadEnd,
-    JourneyDecision,
-    JourneyPhase,
-    JourneyReport,
     LogLinePayload,
     ModelInfoResponse,
     PlanStepPayload,
@@ -52,7 +48,6 @@ from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
 from backend.services.sister_session import SisterSessionManager
-from backend.services.trail_service import TrailService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
 if TYPE_CHECKING:
@@ -1530,21 +1525,19 @@ async def get_job_story(
     job_id: str,
     session: FromDishka[AsyncSession],
     sister_sessions: FromDishka[SisterSessionManager],
-    trail_service: FromDishka[TrailService],
     regenerate: bool = False,
     verbosity: str = Query(default="standard", pattern="^(summary|standard|detailed)$"),
 ) -> StoryResponse:
     """Return a structured code-review story with validated change references.
 
     Generated on demand using a cheap LLM for connective prose, with change
-    references built directly from telemetry spans.  Trail graph enriches
-    the motivation context when available.
+    references built directly from telemetry spans.  Cached on the jobs table.
     Pass ?regenerate=true to force a fresh generation.
     Verbosity: summary (one-sentence per file), standard (default), detailed (full rationale).
     """
     from backend.services.story_service import StoryService
 
-    service = StoryService(completer=sister_sessions, trail_repo=trail_service.repo)
+    service = StoryService(completer=sister_sessions)
 
     if regenerate:
         payload = await service.regenerate(session, job_id, verbosity=verbosity)
@@ -1557,38 +1550,3 @@ async def get_job_story(
     blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
     cached = not regenerate and bool(blocks)
     return StoryResponse(job_id=job_id, blocks=blocks, cached=cached, verbosity=verbosity)
-
-
-@router.get("/jobs/{job_id}/journey")
-async def get_job_journey_report(
-    job_id: str,
-    session: FromDishka[AsyncSession],
-    sister_sessions: FromDishka[SisterSessionManager],
-    trail_service: FromDishka[TrailService],
-) -> JourneyReport:
-    """Return the cognitive journey report for a job.
-
-    Reads from the trail graph as the single source of truth for semantic
-    understanding. Falls back to raw span queries when trail data is sparse.
-    """
-    from backend.services.journey_report_service import build_journey_report
-
-    payload = await build_journey_report(
-        session, job_id, trail_repo=trail_service.repo,
-    )
-
-    if not payload:
-        return JourneyReport(job_id=job_id)
-
-    return JourneyReport(
-        job_id=payload["job_id"],
-        title=payload.get("title", ""),
-        original_task=payload.get("original_task", ""),
-        phases=[JourneyPhase(**p) for p in payload.get("phases", [])],
-        dead_ends=[JourneyDeadEnd(**d) for d in payload.get("dead_ends", [])],
-        decisions=[JourneyDecision(**d) for d in payload.get("decisions", [])],
-        fragile_areas=payload.get("fragile_areas", []),
-        total_duration_ms=payload.get("total_duration_ms", 0.0),
-        total_tool_calls=payload.get("total_tool_calls", 0),
-        total_cost_usd=payload.get("total_cost_usd", 0.0),
-    )

@@ -203,8 +203,6 @@ class TrailConfig:
     enrich_interval_seconds: float = 10.0
     enrich_max_retries: int = 10
     enrich_decisions_context: int = 5
-    early_plan_tool_call_threshold: int = 3
-    max_plan_items: int = 30
 
 
 @dataclass

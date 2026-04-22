@@ -22,7 +22,6 @@ import structlog
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from backend.persistence.trail_repo import TrailNodeRepository
     from backend.services.naming_service import Completable
 
 log = structlog.get_logger()
@@ -60,10 +59,9 @@ _STORY_SYSTEM = (
     "at the end.\n\n"
     #
     # Conciseness (Nielsen & Morkes 1997: +58% usability at half word count)
-    "CONCISENESS: Each prose section between [[N]] markers must be shorter "
-    "than the diff block it introduces — the code is the point, not your "
-    "words. One idea per sentence. Do NOT repeat file paths or details "
-    "already in the change list — the [[N]] card shows those.\n\n"
+    "CONCISENESS: Target 100-250 words for ≤5 changes, 250-400 for 6+. One "
+    "idea per sentence. Do NOT repeat file paths or details already in the "
+    "change list — the [[N]] card shows those.\n\n"
     #
     # Objectivity (Nielsen & Morkes 1997: +27% usability)
     "OBJECTIVITY: State what you did and why. No self-assessment of difficulty "
@@ -85,18 +83,23 @@ _STORY_SYSTEM = (
 
 _STORY_VERBOSITY_SUFFIX = {
     "summary": (
-        "\n\nVERBOSITY=summary: One opening sentence stating the outcome, then "
-        "one sentence per change referencing [[N]]. Nothing else. Think of "
-        "it as a commit-message narrative."
+        "\n\nVERBOSITY=summary: Write only a 2-3 sentence executive summary. "
+        "Reference each change by [[N]] but keep the total under 80 words. "
+        "Think of it as a commit-message narrative."
     ),
     "standard": "",
     "detailed": (
         "\n\nVERBOSITY=detailed: Be thorough. For each change, explain the "
-        "reasoning, alternatives considered, and any setbacks. Scale depth "
-        "with the number of changes — cover every one. Include why decisions "
-        "were made, not just what was done."
+        "reasoning, alternatives considered, and any setbacks. Target 400-600 "
+        "words. Include why decisions were made, not just what was done."
     ),
 }
+
+
+def _truncate(s: str | None, max_len: int) -> str:
+    if not s:
+        return ""
+    return s[:max_len] + ("…" if len(s) > max_len else "")
 
 
 # ---------------------------------------------------------------------------
@@ -105,14 +108,8 @@ _STORY_VERBOSITY_SUFFIX = {
 
 async def _build_references(
     session: "AsyncSession", job_id: str,
-    trail_repo: "TrailNodeRepository | None" = None,
 ) -> list[dict[str, Any]]:
-    """Build validated reference dicts from file_write spans, chronologically.
-
-    When *trail_repo* is provided and trail nodes exist, enriches the ``why``
-    field with trail-sourced intent/rationale (preferred over raw span
-    motivation_summary because the trail is the single source of truth).
-    """
+    """Build validated reference dicts from file_write spans, chronologically."""
     from sqlalchemy import text
 
     rows = await session.execute(
@@ -135,22 +132,6 @@ async def _build_references(
         {"jid": job_id},
     )
 
-    # If trail_repo is available, fetch trail intent keyed by turn_id
-    trail_by_turn: dict[str, str] = {}
-    if trail_repo:
-        try:
-            work_nodes = await trail_repo.get_work_nodes(job_id)
-            for node in work_nodes:
-                tid = node.turn_id
-                if tid and node.intent:
-                    # Prefer intent; append rationale for richer context
-                    why = node.intent
-                    if node.rationale:
-                        why += f" — {node.rationale}"
-                    trail_by_turn[tid] = why
-        except Exception:
-            log.debug("story_trail_fallback_failed", job_id=job_id, exc_info=True)
-
     # Deduplicate by file+step — keep latest per group.
     # When file or step_number is NULL, fall back to span_id so that
     # unrelated NULL-keyed spans are never falsely merged.
@@ -165,9 +146,9 @@ async def _build_references(
         ref: dict[str, Any] = {
             "spanId": r["span_id"],
             "file": r["file"] or "",
-            "why": trail_by_turn.get(r["turn_id"] or "", "") or (r["why"] or ""),
+            "why": _truncate(r["why"], 200),
             "stepNumber": r["step_number"],
-            "stepTitle": r["step_title"] or "",
+            "stepTitle": _truncate(r["step_title"], 60),
             "turnId": r["turn_id"] or "",
         }
         # Merge per-edit details if available
@@ -246,7 +227,7 @@ def _build_prompt(
     job = ctx.get("job", {})
     parts.append("## SESSION CONTEXT")
     parts.append(f"Title: {job.get('title', 'Untitled')}")
-    parts.append(f"Task: {job.get('prompt') or job.get('description', '')}")
+    parts.append(f"Task: {_truncate(job.get('prompt') or job.get('description', ''), 400)}")
     telem = ctx.get("telemetry", {})
     if telem:
         dur = round((telem.get("duration_ms") or 0) / 60000, 1)
@@ -332,13 +313,8 @@ class StoryService:
 
     _gen_locks: dict[str, asyncio.Lock] = {}
 
-    def __init__(
-        self,
-        completer: "Completable",
-        trail_repo: "TrailNodeRepository | None" = None,
-    ) -> None:
+    def __init__(self, completer: "Completable") -> None:
         self._completer = completer
-        self._trail_repo = trail_repo
 
     async def get_or_generate(
         self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
@@ -397,7 +373,7 @@ class StoryService:
     ) -> dict[str, Any] | None:
         from sqlalchemy import text
 
-        refs = await _build_references(session, job_id, trail_repo=self._trail_repo)
+        refs = await _build_references(session, job_id)
         if len(refs) < 2:
             return None  # not enough changes for a meaningful story
 

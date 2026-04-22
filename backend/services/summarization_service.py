@@ -20,7 +20,6 @@ from backend.models.events import DomainEventKind
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from backend.persistence.trail_repo import TrailNodeRepository
     from backend.services.naming_service import Completable
 
 log = structlog.get_logger()
@@ -126,39 +125,6 @@ SESSION NUMBER: {session_number}
 """
 
 
-async def _build_trail_arc(
-    trail_repo: "TrailNodeRepository", job_id: str,
-) -> str:
-    """Build a compact textual session arc from the trail graph.
-
-    Returns a summary of key actions, decisions, and backtracks that
-    the summarization LLM can use as a structural guide alongside the
-    raw transcript.
-    """
-    try:
-        nodes = await trail_repo.get_enriched_nodes(job_id)
-        if not nodes:
-            return ""
-
-        lines: list[str] = []
-        for node in nodes:
-            kind = node.kind or node.deterministic_kind or "?"
-            label = node.intent or node.title or ""
-            if not label:
-                continue
-            prefix = f"[{kind}]"
-            parts = [prefix, label]
-            if node.outcome_status:
-                parts.append(f"({node.outcome_status})")
-            if node.rationale:
-                parts.append(f"— {node.rationale}")
-            lines.append(" ".join(parts))
-        return "\n".join(lines)
-    except Exception:
-        log.debug("trail_arc_build_failed", job_id=job_id, exc_info=True)
-        return ""
-
-
 class SummarizationService:
     """Generates and stores structured session summaries."""
 
@@ -166,15 +132,9 @@ class SummarizationService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         adapter: Completable,
-        trail_repo: "TrailNodeRepository | None" = None,
     ) -> None:
         self._session_factory = session_factory
         self._adapter = adapter
-        self._trail_repo = trail_repo
-
-    def set_trail_repo(self, repo: "TrailNodeRepository") -> None:
-        """Late-bind trail repo (trail service is created after summarization service)."""
-        self._trail_repo = repo
 
     async def summarize_and_store(
         self,
@@ -222,21 +182,12 @@ class SummarizationService:
 
             # --- Build prompt ---
             changed_files_text = "\n".join(sorted(changed_files)) if changed_files else "None recorded"
-
-            # Trail arc — structured semantic context from trail graph
-            trail_arc = await _build_trail_arc(self._trail_repo, job_id) if self._trail_repo else ""
-
             prompt = _SYSTEM_PROMPT.format(
                 transcript=transcript_text,
                 changed_files=changed_files_text,
                 original_task=original_task,
                 session_number=session_number,
             )
-            if trail_arc:
-                prompt += (
-                    "\n\nSESSION ARC (pre-computed from trail graph — use as structural guide):\n"
-                    f"---\n{trail_arc}\n---"
-                )
 
             # --- Call LLM ---
             log.info("summarization_started", job_id=job_id, session=session_number)
@@ -489,28 +440,20 @@ def _build_resume_prompt(
     session_number: int,
     job_id: str,
     original_task: str,
-    journey_context: str | None = None,
 ) -> str:
     """Build the resume prompt injected as the override_prompt for session N+1."""
     summary_section = summary_text or ("(no summary available \u2014 check the working directory for context)")
     files_section = "\n".join(f"  - {f}" for f in changed_files) if changed_files else "  (no file changes recorded)"
 
-    journey_section = ""
-    if journey_context:
-        journey_section = f"\n{journey_context}\n"
-
     return (
         f"[RESUMED SESSION \u2014 session {session_number} of job {job_id}]\n\n"
         f"## Original task\n{original_task}\n\n"
         f"## What happened in the previous session\n{summary_section}\n\n"
-        f"{journey_section}"
         f"## Files already modified (present in your working directory)\n{files_section}\n\n"
         f"## Your next instruction from the operator\n{instruction}\n\n"
         "---\n"
         "The working directory already contains all changes from the previous session.\n"
         "Do not re-describe the summary back to the operator.\n"
-        "Do not repeat failed approaches listed under 'Dead ends'.\n"
-        "Pay extra attention to files listed under 'Fragile areas'.\n"
         "Act on the instruction directly."
     )
 
@@ -521,28 +464,20 @@ def _build_followup_prompt(
     instruction: str,
     parent_job_id: str,
     original_task: str,
-    journey_context: str | None = None,
 ) -> str:
     """Build the startup prompt for a new follow-up job created from a finished parent job."""
     summary_section = summary_text or ("(no summary available — inspect the repo and prior job artifacts for context)")
     files_section = "\n".join(f"  - {f}" for f in changed_files) if changed_files else "  (no file changes recorded)"
 
-    journey_section = ""
-    if journey_context:
-        journey_section = f"\n{journey_context}\n"
-
     return (
         f"[FOLLOW-UP JOB derived from completed job {parent_job_id}]\n\n"
         f"## Original task\n{original_task}\n\n"
         f"## What the previous job accomplished\n{summary_section}\n\n"
-        f"{journey_section}"
         f"## Files touched by the previous job\n{files_section}\n\n"
         f"## New instruction from the operator\n{instruction}\n\n"
         "---\n"
         "This is a new job, not a resumed session.\n"
         "Do not assume the previous job's uncommitted worktree still exists.\n"
-        "Do not repeat failed approaches listed under 'Dead ends'.\n"
-        "Pay extra attention to files listed under 'Fragile areas'.\n"
-        "Use the summary, journey context, and file list as context, inspect the repository's current state, "
+        "Use the summary and file list as context, inspect the repository's current state, "
         "and then carry out the new instruction."
     )
