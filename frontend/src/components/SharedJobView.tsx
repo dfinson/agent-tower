@@ -8,7 +8,7 @@
 
 import { useEffect, useState, useRef, useCallback, Suspense, Component, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import { useStore, enrichJob } from "../store";
+import { useStore, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { fetchSharedSnapshot } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
@@ -66,6 +66,8 @@ export function SharedJobView() {
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
   const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
   const sidebarResizing = useRef(false);
+  const diffs = useStore(selectJobDiffs(job?.id ?? ""));
+  const hasChanges = diffs.length > 0;
 
   // Fetch snapshot and hydrate store
   useEffect(() => {
@@ -225,7 +227,7 @@ export function SharedJobView() {
       <Tabs value={tab} onValueChange={setTab} className="mb-4">
         <TabsList>
           <TabsTrigger value="live">Live</TabsTrigger>
-          <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
+          {hasChanges && <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>}
         </TabsList>
       </Tabs>
 

@@ -197,7 +197,7 @@ export function App() {
         </div>
       </header>
 
-      <main className={`flex-1 overflow-y-auto ${isJobDetail ? "p-0 md:p-4 lg:p-6" : "p-3 sm:p-4 md:p-6"} ${terminalDrawerOpen ? "min-h-0" : ""}`}>
+      <main className={`flex-1 ${isJobDetail ? "p-0 md:px-3 lg:px-4 md:py-2 overflow-y-auto md:overflow-hidden md:flex md:flex-col" : "p-3 sm:p-4 md:p-6 overflow-y-auto"} ${terminalDrawerOpen ? "min-h-0" : ""}`}>
         <ErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>

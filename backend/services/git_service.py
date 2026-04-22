@@ -303,8 +303,7 @@ class GitService:
             GitError: If git operations fail.
         """
         branch_name = branch or f"cpl/{job_id}"
-        resolved_base_ref = await self._resolve_ref(repo_path, base_ref)
-        return await self._setup_secondary_worktree(repo_path, job_id, resolved_base_ref, branch_name)
+        return await self._setup_secondary_worktree(repo_path, job_id, base_ref, branch_name)
 
     async def _is_worktree_dirty(self, repo_path: str | Path) -> bool:
         """Return True if the working tree has uncommitted changes."""
@@ -343,19 +342,24 @@ class GitService:
         worktrees_dir.mkdir(parents=True, exist_ok=True)
         worktree_path = worktrees_dir / job_id
 
-        # Prune any stale worktree registrations whose directories no longer exist.
-        # This is needed after a DB wipe where the same job IDs get reused so that
-        # 'git branch -D' can succeed (it refuses to delete branches checked out in
-        # a registered worktree, even if the directory is gone from disk).
-        with contextlib.suppress(GitError):
-            await self._run_git("worktree", "prune", cwd=repo_path)
-
-        # If a worktree is still registered at the target path (directory exists),
-        # force-remove it so both the directory and the registration are gone.
-        if worktree_path.exists():
+        # Run stale-cleanup steps and ref resolution in parallel — these are
+        # independent I/O operations (separate git subprocesses).
+        async def _prune() -> None:
             with contextlib.suppress(GitError):
-                await self._run_git("worktree", "remove", "--force", str(worktree_path), cwd=repo_path)
-                log.info("stale_worktree_removed", repo=repo_path, path=str(worktree_path))
+                await self._run_git("worktree", "prune", cwd=repo_path)
+
+        async def _remove_stale_worktree() -> None:
+            if worktree_path.exists():
+                with contextlib.suppress(GitError):
+                    await self._run_git("worktree", "remove", "--force", str(worktree_path), cwd=repo_path)
+                    log.info("stale_worktree_removed", repo=repo_path, path=str(worktree_path))
+
+        async def _resolve() -> str:
+            return await self._resolve_ref(repo_path, base_ref)
+
+        _, _, resolved_base_ref = await asyncio.gather(
+            _prune(), _remove_stale_worktree(), _resolve()
+        )
 
         # Now the branch should be detachable; delete it if it exists.
         with contextlib.suppress(GitError):
@@ -369,7 +373,7 @@ class GitService:
                 "-b",
                 branch_name,
                 str(worktree_path),
-                base_ref,
+                resolved_base_ref,
                 cwd=repo_path,
             )
         except GitError as exc:

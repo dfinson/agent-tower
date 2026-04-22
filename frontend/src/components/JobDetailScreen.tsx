@@ -89,7 +89,7 @@ export function JobDetailScreen() {
   const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 14rem = 224px
+  const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(240, Math.min(360, window.innerWidth * 0.18)));
   const isResizingRef = useRef(false);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
@@ -539,7 +539,7 @@ export function JobDetailScreen() {
   const canArchive = (job.state === "failed" || job.state === "canceled" || (job.state === "completed" && !isResolved)) && !job.archivedAt;
 
   return (
-    <div className="max-w-6xl mx-auto px-0 sm:px-4 md:px-6 lg:px-0">
+    <div className="px-0 md:flex md:flex-col md:h-full md:min-h-0">
       {/* ── Mobile compact status rail (< 768px) ── */}
       <div className="flex md:hidden items-center gap-2 h-10 px-2 border-b border-border bg-card shrink-0">
         <button onClick={() => navigate("/")} className="p-1.5 -ml-1 text-muted-foreground hover:text-foreground transition-colors" aria-label="Back to dashboard">
@@ -692,13 +692,13 @@ export function JobDetailScreen() {
       </BottomSheet>
 
       {/* ── Desktop back button (hidden on mobile) ── */}
-      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-4 hidden md:inline-flex">
+      <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="mb-2 hidden md:inline-flex md:shrink-0">
         <ArrowLeft size={14} />
         Dashboard
       </Button>
 
       {/* Job header — hidden on mobile (rail + bottom sheet replaces it) */}
-      <div className="hidden md:block rounded-lg border border-border bg-card p-4 mb-4">
+      <div className="hidden md:block md:shrink-0 rounded-lg border border-border bg-card p-4 mb-3">
         <div className="mb-2">
           {job.title ? (
             <h1 className="text-lg font-bold text-foreground break-words">{job.title}</h1>
@@ -982,14 +982,14 @@ export function JobDetailScreen() {
       )}
 
       {/* Tab bar — desktop shows all tabs + terminal button; mobile shows scrollable strip */}
-      <Tabs value={tab} onValueChange={handleTabChange} className="md:mb-4" ref={tabBarRef}>
+      <Tabs value={tab} onValueChange={handleTabChange} className="md:mb-2 md:shrink-0" ref={tabBarRef}>
         {/* Desktop layout (hidden on mobile) */}
         <div className="hidden md:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
             <TabsTrigger value="live">Live</TabsTrigger>
             <TabsTrigger value="shell"><TerminalSquare size={13} className="mr-1.5" />Shell</TabsTrigger>
             <TabsTrigger value="files"><FolderTree size={13} className="mr-1.5" />Files</TabsTrigger>
-            <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>
+            {hasChanges && <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>}
             <TabsTrigger value="metrics"><BarChart3 size={13} className="mr-1.5" />Metrics</TabsTrigger>
             {hasArtifacts && (
               <TabsTrigger value="artifacts">
@@ -1038,7 +1038,7 @@ export function JobDetailScreen() {
       {/* Tab content — full-bleed on mobile, min-height on desktop */}
       <div
         className={cn(
-          "min-h-0 pb-[52px] md:pb-0 md:min-h-[80dvh]",
+          "min-h-0 pb-[52px] md:pb-0 md:flex-1 md:flex md:flex-col md:overflow-hidden",
           slideDir === "left" && "animate-slide-left",
           slideDir === "right" && "animate-slide-right",
         )}
@@ -1047,7 +1047,7 @@ export function JobDetailScreen() {
         onAnimationEnd={() => setSlideDir(null)}
       >
       {tab === "live" && (
-        <div className="flex flex-row relative">
+        <div className="flex flex-row relative md:h-full md:min-h-0">
           {/* Activity overlay — slides in from left (available below lg where sidebar is hidden) */}
           {mobileActivityOpen && (
             <div className="lg:hidden absolute inset-0 z-30 flex">
@@ -1080,7 +1080,7 @@ export function JobDetailScreen() {
           {/* Activity Timeline sidebar — hidden on small screens */}
           <div
             className={cn(
-              "hidden lg:flex flex-col flex-shrink-0 h-[80dvh] min-h-[22rem] rounded-lg border border-border bg-card overflow-hidden",
+              "hidden lg:flex flex-col flex-shrink-0 md:h-full min-h-[22rem] rounded-lg border border-border bg-card overflow-hidden",
               sidebarCollapsed && "w-10",
             )}
             style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
@@ -1130,7 +1130,7 @@ export function JobDetailScreen() {
             </div>
           )}
           <div className="flex flex-col gap-4 flex-1 min-w-0 lg:pl-2">
-            <div className="h-[calc(100dvh-92px)] md:h-[80dvh] min-h-[22rem]">
+            <div className="h-[calc(100dvh-92px)] md:h-full min-h-[22rem]">
               <CuratedFeed
                 jobId={jobId}
                 sdk={job.sdk}
@@ -1188,7 +1188,7 @@ export function JobDetailScreen() {
       {tab === "shell" && (
         <TabErrorBoundary>
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <div className="md:h-[80dvh] h-[60dvh] rounded-lg overflow-hidden border border-border">
+            <div className="md:h-full h-[60dvh] rounded-lg overflow-y-auto overflow-x-hidden border border-border">
               <AgentTerminal jobId={jobId} isRunning={isRunning} />
             </div>
           </Suspense>
@@ -1244,7 +1244,7 @@ export function JobDetailScreen() {
         {[
           { id: "live", icon: Radio, label: "Live" },
           { id: "shell", icon: TerminalSquare, label: "Shell" },
-          { id: "diff", icon: GitBranch, label: "Changes" },
+          ...(hasChanges ? [{ id: "diff", icon: GitBranch, label: "Changes" }] : []),
           { id: "files", icon: FolderTree, label: "Files" },
         ].map(({ id, icon: Icon, label }) => (
           <button

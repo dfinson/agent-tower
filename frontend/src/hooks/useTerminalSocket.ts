@@ -79,7 +79,10 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
             }
             break;
           case "exit":
+            sessionIdRef.current = null; // prevent reconnect after exit
             onExitRef.current?.(msg.code);
+            onStatusChangeRef.current?.("disconnected");
+            ws.close();
             break;
           case "error":
             console.warn("[terminal] Server error:", msg.message);
