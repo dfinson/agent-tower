@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X, Lightbulb, Info, FolderOpen, AlertTriangle, Eye, ArrowUpDown, BookOpenCheck } from "lucide-react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X, Lightbulb, Info, FolderOpen, AlertTriangle, Eye, ArrowUpDown, BookOpenCheck, Columns2 } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
@@ -170,6 +170,9 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
 
   // WS1: Sort by churn toggle
   const [sortByChurn, setSortByChurn] = useState(false);
+
+  // Split (side-by-side) vs unified (single) diff view
+  const [splitView, setSplitView] = useState(false);
 
   // Fetch step-specific diff from API when filter has a turnId
   useEffect(() => {
@@ -816,6 +819,17 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                   </button>
                 </Tooltip>
               )}
+              <Tooltip content={splitView ? "Unified diff" : "Split diff"}>
+                <button
+                  onClick={() => setSplitView(!splitView)}
+                  className={cn(
+                    "p-0.5 rounded transition-colors",
+                    splitView ? "text-blue-400 hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground",
+                  )}
+                >
+                  <Columns2 size={13} />
+                </button>
+              </Tooltip>
               <span className="text-xs text-green-400">+{totalAdditions}</span>
               <span className="text-xs text-red-400">-{totalDeletions}</span>
               {contextFiles.length > 0 && (
@@ -990,7 +1004,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
                 readOnly: true,
                 domReadOnly: true,
                 minimap: { enabled: false },
-                renderSideBySide: !isMobile,
+                renderSideBySide: splitView && !isMobile,
                 scrollBeyondLastLine: false,
                 fontSize: isMobile ? 12 : 13,
                 lineNumbersMinChars: 3,
