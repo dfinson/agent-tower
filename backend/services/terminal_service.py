@@ -643,6 +643,8 @@ class TerminalService:
         for ws in list(session.clients):
             with contextlib.suppress(Exception):
                 await ws.send_text(msg)
+            with contextlib.suppress(Exception):
+                await ws.close()
         session.clients.clear()
 
         pid = session.process.pid if session.process else None

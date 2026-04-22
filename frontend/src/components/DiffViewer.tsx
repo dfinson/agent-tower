@@ -780,7 +780,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
           </div>
         </BottomSheet>
       )}
-      <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[calc(100dvh-14rem)] md:h-[60vh] min-h-[300px] max-h-[600px]">
+      <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[calc(100dvh-14rem)] md:h-full min-h-[300px]">
         {/* File list sidebar — hidden on mobile, replaced by bottom sheet */}
         <div
           className="hidden md:flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
