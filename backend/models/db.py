@@ -314,6 +314,7 @@ class TrailNodeRow(Base):
     intent = Column(Text, nullable=True)
     rationale = Column(Text, nullable=True)
     outcome = Column(Text, nullable=True)
+    outcome_status = Column(String(10), nullable=True)  # success/failure/partial
     # Anchors (populated deterministically)
     step_id = Column(String(36), nullable=True)
     span_ids = Column(Text, nullable=True)  # JSON array

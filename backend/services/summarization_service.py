@@ -20,6 +20,7 @@ from backend.models.events import DomainEventKind
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.persistence.trail_repo import TrailNodeRepository
     from backend.services.naming_service import Completable
 
 log = structlog.get_logger()
@@ -125,6 +126,39 @@ SESSION NUMBER: {session_number}
 """
 
 
+async def _build_trail_arc(
+    trail_repo: "TrailNodeRepository", job_id: str,
+) -> str:
+    """Build a compact textual session arc from the trail graph.
+
+    Returns a summary of key actions, decisions, and backtracks that
+    the summarization LLM can use as a structural guide alongside the
+    raw transcript.
+    """
+    try:
+        nodes = await trail_repo.get_enriched_nodes(job_id)
+        if not nodes:
+            return ""
+
+        lines: list[str] = []
+        for node in nodes:
+            kind = node.kind or node.deterministic_kind or "?"
+            label = node.intent or node.title or ""
+            if not label:
+                continue
+            prefix = f"[{kind}]"
+            parts = [prefix, label]
+            if node.outcome_status:
+                parts.append(f"({node.outcome_status})")
+            if node.rationale:
+                parts.append(f"— {node.rationale}")
+            lines.append(" ".join(parts))
+        return "\n".join(lines)
+    except Exception:
+        log.debug("trail_arc_build_failed", job_id=job_id, exc_info=True)
+        return ""
+
+
 class SummarizationService:
     """Generates and stores structured session summaries."""
 
@@ -132,9 +166,15 @@ class SummarizationService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         adapter: Completable,
+        trail_repo: "TrailNodeRepository | None" = None,
     ) -> None:
         self._session_factory = session_factory
         self._adapter = adapter
+        self._trail_repo = trail_repo
+
+    def set_trail_repo(self, repo: "TrailNodeRepository") -> None:
+        """Late-bind trail repo (trail service is created after summarization service)."""
+        self._trail_repo = repo
 
     async def summarize_and_store(
         self,
@@ -182,12 +222,21 @@ class SummarizationService:
 
             # --- Build prompt ---
             changed_files_text = "\n".join(sorted(changed_files)) if changed_files else "None recorded"
+
+            # Trail arc — structured semantic context from trail graph
+            trail_arc = await _build_trail_arc(self._trail_repo, job_id) if self._trail_repo else ""
+
             prompt = _SYSTEM_PROMPT.format(
                 transcript=transcript_text,
                 changed_files=changed_files_text,
                 original_task=original_task,
                 session_number=session_number,
             )
+            if trail_arc:
+                prompt += (
+                    "\n\nSESSION ARC (pre-computed from trail graph — use as structural guide):\n"
+                    f"---\n{trail_arc}\n---"
+                )
 
             # --- Call LLM ---
             log.info("summarization_started", job_id=job_id, session=session_number)

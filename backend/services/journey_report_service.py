@@ -1,23 +1,26 @@
 """Cognitive journey report service — reconstruction of an agent's
-decision path from telemetry spans.
+decision path from the trail graph (semantic scaffolding).
 
 The journey report has two layers:
 
 1. **Deterministic foundation**: phases, pivots, dead ends, and fragile
-   areas assembled directly from telemetry data.  The factual backbone —
-   never hallucinated.
+   areas assembled from enriched trail nodes — the canonical semantic
+   graph built by TrailService.
 
 2. **LLM synthesis layer**: the deterministic data is fed to a cheap LLM
    to produce a causal narrative — connecting the dots between phases,
    explaining *why* a dead end led to a pivot, and prioritizing what
    matters most.  Used for both handoff prompts and artifact export.
+
+Reads from the trail graph as the single source of truth for semantic
+understanding. Falls back to raw telemetry spans only for granular
+metrics (per-file retry counts for fragile areas).
 """
 
 from __future__ import annotations
 
 import json
 import uuid
-from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -27,13 +30,14 @@ import structlog
 from backend.models.api_schemas import ArtifactType, ExecutionPhase
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.persistence.trail_repo import TrailNodeRepository
     from backend.services.naming_service import Completable
 
 log = structlog.get_logger()
 
-# Retry count thresholds for confidence scoring
+# Retry count thresholds for confidence scoring (used in span fallback)
 _HIGH_CONFIDENCE_MAX_RETRIES = 0
 _MEDIUM_CONFIDENCE_MAX_RETRIES = 2
 
@@ -44,16 +48,103 @@ _ARTIFACTS_BASE = Path.home() / ".codeplane" / "artifacts"
 async def build_journey_phases(
     session: AsyncSession,
     job_id: str,
+    trail_repo: "TrailNodeRepository | None" = None,
 ) -> list[dict[str, Any]]:
-    """Build journey phases from telemetry spans, grouped by step (turn_id).
+    """Build journey phases from trail nodes, grouped by activity.
 
     Each phase represents a logical unit of work the agent performed,
-    enriched with retry/failure data and confidence scoring.
+    with enriched intent/rationale from the trail graph.
+    Falls back to raw span queries if trail_repo is unavailable.
     """
+    if trail_repo:
+        return await _build_phases_from_trail(trail_repo, job_id)
+    return await _build_phases_from_spans(session, job_id)
+
+
+async def _build_phases_from_trail(
+    trail_repo: "TrailNodeRepository",
+    job_id: str,
+) -> list[dict[str, Any]]:
+    """Build phases from enriched trail nodes (preferred path)."""
+    work_nodes = await trail_repo.get_work_nodes(job_id)
+    if not work_nodes:
+        return []
+
+    # Also get backtrack nodes for pivot detection
+    backtrack_nodes = await trail_repo.get_backtrack_chains(job_id)
+    backtrack_by_supersedes = {n.supersedes: n for n in backtrack_nodes if n.supersedes}
+
+    phases: list[dict[str, Any]] = []
+    for node in work_nodes:
+        files = json.loads(node.files) if node.files else []
+        files_written = [f for f in files] if node.kind == "modify" else []
+        files_read = [f for f in files] if node.kind == "explore" else files
+
+        # For modify nodes, all files are writes; for explore, all are reads
+        if node.kind == "modify":
+            files_written = files
+            files_read = []
+        elif node.kind == "explore":
+            files_written = []
+            files_read = files
+        else:
+            files_written = []
+            files_read = files
+
+        # Confidence from outcome_status
+        status = node.outcome_status or "success"
+        if status == "success":
+            confidence = "high"
+        elif status == "partial":
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+        # Detect pivots via backtrack nodes that supersede this node
+        pivots: list[dict[str, Any]] = []
+        bt = backtrack_by_supersedes.get(node.id)
+        if bt:
+            pivots.append({
+                "from_approach": node.intent or node.title or "previous approach",
+                "to_approach": bt.intent or "new approach",
+                "reason": bt.rationale or "strategy change",
+                "node_id": bt.id,
+            })
+
+        motivation = node.intent or node.title or ""
+        if not motivation and not files_written and not files_read:
+            continue
+
+        phases.append({
+            "step_number": None,  # Trail nodes don't map 1:1 to step_number
+            "step_title": node.title,
+            "files_written": files_written,
+            "files_read": files_read,
+            "motivation": motivation,
+            "pivots": pivots,
+            "confidence": confidence,
+            "retry_count": 0,  # Retry detail stays in spans
+            "failure_count": 1 if status == "failure" else 0,
+            "duration_ms": float(node.duration_ms or 0),
+            # Extra fields from trail enrichment
+            "rationale": node.rationale,
+            "outcome": node.outcome,
+            "activity_label": node.activity_label,
+            "plan_item_label": node.plan_item_label,
+        })
+
+    return phases
+
+
+async def _build_phases_from_spans(
+    session: "AsyncSession",
+    job_id: str,
+) -> list[dict[str, Any]]:
+    """Legacy fallback: build phases from raw telemetry spans."""
+    from collections import defaultdict
+
     from sqlalchemy import text
 
-    # Fetch all spans (not just file_write) — we need reads for
-    # reconnaissance and tool failures for dead-end detection.
     rows = await session.execute(
         text("""
             SELECT s.id AS span_id,
@@ -79,8 +170,6 @@ async def build_journey_phases(
         {"jid": job_id},
     )
 
-    # Group spans by step (turn_id). Spans without a turn_id are
-    # grouped into a synthetic "ungrouped" bucket.
     steps: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
     for r in rows.mappings():
         steps[r["turn_id"]].append(dict(r))
@@ -191,9 +280,55 @@ def _detect_pivots(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
 async def build_dead_ends(
     session: AsyncSession,
     job_id: str,
+    trail_repo: "TrailNodeRepository | None" = None,
 ) -> list[dict[str, Any]]:
-    """Identify dead ends — clusters of failed spans that didn't lead to
-    successful file writes."""
+    """Identify dead ends from trail failed/backtrack nodes or raw spans."""
+    if trail_repo:
+        return await _build_dead_ends_from_trail(trail_repo, job_id)
+    return await _build_dead_ends_from_spans(session, job_id)
+
+
+async def _build_dead_ends_from_trail(
+    trail_repo: "TrailNodeRepository",
+    job_id: str,
+) -> list[dict[str, Any]]:
+    """Build dead ends from trail nodes with outcome_status='failure'."""
+    failed = await trail_repo.get_failed_nodes(job_id)
+    backtracks = await trail_repo.get_backtrack_chains(job_id)
+
+    dead_ends: list[dict[str, Any]] = []
+
+    for node in failed:
+        what = node.intent or node.title or "unknown approach"
+        why = node.outcome or node.rationale or "failed"
+        dead_ends.append({
+            "what": str(what),
+            "why_abandoned": str(why),
+            "span_ids": json.loads(node.span_ids) if node.span_ids else [],
+            "duration_ms": float(node.duration_ms or 0),
+        })
+
+    # Backtrack nodes also indicate dead ends — the superseded approach was abandoned
+    for bt in backtracks:
+        what = bt.rationale or bt.intent or "abandoned approach"
+        why = bt.outcome or "strategy change"
+        dead_ends.append({
+            "what": str(what),
+            "why_abandoned": str(why),
+            "span_ids": [],
+            "duration_ms": float(bt.duration_ms or 0),
+        })
+
+    return dead_ends
+
+
+async def _build_dead_ends_from_spans(
+    session: "AsyncSession",
+    job_id: str,
+) -> list[dict[str, Any]]:
+    """Legacy fallback: build dead ends from raw spans."""
+    from collections import defaultdict
+
     from sqlalchemy import text
 
     rows = await session.execute(
@@ -257,8 +392,45 @@ async def build_dead_ends(
 async def build_decisions(
     session: AsyncSession,
     job_id: str,
+    trail_repo: "TrailNodeRepository | None" = None,
 ) -> list[dict[str, Any]]:
-    """Extract approval decisions for the journey report."""
+    """Extract decisions from trail decision nodes or raw approvals."""
+    if trail_repo:
+        return await _build_decisions_from_trail(trail_repo, session, job_id)
+    return await _build_decisions_from_approvals(session, job_id)
+
+
+async def _build_decisions_from_trail(
+    trail_repo: "TrailNodeRepository",
+    session: "AsyncSession",
+    job_id: str,
+) -> list[dict[str, Any]]:
+    """Build decisions from trail decision + request nodes."""
+    decision_nodes = await trail_repo.get_decision_nodes(job_id)
+    decisions: list[dict[str, Any]] = []
+
+    for node in decision_nodes:
+        decisions.append({
+            "description": node.intent or node.title or "",
+            "resolution": node.outcome or "resolved",
+            "is_approval": node.kind == "request",
+        })
+
+    # Also include raw approvals that may not have trail nodes
+    approval_decisions = await _build_decisions_from_approvals(session, job_id)
+    seen = {d["description"] for d in decisions}
+    for ad in approval_decisions:
+        if ad["description"] not in seen:
+            decisions.append(ad)
+
+    return decisions
+
+
+async def _build_decisions_from_approvals(
+    session: "AsyncSession",
+    job_id: str,
+) -> list[dict[str, Any]]:
+    """Legacy: extract decisions from the approvals table."""
     from sqlalchemy import text
 
     rows = await session.execute(
@@ -312,10 +484,12 @@ async def build_fragile_areas(
 async def build_journey_report(
     session: AsyncSession,
     job_id: str,
+    trail_repo: "TrailNodeRepository | None" = None,
 ) -> dict[str, Any] | None:
     """Build the full cognitive journey report for a job.
 
-    Returns None if there's insufficient telemetry data.
+    Reads from trail graph when trail_repo is provided (preferred).
+    Falls back to raw span queries otherwise.
     Entirely deterministic — no LLM calls.
     """
     from sqlalchemy import text
@@ -339,9 +513,9 @@ async def build_journey_report(
     )
     summary = summary_row.mappings().first()
 
-    phases = await build_journey_phases(session, job_id)
-    dead_ends = await build_dead_ends(session, job_id)
-    decisions = await build_decisions(session, job_id)
+    phases = await build_journey_phases(session, job_id, trail_repo=trail_repo)
+    dead_ends = await build_dead_ends(session, job_id, trail_repo=trail_repo)
+    decisions = await build_decisions(session, job_id, trail_repo=trail_repo)
     fragile = await build_fragile_areas(session, job_id)
 
     if not phases:
@@ -380,7 +554,9 @@ RULES:
 - Call out non-obvious risks: patterns across phases, cascading effects, \
   implications the raw data doesn't surface.
 - Be direct and concrete. No filler, no self-assessment, no hedging.
-- Target 100-200 words. Shorter if the journey is simple.
+- Your analysis must be shorter than the telemetry section — it supplements, \
+  never dominates. One sentence per causal link. If there is only one phase \
+  with no pivots, one sentence is enough.
 - Do NOT repeat file lists, retry counts, or other facts already in the \
   telemetry section. Reference them ("the 3 retries in step 2 suggest…") \
   but don't restate them.
@@ -409,7 +585,10 @@ RULES:
   ("the retries on auth.ts suggest…") but don't restate them.
 - No filler, no assessment of quality ("elegantly", "struggled with"). \
   Let the facts speak.
-- Target 150-400 words depending on journey complexity.
+- Scale with the journey: one paragraph per phase transition or major \
+  decision. A simple 2-phase journey needs 2-3 sentences. A complex one \
+  with backtracks needs more. Never pad — if you have nothing causal to \
+  add for a phase, skip it.
 
 JOURNEY DATA:
 {journey_data}
@@ -424,6 +603,7 @@ async def build_journey_handoff_context(
     session: "AsyncSession",
     job_id: str,
     completer: "Completable",
+    trail_repo: "TrailNodeRepository | None" = None,
 ) -> str | None:
     """Build a two-layer handoff context from the cognitive journey.
 
@@ -433,7 +613,7 @@ async def build_journey_handoff_context(
 
     The resuming agent sees both and always knows which is which.
     """
-    report = await build_journey_report(session, job_id)
+    report = await build_journey_report(session, job_id, trail_repo=trail_repo)
     if report is None:
         return None
 
@@ -471,7 +651,7 @@ def _format_deterministic_record(report: dict[str, Any]) -> str:
         if phase.get("files_written"):
             parts.append(f"Files written: {', '.join(phase['files_written'])}")
         if phase.get("files_read"):
-            parts.append(f"Files read: {', '.join(phase['files_read'][:10])}")
+            parts.append(f"Files read: {', '.join(phase['files_read'])}")
 
         conf = phase.get("confidence", "high")
         retries = phase.get("retry_count", 0)
@@ -520,11 +700,13 @@ async def store_journey_report_artifact(
     completer: "Completable",
     *,
     slug: str = "",
+    trail_repo: "TrailNodeRepository | None" = None,
 ) -> Any | None:
     """Generate and store the journey report as a downloadable artifact.
 
-    The artifact contains both the raw deterministic JSON (machine-readable)
-    and an LLM-synthesized narrative (human-readable Markdown).
+    The artifact uses the same two-layer approach as handoff:
+    - LLM analysis (interpretation, causal narrative)
+    - Verified telemetry (deterministic ground truth)
 
     Returns the created Artifact, or None if insufficient telemetry.
     """
@@ -533,7 +715,7 @@ async def store_journey_report_artifact(
     from backend.models.domain import Artifact
     from backend.persistence.artifact_repo import ArtifactRepository
 
-    report = await build_journey_report(session, job_id)
+    report = await build_journey_report(session, job_id, trail_repo=trail_repo)
     if report is None:
         return None
 
@@ -546,22 +728,27 @@ async def store_journey_report_artifact(
         None,
     )
 
-    tag = _re.sub(r"[^a-z0-9]+", "-", (slug or "").lower()).strip("-")[:40]
+    tag = _re.sub(r"[^a-z0-9]+", "-", (slug or "").lower()).strip("-")
     if not tag:
-        tag = job_id[:12]
+        tag = job_id
 
-    # Deterministic data for the prompt
-    deterministic = _format_deterministic_handoff(report)
+    # Build both layers
+    deterministic = _format_deterministic_record(report)
 
-    # Synthesize the human-readable narrative via LLM
     prompt = _ARTIFACT_NARRATIVE_PROMPT.format(journey_data=deterministic)
     raw_narrative = await completer.complete(prompt)
     narrative = raw_narrative.strip() if isinstance(raw_narrative, str) else str(raw_narrative).strip()
     log.info("journey_artifact_narrative_synthesized", job_id=job_id, length=len(narrative))
 
-    # Build combined artifact: structured JSON + synthesized Markdown
+    # Two-layer Markdown — same structure as handoff
     md_header = _render_journey_markdown_header(report)
-    md_content = md_header + "\n" + narrative
+    md_content = (
+        md_header + "\n"
+        "## Journey analysis (LLM-synthesized — interpret with judgment)\n\n"
+        f"{narrative}\n\n"
+        "## Verified telemetry (deterministic — ground truth)\n\n"
+        f"{deterministic}"
+    )
 
     combined = {"json": report, "markdown": md_content}
     content = json.dumps(combined, indent=2)
@@ -573,7 +760,7 @@ async def store_journey_report_artifact(
         log.info("journey_report_updated", job_id=job_id)
         return existing_journey
 
-    artifact_id = f"art-{uuid.uuid4().hex[:12]}"
+    artifact_id = f"art-{uuid.uuid4().hex}"
     name = f"{tag}-journey-report.json"
 
     disk_dir = _ARTIFACTS_BASE / job_id
@@ -601,12 +788,12 @@ def _render_journey_markdown_header(report: dict[str, Any]) -> str:
     """Render the metadata header for the journey report Markdown."""
     lines: list[str] = []
 
-    title = report.get("title") or report["job_id"][:12]
+    title = report.get("title") or report["job_id"]
     lines.append(f"# Session Journey Report — {title}\n")
 
     task = report.get("original_task", "")
     if task:
-        lines.append(f"**Task:** {task[:200]}\n")
+        lines.append(f"**Task:** {task}\n")
 
     dur_min = round(report.get("total_duration_ms", 0) / 60_000, 1)
     tool_calls = report.get("total_tool_calls", 0)

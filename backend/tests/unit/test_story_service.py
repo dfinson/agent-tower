@@ -12,7 +12,6 @@ from backend.services.story_service import (
     StoryService,
     _build_prompt,
     _parse_blocks,
-    _truncate,
 )
 
 
@@ -59,26 +58,6 @@ class FakeCompleter:
     @property
     def call_count(self) -> int:
         return self._index
-
-
-# ---------------------------------------------------------------------------
-# _truncate
-# ---------------------------------------------------------------------------
-
-
-class TestTruncate:
-    def test_none_returns_empty(self):
-        assert _truncate(None, 10) == ""
-
-    def test_empty_returns_empty(self):
-        assert _truncate("", 10) == ""
-
-    def test_within_limit(self):
-        assert _truncate("hello", 10) == "hello"
-
-    def test_over_limit_adds_ellipsis(self):
-        result = _truncate("hello world", 5)
-        assert result == "hello…"
 
 
 # ---------------------------------------------------------------------------

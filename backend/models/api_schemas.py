@@ -638,6 +638,7 @@ class JobSnapshotResponse(CamelModel):
     timeline: list[ProgressHeadlinePayload]
     steps: list[PlanStepPayload] = []
     turn_summaries: list[TurnSummaryPayload] = []
+    work_entries: list[WorkEntryPayload] = []
 
 
 class SDKInfoResponse(CamelModel):
@@ -936,6 +937,31 @@ class TurnSummaryPayload(CamelModel):
     activity_status: str = "active"  # active | done
     is_new_activity: bool = False
     plan_item_id: str | None = None
+
+
+class WorkEntryTurn(CamelModel):
+    """A single turn within a work entry."""
+
+    turn_id: str
+    title: str
+
+
+class WorkEntryPayload(CamelModel):
+    """SSE payload for work ledger entry updates."""
+
+    job_id: str
+    entry_id: str
+    label: str
+    label_source: str = "generated"  # agent | generated | refined
+    source: str = "observed"  # agent-plan | observed
+    status: str = "active"  # active | done | pending | paused
+    turns: list[WorkEntryTurn] = []
+    plan_step_id: str | None = None
+    agent_label: str | None = None
+    display_order: int = 0
+    files_written: list[str] | None = None
+    tool_count: int = 0
+    duration_ms: int = 0
 
 
 class HunkMotivation(CamelModel):

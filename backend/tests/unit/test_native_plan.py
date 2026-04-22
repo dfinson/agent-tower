@@ -7,10 +7,11 @@ from the retired ProgressTrackingService.
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
+from backend.config import TrailConfig
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.event_bus import EventBus
 from backend.services.trail_service import TrailService, _TrailJobState
@@ -31,7 +32,7 @@ def service(event_bus: AsyncMock) -> TrailService:
     svc._session_factory = None
     svc._event_bus = event_bus
     svc._sister_sessions = None
-    svc._config = MagicMock()
+    svc._config = TrailConfig()
     svc._repo = None
     svc._job_state = {}
     return svc
