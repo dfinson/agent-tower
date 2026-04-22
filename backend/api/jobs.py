@@ -23,6 +23,10 @@ from backend.models.api_schemas import (
     HunkMotivation,
     JobListResponse,
     JobResponse,
+    JourneyDeadEnd,
+    JourneyDecision,
+    JourneyPhase,
+    JourneyReport,
     LogLinePayload,
     ModelInfoResponse,
     PlanStepPayload,
@@ -1550,3 +1554,35 @@ async def get_job_story(
     blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
     cached = not regenerate and bool(blocks)
     return StoryResponse(job_id=job_id, blocks=blocks, cached=cached, verbosity=verbosity)
+
+
+@router.get("/jobs/{job_id}/journey")
+async def get_job_journey_report(
+    job_id: str,
+    session: FromDishka[AsyncSession],
+    sister_sessions: FromDishka[SisterSessionManager],
+) -> JourneyReport:
+    """Return the cognitive journey report for a job.
+
+    Built from telemetry spans with LLM-synthesized narrative connecting
+    the agent's decision path, pivots, dead ends, and fragile areas.
+    """
+    from backend.services.journey_report_service import build_journey_report
+
+    payload = await build_journey_report(session, job_id)
+
+    if not payload:
+        return JourneyReport(job_id=job_id)
+
+    return JourneyReport(
+        job_id=payload["job_id"],
+        title=payload.get("title", ""),
+        original_task=payload.get("original_task", ""),
+        phases=[JourneyPhase(**p) for p in payload.get("phases", [])],
+        dead_ends=[JourneyDeadEnd(**d) for d in payload.get("dead_ends", [])],
+        decisions=[JourneyDecision(**d) for d in payload.get("decisions", [])],
+        fragile_areas=payload.get("fragile_areas", []),
+        total_duration_ms=payload.get("total_duration_ms", 0.0),
+        total_tool_calls=payload.get("total_tool_calls", 0),
+        total_cost_usd=payload.get("total_cost_usd", 0.0),
+    )
