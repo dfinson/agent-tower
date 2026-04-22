@@ -25,7 +25,7 @@ from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
-from backend.services.trail_service import TrailService
+from backend.services.trail import TrailService
 from backend.services.voice_service import VoiceService
 
 # NewType wrappers for plain values that need unique DI keys

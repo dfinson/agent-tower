@@ -14,7 +14,7 @@ from backend.models.api_schemas import (
     TrailResponse,
     TrailSummaryResponse,
 )
-from backend.services.trail_service import TrailService
+from backend.services.trail import TrailService
 
 router = APIRouter(tags=["trail"], route_class=DishkaRoute)
 
