@@ -440,20 +440,28 @@ def _build_resume_prompt(
     session_number: int,
     job_id: str,
     original_task: str,
+    journey_context: str | None = None,
 ) -> str:
     """Build the resume prompt injected as the override_prompt for session N+1."""
     summary_section = summary_text or ("(no summary available \u2014 check the working directory for context)")
     files_section = "\n".join(f"  - {f}" for f in changed_files) if changed_files else "  (no file changes recorded)"
 
+    journey_section = ""
+    if journey_context:
+        journey_section = f"\n{journey_context}\n"
+
     return (
         f"[RESUMED SESSION \u2014 session {session_number} of job {job_id}]\n\n"
         f"## Original task\n{original_task}\n\n"
         f"## What happened in the previous session\n{summary_section}\n\n"
+        f"{journey_section}"
         f"## Files already modified (present in your working directory)\n{files_section}\n\n"
         f"## Your next instruction from the operator\n{instruction}\n\n"
         "---\n"
         "The working directory already contains all changes from the previous session.\n"
         "Do not re-describe the summary back to the operator.\n"
+        "Do not repeat failed approaches listed under 'Dead ends'.\n"
+        "Pay extra attention to files listed under 'Fragile areas'.\n"
         "Act on the instruction directly."
     )
 
@@ -464,20 +472,28 @@ def _build_followup_prompt(
     instruction: str,
     parent_job_id: str,
     original_task: str,
+    journey_context: str | None = None,
 ) -> str:
     """Build the startup prompt for a new follow-up job created from a finished parent job."""
     summary_section = summary_text or ("(no summary available — inspect the repo and prior job artifacts for context)")
     files_section = "\n".join(f"  - {f}" for f in changed_files) if changed_files else "  (no file changes recorded)"
 
+    journey_section = ""
+    if journey_context:
+        journey_section = f"\n{journey_context}\n"
+
     return (
         f"[FOLLOW-UP JOB derived from completed job {parent_job_id}]\n\n"
         f"## Original task\n{original_task}\n\n"
         f"## What the previous job accomplished\n{summary_section}\n\n"
+        f"{journey_section}"
         f"## Files touched by the previous job\n{files_section}\n\n"
         f"## New instruction from the operator\n{instruction}\n\n"
         "---\n"
         "This is a new job, not a resumed session.\n"
         "Do not assume the previous job's uncommitted worktree still exists.\n"
-        "Use the summary and file list as context, inspect the repository's current state, "
+        "Do not repeat failed approaches listed under 'Dead ends'.\n"
+        "Pay extra attention to files listed under 'Fragile areas'.\n"
+        "Use the summary, journey context, and file list as context, inspect the repository's current state, "
         "and then carry out the new instruction."
     )
