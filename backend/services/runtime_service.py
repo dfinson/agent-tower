@@ -1090,8 +1090,10 @@ class RuntimeService:
                 try:
                     from backend.services.journey_report_service import store_journey_report_artifact
 
+                    trail_repo = self._trail_service.repo if self._trail_service else None
                     await store_journey_report_artifact(
-                        session, job_id, self._sister_sessions, slug=slug,
+                        session, job_id, self._sister_sessions,
+                        slug=slug, trail_repo=trail_repo,
                     )
                 except Exception:
                     log.debug("journey_report_artifact_failed", job_id=job_id, exc_info=True)
@@ -2181,8 +2183,9 @@ class RuntimeService:
         from backend.services.summarization_service import _build_resume_prompt
 
         summary_text, changed_files = await self._load_handoff_context_for_job(session, job)
+        trail_repo = self._trail_service.repo if self._trail_service else None
         journey_context = await build_journey_handoff_context(
-            session, job.id, self._sister_sessions,
+            session, job.id, self._sister_sessions, trail_repo=trail_repo,
         )
         return _build_resume_prompt(
             summary_text, changed_files, instruction, session_number, job.id, job.prompt,
@@ -2199,8 +2202,9 @@ class RuntimeService:
         from backend.services.summarization_service import _build_followup_prompt
 
         summary_text, changed_files = await self._load_handoff_context_for_job(session, job)
+        trail_repo = self._trail_service.repo if self._trail_service else None
         journey_context = await build_journey_handoff_context(
-            session, job.id, self._sister_sessions,
+            session, job.id, self._sister_sessions, trail_repo=trail_repo,
         )
         return _build_followup_prompt(
             summary_text, changed_files, instruction, job.id, job.prompt,

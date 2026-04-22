@@ -491,18 +491,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus.subscribe(_push_subscriber)
 
-    # --- Motivation summarization service (background) ---
-    from backend.services.motivation_service import MotivationService
-
-    motivation_service = MotivationService(
-        session_factory=session_factory,
-        completer=services.sister_sessions,
-    )
-    motivation_task = asyncio.create_task(
-        motivation_service.drain_loop(), name="motivation-drain"
-    )
-
     # --- Trail service (agent audit trail) ---
+    # Trail enrichment drain now absorbs motivation summarization —
+    # it writes node-level intent back to spans as motivation_summary.
     from backend.services.trail_service import TrailService
 
     trail_service = TrailService(
@@ -513,6 +504,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     event_bus.subscribe(trail_service.handle_event)
     services.runtime_service.set_trail_service(trail_service)
+    if services.runtime_service._summarization_service is not None:
+        services.runtime_service._summarization_service.set_trail_repo(trail_service.repo)
     trail_task = asyncio.create_task(
         trail_service.drain_loop(), name="trail-enrichment-drain"
     )
@@ -572,7 +565,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await container.close()
     await optional.mcp_cleanup.__aexit__(None, None, None)
     optional.retention_task.cancel()
-    motivation_task.cancel()
     trail_task.cancel()
     dead_letter_task.cancel()
     if optional.terminal_service is not None:

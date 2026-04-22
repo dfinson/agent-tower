@@ -52,6 +52,7 @@ from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
 from backend.services.sister_session import SisterSessionManager
+from backend.services.trail_service import TrailService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
 if TYPE_CHECKING:
@@ -1529,19 +1530,21 @@ async def get_job_story(
     job_id: str,
     session: FromDishka[AsyncSession],
     sister_sessions: FromDishka[SisterSessionManager],
+    trail_service: FromDishka[TrailService],
     regenerate: bool = False,
     verbosity: str = Query(default="standard", pattern="^(summary|standard|detailed)$"),
 ) -> StoryResponse:
     """Return a structured code-review story with validated change references.
 
     Generated on demand using a cheap LLM for connective prose, with change
-    references built directly from telemetry spans.  Cached on the jobs table.
+    references built directly from telemetry spans.  Trail graph enriches
+    the motivation context when available.
     Pass ?regenerate=true to force a fresh generation.
     Verbosity: summary (one-sentence per file), standard (default), detailed (full rationale).
     """
     from backend.services.story_service import StoryService
 
-    service = StoryService(completer=sister_sessions)
+    service = StoryService(completer=sister_sessions, trail_repo=trail_service.repo)
 
     if regenerate:
         payload = await service.regenerate(session, job_id, verbosity=verbosity)
@@ -1561,15 +1564,18 @@ async def get_job_journey_report(
     job_id: str,
     session: FromDishka[AsyncSession],
     sister_sessions: FromDishka[SisterSessionManager],
+    trail_service: FromDishka[TrailService],
 ) -> JourneyReport:
     """Return the cognitive journey report for a job.
 
-    Built from telemetry spans with LLM-synthesized narrative connecting
-    the agent's decision path, pivots, dead ends, and fragile areas.
+    Reads from the trail graph as the single source of truth for semantic
+    understanding. Falls back to raw span queries when trail data is sparse.
     """
     from backend.services.journey_report_service import build_journey_report
 
-    payload = await build_journey_report(session, job_id)
+    payload = await build_journey_report(
+        session, job_id, trail_repo=trail_service.repo,
+    )
 
     if not payload:
         return JourneyReport(job_id=job_id)
