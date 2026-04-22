@@ -445,10 +445,12 @@ function PhaseBox({
   cluster,
   defaultExpanded,
   onViewStepChanges,
+  hasSubsequentActivity,
 }: {
   cluster: ActionCluster;
   defaultExpanded?: boolean;
   onViewStepChanges?: (filePaths: string[], label: string, scrollToSeq?: number, turnId?: string) => void;
+  hasSubsequentActivity?: boolean;
 }) {
   const searchQuery = useSearchHighlight();
   // Auto-expand when search matches an entry inside this cluster
@@ -465,6 +467,7 @@ function PhaseBox({
   const files = useMemo(() => deduplicateByFile(cluster.entries), [cluster.entries]);
   const totalDuration = cluster.entries.reduce((sum, e) => sum + (e.toolDurationMs ?? 0), 0);
   const hasEdits = cluster.kind === "write" || cluster.kind === "create";
+  const hasFailure = cluster.entries.some((e) => e.toolSuccess === false);
 
   // First entry seq — used as scroll anchor from the diff tab back to this spot
   const firstSeq = cluster.entries[0]?.seq;
@@ -504,6 +507,14 @@ function PhaseBox({
           )}
           {totalDuration > 0 && (
             <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
+          )}
+          {hasFailure && (
+            <span className={cn(
+              "text-[10px] font-medium shrink-0 ml-1",
+              hasSubsequentActivity ? "text-muted-foreground/50" : "text-amber-400",
+            )}>
+              {hasSubsequentActivity ? "recovered" : "error"}
+            </span>
           )}
           <ChevronRight size={11} className="opacity-30 shrink-0" />
         </button>
@@ -1054,12 +1065,14 @@ function GenericPreview({ entries }: { entries: TranscriptEntry[] }) {
 
 const OperatorMessage = memo(function OperatorMessage({ entry }: { entry: TranscriptEntry }) {
   return (
-    <div className="flex gap-2 sm:gap-3 py-3">
+    <div className="flex gap-2 sm:gap-3 py-3 justify-end">
+      <div className="min-w-0 max-w-[85%] rounded-lg bg-primary/10 border border-primary/20 px-3 py-2">
+        <div className="text-[15px] sm:text-sm text-foreground leading-relaxed">
+          <HighlightedMarkdown content={entry.content ?? ""} />
+        </div>
+      </div>
       <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/15 flex items-center justify-center">
         <User size={13} className="text-primary" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <HighlightedMarkdown content={entry.content ?? ""} />
       </div>
     </div>
   );
@@ -1097,12 +1110,16 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
             if (c.kind === "agent") {
               return <SubAgentBubble key={i} cluster={c} sdk={sdk} />;
             }
+            // A cluster has "subsequent activity" if there are more clusters after it,
+            // or if the turn produced a message (meaning the agent continued past tools).
+            const hasSubsequentActivity = i < clusters.length - 1 || hasMessage;
             return (
               <PhaseBox
                 key={i}
                 cluster={c}
-                defaultExpanded={true}
+                defaultExpanded={i === clusters.length - 1}
                 onViewStepChanges={onViewStepChanges}
+                hasSubsequentActivity={hasSubsequentActivity}
               />
             );
           })}
@@ -1127,7 +1144,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
             {/* Agent message — the high-signal content */}
             {displayMessage && (
-              <div className="text-[15px] sm:text-sm text-foreground/90 leading-relaxed">
+              <div className="text-[15px] sm:text-[14px] text-foreground leading-relaxed">
                 <HighlightedMarkdown content={displayMessage} />
                 {isStreaming && (
                   <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
@@ -1150,7 +1167,7 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
             <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
           </div>
           <div className="flex-1 min-w-0 rounded-lg bg-primary/5 px-3 py-2">
-            <div className="text-[15px] sm:text-sm text-foreground/90 leading-relaxed">
+            <div className="text-[15px] sm:text-[14px] text-foreground leading-relaxed">
               <HighlightedMarkdown content={streamingText} />
               <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
             </div>
@@ -1178,7 +1195,7 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
       {clusters.map((c, i) => (
         c.kind === "agent"
           ? <SubAgentBubble key={i} cluster={c} sdk={sdk} />
-          : <PhaseBox key={i} cluster={c} defaultExpanded={true} onViewStepChanges={onViewStepChanges} />
+          : <PhaseBox key={i} cluster={c} defaultExpanded={i === clusters.length - 1} onViewStepChanges={onViewStepChanges} hasSubsequentActivity={i < clusters.length - 1} />
       ))}
       {turn.reasoning?.content && (
         <div className="mt-1">
@@ -1195,9 +1212,6 @@ function ReasoningHint({ content, streamingText }: { content: string; streamingT
   const [expanded, setExpanded] = useState(false);
   const isLiveStreaming = !!streamingText && !content;
   const displayContent = streamingText || content;
-  // Phase 2: Show 2-3 lines by default (~200 chars) instead of nothing
-  const preview = displayContent.length > 200 ? displayContent.slice(0, 200) + "…" : displayContent;
-  const isLong = displayContent.length > 200;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll streaming reasoning to bottom
@@ -1217,21 +1231,18 @@ function ReasoningHint({ content, streamingText }: { content: string; streamingT
     )}>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-start gap-1.5 hover:text-foreground/70 transition-colors text-left w-full"
+        className="flex items-center gap-1.5 hover:text-foreground/70 transition-colors text-left w-full"
       >
-        <Brain size={14} className="shrink-0 mt-0.5 text-primary/40" />
+        <Brain size={12} className="shrink-0 text-primary/40" />
         {showExpanded ? (
-          <div ref={scrollRef} className="whitespace-pre-wrap max-h-48 overflow-y-auto flex-1 min-w-0 italic">
+          <div ref={scrollRef} className="whitespace-pre-wrap max-h-48 overflow-y-auto flex-1 min-w-0 italic text-left">
             {trimWorktreePaths(displayContent)}
             {isLiveStreaming && (
               <span className="inline-block w-1 h-3 bg-primary/50 animate-pulse ml-0.5 align-text-bottom" />
             )}
           </div>
         ) : (
-          <div className="flex-1 min-w-0">
-            <span className="line-clamp-3 italic">{preview}</span>
-            {isLong && <span className="text-primary/40 text-[10px] ml-1">Show more</span>}
-          </div>
+          <span className="text-[11px] text-primary/40 italic">Thinking…</span>
         )}
       </button>
     </div>
@@ -1416,9 +1427,10 @@ export function CuratedFeed({
     [entries, jobApprovals],
   );
 
-  // Virtualizer — NO auto-scroll. User controls scroll at all times.
+  // Virtualizer — auto-scroll only when user is at the bottom.
   const viewportRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const isAtBottomRef = useRef(true);
 
   const virtualizer = useVirtualizer({
     count: feedItems.length,
@@ -1434,6 +1446,13 @@ export function CuratedFeed({
     // On initial load / job change, snapshot the count as "already seen"
     hydratedCountRef.current = feedItems.length;
   }, [jobId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll: when user is at the bottom and new items arrive, follow them.
+  useEffect(() => {
+    if (isAtBottomRef.current && feedItems.length > 0) {
+      virtualizer.scrollToIndex(feedItems.length - 1, { align: "end" });
+    }
+  }, [feedItems.length, virtualizer]);
 
   // Scroll to a specific feed item when scrollToSeq is set (from diff tab "back to step" link)
   // This is the ONLY programmatic scroll — explicit user-initiated navigation.
@@ -1486,7 +1505,8 @@ export function CuratedFeed({
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    isAtBottomRef.current = atBottom;
     setShowScrollBtn(!atBottom);
 
     // Emit the topmost visible turnId for sidebar cross-referencing
