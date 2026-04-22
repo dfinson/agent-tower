@@ -113,6 +113,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "turn_summary",
         // Step reassignment (classifier moved turn to different plan item)
         "step_entries_reassigned",
+        // Job workspace setup progress (preparing → queued)
+        "job_setup_progress",
       ];
 
       for (const eventType of eventTypes) {

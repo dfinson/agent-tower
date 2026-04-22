@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 class DomainEventKind(StrEnum):
     job_created = "JobCreated"
+    job_setup_progress = "JobSetupProgress"
     workspace_prepared = "WorkspacePrepared"
     agent_session_started = "AgentSessionStarted"
     log_line_emitted = "LogLineEmitted"

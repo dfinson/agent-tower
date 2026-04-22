@@ -72,7 +72,7 @@ def test_health_response_serialization() -> None:
 def test_job_state_enum_values() -> None:
     assert JobState.running == "running"
     assert JobState.waiting_for_approval == "waiting_for_approval"
-    assert len(JobState) == 7
+    assert len(JobState) == 8
 
 
 def test_domain_event_creation() -> None:
@@ -89,7 +89,7 @@ def test_domain_event_creation() -> None:
 
 
 def test_domain_event_kind_values() -> None:
-    assert len(DomainEventKind) == 33
+    assert len(DomainEventKind) == 34
 
 
 def test_job_domain_model() -> None:

@@ -7,6 +7,7 @@ and merge services, real JobService + EventBus).
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -88,14 +89,15 @@ class TestJobsCrud:
         assert resp.status_code == 201
         data = resp.json()
         assert data["id"]
-        assert data["state"] in ("queued", "running")
+        assert data["state"] in ("preparing", "queued", "running")
         assert "createdAt" in data
 
     async def test_create_job_response_fields(self, client: AsyncClient) -> None:
         resp = await client.post("/api/jobs", json=_create_body())
         data = resp.json()
         assert data["sdk"] == "copilot"
-        assert data.get("branch") is not None or data.get("worktreePath") is not None
+        # In preparing state, branch/worktreePath may not be set yet
+        # They are populated by the background workspace setup task
 
     async def test_create_job_invalid_repo(self, client: AsyncClient) -> None:
         resp = await client.post("/api/jobs", json=_create_body(repo="/not/allowed"))
@@ -143,7 +145,9 @@ class TestJobsCrud:
 
     async def test_create_job_calls_runtime_start(self, client: AsyncClient, mock_runtime_service: AsyncMock) -> None:
         await client.post("/api/jobs", json=_create_body())
-        mock_runtime_service.start_or_enqueue.assert_called_once()
+        # setup_and_start is fire-and-forget; give the event loop a tick
+        await asyncio.sleep(0.05)
+        mock_runtime_service.setup_and_start.assert_called_once()
 
     # ── List ──
 

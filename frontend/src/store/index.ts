@@ -54,6 +54,8 @@ export interface JobSummary {
   requestedModel?: string | null;
   actualModel?: string | null;
   sdk?: string;
+  /** Current setup step for jobs in 'preparing' state (e.g. "creating_workspace"). */
+  setupStep?: string | null;
 }
 
 export interface ApprovalRequest {
@@ -576,6 +578,21 @@ export const useStore = create<AppState>((set, get) => ({
               },
               ...(finalPlan && { plans: { ...state.plans, [jobId]: finalPlan } }),
               ...(approvals !== state.approvals && { approvals }),
+            };
+          }
+          return null;
+        }
+
+        case "job_setup_progress": {
+          const jobId = payload.jobId as string;
+          const step = payload.step as string;
+          const existing = state.jobs[jobId];
+          if (existing) {
+            return {
+              jobs: {
+                ...state.jobs,
+                [jobId]: { ...existing, setupStep: step },
+              },
             };
           }
           return null;
@@ -1437,7 +1454,7 @@ function sortByUpdatedDesc(jobs: JobSummary[]): JobSummary[] {
 export const selectActiveJobs = (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(
     Object.values(state.jobs).filter(
-      (j) => !j.archivedAt && (j.state === "queued" || j.state === "running"),
+      (j) => !j.archivedAt && (j.state === "preparing" || j.state === "queued" || j.state === "running"),
     ),
   );
 

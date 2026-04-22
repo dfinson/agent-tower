@@ -50,6 +50,7 @@ log = structlog.get_logger()
 # SSE event type mapping from domain event kinds
 _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.job_created: "job_state_changed",
+    DomainEventKind.job_setup_progress: "job_setup_progress",
     DomainEventKind.workspace_prepared: None,  # internal only
     DomainEventKind.agent_session_started: None,  # internal only
     DomainEventKind.log_line_emitted: "log_line",

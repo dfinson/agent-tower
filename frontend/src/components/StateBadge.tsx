@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 
 const STATE_CONFIG: Record<string, { bg: string; text: string; label: string; Icon: LucideIcon }> = {
+  preparing: { bg: "bg-violet-900/30", text: "text-violet-400", label: "Preparing", Icon: Loader2 },
   queued: { bg: "bg-yellow-900/30", text: "text-yellow-400", label: "Queued", Icon: Clock },
   running: { bg: "bg-blue-900/30", text: "text-blue-400", label: "Running", Icon: Loader2 },
   waiting_for_approval: { bg: "bg-orange-900/30", text: "text-orange-400", label: "Approval", Icon: ShieldQuestion },

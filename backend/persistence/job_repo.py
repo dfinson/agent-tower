@@ -267,6 +267,15 @@ class JobRepository(BaseRepository):
         """Update the worktree path (e.g. after re-creating a cleaned-up worktree)."""
         await self._update_row(job_id, worktree_path=worktree_path)
 
+    async def update_worktree(self, job_id: str, worktree_path: str, branch: str) -> None:
+        """Update the worktree path and branch after workspace setup."""
+        await self._update_row(job_id, worktree_path=worktree_path, branch=branch)
+
+    async def update_failure_reason(self, job_id: str, reason: str) -> None:
+        """Set the failure reason on a job row."""
+        from datetime import UTC, datetime as dt
+        await self._update_row(job_id, failure_reason=reason, completed_at=dt.now(UTC))
+
     async def update_resolution(self, job_id: str, resolution: str, pr_url: str | None = None) -> None:
         """Update the resolution status (and optionally PR URL) on a job row."""
         updates: dict[str, Any] = {"resolution": resolution}

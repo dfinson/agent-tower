@@ -173,10 +173,10 @@ class TestJobService:
 
         assert job.id != ""
         assert not job.id.startswith("job-")  # no more sequential job-N IDs
-        assert job.state == JobState.queued
+        assert job.state == JobState.preparing
         assert job.repo == "/repos/test"
         assert job.prompt == "Fix the bug"
-        assert job.branch == "cpl/job-1"
+        # Branch is stored but worktree is not created yet (background task)
 
     @pytest.mark.asyncio
     async def test_create_job_repo_not_allowed(
@@ -420,21 +420,14 @@ class TestJobService:
         job_service: JobService,
         session: AsyncSession,
     ) -> None:
+        """Worktree failure during setup_workspace transitions job to failed."""
         from backend.services.git_service import GitError
 
-        with (
-            patch.object(
-                job_service._git,
-                "create_worktree",
-                new_callable=AsyncMock,
-                side_effect=GitError("worktree failed"),
-            ),
-            patch.object(
-                job_service._git,
-                "get_default_branch",
-                new_callable=AsyncMock,
-                return_value="main",
-            ),
+        with patch.object(
+            job_service._git,
+            "get_default_branch",
+            new_callable=AsyncMock,
+            return_value="main",
         ):
             job = await job_service.create_job(
                 repo="/repos/test",
@@ -442,8 +435,19 @@ class TestJobService:
             )
             await session.commit()
 
-        assert job.state == JobState.failed
-        assert job.completed_at is not None
+        assert job.state == JobState.preparing
+
+        # Now simulate worktree failure during setup
+        with patch.object(
+            job_service._git,
+            "create_worktree",
+            new_callable=AsyncMock,
+            side_effect=GitError("worktree failed"),
+        ):
+            updated = await job_service.setup_workspace(job.id)
+            await session.commit()
+
+        assert updated.state == JobState.failed
 
     @pytest.mark.asyncio
     async def test_transition_state_running_to_review(
@@ -468,7 +472,8 @@ class TestJobService:
             created = await job_service.create_job(repo="/repos/test", prompt="Fix it")
             await session.commit()
 
-        # Phase 4: jobs start as queued, must transition through running first
+        # Phase 4: jobs start as preparing, must transition through queued → running first
+        await job_service.transition_state(created.id, JobState.queued)
         await job_service.transition_state(created.id, JobState.running)
         job = await job_service.transition_state(created.id, JobState.review)
         assert job.state == JobState.review
@@ -499,4 +504,5 @@ class TestJobService:
             await session.commit()
 
         with pytest.raises(InvalidStateTransitionError):
-            await job_service.transition_state(created.id, JobState.queued)
+            # preparing → running is invalid (must go through queued first)
+            await job_service.transition_state(created.id, JobState.running)

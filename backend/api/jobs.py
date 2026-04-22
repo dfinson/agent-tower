@@ -190,7 +190,14 @@ async def create_job(
     session: FromDishka[AsyncSession],
     runtime_service: FromDishka[RuntimeService],
 ) -> CreateJobResponse:
-    """Create a new job."""
+    """Create a new job.
+
+    Returns immediately with ``state=preparing``. Workspace setup and agent
+    launch happen in a background task — the frontend watches progress via
+    SSE ``job_setup_progress`` events.
+    """
+    import asyncio
+
     job = await svc.create_job(
         repo=body.repo,
         prompt=body.prompt,
@@ -209,19 +216,25 @@ async def create_job(
         self_review_prompt=body.self_review_prompt,
     )
 
-    # Commit so the job row is visible to RuntimeService (separate session)
+    # Commit so the job row is visible to background tasks (separate sessions)
     await session.commit()
 
-    # Hand off to RuntimeService for execution / queueing (skip if already failed)
+    # For already-failed jobs (naming failure), skip background setup
     if job.state != JobState.failed:
-        await runtime_service.start_or_enqueue(
-            job,
-            permission_mode=body.permission_mode.value if body.permission_mode else None,
-            session_token=body.session_token,
-        )
+        # Fire-and-forget background task: setup workspace → start agent
+        async def _setup_and_start() -> None:
+            try:
+                updated_job = await runtime_service.setup_and_start(
+                    job,
+                    permission_mode=body.permission_mode.value if body.permission_mode else None,
+                    session_token=body.session_token,
+                )
+            except Exception:
+                structlog.get_logger().error(
+                    "background_job_setup_failed", job_id=job.id, exc_info=True
+                )
 
-        # Re-fetch to get updated state (may have been enqueued)
-        job = await svc.get_job(job.id)
+        asyncio.create_task(_setup_and_start(), name=f"setup-{job.id}")
 
     return CreateJobResponse(
         id=job.id,

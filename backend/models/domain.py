@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 
 class JobState(StrEnum):
+    preparing = "preparing"
     queued = "queued"
     running = "running"
     waiting_for_approval = "waiting_for_approval"
@@ -32,6 +33,7 @@ TERMINAL_STATES: frozenset[JobState] = frozenset(
 # Active states (job is occupying a worktree)
 ACTIVE_STATES: frozenset[JobState] = frozenset(
     {
+        JobState.preparing,
         JobState.queued,
         JobState.running,
         JobState.waiting_for_approval,
@@ -57,7 +59,8 @@ class Resolution(StrEnum):
 
 # Valid state transitions: (from_state) -> set of valid to_states
 _VALID_TRANSITIONS: dict[str | None, set[str]] = {
-    None: {JobState.running, JobState.queued},
+    None: {JobState.preparing, JobState.running, JobState.queued},
+    JobState.preparing: {JobState.queued, JobState.failed, JobState.canceled},
     JobState.queued: {JobState.running, JobState.canceled},
     JobState.running: {
         JobState.waiting_for_approval,
