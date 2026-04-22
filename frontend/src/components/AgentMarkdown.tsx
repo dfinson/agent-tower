@@ -1,4 +1,4 @@
-import { memo, Component, Children, isValidElement, cloneElement, type ReactNode } from "react";
+import { memo, Component, Children, isValidElement, cloneElement, type ReactNode, type ReactElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-async-light";
@@ -28,12 +28,46 @@ function highlightText(text: string, query: string): ReactNode {
   );
 }
 
+/**
+ * Detect file-path-like strings in text and wrap them as styled chips.
+ * Matches patterns like `src/foo/bar.ts`, `backend/models/api.py`, `./config.json`.
+ * Avoids false positives by requiring a directory separator and a file extension.
+ */
+const FILE_PATH_RE = /(?:^|(?<=[\s`"'(]))(\.{0,2}\/)?([a-zA-Z0-9_\-.]+\/)+[a-zA-Z0-9_\-.]+\.[a-zA-Z]{1,10}(?=[\s`"'),.:;]|$)/g;
+
+function linkifyFilePaths(text: string): ReactNode {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  // Reset lastIndex for global regex
+  FILE_PATH_RE.lastIndex = 0;
+  while ((match = FILE_PATH_RE.exec(text)) !== null) {
+    const before = text.slice(lastIndex, match.index);
+    if (before) parts.push(before);
+    const filePath = match[0];
+    parts.push(
+      <span
+        key={match.index}
+        className="inline-flex items-center gap-0.5 px-1 py-0 rounded bg-muted/40 border border-border/30 text-[12px] font-mono text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors cursor-default"
+        title={filePath}
+      >
+        {filePath}
+      </span>,
+    );
+    lastIndex = match.index + filePath.length;
+  }
+  if (lastIndex === 0) return text; // no matches
+  const tail = text.slice(lastIndex);
+  if (tail) parts.push(tail);
+  return <>{parts}</>;
+}
+
 /** Recursively walk React children, applying highlighter to string nodes. */
 function mapChildren(children: ReactNode, mapper: (text: string) => ReactNode): ReactNode {
   return Children.map(children, (child) => {
     if (typeof child === "string") return mapper(child);
     if (isValidElement(child) && child.props.children) {
-      return cloneElement(child, {}, mapChildren(child.props.children, mapper));
+      return cloneElement(child as ReactElement<{ children?: ReactNode }>, {}, mapChildren(child.props.children, mapper));
     }
     return child;
   });
@@ -41,19 +75,26 @@ function mapChildren(children: ReactNode, mapper: (text: string) => ReactNode): 
 
 /** Shared markdown renderer for agent messages — used by CuratedFeed. */
 export const AgentMarkdown = memo(function AgentMarkdown({ content, highlight }: { content: string; highlight?: string }) {
-  const hl = highlight ? (children: ReactNode) => mapChildren(children, (t) => highlightText(t, highlight)) : (children: ReactNode) => children;
+  // Build a text processing pipeline: file path linkification → search highlight
+  const processText = (children: ReactNode) => {
+    let result = mapChildren(children, linkifyFilePaths);
+    if (highlight) {
+      result = mapChildren(result, (t) => highlightText(t, highlight));
+    }
+    return result;
+  };
   return (
     <MarkdownErrorBoundary fallback={content}>
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        p: ({ children }) => <p className="mb-2 last:mb-0">{hl(children)}</p>,
+        p: ({ children }) => <p className="mb-2 last:mb-0">{processText(children)}</p>,
         ul: ({ children }) => <ul className="mb-2 pl-4 list-disc space-y-0.5">{children}</ul>,
         ol: ({ children }) => <ol className="mb-2 pl-4 list-decimal space-y-0.5">{children}</ol>,
-        li: ({ children }) => <li className="leading-relaxed">{hl(children)}</li>,
-        h1: ({ children }) => <h1 className="text-[17px] sm:text-base font-semibold mb-1 mt-2 first:mt-0">{hl(children)}</h1>,
-        h2: ({ children }) => <h2 className="text-[15px] sm:text-sm font-semibold mb-1 mt-2 first:mt-0">{hl(children)}</h2>,
-        h3: ({ children }) => <h3 className="text-[15px] sm:text-sm font-medium mb-1 mt-1 first:mt-0">{hl(children)}</h3>,
+        li: ({ children }) => <li className="leading-relaxed">{processText(children)}</li>,
+        h1: ({ children }) => <h1 className="text-[17px] sm:text-base font-semibold mb-1 mt-2 first:mt-0">{processText(children)}</h1>,
+        h2: ({ children }) => <h2 className="text-[15px] sm:text-sm font-semibold mb-1 mt-2 first:mt-0">{processText(children)}</h2>,
+        h3: ({ children }) => <h3 className="text-[15px] sm:text-sm font-medium mb-1 mt-1 first:mt-0">{processText(children)}</h3>,
         blockquote: ({ children }) => (
           <blockquote className="border-l-2 border-muted-foreground/40 pl-3 text-muted-foreground italic my-2">
             {children}
