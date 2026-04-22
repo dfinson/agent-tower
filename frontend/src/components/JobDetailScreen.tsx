@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Radio, Package } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Radio, Package, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -515,9 +515,10 @@ export function JobDetailScreen() {
     );
   }
 
-  const canCancel = ["queued", "running", "waiting_for_approval"].includes(job.state);
+  const canCancel = ["preparing", "queued", "running", "waiting_for_approval"].includes(job.state);
   const canResume = job.state === "failed";
   const isRunning = job.state === "running";
+  const isPreparing = job.state === "preparing";
 
   const hasMergeConflict =
     !["merged", "pr_created", "discarded"].includes(job.resolution ?? "") &&
@@ -619,6 +620,12 @@ export function JobDetailScreen() {
           )}
           {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
             <p className="text-sm italic text-primary/70">{job.progressHeadline}</p>
+          )}
+          {isPreparing && (
+            <div className="flex items-center gap-2 text-sm text-violet-400 animate-pulse">
+              <Loader2 size={14} className="animate-spin" />
+              {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up workspace…"}
+            </div>
           )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
             {[
@@ -846,6 +853,13 @@ export function JobDetailScreen() {
 
         {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
           <p className="text-sm italic text-primary/70 mb-3">{job.progressHeadline}</p>
+        )}
+
+        {isPreparing && (
+          <div className="flex items-center gap-2 text-sm text-violet-400 animate-pulse mb-3">
+            <Loader2 size={14} className="animate-spin" />
+            {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up workspace…"}
+          </div>
         )}
 
         {(job.description || job.prompt) && (
@@ -1188,7 +1202,7 @@ export function JobDetailScreen() {
       {tab === "shell" && (
         <TabErrorBoundary>
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <div className="md:h-full h-[60dvh] rounded-lg overflow-y-auto overflow-x-hidden border border-border">
+            <div className="md:h-full h-[60dvh] rounded-lg overflow-hidden border border-border">
               <AgentTerminal jobId={jobId} isRunning={isRunning} />
             </div>
           </Suspense>
@@ -1243,7 +1257,6 @@ export function JobDetailScreen() {
         </button>
         {[
           { id: "live", icon: Radio, label: "Live" },
-          { id: "shell", icon: TerminalSquare, label: "Shell" },
           ...(hasChanges ? [{ id: "diff", icon: GitBranch, label: "Changes" }] : []),
           { id: "files", icon: FolderTree, label: "Files" },
         ].map(({ id, icon: Icon, label }) => (
@@ -1267,14 +1280,20 @@ export function JobDetailScreen() {
             onClick={() => setMobileMoreOpen((o) => !o)}
             className={cn(
               "flex flex-col items-center justify-center gap-0.5 w-full pt-1.5 pb-1 transition-colors landscape:flex-row landscape:gap-1 landscape:py-0.5",
-              mobileMoreOpen || ["metrics", "artifacts"].includes(tab) ? "text-primary" : "text-muted-foreground active:text-foreground",
+              mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab) ? "text-primary" : "text-muted-foreground active:text-foreground",
             )}
           >
-            <MoreHorizontal size={20} strokeWidth={mobileMoreOpen || ["metrics", "artifacts"].includes(tab) ? 2.5 : 1.5} className="landscape:!size-4" />
-            <span className={cn("text-[10px] leading-tight truncate landscape:hidden", (mobileMoreOpen || ["metrics", "artifacts"].includes(tab)) && "font-semibold")}>More</span>
+            <MoreHorizontal size={20} strokeWidth={mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab) ? 2.5 : 1.5} className="landscape:!size-4" />
+            <span className={cn("text-[10px] leading-tight truncate landscape:hidden", (mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab)) && "font-semibold")}>More</span>
           </button>
           {mobileMoreOpen && (
             <div className="absolute bottom-full right-0 mb-2 mr-1 rounded-md border border-border bg-popover shadow-lg py-1 min-w-[140px] animate-in fade-in-0 zoom-in-95">
+              <button
+                onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("shell"); }}
+                className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "shell" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
+              >
+                <TerminalSquare size={15} /> Shell
+              </button>
               <button
                 onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("metrics"); }}
                 className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "metrics" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
