@@ -67,7 +67,6 @@ export function SharedJobView() {
   const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
   const sidebarResizing = useRef(false);
   const diffs = useStore(selectJobDiffs(job?.id ?? ""));
-  const hasChanges = diffs.length > 0;
 
   // Fetch snapshot and hydrate store
   useEffect(() => {
@@ -227,7 +226,7 @@ export function SharedJobView() {
       <Tabs value={tab} onValueChange={setTab} className="mb-4">
         <TabsList>
           <TabsTrigger value="live">Live</TabsTrigger>
-          {hasChanges && <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>}
+          {diffs.length > 0 && <TabsTrigger value="diff"><GitBranch size={13} className="mr-1.5" />Changes</TabsTrigger>}
         </TabsList>
       </Tabs>
 

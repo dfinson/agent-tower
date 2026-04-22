@@ -265,6 +265,7 @@ class RuntimeService:
             job_repo=JobRepository(session),
             git_service=GitService(self._config),
             config=self._config,
+            event_bus=self._event_bus,
         )
 
     async def _finalize_diff_safe(self, job_id: str, worktree_path: str | None, base_ref: str | None) -> None:
@@ -284,6 +285,38 @@ class RuntimeService:
     @property
     def max_concurrent(self) -> int:
         return self._config.runtime.max_concurrent_jobs
+
+    async def setup_and_start(
+        self,
+        job: Job,
+        permission_mode: str | None = None,
+        session_token: str | None = None,
+    ) -> Job:
+        """Background task: create worktree for a ``preparing`` job then start it.
+
+        Uses a dedicated DB session so this can run after the HTTP response.
+        Publishes ``job_state_changed`` when transitioning to ``queued``.
+        """
+        from backend.persistence.job_repo import JobRepository
+
+        async with self._session_factory() as session:
+            svc = self._make_job_service(session)
+            updated_job = await svc.setup_workspace(job.id)
+            await session.commit()
+
+        if updated_job.state == JobState.failed:
+            await self._publish_state_event(job.id, JobState.preparing, JobState.failed)
+            return updated_job
+
+        # Publish preparing → queued transition
+        await self._publish_state_event(job.id, JobState.preparing, JobState.queued)
+
+        await self.start_or_enqueue(
+            updated_job,
+            permission_mode=permission_mode,
+            session_token=session_token,
+        )
+        return updated_job
 
     async def start_or_enqueue(
         self,
@@ -2446,6 +2479,7 @@ class RuntimeService:
             await self._approval_service.recover_pending_approvals()
 
         orphaned_jobs: list[tuple[Job, JobState]] = []
+        preparing_jobs: list[Job] = []
         async with self._session_factory() as session:
             svc = self._make_job_service(session)
             # Recover jobs that were already in progress before the backend restart.
@@ -2455,6 +2489,14 @@ class RuntimeService:
 
             # Re-enqueue queued jobs
             queued_jobs, _, _ = await svc.list_jobs(state=JobState.queued, limit=10000)
+
+            # Re-run setup for jobs that were mid-preparation when we crashed
+            preparing, _, _ = await svc.list_jobs(state=JobState.preparing, limit=10000)
+            preparing_jobs.extend(preparing)
+
+        for job in preparing_jobs:
+            log.warning("recovering_preparing_job", job_id=job.id)
+            asyncio.create_task(self.setup_and_start(job), name=f"recover-setup-{job.id}")
 
         for job, state in orphaned_jobs:
             log.warning("recovering_orphaned_job", job_id=job.id, state=state)

@@ -21,7 +21,7 @@ function filterForTab(jobs: Record<string, JobSummary>, tab: KanbanColumn): JobS
     .filter((j) => {
       switch (tab) {
         case KANBAN_COLUMNS.IN_PROGRESS:
-          return !j.archivedAt && (j.state === "queued" || j.state === "running");
+          return !j.archivedAt && (j.state === "preparing" || j.state === "queued" || j.state === "running");
         case KANBAN_COLUMNS.AWAITING_INPUT:
           return (
             !j.archivedAt &&

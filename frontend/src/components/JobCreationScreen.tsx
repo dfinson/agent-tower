@@ -134,7 +134,7 @@ export function JobCreationScreen() {
           if (!cancelled) suggestedNamesRef.current = null;
         })
         .finally(() => { if (!cancelled) setBranchSuggesting(false); });
-    }, 1500);
+    }, 800);
     return () => {
       cancelled = true;
       if (branchDebounceRef.current) clearTimeout(branchDebounceRef.current);
@@ -392,9 +392,10 @@ export function JobCreationScreen() {
               Cancel
             </Button>
             <Button
-              disabled={!repo || !prompt.trim() || voiceState !== "idle" || !!sdkNotReady}
+              disabled={!repo || !prompt.trim() || voiceState !== "idle" || !!sdkNotReady || branchSuggesting}
               loading={submitting}
               onClick={handleSubmit}
+              title={branchSuggesting ? "Waiting for name generation…" : undefined}
             >
               <PlaneTakeoff size={16} />
               Create Job

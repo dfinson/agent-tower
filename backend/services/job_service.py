@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from backend.models.events import DomainEvent, DomainEventKind
     from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
+    from backend.services.event_bus import EventBus
     from backend.services.git_service import GitService
     from backend.services.naming_service import NamingService
 
@@ -70,12 +71,14 @@ class JobService:
         config: CPLConfig,
         naming_service: NamingService | None = None,
         event_repo: EventRepository | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         self._job_repo = job_repo
         self._git = git_service
         self._config = config
         self._naming = naming_service
         self._event_repo = event_repo
+        self._event_bus = event_bus
 
     @classmethod
     def from_session(
@@ -189,11 +192,15 @@ class JobService:
         parent_job_id: str | None = None,
         parent_job_context: str | None = None,
     ) -> Job:
-        """Create a new job, set up workspace, and persist it.
+        """Create a new job record in ``preparing`` state.
+
+        Performs naming (LLM or pre-computed) and persists the job row, but
+        does **not** create the worktree or start the agent.  Call
+        :meth:`setup_workspace` in a background task to complete preparation.
 
         The job ID is the LLM-generated worktree name (e.g. "fix-login-bug").
         Naming is blocking: the LLM generates title, branch, and worktree name
-        before the worktree is created. If naming fails, NamingError is raised
+        before the job is persisted. If naming fails, NamingError is raised
         and a failed job record is persisted with a hash-based ID.
 
         Returns the created Job domain object.
@@ -338,43 +345,9 @@ class JobService:
             worktree_name=worktree_name,
         )
 
-        # Create worktree using worktree_name as the directory name
-        from backend.services.git_service import GitError
-
-        try:
-            worktree_path, branch_name = await self._git.create_worktree(
-                repo_path=resolved_repo,
-                job_id=worktree_name,  # job ID equals the worktree directory name
-                base_ref=base_ref,
-                branch=branch,
-            )
-        except GitError as exc:
-            job = Job(
-                id=job_id,
-                repo=resolved_repo,
-                prompt=prompt,
-                state=JobState.failed,
-                base_ref=base_ref,
-                branch=None,
-                worktree_path=None,
-                session_id=None,
-                created_at=now,
-                updated_at=now,
-                completed_at=now,
-                title=title,
-                description=description,
-                worktree_name=worktree_name,
-                permission_mode=permission_mode,
-                model=model,
-                sdk=resolved_sdk,
-                failure_reason=f"Worktree creation failed: {exc}",
-                parent_job_id=parent_job_id,
-            )
-            await self._job_repo.create(job)
-            log.error("job_worktree_failed", job_id=job_id, error=str(exc))
-            return job
-
-        initial_state = JobState.queued
+        # Persist in ``preparing`` state — worktree is created asynchronously
+        # by the background setup task.
+        initial_state = JobState.preparing
 
         job = Job(
             id=job_id,
@@ -382,8 +355,8 @@ class JobService:
             prompt=prompt,
             state=initial_state,
             base_ref=base_ref,
-            branch=branch_name,
-            worktree_path=worktree_path,
+            branch=branch,
+            worktree_path=None,
             session_id=None,
             created_at=now,
             updated_at=now,
@@ -400,23 +373,72 @@ class JobService:
             self_review_prompt=self_review_prompt,
             parent_job_id=parent_job_id,
         )
-        try:
-            await self._job_repo.create(job)
-        except Exception:
-            # Compensate: clean up the worktree that was already created
-            # so we don't leave orphaned directories on disk.
-            log.error("job_persist_failed_cleaning_worktree", job_id=job_id, worktree_path=worktree_path)
-            try:
-                await self._git.remove_worktree(resolved_repo, worktree_path)
-            except Exception:
-                log.warning(
-                    "compensation_worktree_cleanup_failed",
-                    job_id=job_id,
-                    worktree_path=worktree_path,
-                    exc_info=True,
-                )
-            raise
+        await self._job_repo.create(job)
         log.info("job_created", job_id=job_id, title=title, repo=resolved_repo, state=initial_state)
+        return job
+
+    async def setup_workspace(self, job_id: str) -> Job:
+        """Create the worktree for a ``preparing`` job and transition to ``queued``.
+
+        Called as a background task after the job row has been committed.
+        Publishes ``job_setup_progress`` events during setup so the frontend
+        can show a progress stepper.
+
+        Returns the updated Job.
+        Raises JobNotFoundError / StateConflictError on bad state.
+        """
+        from backend.models.events import DomainEvent, DomainEventKind
+        from backend.services.git_service import GitError
+
+        assert self._git is not None, "GitService required for workspace setup"
+
+        job = await self._job_repo.get(job_id)
+        if job is None:
+            raise JobNotFoundError(f"Job {job_id} does not exist.")
+        if job.state != JobState.preparing:
+            raise StateConflictError(f"Job {job_id} is in state {job.state!r}, expected 'preparing'.")
+
+        async def _emit_progress(step: str) -> None:
+            if self._event_bus is not None:
+                await self._event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.job_setup_progress,
+                        payload={"step": step},
+                    )
+                )
+
+        await _emit_progress("creating_workspace")
+
+        try:
+            worktree_path, branch_name = await self._git.create_worktree(
+                repo_path=job.repo,
+                job_id=job.worktree_name or job_id,
+                base_ref=job.base_ref,
+                branch=job.branch,
+            )
+        except GitError as exc:
+            now = datetime.now(UTC)
+            await self._job_repo.update_state(job_id, JobState.failed, now)
+            await self._job_repo.update_failure_reason(job_id, f"Worktree creation failed: {exc}")
+            log.error("job_worktree_failed", job_id=job_id, error=str(exc))
+            await _emit_progress("failed")
+            job = await self._job_repo.get(job_id)
+            assert job is not None
+            return job
+
+        # Update the job with worktree info and transition to queued
+        now = datetime.now(UTC)
+        await self._job_repo.update_worktree(job_id, worktree_path, branch_name)
+        await self._job_repo.update_state(job_id, JobState.queued, now)
+
+        await _emit_progress("workspace_ready")
+        log.info("job_workspace_ready", job_id=job_id, worktree_path=worktree_path, branch=branch_name)
+
+        job = await self._job_repo.get(job_id)
+        assert job is not None
         return job
 
     async def get_job(self, job_id: str) -> Job:
