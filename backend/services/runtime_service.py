@@ -32,6 +32,7 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.validators import REF_PATTERN
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -2413,11 +2414,10 @@ class RuntimeService:
             log.info("pr_creation_skipped_no_worktree", job_id=job_id)
             return None
 
-        _ref_pattern = re.compile(r"^[a-zA-Z0-9/_.-]+$")
-        if not _ref_pattern.match(job.branch):
+        if not REF_PATTERN.match(job.branch):
             log.warning("pr_creation_invalid_branch", job_id=job_id)
             return None
-        if not _ref_pattern.match(job.base_ref):
+        if not REF_PATTERN.match(job.base_ref):
             log.warning("pr_creation_invalid_base_ref", job_id=job_id)
             return None
 

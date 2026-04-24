@@ -43,6 +43,7 @@ from backend.models.api_schemas import (
 )
 from backend.models.events import DomainEventKind
 from backend.services.event_bus import EventBus
+from backend.services.git_service import GitError
 from backend.services.job_service import JobService, ProgressPreview
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
@@ -141,7 +142,7 @@ async def warm_utility_session(
     """
     try:
         token = await sister_sessions.warm()
-    except Exception as exc:
+    except (ConnectionError, TimeoutError, OSError) as exc:
         raise HTTPException(status_code=503, detail=f"Failed to warm session: {exc}") from exc
     return {"sessionToken": token}
 
@@ -229,7 +230,7 @@ async def create_job(
                     permission_mode=body.permission_mode.value if body.permission_mode else None,
                     session_token=body.session_token,
                 )
-            except Exception:
+            except (GitError, OSError, RuntimeError):
                 structlog.get_logger().error(
                     "background_job_setup_failed", job_id=job.id, exc_info=True
                 )
@@ -414,7 +415,7 @@ async def list_models(
                     models = live
             finally:
                 await _client.stop()
-        except Exception:
+        except (ImportError, ConnectionError, TimeoutError, RuntimeError):
             pass  # fall through to empty list
     return [ModelInfoResponse.model_validate(m) for m in models]
 
@@ -495,7 +496,7 @@ async def get_job_diff(
         ds = DiffService(git_service=git, event_bus=event_bus)
         try:
             files = await ds.calculate_diff(job.worktree_path, job.base_ref)
-        except Exception:
+        except (GitError, OSError):
             structlog.get_logger(__name__).warning(
                 "get_job_diff_live_failed",
                 job_id=job_id,
@@ -800,7 +801,7 @@ async def get_step_diff(
                     file_motivations[target].unmatched_edits.append(
                         HunkMotivation(edit_key=edit_key, title=em_title, why=em_why),
                     )
-    except Exception:
+    except (KeyError, ValueError, IndexError, TypeError):
         structlog.get_logger().debug("motivation_annotation_failed", job_id=job_id, step_id=step_id, exc_info=True)
 
     return StepDiffPayload(
@@ -1055,7 +1056,7 @@ async def get_job_snapshot(
 
         git = GitService(config)
         ds = DiffService(git_service=git, event_bus=event_bus)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(GitError, OSError):
             diff = await ds.calculate_diff(job.worktree_path, job.base_ref)
 
     if not diff:

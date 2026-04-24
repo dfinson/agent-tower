@@ -69,7 +69,7 @@ class RetentionService:
             try:
                 await self.run_cleanup()
             except Exception:
-                log.exception("retention_cleanup_error")
+                log.exception("retention_cleanup_error", operation="daily_retention_loop")
 
     # ------------------------------------------------------------------
     # Internal cleanup methods

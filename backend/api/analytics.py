@@ -29,7 +29,7 @@ try:
     log.info("model_pricing_loaded", count=len(_MODEL_PRICING))
 except FileNotFoundError:
     log.warning("model_pricing_file_missing", path=str(_PRICING_PATH))
-except Exception:
+except (json.JSONDecodeError, ValueError, OSError):
     log.exception("model_pricing_load_error")
 
 
