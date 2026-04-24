@@ -615,3 +615,73 @@ class TelemetrySummaryRepo(BaseRepository):
             else None,
             "flags": flags,
         }
+
+    async def turn_escalation_jobs(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+        """Find jobs where cost/turn escalates significantly in the second half."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    job_id,
+                    total_turns,
+                    cost_first_half_usd,
+                    cost_second_half_usd,
+                    total_cost_usd
+                FROM job_telemetry_summary
+                WHERE total_turns >= 6
+                    AND cost_second_half_usd > 0
+                    AND cost_first_half_usd > 0
+                    AND cost_second_half_usd >= 0.50
+                    AND (cost_second_half_usd / cost_first_half_usd) >= 2.0
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                ORDER BY (cost_second_half_usd - cost_first_half_usd) DESC
+                LIMIT 20
+            """)
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def compaction_storm_jobs(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+        """Find jobs with excessive context compactions."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    job_id,
+                    compactions,
+                    tokens_compacted,
+                    total_cost_usd,
+                    total_turns
+                FROM job_telemetry_summary
+                WHERE compactions >= 5
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                    AND status IN ('completed', 'failed')
+                ORDER BY compactions DESC
+                LIMIT 20
+            """)
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def cache_efficiency_periods(self) -> dict[str, Any]:
+        """Compare cache hit rates between recent and prior 7-day periods."""
+        result = await self._session.execute(
+            text("""
+                SELECT
+                    SUM(CASE WHEN created_at >= datetime('now', '-7 days')
+                        THEN cache_read_tokens ELSE 0 END) as recent_cache,
+                    SUM(CASE WHEN created_at >= datetime('now', '-7 days')
+                        THEN input_tokens ELSE 0 END) as recent_input,
+                    SUM(CASE WHEN created_at < datetime('now', '-7 days')
+                             AND created_at >= datetime('now', '-14 days')
+                        THEN cache_read_tokens ELSE 0 END) as prior_cache,
+                    SUM(CASE WHEN created_at < datetime('now', '-7 days')
+                             AND created_at >= datetime('now', '-14 days')
+                        THEN input_tokens ELSE 0 END) as prior_input,
+                    COUNT(CASE WHEN created_at >= datetime('now', '-7 days')
+                        THEN 1 END) as recent_jobs,
+                    COUNT(CASE WHEN created_at < datetime('now', '-7 days')
+                             AND created_at >= datetime('now', '-14 days')
+                        THEN 1 END) as prior_jobs
+                FROM job_telemetry_summary
+                WHERE created_at >= datetime('now', '-14 days')
+            """)
+        )
+        row = result.mappings().first()
+        return dict(row) if row else {}

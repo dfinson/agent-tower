@@ -347,3 +347,46 @@ class TelemetrySpansRepo(BaseRepository):
         )
         row = result.mappings().first()
         return dict(row) if row else {"retry_cost_usd": 0, "retry_count": 0, "total_spans": 0, "total_cost_usd": 0}
+
+    async def tool_failure_hotspots(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+        """Find tools with high failure rates (for statistical analysis)."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    name,
+                    COUNT(*) as total_calls,
+                    SUM(CASE WHEN json_extract(attrs_json, '$.success') = 0
+                             OR json_extract(attrs_json, '$.success') = 'false'
+                        THEN 1 ELSE 0 END) as failures,
+                    COUNT(DISTINCT job_id) as job_count
+                FROM job_telemetry_spans
+                WHERE span_type = 'tool'
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY name
+                HAVING total_calls >= 10
+                    AND CAST(failures AS FLOAT) / total_calls >= 0.2
+                ORDER BY failures DESC
+                LIMIT 20
+            """)
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def retry_hotspots(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+        """Find tools with frequent retries (for statistical analysis)."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    name as tool_name,
+                    SUM(CASE WHEN is_retry = 1 THEN 1 ELSE 0 END) as retry_count,
+                    COUNT(*) as total_calls,
+                    COUNT(DISTINCT job_id) as job_count
+                FROM job_telemetry_spans
+                WHERE span_type = 'tool'
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY name
+                HAVING retry_count >= 5
+                ORDER BY retry_count DESC
+                LIMIT 20
+            """)
+        )
+        return [dict(r) for r in result.mappings().all()]

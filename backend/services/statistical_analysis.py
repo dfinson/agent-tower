@@ -5,7 +5,6 @@ Analyses accumulated telemetry to surface actionable cost observations:
 - Tool failure patterns (high failure rates for specific tools)
 - Turn cost escalation (cost/turn increases significantly late in jobs)
 - Retry waste (retries that cost more than the original attempt)
-- Phase imbalance (verification consuming more than reasoning)
 - Compaction storms (excessive context compactions signaling context pressure)
 - Cache efficiency regression (cache hit rate drops between periods)
 
@@ -17,56 +16,41 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import structlog
-from sqlalchemy import text
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.persistence.file_access_repo import FileAccessRepo
 from backend.persistence.observations_repo import ObservationsRepo
+from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
 
 log = structlog.get_logger()
 
 
 async def run_analysis(session: AsyncSession) -> int:
     """Run all analysis passes. Returns the number of observations written."""
-    repo = ObservationsRepo(session)
+    obs_repo = ObservationsRepo(session)
+    file_repo = FileAccessRepo(session)
+    spans_repo = TelemetrySpansRepo(session)
+    summary_repo = TelemetrySummaryRepo(session)
     count = 0
-    count += await _analyse_file_rereads(session, repo)
-    count += await _analyse_tool_failures(session, repo)
-    count += await _analyse_turn_escalation(session, repo)
-    count += await _analyse_retry_waste(session, repo)
-    # phase_imbalance disabled: relies on forward/backward-fill inference
-    # which produces unreliable results at personal-tool scale.
-    # count += await _analyse_phase_imbalance(session, repo)
-    count += await _analyse_compaction_storms(session, repo)
-    count += await _analyse_cache_efficiency_regression(session, repo)
+    count += await _analyse_file_rereads(file_repo, obs_repo)
+    count += await _analyse_tool_failures(spans_repo, obs_repo)
+    count += await _analyse_turn_escalation(summary_repo, obs_repo)
+    count += await _analyse_retry_waste(spans_repo, obs_repo)
+    count += await _analyse_compaction_storms(summary_repo, obs_repo)
+    count += await _analyse_cache_efficiency_regression(summary_repo, obs_repo)
     log.info("statistical_analysis_complete", observations=count)
     return count
 
 
-async def _analyse_file_rereads(session: AsyncSession, repo: ObservationsRepo) -> int:
+async def _analyse_file_rereads(file_repo: FileAccessRepo, obs_repo: ObservationsRepo) -> int:
     """Find files read excessively across jobs."""
-    result = await session.execute(
-        text("""
-            SELECT
-                file_path,
-                COUNT(*) as total_reads,
-                COUNT(DISTINCT job_id) as job_count,
-                SUM(CASE WHEN access_type = 'read' THEN byte_count ELSE 0 END) as total_bytes
-            FROM job_file_access_log
-            WHERE access_type = 'read'
-                AND created_at >= datetime('now', '-30 days')
-            GROUP BY file_path
-            HAVING COUNT(*) >= 10 AND COUNT(DISTINCT job_id) >= 3
-                AND SUM(CASE WHEN access_type = 'read' THEN byte_count ELSE 0 END) > 10240
-            ORDER BY total_reads DESC
-            LIMIT 20
-        """)
-    )
-    rows = result.mappings().all()
+    rows = await file_repo.reread_hotspots()
     count = 0
     for r in rows:
-        await repo.upsert(
+        await obs_repo.upsert(
             category="file_reread",
             severity="warning" if r["total_reads"] >= 50 else "info",
             title=f"Excessive rereads: {r['file_path']}",
@@ -86,32 +70,13 @@ async def _analyse_file_rereads(session: AsyncSession, repo: ObservationsRepo) -
     return count
 
 
-async def _analyse_tool_failures(session: AsyncSession, repo: ObservationsRepo) -> int:
+async def _analyse_tool_failures(spans_repo: TelemetrySpansRepo, obs_repo: ObservationsRepo) -> int:
     """Find tools with high failure rates."""
-    result = await session.execute(
-        text("""
-            SELECT
-                name,
-                COUNT(*) as total_calls,
-                SUM(CASE WHEN json_extract(attrs_json, '$.success') = 0
-                         OR json_extract(attrs_json, '$.success') = 'false'
-                    THEN 1 ELSE 0 END) as failures,
-                COUNT(DISTINCT job_id) as job_count
-            FROM job_telemetry_spans
-            WHERE span_type = 'tool'
-                AND created_at >= datetime('now', '-30 days')
-            GROUP BY name
-            HAVING total_calls >= 10
-                AND CAST(failures AS FLOAT) / total_calls >= 0.2
-            ORDER BY failures DESC
-            LIMIT 20
-        """)
-    )
-    rows = result.mappings().all()
+    rows = await spans_repo.tool_failure_hotspots()
     count = 0
     for r in rows:
         failure_rate = r["failures"] / r["total_calls"] * 100
-        await repo.upsert(
+        await obs_repo.upsert(
             category="tool_failure",
             severity="critical" if failure_rate >= 50 else "warning",
             title=f"High failure rate: {r['name']} ({failure_rate:.0f}%)",
@@ -132,33 +97,14 @@ async def _analyse_tool_failures(session: AsyncSession, repo: ObservationsRepo) 
     return count
 
 
-async def _analyse_turn_escalation(session: AsyncSession, repo: ObservationsRepo) -> int:
+async def _analyse_turn_escalation(summary_repo: TelemetrySummaryRepo, obs_repo: ObservationsRepo) -> int:
     """Find jobs where cost/turn escalates significantly in the second half."""
-    result = await session.execute(
-        text("""
-            SELECT
-                job_id,
-                total_turns,
-                cost_first_half_usd,
-                cost_second_half_usd,
-                total_cost_usd
-            FROM job_telemetry_summary
-            WHERE total_turns >= 6
-                AND cost_second_half_usd > 0
-                AND cost_first_half_usd > 0
-                AND cost_second_half_usd >= 0.50
-                AND (cost_second_half_usd / cost_first_half_usd) >= 2.0
-                AND created_at >= datetime('now', '-30 days')
-            ORDER BY (cost_second_half_usd - cost_first_half_usd) DESC
-            LIMIT 20
-        """)
-    )
-    rows = result.mappings().all()
+    rows = await summary_repo.turn_escalation_jobs()
     if len(rows) < 3:
         return 0
 
     total_waste = sum(max(0, r["cost_second_half_usd"] - r["cost_first_half_usd"]) for r in rows)
-    await repo.upsert(
+    await obs_repo.upsert(
         category="turn_escalation",
         severity="warning" if total_waste >= 1.0 else "info",
         title=f"Cost escalation in {len(rows)} jobs",
@@ -173,31 +119,15 @@ async def _analyse_turn_escalation(session: AsyncSession, repo: ObservationsRepo
     return 1
 
 
-async def _analyse_retry_waste(session: AsyncSession, repo: ObservationsRepo) -> int:
+async def _analyse_retry_waste(spans_repo: TelemetrySpansRepo, obs_repo: ObservationsRepo) -> int:
     """Find tools where retries are common and costly."""
-    result = await session.execute(
-        text("""
-            SELECT
-                name as tool_name,
-                SUM(CASE WHEN is_retry = 1 THEN 1 ELSE 0 END) as retry_count,
-                COUNT(*) as total_calls,
-                COUNT(DISTINCT job_id) as job_count
-            FROM job_telemetry_spans
-            WHERE span_type = 'tool'
-                AND created_at >= datetime('now', '-30 days')
-            GROUP BY name
-            HAVING retry_count >= 5
-            ORDER BY retry_count DESC
-            LIMIT 20
-        """)
-    )
-    rows = result.mappings().all()
+    rows = await spans_repo.retry_hotspots()
     count = 0
     for r in rows:
         retry_pct = r["retry_count"] / r["total_calls"] * 100
         if retry_pct < 10:
             continue
-        await repo.upsert(
+        await obs_repo.upsert(
             category="retry_waste",
             severity="warning" if retry_pct >= 30 else "info",
             title=f"Frequent retries: {r['tool_name']} ({retry_pct:.0f}%)",
@@ -218,92 +148,15 @@ async def _analyse_retry_waste(session: AsyncSession, repo: ObservationsRepo) ->
     return count
 
 
-async def _analyse_phase_imbalance(session: AsyncSession, repo: ObservationsRepo) -> int:
-    """Detect jobs where verification cost exceeds reasoning cost.
-
-    When verification consistently outweighs the actual reasoning/coding
-    phase, it signals the agent is spending too much on self-review relative
-    to productive work.
-    """
-    result = await session.execute(
-        text("""
-            SELECT
-                ca.job_id,
-                SUM(CASE WHEN ca.dimension = 'phase' AND ca.bucket = 'verification'
-                    THEN ca.cost_usd ELSE 0 END) as verification_cost,
-                SUM(CASE WHEN ca.dimension = 'phase' AND ca.bucket = 'agent_reasoning'
-                    THEN ca.cost_usd ELSE 0 END) as reasoning_cost,
-                SUM(CASE WHEN ca.dimension = 'phase' THEN ca.cost_usd ELSE 0 END) as total_cost
-            FROM cost_attribution ca
-            JOIN job_telemetry_summary jts ON jts.job_id = ca.job_id
-            WHERE jts.created_at >= datetime('now', '-30 days')
-                AND jts.status = 'completed'
-            GROUP BY ca.job_id
-            HAVING verification_cost > 0
-                AND reasoning_cost > 0
-                AND verification_cost > reasoning_cost
-                AND total_cost >= 0.05
-        """)
-    )
-    rows = result.mappings().all()
-    if len(rows) < 2:
-        return 0
-
-    total_excess = sum(max(0, float(r["verification_cost"]) - float(r["reasoning_cost"])) for r in rows)
-    await repo.upsert(
-        category="phase_imbalance",
-        severity="warning" if total_excess >= 1.0 else "info",
-        title=f"Verification outweighs reasoning in {len(rows)} jobs",
-        detail=(
-            f"{len(rows)} completed jobs had verification costs exceeding "
-            f"reasoning costs. Excess verification spend: ${total_excess:.2f}."
-        ),
-        evidence={
-            "affected_jobs": [
-                {
-                    "job_id": r["job_id"],
-                    "verification_cost": round(float(r["verification_cost"]), 4),
-                    "reasoning_cost": round(float(r["reasoning_cost"]), 4),
-                }
-                for r in rows[:5]
-            ],
-            "total_jobs": len(rows),
-        },
-        job_count=len(rows),
-        total_waste_usd=total_excess,
-    )
-    return 1
-
-
-async def _analyse_compaction_storms(session: AsyncSession, repo: ObservationsRepo) -> int:
-    """Detect jobs with excessive context compactions.
-
-    Frequent compactions signal the agent is hitting context limits
-    repeatedly, wasting tokens and causing potential information loss.
-    """
-    result = await session.execute(
-        text("""
-            SELECT
-                job_id,
-                compactions,
-                tokens_compacted,
-                total_cost_usd,
-                total_turns
-            FROM job_telemetry_summary
-            WHERE compactions >= 5
-                AND created_at >= datetime('now', '-30 days')
-                AND status IN ('completed', 'failed')
-            ORDER BY compactions DESC
-            LIMIT 20
-        """)
-    )
-    rows = result.mappings().all()
+async def _analyse_compaction_storms(summary_repo: TelemetrySummaryRepo, obs_repo: ObservationsRepo) -> int:
+    """Detect jobs with excessive context compactions."""
+    rows = await summary_repo.compaction_storm_jobs()
     if len(rows) < 2:
         return 0
 
     total_tokens_wasted = sum(int(r["tokens_compacted"] or 0) for r in rows)
     max_compactions = max(int(r["compactions"] or 0) for r in rows)
-    await repo.upsert(
+    await obs_repo.upsert(
         category="compaction_storm",
         severity="warning" if max_compactions >= 10 else "info",
         title=f"Excessive compactions in {len(rows)} jobs",
@@ -329,39 +182,18 @@ async def _analyse_compaction_storms(session: AsyncSession, repo: ObservationsRe
     return 1
 
 
-async def _analyse_cache_efficiency_regression(session: AsyncSession, repo: ObservationsRepo) -> int:
-    """Detect drops in cache hit rate compared to the prior period.
-
-    Compares the cache read ratio (cache_read / input_tokens) for the
-    last 7 days against the prior 7 days.  A significant drop signals
-    a configuration issue, provider change, or prompt mutation.
-    """
-    result = await session.execute(
-        text("""
-            SELECT
-                SUM(CASE WHEN created_at >= datetime('now', '-7 days')
-                    THEN cache_read_tokens ELSE 0 END) as recent_cache,
-                SUM(CASE WHEN created_at >= datetime('now', '-7 days')
-                    THEN input_tokens ELSE 0 END) as recent_input,
-                SUM(CASE WHEN created_at < datetime('now', '-7 days')
-                         AND created_at >= datetime('now', '-14 days')
-                    THEN cache_read_tokens ELSE 0 END) as prior_cache,
-                SUM(CASE WHEN created_at < datetime('now', '-7 days')
-                         AND created_at >= datetime('now', '-14 days')
-                    THEN input_tokens ELSE 0 END) as prior_input
-            FROM job_telemetry_summary
-            WHERE created_at >= datetime('now', '-14 days')
-                AND status IN ('completed', 'failed')
-        """)
-    )
-    row = result.mappings().first()
+async def _analyse_cache_efficiency_regression(
+    summary_repo: TelemetrySummaryRepo, obs_repo: ObservationsRepo,
+) -> int:
+    """Detect drops in cache hit rate compared to the prior period."""
+    row = await summary_repo.cache_efficiency_periods()
     if not row:
         return 0
 
-    recent_input = int(row["recent_input"] or 0)
-    recent_cache = int(row["recent_cache"] or 0)
-    prior_input = int(row["prior_input"] or 0)
-    prior_cache = int(row["prior_cache"] or 0)
+    recent_input = int(row.get("recent_input") or 0)
+    recent_cache = int(row.get("recent_cache") or 0)
+    prior_input = int(row.get("prior_input") or 0)
+    prior_cache = int(row.get("prior_cache") or 0)
 
     # Need sufficient data in both periods
     if recent_input < 10000 or prior_input < 10000:
@@ -375,7 +207,7 @@ async def _analyse_cache_efficiency_regression(session: AsyncSession, repo: Obse
     if drop < 15:
         return 0
 
-    await repo.upsert(
+    await obs_repo.upsert(
         category="cache_regression",
         severity="warning" if drop >= 25 else "info",
         title=f"Cache hit rate dropped {drop:.0f}pp (last 7d vs prior 7d)",
