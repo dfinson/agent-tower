@@ -1147,7 +1147,7 @@ class RuntimeService:
             except Exception:
                 log.warning("sister_session_close_failed", job_id=job_id, exc_info=True)
         if self._approval_service is not None:
-            self._approval_service.cleanup_job(job_id)
+            await self._approval_service.cleanup_job(job_id)
         if self._diff_service is not None:
             self._diff_service.cleanup(job_id)
         self._start_snapshot_task(job_id)

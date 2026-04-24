@@ -37,6 +37,7 @@ class ApprovalService:
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
+        self._lock = asyncio.Lock()
         self._pending_futures: dict[str, asyncio.Future[str]] = {}
         self._approval_to_job: dict[str, str] = {}  # approval_id → job_id
         # approval_ids that require explicit operator approval and must not be
@@ -86,10 +87,11 @@ class ApprovalService:
         # Create a future the runtime can await
         loop = asyncio.get_running_loop()
         future: asyncio.Future[str] = loop.create_future()
-        self._pending_futures[approval_id] = future
-        self._approval_to_job[approval_id] = job_id
-        if requires_explicit_approval:
-            self._explicit_approval_ids.add(approval_id)
+        async with self._lock:
+            self._pending_futures[approval_id] = future
+            self._approval_to_job[approval_id] = job_id
+            if requires_explicit_approval:
+                self._explicit_approval_ids.add(approval_id)
 
         log.info(
             "approval_created",
@@ -115,9 +117,10 @@ class ApprovalService:
             await session.commit()
 
         # Resolve the in-memory future so the runtime unblocks
-        future = self._pending_futures.pop(approval_id, None)
-        self._approval_to_job.pop(approval_id, None)
-        self._explicit_approval_ids.discard(approval_id)
+        async with self._lock:
+            future = self._pending_futures.pop(approval_id, None)
+            self._approval_to_job.pop(approval_id, None)
+            self._explicit_approval_ids.discard(approval_id)
         if future is not None and not future.done():
             future.set_result(resolution)
 
@@ -130,7 +133,8 @@ class ApprovalService:
 
     async def wait_for_resolution(self, approval_id: str) -> str:
         """Block until the operator resolves the approval. Returns resolution string."""
-        future = self._pending_futures.get(approval_id)
+        async with self._lock:
+            future = self._pending_futures.get(approval_id)
         if future is None:
             raise ApprovalNotFoundError(f"No pending future for approval {approval_id}")
         return await future
@@ -147,24 +151,25 @@ class ApprovalService:
             repo = self._make_repo(session)
             return await repo.list_pending(job_id)
 
-    def cleanup_job(self, job_id: str) -> None:
+    async def cleanup_job(self, job_id: str) -> None:
         """Cancel any pending futures for a job (e.g. on job cancel/fail).
 
         Also marks orphaned DB approvals as denied so they don't accumulate
         as unresolved rows across restarts.
         """
-        self._trusted_jobs.discard(job_id)
-        to_remove = [
-            aid
-            for aid, fut in self._pending_futures.items()
-            if not fut.done() and self._approval_to_job.get(aid) == job_id
-        ]
-        for aid in to_remove:
-            fut = self._pending_futures.pop(aid, None)
-            self._approval_to_job.pop(aid, None)
-            self._explicit_approval_ids.discard(aid)
-            if fut is not None and not fut.done():
-                fut.cancel()
+        async with self._lock:
+            self._trusted_jobs.discard(job_id)
+            to_remove = [
+                aid
+                for aid, fut in self._pending_futures.items()
+                if not fut.done() and self._approval_to_job.get(aid) == job_id
+            ]
+            for aid in to_remove:
+                fut = self._pending_futures.pop(aid, None)
+                self._approval_to_job.pop(aid, None)
+                self._explicit_approval_ids.discard(aid)
+                if fut is not None and not fut.done():
+                    fut.cancel()
         if to_remove:
             # Best-effort DB cleanup — resolve orphaned approvals so they
             # don't remain as pending rows after a restart.
@@ -209,13 +214,14 @@ class ApprovalService:
 
         loop = asyncio.get_running_loop()
         recovered = 0
-        for approval in pending:
-            if approval.id in self._pending_futures:
-                continue  # already tracked (shouldn't happen, but defensive)
-            future: asyncio.Future[str] = loop.create_future()
-            self._pending_futures[approval.id] = future
-            self._approval_to_job[approval.id] = approval.job_id
-            recovered += 1
+        async with self._lock:
+            for approval in pending:
+                if approval.id in self._pending_futures:
+                    continue  # already tracked (shouldn't happen, but defensive)
+                future: asyncio.Future[str] = loop.create_future()
+                self._pending_futures[approval.id] = future
+                self._approval_to_job[approval.id] = approval.job_id
+                recovered += 1
 
         if recovered:
             log.info("approvals_recovered", count=recovered)
@@ -230,18 +236,19 @@ class ApprovalService:
 
         Returns the number of approvals that were auto-resolved.
         """
-        self._trusted_jobs.add(job_id)
+        async with self._lock:
+            self._trusted_jobs.add(job_id)
 
-        # Resolve all pending futures for this job, skipping explicit ones.
+            # Resolve all pending futures for this job, skipping explicit ones.
+            pending_ids = [
+                aid
+                for aid, jid in self._approval_to_job.items()
+                if jid == job_id
+                and aid in self._pending_futures
+                and not self._pending_futures[aid].done()
+                and aid not in self._explicit_approval_ids
+            ]
         resolved_count = 0
-        pending_ids = [
-            aid
-            for aid, jid in self._approval_to_job.items()
-            if jid == job_id
-            and aid in self._pending_futures
-            and not self._pending_futures[aid].done()
-            and aid not in self._explicit_approval_ids
-        ]
         for aid in pending_ids:
             try:
                 await self.resolve(aid, "approved")

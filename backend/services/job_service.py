@@ -421,6 +421,7 @@ class JobService:
             )
         except GitError as exc:
             now = datetime.now(UTC)
+            validate_state_transition(JobState.preparing, JobState.failed)
             await self._job_repo.update_state(job_id, JobState.failed, now)
             await self._job_repo.update_failure_reason(job_id, f"Worktree creation failed: {exc}")
             log.error("job_worktree_failed", job_id=job_id, error=str(exc))
@@ -432,6 +433,7 @@ class JobService:
         # Update the job with worktree info and transition to queued
         now = datetime.now(UTC)
         await self._job_repo.update_worktree(job_id, worktree_path, branch_name)
+        validate_state_transition(JobState.preparing, JobState.queued)
         await self._job_repo.update_state(job_id, JobState.queued, now)
 
         await _emit_progress("workspace_ready")
