@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
@@ -91,26 +92,37 @@ McpToolResult: TypeAlias = McpErrorDict | dict[str, Any]
 # Module-level service references, set once by create_mcp_server().
 # These are module-scoped rather than passed per-call because the MCP FastMCP
 # tool decorator captures free functions — there is no instance to bind to.
-# The assert-based accessors below ensure a clear error if called before init.
-_session_factory: async_sessionmaker[AsyncSession] | None = None
-_runtime_service: RuntimeService | None = None
-_approval_service: ApprovalService | None = None
-_sister_sessions: SisterSessionManager | None = None
+# Consolidated into a single dataclass so initialization is atomic.
+
+
+@dataclass(frozen=True)
+class MCPState:
+    """Immutable bundle of service references for the MCP server."""
+
+    session_factory: async_sessionmaker[AsyncSession]
+    runtime_service: RuntimeService
+    approval_service: ApprovalService
+    sister_sessions: SisterSessionManager | None = None
+
+
+_state: MCPState | None = None
+
+
+def _get_state() -> MCPState:
+    assert _state is not None, "MCP server not initialized"  # noqa: S101
+    return _state
 
 
 def _get_session_factory() -> async_sessionmaker[AsyncSession]:
-    assert _session_factory is not None, "MCP server not initialized"  # noqa: S101
-    return _session_factory
+    return _get_state().session_factory
 
 
 def _get_runtime() -> RuntimeService:
-    assert _runtime_service is not None, "MCP server not initialized"  # noqa: S101
-    return _runtime_service
+    return _get_state().runtime_service
 
 
 def _get_approval() -> ApprovalService:
-    assert _approval_service is not None, "MCP server not initialized"  # noqa: S101
-    return _approval_service
+    return _get_state().approval_service
 
 
 # ---------------------------------------------------------------------------
@@ -121,9 +133,10 @@ def _get_approval() -> ApprovalService:
 def _make_job_service(session: AsyncSession, config: CPLConfig, *, git: bool = True) -> JobService:
     from backend.services.naming_service import NamingService
 
+    state = _get_state()
     naming: NamingService | None = None
-    if _sister_sessions is not None:
-        naming = NamingService(_sister_sessions)
+    if state.sister_sessions is not None:
+        naming = NamingService(state.sister_sessions)
     return JobService(
         job_repo=JobRepository(session),
         git_service=GitService(config) if git else None,
@@ -175,11 +188,13 @@ def create_mcp_server(
     sister_sessions: SisterSessionManager | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server with all CodePlane tools."""
-    global _session_factory, _runtime_service, _approval_service, _sister_sessions  # noqa: PLW0603
-    _session_factory = session_factory
-    _runtime_service = runtime_service
-    _approval_service = approval_service
-    _sister_sessions = sister_sessions
+    global _state  # noqa: PLW0603
+    _state = MCPState(
+        session_factory=session_factory,
+        runtime_service=runtime_service,
+        approval_service=approval_service,
+        sister_sessions=sister_sessions,
+    )
 
     mcp = FastMCP(
         "CodePlane",
