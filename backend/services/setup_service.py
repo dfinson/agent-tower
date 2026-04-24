@@ -1013,20 +1013,20 @@ def diagnose_configuration(*, as_json: bool = False) -> bool:
         data = {
             "checks": [
                 {
-                    "label": r.label,
-                    "status": r.status.value,
-                    "detail": r.detail,
-                    "hint": r.hint,
-                    "category": r.category,
+                    "label": check.label,
+                    "status": check.status.value,
+                    "detail": check.detail,
+                    "hint": check.hint,
+                    "category": check.category,
                 }
-                for r in results
+                for check in results
             ],
-            "passed": sum(1 for r in results if r.status == CheckStatus.passed),
-            "warnings": sum(1 for r in results if r.status == CheckStatus.warn),
-            "failed": sum(1 for r in results if r.status == CheckStatus.fail),
+            "passed": sum(1 for check in results if check.status == CheckStatus.passed),
+            "warnings": sum(1 for check in results if check.status == CheckStatus.warn),
+            "failed": sum(1 for check in results if check.status == CheckStatus.fail),
         }
         print(_json.dumps(data, indent=2))  # noqa: T201
-        return not any(r.status == CheckStatus.fail for r in results)
+        return not any(check.status == CheckStatus.fail for check in results)
 
     _console.print()
     _console.print(Panel("[bold]CodePlane Doctor[/bold]", border_style="cyan", expand=False))

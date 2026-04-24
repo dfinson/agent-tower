@@ -29,7 +29,12 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
-from backend.services.base_adapter import BaseAgentAdapter, PermissionDecision
+from backend.services.base_adapter import (
+    COMPLETION_TIMEOUT_S,
+    STREAM_EVENT_TIMEOUT_S,
+    BaseAgentAdapter,
+    PermissionDecision,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -854,7 +859,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         try:
             while True:
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=330)
+                    event = await asyncio.wait_for(queue.get(), timeout=STREAM_EVENT_TIMEOUT_S)
                 except TimeoutError:
                     # Consumer hung or sentinel was lost — treat as stream end.
                     log.error(
@@ -971,7 +976,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                         result_meta["model"] = getattr(message, "model", "") or ""
                         break
 
-            await asyncio.wait_for(_run_query(), timeout=180)
+            await asyncio.wait_for(_run_query(), timeout=COMPLETION_TIMEOUT_S)
         except TimeoutError:
             log.warning("claude_complete_timeout", prompt_len=len(prompt))
         except Exception:

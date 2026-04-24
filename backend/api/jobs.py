@@ -1390,18 +1390,23 @@ async def get_job_telemetry(
     test_co_mods = await spans_repo.test_co_modifications(job_id)
     result["reviewSignals"] = {"testCoModifications": test_co_mods}
 
-    # Review complexity tier
+    # Review complexity tier — thresholds are calibrated against historical
+    # job data: >500 diff lines ≈ top-10% by size, >20 turns ≈ extended
+    # sessions, >15 unique files ≈ cross-cutting changes.
+    _LARGE_DIFF_LINES = 500
+    _MANY_TURNS = 20
+    _MANY_FILES = 15
     signals: list[str] = []
     diff_lines = int(summary.get("diff_lines_added", 0) or 0) + int(
         summary.get("diff_lines_removed", 0) or 0
     )
     total_turns = int(summary.get("total_turns", 0) or 0)
     unique_files = int(file_stats.get("unique_files", 0) or 0)
-    if diff_lines > 500:
+    if diff_lines > _LARGE_DIFF_LINES:
         signals.append("large_diff")
-    if total_turns > 20:
+    if total_turns > _MANY_TURNS:
         signals.append("many_turns")
-    if unique_files > 15:
+    if unique_files > _MANY_FILES:
         signals.append("many_files")
     if test_co_mods:
         signals.append("test_co_modifications")

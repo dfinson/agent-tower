@@ -125,7 +125,7 @@ class EventRepository(BaseRepository):
             EventRow.kind == DomainEventKind.transcript_updated.value,
         )
         if roles:
-            role_conditions = [EventRow.payload.contains(f'"role": "{r}"') for r in roles]
+            role_conditions = [EventRow.payload.contains(f'"role": "{role}"') for role in roles]
             stmt = stmt.where(or_(*role_conditions))
         if step_id:
             stmt = stmt.where(EventRow.payload.contains(f'"step_id": "{step_id}"'))

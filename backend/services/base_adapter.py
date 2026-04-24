@@ -36,10 +36,25 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+# ---------------------------------------------------------------------------
+# Shared adapter constants
+# ---------------------------------------------------------------------------
+
 # Truncation limits for approval action payloads and tool summaries
 _TOOL_ACTION_MAX = 2000
 _TOOL_SUMMARY_MAX = 200
 _TOOL_SUMMARY_FALLBACK = 120
+
+# SDK event stream queue timeout: if no event arrives within this window the
+# stream is considered stale.  330s accommodates long LLM generations plus a
+# safety margin over the typical ~300s provider timeout.
+STREAM_EVENT_TIMEOUT_S = 330
+
+# Single-turn completion timeout used by the `complete()` helper.
+COMPLETION_TIMEOUT_S = 180
+
+# Grace period for stopping a running SDK client process.
+CLIENT_STOP_TIMEOUT_S = 10
 
 
 class PermissionDecision(StrEnum):
