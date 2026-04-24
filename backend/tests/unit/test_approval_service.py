@@ -150,7 +150,7 @@ class TestCleanupJob:
         a1 = await svc.create_request("job-1", "Check 1?")
         a2 = await svc.create_request("job-1", "Check 2?")
         a3 = await svc.create_request("job-2", "Other?")
-        svc.cleanup_job("job-1")
+        await svc.cleanup_job("job-1")
         assert svc._pending_futures.get(a1.id) is None
         assert svc._pending_futures.get(a2.id) is None
         # job-2 should be unaffected
@@ -161,7 +161,7 @@ class TestCleanupJob:
     async def test_cleanup_removes_explicit_approval_ids(self, svc: ApprovalService) -> None:
         a1 = await svc.create_request("job-1", "git reset --hard?", requires_explicit_approval=True)
         assert a1.id in svc._explicit_approval_ids
-        svc.cleanup_job("job-1")
+        await svc.cleanup_job("job-1")
         assert a1.id not in svc._explicit_approval_ids
 
 
@@ -201,3 +201,55 @@ class TestTrustJob:
     async def test_normal_approval_not_explicit(self, svc: ApprovalService) -> None:
         a = await svc.create_request("job-1", "Regular action?")
         assert a.requires_explicit_approval is False
+
+
+class TestConcurrentApprovals:
+    """Verify the asyncio.Lock prevents race conditions under concurrent access."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_create_and_resolve(self, svc: ApprovalService) -> None:
+        """Create and immediately resolve approvals concurrently."""
+        a1 = await svc.create_request("job-1", "Action 1")
+        a2 = await svc.create_request("job-1", "Action 2")
+
+        async def resolve_one(aid: str) -> str:
+            resolved = await svc.resolve(aid, "approved")
+            return resolved.resolution  # type: ignore[return-value]
+
+        results = await asyncio.gather(resolve_one(a1.id), resolve_one(a2.id))
+        assert set(results) == {"approved"}
+        assert len(svc._pending_futures) == 0
+
+    @pytest.mark.asyncio
+    async def test_concurrent_create_and_cleanup(self, svc: ApprovalService) -> None:
+        """Create approvals while cleanup runs concurrently."""
+        a1 = await svc.create_request("job-1", "Action 1")
+
+        async def create_another() -> str:
+            a = await svc.create_request("job-1", "Action 2")
+            return a.id
+
+        async def cleanup() -> None:
+            await svc.cleanup_job("job-1")
+
+        # Run create and cleanup concurrently — neither should raise
+        new_id, _ = await asyncio.gather(create_another(), cleanup())
+        # The new approval may or may not have been cleaned up depending on
+        # scheduling, but the data structures must be consistent
+        remaining = {
+            aid for aid, jid in svc._approval_to_job.items() if jid == "job-1"
+        }
+        for aid in remaining:
+            assert aid in svc._pending_futures
+
+    @pytest.mark.asyncio
+    async def test_concurrent_trust_and_create(self, svc: ApprovalService) -> None:
+        """Trust a job while new approvals are being created."""
+        await svc.create_request("job-1", "Existing action")
+
+        async def create_more() -> None:
+            await svc.create_request("job-1", "New action")
+
+        resolved, _ = await asyncio.gather(svc.trust_job("job-1"), create_more())
+        # At least the first approval should have been resolved
+        assert resolved >= 1

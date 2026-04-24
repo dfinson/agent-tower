@@ -109,7 +109,7 @@ class TestApprovalFlowIntegration:
 
         task = asyncio.create_task(wait_and_catch())
         await asyncio.sleep(0.01)
-        svc.cleanup_job("job-1")
+        await svc.cleanup_job("job-1")
         result = await task
         assert result == "cancelled"
 

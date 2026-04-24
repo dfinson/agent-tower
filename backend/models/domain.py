@@ -57,7 +57,21 @@ class Resolution(StrEnum):
     conflict = "conflict"
 
 
-# Valid state transitions: (from_state) -> set of valid to_states
+# Job state machine — authoritative transition table (see SPEC.md §12.2).
+#
+#   None ──► preparing ──► queued ──► running ──► review ──► completed
+#                │            │          │  ▲        │  ▲        │
+#                ▼            ▼          ▼  │        ▼  │        ▼
+#             failed      canceled   waiting_for_approval     running
+#               │                        │                      │
+#               ▼                        ▼                      ▼
+#            running                  canceled               running
+#
+# Terminal states (completed, failed, canceled) allow transition back
+# to running for job resumption.
+#
+# Enforced by validate_state_transition(); all external callers go
+# through JobService.transition_state().
 _VALID_TRANSITIONS: dict[str | None, set[str]] = {
     None: {JobState.preparing, JobState.running, JobState.queued},
     JobState.preparing: {JobState.queued, JobState.failed, JobState.canceled},
