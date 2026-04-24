@@ -11,11 +11,18 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import structlog
 
 from backend.models.events import DomainEventKind
+
+
+class TranscriptTurn(TypedDict):
+    role: str
+    content: str
+    timestamp: str
+
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -245,7 +252,7 @@ class SummarizationService:
                 changed_files = _extract_changed_files(diff_events)
 
                 # Build cleaned turns — keep assistant content + tool metadata, drop noise
-                turns: list[dict[str, object]] = []
+                turns: list[TranscriptTurn] = []
                 seen: set[str] = set()
                 for ev in transcript_events:
                     role = ev.payload.get("role", "")
@@ -326,7 +333,7 @@ class SummarizationService:
 # ---------------------------------------------------------------------------
 
 
-def _clean_transcript(events: list) -> list[dict]:  # type: ignore[type-arg]
+def _clean_transcript(events: list) -> list[TranscriptTurn]:  # type: ignore[type-arg]
     """Filter and deduplicate transcript events, keeping only agent+operator turns."""
     seen: set[str] = set()
     result = []
@@ -363,7 +370,7 @@ def _clean_transcript(events: list) -> list[dict]:  # type: ignore[type-arg]
     return result
 
 
-def _format_transcript(turns: list[dict]) -> str:  # type: ignore[type-arg]
+def _format_transcript(turns: list[TranscriptTurn]) -> str:
     parts = []
     for i, turn in enumerate(turns, 1):
         parts.append(f"[{i}] {turn['role'].upper()}: {turn['content']}")

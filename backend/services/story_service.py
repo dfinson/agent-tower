@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import structlog
 
@@ -25,6 +25,39 @@ if TYPE_CHECKING:
     from backend.services.naming_service import Completable
 
 log = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Internal typed dicts for story data shapes
+# ---------------------------------------------------------------------------
+
+
+class StoryReference(TypedDict, total=False):
+    spanId: str
+    file: str
+    why: str
+    stepNumber: int | None
+    stepTitle: str
+    turnId: str
+    editCount: int
+
+
+class StoryContext(TypedDict, total=False):
+    job: dict[str, Any]
+    telemetry: dict[str, Any]
+    approvals: list[dict[str, Any]]
+
+
+class StoryBlock(TypedDict, total=False):
+    type: str
+    text: str
+    spanId: str
+    file: str
+    why: str
+    stepNumber: int | None
+    stepTitle: str
+    turnId: str
+    editCount: int
 
 # ---------------------------------------------------------------------------
 # Prompt
@@ -108,7 +141,7 @@ def _truncate(s: str | None, max_len: int) -> str:
 
 async def _build_references(
     session: "AsyncSession", job_id: str,
-) -> list[dict[str, Any]]:
+) -> list[StoryReference]:
     """Build validated reference dicts from file_write spans, chronologically."""
     from sqlalchemy import text
 
@@ -135,7 +168,7 @@ async def _build_references(
     # Deduplicate by file+step — keep latest per group.
     # When file or step_number is NULL, fall back to span_id so that
     # unrelated NULL-keyed spans are never falsely merged.
-    seen: dict[str, dict[str, Any]] = {}
+    seen: dict[str, StoryReference] = {}
     for r in rows.mappings():
         file_val = r["file"] or ""
         step_val = r["step_number"]
@@ -143,7 +176,7 @@ async def _build_references(
             key = f"__span_{r['span_id']}"
         else:
             key = f"{file_val}|{step_val}"
-        ref: dict[str, Any] = {
+        ref: StoryReference = {
             "spanId": r["span_id"],
             "file": r["file"] or "",
             "why": _truncate(r["why"], 200),
@@ -169,12 +202,12 @@ async def _build_references(
 # Context collection (non-reference metadata for the prompt)
 # ---------------------------------------------------------------------------
 
-async def _collect_context(session: "AsyncSession", job_id: str) -> dict[str, Any]:
+async def _collect_context(session: "AsyncSession", job_id: str) -> StoryContext:
     """Gather lightweight context metadata (no file_write spans — those are
     handled by ``_build_references``)."""
     from sqlalchemy import text
 
-    ctx: dict[str, Any] = {}
+    ctx: StoryContext = {}
 
     # Job metadata
     row = await session.execute(
@@ -219,7 +252,7 @@ async def _collect_context(session: "AsyncSession", job_id: str) -> dict[str, An
 # ---------------------------------------------------------------------------
 
 def _build_prompt(
-    refs: list[dict[str, Any]], ctx: dict[str, Any],
+    refs: list[StoryReference], ctx: StoryContext,
 ) -> str:
     """Build the user prompt listing numbered changes + context."""
     parts: list[str] = []
@@ -265,10 +298,10 @@ _MARKER_RE = re.compile(r"\[\[(\d+)\]\]")
 
 
 def _parse_blocks(
-    raw: str, refs: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    raw: str, refs: list[StoryReference],
+) -> list[StoryBlock]:
     """Split LLM output on ``[[N]]`` markers into narrative + reference blocks."""
-    blocks: list[dict[str, Any]] = []
+    blocks: list[StoryBlock] = []
     last_end = 0
     referenced: set[int] = set()
 
