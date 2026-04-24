@@ -31,6 +31,7 @@ from backend.config import (
 from backend.models.db import Base
 from backend.models.domain import (
     Job,
+    JobSpec,
     JobState,
     PermissionMode,
     Resolution,
@@ -293,19 +294,21 @@ async def test_create_followup_job_uses_parent_handoff_context(runtime: RuntimeS
     assert result is child
     assert fake_service.get_job.await_args_list[0].args == ("parent",)
     fake_service.create_job.assert_awaited_once_with(
-        repo=parent.repo,
-        prompt="Add regression coverage",
-        base_ref=parent.base_ref,
-        permission_mode=PermissionMode.observe_only,
-        model="gpt-5.4",
-        sdk="claude",
-        verify=True,
-        self_review=True,
-        max_turns=4,
-        verify_prompt="Verify this carefully",
-        self_review_prompt="Review your work",
-        parent_job_id="parent",
-        parent_job_context="This is a follow-up task continuing work from 'parent' (parent job: parent).",
+        JobSpec(
+            repo=parent.repo,
+            prompt="Add regression coverage",
+            base_ref=parent.base_ref,
+            permission_mode=PermissionMode.observe_only,
+            model="gpt-5.4",
+            sdk="claude",
+            verify=True,
+            self_review=True,
+            max_turns=4,
+            verify_prompt="Verify this carefully",
+            self_review_prompt="Review your work",
+            parent_job_id="parent",
+            parent_job_context="This is a follow-up task continuing work from 'parent' (parent job: parent).",
+        )
     )
     runtime.start_or_enqueue.assert_awaited_once_with(child, override_prompt="FOLLOWUP HANDOFF")
     assert fake_service.get_job.await_args_list[1].args == ("child",)

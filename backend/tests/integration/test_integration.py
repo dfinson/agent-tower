@@ -11,6 +11,7 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import CPLConfig
+from backend.models.domain import JobSpec
 from backend.models.db import Base
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
@@ -233,7 +234,7 @@ class TestJobStateMachineIntegration:
             git.create_worktree = AsyncMock(return_value=("/test/worktree", "fix/branch"))
 
             svc = JobService(job_repo=JobRepository(session), git_service=git, config=config)
-            job = await svc.create_job(repo="/test/repo", prompt="Fix bug")
+            job = await svc.create_job(JobSpec(repo="/test/repo", prompt="Fix bug"))
             await session.commit()
 
             # List
@@ -256,7 +257,7 @@ class TestJobStateMachineIntegration:
             git.create_worktree = AsyncMock(return_value=("/test/worktree", "fix/b"))
 
             svc = JobService(job_repo=JobRepository(session), git_service=git, config=config)
-            job = await svc.create_job(repo="/test/repo", prompt="Fix bug")
+            job = await svc.create_job(JobSpec(repo="/test/repo", prompt="Fix bug"))
             await session.commit()
 
             cancelled = await svc.cancel_job(job.id)
