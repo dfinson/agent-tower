@@ -15,7 +15,7 @@ dependencies = [
     "aiosqlite>=0.20,<1",
     "alembic>=1.14,<2",
     # Agent SDK
-    "github-copilot-sdk>=0.1,<1",
+    "github-copilot-sdk~=0.1.32",
     # Structured logging
     "structlog>=24.0,<26",
     # Terminal UI
@@ -35,10 +35,10 @@ dependencies = [
     "qrcode>=7.0,<9",
     # Voice
     "faster-whisper>=1.1,<2",
-    "claude-code-sdk>=0.0.25,<1",
+    "claude-code-sdk~=0.0.25",
     "dishka[fastapi]>=1.9.1",
-    "opentelemetry-api>=1.20",
-    "opentelemetry-sdk>=1.20",
+    "opentelemetry-api>=1.20,<2",
+    "opentelemetry-sdk>=1.20,<2",
     "tiktoken>=0.12.0",
     "anthropic-tokenizer>=0.1.0",
     "pyjwt[crypto]>=2.12.0",
