@@ -66,23 +66,26 @@ def _model_comparison_rows() -> list[dict[str, object]]:
 def _job_context_data() -> dict[str, object]:
     return {
         "job": {
-            "job_id": "j-1",
-            "cost_usd": 0.30,
-            "duration_ms": 100_000,
-            "tool_calls": 12,
-            "tokens": 50_000,
-            "model": "claude-sonnet-4-20250514",
+            "cost": 0.30,
+            "durationMs": 100_000,
+            "diffLinesAdded": 10,
+            "diffLinesRemoved": 5,
             "sdk": "claude",
+            "model": "claude-sonnet-4-20250514",
+            "totalTurns": 12,
+            "peakTurnCostUsd": 0.05,
+            "avgTurnCostUsd": 0.025,
+            "costFirstHalfUsd": 0.12,
+            "costSecondHalfUsd": 0.18,
         },
-        "repo_avg": {
-            "avg_cost_usd": 0.25,
-            "avg_duration_ms": 95_000,
-            "avg_tool_calls": 10,
-            "avg_tokens": 45_000,
-            "job_count": 8,
+        "repoAvg": {
+            "jobCount": 8,
+            "avgCost": 0.25,
+            "avgDurationMs": 95_000,
+            "avgDiffLines": 15,
         },
         "flags": [
-            {"label": "Above avg cost", "level": "warning", "detail": "30% above repo avg"},
+            {"type": "turn_escalation", "message": "Cost escalation: 60% of spend in second half"},
         ],
     }
 
@@ -194,15 +197,16 @@ async def test_job_context_returns_job_data():
 
         result = await analytics_job_context(job_id="j-1", session=session)
 
-    assert result["job"]["job_id"] == "j-1"  # type: ignore[index]
-    assert result["repo_avg"]["avg_cost_usd"] == 0.25  # type: ignore[index]
-    assert len(result["flags"]) == 1
-    assert result["flags"][0]["level"] == "warning"  # type: ignore[index]
+    assert result.job.cost == 0.30
+    assert result.repo_avg is not None
+    assert result.repo_avg.avg_cost == 0.25
+    assert len(result.flags) == 1
+    assert result.flags[0].type == "turn_escalation"
 
 
 @pytest.mark.asyncio
 async def test_job_context_returns_error_on_missing():
-    """analytics_job_context returns error dict when telemetry is not found."""
+    """analytics_job_context raises HTTPException when telemetry is not found."""
     session = AsyncMock()
 
     mock_repo_instance = SimpleNamespace(
@@ -213,11 +217,14 @@ async def test_job_context_returns_error_on_missing():
         "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepo",
         return_value=mock_repo_instance,
     ):
+        from fastapi import HTTPException
+
         from backend.api.analytics import analytics_job_context
 
-        result = await analytics_job_context(job_id="nonexistent", session=session)
+        with pytest.raises(HTTPException) as exc_info:
+            await analytics_job_context(job_id="nonexistent", session=session)
 
-    assert "error" in result
+    assert exc_info.value.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +255,7 @@ async def test_fleet_cost_drivers_confidence_annotation():
 
         result = await fleet_cost_drivers(session=session, period=30, dimension=None)
 
-    summary = result["summary"]
+    summary = result.summary
     assert len(summary) == 3
     # Activity rows get "approximate"
     assert summary[0]["confidence"] == "approximate"

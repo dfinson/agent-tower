@@ -834,6 +834,134 @@ class ModelComparisonResponse(CamelModel):
     models: list[ModelComparisonRow] = []
 
 
+# ---------------------------------------------------------------------------
+# Analytics response models (typed replacements for raw-dict endpoints)
+# ---------------------------------------------------------------------------
+
+
+class CostTrendPoint(CamelModel):
+    date: str
+    cost_usd: float = 0.0
+
+
+class AnalyticsOverviewResponse(CamelModel):
+    period: int
+    total_jobs: int = 0
+    succeeded: int = 0
+    review: int = 0
+    completed: int = 0
+    failed: int = 0
+    cancelled: int = 0
+    running: int = 0
+    total_cost_usd: float = 0.0
+    total_tokens: int = 0
+    avg_duration_ms: float = 0.0
+    total_premium_requests: float = 0.0
+    total_tool_calls: int = 0
+    total_tool_failures: int = 0
+    total_agent_errors: int = 0
+    total_tool_errors: int = 0
+    tool_success_rate: float = 0.0
+    cache_hit_rate: float = 0.0
+    cost_trend: list[dict[str, object]] = []
+    total_subagent_cost_usd: float = 0.0
+    total_retry_cost_usd: float = 0.0
+    total_retry_count: int = 0
+
+
+class AnalyticsModelsResponse(CamelModel):
+    period: int
+    models: list[dict[str, object]] = []
+
+
+class AnalyticsToolsResponse(CamelModel):
+    period: int
+    tools: list[dict[str, object]] = []
+
+
+class AnalyticsReposResponse(CamelModel):
+    period: int
+    repos: list[dict[str, object]] = []
+
+
+class AnalyticsJobsResponse(CamelModel):
+    period: int
+    jobs: list[dict[str, object]] = []
+
+
+class CostDriversJobResponse(CamelModel):
+    job_id: str
+    dimensions: dict[str, list[dict[str, object]]] = {}
+
+
+class FleetCostDriversResponse(CamelModel):
+    period: int
+    dimension: str | None = None
+    buckets: list[dict[str, object]] | None = None
+    summary: list[dict[str, object]] | None = None
+
+
+class FileAccessJobResponse(CamelModel):
+    job_id: str
+    stats: dict[str, object] = {}
+    top_files: list[dict[str, object]] = []
+
+
+class FleetFileAccessResponse(CamelModel):
+    period: int
+    top_files: list[dict[str, object]] = []
+
+
+class TurnEconomicsResponse(CamelModel):
+    job_id: str
+    total_turns: int = 0
+    peak_turn_cost_usd: float = 0.0
+    avg_turn_cost_usd: float = 0.0
+    cost_first_half_usd: float = 0.0
+    cost_second_half_usd: float = 0.0
+    turn_curve: list[dict[str, object]] = []
+
+
+class ObservationsListResponse(CamelModel):
+    observations: list[dict[str, object]] = []
+
+
+class DismissResponse(CamelModel):
+    status: str
+
+
+class TriggerAnalysisResponse(CamelModel):
+    observations_written: int
+
+
+class ShellCommandsResponse(CamelModel):
+    period: int
+    commands: list[dict[str, object]] = []
+
+
+class RetryCostResponse(CamelModel):
+    period: int
+    retry_cost_usd: float = 0.0
+    retry_count: int = 0
+    total_spans: int = 0
+    total_cost_usd: float = 0.0
+    retry_pct: float = 0.0
+
+
+class EditEfficiencyCategory(CamelModel):
+    activity: str = ""
+    edit_turns: int = 0
+    one_shot_turns: int = 0
+    retries: int = 0
+    one_shot_rate: float = 0.0
+    job_count: int = 0
+
+
+class EditEfficiencyResponse(CamelModel):
+    period: int
+    categories: list[EditEfficiencyCategory] = []
+
+
 class JobContextFlag(CamelModel):
     type: str
     message: str
