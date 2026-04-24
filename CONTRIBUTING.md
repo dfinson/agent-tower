@@ -214,6 +214,31 @@ codeplane/
 - **Strict typing** — mypy strict mode (backend), TypeScript strict mode (frontend)
 - **Linting** — ruff (backend), ESLint (frontend)
 
+## Dependencies
+
+This project uses **uv** for all Python dependency management. Never use bare `pip` or `pip install`.
+
+### Version pinning policy
+
+- **Stable libraries** (FastAPI, SQLAlchemy, Pydantic, etc.) use compatible-release ranges bounded by the next major version, e.g. `>=2.0,<3`.
+- **Early-stage SDKs** (`claude-code-sdk`, `github-copilot-sdk`) use `~=` compatible-release specifiers pinned to the tested minor/patch version (e.g. `~=0.0.25`). These SDKs are pre-1.0 and may introduce breaking changes in any release.
+- **All dependencies** are locked in `uv.lock`. The lock file is the source of truth for reproducible builds.
+
+### Upgrading dependencies
+
+```bash
+# Upgrade a specific package
+uv add "claude-code-sdk~=0.1.0"   # updates pyproject.toml + uv.lock
+
+# Re-lock everything
+uv lock --upgrade
+
+# Verify lock file matches pyproject.toml
+uv lock --check
+```
+
+After upgrading early-stage SDKs, run the full test suite and verify adapter compatibility before committing.
+
 ## Commit Messages
 
 Use [conventional commits](https://www.conventionalcommits.org/):
