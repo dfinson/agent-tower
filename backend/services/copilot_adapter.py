@@ -16,7 +16,13 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
-from backend.services.base_adapter import BaseAgentAdapter, PermissionDecision
+from backend.services.base_adapter import (
+    CLIENT_STOP_TIMEOUT_S,
+    COMPLETION_TIMEOUT_S,
+    STREAM_EVENT_TIMEOUT_S,
+    BaseAgentAdapter,
+    PermissionDecision,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -89,7 +95,7 @@ class CopilotAdapter(BaseAgentAdapter):
     async def _stop_client(client: Any) -> None:  # noqa: ANN401
         """Stop a CopilotClient, terminating its CLI server process."""
         try:
-            await asyncio.wait_for(client.stop(), timeout=10)
+            await asyncio.wait_for(client.stop(), timeout=CLIENT_STOP_TIMEOUT_S)
         except TimeoutError:
             log.warning("copilot_client_stop_timeout_forcing")
             with contextlib.suppress(Exception):
@@ -837,12 +843,12 @@ class CopilotAdapter(BaseAgentAdapter):
         try:
             while True:
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=330)
+                    event = await asyncio.wait_for(queue.get(), timeout=STREAM_EVENT_TIMEOUT_S)
                 except TimeoutError:
                     log.error("copilot_stream_queue_timeout", session_id=session_id)
                     yield SessionEvent(
                         kind=SessionEventKind.error,
-                        payload={"message": "Copilot SDK stream timed out (no events for 330s)"},
+                        payload={"message": f"Copilot SDK stream timed out (no events for {STREAM_EVENT_TIMEOUT_S}s)"},
                     )
                     return
                 if event is None:
@@ -927,7 +933,7 @@ class CopilotAdapter(BaseAgentAdapter):
             session.on(_on_event)
             await session.send({"prompt": prompt, "mode": "immediate", "attachments": []})
             try:
-                await asyncio.wait_for(done_event.wait(), timeout=180)
+                await asyncio.wait_for(done_event.wait(), timeout=COMPLETION_TIMEOUT_S)
             except TimeoutError:
                 log.warning("complete_timeout")
             return CompletionResult(text="\n".join(collected))

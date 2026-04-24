@@ -164,13 +164,13 @@ def _refresh_jwks(*, force: bool = False) -> None:
         req = urllib.request.Request(_certs_url, method="GET")
         req.add_header("User-Agent", "cpl-cfaccess/1.0")
         resp = urllib.request.urlopen(req, timeout=10)  # noqa: S310
-        data = json.loads(resp.read())
+        jwks = json.loads(resp.read())
     except Exception as exc:
         if force:
             raise CfAccessConfigError(f"Failed to fetch Cloudflare Access JWKS from {_certs_url}: {exc}") from exc
         return
 
-    keys = data.get("keys")
+    keys = jwks.get("keys")
     if not isinstance(keys, list) or not keys:
         if force:
             raise CfAccessConfigError(

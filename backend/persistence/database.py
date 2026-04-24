@@ -13,6 +13,19 @@ from backend.config import CODEPLANE_DIR, DEFAULT_DB_PATH
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+# SQLite busy_timeout: how long a connection waits for a locked database
+# before raising OperationalError. 5000ms accommodates concurrent writers
+# in WAL mode without excessive blocking.
+_SQLITE_BUSY_TIMEOUT_MS = 5000
+
+# SQLAlchemy connection pool sizing for the async SQLite engine.
+# pool_size=10 connections handle typical concurrent request load;
+# max_overflow=20 extra connections absorb burst traffic;
+# pool_timeout=60s prevents requests from waiting indefinitely.
+_POOL_SIZE = 10
+_POOL_MAX_OVERFLOW = 20
+_POOL_TIMEOUT_S = 60
+
 
 def get_database_url(db_path: Path | None = None) -> str:
     """Build the async SQLite database URL."""
@@ -25,14 +38,16 @@ def _set_sqlite_pragmas(dbapi_conn: Any, _connection_record: Any) -> None:
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
     cursor.close()
 
 
 def create_engine(db_path: Path | None = None) -> AsyncEngine:
     """Create an async SQLAlchemy engine."""
     url = get_database_url(db_path)
-    engine = create_async_engine(url, echo=False, pool_size=10, max_overflow=20, pool_timeout=60)
+    engine = create_async_engine(
+        url, echo=False, pool_size=_POOL_SIZE, max_overflow=_POOL_MAX_OVERFLOW, pool_timeout=_POOL_TIMEOUT_S,
+    )
     sa_event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
     return engine
 
