@@ -137,9 +137,18 @@ class PermissionMode(StrEnum):
     @classmethod
     def _missing_(cls, value: object) -> PermissionMode | None:
         """Accept legacy names so existing configs and DB rows keep working."""
+        import warnings
+
         legacy = {"auto": cls.full_auto, "read_only": cls.observe_only, "approval_required": cls.review_and_approve}
         if isinstance(value, str):
-            return legacy.get(value)
+            result = legacy.get(value)
+            if result is not None:
+                warnings.warn(
+                    f"PermissionMode '{value}' is deprecated, use '{result.value}' instead",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+            return result
         return None
 
 
