@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.models.domain import JobState
+from backend.models.domain import JobSpec, JobState
 from backend.services.git_service import GitError
 from backend.services.job_service import JobService
 
@@ -89,7 +89,7 @@ class TestJobCreationCompensation:
             patch.object(svc, "validate_repo", return_value="/repos/test"),
             pytest.raises(Exception, match="DB write failed"),
         ):
-            await svc.create_job(repo="/repos/test", prompt="Fix the bug")
+            await svc.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
 
         # No worktree was created, so no cleanup needed
         git_service.create_worktree.assert_not_called()
@@ -115,7 +115,7 @@ class TestJobCreationCompensation:
         )
 
         with patch.object(svc, "validate_repo", return_value="/repos/test"):
-            job = await svc.create_job(repo="/repos/test", prompt="Fix the bug")
+            job = await svc.create_job(JobSpec(repo="/repos/test", prompt="Fix the bug"))
 
         assert job.state == JobState.preparing
         # No worktree created during create_job phase

@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
     from backend.models.domain import Job
 
-from backend.models.domain import JobState, PermissionMode, Resolution
+from backend.models.domain import JobSpec, JobState, PermissionMode, Resolution
 
 router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
 
@@ -199,7 +199,7 @@ async def create_job(
     """
     import asyncio
 
-    job = await svc.create_job(
+    job = await svc.create_job(JobSpec(
         repo=body.repo,
         prompt=body.prompt,
         base_ref=body.base_ref,
@@ -215,7 +215,7 @@ async def create_job(
         max_turns=body.max_turns,
         verify_prompt=body.verify_prompt,
         self_review_prompt=body.self_review_prompt,
-    )
+    ))
 
     # Commit so the job row is visible to background tasks (separate sessions)
     await session.commit()

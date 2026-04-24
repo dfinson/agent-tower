@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
-    from backend.models.domain import Job
+    from backend.models.domain import Job, JobSpec
     from backend.services.approval_service import ApprovalService
     from backend.services.runtime_service import RuntimeService
     from backend.services.sister_session import SisterSessionManager
@@ -243,14 +243,16 @@ def _register_job_tool(mcp: FastMCP) -> None:
             async with sf() as session:
                 svc = _make_job_service(session, config)
                 try:
-                    job = await svc.create_job(
+                    from backend.models.domain import JobSpec
+
+                    job = await svc.create_job(JobSpec(
                         repo=repo,
                         prompt=prompt,
                         base_ref=base_ref,
                         branch=branch,
                         model=model,
                         sdk=sdk,
-                    )
+                    ))
                 except RepoNotAllowedError as exc:
                     return {"error": str(exc)}
                 except SDKModelMismatchError as exc:

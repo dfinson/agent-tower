@@ -17,6 +17,7 @@ from backend.models.domain import (
     TERMINAL_STATES,
     InvalidStateTransitionError,
     Job,
+    JobSpec,
     JobState,
     PermissionMode,
     Resolution,
@@ -172,54 +173,23 @@ class JobService:
             raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")
         return resolved
 
-    async def create_job(
+    async def _resolve_job_name(
         self,
-        repo: str,
-        prompt: str,
-        base_ref: str | None = None,
-        branch: str | None = None,
-        title: str | None = None,
-        description: str | None = None,
-        worktree_name: str | None = None,
-        permission_mode: PermissionMode = PermissionMode.full_auto,
-        model: str | None = None,
-        sdk: str | None = None,
-        verify: bool | None = None,
-        self_review: bool | None = None,
-        max_turns: int | None = None,
-        verify_prompt: str | None = None,
-        self_review_prompt: str | None = None,
-        parent_job_id: str | None = None,
-        parent_job_context: str | None = None,
-    ) -> Job:
-        """Create a new job record in ``preparing`` state.
+        spec: JobSpec,
+        resolved_repo: str,
+    ) -> tuple[str | None, str | None, str | None, str | None]:
+        """Resolve title, description, branch, and worktree_name for a new job.
 
-        Performs naming (LLM or pre-computed) and persists the job row, but
-        does **not** create the worktree or start the agent.  Call
-        :meth:`setup_workspace` in a background task to complete preparation.
+        Uses pre-computed names from the frontend if available, falls back to
+        LLM naming, and finally to a hash-based fallback.
 
-        The job ID is the LLM-generated worktree name (e.g. "fix-login-bug").
-        Naming is blocking: the LLM generates title, branch, and worktree name
-        before the job is persisted. If naming fails, NamingError is raised
-        and a failed job record is persisted with a hash-based ID.
-
-        Returns the created Job domain object.
-        Raises RepoNotAllowedError if the repo is not in the allowlist.
+        Returns (title, description, branch, worktree_name).
+        Raises NamingError (from naming_service) if LLM naming fails.
         """
-        resolved_repo = self.validate_repo(repo)
-
-        assert self._git is not None, "GitService required for job creation"
-
-        resolved_sdk = sdk or self._config.runtime.default_sdk
-
-        # Validate SDK-model compatibility upfront
-        validate_sdk_model(resolved_sdk, model)
-
-        # Determine base_ref
-        if base_ref is None:
-            base_ref = await self._git.get_default_branch(resolved_repo)
-
-        now = datetime.now(UTC)
+        title = spec.title
+        description = spec.description
+        worktree_name = spec.worktree_name
+        branch = spec.branch
 
         # When the frontend has pre-computed names via suggest-names, we can
         # skip the expensive LLM round-trip entirely.  We only need collision
@@ -240,83 +210,52 @@ class JobService:
                 worktree_name = None
 
         if not pre_named and self._naming is not None:
-            from backend.services.naming_service import NamingError
+            # Gather existing branches, worktrees, and job IDs for conflict detection
+            # (run in parallel — these are independent I/O operations)
+            existing_branches, existing_worktrees, existing_job_ids = await asyncio.gather(
+                self._git.list_branches(resolved_repo),
+                self._git.list_worktree_names(resolved_repo),
+                self._job_repo.list_ids(),
+            )
 
-            try:
-                # Gather existing branches, worktrees, and job IDs for conflict detection
-                # (run in parallel — these are independent I/O operations)
-                existing_branches, existing_worktrees, existing_job_ids = await asyncio.gather(
-                    self._git.list_branches(resolved_repo),
-                    self._git.list_worktree_names(resolved_repo),
-                    self._job_repo.list_ids(),
+            exclude_names = existing_worktrees | existing_job_ids
+
+            title, description, generated_branch, worktree_name = await self._naming.generate(
+                spec.prompt,
+                existing_branches=existing_branches,
+                existing_worktrees=exclude_names,
+                parent_job_context=spec.parent_job_context,
+            )
+            if branch is None and generated_branch:
+                branch = generated_branch
+
+            # Post-naming collision guard: the name may still collide if
+            # the LLM ignored the exclude list or a concurrent request
+            # claimed the name between the list_ids() call and now.
+            for _retry in range(_MAX_NAMING_COLLISION_RETRIES):
+                if worktree_name not in exclude_names and await self._job_repo.get(worktree_name) is None:
+                    break
+                log.warning(
+                    "naming_collision_retry",
+                    worktree_name=worktree_name,
+                    attempt=_retry + 1,
                 )
-
-                exclude_names = existing_worktrees | existing_job_ids
-
+                exclude_names = exclude_names | {worktree_name}
                 title, description, generated_branch, worktree_name = await self._naming.generate(
-                    prompt,
+                    spec.prompt,
                     existing_branches=existing_branches,
                     existing_worktrees=exclude_names,
-                    parent_job_context=parent_job_context,
+                    parent_job_context=spec.parent_job_context,
                 )
                 if branch is None and generated_branch:
                     branch = generated_branch
-
-                # Post-naming collision guard: the name may still collide if
-                # the LLM ignored the exclude list or a concurrent request
-                # claimed the name between the list_ids() call and now.
-                for _retry in range(_MAX_NAMING_COLLISION_RETRIES):
-                    if worktree_name not in exclude_names and await self._job_repo.get(worktree_name) is None:
-                        break
-                    log.warning(
-                        "naming_collision_retry",
-                        worktree_name=worktree_name,
-                        attempt=_retry + 1,
-                    )
-                    exclude_names = exclude_names | {worktree_name}
-                    title, description, generated_branch, worktree_name = await self._naming.generate(
-                        prompt,
-                        existing_branches=existing_branches,
-                        existing_worktrees=exclude_names,
-                        parent_job_context=parent_job_context,
-                    )
-                    if branch is None and generated_branch:
-                        branch = generated_branch
-            except NamingError as exc:
-                import hashlib
-
-                h = hashlib.sha256(f"{prompt}{now.isoformat()}".encode()).hexdigest()[:12]
-                job_id = f"naming-failed-{h}"
-                job = Job(
-                    id=job_id,
-                    repo=resolved_repo,
-                    prompt=prompt,
-                    state=JobState.failed,
-                    base_ref=base_ref,
-                    branch=None,
-                    worktree_path=None,
-                    session_id=None,
-                    created_at=now,
-                    updated_at=now,
-                    completed_at=now,
-                    title=None,
-                    description=None,
-                    worktree_name=None,
-                    permission_mode=permission_mode,
-                    model=model,
-                    failure_reason=f"Naming failed: {exc}",
-                    parent_job_id=parent_job_id,
-                )
-                await self._job_repo.create(job)
-                log.error("job_naming_failed", job_id=job_id, error=str(exc))
-                return job
 
         # When no naming service is configured (e.g. tests without LLM), use a hash.
         # Check existing IDs to avoid collisions on reruns of the same prompt.
         if worktree_name is None:
             import hashlib
 
-            base_hash = hashlib.sha256(prompt.encode()).hexdigest()[:8]
+            base_hash = hashlib.sha256(spec.prompt.encode()).hexdigest()[:8]
             candidate = f"task-{base_hash}"
             existing_ids = await self._job_repo.list_ids()
             counter = 0
@@ -324,6 +263,74 @@ class JobService:
                 counter += 1
                 candidate = f"task-{base_hash}-{counter}"
             worktree_name = candidate
+
+        return title, description, branch, worktree_name
+
+    async def create_job(self, spec: JobSpec) -> Job:
+        """Create a new job record in ``preparing`` state.
+
+        Performs naming (LLM or pre-computed) and persists the job row, but
+        does **not** create the worktree or start the agent.  Call
+        :meth:`setup_workspace` in a background task to complete preparation.
+
+        The job ID is the LLM-generated worktree name (e.g. "fix-login-bug").
+        Naming is blocking: the LLM generates title, branch, and worktree name
+        before the job is persisted. If naming fails, NamingError is raised
+        and a failed job record is persisted with a hash-based ID.
+
+        Returns the created Job domain object.
+        Raises RepoNotAllowedError if the repo is not in the allowlist.
+        """
+        resolved_repo = self.validate_repo(spec.repo)
+
+        assert self._git is not None, "GitService required for job creation"
+
+        resolved_sdk = spec.sdk or self._config.runtime.default_sdk
+
+        # Validate SDK-model compatibility upfront
+        validate_sdk_model(resolved_sdk, spec.model)
+
+        # Determine base_ref
+        base_ref = spec.base_ref
+        if base_ref is None:
+            base_ref = await self._git.get_default_branch(resolved_repo)
+
+        now = datetime.now(UTC)
+
+        try:
+            title, description, branch, worktree_name = await self._resolve_job_name(spec, resolved_repo)
+        except Exception as exc:
+            from backend.services.naming_service import NamingError
+
+            if not isinstance(exc, NamingError):
+                raise
+            import hashlib
+
+            h = hashlib.sha256(f"{spec.prompt}{now.isoformat()}".encode()).hexdigest()[:12]
+            job_id = f"naming-failed-{h}"
+            job = Job(
+                id=job_id,
+                repo=resolved_repo,
+                prompt=spec.prompt,
+                state=JobState.failed,
+                base_ref=base_ref,
+                branch=None,
+                worktree_path=None,
+                session_id=None,
+                created_at=now,
+                updated_at=now,
+                completed_at=now,
+                title=None,
+                description=None,
+                worktree_name=None,
+                permission_mode=spec.permission_mode,
+                model=spec.model,
+                failure_reason=f"Naming failed: {exc}",
+                parent_job_id=spec.parent_job_id,
+            )
+            await self._job_repo.create(job)
+            log.error("job_naming_failed", job_id=job_id, error=str(exc))
+            return job
 
         job_id = worktree_name
 
@@ -352,7 +359,7 @@ class JobService:
         job = Job(
             id=job_id,
             repo=resolved_repo,
-            prompt=prompt,
+            prompt=spec.prompt,
             state=initial_state,
             base_ref=base_ref,
             branch=branch,
@@ -363,15 +370,15 @@ class JobService:
             title=title,
             description=description,
             worktree_name=worktree_name,
-            permission_mode=permission_mode,
-            model=model,
+            permission_mode=spec.permission_mode,
+            model=spec.model,
             sdk=resolved_sdk,
-            verify=verify,
-            self_review=self_review,
-            max_turns=max_turns,
-            verify_prompt=verify_prompt,
-            self_review_prompt=self_review_prompt,
-            parent_job_id=parent_job_id,
+            verify=spec.verify,
+            self_review=spec.self_review,
+            max_turns=spec.max_turns,
+            verify_prompt=spec.verify_prompt,
+            self_review_prompt=spec.self_review_prompt,
+            parent_job_id=spec.parent_job_id,
         )
         await self._job_repo.create(job)
         log.info("job_created", job_id=job_id, title=title, repo=resolved_repo, state=initial_state)
@@ -520,14 +527,14 @@ class JobService:
     async def rerun_job(self, job_id: str) -> Job:
         """Create a new job from an existing job's configuration."""
         original = await self.get_job(job_id)
-        return await self.create_job(
+        return await self.create_job(JobSpec(
             repo=original.repo,
             prompt=original.prompt,
             base_ref=original.base_ref,
             permission_mode=original.permission_mode,
             model=original.model,
             sdk=original.sdk,
-        )
+        ))
 
     async def count_active_jobs(self) -> int:
         """Count currently active (non-terminal) jobs."""

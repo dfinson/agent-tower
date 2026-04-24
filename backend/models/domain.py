@@ -176,6 +176,29 @@ class SessionConfig:
 
 
 @dataclass
+class JobSpec:
+    """Parameters for creating a new job — bundles the inputs to JobService.create_job."""
+
+    repo: str
+    prompt: str
+    base_ref: str | None = None
+    branch: str | None = None
+    title: str | None = None
+    description: str | None = None
+    worktree_name: str | None = None
+    permission_mode: PermissionMode = PermissionMode.full_auto
+    model: str | None = None
+    sdk: str | None = None
+    verify: bool | None = None
+    self_review: bool | None = None
+    max_turns: int | None = None
+    verify_prompt: str | None = None
+    self_review_prompt: str | None = None
+    parent_job_id: str | None = None
+    parent_job_context: str | None = None
+
+
+@dataclass
 class MCPServerConfig:
     command: str
     args: list[str]

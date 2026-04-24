@@ -18,6 +18,7 @@ from backend.models.domain import (
     ACTIVE_STATES,
     TERMINAL_STATES,
     InvalidStateTransitionError,
+    JobSpec,
     JobState,
     validate_state_transition,
 )
@@ -165,10 +166,10 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            job = await job_service.create_job(
+            job = await job_service.create_job(JobSpec(
                 repo="/repos/test",
                 prompt="Fix the bug",
-            )
+            ))
             await session.commit()
 
         assert job.id != ""
@@ -184,10 +185,10 @@ class TestJobService:
         job_service: JobService,
     ) -> None:
         with pytest.raises(RepoNotAllowedError):
-            await job_service.create_job(
+            await job_service.create_job(JobSpec(
                 repo="/repos/not-allowed",
                 prompt="Fix it",
-            )
+            ))
 
     @pytest.mark.asyncio
     async def test_get_job_found(
@@ -209,7 +210,7 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            created = await job_service.create_job(repo="/repos/test", prompt="Fix it")
+            created = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix it"))
             await session.commit()
 
         job = await job_service.get_job(created.id)
@@ -247,7 +248,7 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            await job_service.create_job(repo="/repos/test", prompt="Fix 1")
+            await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix 1"))
             await session.commit()
 
         with (
@@ -264,7 +265,7 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            await job_service.create_job(repo="/repos/test", prompt="Fix 2")
+            await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix 2"))
             await session.commit()
 
         jobs, cursor, has_more = await job_service.list_jobs()
@@ -290,7 +291,7 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            created = await job_service.create_job(repo="/repos/test", prompt="Fix it")
+            created = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix it"))
             await session.commit()
 
         job = await job_service.cancel_job(created.id)
@@ -317,7 +318,7 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            created = await job_service.create_job(repo="/repos/test", prompt="Fix it")
+            created = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix it"))
             await session.commit()
 
         # First cancel succeeds
@@ -348,10 +349,10 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            original = await job_service.create_job(
+            original = await job_service.create_job(JobSpec(
                 repo="/repos/test",
                 prompt="Fix it",
-            )
+            ))
             await session.commit()
 
         with (
@@ -405,10 +406,10 @@ class TestJobService:
                     return_value="main",
                 ),
             ):
-                job = await job_service.create_job(
+                job = await job_service.create_job(JobSpec(
                     repo="/repos/test",
                     prompt=prompt,
-                )
+                ))
                 await session.commit()
             assert not job.id.startswith("job-"), f"Expected no 'job-N' ID, got: {job.id}"
             assert job.id not in ids, "Duplicate job ID"
@@ -429,10 +430,10 @@ class TestJobService:
             new_callable=AsyncMock,
             return_value="main",
         ):
-            job = await job_service.create_job(
+            job = await job_service.create_job(JobSpec(
                 repo="/repos/test",
                 prompt="Fix it",
-            )
+            ))
             await session.commit()
 
         assert job.state == JobState.preparing
@@ -469,7 +470,7 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            created = await job_service.create_job(repo="/repos/test", prompt="Fix it")
+            created = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix it"))
             await session.commit()
 
         # Phase 4: jobs start as preparing, must transition through queued → running first
@@ -500,7 +501,7 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            created = await job_service.create_job(repo="/repos/test", prompt="Fix it")
+            created = await job_service.create_job(JobSpec(repo="/repos/test", prompt="Fix it"))
             await session.commit()
 
         with pytest.raises(InvalidStateTransitionError):

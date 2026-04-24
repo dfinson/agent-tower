@@ -25,6 +25,7 @@ from backend.config import build_session_config
 from backend.models.domain import (
     TERMINAL_STATES,
     Job,
+    JobSpec,
     JobState,
     Resolution,
     SessionConfig,
@@ -2232,7 +2233,7 @@ class RuntimeService:
                 original,
                 normalized_instruction,
             )
-            followup = await svc.create_job(
+            followup = await svc.create_job(JobSpec(
                 repo=original.repo,
                 prompt=normalized_instruction,
                 base_ref=original.base_ref,
@@ -2246,7 +2247,7 @@ class RuntimeService:
                 self_review_prompt=original.self_review_prompt,
                 parent_job_id=original.id,
                 parent_job_context=parent_job_context,
-            )
+            ))
             await session.commit()
 
         if followup.state != JobState.failed:
