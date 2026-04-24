@@ -248,7 +248,7 @@ class TerminalService:
         for ws in session.clients:
             try:
                 asyncio.ensure_future(ws.send_text(msg))
-            except Exception:
+            except (ConnectionError, RuntimeError):
                 dead.append(ws)
         for ws in dead:
             session.clients.discard(ws)
@@ -561,7 +561,7 @@ class TerminalService:
                 raw = await loop.run_in_executor(None, session.process.read, 65536)
             except EOFError:
                 break
-            except Exception:
+            except OSError:
                 break
             if not raw:
                 await asyncio.sleep(0.01)
@@ -599,12 +599,12 @@ class TerminalService:
         if session.clients:
             msg = json.dumps({"type": "exit", "code": exit_code})
             for ws in list(session.clients):
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(ConnectionError, RuntimeError):
                     await ws.send_text(msg)
 
         self._sessions.pop(session_id, None)
         if sys.platform != "win32" and self._loop:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(ValueError, OSError):
                 self._loop.remove_reader(session.master_fd)
             if session.master_fd >= 0:
                 with contextlib.suppress(OSError):
@@ -623,11 +623,11 @@ class TerminalService:
         if not session.observer:
             # Real PTY session — kill the backing process and close fds.
             if sys.platform == "win32":
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(OSError):
                     session.process.close(force=True)
             else:
                 if self._loop:
-                    with contextlib.suppress(Exception):
+                    with contextlib.suppress(ValueError, OSError):
                         self._loop.remove_reader(session.master_fd)
                 try:
                     session.process.kill()
@@ -641,9 +641,9 @@ class TerminalService:
 
         msg = json.dumps({"type": "exit", "code": -1})
         for ws in list(session.clients):
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(ConnectionError, RuntimeError):
                 await ws.send_text(msg)
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(ConnectionError, RuntimeError):
                 await ws.close()
         session.clients.clear()
 
@@ -651,5 +651,5 @@ class TerminalService:
         log.info("terminal_session_cleaned_up", session_id=session.id, pid=pid)
 
         if session._zdotdir:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError):
                 shutil.rmtree(session._zdotdir, ignore_errors=True)

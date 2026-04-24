@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-_REF_PATTERN = re.compile(r"^[a-zA-Z0-9/_.-]+$")
+from backend.validators import REF_PATTERN as _REF_PATTERN
 _PR_TITLE_MAX_PROMPT_LEN = 80
 _CHERRY_PICK_ALREADY_APPLIED_PATTERNS = (
     "empty commit set passed",
@@ -222,8 +222,10 @@ class MergeService:
         original_branch: str | None = None
         main_stashed = False
 
-        with contextlib.suppress(GitError):
+        try:
             original_branch = await self._git.get_current_branch(cwd=repo_path)
+        except GitError:
+            log.debug(f"{log_prefix}_get_branch_failed", job_id=job_id, exc_info=True)
 
         try:
             main_stashed = await self._git.stash(cwd=repo_path)
@@ -445,8 +447,10 @@ class MergeService:
                 log.warning("worktree_cleanup_failed", job_id=job_id, exc_info=True)
 
         if self._config.delete_branch_after_merge:
-            with contextlib.suppress(GitError):
+            try:
                 await self._git._run_git("branch", "-d", branch, cwd=repo_path)  # noqa: SLF001
+            except GitError:
+                log.debug("branch_delete_after_merge_failed", job_id=job_id, branch=branch, exc_info=True)
 
     _MERGE_STATUS_MAX_ATTEMPTS = 3
     _MERGE_STATUS_RETRY_DELAY_S = 0.05
@@ -805,11 +809,10 @@ class MergeService:
 
         if branch and branch not in ("main", "master"):
             try:
-                with contextlib.suppress(GitError):
-                    await self._git._run_git("branch", "-D", branch, cwd=repo_path)  # noqa: SLF001
+                await self._git._run_git("branch", "-D", branch, cwd=repo_path)  # noqa: SLF001
                 log.info("branch_discarded", job_id=job_id, branch=branch)
             except GitError:
-                log.warning("branch_discard_failed", job_id=job_id, exc_info=True)
+                log.warning("branch_discard_failed", job_id=job_id, branch=branch, exc_info=True)
 
         return MergeResult(status=MergeStatus.skipped)
 

@@ -86,7 +86,11 @@ _VALID_TRANSITIONS: dict[str | None, set[str]] = {
 }
 
 
-class InvalidStateTransitionError(Exception):
+class CodePlaneError(Exception):
+    """Base exception for all CodePlane domain errors."""
+
+
+class InvalidStateTransitionError(CodePlaneError):
     """Raised when a job state transition is not allowed."""
 
     def __init__(self, from_state: str | None, to_state: str) -> None:

@@ -597,7 +597,7 @@ class TestOnPtyReadable:
 
     @patch("backend.services.terminal_service._detect_shell", return_value="/bin/bash")
     @patch("backend.services.terminal_service.os.read", return_value=b"data")
-    @patch("backend.services.terminal_service.asyncio.ensure_future", side_effect=Exception("ws dead"))
+    @patch("backend.services.terminal_service.asyncio.ensure_future", side_effect=RuntimeError("ws dead"))
     def test_removes_dead_clients(self, mock_ensure: MagicMock, mock_read: MagicMock, mock_detect: MagicMock) -> None:
         svc = TerminalService()
         session = _make_session(session_id="s1")

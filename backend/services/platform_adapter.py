@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-_REF_PATTERN = re.compile(r"^[a-zA-Z0-9/_.-]+$")
+from backend.validators import REF_PATTERN as _REF_PATTERN
 
 
 @dataclass

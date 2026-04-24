@@ -66,9 +66,8 @@ Task description:
 {prompt}
 """
 
-# Validates branch names: type/slug with allowed characters
-_BRANCH_RE = re.compile(r"^(feat|fix|chore|docs|test)/[a-z0-9][a-z0-9-]{0,43}$")
-_WORKTREE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$")
+from backend.validators import BRANCH_RE as _BRANCH_RE
+from backend.validators import WORKTREE_RE as _WORKTREE_RE
 
 
 def _sanitize_branch(raw: str) -> str | None:
