@@ -84,6 +84,18 @@ CodePlane supports three permission modes per job, controlling what the agent ca
 
 **Protected paths**: per-repo `.codeplane.yml` can define paths (e.g., `infra/`, `.github/workflows/`) where writes always trigger an approval request, even in `full_auto`.
 
+### Authorization Model
+
+CodePlane is a **single-user, local-first application**. All authenticated requests have full access to all jobs and resources — there is no per-job ownership or role-based access control.
+
+**Implications:**
+
+- Any authenticated session can view, cancel, or interact with any job
+- The authentication boundary (password + session cookie) is the sole access control layer
+- If you expose CodePlane on a network (`--host 0.0.0.0`), anyone with the password has full access
+
+**If multi-user support is needed in the future**, the API layer would need per-job ownership checks and a `get_job_for_user(job_id, user_id)` pattern in the service layer.
+
 ### Worktree Isolation
 
 Every job runs in a dedicated Git worktree under `.codeplane-worktrees/`. The agent never operates directly on your main branch or working directory.
