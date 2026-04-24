@@ -145,3 +145,24 @@ class FileAccessRepo(BaseRepository):
             {**params, "limit": limit},
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def reread_hotspots(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+        """Find files read excessively across jobs (for statistical analysis)."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    file_path,
+                    COUNT(*) as total_reads,
+                    COUNT(DISTINCT job_id) as job_count,
+                    SUM(CASE WHEN access_type = 'read' THEN byte_count ELSE 0 END) as total_bytes
+                FROM job_file_access_log
+                WHERE access_type = 'read'
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY file_path
+                HAVING COUNT(*) >= 10 AND COUNT(DISTINCT job_id) >= 3
+                    AND SUM(CASE WHEN access_type = 'read' THEN byte_count ELSE 0 END) > 10240
+                ORDER BY total_reads DESC
+                LIMIT 20
+            """)
+        )
+        return [dict(r) for r in result.mappings().all()]
