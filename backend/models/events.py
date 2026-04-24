@@ -58,6 +58,21 @@ class DomainEventKind(StrEnum):
 # ---------------------------------------------------------------------------
 
 
+class JobSetupProgressPayloadDict(TypedDict, total=False):
+    step: str
+
+
+class JobCanceledPayloadDict(TypedDict, total=False):
+    reason: str
+
+
+class StepEntriesReassignedPayloadDict(TypedDict, total=False):
+    turn_id: str
+    old_step_id: str
+    new_step_id: str
+
+
+
 class LogLinePayloadDict(TypedDict, total=False):
     seq: int
     timestamp: str
@@ -262,10 +277,12 @@ EventPayload = (
     | DiffPayloadDict
     | ApprovalRequestedPayloadDict
     | ApprovalResolvedPayloadDict
+    | JobSetupProgressPayloadDict
     | JobStatePayloadDict
     | JobReviewPayloadDict
     | JobCompletedPayloadDict
     | JobFailedPayloadDict
+    | JobCanceledPayloadDict
     | SessionHeartbeatPayloadDict
     | MergeCompletedPayloadDict
     | MergeConflictPayloadDict
@@ -283,6 +300,7 @@ EventPayload = (
     | StepTitlePayloadDict
     | PlanStepUpdatedPayloadDict
     | TurnSummaryPayloadDict
+    | StepEntriesReassignedPayloadDict
     | dict[str, Any]
 )
 
