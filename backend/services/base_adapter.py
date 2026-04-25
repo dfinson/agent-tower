@@ -84,7 +84,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
-        self._clients: dict[str, Any] = {}
+        self._clients: dict[str, object] = {}
         self._session_to_job: dict[str, str] = {}
         self._paused_sessions: set[str] = set()
         self._tool_start_times: dict[str, float] = {}
