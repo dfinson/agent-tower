@@ -19,12 +19,15 @@ from backend.models.api_schemas import (
     CreateJobRequest,
     CreateJobResponse,
     DiffFileModel,
+    DiffListResponse,
     FileMotivation,
     HunkMotivation,
     JobListResponse,
     JobResponse,
     LogLinePayload,
+    LogListResponse,
     ModelInfoResponse,
+    ModelListResponse,
     PlanStepPayload,
     ProgressHeadlinePayload,
     ResolutionAction,
@@ -33,11 +36,15 @@ from backend.models.api_schemas import (
     RestoreRequest,
     ResumeJobRequest,
     StepDiffPayload,
+    StepListResponse,
     StoryBlock,
     StoryResponse,
     SuggestNamesRequest,
     SuggestNamesResponse,
+    TimelineListResponse,
+    TranscriptListResponse,
     TranscriptPayload,
+    TranscriptSearchListResponse,
     TranscriptSearchResult,
     TurnSummaryPayload,
 )
@@ -390,11 +397,11 @@ async def resume_job(
     return _job_to_response(job)
 
 
-@router.get("/models", response_model=list[ModelInfoResponse])
+@router.get("/models", response_model=ModelListResponse)
 async def list_models(
     cached_models_by_sdk: FromDishka[CachedModelsBySdk],
     sdk: str | None = Query(default=None, description="SDK id (copilot | claude). Omit for default."),
-) -> list[ModelInfoResponse]:
+) -> ModelListResponse:
     """Return the model list for the requested SDK, cached at server startup.
 
     If the cache is empty for the copilot SDK (e.g. auth wasn't ready at
@@ -417,17 +424,17 @@ async def list_models(
                 await _client.stop()
         except (ImportError, ConnectionError, TimeoutError, RuntimeError):
             pass  # fall through to empty list
-    return [ModelInfoResponse.model_validate(m) for m in models]
+    return ModelListResponse(items=[ModelInfoResponse.model_validate(m) for m in models])
 
 
-@router.get("/jobs/{job_id}/logs", response_model=list[LogLinePayload])
+@router.get("/jobs/{job_id}/logs", response_model=LogListResponse)
 async def get_job_logs(
     job_id: str,
     svc: FromDishka[JobService],
     level: Annotated[str, Query(pattern="^(debug|info|warn|error)$")] = "debug",
     limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
     session: Annotated[int | None, Query(ge=1, description="Filter to a specific session number (1-based)")] = None,
-) -> list[LogLinePayload]:
+) -> LogListResponse:
     """Return historical log lines for a job, filtered by minimum severity.
 
     ``level`` is a *minimum* severity filter (inclusive):
@@ -463,17 +470,16 @@ async def get_job_logs(
                 session_number=event_session,
             )
         )
-    return lines
+    return LogListResponse(items=lines)
 
-
-@router.get("/jobs/{job_id}/diff", response_model=list[DiffFileModel])
+@router.get("/jobs/{job_id}/diff", response_model=DiffListResponse)
 async def get_job_diff(
     job_id: str,
     svc: FromDishka[JobService],
     event_bus: FromDishka[EventBus],
     config: FromDishka[CPLConfig],
     session: FromDishka[AsyncSession],
-) -> list[DiffFileModel]:
+) -> DiffListResponse:
     """Return the current diff for a job.
 
     For running jobs, calculates a fresh diff from the worktree.
@@ -509,7 +515,7 @@ async def get_job_diff(
         # Fallback: read from event store (completed/archived/failed jobs)
         events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
         if not events:
-            return []
+            return DiffListResponse(items=[])
         raw_files = events[-1].payload.get("changed_files", [])
         files = [DiffFileModel.model_validate(f) for f in raw_files]
 
@@ -525,15 +531,15 @@ async def get_job_diff(
                 f.write_count = row["write_count"]
                 f.retry_count = row["retry_count"]
 
-    return files
+    return DiffListResponse(items=files)
 
 
-@router.get("/jobs/{job_id}/transcript", response_model=list[TranscriptPayload])
+@router.get("/jobs/{job_id}/transcript", response_model=TranscriptListResponse)
 async def get_job_transcript(
     job_id: str,
     svc: FromDishka[JobService],
     limit: int = Query(default=2000, ge=1, le=5000),
-) -> list[TranscriptPayload]:
+) -> TranscriptListResponse:
     """Return historical transcript entries for a job from the event store."""
     events = await svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=limit)
 
@@ -546,7 +552,7 @@ async def get_job_transcript(
         if ev.payload.get("turn_id") and ev.payload.get("summary")
     }
 
-    return [
+    return TranscriptListResponse(items=[
         TranscriptPayload(
             job_id=event.job_id,
             seq=event.payload.get("seq", 0),
@@ -568,14 +574,14 @@ async def get_job_transcript(
             tool_group_summary=group_summary_by_turn.get(event.payload.get("turn_id") or ""),
         )
         for event in events
-    ]
+    ])
 
 
-@router.get("/jobs/{job_id}/steps", response_model=list[PlanStepPayload])
+@router.get("/jobs/{job_id}/steps", response_model=StepListResponse)
 async def get_job_steps(
     job_id: str,
     svc: FromDishka[JobService],
-) -> list[PlanStepPayload]:
+) -> StepListResponse:
     """Return plan steps for a job, hydrated from persisted PlanStepUpdated events.
 
     During execution, plan steps are also delivered live via SSE.  This
@@ -620,7 +626,7 @@ async def get_job_steps(
                 end_sha=p.get("end_sha"),
             )
         )
-    return result
+    return StepListResponse(items=result)
 
 
 @router.get("/jobs/{job_id}/steps/{step_id}/diff", response_model=StepDiffPayload)
@@ -815,7 +821,7 @@ async def get_step_diff(
     )
 
 
-@router.get("/jobs/{job_id}/transcript/search", response_model=list[TranscriptSearchResult])
+@router.get("/jobs/{job_id}/transcript/search", response_model=TranscriptSearchListResponse)
 async def search_transcript(
     job_id: str,
     session: FromDishka[AsyncSession],
@@ -823,7 +829,7 @@ async def search_transcript(
     roles: list[str] | None = Query(None),  # noqa: B008
     step_id: str | None = None,
     limit: int = Query(50, le=200),  # noqa: B008
-) -> list[TranscriptSearchResult]:
+) -> TranscriptSearchListResponse:
     """Full-text search within a job's transcript events."""
     from backend.models.api_schemas import TranscriptRole
     from backend.persistence.event_repo import EventRepository
@@ -848,7 +854,7 @@ async def search_transcript(
                 timestamp=evt.timestamp,
             )
         )
-    return results
+    return TranscriptSearchListResponse(items=results)
 
 
 @router.post("/jobs/{job_id}/restore")
@@ -881,12 +887,12 @@ async def restore_to_sha(
     return {"restored": True, "sha": body.sha}
 
 
-@router.get("/jobs/{job_id}/timeline", response_model=list[ProgressHeadlinePayload])
+@router.get("/jobs/{job_id}/timeline", response_model=TimelineListResponse)
 async def get_job_timeline(
     job_id: str,
     svc: FromDishka[JobService],
     limit: int = Query(default=200, ge=1, le=1000),
-) -> list[ProgressHeadlinePayload]:
+) -> TimelineListResponse:
     """Return historical progress_headline milestones for a job.
 
     Events with ``replaces_count > 0`` retroactively collapse earlier entries,
@@ -909,7 +915,7 @@ async def get_job_timeline(
                 timestamp=event.timestamp,
             )
         )
-    return milestones
+    return TimelineListResponse(items=milestones)
 
 
 @router.get("/jobs/{job_id}/snapshot")

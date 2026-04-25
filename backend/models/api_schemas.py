@@ -328,6 +328,38 @@ class ArtifactListResponse(CamelModel):
     items: list[ArtifactResponse]
 
 
+class ModelListResponse(CamelModel):
+    items: list[ModelInfoResponse]
+
+
+class LogListResponse(CamelModel):
+    items: list[LogLinePayload]
+
+
+class DiffListResponse(CamelModel):
+    items: list[DiffFileModel]
+
+
+class TranscriptListResponse(CamelModel):
+    items: list[TranscriptPayload]
+
+
+class StepListResponse(CamelModel):
+    items: list[PlanStepPayload]
+
+
+class TimelineListResponse(CamelModel):
+    items: list[ProgressHeadlinePayload]
+
+
+class ApprovalListResponse(CamelModel):
+    items: list[ApprovalResponse]
+
+
+class TranscriptSearchListResponse(CamelModel):
+    items: list[TranscriptSearchResult]
+
+
 class WorkspaceEntry(CamelModel):
     path: str
     type: WorkspaceEntryType

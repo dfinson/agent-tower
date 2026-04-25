@@ -161,15 +161,15 @@ export function fetchJob(jobId: string): Promise<Job> {
 }
 
 export function fetchJobLogs(jobId: string, level: string = "debug", limit = 2000): Promise<import("../store").LogLine[]> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/logs?level=${encodeURIComponent(level)}&limit=${limit}`);
+  return request<{ items: import("../store").LogLine[] }>(`/jobs/${encodeURIComponent(jobId)}/logs?level=${encodeURIComponent(level)}&limit=${limit}`).then((r) => r.items);
 }
 
 export function fetchJobTranscript(jobId: string, limit = 2000): Promise<import("../store").TranscriptEntry[]> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/transcript?limit=${limit}`);
+  return request<{ items: import("../store").TranscriptEntry[] }>(`/jobs/${encodeURIComponent(jobId)}/transcript?limit=${limit}`).then((r) => r.items);
 }
 
 export function fetchJobDiff(jobId: string): Promise<DiffFileModel[]> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/diff`);
+  return request<{ items: DiffFileModel[] }>(`/jobs/${encodeURIComponent(jobId)}/diff`).then((r) => r.items);
 }
 
 /** Fetch the diff for a single step/turn (uses turn_id as the step lookup key). */
@@ -178,10 +178,10 @@ export function fetchStepDiff(jobId: string, turnId: string): Promise<import("..
 }
 
 export function fetchJobTimeline(jobId: string, limit = 200): Promise<import("../store").TimelineEntry[]> {
-  return request<Array<{ headline: string; headlinePast: string; summary?: string; timestamp: string }>>(
+  return request<{ items: Array<{ headline: string; headlinePast: string; summary?: string; timestamp: string }> }>(
     `/jobs/${encodeURIComponent(jobId)}/timeline?limit=${limit}`,
-  ).then((entries) =>
-    entries.map((e) => ({
+  ).then((r) =>
+    r.items.map((e) => ({
       headline: e.headline,
       headlinePast: e.headlinePast,
       summary: e.summary ?? "",
@@ -200,7 +200,7 @@ export function fetchTranscriptSearch(
   if (opts?.roles) opts.roles.forEach((r) => params.append("roles", r));
   if (opts?.stepId) params.set("step_id", opts.stepId);
   if (opts?.limit) params.set("limit", String(opts.limit));
-  return request(`/jobs/${encodeURIComponent(jobId)}/transcript/search?${params}`);
+  return request<{ items: Array<{ seq: number; role: string; content: string; toolName: string | null; stepId: string | null; stepNumber: number | null; timestamp: string }> }>(`/jobs/${encodeURIComponent(jobId)}/transcript/search?${params}`).then((r) => r.items);
 }
 
 export function restoreToSha(jobId: string, sha: string): Promise<{ restored: boolean; sha: string }> {
@@ -272,7 +272,7 @@ export function rerunJob(jobId: string): Promise<CreateJobResponse> {
 
 export function fetchModels(sdk?: string): Promise<{ id?: string; name?: string; [key: string]: unknown }[]> {
   const qs = sdk ? `?sdk=${encodeURIComponent(sdk)}` : "";
-  return request(`/models${qs}`);
+  return request<{ items: { id?: string; name?: string; [key: string]: unknown }[] }>(`/models${qs}`).then((r) => r.items);
 }
 
 export function fetchSDKs(): Promise<SDKListResponse> {
@@ -635,7 +635,7 @@ export function fetchWorkspaceFile(
 // --- Approvals ---
 
 export function fetchApprovals(jobId: string): Promise<ApprovalRequest[]> {
-  return request(`/jobs/${encodeURIComponent(jobId)}/approvals`);
+  return request<{ items: ApprovalRequest[] }>(`/jobs/${encodeURIComponent(jobId)}/approvals`).then((r) => r.items);
 }
 
 export function resolveApproval(

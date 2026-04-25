@@ -518,7 +518,7 @@ class TestJobControl:
         # Use sdk=claude to avoid the live CopilotClient fallback fetch
         resp = await client.get("/api/models", params={"sdk": "claude"})
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"items": []}
 
 
 # ── Job Data ─────────────────────────────────────────────────────────
@@ -531,13 +531,13 @@ class TestJobData:
         jid = await seed_job(state="running", job_id="logs-1")
         resp = await client.get(f"/api/jobs/{jid}/logs")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"items": []}
 
     async def test_logs_with_level_filter(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         jid = await seed_job(state="running", job_id="logs-level")
         resp = await client.get(f"/api/jobs/{jid}/logs", params={"level": "error"})
         assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
+        assert isinstance(resp.json()["items"], list)
 
     async def test_logs_invalid_level(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         jid = await seed_job(state="running", job_id="logs-bad")
@@ -550,7 +550,7 @@ class TestJobData:
         jid = await seed_job(state="review", job_id="diff-1")
         resp = await client.get(f"/api/jobs/{jid}/diff")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"items": []}
 
     async def test_diff_not_found(self, client: AsyncClient) -> None:
         resp = await client.get("/api/jobs/ghost/diff")
@@ -562,7 +562,7 @@ class TestJobData:
         jid = await seed_job(state="running", job_id="transcript-1")
         resp = await client.get(f"/api/jobs/{jid}/transcript")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"items": []}
 
     async def test_transcript_with_limit(self, client: AsyncClient, seed_job: SeedJobFn) -> None:
         jid = await seed_job(state="running", job_id="transcript-lim")
@@ -575,7 +575,7 @@ class TestJobData:
         jid = await seed_job(state="running", job_id="timeline-1")
         resp = await client.get(f"/api/jobs/{jid}/timeline")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"items": []}
 
     # ── Telemetry ──
 

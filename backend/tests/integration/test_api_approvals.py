@@ -36,7 +36,7 @@ class TestListApprovals:
         job_id = await seed_job()
         resp = await client.get(f"/api/jobs/{job_id}/approvals")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json() == {"items": []}
 
     @pytest.mark.asyncio
     async def test_returns_created_approvals(
@@ -51,7 +51,7 @@ class TestListApprovals:
 
         resp = await client.get(f"/api/jobs/{job_id}/approvals")
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         assert len(data) == 2
         returned_ids = {item["id"] for item in data}
         assert {a1.id, a2.id} == returned_ids
@@ -67,7 +67,7 @@ class TestListApprovals:
         await approval_service.create_request(job_id, "Check permissions?")
 
         resp = await client.get(f"/api/jobs/{job_id}/approvals")
-        item = resp.json()[0]
+        item = resp.json()["items"][0]
         assert item["jobId"] == job_id
         assert item["description"] == "Check permissions?"
         assert item["proposedAction"] is None
@@ -88,7 +88,7 @@ class TestListApprovals:
         await approval_service.create_request(job_b, "Job B approval")
 
         resp = await client.get(f"/api/jobs/{job_a}/approvals")
-        data = resp.json()
+        data = resp.json()["items"]
         assert len(data) == 1
         assert data[0]["description"] == "Job A approval"
 
