@@ -49,15 +49,22 @@ class ShareService:
         """Return the *job_id* if the token is valid, else ``None``."""
         entry = self._tokens.get(token)
         if entry is None:
+            log.debug("share_token_invalid", token=token[:8])
             return None
         if time.monotonic() - entry.created_at > entry.ttl:
             del self._tokens[token]
+            log.info("share_token_expired", job_id=entry.job_id, token=token[:8])
             return None
+        log.debug("share_token_validated", job_id=entry.job_id, token=token[:8])
         return entry.job_id
 
     def revoke(self, token: str) -> bool:
         """Revoke a share token.  Returns ``True`` if it existed."""
-        return self._tokens.pop(token, None) is not None
+        entry = self._tokens.pop(token, None)
+        if entry is not None:
+            log.info("share_token_revoked", job_id=entry.job_id, token=token[:8])
+            return True
+        return False
 
     def _evict_expired(self) -> None:
         now = time.monotonic()
