@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import structlog
 
@@ -24,6 +24,25 @@ from backend.persistence.cost_attribution_repo import CostAttributionRepo
 from backend.persistence.file_access_repo import FileAccessRepo
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+
+
+class CostBucket(TypedDict):
+    """Aggregated cost metrics for a single attribution dimension."""
+
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    call_count: int
+
+
+class TurnContext(TypedDict):
+    """Per-turn cost context including phase and tool breakdown."""
+
+    phase: str | None
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    tool_categories: list[str]
 
 log = structlog.get_logger()
 
@@ -150,10 +169,10 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         log.debug("cost_attribution_prompt_fetch_failed", job_id=job_id, exc_info=True)
 
     # --- Aggregate by dimension ---
-    by_activity: dict[str, dict[str, Any]] = defaultdict(lambda: _zero_bucket())
-    by_turn: dict[int, dict[str, Any]] = defaultdict(lambda: _zero_bucket())
-    by_phase: dict[str, dict[str, Any]] = defaultdict(lambda: _zero_bucket())
-    turn_contexts: dict[int, dict[str, Any]] = defaultdict(_zero_turn_context)
+    by_activity: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+    by_turn: dict[int, CostBucket] = defaultdict(lambda: _zero_bucket())
+    by_phase: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+    turn_contexts: dict[int, TurnContext] = defaultdict(_zero_turn_context)
     normalized_phases = _infer_execution_phases(spans)
     spans_missing_phase = 0
 
@@ -329,11 +348,11 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
     )
 
 
-def _zero_bucket() -> dict[str, Any]:
+def _zero_bucket() -> CostBucket:
     return {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "call_count": 0}
 
 
-def _zero_turn_context() -> dict[str, Any]:
+def _zero_turn_context() -> TurnContext:
     return {"phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "tool_categories": []}
 
 
@@ -427,7 +446,7 @@ def _allocate_weighted_totals(
     return allocations
 
 
-def _accumulate(bucket: dict[str, Any], cost: float, in_tok: int, out_tok: int, *, call_count: int = 1) -> None:
+def _accumulate(bucket: CostBucket, cost: float, in_tok: int, out_tok: int, *, call_count: int = 1) -> None:
     bucket["cost_usd"] += float(cost or 0)
     bucket["input_tokens"] += int(in_tok or 0)
     bucket["output_tokens"] += int(out_tok or 0)
