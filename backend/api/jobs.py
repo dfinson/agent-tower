@@ -164,33 +164,6 @@ def _job_to_create_response(job: Job) -> CreateJobResponse:
     )
 
 
-@router.post("/utility-sessions/warm")
-async def warm_utility_session(
-    sister_sessions: FromDishka[SisterSessionManager],
-) -> dict[str, str]:
-    """Pre-warm a utility session for the new-job panel.
-
-    Returns a session token that can be passed to ``POST /jobs`` or released
-    via ``DELETE /utility-sessions/{token}`` if the user navigates away.
-    """
-    try:
-        token = await sister_sessions.warm()
-    except (ConnectionError, TimeoutError, OSError) as exc:
-        raise HTTPException(status_code=503, detail=f"Failed to warm session: {exc}") from exc
-    return {"sessionToken": token}
-
-
-@router.delete("/utility-sessions/{token}", status_code=204)
-async def release_utility_session(
-    token: str,
-    sister_sessions: FromDishka[SisterSessionManager],
-) -> None:
-    """Release a pre-warmed session the user didn't use."""
-    found = await sister_sessions.release(token)
-    if not found:
-        raise HTTPException(status_code=404, detail="Session not found or already expired")
-
-
 @router.post("/jobs/suggest-names", response_model=SuggestNamesResponse)
 async def suggest_names(
     body: SuggestNamesRequest,
