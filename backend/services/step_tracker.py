@@ -27,51 +27,17 @@ if TYPE_CHECKING:
 
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.git_service import GitError
+from backend.services.tool_classifier import TOOL_CATEGORIES
 
 log = structlog.get_logger()
 
 _MAX_FILES_PER_STEP = 50
 
 _READ_TOOLS = frozenset(
-    {
-        "read_file",
-        "grep_search",
-        "file_search",
-        "semantic_search",
-        "view_image",
-        "list_dir",
-        "glob",
-        "grep",
-        "open_file",
-        # Claude SDK PascalCase
-        "Glob",
-        "LS",
-        "Grep",
-        "NotebookRead",
-    }
+    name for name, cat in TOOL_CATEGORIES.items() if cat in ("file_read", "file_search")
 )
 _WRITE_TOOLS = frozenset(
-    {
-        "replace_string_in_file",
-        "create_file",
-        "multi_replace_string_in_file",
-        "create_directory",
-        "edit",
-        "write",
-        "str_replace_based_edit_tool",
-        "str_replace_editor",
-        "insert_edit_into_file",
-        "edit_file",
-        "write_file",
-        "delete_file",
-        "create",
-        "create_or_update_file",
-        "apply_patch",
-        # Claude SDK PascalCase
-        "Edit",
-        "Write",
-        "NotebookEdit",
-    }
+    name for name, cat in TOOL_CATEGORIES.items() if cat == "file_write"
 )
 
 
