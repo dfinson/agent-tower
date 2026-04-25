@@ -398,7 +398,7 @@ async def list_models(
             finally:
                 await _client.stop()
         except (ImportError, ConnectionError, TimeoutError, RuntimeError):
-            pass  # fall through to empty list
+            structlog.get_logger().debug("model_live_fetch_failed", sdk=resolved_sdk, exc_info=True)
     return ModelListResponse(items=[ModelInfoResponse.model_validate(m) for m in models])
 
 
@@ -720,6 +720,7 @@ async def get_step_diff(
             try:
                 edit_mots = json.loads(edit_mots_raw) if isinstance(edit_mots_raw, str) else edit_mots_raw
             except (json.JSONDecodeError, TypeError):
+                structlog.get_logger().debug("edit_motivation_parse_failed", job_id=job_id, exc_info=True)
                 continue
             if not isinstance(edit_mots, list) or not edit_mots:
                 continue
@@ -1285,7 +1286,7 @@ async def get_job_telemetry(
                 created = created.replace(tzinfo=UTC)
             duration_ms = int((datetime.now(UTC) - created).total_seconds() * 1000)
         except (ValueError, TypeError):
-            pass
+            structlog.get_logger().debug("live_duration_parse_failed", job_id=job_id, exc_info=True)
 
     # Review signals: test co-modifications
     spans_repo = TelemetrySpansRepo(session)

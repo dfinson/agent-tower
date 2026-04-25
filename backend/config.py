@@ -277,7 +277,7 @@ def load_config(path: Path | None = None) -> CPLConfig:
         try:
             save_config(cfg, path)
         except Exception:
-            pass  # best-effort — config dir may not exist yet
+            _log.debug("instance_id_persist_failed", exc_info=True)
 
     return cfg
 
@@ -538,7 +538,7 @@ def resolve_permission_mode(repo_path: str) -> str | None:
             try:
                 return str(PermissionMode(str(mode)))
             except ValueError:
-                pass
+                _log.debug("invalid_permission_mode", mode=mode)
         return None
     except Exception:
         _log.warning("permission_mode_read_failed", path=str(codeplane_yml), exc_info=True)
