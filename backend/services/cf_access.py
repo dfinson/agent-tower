@@ -121,6 +121,7 @@ def verify_token(token: str) -> bool:
             return False
         except (jwt.DecodeError, jwt.InvalidTokenError):
             # Wrong key — try next.
+            log.debug("cf_access_key_mismatch", key_index=keys.index(key))
             continue
         except Exception:
             log.debug("cf_access_verify_error", exc_info=True)
