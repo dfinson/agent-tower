@@ -8,6 +8,7 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
 
 from backend.models.api_schemas import (
+    ApprovalListResponse,
     ApprovalResponse,
     ResolveApprovalRequest,
     SendMessageRequest,
@@ -36,14 +37,14 @@ def _to_response(a: Approval) -> ApprovalResponse:
     )
 
 
-@router.get("/jobs/{job_id}/approvals", response_model=list[ApprovalResponse])
+@router.get("/jobs/{job_id}/approvals", response_model=ApprovalListResponse)
 async def list_approvals(
     job_id: str,
     approval_service: FromDishka[ApprovalService],
-) -> list[ApprovalResponse]:
+) -> ApprovalListResponse:
     """List all approvals for a job."""
     approvals = await approval_service.list_for_job(job_id)
-    return [_to_response(a) for a in approvals]
+    return ApprovalListResponse(items=[_to_response(a) for a in approvals])
 
 
 @router.post("/approvals/{approval_id}/resolve", response_model=ApprovalResponse)

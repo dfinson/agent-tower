@@ -43,7 +43,7 @@ async def test_models_returns_cached_list() -> None:
         resp = await client.get("/api/models")
 
     assert resp.status_code == 200
-    assert resp.json() == models
+    assert resp.json() == {"items": models}
 
 
 @pytest.mark.asyncio
@@ -58,4 +58,4 @@ async def test_models_returns_empty_when_cache_is_empty() -> None:
             resp = await client.get("/api/models")
 
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json() == {"items": []}
