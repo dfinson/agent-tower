@@ -104,6 +104,20 @@ class _SessionAttemptResult:
     downgrade: tuple[str, str] | None = None  # (requested, actual) model names
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _RecoverySnapshot:
+    """Pre-recovery job state for rollback on failure."""
+
+    state: JobState
+    session_count: int
+    completed_at: datetime | None
+    resolution: str | None
+    failure_reason: str | None
+    archived_at: datetime | None
+    merge_status: str | None
+    pr_url: str | None
+
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -418,14 +432,16 @@ class RuntimeService:
             if job.state not in (JobState.running, JobState.waiting_for_approval):
                 raise StateConflictError(f"Job {job_id} is not active and cannot be recovered (current: {job.state}).")
 
-            previous_state = job.state
-            previous_session_count = job.session_count
-            previous_completed_at = job.completed_at
-            previous_resolution = job.resolution
-            previous_failure_reason = job.failure_reason
-            previous_archived_at = job.archived_at
-            previous_merge_status = job.merge_status
-            previous_pr_url = job.pr_url
+            snapshot = _RecoverySnapshot(
+                state=job.state,
+                session_count=job.session_count,
+                completed_at=job.completed_at,
+                resolution=job.resolution,
+                failure_reason=job.failure_reason,
+                archived_at=job.archived_at,
+                merge_status=job.merge_status,
+                pr_url=job.pr_url,
+            )
 
             job = await self._ensure_resumable_worktree(job_repo, job)
 
@@ -458,23 +474,10 @@ class RuntimeService:
                 resume_sdk_session_id=resume_sdk_session_id,
             )
         except Exception:
-            async with self._session_factory() as session:
-                job_repo = JobRepository(session)
-                await job_repo.restore_after_failed_resume(
-                    job_id,
-                    previous_state=previous_state,
-                    previous_session_count=previous_session_count,
-                    completed_at=previous_completed_at,
-                    resolution=previous_resolution,
-                    failure_reason=previous_failure_reason,
-                    archived_at=previous_archived_at,
-                    merge_status=previous_merge_status,
-                    pr_url=previous_pr_url,
-                )
-                await session.commit()
+            await self._rollback_recovery(job_id, snapshot)
             raise
 
-        if previous_state == JobState.waiting_for_approval:
+        if snapshot.state == JobState.waiting_for_approval:
             await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
 
         now = datetime.now(UTC)
@@ -499,6 +502,25 @@ class RuntimeService:
         if final_job is None:
             raise ValueError(f"Job {job_id} not found after recovery start")
         return final_job
+
+    async def _rollback_recovery(self, job_id: str, snapshot: _RecoverySnapshot) -> None:
+        """Restore job state after a failed recovery attempt."""
+        from backend.persistence.job_repo import JobRepository
+
+        async with self._session_factory() as session:
+            job_repo = JobRepository(session)
+            await job_repo.restore_after_failed_resume(
+                job_id,
+                previous_state=snapshot.state,
+                previous_session_count=snapshot.session_count,
+                completed_at=snapshot.completed_at,
+                resolution=snapshot.resolution,
+                failure_reason=snapshot.failure_reason,
+                archived_at=snapshot.archived_at,
+                merge_status=snapshot.merge_status,
+                pr_url=snapshot.pr_url,
+            )
+            await session.commit()
 
     async def _start_job(
         self, job: Job, override_prompt: str | None = None, resume_sdk_session_id: str | None = None
@@ -633,44 +655,11 @@ class RuntimeService:
             await self._trail_service.start_tracking(job_id, prompt=config.prompt or "")
 
         # Start telemetry tracking — init OTEL spans and SQLite summary row.
-        import time as _time
-
         from backend.services import telemetry as tel
 
         tel.start_job_span(job_id, sdk=config.sdk, model=config.model or "")
 
-        # Initialize the summary row in SQLite so event-driven upserts work.
-        # Fire-and-forget via a background task to avoid holding a write lock
-        # that could conflict with concurrent recovery transactions.
-        async def _init_telemetry_row() -> None:
-            try:
-                async with self._session_factory() as session:
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
-
-                    repo_path = ""
-                    branch_name = ""
-                    sdk_name = ""
-                    try:
-                        svc = self._make_job_service(session)
-                        job_for_tel = await svc.get_job(job_id)
-                        if job_for_tel is not None:
-                            repo_path = job_for_tel.repo or ""
-                            branch_name = job_for_tel.branch or ""
-                            sdk_name = job_for_tel.sdk or ""
-                    except Exception:
-                        log.debug("telemetry_init_job_lookup_failed", job_id=job_id, exc_info=True)
-                    await TelemetrySummaryRepo(session).init_job(
-                        job_id,
-                        sdk=sdk_name or "unknown",
-                        model=config.model or "",
-                        repo=repo_path,
-                        branch=branch_name,
-                    )
-                    await session.commit()
-            except (Exception, asyncio.CancelledError):
-                log.warning("telemetry_init_failed", job_id=job_id, exc_info=True)
-
-        asyncio.create_task(_init_telemetry_row(), name=f"telemetry-init-{job_id[:8]}")
+        asyncio.create_task(self._init_telemetry_row(job_id, config), name=f"telemetry-init-{job_id[:8]}")
 
         # Create observer terminal for live agent shell output
         if self._terminal_service is not None:
@@ -712,6 +701,7 @@ class RuntimeService:
 
         session_id: str | None = None
         error_reason: str | None = None
+        final_state = JobState.review
         try:
             # Emit agent_reasoning phase before main session execution
             self._resolve_adapter(config.sdk).set_execution_phase(job_id, "agent_reasoning")
@@ -750,34 +740,7 @@ class RuntimeService:
 
             # Model downgrade (from either attempt): finish diff, move to review with note, skip verify
             if result.downgrade is not None:
-                requested, actual = result.downgrade
-                await self._finalize_diff_safe(job_id, worktree_path, base_ref)
-                reason = f"Model downgraded: requested {requested} but received {actual}"
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    await svc.transition_state(job_id, JobState.review, failure_reason=reason)
-                    from backend.persistence.job_repo import JobRepository
-
-                    job_repo = JobRepository(session)
-                    await job_repo.update_resolution(job_id, Resolution.unresolved)
-                    await session.commit()
-
-                self._set_progress_terminal_state(job_id, JobState.review)
-                await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.job_review,
-                        payload={
-                            "resolution": Resolution.unresolved,
-                            "model_downgraded": True,
-                            "requested_model": requested,
-                            "actual_model": actual,
-                        },
-                    )
-                )
-                log.info("job_moved_to_review_model_downgrade", job_id=job_id)
+                await self._handle_model_downgrade(job_id, result.downgrade, worktree_path, base_ref)
                 return
 
             if error_reason:
@@ -787,108 +750,9 @@ class RuntimeService:
                 await self._fail_job(job_id, error_reason)
                 return
 
-            # Final diff snapshot before resolution
-            await self._finalize_diff_safe(job_id, worktree_path, base_ref)
-
-            # Run optional verify / self-review follow-up turns
-            await self._run_verify_review(
-                job_id, config, session_id, worktree_path, base_ref, session_number=session_number
-            )
-
-            final_resolution = Resolution.unresolved
-            final_pr_url: str | None = None
-            final_merge_status: str | None = None
-            resolution_event = None
-
-            # Strategy completed normally → review
-            #
-            # Commit the state transition BEFORE running merge resolution.
-            # Merge operations open their own sessions to persist merge_status
-            # and publish events — if the outer session is still uncommitted
-            # SQLite will deadlock on the jobs table write lock.
-            async with self._session_factory() as session:
-                svc = self._make_job_service(session)
-                await svc.transition_state(job_id, JobState.review)
-                if not post_conflict_merge_requested or self._merge_service is None:
-                    from backend.persistence.job_repo import JobRepository
-
-                    job_repo = JobRepository(session)
-                    await job_repo.update_resolution(job_id, final_resolution, pr_url=None)
-                    if post_conflict_merge_requested and self._merge_service is None:
-                        log.warning("post_conflict_merge_unavailable", job_id=job_id)
-                await session.commit()
-
-            # Merge resolution runs in its own session(s) — no lock contention.
-            if post_conflict_merge_requested and self._merge_service is not None:
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    current_job = await svc.get_job(job_id)
-                    if current_job is None:
-                        raise ValueError(f"Job {job_id} not found before post-conflict merge")
-
-                    log.info("job_attempting_post_conflict_merge", job_id=job_id)
-                    resolved, final_pr_url, _, _ = await svc.execute_resolve(
-                        job=current_job,
-                        action="merge",
-                        merge_service=self._merge_service,
-                    )
-                    final_resolution = cast("Resolution", resolved)
-                    resolution_event = svc.build_job_resolved_event(
-                        job_id,
-                        resolved,
-                        pr_url=final_pr_url,
-                    )
-                    await session.commit()
-
-            if resolution_event is not None:
-                await self._event_bus.publish(resolution_event)
-
-            async with self._session_factory() as session:
-                svc = self._make_job_service(session)
-                updated_job = await svc.get_job(job_id)
-            if updated_job is not None:
-                final_merge_status = updated_job.merge_status
-                final_pr_url = updated_job.pr_url
-
-            if final_resolution == Resolution.unresolved:
-                log.info("job_awaiting_review", job_id=job_id)
-            else:
-                log.info(
-                    "job_completed_with_resolution",
-                    job_id=job_id,
-                    resolution=final_resolution,
-                    merge_status=final_merge_status,
-                )
-
-            # Determine final state — execute_resolve may have already
-            # transitioned review → completed for successful merges.
-            final_state = JobState.review
-            if final_resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
-                final_state = JobState.completed
-            final_event_kind = (
-                DomainEventKind.job_completed if final_state == JobState.completed else DomainEventKind.job_review
-            )
-
-            self._set_progress_terminal_state(job_id, final_state)
-            await self._set_step_terminal_state(job_id, final_state)
-            await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
-                    timestamp=datetime.now(UTC),
-                    kind=final_event_kind,
-                    payload={
-                        "resolution": final_resolution,
-                        "merge_status": final_merge_status,
-                        "pr_url": final_pr_url,
-                    },
-                )
-            )
-            log.info(
-                final_event_kind.value,
-                job_id=job_id,
-                resolution=final_resolution,
-                merge_status=final_merge_status,
+            final_state = await self._handle_successful_completion(
+                job_id, config, session_id, worktree_path, base_ref,
+                post_conflict_merge_requested, session_number,
             )
         except asyncio.CancelledError:
             if self._shutting_down:
@@ -907,88 +771,7 @@ class RuntimeService:
             await self._finalize_diff_safe(job_id, worktree_path, base_ref)
             await self._fail_job(job_id, f"Execution error: {exc}")
         finally:
-            tel.end_job_span(job_id)
-
-            # Emit finalization phase
-            try:
-                self._resolve_adapter(config.sdk).set_execution_phase(job_id, "finalization")
-                await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.execution_phase_changed,
-                        payload={"phase": "finalization"},
-                    )
-                )
-            except Exception:
-                log.debug("execution_phase_event_failed", job_id=job_id, exc_info=True)
-
-            # Finalize the summary row with terminal status and duration.
-            try:
-                async with self._session_factory() as session:
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
-
-                    # Determine status from job state
-                    status = "review"
-                    try:
-                        svc = self._make_job_service(session)
-                        job_final = await svc.get_job(job_id)
-                        if job_final is not None:
-                            st = str(job_final.state)
-                            if "fail" in st:
-                                status = "failed"
-                            elif "cancel" in st:
-                                status = "cancelled"
-                            elif st == "completed":
-                                status = "completed"
-                    except Exception:
-                        log.debug("telemetry_finalize_status_lookup_failed", job_id=job_id, exc_info=True)
-                    duration = int((_time.monotonic() - _job_wall_start) * 1000)
-
-                    await TelemetrySummaryRepo(session).finalize(
-                        job_id,
-                        status=status,
-                        duration_ms=duration,
-                    )
-                    await session.commit()
-
-                # Run post-job cost attribution pipeline
-                try:
-                    async with self._session_factory() as session:
-                        from backend.services.cost_attribution import compute_attribution
-
-                        await compute_attribution(session, job_id)
-                        await session.commit()
-                except Exception:
-                    log.warning("cost_attribution_failed", job_id=job_id, exc_info=True)
-
-                # Run statistical analysis (fire-and-forget, non-blocking)
-                try:
-                    async with self._session_factory() as session:
-                        from backend.services.statistical_analysis import run_analysis
-
-                        await run_analysis(session)
-                        await session.commit()
-                except Exception:
-                    log.debug("statistical_analysis_failed", job_id=job_id, exc_info=True)
-
-                # Signal clients that final telemetry is available
-                await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.telemetry_updated,
-                        payload={"job_id": job_id},
-                    )
-                )
-            except Exception:
-                log.warning("telemetry_finalize_failed", job_id=job_id, exc_info=True)
-
-            # --- Store post-completion artifacts (telemetry, plan, approvals) ---
-            await self._store_post_completion_artifacts(job_id)
-
+            await self._finalize_job_telemetry(job_id, _job_wall_start, config)
             heartbeat_task.cancel()
             self._heartbeat_tasks.pop(job_id, None)
             if self._trail_service is not None:
@@ -996,6 +779,272 @@ class RuntimeService:
                 succeeded = final_state == JobState.completed
                 await self._trail_service.finalize(job_id, succeeded=succeeded)
             await self._cleanup_job_state(job_id)
+
+    async def _init_telemetry_row(self, job_id: str, config: SessionConfig) -> None:
+        try:
+            async with self._session_factory() as session:
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+
+                repo_path = ""
+                branch_name = ""
+                sdk_name = ""
+                try:
+                    svc = self._make_job_service(session)
+                    job_for_tel = await svc.get_job(job_id)
+                    if job_for_tel is not None:
+                        repo_path = job_for_tel.repo or ""
+                        branch_name = job_for_tel.branch or ""
+                        sdk_name = job_for_tel.sdk or ""
+                except Exception:
+                    log.debug("telemetry_init_job_lookup_failed", job_id=job_id, exc_info=True)
+                await TelemetrySummaryRepo(session).init_job(
+                    job_id,
+                    sdk=sdk_name or "unknown",
+                    model=config.model or "",
+                    repo=repo_path,
+                    branch=branch_name,
+                )
+                await session.commit()
+        except (Exception, asyncio.CancelledError):
+            log.warning("telemetry_init_failed", job_id=job_id, exc_info=True)
+
+    async def _handle_model_downgrade(
+        self,
+        job_id: str,
+        downgrade: tuple[str, str],
+        worktree_path: str | None,
+        base_ref: str | None,
+    ) -> None:
+        requested, actual = downgrade
+        await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+        reason = f"Model downgraded: requested {requested} but received {actual}"
+        async with self._session_factory() as session:
+            svc = self._make_job_service(session)
+            await svc.transition_state(job_id, JobState.review, failure_reason=reason)
+            from backend.persistence.job_repo import JobRepository
+
+            job_repo = JobRepository(session)
+            await job_repo.update_resolution(job_id, Resolution.unresolved)
+            await session.commit()
+
+        self._set_progress_terminal_state(job_id, JobState.review)
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.job_review,
+                payload={
+                    "resolution": Resolution.unresolved,
+                    "model_downgraded": True,
+                    "requested_model": requested,
+                    "actual_model": actual,
+                },
+            )
+        )
+        log.info("job_moved_to_review_model_downgrade", job_id=job_id)
+
+    async def _handle_successful_completion(
+        self,
+        job_id: str,
+        config: SessionConfig,
+        session_id: str | None,
+        worktree_path: str | None,
+        base_ref: str | None,
+        post_conflict_merge_requested: bool,
+        session_number: int,
+    ) -> JobState:
+        # Final diff snapshot before resolution
+        await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+
+        # Run optional verify / self-review follow-up turns
+        await self._run_verify_review(
+            job_id, config, session_id, worktree_path, base_ref, session_number=session_number
+        )
+
+        final_resolution = Resolution.unresolved
+        final_pr_url: str | None = None
+        final_merge_status: str | None = None
+        resolution_event = None
+
+        # Strategy completed normally → review
+        #
+        # Commit the state transition BEFORE running merge resolution.
+        # Merge operations open their own sessions to persist merge_status
+        # and publish events — if the outer session is still uncommitted
+        # SQLite will deadlock on the jobs table write lock.
+        async with self._session_factory() as session:
+            svc = self._make_job_service(session)
+            await svc.transition_state(job_id, JobState.review)
+            if not post_conflict_merge_requested or self._merge_service is None:
+                from backend.persistence.job_repo import JobRepository
+
+                job_repo = JobRepository(session)
+                await job_repo.update_resolution(job_id, final_resolution, pr_url=None)
+                if post_conflict_merge_requested and self._merge_service is None:
+                    log.warning("post_conflict_merge_unavailable", job_id=job_id)
+            await session.commit()
+
+        # Merge resolution runs in its own session(s) — no lock contention.
+        if post_conflict_merge_requested and self._merge_service is not None:
+            async with self._session_factory() as session:
+                svc = self._make_job_service(session)
+                current_job = await svc.get_job(job_id)
+                if current_job is None:
+                    raise ValueError(f"Job {job_id} not found before post-conflict merge")
+
+                log.info("job_attempting_post_conflict_merge", job_id=job_id)
+                resolved, final_pr_url, _, _ = await svc.execute_resolve(
+                    job=current_job,
+                    action="merge",
+                    merge_service=self._merge_service,
+                )
+                final_resolution = cast("Resolution", resolved)
+                resolution_event = svc.build_job_resolved_event(
+                    job_id,
+                    resolved,
+                    pr_url=final_pr_url,
+                )
+                await session.commit()
+
+        if resolution_event is not None:
+            await self._event_bus.publish(resolution_event)
+
+        async with self._session_factory() as session:
+            svc = self._make_job_service(session)
+            updated_job = await svc.get_job(job_id)
+        if updated_job is not None:
+            final_merge_status = updated_job.merge_status
+            final_pr_url = updated_job.pr_url
+
+        if final_resolution == Resolution.unresolved:
+            log.info("job_awaiting_review", job_id=job_id)
+        else:
+            log.info(
+                "job_completed_with_resolution",
+                job_id=job_id,
+                resolution=final_resolution,
+                merge_status=final_merge_status,
+            )
+
+        # Determine final state — execute_resolve may have already
+        # transitioned review → completed for successful merges.
+        final_state = JobState.review
+        if final_resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
+            final_state = JobState.completed
+        final_event_kind = (
+            DomainEventKind.job_completed if final_state == JobState.completed else DomainEventKind.job_review
+        )
+
+        self._set_progress_terminal_state(job_id, final_state)
+        await self._set_step_terminal_state(job_id, final_state)
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=final_event_kind,
+                payload={
+                    "resolution": final_resolution,
+                    "merge_status": final_merge_status,
+                    "pr_url": final_pr_url,
+                },
+            )
+        )
+        log.info(
+            final_event_kind.value,
+            job_id=job_id,
+            resolution=final_resolution,
+            merge_status=final_merge_status,
+        )
+        return final_state
+
+    async def _finalize_job_telemetry(self, job_id: str, wall_start: float, config: SessionConfig) -> None:
+        import time as _time
+
+        from backend.services import telemetry as tel
+
+        tel.end_job_span(job_id)
+
+        # Emit finalization phase
+        try:
+            self._resolve_adapter(config.sdk).set_execution_phase(job_id, "finalization")
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.execution_phase_changed,
+                    payload={"phase": "finalization"},
+                )
+            )
+        except Exception:
+            log.debug("execution_phase_event_failed", job_id=job_id, exc_info=True)
+
+        # Finalize the summary row with terminal status and duration.
+        try:
+            async with self._session_factory() as session:
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+
+                # Determine status from job state
+                status = "review"
+                try:
+                    svc = self._make_job_service(session)
+                    job_final = await svc.get_job(job_id)
+                    if job_final is not None:
+                        st = str(job_final.state)
+                        if "fail" in st:
+                            status = "failed"
+                        elif "cancel" in st:
+                            status = "cancelled"
+                        elif st == "completed":
+                            status = "completed"
+                except Exception:
+                    log.debug("telemetry_finalize_status_lookup_failed", job_id=job_id, exc_info=True)
+                duration = int((_time.monotonic() - wall_start) * 1000)
+
+                await TelemetrySummaryRepo(session).finalize(
+                    job_id,
+                    status=status,
+                    duration_ms=duration,
+                )
+                await session.commit()
+
+            # Run post-job cost attribution pipeline
+            try:
+                async with self._session_factory() as session:
+                    from backend.services.cost_attribution import compute_attribution
+
+                    await compute_attribution(session, job_id)
+                    await session.commit()
+            except Exception:
+                log.warning("cost_attribution_failed", job_id=job_id, exc_info=True)
+
+            # Run statistical analysis (fire-and-forget, non-blocking)
+            try:
+                async with self._session_factory() as session:
+                    from backend.services.statistical_analysis import run_analysis
+
+                    await run_analysis(session)
+                    await session.commit()
+            except Exception:
+                log.debug("statistical_analysis_failed", job_id=job_id, exc_info=True)
+
+            # Signal clients that final telemetry is available
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.telemetry_updated,
+                    payload={"job_id": job_id},
+                )
+            )
+        except Exception:
+            log.warning("telemetry_finalize_failed", job_id=job_id, exc_info=True)
+
+        # --- Store post-completion artifacts (telemetry, plan, approvals) ---
+        await self._store_post_completion_artifacts(job_id)
 
     async def _store_post_completion_artifacts(
         self,
