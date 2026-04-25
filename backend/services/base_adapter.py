@@ -289,23 +289,22 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return
         try:
             async with self._session_factory() as session:
+                from backend.persistence.file_access_repo import FileAccessRepo
                 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
 
-                if fn_name == "increment":
-                    await TelemetrySummaryRepo(session).increment(**kwargs)
-                elif fn_name == "insert_span":
-                    await TelemetrySpansRepo(session).insert(**kwargs)
-                elif fn_name == "set_model":
-                    await TelemetrySummaryRepo(session).set_model(**kwargs)
-                elif fn_name == "set_context":
-                    await TelemetrySummaryRepo(session).set_context(**kwargs)
-                elif fn_name == "set_quota":
-                    await TelemetrySummaryRepo(session).set_quota(**kwargs)
-                elif fn_name == "record_file_access":
-                    from backend.persistence.file_access_repo import FileAccessRepo
-
-                    await FileAccessRepo(session).record(**kwargs)
+                summary = TelemetrySummaryRepo(session)
+                dispatch = {
+                    "increment": summary.increment,
+                    "insert_span": TelemetrySpansRepo(session).insert,
+                    "set_model": summary.set_model,
+                    "set_context": summary.set_context,
+                    "set_quota": summary.set_quota,
+                    "record_file_access": FileAccessRepo(session).record,
+                }
+                handler = dispatch.get(fn_name)
+                if handler is not None:
+                    await handler(**kwargs)
                 await session.commit()
         except Exception:
             log.debug("telemetry_db_write_failed", fn=fn_name, exc_info=True)
