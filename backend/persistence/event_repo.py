@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime  # noqa: TC003 — used in cast() string arg
-from typing import cast
 
 from sqlalchemy import func, select
 
@@ -18,15 +16,13 @@ class EventRepository(BaseRepository):
 
     @staticmethod
     def _to_domain(row: EventRow) -> DomainEvent:
-        # SQLAlchemy Column descriptors return Any at the type level;
-        # cast() documents the expected runtime type for each field.
         return DomainEvent(
-            event_id=cast("str", row.event_id),
-            job_id=cast("str", row.job_id),
-            timestamp=cast("datetime", row.timestamp),
-            kind=DomainEventKind(cast("str", row.kind)),
-            payload=json.loads(cast("str", row.payload)),
-            db_id=cast("int | None", row.id),
+            event_id=row.event_id,
+            job_id=row.job_id,
+            timestamp=row.timestamp,
+            kind=DomainEventKind(row.kind),
+            payload=json.loads(row.payload),
+            db_id=row.id,
         )
 
     async def append(self, event: DomainEvent) -> int:
@@ -40,7 +36,7 @@ class EventRepository(BaseRepository):
         )
         self._session.add(row)
         await self._session.flush()
-        db_id = cast("int", row.id)
+        db_id = row.id
         event.db_id = db_id
         return db_id
 
@@ -101,8 +97,8 @@ class EventRepository(BaseRepository):
 
         previews: dict[str, tuple[str, str]] = {}
         for row in result.scalars().all():
-            job_id = cast("str", row.job_id)
-            payload = json.loads(cast("str", row.payload))
+            job_id = row.job_id
+            payload = json.loads(row.payload)
             previews[job_id] = (
                 str(payload.get("headline", "")).strip(),
                 str(payload.get("summary", "")).strip(),

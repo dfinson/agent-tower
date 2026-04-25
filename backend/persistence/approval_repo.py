@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update
 
@@ -19,17 +19,15 @@ class ApprovalRepository(BaseRepository):
 
     @staticmethod
     def _to_domain(row: ApprovalRow) -> Approval:
-        # SQLAlchemy Column descriptors return Any at the type level;
-        # cast() documents the expected runtime type for each field.
         return Approval(
-            id=cast("str", row.id),
-            job_id=cast("str", row.job_id),
-            description=cast("str", row.description),
-            proposed_action=cast("str | None", row.proposed_action),
-            requested_at=cast("datetime", row.requested_at),
-            resolved_at=cast("datetime | None", row.resolved_at),
-            resolution=cast("str | None", row.resolution),
-            requires_explicit_approval=cast("bool", row.requires_explicit_approval or False),
+            id=row.id,
+            job_id=row.job_id,
+            description=row.description,
+            proposed_action=row.proposed_action,
+            requested_at=row.requested_at,
+            resolved_at=row.resolved_at,
+            resolution=row.resolution,
+            requires_explicit_approval=row.requires_explicit_approval or False,
         )
 
     async def create(self, approval: Approval) -> Approval:
@@ -88,7 +86,7 @@ class ApprovalRepository(BaseRepository):
         )
         result = await self._session.execute(stmt)
         # CursorResult.rowcount is always present but not in the generic type stub
-        if cast("int", result.rowcount) == 0:  # type: ignore[attr-defined]
+        if result.rowcount == 0:  # type: ignore[attr-defined]
             return None
         await self._session.flush()
         # Re-fetch the updated row
