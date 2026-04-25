@@ -27,7 +27,8 @@ from backend.services.base_adapter import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from copilot import PermissionRequest, PermissionRequestResult
+    from copilot import CopilotClient, PermissionRequest, PermissionRequestResult
+    from copilot.generated.session_events import Data as SdkEventData
     from copilot.generated.session_events import SessionEvent as SdkSessionEvent
     from copilot.session import CopilotSession
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -61,7 +62,7 @@ class CopilotAdapter(BaseAgentAdapter):
         # Rotated on assistant.message to mark turn boundaries.
         self._fallback_turn_ids: dict[str, str] = {}  # job_id → current fallback turn_id
 
-    def _get_turn_id(self, job_id: str | None, data: Any) -> str | None:
+    def _get_turn_id(self, job_id: str | None, data: SdkEventData) -> str | None:
         """Return the SDK turn_id or synthesize a fallback for step tracking.
 
         When *job_id* is falsy and no SDK turn_id is available, returns None
@@ -95,7 +96,7 @@ class CopilotAdapter(BaseAgentAdapter):
         super()._cleanup_session_state(session_id)
 
     @staticmethod
-    async def _stop_client(client: Any) -> None:  # noqa: ANN401
+    async def _stop_client(client: CopilotClient) -> None:
         """Stop a CopilotClient, terminating its CLI server process."""
         try:
             await asyncio.wait_for(client.stop(), timeout=CLIENT_STOP_TIMEOUT_S)
@@ -186,7 +187,7 @@ class CopilotAdapter(BaseAgentAdapter):
 
     def _handle_usage_event(
         self,
-        data: Any,
+        data: SdkEventData,
         job_id: str,
         requested_model: str,
         model_verified: list[bool],
@@ -282,7 +283,7 @@ class CopilotAdapter(BaseAgentAdapter):
                 )
             )
 
-    def _handle_tool_start(self, data: Any, job_id: str) -> None:
+    def _handle_tool_start(self, data: SdkEventData, job_id: str) -> None:
         tool_id = data.tool_call_id or ""
         import json as _json
         import time as _time
@@ -315,7 +316,7 @@ class CopilotAdapter(BaseAgentAdapter):
             "tool_title": tool_title,
         }
 
-    def _handle_tool_end(self, data: Any, job_id: str) -> None:
+    def _handle_tool_end(self, data: SdkEventData, job_id: str) -> None:
         tool_id = data.tool_call_id or ""
         import time as _time
 
@@ -357,7 +358,7 @@ class CopilotAdapter(BaseAgentAdapter):
             turn_id=buffered.get("turn_id"),
         )
 
-    def _handle_context_changed(self, data: Any, job_id: str) -> None:
+    def _handle_context_changed(self, data: SdkEventData, job_id: str) -> None:
         from backend.services import telemetry as tel
 
         current = int(data.current_tokens or 0)
@@ -372,7 +373,7 @@ class CopilotAdapter(BaseAgentAdapter):
             )
         )
 
-    def _handle_compaction(self, data: Any, job_id: str) -> None:
+    def _handle_compaction(self, data: SdkEventData, job_id: str) -> None:
         from backend.services import telemetry as tel
 
         pre = int(data.pre_compaction_tokens or 0)
@@ -405,7 +406,7 @@ class CopilotAdapter(BaseAgentAdapter):
     def _emit_log_event(
         self,
         kind_str: str,
-        data: Any,
+        data: SdkEventData,
         requested_model: str,
         queue: asyncio.Queue[SessionEvent | None],
         log_seq: list[int],
@@ -476,7 +477,7 @@ class CopilotAdapter(BaseAgentAdapter):
     def _bridge_to_session_queue(
         self,
         kind_str: str,
-        data: Any,
+        data: SdkEventData,
         payload: dict[str, object],
         queue: asyncio.Queue[SessionEvent | None],
         session_id: str,

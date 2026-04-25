@@ -311,7 +311,7 @@ class DomainEvent:
     job_id: str
     timestamp: datetime
     kind: DomainEventKind
-    payload: dict[str, Any]
+    payload: EventPayload
     db_id: int | None = None  # autoincrement ID from EventRow; set after persistence
 
     @staticmethod
