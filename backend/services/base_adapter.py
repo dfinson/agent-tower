@@ -30,6 +30,8 @@ from backend.services.permission_policy import (
 )
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
     from backend.services.retry_tracker import RetryTracker
@@ -79,7 +81,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self,
         approval_service: ApprovalService | None = None,
         event_bus: EventBus | None = None,
-        session_factory: Any | None = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
         self._clients: dict[str, Any] = {}

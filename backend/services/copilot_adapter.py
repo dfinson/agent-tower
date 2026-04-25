@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from copilot import PermissionRequest, PermissionRequestResult
     from copilot.generated.session_events import SessionEvent as SdkSessionEvent
     from copilot.session import CopilotSession
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
@@ -48,7 +49,7 @@ class CopilotAdapter(BaseAgentAdapter):
         self,
         approval_service: ApprovalService | None = None,
         event_bus: EventBus | None = None,
-        session_factory: Any | None = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         super().__init__(
             approval_service=approval_service,

@@ -43,9 +43,9 @@ import hmac
 import secrets
 import time
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from string import Template
-from typing import Any
 from urllib.parse import urlparse
 
 import structlog
@@ -359,7 +359,7 @@ async def authenticate_logout_request(request: Request) -> Response:
     return response
 
 
-async def auth_middleware(request: Request, call_next: Any) -> Response:
+async def auth_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """Middleware that enforces password auth when enabled.
 
     Registered by ``app_factory._configure_middleware`` when a password is set.
@@ -381,24 +381,24 @@ async def auth_middleware(request: Request, call_next: Any) -> Response:
 
     # Always allow auth endpoints and health check
     if path.startswith("/api/auth/") or path == "/api/health":
-        return await call_next(request)  # type: ignore[no-any-return]
+        return await call_next(request)
 
     # Localhost is trusted — no auth needed
     if is_localhost(request):
         client_ip = request.client.host if request.client else "unknown"
         log.debug("auth_localhost_bypass", client_ip=client_ip, path=path)
-        return await call_next(request)  # type: ignore[no-any-return]
+        return await call_next(request)
 
     # Cloudflare Access — request already authenticated at the CF edge
     if _has_cloudflare_access(request):
         log.debug("auth_cloudflare_access_bypass", path=path)
-        return await call_next(request)  # type: ignore[no-any-return]
+        return await call_next(request)
 
     # Check session cookie
     token = request.cookies.get(COOKIE_NAME)
     if is_valid_token(token):
         log.debug("auth_token_valid", path=path)
-        return await call_next(request)  # type: ignore[no-any-return]
+        return await call_next(request)
 
     # Not authenticated
     if path.startswith("/api") or path.startswith("/mcp"):
