@@ -173,6 +173,53 @@ class JobService:
             raise RepoNotAllowedError(f"Repository '{repo}' is not in the allowlist.")
         return resolved
 
+    async def _generate_names_with_retry(
+        self,
+        spec: JobSpec,
+        resolved_repo: str,
+        branch: str | None,
+    ) -> tuple[str | None, str | None, str | None, str | None]:
+        """Generate title/description/branch/worktree_name via the naming service.
+
+        Retries if the generated worktree_name collides with an existing job.
+        """
+        existing_branches, existing_worktrees, existing_job_ids = await asyncio.gather(
+            self._git.list_branches(resolved_repo),
+            self._git.list_worktree_names(resolved_repo),
+            self._job_repo.list_ids(),
+        )
+        exclude_names = existing_worktrees | existing_job_ids
+
+        assert self._naming is not None  # noqa: S101 — caller guarantees
+        title, description, generated_branch, worktree_name = await self._naming.generate(
+            spec.prompt,
+            existing_branches=existing_branches,
+            existing_worktrees=exclude_names,
+            parent_job_context=spec.parent_job_context,
+        )
+        if branch is None and generated_branch:
+            branch = generated_branch
+
+        for _retry in range(_MAX_NAMING_COLLISION_RETRIES):
+            if worktree_name not in exclude_names and await self._job_repo.get(worktree_name) is None:
+                break
+            log.warning(
+                "naming_collision_retry",
+                worktree_name=worktree_name,
+                attempt=_retry + 1,
+            )
+            exclude_names = exclude_names | {worktree_name}
+            title, description, generated_branch, worktree_name = await self._naming.generate(
+                spec.prompt,
+                existing_branches=existing_branches,
+                existing_worktrees=exclude_names,
+                parent_job_context=spec.parent_job_context,
+            )
+            if branch is None and generated_branch:
+                branch = generated_branch
+
+        return title, description, branch, worktree_name
+
     async def _resolve_job_name(
         self,
         spec: JobSpec,
@@ -210,45 +257,9 @@ class JobService:
                 worktree_name = None
 
         if not pre_named and self._naming is not None:
-            # Gather existing branches, worktrees, and job IDs for conflict detection
-            # (run in parallel — these are independent I/O operations)
-            existing_branches, existing_worktrees, existing_job_ids = await asyncio.gather(
-                self._git.list_branches(resolved_repo),
-                self._git.list_worktree_names(resolved_repo),
-                self._job_repo.list_ids(),
+            title, description, branch, worktree_name = await self._generate_names_with_retry(
+                spec, resolved_repo, branch
             )
-
-            exclude_names = existing_worktrees | existing_job_ids
-
-            title, description, generated_branch, worktree_name = await self._naming.generate(
-                spec.prompt,
-                existing_branches=existing_branches,
-                existing_worktrees=exclude_names,
-                parent_job_context=spec.parent_job_context,
-            )
-            if branch is None and generated_branch:
-                branch = generated_branch
-
-            # Post-naming collision guard: the name may still collide if
-            # the LLM ignored the exclude list or a concurrent request
-            # claimed the name between the list_ids() call and now.
-            for _retry in range(_MAX_NAMING_COLLISION_RETRIES):
-                if worktree_name not in exclude_names and await self._job_repo.get(worktree_name) is None:
-                    break
-                log.warning(
-                    "naming_collision_retry",
-                    worktree_name=worktree_name,
-                    attempt=_retry + 1,
-                )
-                exclude_names = exclude_names | {worktree_name}
-                title, description, generated_branch, worktree_name = await self._naming.generate(
-                    spec.prompt,
-                    existing_branches=existing_branches,
-                    existing_worktrees=exclude_names,
-                    parent_job_context=spec.parent_job_context,
-                )
-                if branch is None and generated_branch:
-                    branch = generated_branch
 
         # When no naming service is configured (e.g. tests without LLM), use a hash.
         # Check existing IDs to avoid collisions on reruns of the same prompt.
