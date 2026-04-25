@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003 — used in cast() string arg
-from typing import cast
-
 from sqlalchemy import delete, select
 
 from backend.models.db import ArtifactRow
@@ -17,18 +14,16 @@ class ArtifactRepository(BaseRepository):
 
     @staticmethod
     def _to_domain(row: ArtifactRow) -> Artifact:
-        # SQLAlchemy Column descriptors return Any at the type level;
-        # cast() documents the expected runtime type for each field.
         return Artifact(
-            id=cast("str", row.id),
-            job_id=cast("str", row.job_id),
-            name=cast("str", row.name),
-            type=cast("str", row.type),
-            mime_type=cast("str", row.mime_type),
-            size_bytes=cast("int", row.size_bytes),
-            disk_path=cast("str", row.disk_path),
-            phase=cast("str", row.phase),
-            created_at=cast("datetime", row.created_at),
+            id=row.id,
+            job_id=row.job_id,
+            name=row.name,
+            type=row.type,
+            mime_type=row.mime_type,
+            size_bytes=row.size_bytes,
+            disk_path=row.disk_path,
+            phase=row.phase,
+            created_at=row.created_at,
         )
 
     async def create(self, artifact: Artifact) -> Artifact:

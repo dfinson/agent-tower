@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, or_, select
 
@@ -49,40 +49,38 @@ class JobRepository(BaseRepository):
 
     @staticmethod
     def _to_domain(row: JobRow) -> Job:
-        # SQLAlchemy Column descriptors return Any at the type level;
-        # cast() documents the expected runtime type for each field.
         return Job(
-            id=cast("str", row.id),
-            repo=cast("str", row.repo),
-            prompt=cast("str", row.prompt),
-            state=_safe_job_state(cast("str", row.state)),
-            base_ref=cast("str", row.base_ref),
-            branch=cast("str | None", row.branch),
-            worktree_path=cast("str | None", row.worktree_path),
-            session_id=cast("str | None", row.session_id),
-            created_at=cast("datetime", row.created_at),
-            updated_at=cast("datetime", row.updated_at),
-            completed_at=cast("datetime | None", row.completed_at),
-            pr_url=cast("str | None", row.pr_url),
-            merge_status=cast("str | None", row.merge_status),
-            title=cast("str | None", row.title),
-            description=cast("str | None", row.description),
-            worktree_name=cast("str | None", row.worktree_name),
-            permission_mode=PermissionMode(cast("str", row.permission_mode) or "full_auto"),
-            session_count=cast("int", row.session_count) or 1,
-            sdk_session_id=cast("str | None", row.sdk_session_id),
-            model=cast("str | None", row.model),
-            resolution=Resolution(cast("str", row.resolution)) if row.resolution else None,
-            archived_at=cast("datetime | None", row.archived_at),
-            failure_reason=cast("str | None", row.failure_reason),
-            sdk=cast("str", row.sdk) or "copilot",
-            verify=cast("bool | None", row.verify),
-            self_review=cast("bool | None", row.self_review),
-            max_turns=cast("int | None", row.max_turns),
-            verify_prompt=cast("str | None", row.verify_prompt),
-            self_review_prompt=cast("str | None", row.self_review_prompt),
-            version=cast("int", row.version) or 1,
-            parent_job_id=cast("str | None", row.parent_job_id),
+            id=row.id,
+            repo=row.repo,
+            prompt=row.prompt,
+            state=_safe_job_state(row.state),
+            base_ref=row.base_ref,
+            branch=row.branch,
+            worktree_path=row.worktree_path,
+            session_id=row.session_id,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            completed_at=row.completed_at,
+            pr_url=row.pr_url,
+            merge_status=row.merge_status,
+            title=row.title,
+            description=row.description,
+            worktree_name=row.worktree_name,
+            permission_mode=PermissionMode(row.permission_mode or "full_auto"),
+            session_count=row.session_count or 1,
+            sdk_session_id=row.sdk_session_id,
+            model=row.model,
+            resolution=Resolution(row.resolution) if row.resolution else None,
+            archived_at=row.archived_at,
+            failure_reason=row.failure_reason,
+            sdk=row.sdk or "copilot",
+            verify=row.verify,
+            self_review=row.self_review,
+            max_turns=row.max_turns,
+            verify_prompt=row.verify_prompt,
+            self_review_prompt=row.self_review_prompt,
+            version=row.version or 1,
+            parent_job_id=row.parent_job_id,
         )
 
     async def create(self, job: Job) -> Job:

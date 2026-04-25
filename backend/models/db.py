@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Mapped
 
 from backend.models.domain import PermissionMode
 
@@ -19,49 +21,49 @@ class Base(DeclarativeBase):
 class JobRow(Base):
     __tablename__ = "jobs"
 
-    id = Column(String, primary_key=True)
-    repo = Column(String, nullable=False)
-    prompt = Column(Text, nullable=False)
-    state = Column(String, nullable=False)
-    base_ref = Column(String, nullable=False)
-    branch = Column(String, nullable=True)
-    worktree_path = Column(String, nullable=True)
-    session_id = Column(String, nullable=True)
-    pr_url = Column(String, nullable=True)
-    merge_status = Column(String, nullable=True)
-    resolution = Column(String, nullable=True)
-    archived_at = Column(TZDateTime, nullable=True)
-    title = Column(String, nullable=True)
-    description = Column(Text, nullable=True)
-    worktree_name = Column(String, nullable=True)
-    permission_mode = Column(String, nullable=False, default=PermissionMode.full_auto)
-    session_count = Column(Integer, nullable=False, default=1)
-    sdk_session_id = Column(String, nullable=True)
-    model = Column(String, nullable=True)
-    failure_reason = Column(String, nullable=True)
-    sdk = Column(String, nullable=False, default="copilot")
-    verify = Column(Boolean, nullable=True)
-    self_review = Column(Boolean, nullable=True)
-    max_turns = Column(Integer, nullable=True)
-    verify_prompt = Column(Text, nullable=True)
-    self_review_prompt = Column(Text, nullable=True)
-    created_at = Column(TZDateTime, nullable=False)
-    updated_at = Column(TZDateTime, nullable=False)
-    completed_at = Column(TZDateTime, nullable=True)
-    version = Column(Integer, nullable=False, default=1, server_default="1")
-    parent_job_id = Column(String, ForeignKey("jobs.id"), nullable=True)
-    story_text = Column(Text, nullable=True)
+    id: Mapped[str] = Column(String, primary_key=True)
+    repo: Mapped[str] = Column(String, nullable=False)
+    prompt: Mapped[str] = Column(Text, nullable=False)
+    state: Mapped[str] = Column(String, nullable=False)
+    base_ref: Mapped[str] = Column(String, nullable=False)
+    branch: Mapped[str | None] = Column(String, nullable=True)
+    worktree_path: Mapped[str | None] = Column(String, nullable=True)
+    session_id: Mapped[str | None] = Column(String, nullable=True)
+    pr_url: Mapped[str | None] = Column(String, nullable=True)
+    merge_status: Mapped[str | None] = Column(String, nullable=True)
+    resolution: Mapped[str | None] = Column(String, nullable=True)
+    archived_at: Mapped[datetime | None] = Column(TZDateTime, nullable=True)
+    title: Mapped[str | None] = Column(String, nullable=True)
+    description: Mapped[str | None] = Column(Text, nullable=True)
+    worktree_name: Mapped[str | None] = Column(String, nullable=True)
+    permission_mode: Mapped[str] = Column(String, nullable=False, default=PermissionMode.full_auto)
+    session_count: Mapped[int] = Column(Integer, nullable=False, default=1)
+    sdk_session_id: Mapped[str | None] = Column(String, nullable=True)
+    model: Mapped[str | None] = Column(String, nullable=True)
+    failure_reason: Mapped[str | None] = Column(String, nullable=True)
+    sdk: Mapped[str] = Column(String, nullable=False, default="copilot")
+    verify: Mapped[bool | None] = Column(Boolean, nullable=True)
+    self_review: Mapped[bool | None] = Column(Boolean, nullable=True)
+    max_turns: Mapped[int | None] = Column(Integer, nullable=True)
+    verify_prompt: Mapped[str | None] = Column(Text, nullable=True)
+    self_review_prompt: Mapped[str | None] = Column(Text, nullable=True)
+    created_at: Mapped[datetime] = Column(TZDateTime, nullable=False)
+    updated_at: Mapped[datetime] = Column(TZDateTime, nullable=False)
+    completed_at: Mapped[datetime | None] = Column(TZDateTime, nullable=True)
+    version: Mapped[int] = Column(Integer, nullable=False, default=1, server_default="1")
+    parent_job_id: Mapped[str | None] = Column(String, ForeignKey("jobs.id"), nullable=True)
+    story_text: Mapped[str | None] = Column(Text, nullable=True)
 
 
 class EventRow(Base):
     __tablename__ = "events"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    event_id = Column(String, nullable=False, unique=True)
-    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
-    kind = Column(String, nullable=False)
-    timestamp = Column(TZDateTime, nullable=False)
-    payload = Column(Text, nullable=False)  # JSON
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = Column(String, nullable=False, unique=True)
+    job_id: Mapped[str] = Column(String, ForeignKey("jobs.id"), nullable=False)
+    kind: Mapped[str] = Column(String, nullable=False)
+    timestamp: Mapped[datetime] = Column(TZDateTime, nullable=False)
+    payload: Mapped[str] = Column(Text, nullable=False)  # JSON
 
     __table_args__ = (Index("idx_events_job_id", "job_id"),)
 
@@ -69,31 +71,31 @@ class EventRow(Base):
 class ApprovalRow(Base):
     __tablename__ = "approvals"
 
-    id = Column(String, primary_key=True)
-    job_id = Column(String, ForeignKey("jobs.id"), nullable=False, index=True)
-    description = Column(Text, nullable=False)
-    proposed_action = Column(Text, nullable=True)
-    requested_at = Column(TZDateTime, nullable=False)
-    resolved_at = Column(TZDateTime, nullable=True)
-    resolution = Column(String, nullable=True)
+    id: Mapped[str] = Column(String, primary_key=True)
+    job_id: Mapped[str] = Column(String, ForeignKey("jobs.id"), nullable=False, index=True)
+    description: Mapped[str] = Column(Text, nullable=False)
+    proposed_action: Mapped[str | None] = Column(Text, nullable=True)
+    requested_at: Mapped[datetime] = Column(TZDateTime, nullable=False)
+    resolved_at: Mapped[datetime | None] = Column(TZDateTime, nullable=True)
+    resolution: Mapped[str | None] = Column(String, nullable=True)
     # Hard-blocked operations (e.g. git reset --hard) set this to True so that
     # blanket trust grants cannot auto-resolve them.
-    requires_explicit_approval = Column(Boolean, nullable=False, server_default="0")
+    requires_explicit_approval: Mapped[bool] = Column(Boolean, nullable=False, server_default="0")
 
 
 class ArtifactRow(Base):
     __tablename__ = "artifacts"
 
-    id = Column(String, primary_key=True)
-    job_id = Column(String, ForeignKey("jobs.id"), nullable=False)
-    name = Column(String, nullable=False)
-    type = Column(String, nullable=False)
-    mime_type = Column(String, nullable=False)
-    size_bytes = Column(Integer, nullable=False)
-    disk_path = Column(String, nullable=False)
-    phase = Column(String, nullable=False)
-    step_id = Column(String(36), nullable=True)
-    created_at = Column(TZDateTime, nullable=False)
+    id: Mapped[str] = Column(String, primary_key=True)
+    job_id: Mapped[str] = Column(String, ForeignKey("jobs.id"), nullable=False)
+    name: Mapped[str] = Column(String, nullable=False)
+    type: Mapped[str] = Column(String, nullable=False)
+    mime_type: Mapped[str] = Column(String, nullable=False)
+    size_bytes: Mapped[int] = Column(Integer, nullable=False)
+    disk_path: Mapped[str] = Column(String, nullable=False)
+    phase: Mapped[str] = Column(String, nullable=False)
+    step_id: Mapped[str | None] = Column(String(36), nullable=True)
+    created_at: Mapped[datetime] = Column(TZDateTime, nullable=False)
 
 
 class DiffSnapshotRow(Base):
