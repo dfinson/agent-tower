@@ -389,14 +389,24 @@ def _hint_multi_replace(result: str, success: bool) -> str:
     return "→ applied"
 
 
+def _get_edit_strings(args: dict[str, Any]) -> tuple[str, str]:
+    """Extract the old/new string pair from tool args, handling naming variants.
+
+    Different tools use different field names for the same concept:
+    oldString/old_str/old_string and newString/new_str/new_string.
+    """
+    old = args.get("oldString", args.get("old_str", args.get("old_string", "")))
+    new = args.get("newString", args.get("new_str", args.get("new_string", "")))
+    return (old if isinstance(old, str) else ""), (new if isinstance(new, str) else "")
+
+
 def _hint_edit_with_args(result: str, success: bool, tool_args: str | None = None) -> str:
     """Edit hint showing line count derived from oldString/newString."""
     if not success:
         return "→ FAIL: no match"
     args = _parse_args(tool_args)
-    old = args.get("oldString", args.get("old_str", args.get("old_string", "")))
-    new = args.get("newString", args.get("new_str", args.get("new_string", "")))
-    if isinstance(old, str) and isinstance(new, str) and (old or new):
+    old, new = _get_edit_strings(args)
+    if old or new:
         old_n = len(old.splitlines()) if old else 0
         new_n = len(new.splitlines()) if new else 0
         changed = max(old_n, new_n)
@@ -416,10 +426,9 @@ def _hint_multi_edit_with_args(result: str, success: bool, tool_args: str | None
         for r in replacements:
             if not isinstance(r, dict):
                 continue
-            old = r.get("oldString", r.get("old_string", r.get("old_str", "")))
-            new = r.get("newString", r.get("new_string", r.get("new_str", "")))
-            old_n = len(old.splitlines()) if isinstance(old, str) and old else 0
-            new_n = len(new.splitlines()) if isinstance(new, str) and new else 0
+            old, new = _get_edit_strings(r)
+            old_n = len(old.splitlines()) if old else 0
+            new_n = len(new.splitlines()) if new else 0
             total += max(old_n, new_n)
     if total:
         return f"→ {total} lines"
