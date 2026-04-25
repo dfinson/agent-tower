@@ -26,6 +26,7 @@ from backend.models.api_schemas import (
     FleetFileAccessResponse,
     JobContextResponse,
     ModelComparisonResponse,
+    ModelPricingEntry,
     ObservationsListResponse,
     RetryCostResponse,
     ScorecardResponse,
@@ -181,13 +182,13 @@ async def analytics_pricing(
         ...,
         description="Comma-separated model names to look up (e.g. 'claude-sonnet-4-6,claude-opus-4-5')",
     ),
-) -> dict[str, dict[str, object] | None]:
+) -> dict[str, ModelPricingEntry | None]:
     """Return pricing info for the requested models.
 
     Looks up each model by exact key first, then falls back to normalised
     matching.  Returns ``null`` for models not found in the pricing data.
     """
-    result: dict[str, dict[str, object] | None] = {}
+    result: dict[str, ModelPricingEntry | None] = {}
     for raw in models.split(","):
         name = raw.strip()
         if not name:
@@ -197,7 +198,7 @@ async def analytics_pricing(
         if entry is None:
             norm = _normalize_model_key(name)
             entry = _MODEL_PRICING.get(norm)
-        result[name] = entry
+        result[name] = ModelPricingEntry(**entry) if entry is not None else None
     return result
 
 

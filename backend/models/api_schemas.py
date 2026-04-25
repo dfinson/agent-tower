@@ -871,6 +871,20 @@ class ModelComparisonResponse(CamelModel):
 # ---------------------------------------------------------------------------
 
 
+class ModelPricingEntry(BaseModel):
+    """Pricing info for a single model (snake_case keys from pricing JSON)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    cache_read: float = 0
+    cache_write: float = 0
+    input: float = 0
+    max_input_tokens: int = 0
+    max_output_tokens: int = 0
+    output: float = 0
+    provider: str = ""
+
+
 class CostTrendPoint(CamelModel):
     date: str
     cost_usd: float = 0.0
