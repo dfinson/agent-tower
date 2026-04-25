@@ -534,7 +534,7 @@ class GitService:
                 if b:
                     branches.add(b)
         except GitError:
-            pass
+            log.debug("list_local_branches_failed", repo_path=repo_path, exc_info=True)
         try:
             remote = await self._run_git("branch", "-r", "--format=%(refname:short)", cwd=repo_path)
             for line in remote.splitlines():
@@ -545,7 +545,7 @@ class GitService:
                         branches.add(b.split("/", 1)[1])
                     branches.add(b)
         except GitError:
-            pass
+            log.debug("list_remote_branches_failed", repo_path=repo_path, exc_info=True)
         return branches
 
     async def list_worktree_names(self, repo_path: str) -> set[str]:

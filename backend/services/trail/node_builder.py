@@ -321,7 +321,7 @@ class TrailNodeBuilder:
             try:
                 await self._repo.update_enrichment(node_id, enrichment="pending")
             except Exception:
-                pass
+                log.debug("enrichment_status_update_failed", node_id=node_id, exc_info=True)
 
     async def _classify_and_emit_inner(
         self,

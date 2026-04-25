@@ -370,6 +370,7 @@ class MergeService:
         try:
             await self._git.checkout(base_ref, cwd=repo_path)
         except GitError:
+            log.warning("merge_checkout_failed", base_ref=base_ref, repo_path=str(repo_path), exc_info=True)
             return []
 
         try:

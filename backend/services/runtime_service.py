@@ -658,7 +658,7 @@ class RuntimeService:
                             branch_name = job_for_tel.branch or ""
                             sdk_name = job_for_tel.sdk or ""
                     except Exception:
-                        pass
+                        log.debug("telemetry_init_job_lookup_failed", job_id=job_id, exc_info=True)
                     await TelemetrySummaryRepo(session).init_job(
                         job_id,
                         sdk=sdk_name or "unknown",
@@ -922,7 +922,7 @@ class RuntimeService:
                     )
                 )
             except Exception:
-                pass
+                log.debug("execution_phase_event_failed", job_id=job_id, exc_info=True)
 
             # Finalize the summary row with terminal status and duration.
             try:
@@ -943,9 +943,7 @@ class RuntimeService:
                             elif st == "completed":
                                 status = "completed"
                     except Exception:
-                        pass
-
-                    # Duration from wall-clock start captured at _run_job entry
+                        log.debug("telemetry_finalize_status_lookup_failed", job_id=job_id, exc_info=True)
                     duration = int((_time.monotonic() - _job_wall_start) * 1000)
 
                     await TelemetrySummaryRepo(session).finalize(
@@ -1014,7 +1012,7 @@ class RuntimeService:
                 if job is not None:
                     slug = (job.worktree_name or job.title or "").strip()
             except Exception:
-                pass
+                log.debug("slug_extraction_failed", job_id=job_id, exc_info=True)
 
             async with self._session_factory() as session:
                 from backend.persistence.artifact_repo import ArtifactRepository
