@@ -32,7 +32,6 @@ class ShareService:
         self._ttl = ttl
 
     def create_token(self, job_id: str) -> ShareToken:
-        """Generate a new share token for *job_id*."""
         self._evict_expired()
         token = secrets.token_urlsafe(32)
         entry = ShareToken(
@@ -59,7 +58,6 @@ class ShareService:
         return entry.job_id
 
     def revoke(self, token: str) -> bool:
-        """Revoke a share token.  Returns ``True`` if it existed."""
         entry = self._tokens.pop(token, None)
         if entry is not None:
             log.info("share_token_revoked", job_id=entry.job_id, token=token[:8])
