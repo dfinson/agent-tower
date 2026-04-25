@@ -262,27 +262,6 @@ evaluate_full_auto = _partial(evaluate, "full_auto")
 evaluate_observe_only = _partial(evaluate, "observe_only")
 evaluate_review_and_approve = _partial(evaluate, "review_and_approve")
 
-# Legacy aliases — deprecated, use evaluate_full_auto / evaluate_observe_only / evaluate_review_and_approve
-import warnings as _warnings
-
-
-def evaluate_auto(*args: object, **kwargs: object) -> PolicyDecision:
-    """Deprecated: use evaluate_full_auto."""
-    _warnings.warn("evaluate_auto is deprecated, use evaluate_full_auto", DeprecationWarning, stacklevel=2)
-    return evaluate_full_auto(*args, **kwargs)
-
-
-def evaluate_read_only(*args: object, **kwargs: object) -> PolicyDecision:
-    """Deprecated: use evaluate_observe_only."""
-    _warnings.warn("evaluate_read_only is deprecated, use evaluate_observe_only", DeprecationWarning, stacklevel=2)
-    return evaluate_observe_only(*args, **kwargs)
-
-
-def evaluate_approval_required(*args: object, **kwargs: object) -> PolicyDecision:
-    """Deprecated: use evaluate_review_and_approve."""
-    _warnings.warn("evaluate_approval_required is deprecated, use evaluate_review_and_approve", DeprecationWarning, stacklevel=2)
-    return evaluate_review_and_approve(*args, **kwargs)
-
 
 def _evaluate(
     mode: str,
