@@ -231,7 +231,7 @@ async def create_job(
         # Fire-and-forget background task: setup workspace → start agent
         async def _setup_and_start() -> None:
             try:
-                updated_job = await runtime_service.setup_and_start(
+                await runtime_service.setup_and_start(
                     job,
                     permission_mode=body.permission_mode.value if body.permission_mode else None,
                     session_token=body.session_token,
@@ -1075,7 +1075,6 @@ async def get_job_snapshot(
     # 1. Walk step_events chronologically and identify generation boundaries.
     #    A "generation" starts whenever we see ≥2 never-before-seen IDs in a
     #    burst (events within 5 seconds of each other).
-    from itertools import groupby as _groupby
 
     seen_ids: set[str] = set()
     current_gen_ids: list[str] = []  # ordered IDs for the current generation
