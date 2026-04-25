@@ -138,6 +138,19 @@ def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) 
     )
 
 
+def _job_to_create_response(job: Job) -> CreateJobResponse:
+    """Map a domain Job to a CreateJobResponse."""
+    return CreateJobResponse(
+        id=job.id,
+        state=job.state,
+        title=job.title,
+        branch=job.branch,
+        worktree_path=job.worktree_path,
+        sdk=job.sdk,
+        created_at=job.created_at,
+    )
+
+
 @router.post("/utility-sessions/warm")
 async def warm_utility_session(
     sister_sessions: FromDishka[SisterSessionManager],
@@ -244,15 +257,7 @@ async def create_job(
 
         asyncio.create_task(_setup_and_start(), name=f"setup-{job.id}")
 
-    return CreateJobResponse(
-        id=job.id,
-        state=job.state,
-        title=job.title,
-        branch=job.branch,
-        worktree_path=job.worktree_path,
-        sdk=job.sdk,
-        created_at=job.created_at,
-    )
+    return _job_to_create_response(job)
 
 
 @router.get("/jobs", response_model=JobListResponse)
@@ -339,15 +344,7 @@ async def rerun_job(
         await runtime_service.start_or_enqueue(job)
         job = await svc.get_job(job.id)
 
-    return CreateJobResponse(
-        id=job.id,
-        state=job.state,
-        title=job.title,
-        branch=job.branch,
-        worktree_path=job.worktree_path,
-        sdk=job.sdk,
-        created_at=job.created_at,
-    )
+    return _job_to_create_response(job)
 
 
 @router.post("/jobs/{job_id}/pause", status_code=204)
@@ -375,15 +372,7 @@ async def continue_job(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    return CreateJobResponse(
-        id=job.id,
-        state=job.state,
-        title=job.title,
-        branch=job.branch,
-        worktree_path=job.worktree_path,
-        sdk=job.sdk,
-        created_at=job.created_at,
-    )
+    return _job_to_create_response(job)
 
 
 @router.post("/jobs/{job_id}/resume", response_model=JobResponse)

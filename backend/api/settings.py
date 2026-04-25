@@ -82,32 +82,29 @@ async def update_settings(
     """Update settings. Only provided fields are changed."""
     config = load_config()
     updates = body.model_dump(exclude_none=True)
-    if "max_concurrent_jobs" in updates:
-        config.runtime.max_concurrent_jobs = updates["max_concurrent_jobs"]
-    if "permission_mode" in updates:
-        config.runtime.permission_mode = str(updates["permission_mode"])
-    if "auto_push" in updates:
-        config.completion.auto_push = updates["auto_push"]
-    if "cleanup_worktree" in updates:
-        config.completion.cleanup_worktree = updates["cleanup_worktree"]
-    if "delete_branch_after_merge" in updates:
-        config.completion.delete_branch_after_merge = updates["delete_branch_after_merge"]
-    if "artifact_retention_days" in updates:
-        config.retention.artifact_retention_days = updates["artifact_retention_days"]
-    if "max_artifact_size_mb" in updates:
-        config.retention.max_artifact_size_mb = updates["max_artifact_size_mb"]
-    if "auto_archive_days" in updates:
-        config.retention.auto_archive_days = updates["auto_archive_days"]
-    if "verify" in updates:
-        config.verification.verify = updates["verify"]
-    if "self_review" in updates:
-        config.verification.self_review = updates["self_review"]
-    if "max_turns" in updates:
-        config.verification.max_turns = updates["max_turns"]
-    if "verify_prompt" in updates:
-        config.verification.verify_prompt = updates["verify_prompt"]
-    if "self_review_prompt" in updates:
-        config.verification.self_review_prompt = updates["self_review_prompt"]
+
+    # Declarative mapping: request field → (config section, config attribute)
+    _FIELD_MAP: dict[str, tuple[str, str]] = {
+        "max_concurrent_jobs": ("runtime", "max_concurrent_jobs"),
+        "permission_mode": ("runtime", "permission_mode"),
+        "auto_push": ("completion", "auto_push"),
+        "cleanup_worktree": ("completion", "cleanup_worktree"),
+        "delete_branch_after_merge": ("completion", "delete_branch_after_merge"),
+        "artifact_retention_days": ("retention", "artifact_retention_days"),
+        "max_artifact_size_mb": ("retention", "max_artifact_size_mb"),
+        "auto_archive_days": ("retention", "auto_archive_days"),
+        "verify": ("verification", "verify"),
+        "self_review": ("verification", "self_review"),
+        "max_turns": ("verification", "max_turns"),
+        "verify_prompt": ("verification", "verify_prompt"),
+        "self_review_prompt": ("verification", "self_review_prompt"),
+    }
+
+    for field, (section, attr) in _FIELD_MAP.items():
+        if field in updates:
+            value = str(updates[field]) if field == "permission_mode" else updates[field]
+            setattr(getattr(config, section), attr, value)
+
     save_config(config)
     return _config_to_response(config)
 
