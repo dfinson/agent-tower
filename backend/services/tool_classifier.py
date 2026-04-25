@@ -21,6 +21,7 @@ TOOL_CATEGORIES: dict[str, str] = {
     "get_file_contents": "file_read",
     "TodoRead": "file_read",
     "NotebookRead": "file_read",
+    "view_image": "file_read",
     # file_write — creating or editing files
     "edit_file": "file_write",
     "edit": "file_write",
@@ -40,6 +41,7 @@ TOOL_CATEGORIES: dict[str, str] = {
     "apply_patch": "file_write",
     "create_or_update_file": "file_write",
     "delete_file": "file_write",
+    "create_directory": "file_write",
     "TodoWrite": "file_write",
     "NotebookEdit": "file_write",
     # file_search — searching and navigating the codebase
