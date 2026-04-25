@@ -183,7 +183,7 @@ class TrailEnricher:
                     try:
                         await self._repo.update_enrichment(node.id, enrichment="failed")
                     except Exception:
-                        pass
+                        log.debug("enrichment_status_update_failed", node_id=node.id, exc_info=True)
 
         return processed
 

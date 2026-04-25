@@ -122,6 +122,7 @@ class TunnelWatchdog:
             with urllib.request.urlopen(req, timeout=self._HTTP_TIMEOUT) as resp:  # noqa: S310
                 return bool(resp.status == 200)
         except Exception:
+            log.debug("tunnel_health_check_failed", url=url, exc_info=True)
             return False
 
     def _process_running(self, proc: subprocess.Popen[str] | None = None) -> bool:
