@@ -65,7 +65,7 @@ class RequestProvider(Provider):
     @provide
     async def session(
         self,
-        sf: async_sessionmaker,  # type: ignore[type-arg]
+        sf: async_sessionmaker[AsyncSession],
     ) -> AsyncIterator[AsyncSession]:
         async with sf() as session:
             try:
