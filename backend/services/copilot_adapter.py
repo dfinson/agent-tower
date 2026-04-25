@@ -306,7 +306,7 @@ class CopilotAdapter(BaseAgentAdapter):
         tool_description: str = ""
         if isinstance(data.arguments, dict):
             tool_description = str(data.arguments.get("description", ""))
-        self._tool_call_buffer[tool_id] = {
+        self._pending_tool_metadata[tool_id] = {
             "tool_name": t_name_display,
             "tool_args": args_str or "",
             "turn_id": self._get_turn_id(job_id, data),
@@ -321,7 +321,7 @@ class CopilotAdapter(BaseAgentAdapter):
         start = self._tool_start_times.pop(tool_id, _time.monotonic())
         dur = (_time.monotonic() - start) * 1000
         # Prefer the display name buffered at tool.execution_start
-        buffered = self._tool_call_buffer.get(tool_id, {})
+        buffered = self._pending_tool_metadata.get(tool_id, {})
         buffered_name = buffered.get("tool_name")
         resolved_name = buffered_name or data.tool_name or data.mcp_tool_name or "tool"
         success = bool(data.success) if data.success is not None else True
@@ -419,7 +419,7 @@ class CopilotAdapter(BaseAgentAdapter):
             _log_msg = f"Tool started: {t_name}"
             _log_level = "debug"
         elif kind_str == "tool.execution_complete" and data:
-            buffered_log_name = self._tool_call_buffer.get((data.tool_call_id or ""), {}).get("tool_name")
+            buffered_log_name = self._pending_tool_metadata.get((data.tool_call_id or ""), {}).get("tool_name")
             t_name = buffered_log_name or data.tool_name or data.mcp_tool_name or "tool"
             ok = bool(data.success) if data.success is not None else True
             # Correct false failures for file-edit tools in log messages too
@@ -546,7 +546,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     }
                 elif kind_str == "tool.execution_start":
                     tool_id = (data.tool_call_id or "") if data else ""
-                    buffered = self._tool_call_buffer.get(tool_id, {})
+                    buffered = self._pending_tool_metadata.get(tool_id, {})
                     tool_name = buffered.get("tool_name", "tool")
                     # Emit report_intent as a lightweight completed intent-marker so
                     # the frontend can extract and display the intent label.  We emit
@@ -596,7 +596,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     chunk = (data.partial_output or "") if data else ""
                     if not chunk:
                         return
-                    buffered = self._tool_call_buffer.get(tool_id, {})
+                    buffered = self._pending_tool_metadata.get(tool_id, {})
                     tool_name = buffered.get("tool_name", "tool")
                     # Don't stream internal tools
                     if tool_name in ("report_intent",):
@@ -615,7 +615,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     }
                 elif kind_str == "tool.execution_complete":
                     tool_id = (data.tool_call_id or "") if data else ""
-                    buffered = self._tool_call_buffer.pop(tool_id, {})
+                    buffered = self._pending_tool_metadata.pop(tool_id, {})
                     tool_name = buffered.get(
                         "tool_name",
                         (data.tool_name or data.mcp_tool_name or "tool") if data else "tool",

@@ -86,7 +86,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._session_to_job: dict[str, str] = {}
         self._paused_sessions: set[str] = set()
         self._tool_start_times: dict[str, float] = {}
-        self._tool_call_buffer: dict[str, dict[str, str]] = {}
+        self._pending_tool_metadata: dict[str, dict[str, str]] = {}
         self._approval_service = approval_service
         self._event_bus = event_bus
         self._session_factory = session_factory
