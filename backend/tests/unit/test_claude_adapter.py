@@ -845,7 +845,7 @@ class TestProcessStreamEvent:
         sid = "sess-1"
         adapter._queues[sid] = asyncio.Queue()
         parent_id = "tool-1"
-        adapter._tool_call_buffer[parent_id] = {"tool_name": "Bash", "turn_id": "turn-1"}
+        adapter._pending_tool_metadata[parent_id] = {"tool_name": "Bash", "turn_id": "turn-1"}
 
         stream_event = _FakeStreamEvent(
             event={

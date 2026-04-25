@@ -465,7 +465,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             self._current_turn_ids[session_id] = turn_id
 
         # Buffer for the completion event
-        self._tool_call_buffer[tool_id] = {
+        self._pending_tool_metadata[tool_id] = {
             "tool_name": tool_name,
             "tool_args": args_str or "",
             "turn_id": turn_id,
@@ -511,7 +511,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         is_error = getattr(block, "is_error", False)
 
         # Resolve tool name + args from the buffer populated by _process_tool_use_block
-        buffered = self._tool_call_buffer.pop(tool_use_id, {})
+        buffered = self._pending_tool_metadata.pop(tool_use_id, {})
         tool_name = buffered.get("tool_name", "tool")
         tool_args_str = buffered.get("tool_args") or None
         turn_id = buffered.get("turn_id") or None
@@ -733,7 +733,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             return
 
         # Look up buffered tool info
-        buffered = self._tool_call_buffer.get(parent_id, {})
+        buffered = self._pending_tool_metadata.get(parent_id, {})
         tool_name = buffered.get("tool_name", "")
         if not tool_name:
             return

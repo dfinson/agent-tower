@@ -763,7 +763,7 @@ class TestEventTelemetry:
 
             # Verify start time recorded
             assert "tc-1" in adapter._tool_start_times
-            assert "tc-1" in adapter._tool_call_buffer
+            assert "tc-1" in adapter._pending_tool_metadata
 
             # Now fire completion
             result_obj = SimpleNamespace(content=[SimpleNamespace(text="file1.py")])
@@ -788,7 +788,7 @@ class TestEventTelemetry:
         sid, queue, session = await self._setup_session_with_job(adapter)
 
         # Buffer the tool start
-        adapter._tool_call_buffer["tc-2"] = {
+        adapter._pending_tool_metadata["tc-2"] = {
             "tool_name": "bash",
             "tool_args": '{"command": "ls"}',
             "turn_id": "t1",
@@ -828,7 +828,7 @@ class TestEventTelemetry:
         """report_intent tool calls should not appear in transcript."""
         sid, queue, session = await self._setup_session_with_job(adapter)
 
-        adapter._tool_call_buffer["tc-ri"] = {
+        adapter._pending_tool_metadata["tc-ri"] = {
             "tool_name": "report_intent",
             "tool_args": '{"intent": "testing"}',
             "turn_id": "t1",
@@ -984,7 +984,7 @@ class TestLogEvents:
         sid, queue, session = await self._setup_session(adapter)
 
         adapter._tool_start_times["tc-log"] = time.monotonic()
-        adapter._tool_call_buffer["tc-log"] = {
+        adapter._pending_tool_metadata["tc-log"] = {
             "tool_name": "grep",
             "tool_args": "",
             "turn_id": "",
@@ -1016,7 +1016,7 @@ class TestLogEvents:
         sid, queue, session = await self._setup_session(adapter)
 
         adapter._tool_start_times["tc-fail"] = time.monotonic()
-        adapter._tool_call_buffer["tc-fail"] = {
+        adapter._pending_tool_metadata["tc-fail"] = {
             "tool_name": "bash",
             "tool_args": "",
             "turn_id": "",
@@ -1146,7 +1146,7 @@ class TestLogEvents:
         assert any("github/search_code" in e.payload.get("message", "") for e in log_events)
 
         # Also verify it was buffered correctly
-        assert adapter._tool_call_buffer["tc-mcp"]["tool_name"] == "github/search_code"
+        assert adapter._pending_tool_metadata["tc-mcp"]["tool_name"] == "github/search_code"
 
 
 # ---------------------------------------------------------------------------
@@ -1240,7 +1240,7 @@ class TestToolStartBuffering:
 
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
 
-        buf = adapter._tool_call_buffer["tc-desc"]
+        buf = adapter._pending_tool_metadata["tc-desc"]
         assert buf["tool_intent"] == "List files"
 
     @pytest.mark.asyncio
@@ -1267,7 +1267,7 @@ class TestToolStartBuffering:
 
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
 
-        buf = adapter._tool_call_buffer["tc-str"]
+        buf = adapter._pending_tool_metadata["tc-str"]
         assert buf["tool_args"] == '{"path": "/tmp/foo"}'
         assert buf["tool_intent"] == "Read a file"
         assert buf["tool_title"] == "read_file"
@@ -1295,7 +1295,7 @@ class TestToolStartBuffering:
 
         session.fire_event(_FakeSdkSessionEvent("tool.execution_start", data))
 
-        buf = adapter._tool_call_buffer["tc-none"]
+        buf = adapter._pending_tool_metadata["tc-none"]
         assert buf["tool_args"] == ""
 
 
@@ -1318,7 +1318,7 @@ class TestToolResultExtraction:
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
 
-        adapter._tool_call_buffer["tc-po"] = {
+        adapter._pending_tool_metadata["tc-po"] = {
             "tool_name": "bash",
             "tool_args": "",
             "turn_id": "",
@@ -1364,7 +1364,7 @@ class TestToolResultExtraction:
         queue = adapter._queues[session_id]
         session = adapter._sessions[session_id]
 
-        adapter._tool_call_buffer["tc-sr"] = {
+        adapter._pending_tool_metadata["tc-sr"] = {
             "tool_name": "grep",
             "tool_args": "",
             "turn_id": "",
