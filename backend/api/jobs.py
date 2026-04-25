@@ -24,6 +24,7 @@ from backend.models.api_schemas import (
     HunkMotivation,
     JobListResponse,
     JobResponse,
+    JobSnapshotResponse,
     LogLinePayload,
     LogListResponse,
     ModelInfoResponse,
@@ -914,15 +915,13 @@ async def get_job_snapshot(
     session: FromDishka[AsyncSession],
     event_bus: FromDishka[EventBus],
     config: FromDishka[CPLConfig],
-) -> dict[str, object]:
+) -> JobSnapshotResponse:
     """Full state hydration for a single job.
 
     Returns the job, logs, transcript, diff, approvals, and timeline in a
     single response. Used by the frontend after SSE reconnection or page
     refresh to ensure the UI is fully consistent with backend state.
     """
-    from backend.models.api_schemas import JobSnapshotResponse
-
     job = await svc.get_job(job_id)
     progress_preview = await svc.get_latest_progress_preview(job_id)
 
@@ -1191,7 +1190,7 @@ async def get_job_snapshot(
         steps=plan_steps,
         turn_summaries=turn_summaries,
     )
-    return resp.model_dump(by_alias=True)
+    return resp
 
 
 @router.get("/jobs/{job_id}/telemetry")

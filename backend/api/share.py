@@ -17,6 +17,7 @@ from backend.models.api_schemas import (
     CamelModel,
     DiffFileModel,
     JobResponse,
+    JobSnapshotResponse,
     LogLinePayload,
     PlanStepPayload,
     ProgressHeadlinePayload,
@@ -177,10 +178,10 @@ async def get_shared_snapshot(
     session: FromDishka[AsyncSession],
     event_bus: FromDishka[EventBus],
     config: FromDishka[CPLConfig],
-) -> dict[str, object]:
+) -> JobSnapshotResponse:
     """Full state hydration via share token — same shape as /jobs/{id}/snapshot."""
     from backend.api.jobs import _job_to_response, _resolve_tool_display, _resolve_tool_display_full
-    from backend.models.api_schemas import ApprovalResponse, JobSnapshotResponse
+    from backend.models.api_schemas import ApprovalResponse
     from backend.models.domain import JobState
     from backend.persistence.approval_repo import ApprovalRepository
 
@@ -377,7 +378,7 @@ async def get_shared_snapshot(
         steps=plan_steps,
         turn_summaries=turn_summaries,
     )
-    return resp.model_dump(by_alias=True)
+    return resp
 
 
 # ---------------------------------------------------------------------------
