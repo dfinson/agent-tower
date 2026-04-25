@@ -25,6 +25,7 @@ from backend.models.api_schemas import (
     JobListResponse,
     JobResponse,
     JobSnapshotResponse,
+    JobTelemetryResponse,
     LogLinePayload,
     LogListResponse,
     ModelInfoResponse,
@@ -42,6 +43,17 @@ from backend.models.api_schemas import (
     StoryResponse,
     SuggestNamesRequest,
     SuggestNamesResponse,
+    TelemetryCostBucket,
+    TelemetryCostDrivers,
+    TelemetryFileAccess,
+    TelemetryFileEntry,
+    TelemetryFileStats,
+    TelemetryLlmCall,
+    TelemetryQuotaSnapshot,
+    TelemetryReviewComplexity,
+    TelemetryReviewSignals,
+    TelemetryToolCall,
+    TelemetryTurnEconomics,
     TimelineListResponse,
     TranscriptListResponse,
     TranscriptPayload,
@@ -1193,11 +1205,11 @@ async def get_job_snapshot(
     return resp
 
 
-@router.get("/jobs/{job_id}/telemetry")
+@router.get("/jobs/{job_id}/telemetry", response_model=JobTelemetryResponse)
 async def get_job_telemetry(
     job_id: str,
     session: FromDishka[AsyncSession],
-) -> dict[str, object]:
+) -> JobTelemetryResponse:
     """Get telemetry data for a job run.
 
     Returns the persisted telemetry summary from the OTEL-backed SQLite store.
@@ -1214,16 +1226,16 @@ async def get_job_telemetry(
 
     summary = await TelemetrySummaryRepo(session).get(job_id)
     if summary is None:
-        return {"jobId": job_id, "available": False}
+        return JobTelemetryResponse(job_id=job_id, available=False)
 
     job_row = await JobRepository(session).get(job_id)
     sdk = job_row.sdk if job_row else ""
 
     # Parse quota JSON if present
-    quota_snapshots = None
+    quota_snapshots_raw = None
     if summary.get("quota_json"):
         with contextlib.suppress(json.JSONDecodeError, TypeError):
-            quota_snapshots = json.loads(summary["quota_json"])
+            quota_snapshots_raw = json.loads(summary["quota_json"])
 
     # Compute derived fields
     input_tok = summary.get("input_tokens", 0)
@@ -1237,58 +1249,58 @@ async def get_job_telemetry(
     attribution_rows = await CostAttributionRepo(session).for_job(job_id)
     file_stats = await FileAccessRepo(session).reread_stats(job_id)
     top_files = await FileAccessRepo(session).most_accessed_files(job_id=job_id)
-    tool_calls = []
-    llm_calls = []
+    tool_calls: list[TelemetryToolCall] = []
+    llm_calls: list[TelemetryLlmCall] = []
     for span in spans:
         attrs = span.get("attrs", {})
         if span.get("span_type") == "tool":
-            entry: dict[str, object] = {
-                "name": span["name"],
-                "durationMs": float(span.get("duration_ms", 0)),
-                "success": attrs.get("success", True),
-                "offsetSec": float(span.get("started_at", 0)),
-            }
-            if span.get("motivation_summary"):
-                entry["motivationSummary"] = span["motivation_summary"]
+            edit_motivations = None
             if span.get("edit_motivations"):
-                try:
-                    entry["editMotivations"] = json.loads(span["edit_motivations"])
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            tool_calls.append(entry)
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
+                    edit_motivations = json.loads(span["edit_motivations"])
+            tool_calls.append(
+                TelemetryToolCall(
+                    name=span["name"],
+                    duration_ms=float(span.get("duration_ms", 0)),
+                    success=attrs.get("success", True),
+                    offset_sec=float(span.get("started_at", 0)),
+                    motivation_summary=span.get("motivation_summary"),
+                    edit_motivations=edit_motivations,
+                )
+            )
         elif span.get("span_type") == "llm":
             llm_calls.append(
-                {
-                    "model": span["name"],
-                    "inputTokens": attrs.get("input_tokens", 0),
-                    "outputTokens": attrs.get("output_tokens", 0),
-                    "cacheReadTokens": attrs.get("cache_read_tokens", 0),
-                    "cacheWriteTokens": attrs.get("cache_write_tokens", 0),
-                    "cost": attrs.get("cost", 0),
-                    "durationMs": float(span.get("duration_ms", 0)),
-                    "isSubagent": attrs.get("is_subagent", False),
-                    "offsetSec": float(span.get("started_at", 0)),
-                    "callCount": attrs.get("num_turns", 1),
-                }
+                TelemetryLlmCall(
+                    model=span["name"],
+                    input_tokens=attrs.get("input_tokens", 0),
+                    output_tokens=attrs.get("output_tokens", 0),
+                    cache_read_tokens=attrs.get("cache_read_tokens", 0),
+                    cache_write_tokens=attrs.get("cache_write_tokens", 0),
+                    cost=attrs.get("cost", 0),
+                    duration_ms=float(span.get("duration_ms", 0)),
+                    is_subagent=attrs.get("is_subagent", False),
+                    offset_sec=float(span.get("started_at", 0)),
+                    call_count=attrs.get("num_turns", 1),
+                )
             )
 
-    grouped_dimensions: dict[str, list[dict[str, object]]] = {}
-    turn_curve: list[dict[str, object]] = []
+    grouped_dimensions: dict[str, list[TelemetryCostBucket]] = {}
+    turn_curve: list[TelemetryCostBucket] = []
     for row in attribution_rows:
-        bucket = {
-            "dimension": row.get("dimension", "unknown"),
-            "bucket": row.get("bucket", "unknown"),
-            "costUsd": float(row.get("cost_usd", 0) or 0),
-            "inputTokens": int(row.get("input_tokens", 0) or 0),
-            "outputTokens": int(row.get("output_tokens", 0) or 0),
-            "callCount": int(row.get("call_count", 0) or 0),
-        }
+        bucket = TelemetryCostBucket(
+            dimension=row.get("dimension", "unknown"),
+            bucket=row.get("bucket", "unknown"),
+            cost_usd=float(row.get("cost_usd", 0) or 0),
+            input_tokens=int(row.get("input_tokens", 0) or 0),
+            output_tokens=int(row.get("output_tokens", 0) or 0),
+            call_count=int(row.get("call_count", 0) or 0),
+        )
         dimension = str(row.get("dimension", "unknown"))
         grouped_dimensions.setdefault(dimension, []).append(bucket)
         if dimension == "turn":
             turn_curve.append(bucket)
 
-    turn_curve.sort(key=lambda item: int(str(item.get("bucket", "0"))) if str(item.get("bucket", "0")).isdigit() else 0)
+    turn_curve.sort(key=lambda item: int(item.bucket) if item.bucket.isdigit() else 0)
 
     # For running jobs, compute live duration from created_at instead of
     # the stored 0 which is only finalized when the job completes.
@@ -1302,87 +1314,9 @@ async def get_job_telemetry(
         except (ValueError, TypeError):
             pass
 
-    result: dict[str, object] = {
-        "available": True,
-        "jobId": job_id,
-        "sdk": sdk,
-        "model": summary.get("model", ""),
-        "mainModel": summary.get("model", ""),
-        "durationMs": duration_ms,
-        "inputTokens": input_tok,
-        "outputTokens": output_tok,
-        "totalTokens": input_tok + output_tok + cache_read,
-        "cacheReadTokens": cache_read,
-        "cacheWriteTokens": summary.get("cache_write_tokens", 0),
-        "totalCost": float(summary.get("total_cost_usd", 0)),
-        "contextWindowSize": window_size,
-        "currentContextTokens": current_ctx,
-        "contextUtilization": (current_ctx / window_size) if window_size else 0,
-        "compactions": summary.get("compactions", 0),
-        "tokensCompacted": summary.get("tokens_compacted", 0),
-        "toolCallCount": summary.get("tool_call_count", 0),
-        "totalToolDurationMs": summary.get("total_tool_duration_ms", 0),
-        "toolCalls": tool_calls,
-        "llmCallCount": summary.get("llm_call_count", 0),
-        "totalLlmDurationMs": summary.get("total_llm_duration_ms", 0),
-        "llmCalls": llm_calls,
-        "approvalCount": summary.get("approval_count", 0),
-        "totalApprovalWaitMs": summary.get("approval_wait_ms", 0),
-        "agentMessages": summary.get("agent_messages", 0),
-        "operatorMessages": summary.get("operator_messages", 0),
-        "premiumRequests": float(summary.get("premium_requests", 0)),
-        "costDrivers": {
-            "activity": grouped_dimensions.get("activity", []),
-            "phase": grouped_dimensions.get("phase", []),
-            "editEfficiency": grouped_dimensions.get("edit_efficiency", []),
-        },
-        "turnEconomics": {
-            "totalTurns": int(summary.get("total_turns", 0) or 0),
-            "peakTurnCostUsd": float(summary.get("peak_turn_cost_usd", 0) or 0),
-            "avgTurnCostUsd": float(summary.get("avg_turn_cost_usd", 0) or 0),
-            "costFirstHalfUsd": float(summary.get("cost_first_half_usd", 0) or 0),
-            "costSecondHalfUsd": float(summary.get("cost_second_half_usd", 0) or 0),
-            "turnCurve": turn_curve,
-        },
-        "fileAccess": {
-            "stats": {
-                "totalAccesses": int(file_stats.get("total_accesses", 0) or 0),
-                "uniqueFiles": int(file_stats.get("unique_files", 0) or 0),
-                "totalReads": int(file_stats.get("total_reads", 0) or 0),
-                "totalWrites": int(file_stats.get("total_writes", 0) or 0),
-                "rereadCount": int(file_stats.get("reread_count", 0) or 0),
-            },
-            "topFiles": [
-                {
-                    "filePath": str(row.get("file_path", "")),
-                    "accessCount": int(row.get("access_count", 0) or 0),
-                    "readCount": int(row.get("read_count", 0) or 0),
-                    "writeCount": int(row.get("write_count", 0) or 0),
-                }
-                for row in top_files
-            ],
-        },
-    }
-    if quota_snapshots is not None:
-        # Convert snake_case keys from DB JSON to camelCase for the frontend
-        result["quotaSnapshots"] = {
-            resource: {
-                "usedRequests": snap.get("used_requests", 0),
-                "entitlementRequests": snap.get("entitlement_requests", 0),
-                "remainingPercentage": snap.get("remaining_percentage", 0),
-                "overage": snap.get("overage", 0),
-                "overageAllowed": snap.get("overage_allowed", False),
-                "isUnlimited": snap.get("is_unlimited", False),
-                "resetDate": snap.get("reset_date", ""),
-            }
-            for resource, snap in quota_snapshots.items()
-            if isinstance(snap, dict)
-        }
-
     # Review signals: test co-modifications
     spans_repo = TelemetrySpansRepo(session)
     test_co_mods = await spans_repo.test_co_modifications(job_id)
-    result["reviewSignals"] = {"testCoModifications": test_co_mods}
 
     # Review complexity tier — thresholds are calibrated against historical
     # job data: >500 diff lines ≈ top-10% by size, >20 turns ≈ extended
@@ -1405,9 +1339,88 @@ async def get_job_telemetry(
     if test_co_mods:
         signals.append("test_co_modifications")
     tier = "quick" if not signals else ("deep" if len(signals) >= 3 else "standard")
-    result["reviewComplexity"] = {"tier": tier, "signals": signals}
 
-    return result
+    # Build quota snapshots if present
+    quota_snapshots = None
+    if quota_snapshots_raw is not None:
+        quota_snapshots = {
+            resource: TelemetryQuotaSnapshot(
+                used_requests=snap.get("used_requests", 0),
+                entitlement_requests=snap.get("entitlement_requests", 0),
+                remaining_percentage=snap.get("remaining_percentage", 0),
+                overage=snap.get("overage", 0),
+                overage_allowed=snap.get("overage_allowed", False),
+                is_unlimited=snap.get("is_unlimited", False),
+                reset_date=snap.get("reset_date", ""),
+            )
+            for resource, snap in quota_snapshots_raw.items()
+            if isinstance(snap, dict)
+        }
+
+    return JobTelemetryResponse(
+        available=True,
+        job_id=job_id,
+        sdk=sdk,
+        model=summary.get("model", ""),
+        main_model=summary.get("model", ""),
+        duration_ms=duration_ms,
+        input_tokens=input_tok,
+        output_tokens=output_tok,
+        total_tokens=input_tok + output_tok + cache_read,
+        cache_read_tokens=cache_read,
+        cache_write_tokens=summary.get("cache_write_tokens", 0),
+        total_cost=float(summary.get("total_cost_usd", 0)),
+        context_window_size=window_size,
+        current_context_tokens=current_ctx,
+        context_utilization=(current_ctx / window_size) if window_size else 0,
+        compactions=summary.get("compactions", 0),
+        tokens_compacted=summary.get("tokens_compacted", 0),
+        tool_call_count=summary.get("tool_call_count", 0),
+        total_tool_duration_ms=summary.get("total_tool_duration_ms", 0),
+        tool_calls=tool_calls,
+        llm_call_count=summary.get("llm_call_count", 0),
+        total_llm_duration_ms=summary.get("total_llm_duration_ms", 0),
+        llm_calls=llm_calls,
+        approval_count=summary.get("approval_count", 0),
+        total_approval_wait_ms=summary.get("approval_wait_ms", 0),
+        agent_messages=summary.get("agent_messages", 0),
+        operator_messages=summary.get("operator_messages", 0),
+        premium_requests=float(summary.get("premium_requests", 0)),
+        cost_drivers=TelemetryCostDrivers(
+            activity=grouped_dimensions.get("activity", []),
+            phase=grouped_dimensions.get("phase", []),
+            edit_efficiency=grouped_dimensions.get("edit_efficiency", []),
+        ),
+        turn_economics=TelemetryTurnEconomics(
+            total_turns=int(summary.get("total_turns", 0) or 0),
+            peak_turn_cost_usd=float(summary.get("peak_turn_cost_usd", 0) or 0),
+            avg_turn_cost_usd=float(summary.get("avg_turn_cost_usd", 0) or 0),
+            cost_first_half_usd=float(summary.get("cost_first_half_usd", 0) or 0),
+            cost_second_half_usd=float(summary.get("cost_second_half_usd", 0) or 0),
+            turn_curve=turn_curve,
+        ),
+        file_access=TelemetryFileAccess(
+            stats=TelemetryFileStats(
+                total_accesses=int(file_stats.get("total_accesses", 0) or 0),
+                unique_files=int(file_stats.get("unique_files", 0) or 0),
+                total_reads=int(file_stats.get("total_reads", 0) or 0),
+                total_writes=int(file_stats.get("total_writes", 0) or 0),
+                reread_count=int(file_stats.get("reread_count", 0) or 0),
+            ),
+            top_files=[
+                TelemetryFileEntry(
+                    file_path=str(row.get("file_path", "")),
+                    access_count=int(row.get("access_count", 0) or 0),
+                    read_count=int(row.get("read_count", 0) or 0),
+                    write_count=int(row.get("write_count", 0) or 0),
+                )
+                for row in top_files
+            ],
+        ),
+        quota_snapshots=quota_snapshots,
+        review_signals=TelemetryReviewSignals(test_co_modifications=test_co_mods),
+        review_complexity=TelemetryReviewComplexity(tier=tier, signals=signals),
+    )
 
 
 @router.post("/jobs/{job_id}/resolve", response_model=ResolveJobResponse)

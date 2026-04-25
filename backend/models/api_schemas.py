@@ -885,6 +885,133 @@ class ModelPricingEntry(BaseModel):
     provider: str = ""
 
 
+# ---------------------------------------------------------------------------
+# Job telemetry response models
+# ---------------------------------------------------------------------------
+
+
+class TelemetryToolCall(CamelModel):
+    name: str
+    duration_ms: float = 0
+    success: bool = True
+    offset_sec: float = 0
+    motivation_summary: str | None = None
+    edit_motivations: list[object] | None = None
+
+
+class TelemetryLlmCall(CamelModel):
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cost: float = 0
+    duration_ms: float = 0
+    is_subagent: bool = False
+    offset_sec: float = 0
+    call_count: int = 1
+
+
+class TelemetryCostBucket(CamelModel):
+    dimension: str = "unknown"
+    bucket: str = "unknown"
+    cost_usd: float = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    call_count: int = 0
+
+
+class TelemetryCostDrivers(CamelModel):
+    activity: list[TelemetryCostBucket] = []
+    phase: list[TelemetryCostBucket] = []
+    edit_efficiency: list[TelemetryCostBucket] = []
+
+
+class TelemetryTurnEconomics(CamelModel):
+    total_turns: int = 0
+    peak_turn_cost_usd: float = 0
+    avg_turn_cost_usd: float = 0
+    cost_first_half_usd: float = 0
+    cost_second_half_usd: float = 0
+    turn_curve: list[TelemetryCostBucket] = []
+
+
+class TelemetryFileEntry(CamelModel):
+    file_path: str = ""
+    access_count: int = 0
+    read_count: int = 0
+    write_count: int = 0
+
+
+class TelemetryFileStats(CamelModel):
+    total_accesses: int = 0
+    unique_files: int = 0
+    total_reads: int = 0
+    total_writes: int = 0
+    reread_count: int = 0
+
+
+class TelemetryFileAccess(CamelModel):
+    stats: TelemetryFileStats = TelemetryFileStats()
+    top_files: list[TelemetryFileEntry] = []
+
+
+class TelemetryQuotaSnapshot(CamelModel):
+    used_requests: int = 0
+    entitlement_requests: int = 0
+    remaining_percentage: float = 0
+    overage: int = 0
+    overage_allowed: bool = False
+    is_unlimited: bool = False
+    reset_date: str = ""
+
+
+class TelemetryReviewSignals(CamelModel):
+    test_co_modifications: list[object] = []
+
+
+class TelemetryReviewComplexity(CamelModel):
+    tier: str = "quick"
+    signals: list[str] = []
+
+
+class JobTelemetryResponse(CamelModel):
+    available: bool = False
+    job_id: str = ""
+    sdk: str = ""
+    model: str = ""
+    main_model: str = ""
+    duration_ms: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    total_cost: float = 0
+    context_window_size: int = 0
+    current_context_tokens: int = 0
+    context_utilization: float = 0
+    compactions: int = 0
+    tokens_compacted: int = 0
+    tool_call_count: int = 0
+    total_tool_duration_ms: int = 0
+    tool_calls: list[TelemetryToolCall] = []
+    llm_call_count: int = 0
+    total_llm_duration_ms: int = 0
+    llm_calls: list[TelemetryLlmCall] = []
+    approval_count: int = 0
+    total_approval_wait_ms: int = 0
+    agent_messages: int = 0
+    operator_messages: int = 0
+    premium_requests: float = 0
+    cost_drivers: TelemetryCostDrivers = TelemetryCostDrivers()
+    turn_economics: TelemetryTurnEconomics = TelemetryTurnEconomics()
+    file_access: TelemetryFileAccess = TelemetryFileAccess()
+    quota_snapshots: dict[str, TelemetryQuotaSnapshot] | None = None
+    review_signals: TelemetryReviewSignals = TelemetryReviewSignals()
+    review_complexity: TelemetryReviewComplexity = TelemetryReviewComplexity()
+
+
 class CostTrendPoint(CamelModel):
     date: str
     cost_usd: float = 0.0
