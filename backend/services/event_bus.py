@@ -29,7 +29,6 @@ class EventBus:
         self._subscribers: list[Subscriber] = []
 
     def subscribe(self, handler: Subscriber) -> None:
-        """Register *handler* to receive all published events."""
         self._subscribers.append(handler)
 
     def unsubscribe(self, handler: Subscriber) -> None:

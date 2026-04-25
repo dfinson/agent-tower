@@ -43,7 +43,6 @@ class JobRepository(BaseRepository):
         await self._session.flush()
 
     async def list_ids(self) -> set[str]:
-        """Return the set of all existing job IDs."""
         result = await self._session.execute(select(JobRow.id))
         return set(result.scalars().all())
 
