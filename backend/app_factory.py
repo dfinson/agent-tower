@@ -36,6 +36,7 @@ from backend.api import (
     share,
     terminal,
     trail,
+    utility_sessions,
     voice,
     workspace,
 )
@@ -180,6 +181,7 @@ def _register_routes(app: FastAPI) -> None:
     """Register all API routers."""
     app.include_router(health.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
+    app.include_router(utility_sessions.router, prefix="/api")
     app.include_router(events.router, prefix="/api")
     app.include_router(approvals.router, prefix="/api")
     app.include_router(artifacts.router, prefix="/api")
