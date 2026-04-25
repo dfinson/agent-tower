@@ -495,7 +495,7 @@ def _find_pids_on_port(port: int) -> list[int]:
         if result.returncode == 0 and result.stdout.strip():
             return [int(p) for p in result.stdout.strip().splitlines() if p.strip().isdigit()]
     except FileNotFoundError:
-        pass
+        structlog.get_logger().debug("lsof_not_found", port=port)
 
     # Fallback: ss (Linux)
     try:
@@ -504,7 +504,7 @@ def _find_pids_on_port(port: int) -> list[int]:
         result = _sp.run(["ss", "-tlnp", f"sport = :{port}"], capture_output=True, text=True)
         return [int(p) for p in re.findall(r"pid=(\d+)", result.stdout)]
     except Exception:  # noqa: BLE001
-        pass
+        structlog.get_logger().debug("ss_probe_failed", port=port, exc_info=True)
 
     return []
 
