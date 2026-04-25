@@ -60,24 +60,26 @@ class CopilotAdapter(BaseAgentAdapter):
         # Rotated on assistant.message to mark turn boundaries.
         self._fallback_turn_ids: dict[str, str] = {}  # job_id → current fallback turn_id
 
-    def _get_turn_id(self, job_id: str, data: Any) -> str:
-        """Return the SDK turn_id or synthesize a fallback for step tracking."""
-        import uuid as _uuid
+    def _get_turn_id(self, job_id: str | None, data: Any) -> str | None:
+        """Return the SDK turn_id or synthesize a fallback for step tracking.
 
-        sdk_turn = (str(data.turn_id) if hasattr(data, "turn_id") and data.turn_id else "") if data else ""
+        When *job_id* is falsy and no SDK turn_id is available, returns None
+        rather than synthesizing a random id (no job to track it against).
+        """
+        sdk_turn = str(data.turn_id) if data and getattr(data, "turn_id", None) else ""
         if sdk_turn:
             return sdk_turn
+        if not job_id:
+            return None
         tid = self._fallback_turn_ids.get(job_id)
         if not tid:
-            tid = str(_uuid.uuid4())
+            tid = str(uuid.uuid4())
             self._fallback_turn_ids[job_id] = tid
         return tid
 
     def _rotate_turn_id(self, job_id: str) -> None:
         """Generate a new fallback turn_id after an assistant.message completes a turn."""
-        import uuid as _uuid
-
-        self._fallback_turn_ids[job_id] = str(_uuid.uuid4())
+        self._fallback_turn_ids[job_id] = str(uuid.uuid4())
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove session and queue references for a completed/aborted session.
@@ -193,7 +195,6 @@ class CopilotAdapter(BaseAgentAdapter):
         from backend.services import telemetry as tel
 
         actual_model = data.model or ""
-        is_subagent = False
 
         if not model_verified[0] and requested_model and actual_model:
             model_verified[0] = True
@@ -205,10 +206,9 @@ class CopilotAdapter(BaseAgentAdapter):
                     break
             self._verify_and_set_model(sid, job_id, actual_model, requested_model)
 
-        # Sub-agent detection
+        # Sub-agent detection: if main_model is set and actual differs, this is a sub-agent turn
         main_model = self._job_main_models.get(job_id, "")
-        if main_model and actual_model and actual_model != main_model:
-            is_subagent = True
+        is_subagent = bool(main_model and actual_model != main_model)
 
         input_toks = int(data.input_tokens or 0)
         output_toks = int(data.output_tokens or 0)
@@ -495,7 +495,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     # calls themselves are separate transcript events.
                     if not content.strip():
                         return
-                    turn_id = self._get_turn_id(job_id, data) if job_id else (data.turn_id if data else None)
+                    turn_id = self._get_turn_id(job_id, data)
                     event_payload = {
                         "role": "agent",
                         "content": content,
@@ -510,11 +510,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     delta = (data.delta_content or "") if data else ""
                     if not delta:
                         return
-                    turn_id = (
-                        self._get_turn_id(job_id, data)
-                        if job_id
-                        else (str(data.turn_id) if data and data.turn_id else None)
-                    )
+                    turn_id = self._get_turn_id(job_id, data)
                     event_payload = {
                         "role": "agent_delta",
                         "content": delta,
@@ -524,11 +520,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     delta = (getattr(data, "delta_content", "") or "") if data else ""
                     if not delta:
                         return
-                    turn_id = (
-                        self._get_turn_id(job_id, data)
-                        if job_id
-                        else (str(data.turn_id) if data and data.turn_id else None)
-                    )
+                    turn_id = self._get_turn_id(job_id, data)
                     event_payload = {
                         "role": "reasoning_delta",
                         "content": delta,
@@ -539,7 +531,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     event_payload = {
                         "role": "reasoning",
                         "content": content,
-                        "turn_id": self._get_turn_id(job_id, data) if job_id else (str(data.turn_id) if data else None),
+                        "turn_id": self._get_turn_id(job_id, data),
                     }
                 elif kind_str == "user.message":
                     content = (data.content or data.message or "") if data else ""
@@ -561,9 +553,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     # it here (at start) because all we need is the args; we never
                     # need to wait for a result.
                     if tool_name == "report_intent":
-                        turn_id = buffered.get("turn_id") or (
-                            str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None
-                        )
+                        turn_id = buffered.get("turn_id") or self._get_turn_id(job_id, data)
                         event_payload = {
                             "role": "tool_call",
                             "content": "report_intent",
@@ -587,9 +577,7 @@ class CopilotAdapter(BaseAgentAdapter):
                         format_tool_display_full,
                     )
 
-                    turn_id = buffered.get("turn_id") or (
-                        str(data.turn_id) if data and hasattr(data, "turn_id") and data.turn_id else None
-                    )
+                    turn_id = buffered.get("turn_id") or self._get_turn_id(job_id, data)
                     event_payload = {
                         "role": "tool_running",
                         "content": tool_name,
@@ -638,11 +626,12 @@ class CopilotAdapter(BaseAgentAdapter):
                     result_text = ""
                     if data:
                         result_obj = data.result
-                        if result_obj is not None and hasattr(result_obj, "content") and result_obj.content:
-                            parts = result_obj.content
+                        content = getattr(result_obj, "content", None) if result_obj is not None else None
+                        if content:
+                            parts = content
                             if isinstance(parts, list):
                                 result_text = "\n".join(
-                                    str(c.text) if hasattr(c, "text") and c.text else str(c) for c in parts
+                                    str(getattr(c, "text", c)) if getattr(c, "text", None) else str(c) for c in parts
                                 )
                             else:
                                 result_text = str(parts)
@@ -675,7 +664,7 @@ class CopilotAdapter(BaseAgentAdapter):
                         "tool_result": result_text,
                         "tool_success": success,
                         "tool_issue": tool_issue or ("Tool reported an issue" if not success else None),
-                        "turn_id": buffered.get("turn_id") or (data.turn_id if data else None),
+                        "turn_id": buffered.get("turn_id") or self._get_turn_id(job_id, data),
                         "tool_intent": buffered.get("tool_intent"),
                         "tool_title": buffered.get("tool_title"),
                         "tool_display": format_tool_display(
