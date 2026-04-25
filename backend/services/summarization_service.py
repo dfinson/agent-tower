@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 import structlog
 
-from backend.models.events import DomainEventKind
+from backend.models.events import DomainEvent, DomainEventKind
 
 
 class TranscriptTurn(TypedDict):
@@ -333,7 +333,7 @@ class SummarizationService:
 # ---------------------------------------------------------------------------
 
 
-def _clean_transcript(events: list) -> list[TranscriptTurn]:  # type: ignore[type-arg]
+def _clean_transcript(events: list[DomainEvent]) -> list[TranscriptTurn]:
     """Filter and deduplicate transcript events, keeping only agent+operator turns."""
     seen: set[str] = set()
     result = []
@@ -377,7 +377,7 @@ def _format_transcript(turns: list[TranscriptTurn]) -> str:
     return "\n---\n".join(parts) if parts else "(no transcript recorded)"
 
 
-def _extract_changed_files(diff_events: list) -> list[str]:  # type: ignore[type-arg]
+def _extract_changed_files(diff_events: list[DomainEvent]) -> list[str]:
     """Extract unique changed file paths from diff_updated events."""
     paths: set[str] = set()
     for ev in diff_events:
