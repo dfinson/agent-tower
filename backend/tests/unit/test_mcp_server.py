@@ -362,7 +362,7 @@ class TestArtifactTool:
         art = _make_artifact()
         with (
             patch("backend.mcp.server.ArtifactService") as mock_svc_cls,
-            patch("backend.mcp.server.ArtifactRepository"),
+            patch("backend.persistence.artifact_repo.ArtifactRepository"),
         ):
             svc = AsyncMock()
             svc.list_for_job = AsyncMock(return_value=[art])
@@ -382,7 +382,7 @@ class TestArtifactTool:
         art = _make_artifact()
         with (
             patch("backend.mcp.server.ArtifactService") as mock_svc_cls,
-            patch("backend.mcp.server.ArtifactRepository"),
+            patch("backend.persistence.artifact_repo.ArtifactRepository"),
         ):
             svc = AsyncMock()
             svc.get = AsyncMock(return_value=art)
@@ -395,7 +395,7 @@ class TestArtifactTool:
     async def test_get_not_found(self, mcp_server) -> None:
         with (
             patch("backend.mcp.server.ArtifactService") as mock_svc_cls,
-            patch("backend.mcp.server.ArtifactRepository"),
+            patch("backend.persistence.artifact_repo.ArtifactRepository"),
         ):
             svc = AsyncMock()
             svc.get = AsyncMock(return_value=None)

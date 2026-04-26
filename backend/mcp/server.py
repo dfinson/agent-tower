@@ -43,8 +43,6 @@ from backend.models.api_schemas import (
     WorkspaceEntryType,
     WorkspaceListResponse,
 )
-from backend.persistence.artifact_repo import ArtifactRepository
-from backend.persistence.job_repo import JobRepository
 from backend.services.agent_adapter import SDKModelMismatchError
 from backend.services.artifact_service import ArtifactService
 from backend.services.git_service import GitError, GitService
@@ -108,6 +106,7 @@ class MCPState:
 def _make_job_service(
     state: MCPState, session: AsyncSession, config: CPLConfig, *, git: bool = True,
 ) -> JobService:
+    from backend.persistence.job_repo import JobRepository
     from backend.services.naming_service import NamingService
 
     naming: NamingService | None = None
@@ -122,6 +121,8 @@ def _make_job_service(
 
 
 def _make_artifact_service(session: AsyncSession) -> ArtifactService:
+    from backend.persistence.artifact_repo import ArtifactRepository
+
     return ArtifactService(ArtifactRepository(session))
 
 
