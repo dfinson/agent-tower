@@ -38,6 +38,12 @@ class CamelModel(BaseModel):
         return data
 
 
+class ErrorResponse(CamelModel):
+    """Standard error response shape for HTTP error endpoints."""
+
+    detail: str
+
+
 # --- Enums ---
 # JobState, PermissionMode, and Resolution are imported from backend.models.domain
 # (canonical definitions live there). Re-exported here for backward compatibility.

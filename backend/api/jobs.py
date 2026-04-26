@@ -145,7 +145,7 @@ def _job_to_create_response(job: Job) -> CreateJobResponse:
 @router.post("/jobs/suggest-names", response_model=SuggestNamesResponse)
 async def suggest_names(
     body: SuggestNamesRequest,
-    naming: FromDishka[NamingService],
+    naming_service: FromDishka[NamingService],
 ) -> SuggestNamesResponse:
     """Generate a suggested title, branch name, and worktree name for a task description.
 
@@ -155,7 +155,7 @@ async def suggest_names(
     from backend.services.naming_service import NamingError
 
     try:
-        title, description, branch_name, worktree_name = await naming.generate(body.prompt)
+        title, description, branch_name, worktree_name = await naming_service.generate(body.prompt)
     except NamingError as exc:
         log.warning("naming_failed", exc_info=exc)
         raise HTTPException(status_code=503, detail="Naming failed") from exc
@@ -580,7 +580,7 @@ async def get_step_diff(
     step_id: str,
     session: FromDishka[AsyncSession],
     svc: FromDishka[JobService],
-    git: FromDishka[GitService],
+    git_service: FromDishka[GitService],
     spans_repo: FromDishka[TelemetrySpansRepository],
 ) -> StepDiffPayload:
     """Return the Git diff for a specific step.
@@ -636,7 +636,7 @@ async def get_step_diff(
     if not job.worktree_path:
         return StepDiffPayload(step_id=step_id, diff="", files_changed=0)
 
-    diff_text = await git.diff_range(start_sha, end_sha, cwd=job.worktree_path)
+    diff_text = await git_service.diff_range(start_sha, end_sha, cwd=job.worktree_path)
     files_changed = diff_text.count("\ndiff --git ") + (1 if diff_text.startswith("diff --git ") else 0)
 
     changed_files = DiffService._parse_unified_diff(diff_text)
@@ -798,7 +798,7 @@ async def restore_to_sha(
     job_id: str,
     body: RestoreRequest,
     svc: FromDishka[JobService],
-    git: FromDishka[GitService],
+    git_service: FromDishka[GitService],
 ) -> RestoreResponse:
     """Reset the job's worktree to a specific commit SHA.
 
@@ -816,7 +816,7 @@ async def restore_to_sha(
     if not job.worktree_path:
         raise HTTPException(status_code=404, detail="Job has no worktree.")
 
-    await git.reset_hard(body.sha, cwd=job.worktree_path)
+    await git_service.reset_hard(body.sha, cwd=job.worktree_path)
     return RestoreResponse(restored=True, sha=body.sha)
 
 
