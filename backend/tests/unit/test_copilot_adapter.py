@@ -158,6 +158,26 @@ sys.modules.setdefault("copilot.session", _fake_copilot_session)
 sys.modules.setdefault("copilot.generated", _fake_copilot_events)
 sys.modules.setdefault("copilot.generated.session_events", _fake_copilot_events.session_events)
 
+# Fake copilot.client and copilot.jsonrpc — provide SDK exception types
+_fake_copilot_client_mod = ModuleType("copilot.client")
+_fake_copilot_jsonrpc_mod = ModuleType("copilot.jsonrpc")
+
+
+class _FakeProcessExitedError(Exception):
+    pass
+
+
+class _FakeJsonRpcError(Exception):
+    pass
+
+
+_fake_copilot_client_mod.ProcessExitedError = _FakeProcessExitedError
+_fake_copilot_client_mod.StopError = type("StopError", (Exception,), {})
+_fake_copilot_jsonrpc_mod.JsonRpcError = _FakeJsonRpcError
+_fake_copilot_jsonrpc_mod.ProcessExitedError = _FakeProcessExitedError
+sys.modules.setdefault("copilot.client", _fake_copilot_client_mod)
+sys.modules.setdefault("copilot.jsonrpc", _fake_copilot_jsonrpc_mod)
+
 from backend.services.copilot_adapter import CopilotAdapter  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -332,7 +352,7 @@ class TestAbortSession:
     @pytest.mark.asyncio
     async def test_abort_handles_exception(self, adapter: CopilotAdapter) -> None:
         session = MagicMock()
-        session.abort = AsyncMock(side_effect=RuntimeError("abort fail"))
+        session.abort = AsyncMock(side_effect=_FakeProcessExitedError("abort fail"))
         adapter._sessions["sess-1"] = session
 
         await adapter.abort_session("sess-1")
@@ -386,7 +406,7 @@ class TestCreateSession:
 
         class _FailingResumeClient(_FakeCopilotClient):
             async def resume_session(self, session_id: str, config: Any) -> _FakeCopilotSession:
-                raise RuntimeError("session expired")
+                raise _FakeJsonRpcError("session expired")
 
         fake_client = _FailingResumeClient()
 
@@ -1186,7 +1206,7 @@ class TestComplete:
     async def test_complete_handles_exception(self, adapter: CopilotAdapter) -> None:
         class _FailingClient:
             async def create_session(self, config: Any) -> None:
-                raise RuntimeError("boom")
+                raise _FakeJsonRpcError("boom")
 
         with patch("copilot.CopilotClient", return_value=_FailingClient()):
             result = await adapter.complete("test")
