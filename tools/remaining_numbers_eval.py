@@ -12,7 +12,6 @@ Usage:
 
 import json
 import sqlite3
-from collections import defaultdict
 from pathlib import Path
 
 DB_PATH = Path.home() / ".codeplane" / "data.db"
