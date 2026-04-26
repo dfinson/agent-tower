@@ -292,7 +292,7 @@ class MergeService:
         except GitError:
             log.warning("checkout_base_ref_failed", job_id=job_id, exc_info=True)
 
-        if conflict_files is not None:
+        if conflict_files:
             log.info("merge_conflict_detected", job_id=job_id, branch=branch, conflict_files=conflict_files)
             return _MergeOutcome.conflict, conflict_files, None
 
@@ -362,19 +362,17 @@ class MergeService:
         )
         return MergeResult(status=MergeStatus.conflict, conflict_files=conflict_files)
 
-    async def _get_conflict_file_list(self, repo_path: str, branch: str, base_ref: str) -> list[str] | None:
+    async def _get_conflict_file_list(self, repo_path: str, branch: str, base_ref: str) -> list[str]:
         """Probe for conflicting files using a no-commit merge that never creates a commit.
 
         Uses ``--no-commit --no-ff`` so git identity is never required, making
         the probe robust against misconfigured environments and git hooks.
 
         Returns:
-            - ``None`` if the probe merge succeeded (no real conflicts exist).
-            - A list of conflicting file paths if the merge produced actual
-              conflict markers.  The list is always non-empty in this case.
-            - ``None`` (not ``[]``) when the merge failed for a non-conflict
-              reason (no conflict markers found), so callers don't misclassify
-              infrastructure errors as merge conflicts.
+            A list of conflicting file paths (non-empty) if real merge
+            conflicts exist, or an empty list when no conflicts are detected
+            (including infrastructure failures where no conflict markers were
+            produced).
         """
         try:
             await self._git.checkout(base_ref, cwd=repo_path)
@@ -388,14 +386,11 @@ class MergeService:
             await self._git._run_git("merge", "--no-commit", "--no-ff", branch, cwd=repo_path)  # noqa: SLF001
             # Probe succeeded — clean up the staged-but-uncommitted merge.
             await self._git.merge_abort(cwd=repo_path)
-            return None
+            return []
         except GitError:
             files = await self._git.get_conflict_files(cwd=repo_path)
             await self._git.merge_abort(cwd=repo_path)
-            # If git failed but left no conflict markers the failure was caused
-            # by something other than a real merge conflict (e.g. a commit hook,
-            # missing identity, or a transient lock).  Treat as "no conflict".
-            return files if files else None
+            return files if files else []
 
     async def _create_pr(
         self,
