@@ -262,8 +262,9 @@ class ActivityTracker:
         activity_label: str,
     ) -> None:
         """Update a trail node with title and plan/activity data."""
-        from backend.models.db import TrailNodeRow
         from sqlalchemy import update
+
+        from backend.models.db import TrailNodeRow
 
         async with self._session_factory() as session:
             stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(

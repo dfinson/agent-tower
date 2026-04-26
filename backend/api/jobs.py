@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any
 
 import structlog
@@ -14,7 +13,6 @@ log = structlog.get_logger()
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import CPLConfig
 from backend.di import CachedModelsBySdk
 from backend.models.api_schemas import (
     ContinueJobRequest,
