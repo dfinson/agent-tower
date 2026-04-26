@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from backend.models.domain import FileChurnRow, TelemetrySpanRow
 from backend.persistence.repository import BaseRepository
 
 
@@ -97,7 +98,7 @@ class TelemetrySpansRepository(BaseRepository):
         inserted_id = getattr(result, "lastrowid", None)
         return int(inserted_id or 0)
 
-    async def list_for_job(self, job_id: str) -> list[dict[str, Any]]:
+    async def list_for_job(self, job_id: str) -> list[TelemetrySpanRow]:
         """Return all spans for a job, ordered by start time."""
         result = await self._session.execute(
             text("""
@@ -283,7 +284,7 @@ class TelemetrySpansRepository(BaseRepository):
         )
         return [dict(r) for r in result.mappings().all()]
 
-    async def file_write_churn(self, job_id: str) -> list[dict[str, Any]]:
+    async def file_write_churn(self, job_id: str) -> list[FileChurnRow]:
         """Per-file write count and retry count for a job."""
         result = await self._session.execute(
             text("""

@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from backend.models.domain import FileAccessStatsRow
 from backend.persistence.repository import BaseRepository
 
 
@@ -77,7 +78,7 @@ class FileAccessRepository(BaseRepository):
             )
         await self._session.flush()
 
-    async def reread_stats(self, job_id: str) -> dict[str, Any]:
+    async def reread_stats(self, job_id: str) -> FileAccessStatsRow:
         """Compute file reread statistics for a job."""
         result = await self._session.execute(
             text("""

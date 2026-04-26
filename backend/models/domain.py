@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -261,6 +261,70 @@ SessionEventPayload = (
     | DonePayload
     | ErrorPayload
 )
+
+
+# -- Telemetry TypedDicts -----------------------------------------------------
+# Typed structures for data flowing through the telemetry persistence layer.
+
+
+class TelemetrySpanRow(TypedDict, total=False):
+    """Shape of a row returned by TelemetrySpansRepository.list_for_job()."""
+
+    id: int
+    job_id: str
+    span_type: str  # "tool" | "llm"
+    name: str
+    started_at: float
+    duration_ms: float
+    attrs: dict[str, Any]
+    tool_category: str | None
+    tool_target: str | None
+    turn_number: int | None
+    execution_phase: str | None
+    is_retry: bool | None
+    retries_span_id: int | None
+    input_tokens: int | None
+    output_tokens: int | None
+    cache_read_tokens: int | None
+    cache_write_tokens: int | None
+    cost_usd: float | None
+    tool_args_json: str | None
+    result_size_bytes: int | None
+    error_kind: str | None
+    turn_id: str | None
+    preceding_context: str | None
+    motivation_summary: str | None
+    edit_motivations: str | None
+    created_at: str | None
+
+
+class FileChurnRow(TypedDict):
+    """Shape of a row returned by TelemetrySpansRepository.file_write_churn()."""
+
+    tool_target: str
+    write_count: int
+    retry_count: int
+
+
+class FileAccessStatsRow(TypedDict, total=False):
+    """Shape returned by FileAccessRepository.reread_stats()."""
+
+    total_accesses: int
+    unique_files: int
+    total_reads: int
+    total_writes: int
+    reread_count: int
+
+
+class CostAttributionRow(TypedDict, total=False):
+    """Shape of a row returned by CostAttributionRepository.for_job()."""
+
+    dimension: str
+    bucket: str
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    call_count: int
 
 
 @dataclass
