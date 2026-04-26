@@ -633,6 +633,7 @@ class TerminalService:
                     session.process.kill()
                     await asyncio.to_thread(session.process.wait)
                 except (OSError, ProcessLookupError):
+                    log.debug("terminal_process_kill_failed", session_id=session.id)
                     pass
                 if session.master_fd >= 0:
                     with contextlib.suppress(OSError):

@@ -13,6 +13,10 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
+log = structlog.get_logger()
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -336,6 +340,7 @@ def _fmt_fetch_webpage(args: ToolArgs) -> str:
             short = p.netloc + p.path[:30]
             return f"Fetch {_truncate(short, 50)}"
         except Exception:
+            log.debug("url_parse_failed", url=url[:80])
             pass
     return "Fetch webpage"
 

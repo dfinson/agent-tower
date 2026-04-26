@@ -192,6 +192,7 @@ class ApprovalService:
                 loop = asyncio.get_running_loop()
                 loop.create_task(_resolve_orphans(), name=f"approval-cleanup-{job_id[:8]}")
             except RuntimeError:
+                log.debug("approval_cleanup_task_scheduling_failed", job_id=job_id)
                 pass
             log.debug("approval_futures_canceled", job_id=job_id, count=len(to_remove))
 
@@ -254,6 +255,7 @@ class ApprovalService:
                 await self.resolve(aid, "approved")
                 resolved_count += 1
             except (ApprovalNotFoundError, ApprovalAlreadyResolvedError):
+                log.debug("trust_job_resolve_skipped", job_id=job_id, approval_id=aid)
                 pass
 
         log.info("job_trusted", job_id=job_id, resolved=resolved_count)

@@ -511,6 +511,7 @@ def _register_workspace_tool(mcp: FastMCP) -> None:
                 try:
                     resolved_item = item.resolve()
                 except OSError:
+                    log.debug("list_dir_resolve_failed", item=str(item))
                     continue
                 if not resolved_item.is_relative_to(worktree):
                     continue

@@ -5,6 +5,10 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+import structlog
+
+log = structlog.get_logger()
+
 if TYPE_CHECKING:
     from backend.models.db import TrailNodeRow
 
@@ -216,5 +220,6 @@ def parse_enrichment_response(text: str) -> dict | None:
         if isinstance(data, dict):
             return data
     except (json.JSONDecodeError, ValueError):
+        log.debug("enrichment_response_parse_failed", text_len=len(text))
         pass
     return None

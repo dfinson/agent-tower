@@ -76,7 +76,7 @@ def _print_qr_code(url: str) -> None:
         console.print(Align.center(Text.from_markup(f"Scan to open: [bold]{url}[/bold]")))
         console.print()
     except ImportError:
-        pass
+        log.debug("qrcode_not_available")
 
 
 _EVENT_PERSIST_MAX_ATTEMPTS = 3
