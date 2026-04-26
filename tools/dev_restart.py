@@ -108,7 +108,7 @@ def _find_pids_on_port(port: int) -> list[int]:
         if result.returncode == 0 and result.stdout.strip():
             return [int(p) for p in result.stdout.strip().splitlines() if p.strip().isdigit()]
     except FileNotFoundError:
-        pass
+        pass  # lsof not available — try ss fallback
 
     # Fallback: ss (Linux)
     try:
@@ -122,7 +122,7 @@ def _find_pids_on_port(port: int) -> list[int]:
         pids = re.findall(r"pid=(\d+)", result.stdout)
         return [int(p) for p in pids]
     except Exception:
-        pass
+        pass  # ss not available — no PIDs found
 
     return []
 
@@ -140,7 +140,7 @@ def stop_server(port: int, graceful_timeout: int = 15) -> bool:
             os.kill(pid, signal.SIGTERM)
             print(f"  Sent SIGTERM to PID {pid}")
         except ProcessLookupError:
-            pass
+            pass  # process already exited
 
     deadline = time.monotonic() + graceful_timeout
     while time.monotonic() < deadline:

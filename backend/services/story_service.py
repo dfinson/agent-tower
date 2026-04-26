@@ -367,7 +367,7 @@ class StoryService:
             try:
                 return json.loads(cached)
             except (json.JSONDecodeError, TypeError):
-                pass  # stale plain-text cache → regenerate
+                log.debug("story_cache_decode_failed", job_id=job_id)  # stale plain-text → regenerate
 
         # Serialize generation per job to avoid duplicate LLM calls.
         lock = self._gen_locks.setdefault(f"{job_id}:{verbosity}", asyncio.Lock())

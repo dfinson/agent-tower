@@ -107,7 +107,7 @@ def extract_examples(conn: sqlite3.Connection, n: int = 20) -> list[dict]:
             try:
                 p = json.loads(rev["payload"])
             except (json.JSONDecodeError, TypeError):
-                continue
+                continue  # malformed event payload — skip
             parsed.append({
                 "id": rev["id"],
                 "role": p.get("role", ""),
