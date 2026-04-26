@@ -61,7 +61,7 @@ def run():
                 if key in args and "/" in str(args[key]):
                     target_parts.add(str(args[key]).rsplit("/", 1)[-1])
         except Exception:
-            pass
+            pass  # malformed tool_args_json — skip path extraction
         target_parts.discard("")
 
         if not target_parts:

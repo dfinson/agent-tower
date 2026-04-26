@@ -1784,7 +1784,7 @@ class RuntimeService:
                     )
                 )
         except asyncio.CancelledError:
-            pass
+            log.debug("heartbeat_loop_cancelled", job_id=job_id)
 
     async def cancel(self, job_id: str) -> None:
         """Cancel a running job by cancelling its asyncio task.

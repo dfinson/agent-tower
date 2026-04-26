@@ -426,4 +426,4 @@ class SisterSessionManager:
                     self._warm_created_at.pop(token, None)
                     log.debug("sister_session_orphan_expired", token=token[:8])
         except asyncio.CancelledError:
-            pass
+            log.debug("sister_session_cleanup_cancelled")
