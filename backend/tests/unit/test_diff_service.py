@@ -9,6 +9,7 @@ import pytest
 
 from backend.models.api_schemas import DiffFileStatus, DiffLineType
 from backend.services.diff_service import DiffService
+from backend.services.git_service import GitError
 
 
 @pytest.fixture
@@ -223,7 +224,7 @@ class TestEventPublishing:
 
     @pytest.mark.asyncio
     async def test_git_failure_returns_empty(self, diff_service: DiffService, mock_git: AsyncMock) -> None:
-        mock_git.diff.side_effect = Exception("git failed")
+        mock_git.diff.side_effect = GitError("git failed")
         files = await diff_service.calculate_diff("/work", "main")
         assert files == []
 

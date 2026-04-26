@@ -105,11 +105,11 @@ class CopilotAdapter(BaseAgentAdapter):
             await asyncio.wait_for(client.stop(), timeout=CLIENT_STOP_TIMEOUT_S)
         except TimeoutError:
             log.warning("copilot_client_stop_timeout_forcing")
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(ProcessExitedError, JsonRpcError, OSError):
                 await client.force_stop()
         except (ProcessExitedError, JsonRpcError, OSError):
             log.warning("copilot_client_stop_failed", exc_info=True)
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(ProcessExitedError, JsonRpcError, OSError):
                 await client.force_stop()
 
     async def _handle_permission_request(
@@ -693,7 +693,7 @@ class CopilotAdapter(BaseAgentAdapter):
         except (asyncio.QueueFull, AttributeError):
             log.warning("copilot_queue_put_failed", session_id=session_id, exc_info=True)
         if kind == SessionEventKind.done or kind == SessionEventKind.error:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(asyncio.QueueFull, AttributeError):
                 queue.put_nowait(None)  # sentinel
 
     async def create_session(self, config: SessionConfig) -> str:

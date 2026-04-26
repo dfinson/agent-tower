@@ -21,9 +21,12 @@ from backend.models.domain import (
     JobSpec,
     JobState,
     Resolution,
+    ServiceInitError,
     validate_state_transition,
 )
 from backend.services.agent_adapter import validate_sdk_model
+from backend.services.git_service import GitError
+from backend.services.naming_service import NamingError
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -144,13 +147,13 @@ class JobService:
         to import persistence classes directly.
         """
         if self._event_repo is None:
-            raise RuntimeError("JobService was created without an event_repo")
+            raise ServiceInitError("JobService was created without an event_repo")
         return await self._event_repo.list_by_job(job_id, kinds, limit=limit)
 
     async def get_latest_progress_preview(self, job_id: str) -> ProgressPreview | None:
         """Return the latest persisted progress milestone for a job."""
         if self._event_repo is None:
-            raise RuntimeError("JobService was created without an event_repo")
+            raise ServiceInitError("JobService was created without an event_repo")
         preview = await self._event_repo.get_latest_progress_preview(job_id)
         if preview is None:
             return None
@@ -159,7 +162,7 @@ class JobService:
     async def list_latest_progress_previews(self, job_ids: list[str]) -> dict[str, ProgressPreview]:
         """Return the latest persisted progress milestone for each requested job."""
         if self._event_repo is None:
-            raise RuntimeError("JobService was created without an event_repo")
+            raise ServiceInitError("JobService was created without an event_repo")
         previews = await self._event_repo.list_latest_progress_previews(job_ids)
         return {
             job_id: ProgressPreview(headline=headline, summary=summary)
@@ -192,7 +195,7 @@ class JobService:
         exclude_names = existing_worktrees | existing_job_ids
 
         if self._naming is None:
-            raise RuntimeError("NamingService must be set before generating job metadata")
+            raise ServiceInitError("NamingService must be set before generating job metadata")
         title, description, generated_branch, worktree_name = await self._naming.generate(
             spec.prompt,
             existing_branches=existing_branches,
@@ -297,7 +300,7 @@ class JobService:
         resolved_repo = self.validate_repo(spec.repo)
 
         if self._git is None:
-            raise RuntimeError("GitService required for job creation")
+            raise ServiceInitError("GitService required for job creation")
 
         resolved_sdk = spec.sdk or self._config.runtime.default_sdk
 
@@ -313,11 +316,7 @@ class JobService:
 
         try:
             title, description, branch, worktree_name = await self._resolve_job_name(spec, resolved_repo)
-        except Exception as exc:
-            from backend.services.naming_service import NamingError
-
-            if not isinstance(exc, NamingError):
-                raise
+        except NamingError:
             import hashlib
 
             h = hashlib.sha256(f"{spec.prompt}{now.isoformat()}".encode()).hexdigest()[:12]
@@ -409,10 +408,9 @@ class JobService:
         Raises JobNotFoundError / StateConflictError on bad state.
         """
         from backend.models.events import DomainEvent, DomainEventKind
-        from backend.services.git_service import GitError
 
         if self._git is None:
-            raise RuntimeError("GitService required for workspace setup")
+            raise ServiceInitError("GitService required for workspace setup")
 
         job = await self._job_repo.get(job_id)
         if job is None:
@@ -707,7 +705,7 @@ class JobService:
             try:
                 await self._git.remove_worktree(job.repo, job.worktree_path)
                 log.info("archive_worktree_removed", job_id=job_id, worktree=job.worktree_path)
-            except Exception:
+            except (GitError, OSError):
                 log.warning("archive_worktree_cleanup_failed", job_id=job_id, exc_info=True)
 
         return await self.get_job(job_id)

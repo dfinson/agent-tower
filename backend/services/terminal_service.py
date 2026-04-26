@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from backend.models.domain import ServiceInitError
+
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
@@ -265,7 +267,7 @@ class TerminalService:
     ) -> PtySession:
         """Spawn a new PTY session. Returns the session object."""
         if len(self._sessions) >= self._max_sessions:
-            raise RuntimeError(f"Maximum terminal sessions ({self._max_sessions}) reached")
+            raise ServiceInitError(f"Maximum terminal sessions ({self._max_sessions}) reached")
 
         shell = shell or self._default_shell
         if not os.path.isfile(shell):
@@ -388,7 +390,7 @@ class TerminalService:
         )
 
         if self._loop is None:
-            raise RuntimeError("Event loop must be set before creating terminal sessions")
+            raise ServiceInitError("Event loop must be set before creating terminal sessions")
         self._loop.add_reader(master_fd, self._on_pty_readable, session_id)
         return session
 
@@ -421,7 +423,7 @@ class TerminalService:
             argv = [shell]
 
         if _WinPtyProcess is None:
-            raise RuntimeError("Windows PTY backend is unavailable")
+            raise ServiceInitError("Windows PTY backend is unavailable")
 
         proc = _WinPtyProcess.spawn(
             argv,

@@ -92,12 +92,12 @@ def _kill_sdk_subprocess(client: object | None) -> None:
     # Null out SDK internal references so the garbage collector doesn't
     # try to clean them up through anyio (which triggers the connection
     # pool contamination on __del__).
-    with contextlib.suppress(Exception):
+    with contextlib.suppress(AttributeError, TypeError):
         transport._process = None  # private access needed for cleanup
         transport._stdout_stream = None
         transport._stdin_stream = None
         transport._ready = False
-    with contextlib.suppress(Exception):
+    with contextlib.suppress(AttributeError, TypeError):
         query = getattr(client, "_query", None)
         if query is not None:
             query._tg = None  # prevent cancel-scope teardown in GC
