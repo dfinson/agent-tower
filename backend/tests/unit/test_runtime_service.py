@@ -723,7 +723,7 @@ class TestResumeFallback:
     ) -> None:
         merge_service = AsyncMock()
 
-        async def _resolve_job(**kwargs: object):
+        async def _resolve_job(*args: object, **kwargs: object):
             from types import SimpleNamespace
 
             from backend.persistence.job_repo import JobRepository

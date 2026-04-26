@@ -24,6 +24,8 @@ from sqlalchemy.exc import SQLAlchemyError
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from backend.models.domain import Job
+
 from backend.models.domain import Resolution
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.git_service import GitError
@@ -551,18 +553,20 @@ class MergeService:
 
     async def resolve_job(
         self,
-        job_id: str,
+        job: Job,
         action: str,
-        repo_path: str,
-        worktree_path: str | None,
-        branch: str | None,
-        base_ref: str,
-        prompt: str,
     ) -> MergeResult:
         """Operator-initiated job resolution.
 
         action: "merge" | "smart_merge" | "create_pr" | "discard"
         """
+        job_id = job.id
+        repo_path = job.repo
+        worktree_path = job.worktree_path
+        branch = job.branch
+        base_ref = job.base_ref
+        prompt = job.prompt
+
         # Capture a final diff snapshot before any resolution that removes the
         # worktree.  This guarantees that archived jobs always have a viewable
         # diff even after the branch and worktree have been deleted.

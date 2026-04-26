@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
 from backend.services.agent_adapter import AgentAdapterInterface, AgentSDK
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
 
@@ -22,7 +24,7 @@ class AdapterRegistry:
         self,
         approval_service: ApprovalService | None = None,
         event_bus: EventBus | None = None,
-        session_factory: Any | None = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self._approval_service = approval_service
         self._event_bus = event_bus
