@@ -14,6 +14,7 @@ from dishka import Provider, Scope, from_context, provide
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.config import CPLConfig
+from backend.services.analytics_service import AnalyticsService
 from backend.services.approval_service import ApprovalService
 from backend.services.event_bus import EventBus
 from backend.services.job_service import JobService
@@ -88,3 +89,7 @@ class RequestProvider(Provider):
             config,
             naming_service=naming,
         )
+
+    @provide
+    def analytics_service(self, session: AsyncSession) -> AnalyticsService:
+        return AnalyticsService(session)

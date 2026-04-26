@@ -7,6 +7,20 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from backend.services.analytics_service import AnalyticsService
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _mock_analytics_svc(**overrides: object) -> AnalyticsService:
+    """Build a mock AnalyticsService with sensible defaults."""
+    svc = AsyncMock(spec=AnalyticsService)
+    for name, value in overrides.items():
+        getattr(svc, name).return_value = value
+    return svc
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -97,17 +111,10 @@ def _job_context_data() -> dict[str, object]:
 
 @pytest.mark.asyncio
 async def test_scorecard_returns_data():
-    """analytics_scorecard delegates to repo and returns enriched dict."""
-    session = AsyncMock()
+    """analytics_scorecard delegates to service and returns enriched dict."""
+    svc = _mock_analytics_svc(scorecard=_scorecard_data())
 
-    mock_repo_instance = SimpleNamespace(
-        scorecard=AsyncMock(return_value=_scorecard_data()),
-    )
-
-    with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
-        return_value=mock_repo_instance,
-    ), patch("backend.config.load_config") as mock_load_config:
+    with patch("backend.config.load_config") as mock_load_config:
         mock_cfg = SimpleNamespace(
             telemetry=SimpleNamespace(daily_spend_limit_usd=25.0),
         )
@@ -115,7 +122,7 @@ async def test_scorecard_returns_data():
 
         from backend.api.analytics import analytics_scorecard
 
-        result = await analytics_scorecard(session=session, period=7)
+        result = await analytics_scorecard(svc=svc, period=7)
 
     assert result.activity.total_jobs == 5
     assert len(result.budget) > 0
@@ -131,20 +138,12 @@ async def test_scorecard_returns_data():
 @pytest.mark.asyncio
 async def test_model_comparison_returns_models():
     """analytics_model_comparison returns model rows with resolution data."""
-    session = AsyncMock()
     rows = _model_comparison_rows()
+    svc = _mock_analytics_svc(model_comparison=rows)
 
-    mock_repo_instance = SimpleNamespace(
-        model_comparison=AsyncMock(return_value=rows),
-    )
+    from backend.api.analytics import analytics_model_comparison
 
-    with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
-        return_value=mock_repo_instance,
-    ):
-        from backend.api.analytics import analytics_model_comparison
-
-        result = await analytics_model_comparison(session=session, period=30, repo=None)
+    result = await analytics_model_comparison(svc=svc, period=30, repo=None)
 
     assert result.period == 30
     assert result.repo is None
@@ -155,21 +154,14 @@ async def test_model_comparison_returns_models():
 
 @pytest.mark.asyncio
 async def test_model_comparison_with_repo_filter():
-    """analytics_model_comparison passes repo filter to the repo method."""
-    session = AsyncMock()
+    """analytics_model_comparison passes repo filter to the service method."""
+    svc = _mock_analytics_svc(model_comparison=[])
 
-    comparison_mock = AsyncMock(return_value=[])
-    mock_repo_instance = SimpleNamespace(model_comparison=comparison_mock)
+    from backend.api.analytics import analytics_model_comparison
 
-    with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
-        return_value=mock_repo_instance,
-    ):
-        from backend.api.analytics import analytics_model_comparison
+    result = await analytics_model_comparison(svc=svc, period=14, repo="/tmp/my-repo")
 
-        result = await analytics_model_comparison(session=session, period=14, repo="/tmp/my-repo")
-
-    comparison_mock.assert_awaited_once_with(period_days=14, repo="/tmp/my-repo")
+    svc.model_comparison.assert_awaited_once_with(period_days=14, repo="/tmp/my-repo")
     assert result.repo == "/tmp/my-repo"
     assert result.models == []
 
@@ -182,20 +174,12 @@ async def test_model_comparison_with_repo_filter():
 @pytest.mark.asyncio
 async def test_job_context_returns_job_data():
     """analytics_job_context returns job + repo avg + flags."""
-    session = AsyncMock()
     data = _job_context_data()
+    svc = _mock_analytics_svc(job_context=data)
 
-    mock_repo_instance = SimpleNamespace(
-        job_context=AsyncMock(return_value=data),
-    )
+    from backend.api.analytics import analytics_job_context
 
-    with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
-        return_value=mock_repo_instance,
-    ):
-        from backend.api.analytics import analytics_job_context
-
-        result = await analytics_job_context(job_id="j-1", session=session)
+    result = await analytics_job_context(job_id="j-1", svc=svc)
 
     assert result.job.cost == 0.30
     assert result.repo_avg is not None
@@ -207,22 +191,14 @@ async def test_job_context_returns_job_data():
 @pytest.mark.asyncio
 async def test_job_context_returns_error_on_missing():
     """analytics_job_context raises HTTPException when telemetry is not found."""
-    session = AsyncMock()
+    svc = _mock_analytics_svc(job_context=None)
 
-    mock_repo_instance = SimpleNamespace(
-        job_context=AsyncMock(return_value=None),
-    )
+    from fastapi import HTTPException
 
-    with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
-        return_value=mock_repo_instance,
-    ):
-        from fastapi import HTTPException
+    from backend.api.analytics import analytics_job_context
 
-        from backend.api.analytics import analytics_job_context
-
-        with pytest.raises(HTTPException) as exc_info:
-            await analytics_job_context(job_id="nonexistent", session=session)
+    with pytest.raises(HTTPException) as exc_info:
+        await analytics_job_context(job_id="nonexistent", svc=svc)
 
     assert exc_info.value.status_code == 404
 
@@ -235,25 +211,16 @@ async def test_job_context_returns_error_on_missing():
 @pytest.mark.asyncio
 async def test_fleet_cost_drivers_confidence_annotation():
     """fleet_cost_drivers adds confidence:'approximate' to activity dimension rows."""
-    session = AsyncMock()
-
     mock_summary = [
         {"dimension": "activity", "bucket": "edit", "cost_usd": 0.10},
         {"dimension": "phase", "bucket": "agent_reasoning", "cost_usd": 0.50},
         {"dimension": "activity", "bucket": "read", "cost_usd": 0.05},
     ]
+    svc = _mock_analytics_svc(fleet_cost_summary=mock_summary)
 
-    mock_repo_instance = SimpleNamespace(
-        fleet_summary=AsyncMock(return_value=mock_summary),
-    )
+    from backend.api.analytics import fleet_cost_drivers
 
-    with patch(
-        "backend.persistence.cost_attribution_repo.CostAttributionRepository",
-        return_value=mock_repo_instance,
-    ):
-        from backend.api.analytics import fleet_cost_drivers
-
-        result = await fleet_cost_drivers(session=session, period=30, dimension=None)
+    result = await fleet_cost_drivers(svc=svc, period=30, dimension=None)
 
     summary = result.summary
     assert len(summary) == 3

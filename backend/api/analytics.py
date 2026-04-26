@@ -34,6 +34,7 @@ from backend.models.api_schemas import (
     TriggerAnalysisResponse,
     TurnEconomicsResponse,
 )
+from backend.services.analytics_service import AnalyticsService
 
 router = APIRouter(route_class=DishkaRoute, tags=["analytics"])
 log = structlog.get_logger()
@@ -64,15 +65,12 @@ def _normalize_model_key(model: str) -> str:
 
 @router.get("/analytics/overview", response_model=AnalyticsOverviewResponse)
 async def analytics_overview(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 7,
 ) -> AnalyticsOverviewResponse:
     """Aggregate analytics over the given period (days)."""
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-    repo = TelemetrySummaryRepository(session)
-    agg = await repo.aggregate(period_days=period)
-    cost_trend = await repo.cost_by_day(period_days=period)
+    agg = await svc.aggregate(period_days=period)
+    cost_trend = await svc.cost_by_day(period_days=period)
 
     total_input = agg.get("total_input_tokens", 0) or 0
     total_cache = agg.get("total_cache_read", 0) or 0
@@ -112,43 +110,37 @@ async def analytics_overview(
 
 @router.get("/analytics/models", response_model=AnalyticsModelsResponse)
 async def analytics_models(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 7,
 ) -> AnalyticsModelsResponse:
     """Per-model cost and usage breakdown."""
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-    rows = await TelemetrySummaryRepository(session).cost_by_model(period_days=period)
+    rows = await svc.cost_by_model(period_days=period)
     return AnalyticsModelsResponse(period=period, models=rows)
 
 
 @router.get("/analytics/tools", response_model=AnalyticsToolsResponse)
 async def analytics_tools(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> AnalyticsToolsResponse:
     """Tool performance stats (call counts, failure rates, latency)."""
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-
-    stats = await TelemetrySpansRepository(session).tool_stats(period_days=period)
+    stats = await svc.tool_stats(period_days=period)
     return AnalyticsToolsResponse(period=period, tools=stats)
 
 
 @router.get("/analytics/repos", response_model=AnalyticsReposResponse)
 async def analytics_repos(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 7,
 ) -> AnalyticsReposResponse:
     """Per-repo cost and usage breakdown."""
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-    rows = await TelemetrySummaryRepository(session).cost_by_repo(period_days=period)
+    rows = await svc.cost_by_repo(period_days=period)
     return AnalyticsReposResponse(period=period, repos=rows)
 
 
 @router.get("/analytics/jobs", response_model=AnalyticsJobsResponse)
 async def analytics_jobs(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 7,
     sdk: str | None = None,
     model: str | None = None,
@@ -160,9 +152,7 @@ async def analytics_jobs(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AnalyticsJobsResponse:
     """Paginated per-job telemetry table."""
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-    rows = await TelemetrySummaryRepository(session).query(
+    rows = await svc.query_jobs(
         period_days=period,
         sdk=sdk,
         model=model,
@@ -210,12 +200,10 @@ async def analytics_pricing(
 @router.get("/analytics/cost-drivers/{job_id}", response_model=CostDriversJobResponse)
 async def cost_drivers_for_job(
     job_id: str,
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
 ) -> CostDriversJobResponse:
     """Per-job cost attribution breakdown by dimension."""
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
-
-    rows = await CostAttributionRepository(session).for_job(job_id)
+    rows = await svc.cost_drivers_for_job(job_id)
     by_dimension: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         dim = row.get("dimension", "unknown")
@@ -225,18 +213,15 @@ async def cost_drivers_for_job(
 
 @router.get("/analytics/cost-drivers", response_model=FleetCostDriversResponse)
 async def fleet_cost_drivers(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
     dimension: str | None = None,
 ) -> FleetCostDriversResponse:
     """Fleet-wide cost attribution: top cost buckets across all dimensions."""
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
-
-    repo = CostAttributionRepository(session)
     if dimension:
-        rows = await repo.by_dimension(dimension, period_days=period)
+        rows = await svc.cost_by_dimension(dimension, period_days=period)
         return FleetCostDriversResponse(period=period, dimension=dimension, buckets=rows)
-    summary = await repo.fleet_summary(period_days=period)
+    summary = await svc.fleet_cost_summary(period_days=period)
     # Activity-dimension costs use an equal-weight heuristic per turn, flag them.
     for row in summary:
         row["confidence"] = "approximate" if row.get("dimension") == "activity" else "exact"
@@ -246,40 +231,32 @@ async def fleet_cost_drivers(
 @router.get("/analytics/file-access/{job_id}", response_model=FileAccessJobResponse)
 async def file_access_for_job(
     job_id: str,
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
 ) -> FileAccessJobResponse:
     """File access stats for a job — rereads, most-accessed files."""
-    from backend.persistence.file_access_repo import FileAccessRepository
-
-    repo = FileAccessRepository(session)
-    stats = await repo.reread_stats(job_id)
-    top_files = await repo.most_accessed_files(job_id=job_id)
+    stats = await svc.reread_stats(job_id)
+    top_files = await svc.most_accessed_files(job_id=job_id)
     return FileAccessJobResponse(job_id=job_id, stats=stats, top_files=top_files)
 
 
 @router.get("/analytics/file-access", response_model=FleetFileAccessResponse)
 async def fleet_file_access(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> FleetFileAccessResponse:
     """Fleet-wide most-accessed files across all jobs."""
-    from backend.persistence.file_access_repo import FileAccessRepository
-
-    top_files = await FileAccessRepository(session).most_accessed_files(period_days=period)
+    top_files = await svc.most_accessed_files(period_days=period)
     return FleetFileAccessResponse(period=period, top_files=top_files)
 
 
 @router.get("/analytics/turn-economics/{job_id}", response_model=TurnEconomicsResponse)
 async def turn_economics_for_job(
     job_id: str,
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
 ) -> TurnEconomicsResponse:
     """Per-turn cost curve for a specific job."""
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-    summary = await TelemetrySummaryRepository(session).get(job_id)
-    turns = await CostAttributionRepository(session).for_job(job_id)
+    summary = await svc.get_summary(job_id)
+    turns = await svc.cost_drivers_for_job(job_id)
     turn_data = [r for r in turns if r.get("dimension") == "turn"]
     return TurnEconomicsResponse(
         job_id=job_id,
@@ -299,14 +276,13 @@ async def turn_economics_for_job(
 
 @router.get("/analytics/scorecard", response_model=ScorecardResponse)
 async def analytics_scorecard(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 7,
 ) -> ScorecardResponse:
     """Top-level scorecard: budget per SDK, activity with resolution, quota, cost trend."""
     from backend.config import load_config
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
-    scorecard = await TelemetrySummaryRepository(session).scorecard(period_days=period)
+    scorecard = await svc.scorecard(period_days=period)
     cfg = load_config()
     scorecard["dailySpendLimitUsd"] = cfg.telemetry.daily_spend_limit_usd
     return ScorecardResponse(**scorecard)
@@ -314,26 +290,22 @@ async def analytics_scorecard(
 
 @router.get("/analytics/model-comparison", response_model=ModelComparisonResponse)
 async def analytics_model_comparison(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
     repo: str | None = None,
 ) -> ModelComparisonResponse:
     """Per-model comparison with resolution data joined from jobs table."""
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-    rows = await TelemetrySummaryRepository(session).model_comparison(period_days=period, repo=repo)
+    rows = await svc.model_comparison(period_days=period, repo=repo)
     return ModelComparisonResponse(period=period, repo=repo, models=rows)
 
 
 @router.get("/analytics/job-context/{job_id}", response_model=JobContextResponse)
 async def analytics_job_context(
     job_id: str,
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
 ) -> JobContextResponse:
     """Per-job context: metrics + repo comparison + noteworthy flags."""
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-    job_context = await TelemetrySummaryRepository(session).job_context(job_id)
+    job_context = await svc.job_context(job_id)
     if job_context is None:
         raise HTTPException(status_code=404, detail="Job telemetry not found")
     return JobContextResponse(**job_context)
@@ -346,27 +318,22 @@ async def analytics_job_context(
 
 @router.get("/analytics/observations", response_model=ObservationsListResponse)
 async def list_observations(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     category: str | None = None,
     severity: str | None = None,
 ) -> ObservationsListResponse:
     """List active cost observations / anomalies."""
-    from backend.persistence.observations_repo import ObservationsRepository
-
-    rows = await ObservationsRepository(session).list_active(category=category, severity=severity)
+    rows = await svc.list_observations(category=category, severity=severity)
     return ObservationsListResponse(observations=rows)
 
 
 @router.post("/analytics/observations/{observation_id}/dismiss", response_model=DismissResponse)
 async def dismiss_observation(
     observation_id: int,
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
 ) -> DismissResponse:
     """Dismiss an observation."""
-    from backend.persistence.observations_repo import ObservationsRepository
-
-    await ObservationsRepository(session).dismiss(observation_id)
-    await session.commit()
+    await svc.dismiss_observation(observation_id)
     return DismissResponse(status="dismissed")
 
 
@@ -389,13 +356,11 @@ async def trigger_analysis(
 
 @router.get("/analytics/shell-commands", response_model=ShellCommandsResponse)
 async def shell_command_breakdown(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> ShellCommandsResponse:
     """Top shell commands by call count, aggregated from tool_target."""
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-
-    rows = await TelemetrySpansRepository(session).shell_command_breakdown(period_days=period)
+    rows = await svc.shell_command_breakdown(period_days=period)
     return ShellCommandsResponse(period=period, commands=rows)
 
 
@@ -406,13 +371,11 @@ async def shell_command_breakdown(
 
 @router.get("/analytics/retry-cost", response_model=RetryCostResponse)
 async def retry_cost_summary(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> RetryCostResponse:
     """Fleet-wide retry cost and count."""
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-
-    summary = await TelemetrySpansRepository(session).retry_cost_summary(period_days=period)
+    summary = await svc.retry_cost_summary(period_days=period)
     total = float(summary.get("total_cost_usd") or 0)
     retry = float(summary.get("retry_cost_usd") or 0)
     return RetryCostResponse(
@@ -432,7 +395,7 @@ async def retry_cost_summary(
 
 @router.get("/analytics/edit-efficiency", response_model=EditEfficiencyResponse)
 async def fleet_edit_efficiency(
-    session: FromDishka[AsyncSession],
+    svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> EditEfficiencyResponse:
     """Fleet-wide one-shot success rate by activity category.
@@ -441,9 +404,7 @@ async def fleet_edit_efficiency(
     ``call_count`` = edit turns, ``input_tokens`` = one-shot turns,
     ``output_tokens`` = total retries (repurposed columns).
     """
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
-
-    rows = await CostAttributionRepository(session).by_dimension("edit_efficiency", period_days=period)
+    rows = await svc.cost_by_dimension("edit_efficiency", period_days=period)
     categories = []
     for row in rows:
         edit_turns = int(row.get("call_count") or 0)
