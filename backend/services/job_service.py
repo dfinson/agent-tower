@@ -15,6 +15,7 @@ from backend.config import load_config
 from backend.models.domain import (
     ACTIVE_STATES,
     TERMINAL_STATES,
+    CodePlaneError,
     InvalidStateTransitionError,
     Job,
     JobSpec,
@@ -40,15 +41,15 @@ log = structlog.get_logger()
 _MAX_COUNT_LIMIT = 10_000  # upper bound for count queries that scan all jobs
 
 
-class RepoNotAllowedError(Exception):
+class RepoNotAllowedError(CodePlaneError):
     """Raised when a repo path is not in the allowlist."""
 
 
-class JobNotFoundError(Exception):
+class JobNotFoundError(CodePlaneError):
     """Raised when a job ID does not exist."""
 
 
-class StateConflictError(Exception):
+class StateConflictError(CodePlaneError):
     """Raised when a job action conflicts with its current state."""
 
 
