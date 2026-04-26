@@ -965,11 +965,12 @@ class RuntimeService:
         import time as _time
 
         from backend.services import telemetry as tel
+        from backend.services.parsing_utils import best_effort
 
         tel.end_job_span(job_id)
 
         # Emit finalization phase
-        try:
+        async with best_effort(log, "execution_phase_event", job_id=job_id):
             self._resolve_adapter(config.sdk).set_execution_phase(job_id, "finalization")
             await self._event_bus.publish(
                 DomainEvent(
@@ -980,8 +981,6 @@ class RuntimeService:
                     payload={"phase": "finalization"},
                 )
             )
-        except Exception:
-            log.debug("execution_phase_event_failed", job_id=job_id, exc_info=True)
 
         # Finalize the summary row with terminal status and duration.
         try:
@@ -990,7 +989,7 @@ class RuntimeService:
 
                 # Determine status from job state
                 status = "review"
-                try:
+                async with best_effort(log, "telemetry_finalize_status_lookup", job_id=job_id):
                     svc = self._make_job_service(session)
                     job_final = await svc.get_job(job_id)
                     if job_final is not None:
@@ -1001,8 +1000,6 @@ class RuntimeService:
                             status = "cancelled"
                         elif st == "completed":
                             status = "completed"
-                except Exception:
-                    log.debug("telemetry_finalize_status_lookup_failed", job_id=job_id, exc_info=True)
                 duration = int((_time.monotonic() - wall_start) * 1000)
 
                 await TelemetrySummaryRepository(session).finalize(
@@ -1013,24 +1010,20 @@ class RuntimeService:
                 await session.commit()
 
             # Run post-job cost attribution pipeline
-            try:
+            async with best_effort(log, "cost_attribution", level="warning", job_id=job_id):
                 async with self._session_factory() as session:
                     from backend.services.cost_attribution import compute_attribution
 
                     await compute_attribution(session, job_id)
                     await session.commit()
-            except Exception:
-                log.warning("cost_attribution_failed", job_id=job_id, exc_info=True)
 
             # Run statistical analysis (fire-and-forget, non-blocking)
-            try:
+            async with best_effort(log, "statistical_analysis", job_id=job_id):
                 async with self._session_factory() as session:
                     from backend.services.statistical_analysis import run_analysis
 
                     await run_analysis(session)
                     await session.commit()
-            except Exception:
-                log.debug("statistical_analysis_failed", job_id=job_id, exc_info=True)
 
             # Signal clients that final telemetry is available
             await self._event_bus.publish(
@@ -1053,17 +1046,17 @@ class RuntimeService:
         job_id: str,
     ) -> None:
         """Persist internal state (telemetry, plan, approvals) as downloadable artifacts."""
+        from backend.services.parsing_utils import best_effort
+
         try:
             # Look up job slug for human-friendly artifact names
             slug = ""
-            try:
+            async with best_effort(log, "slug_extraction", job_id=job_id):
                 async with self._session_factory() as session:
                     svc = self._make_job_service(session)
                     job = await svc.get_job(job_id)
                 if job is not None:
                     slug = (job.worktree_name or job.title or "").strip()
-            except Exception:
-                log.debug("slug_extraction_failed", job_id=job_id, exc_info=True)
 
             async with self._session_factory() as session:
                 from backend.persistence.artifact_repo import ArtifactRepository
@@ -1072,7 +1065,7 @@ class RuntimeService:
                 artifact_svc = ArtifactService(ArtifactRepository(session))
 
                 # Telemetry report – load from the persisted summary row
-                try:
+                async with best_effort(log, "telemetry_artifact", job_id=job_id):
                     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                     summary = await TelemetrySummaryRepository(session).get(job_id)
@@ -1082,20 +1075,16 @@ class RuntimeService:
                             summary,
                             slug=slug,
                         )
-                except Exception:
-                    log.debug("telemetry_artifact_failed", job_id=job_id, exc_info=True)
 
                 # Agent plan steps (from in-memory progress tracker)
                 if self._trail_service is not None:
                     steps = self._trail_service.get_plan_steps(job_id)
                     if steps:
-                        try:
+                        async with best_effort(log, "plan_artifact", job_id=job_id):
                             await artifact_svc.store_agent_plan(job_id, steps, slug=slug)
-                        except Exception:
-                            log.debug("plan_artifact_failed", job_id=job_id, exc_info=True)
 
                 # Approval history
-                try:
+                async with best_effort(log, "approval_artifact", job_id=job_id):
                     from backend.persistence.approval_repo import ApprovalRepository
 
                     approval_repo = ApprovalRepository(session)
@@ -1117,12 +1106,10 @@ class RuntimeService:
                             approval_dicts,
                             slug=slug,
                         )
-                except Exception:
-                    log.debug("approval_artifact_failed", job_id=job_id, exc_info=True)
 
                 # Agent log artifact — snapshot of all log_line_emitted events as
                 # a plain-text file, grouped by session for jobs with handoffs.
-                try:
+                async with best_effort(log, "log_artifact", job_id=job_id):
                     from backend.persistence.event_repo import EventRepository
 
                     event_repo = EventRepository(session)
@@ -1133,8 +1120,6 @@ class RuntimeService:
                             [e.payload for e in log_events],
                             slug=slug,
                         )
-                except Exception:
-                    log.debug("log_artifact_failed", job_id=job_id, exc_info=True)
 
                 await session.commit()
         except Exception:
