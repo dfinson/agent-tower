@@ -229,6 +229,7 @@ class GitService:
 
     async def get_default_branch(self, repo_path: str) -> str:
         """Detect the default branch name (e.g. main or master)."""
+        # 1. Try the symbolic ref (most reliable when remote is configured)
         try:
             ref = await self._run_git(
                 "symbolic-ref",
@@ -239,22 +240,23 @@ class GitService:
             # Returns e.g. "origin/main" — strip the remote prefix
             return ref.split("/", 1)[-1] if "/" in ref else ref
         except GitError:
-            # Fallback: check if main exists, else master, else current branch
+            pass
+
+        # 2. Probe well-known branch names
+        for candidate in ("main", "master"):
             try:
-                await self._run_git("rev-parse", "--verify", "main", cwd=repo_path)
-                return "main"
+                await self._run_git("rev-parse", "--verify", candidate, cwd=repo_path)
+                return candidate
             except GitError:
-                try:
-                    await self._run_git("rev-parse", "--verify", "master", cwd=repo_path)
-                    return "master"
-                except GitError:
-                    # Last resort: current branch
-                    return await self._run_git(
-                        "rev-parse",
-                        "--abbrev-ref",
-                        "HEAD",
-                        cwd=repo_path,
-                    )
+                continue
+
+        # 3. Last resort: current branch
+        return await self._run_git(
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+            cwd=repo_path,
+        )
 
     async def get_origin_url(self, repo_path: str) -> str | None:
         """Get the remote origin URL, or None if not set."""
