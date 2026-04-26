@@ -121,7 +121,7 @@ def _find_pids_on_port(port: int) -> list[int]:
         )
         pids = re.findall(r"pid=(\d+)", result.stdout)
         return [int(p) for p in pids]
-    except Exception:
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
         pass  # ss not available — no PIDs found
 
     return []
