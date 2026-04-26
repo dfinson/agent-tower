@@ -357,8 +357,7 @@ async def continue_job(
     try:
         job = await runtime_service.create_followup_job(job_id, body.instruction)
     except ValueError as exc:
-        structlog.get_logger().warning("continue_job_rejected", job_id=job_id, exc_info=exc)
-        raise HTTPException(status_code=409, detail="Cannot create follow-up for this job") from exc
+        raise HTTPException(status_code=400, detail="Follow-up instruction must not be empty") from exc
 
     return _job_to_create_response(job)
 
