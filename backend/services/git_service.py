@@ -242,7 +242,7 @@ class GitService:
             # Returns e.g. "origin/main" — strip the remote prefix
             return ref.split("/", 1)[-1] if "/" in ref else ref
         except GitError:
-            pass
+            log.debug("symbolic_ref_unavailable", repo_path=repo_path)
 
         # 2. Probe well-known branch names
         for candidate in ("main", "master"):
@@ -250,6 +250,7 @@ class GitService:
                 await self._run_git("rev-parse", "--verify", candidate, cwd=repo_path)
                 return candidate
             except GitError:
+                log.debug("branch_candidate_not_found", candidate=candidate, repo_path=repo_path)
                 continue
 
         # 3. Last resort: current branch
