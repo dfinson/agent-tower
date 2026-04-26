@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
-from typing import Annotated
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from backend.config import (
     DEFAULT_SELF_REVIEW_PROMPT,
@@ -42,14 +41,6 @@ from backend.services.platform_adapter import PlatformRegistry, detect_platform
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
 
 
-def _get_config() -> CPLConfig:
-    return load_config()
-
-
-def _get_git_service(config: Annotated[CPLConfig, Depends(_get_config)]) -> GitService:
-    return GitService(config)
-
-
 def _config_to_response(config: CPLConfig) -> SettingsResponse:
     return SettingsResponse(
         max_concurrent_jobs=config.runtime.max_concurrent_jobs,
@@ -70,7 +61,7 @@ def _config_to_response(config: CPLConfig) -> SettingsResponse:
 
 @router.get("/settings", response_model=SettingsResponse)
 async def get_settings(
-    config: Annotated[CPLConfig, Depends(_get_config)],
+    config: FromDishka[CPLConfig],
 ) -> SettingsResponse:
     """Get current settings as structured data."""
     return _config_to_response(config)
@@ -112,7 +103,7 @@ async def update_settings(
 
 @router.get("/settings/repos", response_model=RepoListResponse)
 async def list_repos(
-    config: Annotated[CPLConfig, Depends(_get_config)],
+    config: FromDishka[CPLConfig],
 ) -> RepoListResponse:
     """List registered repository paths."""
     return RepoListResponse(items=config.repos)
@@ -121,8 +112,8 @@ async def list_repos(
 @router.get("/settings/repos/{repo_path:path}", response_model=RepoDetailResponse)
 async def get_repo_detail(
     repo_path: str,
-    config: Annotated[CPLConfig, Depends(_get_config)],
-    git: Annotated[GitService, Depends(_get_git_service)],
+    config: FromDishka[CPLConfig],
+    git: FromDishka[GitService],
 ) -> RepoDetailResponse:
     """Get detailed config for a single registered repository."""
     resolved = str(Path(repo_path).expanduser().resolve())
@@ -153,8 +144,8 @@ async def get_repo_detail(
 @router.post("/settings/repos", response_model=RegisterRepoResponse, status_code=201)
 async def register_repo_endpoint(
     body: RegisterRepoRequest,
-    config: Annotated[CPLConfig, Depends(_get_config)],
-    git: Annotated[GitService, Depends(_get_git_service)],
+    config: FromDishka[CPLConfig],
+    git: FromDishka[GitService],
 ) -> RegisterRepoResponse:
     """Register a repository (local path or remote URL)."""
     source = body.source
@@ -194,8 +185,8 @@ async def register_repo_endpoint(
 @router.post("/settings/repos/create", response_model=CreateRepoResponse, status_code=201)
 async def create_repo_endpoint(
     body: CreateRepoRequest,
-    config: Annotated[CPLConfig, Depends(_get_config)],
-    git: Annotated[GitService, Depends(_get_git_service)],
+    config: FromDishka[CPLConfig],
+    git: FromDishka[GitService],
 ) -> CreateRepoResponse:
     """Create a new git repository and register it."""
     resolved = Path(body.path).expanduser().resolve()
@@ -218,7 +209,7 @@ async def create_repo_endpoint(
 @router.delete("/settings/repos/{repo_path:path}", status_code=204)
 async def unregister_repo_endpoint(
     repo_path: str,
-    config: Annotated[CPLConfig, Depends(_get_config)],
+    config: FromDishka[CPLConfig],
 ) -> None:
     """Remove a repository from the allowlist."""
     try:
@@ -229,8 +220,8 @@ async def unregister_repo_endpoint(
 
 @router.post("/settings/cleanup-worktrees", response_model=CleanupWorktreesResponse)
 async def cleanup_worktrees(
-    config: Annotated[CPLConfig, Depends(_get_config)],
-    git: Annotated[GitService, Depends(_get_git_service)],
+    config: FromDishka[CPLConfig],
+    git: FromDishka[GitService],
 ) -> CleanupWorktreesResponse:
     """Clean up completed job worktrees for all registered repos."""
     total = 0

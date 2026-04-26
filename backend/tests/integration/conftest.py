@@ -216,6 +216,7 @@ async def app(
             ApprovalService: approval_service,
             RuntimeService: mock_runtime_service,
             MergeService: mock_merge_service,
+            GitService: mock_git_service,
             PlatformRegistry: mock_platform_registry,
             SisterSessionManager: mock_utility_session,
             VoiceService: mock_voice_service,
@@ -225,13 +226,9 @@ async def app(
     )
     setup_dishka(container, application)
 
-    # -- config overrides (for non-dishka Depends still in settings.py) ----
+    # -- config overrides (for non-dishka load_config calls) ----
     monkeypatch.setattr("backend.config.load_config", _test_config)
-    monkeypatch.setattr("backend.api.settings._get_config", _test_config)
     monkeypatch.setattr("backend.services.job_service.load_config", _test_config)
-
-    # -- settings router git-service override ------------------------------
-    application.dependency_overrides[settings._get_git_service] = lambda: mock_git_service
 
     # -- terminal module-level service -------------------------------------
     terminal.set_terminal_service(Mock())
