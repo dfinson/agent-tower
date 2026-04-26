@@ -14,7 +14,12 @@ if TYPE_CHECKING:
 
 
 class TrailNodeRepository:
-    """Persistence for trail nodes."""
+    """Persistence for trail nodes.
+
+    Uses session_factory (not BaseRepository) for independent session-per-
+    operation semantics — each write commits immediately for fire-and-forget
+    audit trail persistence.
+    """
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory

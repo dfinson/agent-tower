@@ -202,7 +202,7 @@ async def app(
     application.include_router(workspace.router, prefix="/api")
     application.include_router(voice.router, prefix="/api")
     application.include_router(settings.router, prefix="/api")
-    application.include_router(terminal.router)  # already has /api/terminal prefix
+    application.include_router(terminal.router, prefix="/api")
 
     # -- dishka DI container (replaces app.state) --------------------------
     container = make_async_container(
