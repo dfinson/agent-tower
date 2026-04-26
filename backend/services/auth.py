@@ -57,6 +57,10 @@ log = structlog.get_logger()
 COOKIE_NAME = "cpl_session"
 LOCALHOST_ADDRS = {"127.0.0.1", "::1", "localhost"}
 
+# Paths that bypass password auth entirely (checked by prefix or exact match).
+AUTH_EXEMPT_PREFIXES: frozenset[str] = frozenset({"/api/auth/"})
+AUTH_EXEMPT_EXACT: frozenset[str] = frozenset({"/api/health"})
+
 # Rate limiting: track failed attempts per IP
 _login_attempts: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT_WINDOW = 60  # seconds
@@ -380,7 +384,7 @@ async def auth_middleware(request: Request, call_next: Callable[[Request], Await
     path = request.url.path
 
     # Always allow auth endpoints and health check
-    if path.startswith("/api/auth/") or path == "/api/health":
+    if path in AUTH_EXEMPT_EXACT or any(path.startswith(p) for p in AUTH_EXEMPT_PREFIXES):
         return await call_next(request)
 
     # Localhost is trusted — no auth needed
