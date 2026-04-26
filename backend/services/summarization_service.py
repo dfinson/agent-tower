@@ -243,7 +243,7 @@ class SummarizationService:
                         if job.session_count in recorded:
                             return  # already captured this session
                     except Exception:
-                        log.debug("session_log_parse_failed", job_id=job_id, exc_info=True)
+                        log.warning("session_log_parse_failed", job_id=job_id, exc_info=True)
 
                 # Build snapshot from events
                 transcript_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.transcript_updated])

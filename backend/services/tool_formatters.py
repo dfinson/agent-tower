@@ -340,8 +340,7 @@ def _fmt_fetch_webpage(args: ToolArgs) -> str:
             short = p.netloc + p.path[:30]
             return f"Fetch {_truncate(short, 50)}"
         except Exception:
-            log.debug("url_parse_failed", url=url[:80])
-            pass
+            log.warning("url_parse_failed", url=url[:80])
     return "Fetch webpage"
 
 

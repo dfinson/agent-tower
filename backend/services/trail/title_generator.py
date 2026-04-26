@@ -86,7 +86,7 @@ class TitleGenerator:
             state.sister_consecutive_failures = 0
         except Exception:
             state.sister_consecutive_failures += 1
-            log.debug("turn_title_generation_failed", job_id=job_id, exc_info=True)
+            log.warning("turn_title_generation_failed", job_id=job_id, exc_info=True)
             title = self._fallback_title(agent_msg, files_written)
 
         return title, merge_prev

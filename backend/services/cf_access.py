@@ -126,7 +126,7 @@ def verify_token(token: str) -> bool:
             log.debug("cf_access_key_mismatch", key_index=keys.index(key))
             continue
         except Exception:
-            log.debug("cf_access_verify_error", exc_info=True)
+            log.warning("cf_access_verify_error", exc_info=True)
             continue
 
     log.warning("cf_access_no_matching_key", msg="JWT could not be verified with any JWKS key")

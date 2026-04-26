@@ -98,7 +98,7 @@ class PlanManager:
         try:
             await self.infer_plan(job_id, sister)
         except Exception:
-            log.debug("early_plan_inference_failed", job_id=job_id, exc_info=True)
+            log.warning("early_plan_inference_failed", job_id=job_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Plan inference (no native plan)
@@ -148,7 +148,7 @@ class PlanManager:
                 for ps in steps:
                     await self._emit_plan_step(job_id, ps)
         except Exception:
-            log.debug("plan_inference_failed", job_id=job_id, exc_info=True)
+            log.warning("plan_inference_failed", job_id=job_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Turn classification
@@ -213,7 +213,7 @@ class PlanManager:
             state.sister_consecutive_failures = 0
         except Exception:
             state.sister_consecutive_failures += 1
-            log.debug("turn_classification_failed", job_id=job_id, exc_info=True)
+            log.warning("turn_classification_failed", job_id=job_id, exc_info=True)
 
         now = datetime.now(UTC)
         ps = steps[target_idx]
@@ -441,7 +441,7 @@ class PlanManager:
                 state.sister_consecutive_failures = 0
             except Exception:
                 state.sister_consecutive_failures += 1
-                log.debug("plan_inference_failed_circuit", job_id=job_id, failures=state.sister_consecutive_failures)
+                log.warning("plan_inference_failed_circuit", job_id=job_id, failures=state.sister_consecutive_failures)
             finally:
                 state._inferring_plan = False
 

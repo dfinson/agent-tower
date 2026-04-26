@@ -314,7 +314,7 @@ def load_config(path: Path | None = None) -> CPLConfig:
         try:
             save_config(cfg, path)
         except Exception:
-            _log.debug("instance_id_persist_failed", exc_info=True)
+            _log.warning("instance_id_persist_failed", exc_info=True)
 
     return cfg
 

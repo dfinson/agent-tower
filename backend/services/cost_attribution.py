@@ -167,7 +167,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         if row:
             job_prompt = row.get("prompt", "") or ""
     except Exception:
-        log.debug("cost_attribution_prompt_fetch_failed", job_id=job_id, exc_info=True)
+        log.warning("cost_attribution_prompt_fetch_failed", job_id=job_id, exc_info=True)
 
     # --- Aggregate by dimension ---
     by_activity: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
@@ -326,7 +326,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
                 diff_added += f.get("additions", 0)
                 diff_removed += f.get("deletions", 0)
     except Exception:
-        log.debug("diff_lines_extraction_failed", job_id=job_id, exc_info=True)
+        log.warning("diff_lines_extraction_failed", job_id=job_id, exc_info=True)
 
     await summary_repo.set_turn_stats(
         job_id,

@@ -317,7 +317,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                     await handler(**kwargs)
                 await session.commit()
         except Exception:
-            log.debug("telemetry_db_write_failed", fn=fn_name, exc_info=True)
+            log.warning("telemetry_db_write_failed", fn=fn_name, exc_info=True)
             return
 
         # Broadcast a debounced telemetry_updated SSE for summary changes
