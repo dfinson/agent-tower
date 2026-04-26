@@ -5,23 +5,15 @@ from __future__ import annotations
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter
 
-from backend.models.api_schemas import CamelModel
+from backend.models.api_schemas import (
+    CamelModel,
+    SubscriptionRequest,
+    UnsubscribeRequest,
+    VapidKeyResponse,
+)
 from backend.services.push_service import PushService
 
 router = APIRouter(tags=["notifications"], route_class=DishkaRoute)
-
-
-class VapidKeyResponse(CamelModel):
-    public_key: str
-
-
-class SubscriptionRequest(CamelModel):
-    endpoint: str
-    keys: dict[str, str]
-
-
-class UnsubscribeRequest(CamelModel):
-    endpoint: str
 
 
 @router.get("/notifications/vapid-key", response_model=VapidKeyResponse)

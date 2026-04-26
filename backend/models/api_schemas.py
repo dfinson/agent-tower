@@ -1435,3 +1435,36 @@ class TrailSummaryResponse(CamelModel):
     verifications_passed: int = 0
     verifications_failed: int = 0
     enrichment_complete: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Notification schemas
+# ---------------------------------------------------------------------------
+
+
+class VapidKeyResponse(CamelModel):
+    public_key: str
+
+
+class SubscriptionRequest(CamelModel):
+    endpoint: str
+    keys: dict[str, str]
+
+
+class UnsubscribeRequest(CamelModel):
+    endpoint: str
+
+
+# ---------------------------------------------------------------------------
+# Share schemas
+# ---------------------------------------------------------------------------
+
+
+class ShareTokenResponse(CamelModel):
+    token: str
+    job_id: str
+    url: str
+
+
+class CreateShareRequest(CamelModel):
+    job_id: str | None = None  # allow body-less POST where job_id is in path
