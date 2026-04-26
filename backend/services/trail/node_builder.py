@@ -87,7 +87,7 @@ class TrailNodeBuilder:
             ):
                 await self._on_job_terminal(event)
         except Exception:
-            log.debug("trail_event_error", event_kind=event.kind, job_id=event.job_id, exc_info=True)
+            log.warning("trail_event_error", event_kind=event.kind, job_id=event.job_id, exc_info=True)
 
     async def _on_session_resumed(self, event: DomainEvent) -> None:
         """Rehydrate trail state when a job session resumes."""
@@ -198,7 +198,7 @@ class TrailNodeBuilder:
                 if row:
                     prompt = row.prompt or ""
         except Exception:
-            log.debug("trail_goal_prompt_fetch_failed", job_id=job_id, exc_info=True)
+            log.warning("trail_goal_prompt_fetch_failed", job_id=job_id, exc_info=True)
 
         state.job_prompt = prompt
 
@@ -320,7 +320,7 @@ class TrailNodeBuilder:
             try:
                 await self._repo.update_enrichment(node_id, enrichment="pending")
             except Exception:
-                log.debug("enrichment_status_update_failed", node_id=node_id, exc_info=True)
+                log.warning("enrichment_status_update_failed", node_id=node_id, exc_info=True)
 
     async def _classify_and_emit_inner(
         self,

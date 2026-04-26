@@ -215,7 +215,7 @@ class MotivationService:
                         await repo.set_motivation_summary(span["id"], summary_text)
                         processed += 1
                 except Exception:
-                    log.debug(
+                    log.warning(
                         "motivation_summarize_failed",
                         span_id=span["id"],
                         exc_info=True,
@@ -274,7 +274,7 @@ class MotivationService:
                     )
                     processed += 1
                 except Exception:
-                    log.debug(
+                    log.warning(
                         "edit_motivation_failed",
                         span_id=span["id"],
                         exc_info=True,
@@ -297,5 +297,5 @@ class MotivationService:
                 if edit_count:
                     log.info("edit_motivation_batch_processed", count=edit_count)
             except Exception:
-                log.debug("motivation_drain_error", exc_info=True)
+                log.warning("motivation_drain_error", exc_info=True)
             await asyncio.sleep(_DRAIN_INTERVAL)

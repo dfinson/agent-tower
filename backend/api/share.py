@@ -291,7 +291,7 @@ async def get_shared_snapshot(
 
         git = GitService(config)
         ds = DiffService(git_service=git, event_bus=event_bus)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(OSError, ValueError):
             diff = await ds.calculate_diff(job.worktree_path, job.base_ref)
     if not diff:
         diff_events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])

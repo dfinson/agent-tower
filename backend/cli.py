@@ -504,7 +504,7 @@ def _find_pids_on_port(port: int) -> list[int]:
         result = _sp.run(["ss", "-tlnp", f"sport = :{port}"], capture_output=True, text=True)
         return [int(p) for p in re.findall(r"pid=(\d+)", result.stdout)]
     except Exception:  # noqa: BLE001
-        structlog.get_logger().debug("ss_probe_failed", port=port, exc_info=True)
+        structlog.get_logger().warning("ss_probe_failed", port=port, exc_info=True)
 
     return []
 
