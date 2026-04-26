@@ -187,6 +187,64 @@ _MODE_DEFAULTS: dict[str, PolicyDecision] = {
 }
 
 
+def _resolve_path_ws(
+    rule: _Rule,
+    *,
+    workspace_path: str,
+    file_name: str | None,
+    path: str | None,
+    possible_paths: list[str] | None,
+    **_kw: object,
+) -> PolicyDecision:
+    target = file_name or path
+    if target and _is_path_within_workspace(target, workspace_path):
+        return _APPROVE
+    if possible_paths and all(_is_path_within_workspace(p, workspace_path) for p in possible_paths):
+        return _APPROVE
+    return rule.fallback
+
+
+def _resolve_shell_ro(
+    rule: _Rule,
+    *,
+    full_command_text: str | None,
+    **_kw: object,
+) -> PolicyDecision:
+    cmd = full_command_text or ""
+    return _APPROVE if _READONLY_SHELL_RE.match(cmd) else rule.fallback
+
+
+def _resolve_mcp_ro(
+    rule: _Rule,
+    *,
+    read_only: bool | None,
+    **_kw: object,
+) -> PolicyDecision:
+    return _APPROVE if read_only else rule.fallback
+
+
+def _resolve_read_ws(
+    rule: _Rule,
+    *,
+    workspace_path: str,
+    file_name: str | None,
+    path: str | None,
+    **_kw: object,
+) -> PolicyDecision:
+    target = file_name or path
+    if target is None or _is_path_within_workspace(target, workspace_path):
+        return _APPROVE
+    return _DENY
+
+
+_SENTINEL_RESOLVERS = {
+    _PATH_WS: _resolve_path_ws,
+    _SHELL_RO: _resolve_shell_ro,
+    _MCP_RO: _resolve_mcp_ro,
+    _READ_WS: _resolve_read_ws,
+}
+
+
 def _resolve(
     rule: _Rule,
     *,
@@ -203,26 +261,17 @@ def _resolve(
     if isinstance(decision, PolicyDecision):
         return decision
 
-    if decision == _PATH_WS:
-        target = file_name or path
-        if target and _is_path_within_workspace(target, workspace_path):
-            return _APPROVE
-        if possible_paths and all(_is_path_within_workspace(p, workspace_path) for p in possible_paths):
-            return _APPROVE
-        return rule.fallback
-
-    if decision == _SHELL_RO:
-        cmd = full_command_text or ""
-        return _APPROVE if _READONLY_SHELL_RE.match(cmd) else rule.fallback
-
-    if decision == _MCP_RO:
-        return _APPROVE if read_only else rule.fallback
-
-    if decision == _READ_WS:
-        target = file_name or path
-        if target is None or _is_path_within_workspace(target, workspace_path):
-            return _APPROVE
-        return _DENY
+    resolver = _SENTINEL_RESOLVERS.get(decision)
+    if resolver is not None:
+        return resolver(
+            rule,
+            workspace_path=workspace_path,
+            file_name=file_name,
+            path=path,
+            possible_paths=possible_paths,
+            full_command_text=full_command_text,
+            read_only=read_only,
+        )
 
     return rule.fallback  # pragma: no cover
 

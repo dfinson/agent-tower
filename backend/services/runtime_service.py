@@ -359,27 +359,21 @@ class RuntimeService:
             log.warning("job_rejected_shutting_down", job_id=job.id)
             return
         async with self._dequeue_lock:
-            if self.running_count >= self.max_concurrent:
-                if job.state == JobState.queued:
-                    if override_prompt is not None:
-                        self._queued_override_prompts[job.id] = override_prompt
-                    if resume_sdk_session_id is not None:
-                        self._queued_resume_session_ids[job.id] = resume_sdk_session_id
-                else:
-                    self._pending_starts[job.id] = (override_prompt, resume_sdk_session_id)
-                    log.info("job_waiting_for_capacity", job_id=job.id, state=job.state, running=self.running_count)
-                    return
-                # Job is already queued from create_job; only transition if needed
-                if job.state != JobState.queued:
-                    async with self._session_factory() as session:
-                        svc = self._make_job_service(session)
-                        await svc.transition_state(job.id, JobState.queued)
-                        await session.commit()
-                    await self._publish_state_event(job.id, None, JobState.queued)
-                log.info("job_enqueued", job_id=job.id, running=self.running_count)
+            if self.running_count < self.max_concurrent:
+                await self._start_job(job, override_prompt=override_prompt, resume_sdk_session_id=resume_sdk_session_id)
                 return
 
-            await self._start_job(job, override_prompt=override_prompt, resume_sdk_session_id=resume_sdk_session_id)
+            # At capacity — queue the job
+            if job.state != JobState.queued:
+                self._pending_starts[job.id] = (override_prompt, resume_sdk_session_id)
+                log.info("job_waiting_for_capacity", job_id=job.id, state=job.state, running=self.running_count)
+                return
+
+            if override_prompt is not None:
+                self._queued_override_prompts[job.id] = override_prompt
+            if resume_sdk_session_id is not None:
+                self._queued_resume_session_ids[job.id] = resume_sdk_session_id
+            log.info("job_enqueued", job_id=job.id, running=self.running_count)
 
     async def _ensure_resumable_worktree(self, job_repo: JobRepository, job: Job) -> Job:
         """Ensure a job has a usable worktree before resuming or recovering it."""
