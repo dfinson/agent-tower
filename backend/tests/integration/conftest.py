@@ -182,6 +182,7 @@ async def app(
         artifacts,
         events,
         health,
+        job_telemetry,
         jobs,
         settings,
         terminal,
@@ -196,6 +197,7 @@ async def app(
     # -- routers (same order as create_app) --------------------------------
     application.include_router(health.router, prefix="/api")
     application.include_router(jobs.router, prefix="/api")
+    application.include_router(job_telemetry.router, prefix="/api")
     application.include_router(events.router, prefix="/api")
     application.include_router(approvals.router, prefix="/api")
     application.include_router(artifacts.router, prefix="/api")
