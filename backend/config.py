@@ -159,6 +159,43 @@ class VerificationConfig:
     self_review_prompt: str = ""
 
 
+DEFAULT_VERIFY_PROMPT = (
+    "You are now running a post-task verification pass. "
+    "Start with a single short sentence announcing this — e.g. 'Running lint and tests.' "
+    "Then check whether any source files or documentation were modified during this "
+    "task (e.g. `git diff --stat HEAD` or compare against the base ref). "
+    "If no files were modified, state that there is nothing to verify and stop. "
+    "Only if files were changed: identify and run this project's test suite, "
+    "linter, and type checker. Stop as soon as everything passes — you do not "
+    "need to exhaust the maximum number of allowed turns. If something fails, "
+    "fix it and re-run. Assume failures are caused by your changes; do not "
+    "dismiss them as pre-existing or flaky. Also check that you haven't made "
+    "unrelated changes outside the scope of the original task; revert any that "
+    "you find. "
+    "Your final message must be a single cohesive summary covering: first, what "
+    "was built or changed and why (the main task); then, the verification outcome "
+    "as one appended sentence (e.g. 'All checks pass.' or 'Fixed a failing test "
+    "in foo.py.'). The checks are a footnote — the task summary is the headline."
+)
+
+DEFAULT_SELF_REVIEW_PROMPT = (
+    "You are now running a post-task self-review pass. "
+    "Start with a single short sentence announcing this — e.g. 'Reviewing my changes.' "
+    "Then check whether any source files or documentation were modified during this "
+    "task (e.g. `git diff --stat HEAD` or compare against the base ref). "
+    "If no files were modified, state that there is nothing to review and stop. "
+    "Only if files were changed: look at the full diff and check for missed edge "
+    "cases, incomplete implementations, leftover debug code, broken imports, dead "
+    "code, backwards-compatibility shims or fallback paths that may no longer be "
+    "needed, and inconsistencies with the surrounding codebase. If you find "
+    "issues, fix them. "
+    "Your final message must be a single cohesive summary covering: first, what "
+    "was built or changed and why (the main task); then, the review outcome as one "
+    "appended sentence (e.g. 'Self-review clean.' or 'Removed a leftover debug "
+    "print.'). The review is a footnote — the task summary is the headline."
+)
+
+
 @dataclass
 class TerminalConfig:
     """Interactive terminal feature configuration."""

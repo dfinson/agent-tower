@@ -11,9 +11,9 @@ import pytest
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.summarization_service import (
     SummarizationService,
-    _build_resume_prompt,
+    build_resume_prompt,
     _clean_transcript,
-    _extract_changed_files,
+    extract_changed_files,
     _extract_json,
     _format_transcript,
 )
@@ -218,7 +218,7 @@ class TestExtractChangedFiles:
         events = [
             _diff_event([{"path": "src/a.py"}, {"path": "src/b.py"}]),
         ]
-        result = _extract_changed_files(events)
+        result = extract_changed_files(events)
         assert result == ["src/a.py", "src/b.py"]
 
     def test_deduplicates_paths(self) -> None:
@@ -226,30 +226,30 @@ class TestExtractChangedFiles:
             _diff_event([{"path": "src/a.py"}]),
             _diff_event([{"path": "src/a.py"}]),
         ]
-        result = _extract_changed_files(events)
+        result = extract_changed_files(events)
         assert result == ["src/a.py"]
 
     def test_uses_new_path_fallback(self) -> None:
         events = [_diff_event([{"new_path": "renamed.py"}])]
-        result = _extract_changed_files(events)
+        result = extract_changed_files(events)
         assert result == ["renamed.py"]
 
     def test_skips_empty_paths(self) -> None:
         events = [_diff_event([{"path": ""}, {"path": "valid.py"}])]
-        result = _extract_changed_files(events)
+        result = extract_changed_files(events)
         assert result == ["valid.py"]
 
     def test_skips_missing_path_keys(self) -> None:
         events = [_diff_event([{"something_else": "x"}])]
-        result = _extract_changed_files(events)
+        result = extract_changed_files(events)
         assert result == []
 
     def test_empty_events(self) -> None:
-        assert _extract_changed_files([]) == []
+        assert extract_changed_files([]) == []
 
     def test_sorted_output(self) -> None:
         events = [_diff_event([{"path": "z.py"}, {"path": "a.py"}, {"path": "m.py"}])]
-        result = _extract_changed_files(events)
+        result = extract_changed_files(events)
         assert result == ["a.py", "m.py", "z.py"]
 
 
@@ -345,7 +345,7 @@ class TestBuildResumePrompt:
     """Resume prompt construction for session N+1."""
 
     def test_includes_all_sections(self) -> None:
-        result = _build_resume_prompt(
+        result = build_resume_prompt(
             summary_text="Summary here",
             changed_files=["src/a.py", "src/b.py"],
             instruction="Continue the work",
@@ -363,7 +363,7 @@ class TestBuildResumePrompt:
         assert "Continue the work" in result
 
     def test_no_summary_uses_fallback(self) -> None:
-        result = _build_resume_prompt(
+        result = build_resume_prompt(
             summary_text=None,
             changed_files=[],
             instruction="do stuff",
@@ -374,7 +374,7 @@ class TestBuildResumePrompt:
         assert "no summary available" in result
 
     def test_no_changed_files_shows_none(self) -> None:
-        result = _build_resume_prompt(
+        result = build_resume_prompt(
             summary_text="summary",
             changed_files=[],
             instruction="do stuff",
@@ -385,7 +385,7 @@ class TestBuildResumePrompt:
         assert "no file changes recorded" in result
 
     def test_includes_instructions_footer(self) -> None:
-        result = _build_resume_prompt(
+        result = build_resume_prompt(
             summary_text="s",
             changed_files=[],
             instruction="inst",

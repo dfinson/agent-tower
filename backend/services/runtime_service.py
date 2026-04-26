@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, cast
 
 import structlog
 
-from backend.config import build_session_config
+from backend.config import build_session_config, DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
 from backend.models.domain import (
     TERMINAL_STATES,
     CodePlaneError,
@@ -147,43 +147,6 @@ _DEFAULT_RESUME_INSTRUCTION = "Continue the current task from where you left off
 
 # Heartbeat configuration
 _HEARTBEAT_INTERVAL_S = 30
-
-# Default prompts for post-completion verification and self-review turns
-DEFAULT_VERIFY_PROMPT = (
-    "You are now running a post-task verification pass. "
-    "Start with a single short sentence announcing this — e.g. 'Running lint and tests.' "
-    "Then check whether any source files or documentation were modified during this "
-    "task (e.g. `git diff --stat HEAD` or compare against the base ref). "
-    "If no files were modified, state that there is nothing to verify and stop. "
-    "Only if files were changed: identify and run this project's test suite, "
-    "linter, and type checker. Stop as soon as everything passes — you do not "
-    "need to exhaust the maximum number of allowed turns. If something fails, "
-    "fix it and re-run. Assume failures are caused by your changes; do not "
-    "dismiss them as pre-existing or flaky. Also check that you haven't made "
-    "unrelated changes outside the scope of the original task; revert any that "
-    "you find. "
-    "Your final message must be a single cohesive summary covering: first, what "
-    "was built or changed and why (the main task); then, the verification outcome "
-    "as one appended sentence (e.g. 'All checks pass.' or 'Fixed a failing test "
-    "in foo.py.'). The checks are a footnote — the task summary is the headline."
-)
-
-DEFAULT_SELF_REVIEW_PROMPT = (
-    "You are now running a post-task self-review pass. "
-    "Start with a single short sentence announcing this — e.g. 'Reviewing my changes.' "
-    "Then check whether any source files or documentation were modified during this "
-    "task (e.g. `git diff --stat HEAD` or compare against the base ref). "
-    "If no files were modified, state that there is nothing to review and stop. "
-    "Only if files were changed: look at the full diff and check for missed edge "
-    "cases, incomplete implementations, leftover debug code, broken imports, dead "
-    "code, backwards-compatibility shims or fallback paths that may no longer be "
-    "needed, and inconsistencies with the surrounding codebase. If you find "
-    "issues, fix them. "
-    "Your final message must be a single cohesive summary covering: first, what "
-    "was built or changed and why (the main task); then, the review outcome as one "
-    "appended sentence (e.g. 'Self-review clean.' or 'Removed a leftover debug "
-    "print.'). The review is a footnote — the task summary is the headline."
-)
 
 
 def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
@@ -2099,7 +2062,7 @@ class RuntimeService:
         from backend.persistence.artifact_repo import ArtifactRepository
         from backend.persistence.event_repo import EventRepository
         from backend.services.artifact_service import ArtifactService
-        from backend.services.summarization_service import _extract_changed_files
+        from backend.services.summarization_service import extract_changed_files
 
         artifact_repo = ArtifactRepository(session)
         artifact_svc = ArtifactService(artifact_repo)
@@ -2107,7 +2070,7 @@ class RuntimeService:
 
         event_repo = EventRepository(session)
         diff_events = await event_repo.list_by_job(job.id, kinds=[DomainEventKind.diff_updated])
-        changed_files = _extract_changed_files(diff_events)
+        changed_files = extract_changed_files(diff_events)
 
         if summary_artifact is None and self._summarization_service is not None:
             log_artifact = await artifact_svc.get_session_log(job.id)
@@ -2190,10 +2153,10 @@ class RuntimeService:
         instruction: str,
         session_number: int,
     ) -> str:
-        from backend.services.summarization_service import _build_resume_prompt
+        from backend.services.summarization_service import build_resume_prompt
 
         summary_text, changed_files = await self._load_handoff_context_for_job(session, job)
-        return _build_resume_prompt(summary_text, changed_files, instruction, session_number, job.id, job.prompt)
+        return build_resume_prompt(summary_text, changed_files, instruction, session_number, job.id, job.prompt)
 
     async def _build_followup_handoff_prompt_for_job(
         self,
@@ -2201,10 +2164,10 @@ class RuntimeService:
         job: Job,
         instruction: str,
     ) -> str:
-        from backend.services.summarization_service import _build_followup_prompt
+        from backend.services.summarization_service import build_followup_prompt
 
         summary_text, changed_files = await self._load_handoff_context_for_job(session, job)
-        return _build_followup_prompt(summary_text, changed_files, instruction, job.id, job.prompt)
+        return build_followup_prompt(summary_text, changed_files, instruction, job.id, job.prompt)
 
     async def _build_resume_handoff_prompt(self, job_id: str, instruction: str) -> str:
         """Build the opaque handoff prompt used when native resume is unavailable."""

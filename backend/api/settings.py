@@ -36,7 +36,7 @@ from backend.models.api_schemas import (
 )
 from backend.services.git_service import GitError, GitService
 from backend.services.platform_adapter import PlatformRegistry, detect_platform
-from backend.services.runtime_service import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
+from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
 
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
 

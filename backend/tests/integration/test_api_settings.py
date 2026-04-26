@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from backend.api.settings import _get_config
 from backend.config import CPLConfig
 from backend.services.git_service import GitError
-from backend.services.runtime_service import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
+from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
 
 if TYPE_CHECKING:
     from pathlib import Path
