@@ -104,6 +104,13 @@ class CodePlaneError(Exception):
     """Base exception for all CodePlane domain errors."""
 
 
+class AgentSDK(StrEnum):
+    """Supported agent SDK backends."""
+
+    copilot = "copilot"
+    claude = "claude"
+
+
 class InvalidStateTransitionError(CodePlaneError):
     """Raised when a job state transition is not allowed."""
 

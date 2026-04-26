@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
+
+log = structlog.get_logger()
 from fastapi import APIRouter, Query, Request
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -50,7 +52,7 @@ async def stream_events(
                         numeric_id,
                     )
                 except (ValueError, TypeError):
-                    structlog.get_logger().warning(
+                    log.warning(
                         "sse_replay_invalid_last_event_id",
                         last_event_id=header_last_id,
                         exc_info=True,
@@ -70,7 +72,7 @@ async def stream_events(
                     # don't prevent idle stream timeouts.
                     yield "event: session_heartbeat\ndata: {}\n\n"
                 except (asyncio.CancelledError, GeneratorExit):
-                    structlog.get_logger(__name__).debug(
+                    log.debug(
                         "sse_client_disconnected",
                         job_id=job_id,
                     )

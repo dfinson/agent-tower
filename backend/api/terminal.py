@@ -69,7 +69,7 @@ async def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSes
             prompt_label=req.prompt_label,
         )
     except (RuntimeError, ValueError) as exc:
-        structlog.get_logger().warning("terminal_create_failed", exc_info=exc)
+        log.warning("terminal_create_failed", exc_info=exc)
         raise HTTPException(status_code=400, detail="Failed to create terminal session") from exc
     return CreateTerminalSessionResponse(
         id=session.id,

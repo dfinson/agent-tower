@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.config import CODEPLANE_DIR, DEFAULT_DB_PATH
+from backend.config import get_codeplane_dir
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -29,7 +29,7 @@ _POOL_TIMEOUT_S = 60
 
 def get_database_url(db_path: Path | None = None) -> str:
     """Build the async SQLite database URL."""
-    path = db_path or DEFAULT_DB_PATH
+    path = db_path or (get_codeplane_dir() / "data.db")
     return f"sqlite+aiosqlite:///{path}"
 
 
@@ -72,7 +72,7 @@ async def get_session(
 
 def run_migrations(db_path: Path | None = None) -> None:
     """Run Alembic migrations programmatically at startup."""
-    CODEPLANE_DIR.mkdir(parents=True, exist_ok=True)
+    get_codeplane_dir().mkdir(parents=True, exist_ok=True)
 
     from alembic.config import Config
 
@@ -81,7 +81,7 @@ def run_migrations(db_path: Path | None = None) -> None:
     alembic_cfg = Config()
     repo_root = Path(__file__).resolve().parents[2]
     alembic_cfg.set_main_option("script_location", str(repo_root / "alembic"))
-    db_url = f"sqlite:///{db_path or DEFAULT_DB_PATH}"
+    db_url = f"sqlite:///{db_path or (get_codeplane_dir() / 'data.db')}"
     alembic_cfg.set_main_option("sqlalchemy.url", db_url)
     try:
         command.upgrade(alembic_cfg, "head")
@@ -97,7 +97,7 @@ def run_migrations(db_path: Path | None = None) -> None:
                 error=str(exc),
                 action="stamping to head",
             )
-            conn = sqlite3.connect(str(db_path or DEFAULT_DB_PATH))
+            conn = sqlite3.connect(str(db_path or (get_codeplane_dir() / "data.db")))
             try:
                 from alembic.script import ScriptDirectory
 

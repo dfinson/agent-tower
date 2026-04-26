@@ -629,7 +629,6 @@ class RuntimeService:
                 if current and current.state not in TERMINAL_STATES:
                     await svc.transition_state(job_id, JobState.canceled)
                     await session.commit()
-                    self._set_progress_terminal_state(job_id, JobState.canceled)
         except (Exception, asyncio.CancelledError):
             log.error("safety_net_cancel_failed", job_id=job_id, exc_info=True)
 
@@ -828,7 +827,6 @@ class RuntimeService:
             await job_repo.update_resolution(job_id, Resolution.unresolved)
             await session.commit()
 
-        self._set_progress_terminal_state(job_id, JobState.review)
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
@@ -939,7 +937,6 @@ class RuntimeService:
             DomainEventKind.job_completed if final_state == JobState.completed else DomainEventKind.job_review
         )
 
-        self._set_progress_terminal_state(job_id, final_state)
         await self._set_step_terminal_state(job_id, final_state)
         await self._event_bus.publish(
             DomainEvent(
@@ -1163,10 +1160,6 @@ class RuntimeService:
 
         task.add_done_callback(_cleanup_snapshot_task)
 
-    def _set_progress_terminal_state(self, job_id: str, outcome: str) -> None:
-        """No-op — terminal state handled via finalize() from event subscriber."""
-        pass
-
     async def _set_step_terminal_state(self, job_id: str, outcome: str) -> None:
         """Forward terminal outcome to the step tracker."""
         if self._step_tracker is not None:
@@ -1241,7 +1234,6 @@ class RuntimeService:
                         failure_reason="Job cleanup: forced to failed (previous state transitions failed)",
                     )
                     await session.commit()
-                    self._set_progress_terminal_state(job_id, JobState.failed)
                     await self._set_step_terminal_state(job_id, JobState.failed)
                     await self._event_bus.publish(
                         DomainEvent(
@@ -1376,7 +1368,6 @@ class RuntimeService:
                 if current and current.state not in TERMINAL_STATES:
                     await svc.transition_state(job_id, JobState.canceled)
                     await session.commit()
-                    self._set_progress_terminal_state(job_id, JobState.canceled)
                     await self._set_step_terminal_state(job_id, JobState.canceled)
                     await self._event_bus.publish(
                         DomainEvent(
@@ -2078,7 +2069,6 @@ class RuntimeService:
 
         try:
             await asyncio.shield(_do_fail())
-            self._set_progress_terminal_state(job_id, JobState.failed)
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),

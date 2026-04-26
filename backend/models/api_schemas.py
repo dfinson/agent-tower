@@ -146,7 +146,7 @@ class CreateJobRequest(CamelModel):
     def _validate_sdk(cls, values: Any) -> Any:
         sdk = values.get("sdk")
         if sdk is not None:
-            from backend.services.agent_adapter import AgentSDK
+            from backend.models.domain import AgentSDK
 
             try:
                 AgentSDK(sdk)

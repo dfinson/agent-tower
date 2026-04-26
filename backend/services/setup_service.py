@@ -14,7 +14,7 @@ from typing import Any
 import questionary
 from rich.panel import Panel
 
-from backend.config import DEFAULT_CONFIG_PATH, init_config, load_config, save_config
+from backend.config import get_codeplane_dir, init_config, load_config, save_config
 
 # Re-export everything that external callers import from this module.
 from backend.services.setup_checks import (  # noqa: F401
@@ -24,13 +24,7 @@ from backend.services.setup_checks import (  # noqa: F401
     CheckResult,
     CheckStatus,
     Dependency,
-    _build_agent_check_result,
-    _check_agent_auth,
-    _check_command,
-    _check_port,
-    _check_server_running,
     _console,
-    _find_cpl_processes,
     _render_check_line,
     _SYSTEM,
     check_agent_cli,
@@ -39,7 +33,6 @@ from backend.services.setup_checks import (  # noqa: F401
     verify_requirements,
 )
 from backend.services.setup_wizard import (  # noqa: F401
-    _get_env_persistence_instructions,
     execute_setup_wizard,
 )
 
@@ -233,10 +226,11 @@ def validate_preflight(port: int) -> bool:
     warnings = [r for r in results if r.status == CheckStatus.warn]
 
     # Auto-create config on first run
-    if not DEFAULT_CONFIG_PATH.exists():
+    config_path = get_codeplane_dir() / "config.yaml"
+    if not config_path.exists():
         init_config()
         _console.print()
-        _console.print("  [dim]Created default config at[/dim]", str(DEFAULT_CONFIG_PATH))
+        _console.print("  [dim]Created default config at[/dim]", str(config_path))
 
     if has_fail:
         _console.print()

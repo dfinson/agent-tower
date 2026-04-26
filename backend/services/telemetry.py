@@ -38,8 +38,8 @@ except ImportError:  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 if _HAS_OTEL:
-    _memory_reader = InMemoryMetricReader()
-    _span_exporter = InMemorySpanExporter()
+    _memory_reader: InMemoryMetricReader | None = None  # type: ignore[type-arg]
+    _span_exporter: InMemorySpanExporter | None = None  # type: ignore[type-arg]
 else:  # pragma: no cover
     _memory_reader = None  # type: ignore[assignment]
     _span_exporter = None  # type: ignore[assignment]
@@ -56,7 +56,7 @@ def init_telemetry() -> None:
     Must be called during application startup (e.g. from lifespan) before
     any telemetry instruments are used.
     """
-    global _initialised, meter_provider, tracer_provider  # noqa: PLW0603
+    global _initialised, meter_provider, tracer_provider, _memory_reader, _span_exporter  # noqa: PLW0603
 
     if _initialised:
         return
@@ -65,6 +65,8 @@ def init_telemetry() -> None:
         _initialised = True
         return
 
+    _memory_reader = InMemoryMetricReader()
+    _span_exporter = InMemorySpanExporter()
     metric_readers: list[MetricReader] = [_memory_reader]
     otlp_span_processor = None
 

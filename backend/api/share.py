@@ -118,7 +118,7 @@ async def stream_shared_events(
                     numeric_id = int(header_last_id)
                     await sse_manager.replay_from_factory(conn, session_factory, numeric_id)
                 except (ValueError, TypeError):
-                    structlog.get_logger().debug("sse_last_id_parse_failed", header_last_id=header_last_id)
+                    log.debug("sse_last_id_parse_failed", header_last_id=header_last_id)
 
             yield "event: session_heartbeat\ndata: {}\n\n"
 

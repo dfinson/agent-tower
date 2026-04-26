@@ -21,6 +21,8 @@ from typing import Any
 
 import structlog
 
+from backend.models.domain import CodePlaneError
+
 log = structlog.get_logger()
 
 
@@ -30,7 +32,7 @@ class RemoteProvider(StrEnum):
     cloudflare = "cloudflare"
 
 
-class TunnelStartError(RuntimeError):
+class TunnelStartError(CodePlaneError):
     """Raised when a remote access provider cannot be started."""
 
 

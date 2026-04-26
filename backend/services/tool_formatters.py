@@ -635,25 +635,20 @@ def _extract_description_from_args(tool_args: str | None, max_len: int = 60) -> 
     return None
 
 
-def format_tool_display(
+def _format_tool_display_impl(
     tool_name: str,
     tool_args: str | None,
-    tool_result: str | None = None,
-    tool_success: bool = True,
+    tool_result: str | None,
+    tool_success: bool,
+    formatters: dict,
+    desc_max_len: int | None = None,
 ) -> str:
-    """Return a short, deterministic, human-readable label for a tool call.
-
-    When *tool_result* is provided (i.e. after execution), a result hint
-    is appended (e.g. ``Grep: "foo" → 12 matches``).
-    Falls back to the raw tool name if no formatter is registered.
-    """
-    # Strip MCP server prefix for lookup (e.g. "github/search_code" → "search_code")
+    """Shared implementation for format_tool_display and format_tool_display_full."""
     lookup_name = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
-    formatter = _FORMATTERS.get(lookup_name)
+    formatter = formatters.get(lookup_name)
     if formatter is None:
-        # Try extracting a description from common arg fields before falling
-        # back to the raw (humanized) tool name.
-        desc = _extract_description_from_args(tool_args)
+        extract_kw = {"max_len": desc_max_len} if desc_max_len is not None else {}
+        desc = _extract_description_from_args(tool_args, **extract_kw)
         humanized = _humanize_tool_name(lookup_name)
         label = (f"{humanized}: {desc}" if humanized != "Tool action" else desc) if desc else humanized
     else:
@@ -663,7 +658,6 @@ def format_tool_display(
         except Exception:
             label = tool_name
 
-    # Append result hint when result is available
     if tool_result is not None:
         hint_args_fn = _RESULT_HINTS_WITH_ARGS.get(lookup_name)
         if hint_args_fn is not None:
@@ -676,6 +670,23 @@ def format_tool_display(
                     label = f"{label} {hint_fn(tool_result, tool_success)}"
 
     return label
+
+
+def format_tool_display(
+    tool_name: str,
+    tool_args: str | None,
+    tool_result: str | None = None,
+    tool_success: bool = True,
+) -> str:
+    """Return a short, deterministic, human-readable label for a tool call.
+
+    When *tool_result* is provided (i.e. after execution), a result hint
+    is appended (e.g. ``Grep: "foo" → 12 matches``).
+    Falls back to the raw tool name if no formatter is registered.
+    """
+    return _format_tool_display_impl(
+        tool_name, tool_args, tool_result, tool_success, _FORMATTERS,
+    )
 
 
 def format_tool_display_full(
@@ -690,31 +701,10 @@ def format_tool_display_full(
     not capped at a fixed character count, so the frontend can apply CSS-based
     responsive truncation that adapts to the available viewport width.
     """
-    lookup_name = tool_name.rsplit("/", 1)[-1] if "/" in tool_name else tool_name
-    formatter = _FORMATTERS_FULL.get(lookup_name)
-    if formatter is None:
-        desc = _extract_description_from_args(tool_args, max_len=200)
-        humanized = _humanize_tool_name(lookup_name)
-        label = (f"{humanized}: {desc}" if humanized != "Tool action" else desc) if desc else humanized
-    else:
-        args = _parse_args(tool_args)
-        try:
-            label = formatter(args)
-        except Exception:
-            label = tool_name
-
-    if tool_result is not None:
-        hint_args_fn = _RESULT_HINTS_WITH_ARGS.get(lookup_name)
-        if hint_args_fn is not None:
-            with contextlib.suppress(Exception):
-                label = f"{label} {hint_args_fn(tool_result, tool_success, tool_args)}"
-        else:
-            hint_fn = _RESULT_HINTS.get(lookup_name)
-            if hint_fn is not None:
-                with contextlib.suppress(Exception):
-                    label = f"{label} {hint_fn(tool_result, tool_success)}"
-
-    return label
+    return _format_tool_display_impl(
+        tool_name, tool_args, tool_result, tool_success, _FORMATTERS_FULL,
+        desc_max_len=200,
+    )
 
 
 # ---------------------------------------------------------------------------

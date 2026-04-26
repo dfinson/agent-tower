@@ -1258,7 +1258,7 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
       await resolveApproval(approval.id, resolution);
     } catch (err) {
       toast.error("Failed to resolve approval");
-      console.error(err);
+      console.error("Failed to resolve approval:", err);
     } finally {
       setResolving(null);
     }
@@ -1572,7 +1572,7 @@ export function CuratedFeed({
             ? err.message
             : "Unknown error";
       toast.error(`Failed to send: ${detail}`);
-      console.error(err);
+      console.error("Failed to send message:", err);
     } finally {
       setSending(false);
     }
@@ -1586,7 +1586,7 @@ export function CuratedFeed({
       toast.info("Agent paused");
     } catch (err) {
       toast.error("Failed to pause");
-      console.error(err);
+      console.error("Failed to pause job:", err);
     } finally {
       setPausing(false);
     }
