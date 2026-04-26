@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from backend.api.settings import _get_config
 from backend.config import CPLConfig
 from backend.services.git_service import GitError
 from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
@@ -47,7 +46,6 @@ class TestGetSettings:
 
     @pytest.mark.asyncio
     async def test_returns_all_expected_fields(self, client: AsyncClient, app: FastAPI) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.get("/api/settings")
         assert resp.status_code == 200
@@ -71,7 +69,6 @@ class TestGetSettings:
 
     @pytest.mark.asyncio
     async def test_default_values_have_correct_types(self, client: AsyncClient, app: FastAPI) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.get("/api/settings")
         data = resp.json()
@@ -84,7 +81,6 @@ class TestGetSettings:
 
     @pytest.mark.asyncio
     async def test_returns_effective_default_verification_prompts(self, client: AsyncClient, app: FastAPI) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.get("/api/settings")
         assert resp.status_code == 200
@@ -155,7 +151,6 @@ class TestListRepos:
 
     @pytest.mark.asyncio
     async def test_returns_registered_repos(self, client: AsyncClient, app: FastAPI) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.get("/api/settings/repos")
         assert resp.status_code == 200
@@ -167,7 +162,6 @@ class TestGetRepoDetail:
 
     @pytest.mark.asyncio
     async def test_registered_repo(self, client: AsyncClient, app: FastAPI) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.get("/api/settings/repos//test/repo")
         assert resp.status_code == 200
@@ -180,7 +174,6 @@ class TestGetRepoDetail:
 
     @pytest.mark.asyncio
     async def test_unregistered_repo_returns_404(self, client: AsyncClient, app: FastAPI) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.get("/api/settings/repos//not/registered")
         assert resp.status_code == 404
@@ -189,7 +182,6 @@ class TestGetRepoDetail:
     async def test_detached_head_returns_head_string(
         self, client: AsyncClient, app: FastAPI, mock_git_service: AsyncMock
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         mock_git_service.get_current_branch.return_value = "HEAD"
 
         resp = await client.get("/api/settings/repos//test/repo")
@@ -201,7 +193,6 @@ class TestGetRepoDetail:
     async def test_current_branch_git_error_returns_none(
         self, client: AsyncClient, app: FastAPI, mock_git_service: AsyncMock
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         mock_git_service.get_current_branch.side_effect = GitError("detached HEAD")
 
         resp = await client.get("/api/settings/repos//test/repo")
@@ -217,7 +208,6 @@ class TestRegisterRepo:
     async def test_register_local_repo(
         self, client: AsyncClient, app: FastAPI, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         monkeypatch.setattr(
             "backend.api.settings.register_repo",
             lambda config, repo_path, config_path=None: repo_path,
@@ -231,7 +221,6 @@ class TestRegisterRepo:
 
     @pytest.mark.asyncio
     async def test_remote_url_without_clone_to_returns_400(self, client: AsyncClient, app: FastAPI) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.post(
             "/api/settings/repos",
@@ -248,7 +237,6 @@ class TestRegisterRepo:
         mock_git_service: AsyncMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         monkeypatch.setattr(
             "backend.api.settings.register_repo",
             lambda config, repo_path, config_path=None: repo_path,
@@ -271,7 +259,6 @@ class TestCreateRepo:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         monkeypatch.setattr(
             "backend.api.settings.register_repo",
             lambda config, repo_path, config_path=None: repo_path,
@@ -297,7 +284,6 @@ class TestCreateRepo:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         monkeypatch.setattr(
             "backend.api.settings.register_repo",
             lambda config, repo_path, config_path=None: repo_path,
@@ -320,7 +306,6 @@ class TestCreateRepo:
         app: FastAPI,
         tmp_path: Path,
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         (tmp_path / ".git").mkdir()
 
         resp = await client.post(
@@ -337,7 +322,6 @@ class TestCreateRepo:
         mock_git_service: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         mock_git_service.init_repo.side_effect = GitError("init failed")
 
         resp = await client.post(
@@ -355,7 +339,6 @@ class TestUnregisterRepo:
     async def test_unregister_succeeds(
         self, client: AsyncClient, app: FastAPI, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
         monkeypatch.setattr(
             "backend.api.settings.unregister_repo",
             lambda config, repo_path, config_path=None: repo_path,
@@ -368,7 +351,6 @@ class TestUnregisterRepo:
     async def test_unregister_nonexistent_returns_404(
         self, client: AsyncClient, app: FastAPI, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         def _raise(config: CPLConfig, repo_path: str, config_path: Path | None = None) -> str:
             raise ValueError(f"Repository '{repo_path}' is not in the allowlist.")
@@ -389,7 +371,6 @@ class TestCleanupWorktrees:
 
     @pytest.mark.asyncio
     async def test_returns_removed_count(self, client: AsyncClient, app: FastAPI) -> None:
-        app.dependency_overrides[_get_config] = _test_config
 
         resp = await client.post("/api/settings/cleanup-worktrees")
         assert resp.status_code == 200
