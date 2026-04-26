@@ -191,7 +191,8 @@ class JobService:
         )
         exclude_names = existing_worktrees | existing_job_ids
 
-        assert self._naming is not None  # noqa: S101 — caller guarantees
+        if self._naming is None:
+            raise RuntimeError("NamingService must be set before generating job metadata")
         title, description, generated_branch, worktree_name = await self._naming.generate(
             spec.prompt,
             existing_branches=existing_branches,
@@ -295,7 +296,8 @@ class JobService:
         """
         resolved_repo = self.validate_repo(spec.repo)
 
-        assert self._git is not None, "GitService required for job creation"
+        if self._git is None:
+            raise RuntimeError("GitService required for job creation")
 
         resolved_sdk = spec.sdk or self._config.runtime.default_sdk
 
@@ -409,7 +411,8 @@ class JobService:
         from backend.models.events import DomainEvent, DomainEventKind
         from backend.services.git_service import GitError
 
-        assert self._git is not None, "GitService required for workspace setup"
+        if self._git is None:
+            raise RuntimeError("GitService required for workspace setup")
 
         job = await self._job_repo.get(job_id)
         if job is None:
@@ -446,7 +449,8 @@ class JobService:
             log.error("job_worktree_failed", job_id=job_id, error=str(exc))
             await _emit_progress("failed")
             job = await self._job_repo.get(job_id)
-            assert job is not None
+            if job is None:
+                raise RuntimeError(f"Job {job_id} disappeared after state update")
             return job
 
         # Update the job with worktree info and transition to queued
@@ -459,7 +463,8 @@ class JobService:
         log.info("job_workspace_ready", job_id=job_id, worktree_path=worktree_path, branch=branch_name)
 
         job = await self._job_repo.get(job_id)
-        assert job is not None
+        if job is None:
+            raise RuntimeError(f"Job {job_id} disappeared after state update")
         return job
 
     async def get_job(self, job_id: str) -> Job:
@@ -619,6 +624,47 @@ class JobService:
             await self.transition_state(job.id, JobState.completed)
 
         return resolution, result.pr_url, result.conflict_files, result.error
+
+    async def resolve_and_complete(
+        self,
+        job: Job,
+        action: str,
+        merge_service: MergeService,
+    ) -> tuple[str, str | None, list[str] | None, str | None, list[DomainEvent]]:
+        """Full resolve protocol: execute merge, persist result, build events.
+
+        Returns (resolution, pr_url, conflict_files, error, events_to_publish).
+        The caller should commit the session and then publish the events.
+        """
+        from backend.models.events import DomainEvent, DomainEventKind
+
+        resolution, pr_url, conflict_files, error = await self.execute_resolve(
+            job=job, action=action, merge_service=merge_service,
+        )
+
+        events: list[DomainEvent] = [
+            self.build_job_resolved_event(
+                job.id, resolution, pr_url=pr_url,
+                conflict_files=conflict_files, error=error,
+            )
+        ]
+
+        if resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
+            events.append(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job.id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.job_completed,
+                    payload={
+                        "resolution": resolution,
+                        "merge_status": resolution,
+                        "pr_url": pr_url,
+                    },
+                )
+            )
+
+        return resolution, pr_url, conflict_files, error, events
 
     def build_job_resolved_event(
         self,

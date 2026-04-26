@@ -600,28 +600,7 @@ class RuntimeService:
             if self._shutting_down:
                 log.info("shutdown_task_cancelled", job_id=job_id)
             else:
-                log.info("job_canceled_safety_net", job_id=job_id)
-                # Clear pending task-level cancellation so the DB operations
-                # below are not immediately re-interrupted.  This handles the
-                # case where anyio's cancel-scope teardown (during SDK client
-                # disconnect) flagged this task for cancellation.
-                _cur = asyncio.current_task()
-                if _cur is not None:
-                    _cur.uncancel()
-                # Safety net: _handle_job_canceled inside _run_job may have
-                # been interrupted by a second CancelledError during abort().
-                # Attempt the DB transition here so the job doesn't stay stuck
-                # in 'running'.
-                try:
-                    async with self._session_factory() as session:
-                        svc = self._make_job_service(session)
-                        current = await svc.get_job(job_id)
-                        if current and current.state not in TERMINAL_STATES:
-                            await svc.transition_state(job_id, JobState.canceled)
-                            await session.commit()
-                            self._set_progress_terminal_state(job_id, JobState.canceled)
-                except (Exception, asyncio.CancelledError):
-                    log.error("safety_net_cancel_failed", job_id=job_id, exc_info=True)
+                await self._cancel_safety_net(job_id)
         finally:
             log.debug("_run_job_guarded_finally", job_id=job_id, in_tasks=job_id in self._tasks)
             # The inner _run_job finally handles cleanup in the normal case.
@@ -632,6 +611,27 @@ class RuntimeService:
                 if heartbeat:
                     heartbeat.cancel()
                 await self._cleanup_job_state(job_id)
+
+    async def _cancel_safety_net(self, job_id: str) -> None:
+        """Last-resort cancel handler when CancelledError escapes ``_run_job``.
+
+        Clears task-level cancellation, then attempts to transition the job to
+        ``canceled`` in the DB so it doesn't stay stuck in ``running``.
+        """
+        log.info("job_canceled_safety_net", job_id=job_id)
+        _cur = asyncio.current_task()
+        if _cur is not None:
+            _cur.uncancel()
+        try:
+            async with self._session_factory() as session:
+                svc = self._make_job_service(session)
+                current = await svc.get_job(job_id)
+                if current and current.state not in TERMINAL_STATES:
+                    await svc.transition_state(job_id, JobState.canceled)
+                    await session.commit()
+                    self._set_progress_terminal_state(job_id, JobState.canceled)
+        except (Exception, asyncio.CancelledError):
+            log.error("safety_net_cancel_failed", job_id=job_id, exc_info=True)
 
     async def _run_job(
         self,
@@ -1267,7 +1267,8 @@ class RuntimeService:
         """
         import time
 
-        assert self._approval_service is not None
+        if self._approval_service is None:
+            raise RuntimeError("approval_service must be set before handling approvals")
 
         async with self._session_factory() as sess:
             svc = self._make_job_service(sess)
@@ -1497,7 +1498,8 @@ class RuntimeService:
                 error_reason = evt_error
                 break
 
-            assert domain_event is not None  # publish always provides an event
+            if domain_event is None:
+                raise RuntimeError("Event publish must always provide a domain event")
 
             if evt_error:
                 error_reason = evt_error
@@ -1650,7 +1652,8 @@ class RuntimeService:
                     error_reason = evt_error
                     break
 
-                assert domain_event is not None
+                if domain_event is None:
+                    raise RuntimeError("Event publish must always provide a domain event")
 
                 if evt_error:
                     error_reason = evt_error

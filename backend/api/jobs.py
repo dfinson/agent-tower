@@ -1416,41 +1416,15 @@ async def resolve_job(
         await runtime_service.resume_job(job_id, conflict_prompt)
         return ResolveJobResponse(resolution="agent_merge")
 
-    resolution, pr_url, conflict_files_result, error = await svc.execute_resolve(
+    resolution, pr_url, conflict_files_result, error, events = await svc.resolve_and_complete(
         job=job,
         action=body.action,
         merge_service=merge_service,
     )
     await session.commit()
 
-    # Publish job_resolved event (resolution details)
-    await event_bus.publish(
-        svc.build_job_resolved_event(
-            job.id,
-            resolution,
-            pr_url=pr_url,
-            conflict_files=conflict_files_result,
-            error=error,
-        )
-    )
-
-    # If the job transitioned to completed, publish the terminal event
-    if resolution in (Resolution.merged, Resolution.pr_created, Resolution.discarded):
-        from backend.models.events import DomainEvent
-
-        await event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job.id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.job_completed,
-                payload={
-                    "resolution": resolution,
-                    "merge_status": resolution,
-                    "pr_url": pr_url,
-                },
-            )
-        )
+    for event in events:
+        await event_bus.publish(event)
 
     return ResolveJobResponse(
         resolution=resolution,
