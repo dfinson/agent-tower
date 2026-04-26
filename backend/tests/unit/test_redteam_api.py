@@ -47,6 +47,7 @@ async def _client() -> AsyncGenerator[Any, None]:
         artifacts,
         events,
         health,
+        job_telemetry,
         jobs,
         settings,
         terminal,
@@ -65,6 +66,7 @@ async def _client() -> AsyncGenerator[Any, None]:
     # Include routers
     app.include_router(health.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
+    app.include_router(job_telemetry.router, prefix="/api")
     app.include_router(events.router, prefix="/api")
     app.include_router(approvals.router, prefix="/api")
     app.include_router(artifacts.router, prefix="/api")
