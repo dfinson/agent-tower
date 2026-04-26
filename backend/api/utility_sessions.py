@@ -6,6 +6,7 @@ import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
 
+from backend.models.api_schemas import WarmSessionResponse
 from backend.services.sister_session import SisterSessionManager
 
 log = structlog.get_logger()
@@ -16,7 +17,7 @@ router = APIRouter(tags=["utility-sessions"], route_class=DishkaRoute)
 @router.post("/utility-sessions/warm")
 async def warm_utility_session(
     sister_sessions: FromDishka[SisterSessionManager],
-) -> dict[str, str]:
+) -> WarmSessionResponse:
     """Pre-warm a utility session for the new-job panel.
 
     Returns a session token that can be passed to ``POST /jobs`` or released
@@ -27,7 +28,7 @@ async def warm_utility_session(
     except (ConnectionError, TimeoutError, OSError) as exc:
         log.warning("warm_session_failed", exc_info=exc)
         raise HTTPException(status_code=503, detail="Failed to warm session") from exc
-    return {"sessionToken": token}
+    return WarmSessionResponse(session_token=token)
 
 
 @router.delete("/utility-sessions/{token}", status_code=204)

@@ -19,6 +19,7 @@ from backend.models.api_schemas import (
     DiffFileModel,
     JobResponse,
     JobSnapshotResponse,
+    JobTelemetryResponse,
     LogLinePayload,
     PlanStepPayload,
     ProgressHeadlinePayload,
@@ -383,7 +384,7 @@ async def get_shared_telemetry(
     token: str,
     share_service: FromDishka[ShareService],
     session: FromDishka[AsyncSession],
-) -> dict[str, object]:
+) -> JobTelemetryResponse:
     """Read-only telemetry data via share token."""
     job_id = _validate_share(share_service, token)
 

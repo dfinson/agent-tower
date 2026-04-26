@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter
 
 from backend import __version__
-from backend.models.api_schemas import HealthResponse, HealthStatus
+from backend.models.api_schemas import (
+    HealthResponse,
+    HealthStatus,
+    SisterSessionMetricsResponse,
+)
 from backend.services.job_service import JobService
 from backend.services.sister_session import SisterSessionManager
 
@@ -40,6 +43,6 @@ async def health(
 @router.get("/sister-sessions/metrics")
 async def sister_session_metrics(
     sister_sessions: FromDishka[SisterSessionManager],
-) -> dict[str, Any]:
+) -> SisterSessionMetricsResponse:
     """Return sister session metrics (global + per-job)."""
-    return sister_sessions.get_metrics()
+    return SisterSessionMetricsResponse.model_validate(sister_sessions.get_metrics())
