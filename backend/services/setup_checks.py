@@ -1,0 +1,716 @@
+"""Check infrastructure, data types, and verification engine for setup/preflight/doctor.
+
+This module contains the shared verification engine used by ``cpl up``,
+``cpl setup``, and ``cpl doctor``.  It defines the check result model,
+dependency descriptors, low-level probes, and Rich rendering helpers.
+"""
+
+from __future__ import annotations
+
+import errno
+import os
+import platform
+import shutil
+import socket
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
+
+from rich.console import Console
+
+from backend.config import DEFAULT_CONFIG_PATH
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_IS_WSL = bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
+_SYSTEM = platform.system().lower()  # "linux", "darwin", "windows"
+
+_console = Console()
+
+
+# ---------------------------------------------------------------------------
+# Check result model
+# ---------------------------------------------------------------------------
+
+
+class CheckStatus(StrEnum):
+    passed = "pass"
+    warn = "warn"
+    fail = "fail"
+    skipped = "skip"
+
+
+@dataclass
+class CheckResult:
+    label: str
+    status: CheckStatus
+    detail: str = ""
+    hint: str = ""
+    category: str = "general"
+
+
+# ---------------------------------------------------------------------------
+# Dependency descriptors (for setup auto-install)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Dependency:
+    name: str
+    command: str
+    install_instructions: dict[str, str]
+    url: str
+    required: bool = True
+    auto_install_cmd: dict[str, list[str]] = field(default_factory=dict)
+
+
+DEPENDENCIES: list[Dependency] = [
+    Dependency(
+        name="Git",
+        command="git",
+        url="https://git-scm.com/downloads",
+        required=True,
+        install_instructions={
+            "linux": "sudo apt-get install -y git",
+            "darwin": "brew install git",
+            "windows": "Download from https://git-scm.com/downloads",
+        },
+        auto_install_cmd={
+            "linux": ["sudo", "apt-get", "install", "-y", "git"],
+            "darwin": ["brew", "install", "git"],
+        },
+    ),
+    Dependency(
+        name="Node.js",
+        command="node",
+        url="https://nodejs.org/",
+        required=True,
+        install_instructions={
+            "linux": (
+                "curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt-get install -y nodejs"
+            ),
+            "darwin": "brew install node",
+            "windows": "Download installer from https://nodejs.org/",
+        },
+        auto_install_cmd={
+            "linux": ["sudo", "apt-get", "install", "-y", "nodejs"],
+            "darwin": ["brew", "install", "node"],
+        },
+    ),
+    Dependency(
+        name="npm",
+        command="npm",
+        url="https://nodejs.org/",
+        required=True,
+        install_instructions={
+            "linux": "Included with Node.js — reinstall Node if missing",
+            "darwin": "Included with Node.js — reinstall Node if missing",
+            "windows": "Included with Node.js — reinstall Node if missing",
+        },
+    ),
+    Dependency(
+        name="GitHub CLI",
+        command="gh",
+        url="https://cli.github.com/",
+        required=True,
+        install_instructions={
+            "linux": (
+                "sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key 23F3D4EA75716059\n"
+                "sudo apt-add-repository https://cli.github.com/packages\n"
+                "sudo apt-get update && sudo apt-get install gh"
+            ),
+            "darwin": "brew install gh",
+            "windows": "winget install --id GitHub.cli",
+        },
+        auto_install_cmd={
+            "linux": ["sudo", "apt-get", "install", "-y", "gh"],
+            "darwin": ["brew", "install", "gh"],
+        },
+    ),
+    Dependency(
+        name="Dev Tunnels CLI",
+        command="devtunnel",
+        url="https://aka.ms/devtunnels/cli",
+        required=False,
+        install_instructions={
+            "linux": "Install from https://aka.ms/devtunnels/cli",
+            "darwin": "Install from https://aka.ms/devtunnels/cli",
+            "windows": "Install from https://aka.ms/devtunnels/cli",
+        },
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Low-level helpers
+# ---------------------------------------------------------------------------
+
+
+def _check_command(cmd: str) -> tuple[bool, str | None]:
+    """Check if a command is available, return (found, version_string)."""
+    path = shutil.which(cmd)
+    if not path:
+        return False, None
+    try:
+        result = subprocess.run(
+            [path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        version = result.stdout.strip().split("\n")[0] if result.stdout else "installed"
+        return True, version
+    except (subprocess.TimeoutExpired, OSError):
+        return True, "installed (version unknown)"
+
+
+def _check_gh_auth() -> tuple[bool, str]:
+    """Check if gh CLI is authenticated. Returns (ok, detail)."""
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode == 0:
+            # Try to extract username from output
+            for line in (result.stdout + result.stderr).splitlines():
+                if "Logged in to" in line and "account" in line.lower():
+                    return True, line.strip()
+                if "Logged in to" in line:
+                    return True, line.strip()
+            return True, "authenticated"
+        return False, "not authenticated"
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False, "gh not available"
+
+
+def _check_server_running(host: str, port: int) -> tuple[bool, str]:
+    """Probe the /health endpoint, falling back to process detection.
+
+    Returns (running, detail).  The detail string includes version/uptime when
+    the health endpoint is reachable, or PID info when only the process is found.
+    """
+    import json
+    from urllib.error import URLError
+    from urllib.request import Request, urlopen
+
+    # 1. Try the health endpoint (definitive when reachable)
+    req = Request(f"http://{host}:{port}/health", method="GET")
+    try:
+        with urlopen(req, timeout=2) as resp:  # noqa: S310
+            body = json.loads(resp.read())
+            version = body.get("version", "?")
+            uptime = int(body.get("uptimeSeconds", 0))
+            active = body.get("activeJobs", 0)
+            queued = body.get("queuedJobs", 0)
+            parts = [f"v{version}", f"uptime {uptime}s"]
+            if active or queued:
+                parts.append(f"{active} active, {queued} queued")
+            return True, ", ".join(parts)
+    except (URLError, OSError, ValueError):
+        pass
+
+    # 2. Fallback — scan for a cpl process (cross-platform)
+    pids = _find_cpl_processes()
+    if pids:
+        pids_str = ", ".join(str(p) for p in pids)
+        return True, f"process detected (PID {pids_str}) but /health not reachable"
+
+    return False, "not reachable"
+
+
+def _find_cpl_processes() -> list[int]:
+    """Return PIDs of running ``cpl up`` / ``cpl restart`` processes (cross-platform)."""
+    pids: list[int] = []
+    _system = platform.system()
+
+    if _system == "Windows":
+        # WMIC is available on all supported Windows versions
+        try:
+            result = subprocess.run(
+                [
+                    "wmic",
+                    "process",
+                    "where",
+                    "CommandLine like '%cpl%up%' or CommandLine like '%cpl%restart%'",
+                    "get",
+                    "ProcessId",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    pids.append(int(line))
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+    else:
+        # POSIX (Linux, macOS, BSD)
+        try:
+            result = subprocess.run(
+                ["ps", "axo", "pid,ppid,args"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            # Build exclude set: walk the full ancestor chain so we never
+            # detect our own process tree (make → sh → uv → python cpl up).
+            pid_to_ppid: dict[int, int] = {}
+            for line in result.stdout.splitlines():
+                parts = line.split(None, 2)
+                if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                    pid_to_ppid[int(parts[0])] = int(parts[1])
+
+            exclude: set[int] = set()
+            ancestor = os.getpid()
+            while ancestor and ancestor not in exclude:
+                exclude.add(ancestor)
+                ancestor = pid_to_ppid.get(ancestor, 0)
+
+            for line in result.stdout.splitlines():
+                parts = line.split(None, 2)
+                if len(parts) < 3 or not parts[0].isdigit():
+                    continue
+                pid = int(parts[0])
+                args_lower = parts[2].lower()
+                if (
+                    ("cpl up" in args_lower or "cpl restart" in args_lower)
+                    and "doctor" not in args_lower
+                    and pid not in exclude
+                ):
+                    pids.append(pid)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+
+    return pids
+
+
+def _check_port(port: int) -> tuple[bool, str]:
+    """Check if a port is available. Returns (available, detail)."""
+    probe_targets: list[tuple[int, str]] = [(socket.AF_INET, "127.0.0.1")]
+    if socket.has_ipv6:
+        probe_targets.append((socket.AF_INET6, "::1"))
+
+    refused_errnos = {
+        0,
+        errno.ECONNREFUSED,
+        errno.EHOSTUNREACH,
+        errno.ENETUNREACH,
+        errno.EADDRNOTAVAIL,
+    }
+
+    for family, host in probe_targets:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.2)
+                if probe.connect_ex((host, port)) == 0:
+                    return False, "in use"
+        except OSError:
+            continue
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", port))
+            return True, "available"
+    except OSError as exc:
+        if exc.errno in refused_errnos:
+            return True, "available"
+        return False, "unavailable"
+
+
+@dataclass
+class AgentAuthStatus:
+    sdk_id: str
+    authenticated: bool | None
+    detail: str
+    hint: str = ""
+
+
+@dataclass
+class AgentCLIStatus:
+    """Result of checking whether an agent CLI is usable."""
+
+    sdk_id: str
+    name: str
+    installed: bool  # Python package importable
+    cli_reachable: bool  # CLI binary on PATH (or package acts as entry point)
+    ready: bool  # both installed and reachable
+    detail: str  # human-readable summary
+    hint: str  # actionable suggestion, empty when ready
+
+
+def _check_agent_auth(sdk_id: str) -> AgentAuthStatus:
+    """Best-effort auth status for agent CLIs.
+
+    This is advisory only. Unknown status should not be treated as a failure.
+    """
+    if sdk_id == "copilot":
+        if shutil.which("gh") is None:
+            return AgentAuthStatus(sdk_id, None, "GitHub CLI not available")
+        ok, detail = _check_gh_auth()
+        if ok:
+            return AgentAuthStatus(sdk_id, True, detail)
+        return AgentAuthStatus(sdk_id, False, detail, "Run: gh auth login")
+
+    if sdk_id == "claude":
+        if shutil.which("claude") is None:
+            return AgentAuthStatus(sdk_id, None, "claude CLI not available")
+        try:
+            # --text: human-readable output (JSON is the default since CLI ~2.x).
+            # Sample authenticated output:
+            #   Login method: Claude Pro Account
+            #   Organization: user@example.com's Organization
+            #   Email: user@example.com
+            # Sample unauthenticated: exit code 1, "Not logged in" on stderr.
+            result = subprocess.run(
+                ["claude", "auth", "status", "--text"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return AgentAuthStatus(sdk_id, None, "Unable to determine auth status")
+
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        lowered = output.lower()
+
+        if result.returncode == 0:
+            # Extract email from "Email: user@example.com" line.
+            email = ""
+            for line in lines:
+                if line.lower().startswith("email:"):
+                    email = line.split(":", 1)[1].strip()
+                    break
+            detail = f"Logged in as {email}" if email else "authenticated"
+            return AgentAuthStatus(sdk_id, True, detail)
+
+        if "not logged in" in lowered or "login required" in lowered:
+            detail = lines[0] if lines else "not authenticated"
+            return AgentAuthStatus(sdk_id, False, detail, "Run: claude auth login")
+        return AgentAuthStatus(sdk_id, None, lines[0] if lines else "Unable to determine auth status")
+
+    return AgentAuthStatus(sdk_id, None, "Unknown agent")
+
+
+def _build_agent_check_result(sdk_id: str) -> CheckResult:
+    cli = check_agent_cli(sdk_id)
+    if not cli.ready:
+        return CheckResult(
+            cli.name,
+            CheckStatus.warn,
+            cli.detail,
+            hint=cli.hint,
+            category="agent",
+        )
+
+    auth = _check_agent_auth(sdk_id)
+    if auth.authenticated is False:
+        return CheckResult(
+            cli.name,
+            CheckStatus.warn,
+            f"{cli.detail} (not authenticated)",
+            hint=auth.hint,
+            category="agent",
+        )
+    if auth.authenticated is None:
+        return CheckResult(
+            cli.name,
+            CheckStatus.warn,
+            f"{cli.detail} (auth unknown)",
+            hint=auth.hint or "Unable to verify authentication",
+            category="agent",
+        )
+
+    return CheckResult(cli.name, CheckStatus.passed, auth.detail, category="agent")
+
+
+def check_agent_cli(sdk_id: str) -> AgentCLIStatus:
+    """Unified check for an agent CLI.
+
+    Used by preflight, setup wizard, and the /api/sdks endpoint.
+    SDKs are pre-packaged with CodePlane so import checks are skipped;
+    only CLI reachability is verified.  Auth is checked separately.
+    """
+    if sdk_id == "copilot":
+        # Copilot uses the gh CLI as its entry point.
+        cli_reachable = shutil.which("gh") is not None
+        ready = cli_reachable
+        if ready:
+            detail = "gh CLI installed"
+            hint = ""
+        else:
+            detail = "gh CLI not found"
+            hint = "Install: https://cli.github.com/"
+        return AgentCLIStatus("copilot", "GitHub Copilot", True, cli_reachable, ready, detail, hint)
+
+    if sdk_id == "claude":
+        cli_reachable = shutil.which("claude") is not None
+        ready = cli_reachable
+        if ready:
+            detail = "claude CLI installed"
+            hint = ""
+        else:
+            detail = "claude CLI not on PATH"
+            hint = "Install CLI: npm install -g @anthropic-ai/claude-code"
+        return AgentCLIStatus("claude", "Claude Code", True, cli_reachable, ready, detail, hint)
+
+    return AgentCLIStatus(sdk_id, sdk_id, False, False, False, "unknown agent", "")
+
+
+# ---------------------------------------------------------------------------
+# Shared verification engine
+# ---------------------------------------------------------------------------
+
+
+def verify_requirements(
+    *,
+    port: int | None = None,
+    include_optional_dependencies: bool = True,
+    preflight: bool = False,
+) -> list[CheckResult]:
+    """Run all preflight checks and return structured results.
+
+    Parameters
+    ----------
+    port:
+        If given, also checks whether the port is available.
+    include_optional_dependencies:
+        Whether to include optional tools like the Dev Tunnels CLI in the dependency list.
+    preflight:
+        When True (called before ``cpl up``), only check for conflicting
+        processes and port availability instead of reporting server health.
+    """
+    results: list[CheckResult] = []
+
+    # --- Python version ---
+    v = sys.version_info
+    py_ver = f"{v.major}.{v.minor}.{v.micro}"
+    if v >= (3, 11):
+        results.append(CheckResult("Python", CheckStatus.passed, py_ver, category="deps"))
+    else:
+        results.append(
+            CheckResult(
+                "Python",
+                CheckStatus.fail,
+                py_ver,
+                hint="Python 3.11+ is required",
+                category="deps",
+            )
+        )
+
+    # --- System dependencies ---
+    for dep in DEPENDENCIES:
+        if not include_optional_dependencies and not dep.required:
+            continue
+        found, version = _check_command(dep.command)
+        if found:
+            results.append(CheckResult(dep.name, CheckStatus.passed, version or "installed", category="deps"))
+        elif dep.required:
+            hint = dep.install_instructions.get(_SYSTEM, dep.install_instructions.get("linux", ""))
+            results.append(CheckResult(dep.name, CheckStatus.fail, "not found", hint=hint, category="deps"))
+        else:
+            results.append(
+                CheckResult(
+                    dep.name,
+                    CheckStatus.skipped,
+                    "not found (optional)",
+                    category="deps",
+                )
+            )
+
+    # --- Agent CLIs ---
+    agent_results: list[CheckResult] = []
+    for sdk_id in ("copilot", "claude"):
+        agent_results.append(_build_agent_check_result(sdk_id))
+    results.extend(agent_results)
+
+    # At least one agent CLI must be authenticated.
+    any_agent_ready = any(r.status == CheckStatus.passed for r in agent_results)
+    if not any_agent_ready:
+        results.append(
+            CheckResult(
+                "Agent Auth",
+                CheckStatus.fail,
+                "no authenticated agent CLI",
+                hint="At least one agent CLI must be authenticated.\n"
+                "Run: gh auth login (GitHub Copilot) or claude auth login (Claude Code)",
+                category="agent",
+            )
+        )
+
+    # --- Environment ---
+    if DEFAULT_CONFIG_PATH.exists():
+        results.append(CheckResult("Config", CheckStatus.passed, str(DEFAULT_CONFIG_PATH), category="env"))
+    else:
+        results.append(
+            CheckResult(
+                "Config",
+                CheckStatus.warn,
+                "not found",
+                hint=f"Will be created at {DEFAULT_CONFIG_PATH}",
+                category="env",
+            )
+        )
+
+    if port is not None:
+        running, run_detail = _check_server_running("127.0.0.1", port)
+
+        if preflight:
+            # Preflight: we're about to start — only care about conflicts.
+            if running:
+                results.append(
+                    CheckResult(
+                        f"Server (:{port})",
+                        CheckStatus.warn,
+                        f"already running — {run_detail}",
+                        hint="Another instance may conflict. Stop it first: cpl down",
+                        category="env",
+                    )
+                )
+            else:
+                # Not running — expected; just check port is free.
+                ok, detail = _check_port(port)
+                if ok:
+                    results.append(CheckResult(f"Port {port}", CheckStatus.passed, detail, category="env"))
+                else:
+                    results.append(
+                        CheckResult(
+                            f"Port {port}",
+                            CheckStatus.fail,
+                            detail,
+                            hint=f"Try: cpl up --port {port + 1}\n  Or: lsof -i :{port} | grep LISTEN",
+                            category="env",
+                        )
+                    )
+        else:
+            # Doctor / status: report full server health.
+            if running:
+                results.append(
+                    CheckResult(
+                        f"Server (:{port})",
+                        CheckStatus.passed,
+                        f"running — {run_detail}",
+                        category="env",
+                    )
+                )
+            else:
+                results.append(
+                    CheckResult(
+                        f"Server (:{port})",
+                        CheckStatus.warn,
+                        "not running",
+                        hint="Start with: cpl up",
+                        category="env",
+                    )
+                )
+
+                # Only check port availability when CodePlane isn't running —
+                # otherwise we'd falsely report the port as "in use".
+                ok, detail = _check_port(port)
+                if ok:
+                    results.append(CheckResult(f"Port {port}", CheckStatus.passed, detail, category="env"))
+                else:
+                    results.append(
+                        CheckResult(
+                            f"Port {port}",
+                            CheckStatus.fail,
+                            detail,
+                            hint=f"Try: cpl up --port {port + 1}\n  Or: lsof -i :{port} | grep LISTEN",
+                            category="env",
+                        )
+                    )
+
+    # --- Disk space ---
+    try:
+        disk_path = DEFAULT_CONFIG_PATH.parent if DEFAULT_CONFIG_PATH.parent.exists() else Path.home()
+        usage = shutil.disk_usage(str(disk_path))
+        free_gb = usage.free / (1024**3)
+        if free_gb > 1:
+            results.append(CheckResult("Disk space", CheckStatus.passed, f"{free_gb:.0f} GB free", category="env"))
+        else:
+            results.append(
+                CheckResult(
+                    "Disk space",
+                    CheckStatus.warn,
+                    f"{free_gb:.1f} GB free",
+                    hint="Less than 1 GB free — may cause issues",
+                    category="env",
+                )
+            )
+    except OSError:
+        pass
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Rich rendering
+# ---------------------------------------------------------------------------
+
+_STATUS_ICONS: dict[CheckStatus, str] = {
+    CheckStatus.passed: "[green]✓[/green]",
+    CheckStatus.warn: "[yellow]![/yellow]",
+    CheckStatus.fail: "[red]✗[/red]",
+    CheckStatus.skipped: "[dim]⊘[/dim]",
+}
+
+
+def render_checks(results: list[CheckResult], *, grouped: bool = False) -> None:
+    """Render check results to the console using Rich."""
+    if grouped:
+        categories = [
+            ("Dependencies", "deps"),
+            ("Agent CLIs", "agent"),
+            ("Environment", "env"),
+        ]
+        for cat_label, cat_key in categories:
+            cat_results = [r for r in results if r.category == cat_key]
+            if not cat_results:
+                continue
+            _console.print()
+            _console.print(f"  [bold]{cat_label}[/bold]")
+            for r in cat_results:
+                _render_check_line(r)
+    else:
+        for r in results:
+            _render_check_line(r)
+
+
+def _render_check_line(r: CheckResult) -> None:
+    """Render a single check result line with optional hint."""
+    icon = _STATUS_ICONS[r.status]
+    if r.status == CheckStatus.skipped:
+        _console.print(f"  {icon}  {r.label:<20s} [dim]{r.detail}[/dim]")
+    else:
+        _console.print(f"  {icon}  {r.label:<20s} {r.detail}")
+    if r.hint and r.status in (CheckStatus.warn, CheckStatus.fail):
+        for line in r.hint.split("\n"):
+            _console.print(f"       [dim]→ {line}[/dim]")
+
+
+def render_summary(results: list[CheckResult]) -> None:
+    """Render a summary line."""
+    passed = sum(1 for r in results if r.status == CheckStatus.passed)
+    warns = sum(1 for r in results if r.status == CheckStatus.warn)
+    fails = sum(1 for r in results if r.status == CheckStatus.fail)
+
+    parts = [f"[green]{passed} passed[/green]"]
+    if warns:
+        parts.append(f"[yellow]{warns} warning{'s' if warns != 1 else ''}[/yellow]")
+    if fails:
+        parts.append(f"[red]{fails} failed[/red]")
+
+    _console.print()
+    _console.print(f"  Summary: {', '.join(parts)}")
