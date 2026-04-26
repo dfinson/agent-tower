@@ -173,7 +173,8 @@ async def register_repo_endpoint(
         try:
             cloned_path = await git.clone_repo(source, clone_dir)
         except GitError as exc:
-            raise HTTPException(status_code=400, detail=f"Clone failed: {exc}") from exc
+            structlog.get_logger().warning("clone_failed", source=source, exc_info=exc)
+            raise HTTPException(status_code=400, detail="Clone failed") from exc
         register_repo(config, cloned_path)
         return RegisterRepoResponse(path=cloned_path, source=source, cloned=True)
 
@@ -206,7 +207,8 @@ async def create_repo_endpoint(
     try:
         repo_path = await git.init_repo(str(resolved))
     except GitError as exc:
-        raise HTTPException(status_code=400, detail=f"Failed to create repository: {exc}") from exc
+        structlog.get_logger().warning("repo_create_failed", path=str(resolved), exc_info=exc)
+        raise HTTPException(status_code=400, detail="Failed to create repository") from exc
 
     register_repo(config, repo_path)
     return CreateRepoResponse(path=repo_path, name=resolved.name)
@@ -221,7 +223,7 @@ async def unregister_repo_endpoint(
     try:
         unregister_repo(config, repo_path)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Repository not found in allowlist") from exc
 
 
 @router.post("/settings/cleanup-worktrees", response_model=CleanupWorktreesResponse)

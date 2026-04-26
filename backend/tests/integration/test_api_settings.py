@@ -345,7 +345,7 @@ class TestCreateRepo:
             json={"path": str(tmp_path), "name": "fail-repo"},
         )
         assert resp.status_code == 400
-        assert "init failed" in resp.json()["detail"]
+        assert resp.json()["detail"] == "Failed to create repository"
 
 
 class TestUnregisterRepo:
