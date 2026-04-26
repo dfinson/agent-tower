@@ -19,7 +19,6 @@ from backend.models.domain import (
     Job,
     JobSpec,
     JobState,
-    PermissionMode,
     Resolution,
     validate_state_transition,
 )
