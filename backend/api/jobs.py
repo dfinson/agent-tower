@@ -237,7 +237,7 @@ async def create_job(
                     permission_mode=body.permission_mode.value if body.permission_mode else None,
                     session_token=body.session_token,
                 )
-            except (GitError, OSError, RuntimeError):
+            except Exception:
                 structlog.get_logger().error(
                     "background_job_setup_failed", job_id=job.id, exc_info=True
                 )
