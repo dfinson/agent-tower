@@ -448,7 +448,7 @@ class JobService:
             await _emit_progress("failed")
             job = await self._job_repo.get(job_id)
             if job is None:
-                raise RuntimeError(f"Job {job_id} disappeared after state update")
+                raise JobNotFoundError(f"Job {job_id} disappeared after state update")
             return job
 
         # Update the job with worktree info and transition to queued
@@ -462,7 +462,7 @@ class JobService:
 
         job = await self._job_repo.get(job_id)
         if job is None:
-            raise RuntimeError(f"Job {job_id} disappeared after state update")
+            raise JobNotFoundError(f"Job {job_id} disappeared after state update")
         return job
 
     async def get_job(self, job_id: str) -> Job:

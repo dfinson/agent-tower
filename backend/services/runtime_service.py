@@ -23,6 +23,7 @@ import structlog
 from backend.config import build_session_config
 from backend.models.domain import (
     TERMINAL_STATES,
+    CodePlaneError,
     Job,
     JobSpec,
     JobState,
@@ -1491,7 +1492,7 @@ class RuntimeService:
                 break
 
             if domain_event is None:
-                raise RuntimeError("Event publish must always provide a domain event")
+                raise CodePlaneError("Event publish must always provide a domain event")
 
             if evt_error:
                 error_reason = evt_error
@@ -1645,7 +1646,7 @@ class RuntimeService:
                     break
 
                 if domain_event is None:
-                    raise RuntimeError("Event publish must always provide a domain event")
+                    raise CodePlaneError("Event publish must always provide a domain event")
 
                 if evt_error:
                     error_reason = evt_error
