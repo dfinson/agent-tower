@@ -198,7 +198,7 @@ class SummarizationService:
 
             # --- Call LLM ---
             log.info("summarization_started", job_id=job_id, session=session_number)
-            raw = await self._adapter.complete(prompt, timeout=60)  # type: ignore[call-arg]
+            raw = await self._adapter.complete(prompt, timeout=60)  # type: ignore[call-arg]  # timeout kwarg accepted by concrete adapters
             summary_json = _extract_json(raw, job_id, original_task, session_number)
 
             # --- Store artifact ---

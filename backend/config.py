@@ -227,7 +227,7 @@ def _parse_section(raw: dict[str, Any], cls: type, key: str) -> Any:
     if not isinstance(section, dict):
         return cls()
     # Only pass keys that the dataclass accepts
-    valid_keys = {f.name for f in cls.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+    valid_keys = {f.name for f in cls.__dataclass_fields__.values()}  # type: ignore[attr-defined]  # __dataclass_fields__ exists at runtime
     return cls(**{k: v for k, v in section.items() if k in valid_keys})
 
 

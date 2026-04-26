@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -169,10 +169,10 @@ class TrailService:
         kinds: list[str] | None = None,
         flat: bool = False,
         after_seq: int | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         return await self._query.get_trail(
             job_id, kinds=kinds, flat=flat, after_seq=after_seq,
         )
 
-    async def get_summary(self, job_id: str) -> dict:
+    async def get_summary(self, job_id: str) -> dict[str, Any]:
         return await self._query.get_summary(job_id)

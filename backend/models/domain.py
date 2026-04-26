@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from datetime import datetime
 
 
@@ -169,10 +170,75 @@ class SessionEventKind(StrEnum):
     error = "error"
 
 
+# -- Payload TypedDicts per SessionEventKind ----------------------------------
+
+
+class LogPayload(TypedDict, total=False):
+    seq: int
+    timestamp: str
+    level: str
+    message: str
+
+
+class TranscriptPayload(TypedDict, total=False):
+    role: str
+    content: str
+    turn_id: str
+    title: str | None
+    tool_name: str
+    tool_args: str | None
+    tool_result: str | None
+    tool_success: bool
+    tool_issue: str | None
+    tool_intent: str | None
+    tool_title: str | None
+    tool_display: str | None
+    tool_display_full: str | None
+    tool_duration_ms: int | None
+    tool_visibility: str
+    tool_call_id: str
+
+
+class FileChangedPayload(TypedDict):
+    path: str
+
+
+class ApprovalRequestPayload(TypedDict, total=False):
+    description: str
+    proposed_action: str | None
+    approval_id: str
+    requires_explicit_approval: bool
+
+
+class ModelDowngradedPayload(TypedDict):
+    requested_model: str
+    actual_model: str
+
+
+class DonePayload(TypedDict, total=False):
+    result: str
+
+
+class ErrorPayload(TypedDict, total=False):
+    message: str
+    result: str
+
+
+SessionEventPayload = (
+    LogPayload
+    | TranscriptPayload
+    | FileChangedPayload
+    | ApprovalRequestPayload
+    | ModelDowngradedPayload
+    | DonePayload
+    | ErrorPayload
+)
+
+
 @dataclass
 class SessionEvent:
     kind: SessionEventKind
-    payload: dict[str, Any]
+    payload: SessionEventPayload
 
 
 @dataclass
@@ -185,8 +251,7 @@ class SessionConfig:
     mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
     protected_paths: list[str] = field(default_factory=list)
     permission_mode: PermissionMode = PermissionMode.full_auto
-    # Injected by RuntimeService for supervised mode; callable[[description, proposed_action], Awaitable[str]]
-    blocking_permission_handler: object = None
+    blocking_permission_handler: Callable[[str, str], Awaitable[str]] | None = None
     # Set when resuming a job to reconnect to an existing Copilot SDK session
     resume_sdk_session_id: str | None = None
 
