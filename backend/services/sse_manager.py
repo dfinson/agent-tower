@@ -637,28 +637,10 @@ class SSEManager:
             progress_by_job = await event_repo.list_latest_progress_previews([j.id for j in fetched_jobs])
 
             job_responses = [
-                JobResponse(
-                    id=j.id,
-                    repo=j.repo,
-                    prompt=j.prompt,
-                    title=j.title,
-                    description=j.description,
-                    state=j.state,
-                    base_ref=j.base_ref,
-                    worktree_path=j.worktree_path,
-                    branch=j.branch,
-                    created_at=j.created_at,
-                    updated_at=j.updated_at,
-                    completed_at=j.completed_at,
-                    pr_url=j.pr_url,
-                    merge_status=j.merge_status,
-                    resolution=j.resolution,
-                    archived_at=j.archived_at,
-                    failure_reason=j.failure_reason,
+                JobResponse.from_domain(
+                    j,
                     progress_headline=progress_by_job.get(j.id, (None, None))[0],
                     progress_summary=progress_by_job.get(j.id, (None, None))[1],
-                    model=j.model,
-                    sdk=j.sdk,
                 )
                 for j in fetched_jobs
             ]

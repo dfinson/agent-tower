@@ -36,6 +36,7 @@ from backend.models.api_schemas import (
     ResolveJobRequest,
     ResolveJobResponse,
     RestoreRequest,
+    RestoreResponse,
     ResumeJobRequest,
     StepDiffPayload,
     StepListResponse,
@@ -119,35 +120,10 @@ def _resolve_display_field(
 
 def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) -> JobResponse:
     """Map a domain Job to a JobResponse."""
-    return JobResponse(
-        id=job.id,
-        repo=job.repo,
-        prompt=job.prompt,
-        title=job.title,
-        description=job.description,
-        state=job.state,
-        base_ref=job.base_ref,
-        worktree_path=job.worktree_path,
-        branch=job.branch,
-        created_at=job.created_at,
-        updated_at=job.updated_at,
-        completed_at=job.completed_at,
-        pr_url=job.pr_url,
-        merge_status=job.merge_status,
-        resolution=job.resolution,
-        archived_at=job.archived_at,
-        failure_reason=job.failure_reason,
+    return JobResponse.from_domain(
+        job,
         progress_headline=progress_preview.headline if progress_preview is not None else None,
         progress_summary=progress_preview.summary if progress_preview is not None else None,
-        model=job.model,
-        sdk=job.sdk,
-        worktree_name=job.worktree_name,
-        verify=job.verify,
-        self_review=job.self_review,
-        max_turns=job.max_turns,
-        verify_prompt=job.verify_prompt,
-        self_review_prompt=job.self_review_prompt,
-        parent_job_id=job.parent_job_id,
     )
 
 
@@ -840,7 +816,7 @@ async def restore_to_sha(
     body: RestoreRequest,
     svc: FromDishka[JobService],
     config: FromDishka[CPLConfig],
-) -> dict[str, Any]:
+) -> RestoreResponse:
     """Reset the job's worktree to a specific commit SHA.
 
     Destructive — requires frontend confirmation dialog.
@@ -861,7 +837,7 @@ async def restore_to_sha(
 
     git = GitService(config)
     await git.reset_hard(body.sha, cwd=job.worktree_path)
-    return {"restored": True, "sha": body.sha}
+    return RestoreResponse(restored=True, sha=body.sha)
 
 
 @router.get("/jobs/{job_id}/timeline", response_model=TimelineListResponse)

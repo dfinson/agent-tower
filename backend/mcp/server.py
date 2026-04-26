@@ -128,32 +128,7 @@ def _make_artifact_service(session: AsyncSession) -> ArtifactService:
 
 def _job_to_response(job: Job) -> McpToolResult:
     """Convert a domain Job to a serializable dict via JobResponse."""
-    resp = JobResponse(
-        id=job.id,
-        repo=job.repo,
-        prompt=job.prompt,
-        title=job.title,
-        state=job.state,
-        base_ref=job.base_ref,
-        worktree_path=job.worktree_path,
-        branch=job.branch,
-        created_at=job.created_at,
-        updated_at=job.updated_at,
-        completed_at=job.completed_at,
-        pr_url=job.pr_url,
-        merge_status=job.merge_status,
-        resolution=job.resolution,
-        archived_at=job.archived_at,
-        failure_reason=job.failure_reason,
-        model=job.model,
-        sdk=job.sdk,
-        worktree_name=job.worktree_name,
-        verify=job.verify,
-        self_review=job.self_review,
-        max_turns=job.max_turns,
-        verify_prompt=job.verify_prompt,
-        self_review_prompt=job.self_review_prompt,
-    )
+    resp = JobResponse.from_domain(job)
     return resp.model_dump(mode="json")
 
 
@@ -270,23 +245,7 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                     cursor=cursor,
                 )
             return JobListResponse(
-                items=[
-                    JobResponse(
-                        id=j.id,
-                        repo=j.repo,
-                        prompt=j.prompt,
-                        state=j.state,
-                        base_ref=j.base_ref,
-                        worktree_path=j.worktree_path,
-                        branch=j.branch,
-                        created_at=j.created_at,
-                        updated_at=j.updated_at,
-                        completed_at=j.completed_at,
-                        pr_url=j.pr_url,
-                        sdk=j.sdk,
-                    )
-                    for j in jobs
-                ],
+                items=[JobResponse.from_domain(j) for j in jobs],
                 cursor=next_cursor,
                 has_more=has_more,
             ).model_dump(mode="json")

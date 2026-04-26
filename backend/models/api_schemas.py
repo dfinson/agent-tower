@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime  # noqa: TC003 — Pydantic resolves annotations at runtime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
@@ -13,6 +13,9 @@ from backend.models.domain import (  # noqa: TC001 — Pydantic resolves annotat
     PermissionMode,
     Resolution,
 )
+
+if TYPE_CHECKING:
+    from backend.models.domain import Job
 
 
 class CamelModel(BaseModel):
@@ -281,6 +284,40 @@ class JobResponse(CamelModel):
     verify_prompt: str | None = None
     self_review_prompt: str | None = None
     parent_job_id: str | None = None
+
+    @classmethod
+    def from_domain(cls, job: Job, **overrides: object) -> JobResponse:
+        """Build a JobResponse from a domain Job, with optional field overrides."""
+        return cls(
+            id=job.id,
+            repo=job.repo,
+            prompt=job.prompt,
+            title=job.title,
+            description=job.description,
+            state=job.state,
+            base_ref=job.base_ref,
+            worktree_path=job.worktree_path,
+            branch=job.branch,
+            permission_mode=job.permission_mode,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            completed_at=job.completed_at,
+            pr_url=job.pr_url,
+            merge_status=job.merge_status,
+            resolution=job.resolution,
+            archived_at=job.archived_at,
+            failure_reason=job.failure_reason,
+            model=job.model,
+            sdk=job.sdk,
+            worktree_name=job.worktree_name,
+            verify=job.verify,
+            self_review=job.self_review,
+            max_turns=job.max_turns,
+            verify_prompt=job.verify_prompt,
+            self_review_prompt=job.self_review_prompt,
+            parent_job_id=job.parent_job_id,
+            **overrides,  # type: ignore[arg-type]
+        )
 
 
 class JobListResponse(CamelModel):
@@ -1468,3 +1505,39 @@ class ShareTokenResponse(CamelModel):
 
 class CreateShareRequest(CamelModel):
     job_id: str | None = None  # allow body-less POST where job_id is in path
+
+
+# ---------------------------------------------------------------------------
+# Utility / operational responses
+# ---------------------------------------------------------------------------
+
+
+class WarmSessionResponse(CamelModel):
+    session_token: str
+
+
+class RestoreResponse(CamelModel):
+    restored: bool
+    sha: str
+
+
+class SisterSessionGlobalMetrics(CamelModel):
+    total_calls: int
+    avg_latency_ms: float
+    active_jobs: int
+    pool_size: int
+    warm_tokens: int
+
+
+class SisterSessionJobMetrics(CamelModel):
+    call_count: int
+    avg_latency_ms: float
+    total_latency_ms: float
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+
+
+class SisterSessionMetricsResponse(CamelModel):
+    global_metrics: SisterSessionGlobalMetrics = Field(alias="global")
+    jobs: dict[str, SisterSessionJobMetrics]
