@@ -113,7 +113,7 @@ async def list_repos(
 async def get_repo_detail(
     repo_path: str,
     config: FromDishka[CPLConfig],
-    git: FromDishka[GitService],
+    git_service: FromDishka[GitService],
 ) -> RepoDetailResponse:
     """Get detailed config for a single registered repository."""
     resolved = str(Path(repo_path).expanduser().resolve())
@@ -124,13 +124,13 @@ async def get_repo_detail(
     base_branch: str | None = None
     current_branch: str | None = None
     with contextlib.suppress(GitError):
-        raw_url = await git.get_origin_url(resolved)
+        raw_url = await git_service.get_origin_url(resolved)
         if raw_url:
             origin_url = GitService.strip_url_credentials(raw_url)
     with contextlib.suppress(GitError):
-        base_branch = await git.get_default_branch(resolved)
+        base_branch = await git_service.get_default_branch(resolved)
     with contextlib.suppress(GitError):
-        current_branch = await git.get_current_branch(cwd=resolved)
+        current_branch = await git_service.get_current_branch(cwd=resolved)
 
     return RepoDetailResponse(
         path=resolved,
@@ -145,7 +145,7 @@ async def get_repo_detail(
 async def register_repo_endpoint(
     body: RegisterRepoRequest,
     config: FromDishka[CPLConfig],
-    git: FromDishka[GitService],
+    git_service: FromDishka[GitService],
 ) -> RegisterRepoResponse:
     """Register a repository (local path or remote URL)."""
     source = body.source
@@ -163,7 +163,7 @@ async def register_repo_endpoint(
                 detail=f"Clone directory already exists: {clone_dir}",
             )
         try:
-            cloned_path = await git.clone_repo(source, clone_dir)
+            cloned_path = await git_service.clone_repo(source, clone_dir)
         except GitError as exc:
             structlog.get_logger().warning("clone_failed", source=source, exc_info=exc)
             raise HTTPException(status_code=400, detail="Clone failed") from exc
@@ -172,7 +172,7 @@ async def register_repo_endpoint(
 
     # Local path
     resolved = str(Path(source).expanduser().resolve())
-    is_valid = await git.validate_repo(resolved)
+    is_valid = await git_service.validate_repo(resolved)
     if not is_valid:
         raise HTTPException(
             status_code=400,
@@ -186,7 +186,7 @@ async def register_repo_endpoint(
 async def create_repo_endpoint(
     body: CreateRepoRequest,
     config: FromDishka[CPLConfig],
-    git: FromDishka[GitService],
+    git_service: FromDishka[GitService],
 ) -> CreateRepoResponse:
     """Create a new git repository and register it."""
     resolved = Path(body.path).expanduser().resolve()
@@ -197,7 +197,7 @@ async def create_repo_endpoint(
         raise HTTPException(status_code=409, detail=f"A git repository already exists at {resolved}")
 
     try:
-        repo_path = await git.init_repo(str(resolved))
+        repo_path = await git_service.init_repo(str(resolved))
     except GitError as exc:
         structlog.get_logger().warning("repo_create_failed", path=str(resolved), exc_info=exc)
         raise HTTPException(status_code=400, detail="Failed to create repository") from exc
@@ -221,13 +221,13 @@ async def unregister_repo_endpoint(
 @router.post("/settings/cleanup-worktrees", response_model=CleanupWorktreesResponse)
 async def cleanup_worktrees(
     config: FromDishka[CPLConfig],
-    git: FromDishka[GitService],
+    git_service: FromDishka[GitService],
 ) -> CleanupWorktreesResponse:
     """Clean up completed job worktrees for all registered repos."""
     total = 0
     for repo in config.repos:
         try:
-            count = await git.cleanup_worktrees(repo)
+            count = await git_service.cleanup_worktrees(repo)
             total += count
         except GitError:
             structlog.get_logger().warning("cleanup_worktrees_failed", repo=repo)
