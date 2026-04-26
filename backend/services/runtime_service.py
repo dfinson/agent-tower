@@ -760,7 +760,7 @@ class RuntimeService:
                         branch_name = job_for_tel.branch or ""
                         sdk_name = job_for_tel.sdk or ""
                 except Exception:
-                    log.debug("telemetry_init_job_lookup_failed", job_id=job_id, exc_info=True)
+                    log.warning("telemetry_init_job_lookup_failed", job_id=job_id, exc_info=True)
                 await TelemetrySummaryRepository(session).init_job(
                     job_id,
                     sdk=sdk_name or "unknown",
@@ -1537,7 +1537,7 @@ class RuntimeService:
         try:
             await self._trail_service.feed_native_plan(job_id, items)
         except Exception:
-            log.debug("native_plan_ingest_failed", job_id=job_id, exc_info=True)
+            log.warning("native_plan_ingest_failed", job_id=job_id, exc_info=True)
 
     async def _run_followup_turn(
         self,
