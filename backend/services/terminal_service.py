@@ -387,7 +387,8 @@ class TerminalService:
             _zdotdir=zdotdir,
         )
 
-        assert self._loop is not None
+        if self._loop is None:
+            raise RuntimeError("Event loop must be set before creating terminal sessions")
         self._loop.add_reader(master_fd, self._on_pty_readable, session_id)
         return session
 

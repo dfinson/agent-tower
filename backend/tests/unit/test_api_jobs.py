@@ -40,11 +40,28 @@ async def test_resolve_job_publishes_after_commit() -> None:
 
     session.commit = AsyncMock(side_effect=_commit)
 
-    event = object()
+    from backend.models.events import DomainEvent, DomainEventKind
+
+    now = datetime.now(UTC)
+    resolved_event = DomainEvent(
+        event_id="evt-1",
+        job_id="job-1",
+        timestamp=now,
+        kind=DomainEventKind.job_resolved,
+        payload={"resolution": "discarded"},
+    )
+    completed_event = DomainEvent(
+        event_id="evt-2",
+        job_id="job-1",
+        timestamp=now,
+        kind=DomainEventKind.job_completed,
+        payload={"resolution": "discarded", "merge_status": "discarded", "pr_url": None},
+    )
     svc = SimpleNamespace(
         resolve_job=AsyncMock(return_value=_make_job("job-1")),
-        execute_resolve=AsyncMock(return_value=("discarded", None, None, None)),
-        build_job_resolved_event=Mock(return_value=event),
+        resolve_and_complete=AsyncMock(
+            return_value=("discarded", None, None, None, [resolved_event, completed_event])
+        ),
     )
     runtime_service = SimpleNamespace(resume_job=AsyncMock())
     merge_service = object()
@@ -69,19 +86,9 @@ async def test_resolve_job_publishes_after_commit() -> None:
 
     assert response.resolution == "discarded"
     session.commit.assert_awaited_once()
-    svc.build_job_resolved_event.assert_called_once_with(
-        "job-1",
-        "discarded",
-        pr_url=None,
-        conflict_files=None,
-        error=None,
-    )
     # Two events: job_resolved + job_completed
     assert event_bus.publish.await_count == 2
-    assert published_events[0] is event  # job_resolved
-    # Second event is a DomainEvent with kind=job_completed
-    from backend.models.events import DomainEventKind
-
+    assert published_events[0] is resolved_event
     assert published_events[1].kind == DomainEventKind.job_completed
 
 
