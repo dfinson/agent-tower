@@ -112,17 +112,20 @@ class RequestProvider(Provider):
                 raise
 
     @provide
+    def naming_service(self, sister_sessions: SisterSessionManager) -> NamingService:
+        return NamingService(sister_sessions)
+
+    @provide
     def job_service(
         self,
         session: AsyncSession,
         config: CPLConfig,
-        sister_sessions: SisterSessionManager,
+        naming_service: NamingService,
     ) -> JobService:
-        naming = NamingService(sister_sessions)
         return JobService.from_session(
             session,
             config,
-            naming_service=naming,
+            naming_service=naming_service,
         )
 
     @provide

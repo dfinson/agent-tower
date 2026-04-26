@@ -61,7 +61,6 @@ from backend.services.job_service import JobService, ProgressPreview
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
-from backend.services.sister_session import SisterSessionManager
 from backend.services.story_service import StoryService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
@@ -146,7 +145,7 @@ def _job_to_create_response(job: Job) -> CreateJobResponse:
 @router.post("/jobs/suggest-names", response_model=SuggestNamesResponse)
 async def suggest_names(
     body: SuggestNamesRequest,
-    sister_sessions: FromDishka[SisterSessionManager],
+    naming: FromDishka[NamingService],
 ) -> SuggestNamesResponse:
     """Generate a suggested title, branch name, and worktree name for a task description.
 
@@ -155,7 +154,6 @@ async def suggest_names(
     """
     from backend.services.naming_service import NamingError
 
-    naming = NamingService(sister_sessions)
     try:
         title, description, branch_name, worktree_name = await naming.generate(body.prompt)
     except NamingError as exc:
