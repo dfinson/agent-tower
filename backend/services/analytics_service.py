@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from backend.models.domain import TelemetrySummaryRow
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -58,7 +59,7 @@ class AnalyticsService:
         desc: bool = True,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TelemetrySummaryRow]:
         from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
         return await TelemetrySummaryRepository(self._session).query(
@@ -92,7 +93,7 @@ class AnalyticsService:
 
         return await TelemetrySummaryRepository(self._session).job_context(job_id)
 
-    async def get_summary(self, job_id: str) -> dict[str, Any] | None:
+    async def get_summary(self, job_id: str) -> TelemetrySummaryRow | None:
         from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
         return await TelemetrySummaryRepository(self._session).get(job_id)

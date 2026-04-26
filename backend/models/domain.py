@@ -327,6 +327,59 @@ class CostAttributionRow(TypedDict, total=False):
     call_count: int
 
 
+class TelemetrySummaryRow(TypedDict, total=False):
+    """Shape of a row returned by TelemetrySummaryRepository.get()."""
+
+    job_id: str
+    sdk: str
+    model: str
+    repo: str
+    branch: str
+    status: str
+    created_at: str
+    completed_at: str | None
+    duration_ms: int
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+    total_cost_usd: float
+    premium_requests: float
+    llm_call_count: int
+    total_llm_duration_ms: int
+    tool_call_count: int
+    tool_failure_count: int
+    total_tool_duration_ms: int
+    compactions: int
+    tokens_compacted: int
+    approval_count: int
+    approval_wait_ms: int
+    agent_messages: int
+    operator_messages: int
+    context_window_size: int
+    current_context_tokens: int
+    quota_json: str | None
+    updated_at: str
+    # Added by 0009_cost_attribution
+    total_turns: int
+    retry_count: int
+    retry_cost_usd: float
+    file_read_count: int
+    file_write_count: int
+    unique_files_read: int
+    file_reread_count: int
+    peak_turn_cost_usd: float
+    avg_turn_cost_usd: float
+    cost_first_half_usd: float
+    cost_second_half_usd: float
+    diff_lines_added: int
+    diff_lines_removed: int
+    # Added by 0012_error_kind
+    agent_error_count: int
+    # Added by 0017_add_subagent_cost
+    subagent_cost_usd: float
+
+
 @dataclass
 class SessionEvent:
     kind: SessionEventKind

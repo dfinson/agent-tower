@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from backend.models.domain import TelemetrySummaryRow
 from backend.persistence.repository import BaseRepository
 
 
@@ -257,7 +258,7 @@ class TelemetrySummaryRepository(BaseRepository):
         )
         await self._session.flush()
 
-    async def get(self, job_id: str) -> dict[str, Any] | None:
+    async def get(self, job_id: str) -> TelemetrySummaryRow | None:
         """Load summary row as a plain dict.  Returns None if not found."""
         result = await self._session.execute(
             text("SELECT * FROM job_telemetry_summary WHERE job_id = :job_id"),
@@ -266,7 +267,7 @@ class TelemetrySummaryRepository(BaseRepository):
         row = result.mappings().first()
         if row is None:
             return None
-        return dict(row)
+        return TelemetrySummaryRow(**row)  # type: ignore[arg-type]
 
     async def query(
         self,
@@ -280,7 +281,7 @@ class TelemetrySummaryRepository(BaseRepository):
         desc: bool = True,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TelemetrySummaryRow]:
         """Query summary rows with optional filters."""
         conditions: list[str] = []
         params: dict[str, Any] = {"limit": limit, "offset": offset}
@@ -311,7 +312,7 @@ class TelemetrySummaryRepository(BaseRepository):
             ),
             params,
         )
-        return [dict(r) for r in result.mappings().all()]
+        return [TelemetrySummaryRow(**r) for r in result.mappings().all()]  # type: ignore[arg-type]
 
     async def aggregate(self, *, period_days: int = 7) -> dict[str, Any]:
         """Return aggregate stats for the analytics overview."""
