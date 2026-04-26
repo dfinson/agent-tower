@@ -18,6 +18,7 @@ from backend.models.api_schemas import (
     AnalyticsReposResponse,
     AnalyticsToolsResponse,
     CostDriversJobResponse,
+    CostTrendEntry,
     DismissResponse,
     EditEfficiencyCategory,
     EditEfficiencyResponse,

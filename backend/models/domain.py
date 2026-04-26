@@ -380,6 +380,80 @@ class TelemetrySummaryRow(TypedDict, total=False):
     subagent_cost_usd: float
 
 
+# -- Analytics aggregation TypedDicts -----------------------------------------
+
+
+class AggregateStats(TypedDict, total=False):
+    """Shape returned by TelemetrySummaryRepository.aggregate()."""
+
+    total_jobs: int
+    review: int
+    completed: int
+    succeeded: int
+    failed: int
+    cancelled: int
+    running: int
+    total_cost_usd: float
+    total_tokens: int
+    avg_duration_ms: float
+    total_premium_requests: float
+    total_tool_calls: int
+    total_tool_failures: int
+    total_agent_errors: int
+    total_cache_read: int
+    total_input_tokens: int
+    total_subagent_cost_usd: float
+    total_retry_cost_usd: float
+    total_retry_count: int
+
+
+class CostByDayRow(TypedDict):
+    """Shape returned by TelemetrySummaryRepository.cost_by_day()."""
+
+    date: str
+    cost: float
+    jobs: int
+
+
+class CostByRepoRow(TypedDict):
+    """Shape returned by TelemetrySummaryRepository.cost_by_repo()."""
+
+    repo: str
+    job_count: int
+    succeeded: int
+    failed: int
+    total_cost_usd: float
+    total_tokens: int
+    tool_calls: int
+    avg_duration_ms: float
+    premium_requests: float
+
+
+class CostByModelRow(TypedDict, total=False):
+    """Shape returned by TelemetrySummaryRepository.cost_by_model()."""
+
+    model: str
+    sdk: str
+    job_count: int
+    total_cost_usd: float
+    total_tokens: int
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    avg_duration_ms: float
+    premium_requests: float
+    total_turns: int
+    total_tool_calls: int
+    total_diff_lines: int
+    cost_per_job: float
+    cost_per_minute: float
+    cost_per_turn: float
+    cost_per_tool_call: float
+    cost_per_diff_line: float
+    cost_per_mtok: float
+    cache_hit_rate: float
+
+
 @dataclass
 class SessionEvent:
     kind: SessionEventKind

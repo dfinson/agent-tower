@@ -1055,6 +1055,34 @@ class CostTrendPoint(CamelModel):
     cost_usd: float = 0.0
 
 
+class CostTrendEntry(CamelModel):
+    date: str
+    cost: float = 0.0
+    jobs: int = 0
+
+
+class ModelStatsEntry(CamelModel, extra="allow"):
+    model: str = ""
+    sdk: str = ""
+    job_count: int = 0
+    total_cost_usd: float = 0.0
+    total_tokens: int = 0
+    avg_duration_ms: float = 0.0
+    premium_requests: float = 0.0
+
+
+class RepoStatsEntry(CamelModel, extra="allow"):
+    repo: str = ""
+    job_count: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    total_cost_usd: float = 0.0
+    total_tokens: int = 0
+    tool_calls: int = 0
+    avg_duration_ms: float = 0.0
+    premium_requests: float = 0.0
+
+
 class AnalyticsOverviewResponse(CamelModel):
     period: int
     total_jobs: int = 0
@@ -1074,7 +1102,7 @@ class AnalyticsOverviewResponse(CamelModel):
     total_tool_errors: int = 0
     tool_success_rate: float = 0.0
     cache_hit_rate: float = 0.0
-    cost_trend: list[dict[str, object]] = []
+    cost_trend: list[CostTrendEntry] = []
     total_subagent_cost_usd: float = 0.0
     total_retry_cost_usd: float = 0.0
     total_retry_count: int = 0
@@ -1082,7 +1110,7 @@ class AnalyticsOverviewResponse(CamelModel):
 
 class AnalyticsModelsResponse(CamelModel):
     period: int
-    models: list[dict[str, object]] = []
+    models: list[ModelStatsEntry] = []
 
 
 class AnalyticsToolsResponse(CamelModel):
@@ -1092,7 +1120,7 @@ class AnalyticsToolsResponse(CamelModel):
 
 class AnalyticsReposResponse(CamelModel):
     period: int
-    repos: list[dict[str, object]] = []
+    repos: list[RepoStatsEntry] = []
 
 
 class AnalyticsJobsResponse(CamelModel):
