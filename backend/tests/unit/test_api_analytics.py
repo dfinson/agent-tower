@@ -105,7 +105,7 @@ async def test_scorecard_returns_data():
     )
 
     with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepo",
+        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
         return_value=mock_repo_instance,
     ), patch("backend.config.load_config") as mock_load_config:
         mock_cfg = SimpleNamespace(
@@ -139,7 +139,7 @@ async def test_model_comparison_returns_models():
     )
 
     with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepo",
+        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
         return_value=mock_repo_instance,
     ):
         from backend.api.analytics import analytics_model_comparison
@@ -162,7 +162,7 @@ async def test_model_comparison_with_repo_filter():
     mock_repo_instance = SimpleNamespace(model_comparison=comparison_mock)
 
     with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepo",
+        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
         return_value=mock_repo_instance,
     ):
         from backend.api.analytics import analytics_model_comparison
@@ -190,7 +190,7 @@ async def test_job_context_returns_job_data():
     )
 
     with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepo",
+        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
         return_value=mock_repo_instance,
     ):
         from backend.api.analytics import analytics_job_context
@@ -214,7 +214,7 @@ async def test_job_context_returns_error_on_missing():
     )
 
     with patch(
-        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepo",
+        "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository",
         return_value=mock_repo_instance,
     ):
         from fastapi import HTTPException
@@ -248,7 +248,7 @@ async def test_fleet_cost_drivers_confidence_annotation():
     )
 
     with patch(
-        "backend.persistence.cost_attribution_repo.CostAttributionRepo",
+        "backend.persistence.cost_attribution_repo.CostAttributionRepository",
         return_value=mock_repo_instance,
     ):
         from backend.api.analytics import fleet_cost_drivers

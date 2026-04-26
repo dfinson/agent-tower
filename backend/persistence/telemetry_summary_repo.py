@@ -14,7 +14,7 @@ from sqlalchemy import text
 from backend.persistence.repository import BaseRepository
 
 
-class TelemetrySummaryRepo(BaseRepository):
+class TelemetrySummaryRepository(BaseRepository):
     """Event-driven upserts into ``job_telemetry_summary``."""
 
     async def init_job(

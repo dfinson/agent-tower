@@ -174,10 +174,10 @@ class MotivationService:
     async def drain_unsummarized(self) -> int:
         """Process a batch of unsummarized spans. Returns count processed."""
         from backend.persistence.job_repo import JobRepository
-        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
         async with self._session_factory() as session:
-            repo = TelemetrySpansRepo(session)
+            repo = TelemetrySpansRepository(session)
             spans = await repo.unsummarized_spans(limit=_BATCH_SIZE)
 
             if not spans:
@@ -224,10 +224,10 @@ class MotivationService:
 
     async def drain_edit_motivations(self) -> int:
         """Second pass: generate per-edit motivations for file_write spans."""
-        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
         async with self._session_factory() as session:
-            repo = TelemetrySpansRepo(session)
+            repo = TelemetrySpansRepository(session)
             spans = await repo.unenriched_edit_spans(limit=_BATCH_SIZE)
 
             if not spans:

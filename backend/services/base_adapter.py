@@ -289,18 +289,18 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return
         try:
             async with self._session_factory() as session:
-                from backend.persistence.file_access_repo import FileAccessRepo
-                from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+                from backend.persistence.file_access_repo import FileAccessRepository
+                from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
-                summary = TelemetrySummaryRepo(session)
+                summary = TelemetrySummaryRepository(session)
                 dispatch = {
                     "increment": summary.increment,
-                    "insert_span": TelemetrySpansRepo(session).insert,
+                    "insert_span": TelemetrySpansRepository(session).insert,
                     "set_model": summary.set_model,
                     "set_context": summary.set_context,
                     "set_quota": summary.set_quota,
-                    "record_file_access": FileAccessRepo(session).record,
+                    "record_file_access": FileAccessRepository(session).record,
                 }
                 handler = dispatch.get(fn_name)
                 if handler is not None:

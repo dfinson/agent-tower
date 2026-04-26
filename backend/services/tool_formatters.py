@@ -98,7 +98,7 @@ def _trim_worktree_paths(text: str) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class _FmtSpec:
+class _FormatSpec:
     """Declarative spec for a simple single-arg formatter."""
 
     keys: tuple[str, ...]  # arg keys to try, first non-empty wins
@@ -111,7 +111,7 @@ class _FmtSpec:
     separator: str = " "  # between prefix and value
 
 
-def _build_formatter(spec: _FmtSpec, no_truncate: bool = False) -> Callable[[ToolArgs], str]:
+def _build_formatter(spec: _FormatSpec, no_truncate: bool = False) -> Callable[[ToolArgs], str]:
     """Build a formatter function from a declarative spec.
 
     When *no_truncate* is True the ``truncate`` field on *spec* is ignored,
@@ -155,76 +155,76 @@ def _static_hint(ok: str, fail: str = "→ FAIL") -> Callable[[str, bool], str]:
 
 
 # Declarative specs for simple formatters
-_SIMPLE_SPECS: dict[str, _FmtSpec] = {
+_SIMPLE_SPECS: dict[str, _FormatSpec] = {
     # ---- Copilot / generic snake_case tools ---------------------------------
-    "bash": _FmtSpec(("command",), "$", "bash", truncate=55, trim_paths=True),
-    "run_in_terminal": _FmtSpec(("command",), "$", "Run command", truncate=55, trim_paths=True),
-    "create_file": _FmtSpec(("filePath", "file_path"), "Create", "Create file", use_path=True),
-    "replace_string_in_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
-    "edit": _FmtSpec(("path", "file_path"), "Edit", "Edit file", use_path=True),
-    "grep_search": _FmtSpec(("query", "pattern"), "Grep:", "Grep search", truncate=40, quote=True),
-    "semantic_search": _FmtSpec(("query",), "Search:", "Semantic search", truncate=40, quote=True),
-    "file_search": _FmtSpec(("query", "pattern"), "Find:", "File search", truncate=40, quote=True),
-    "list_dir": _FmtSpec(("path", "directory"), "List", "List directory", use_path=True),
-    "runSubagent": _FmtSpec(("description",), "Subagent:", "Run subagent", truncate=50),
-    "search_subagent": _FmtSpec(("description", "query"), "Search agent:", "Search agent", truncate=45),
-    "get_terminal_output": _FmtSpec(("id",), "Read terminal", "Read terminal"),
-    "tool_search_tool_regex": _FmtSpec(("pattern",), "Find tools:", "Find tools", truncate=40, quote=True),
-    "vscode_listCodeUsages": _FmtSpec(("symbol", "query"), "Usages:", "Find usages", truncate=45),
-    "glob": _FmtSpec(("pattern",), "Glob:", "Glob", truncate=50),
-    "grep": _FmtSpec(("pattern", "query"), "Grep:", "Grep", truncate=40, quote=True),
-    "write": _FmtSpec(("path",), "Write", "Write file", use_path=True),
-    "str_replace_based_edit_tool": _FmtSpec(("path",), "Edit", "Edit file", use_path=True),
-    "str_replace_editor": _FmtSpec(("path",), "Edit", "Edit file", use_path=True),
+    "bash": _FormatSpec(("command",), "$", "bash", truncate=55, trim_paths=True),
+    "run_in_terminal": _FormatSpec(("command",), "$", "Run command", truncate=55, trim_paths=True),
+    "create_file": _FormatSpec(("filePath", "file_path"), "Create", "Create file", use_path=True),
+    "replace_string_in_file": _FormatSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "edit": _FormatSpec(("path", "file_path"), "Edit", "Edit file", use_path=True),
+    "grep_search": _FormatSpec(("query", "pattern"), "Grep:", "Grep search", truncate=40, quote=True),
+    "semantic_search": _FormatSpec(("query",), "Search:", "Semantic search", truncate=40, quote=True),
+    "file_search": _FormatSpec(("query", "pattern"), "Find:", "File search", truncate=40, quote=True),
+    "list_dir": _FormatSpec(("path", "directory"), "List", "List directory", use_path=True),
+    "runSubagent": _FormatSpec(("description",), "Subagent:", "Run subagent", truncate=50),
+    "search_subagent": _FormatSpec(("description", "query"), "Search agent:", "Search agent", truncate=45),
+    "get_terminal_output": _FormatSpec(("id",), "Read terminal", "Read terminal"),
+    "tool_search_tool_regex": _FormatSpec(("pattern",), "Find tools:", "Find tools", truncate=40, quote=True),
+    "vscode_listCodeUsages": _FormatSpec(("symbol", "query"), "Usages:", "Find usages", truncate=45),
+    "glob": _FormatSpec(("pattern",), "Glob:", "Glob", truncate=50),
+    "grep": _FormatSpec(("pattern", "query"), "Grep:", "Grep", truncate=40, quote=True),
+    "write": _FormatSpec(("path",), "Write", "Write file", use_path=True),
+    "str_replace_based_edit_tool": _FormatSpec(("path",), "Edit", "Edit file", use_path=True),
+    "str_replace_editor": _FormatSpec(("path",), "Edit", "Edit file", use_path=True),
     # ---- Copilot-only tools missing from original registry ------------------
-    "web_search": _FmtSpec(("query",), "Search:", "Web search", truncate=40, quote=True),
-    "insert_edit_into_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
-    "get_changed_files": _FmtSpec((), "", "Get changed files"),
-    "run_vs_code_task": _FmtSpec(("task",), "Run task:", "Run task", truncate=40),
-    "open_file": _FmtSpec(("filePath", "file_path"), "Open", "Open file", use_path=True),
-    "skill": _FmtSpec(("skill",), "Skill:", "Run skill", truncate=50),
+    "web_search": _FormatSpec(("query",), "Search:", "Web search", truncate=40, quote=True),
+    "insert_edit_into_file": _FormatSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "get_changed_files": _FormatSpec((), "", "Get changed files"),
+    "run_vs_code_task": _FormatSpec(("task",), "Run task:", "Run task", truncate=40),
+    "open_file": _FormatSpec(("filePath", "file_path"), "Open", "Open file", use_path=True),
+    "skill": _FormatSpec(("skill",), "Skill:", "Run skill", truncate=50),
     # ---- Claude SDK PascalCase tools ----------------------------------------
-    "Bash": _FmtSpec(("command",), "$", "bash", truncate=55, trim_paths=True),
-    "Glob": _FmtSpec(("pattern",), "Glob:", "Glob", truncate=50),
-    "LS": _FmtSpec(("path",), "List", "List directory", use_path=True),
-    "Task": _FmtSpec(("description",), "Task:", "Run task", truncate=50),
-    "WebSearch": _FmtSpec(("query",), "Search:", "Web search", truncate=40, quote=True),
-    "TodoRead": _FmtSpec((), "", "Read todo list"),
-    "TodoWrite": _FmtSpec((), "", "Update todo list"),
-    "Think": _FmtSpec(("thought",), "Think:", "Think", truncate=55),
-    "NotebookRead": _FmtSpec(("notebook_path",), "Read", "Read notebook", use_path=True),
-    "NotebookEdit": _FmtSpec(("notebook_path",), "Edit", "Edit notebook", use_path=True),
-    "ListMcpResourceTemplates": _FmtSpec((), "", "List MCP resource templates"),
-    "ListMcpResources": _FmtSpec((), "", "List MCP resources"),
+    "Bash": _FormatSpec(("command",), "$", "bash", truncate=55, trim_paths=True),
+    "Glob": _FormatSpec(("pattern",), "Glob:", "Glob", truncate=50),
+    "LS": _FormatSpec(("path",), "List", "List directory", use_path=True),
+    "Task": _FormatSpec(("description",), "Task:", "Run task", truncate=50),
+    "WebSearch": _FormatSpec(("query",), "Search:", "Web search", truncate=40, quote=True),
+    "TodoRead": _FormatSpec((), "", "Read todo list"),
+    "TodoWrite": _FormatSpec((), "", "Update todo list"),
+    "Think": _FormatSpec(("thought",), "Think:", "Think", truncate=55),
+    "NotebookRead": _FormatSpec(("notebook_path",), "Read", "Read notebook", use_path=True),
+    "NotebookEdit": _FormatSpec(("notebook_path",), "Edit", "Edit notebook", use_path=True),
+    "ListMcpResourceTemplates": _FormatSpec((), "", "List MCP resource templates"),
+    "ListMcpResources": _FormatSpec((), "", "List MCP resources"),
     # Complex arg shapes (file_path first, path fallback) — kept here to
     # co-locate with related PascalCase entries; registered via _build_formatter.
-    "Write": _FmtSpec(("file_path", "path"), "Write", "Write file", use_path=True),
-    "Edit": _FmtSpec(("file_path", "path"), "Edit", "Edit file", use_path=True),
-    "Grep": _FmtSpec(("pattern",), "Grep:", "Grep", truncate=40, quote=True),
-    "Sql": _FmtSpec(("query",), "SQL:", "SQL query", truncate=55, quote=True),
+    "Write": _FormatSpec(("file_path", "path"), "Write", "Write file", use_path=True),
+    "Edit": _FormatSpec(("file_path", "path"), "Edit", "Edit file", use_path=True),
+    "Grep": _FormatSpec(("pattern",), "Grep:", "Grep", truncate=40, quote=True),
+    "Sql": _FormatSpec(("query",), "SQL:", "SQL query", truncate=55, quote=True),
     # ---- Additional aliases / less common tools ----------------------------
-    "delete_file": _FmtSpec(("filePath", "file_path", "path"), "Delete", "Delete file", use_path=True),
-    "edit_file": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
-    "write_file": _FmtSpec(("filePath", "file_path", "path"), "Write", "Write file", use_path=True),
-    "create": _FmtSpec(("path", "file_path"), "Create", "Create file", use_path=True),
-    "create_or_update_file": _FmtSpec(("path", "file_path"), "Create/update", "Create or update file", use_path=True),
-    "apply_patch": _FmtSpec(("patch",), "Apply patch", "Apply patch", truncate=40),
-    "view_image": _FmtSpec(("filePath", "file_path"), "View image", "View image", use_path=True),
-    "run_vscode_command": _FmtSpec(("command",), "VS Code:", "VS Code command", truncate=40),
-    "git_diff": _FmtSpec(("path",), "Git diff", "Git diff", use_path=True),
-    "git_status": _FmtSpec((), "", "Git status"),
-    "git_log": _FmtSpec(("path",), "Git log", "Git log", use_path=True),
-    "readFile": _FmtSpec(("filePath", "file_path"), "Read", "Read file", use_path=True),
-    "editFile": _FmtSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
-    "listDir": _FmtSpec(("path",), "List", "List directory", use_path=True),
-    "Agent": _FmtSpec(("description",), "Agent:", "Run agent", truncate=50),
+    "delete_file": _FormatSpec(("filePath", "file_path", "path"), "Delete", "Delete file", use_path=True),
+    "edit_file": _FormatSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "write_file": _FormatSpec(("filePath", "file_path", "path"), "Write", "Write file", use_path=True),
+    "create": _FormatSpec(("path", "file_path"), "Create", "Create file", use_path=True),
+    "create_or_update_file": _FormatSpec(("path", "file_path"), "Create/update", "Create or update file", use_path=True),
+    "apply_patch": _FormatSpec(("patch",), "Apply patch", "Apply patch", truncate=40),
+    "view_image": _FormatSpec(("filePath", "file_path"), "View image", "View image", use_path=True),
+    "run_vscode_command": _FormatSpec(("command",), "VS Code:", "VS Code command", truncate=40),
+    "git_diff": _FormatSpec(("path",), "Git diff", "Git diff", use_path=True),
+    "git_status": _FormatSpec((), "", "Git status"),
+    "git_log": _FormatSpec(("path",), "Git log", "Git log", use_path=True),
+    "readFile": _FormatSpec(("filePath", "file_path"), "Read", "Read file", use_path=True),
+    "editFile": _FormatSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
+    "listDir": _FormatSpec(("path",), "List", "List directory", use_path=True),
+    "Agent": _FormatSpec(("description",), "Agent:", "Run agent", truncate=50),
     # ---- Legacy / rare aliases (humanize_tool_name fallback is fine) --------
-    "cat": _FmtSpec(("path",), "Read", "Read file", use_path=True),
-    "find": _FmtSpec(("pattern", "path"), "Find:", "Find", truncate=40),
-    "rg": _FmtSpec(("pattern",), "Ripgrep:", "Ripgrep", truncate=40, quote=True),
-    "fetch_url": _FmtSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
-    "web_fetch": _FmtSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
-    "WebFetch": _FmtSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
+    "cat": _FormatSpec(("path",), "Read", "Read file", use_path=True),
+    "find": _FormatSpec(("pattern", "path"), "Find:", "Find", truncate=40),
+    "rg": _FormatSpec(("pattern",), "Ripgrep:", "Ripgrep", truncate=40, quote=True),
+    "fetch_url": _FormatSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
+    "web_fetch": _FormatSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
+    "WebFetch": _FormatSpec(("url",), "Fetch:", "Fetch URL", truncate=50),
 }
 
 

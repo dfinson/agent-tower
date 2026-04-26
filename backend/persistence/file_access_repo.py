@@ -13,7 +13,7 @@ from sqlalchemy import text
 from backend.persistence.repository import BaseRepository
 
 
-class FileAccessRepo(BaseRepository):
+class FileAccessRepository(BaseRepository):
     """Append-only log of file reads and writes per job."""
 
     async def record(

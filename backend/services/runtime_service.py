@@ -784,7 +784,7 @@ class RuntimeService:
     async def _init_telemetry_row(self, job_id: str, config: SessionConfig) -> None:
         try:
             async with self._session_factory() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                 repo_path = ""
                 branch_name = ""
@@ -798,7 +798,7 @@ class RuntimeService:
                         sdk_name = job_for_tel.sdk or ""
                 except Exception:
                     log.debug("telemetry_init_job_lookup_failed", job_id=job_id, exc_info=True)
-                await TelemetrySummaryRepo(session).init_job(
+                await TelemetrySummaryRepository(session).init_job(
                     job_id,
                     sdk=sdk_name or "unknown",
                     model=config.model or "",
@@ -987,7 +987,7 @@ class RuntimeService:
         # Finalize the summary row with terminal status and duration.
         try:
             async with self._session_factory() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                 # Determine status from job state
                 status = "review"
@@ -1006,7 +1006,7 @@ class RuntimeService:
                     log.debug("telemetry_finalize_status_lookup_failed", job_id=job_id, exc_info=True)
                 duration = int((_time.monotonic() - wall_start) * 1000)
 
-                await TelemetrySummaryRepo(session).finalize(
+                await TelemetrySummaryRepository(session).finalize(
                     job_id,
                     status=status,
                     duration_ms=duration,
@@ -1074,9 +1074,9 @@ class RuntimeService:
 
                 # Telemetry report – load from the persisted summary row
                 try:
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
-                    summary = await TelemetrySummaryRepo(session).get(job_id)
+                    summary = await TelemetrySummaryRepository(session).get(job_id)
                     if summary is not None:
                         await artifact_svc.store_telemetry_report(
                             job_id,

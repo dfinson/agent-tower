@@ -20,20 +20,20 @@ import structlog
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.persistence.file_access_repo import FileAccessRepo
-from backend.persistence.observations_repo import ObservationsRepo
-from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
-from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+from backend.persistence.file_access_repo import FileAccessRepository
+from backend.persistence.observations_repo import ObservationsRepository
+from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
 log = structlog.get_logger()
 
 
 async def run_analysis(session: AsyncSession) -> int:
     """Run all analysis passes. Returns the number of observations written."""
-    obs_repo = ObservationsRepo(session)
-    file_repo = FileAccessRepo(session)
-    spans_repo = TelemetrySpansRepo(session)
-    summary_repo = TelemetrySummaryRepo(session)
+    obs_repo = ObservationsRepository(session)
+    file_repo = FileAccessRepository(session)
+    spans_repo = TelemetrySpansRepository(session)
+    summary_repo = TelemetrySummaryRepository(session)
     count = 0
     count += await _analyse_file_rereads(file_repo, obs_repo)
     count += await _analyse_tool_failures(spans_repo, obs_repo)
@@ -45,7 +45,7 @@ async def run_analysis(session: AsyncSession) -> int:
     return count
 
 
-async def _analyse_file_rereads(file_repo: FileAccessRepo, obs_repo: ObservationsRepo) -> int:
+async def _analyse_file_rereads(file_repo: FileAccessRepository, obs_repo: ObservationsRepository) -> int:
     """Find files read excessively across jobs."""
     rows = await file_repo.reread_hotspots()
     count = 0
@@ -70,7 +70,7 @@ async def _analyse_file_rereads(file_repo: FileAccessRepo, obs_repo: Observation
     return count
 
 
-async def _analyse_tool_failures(spans_repo: TelemetrySpansRepo, obs_repo: ObservationsRepo) -> int:
+async def _analyse_tool_failures(spans_repo: TelemetrySpansRepository, obs_repo: ObservationsRepository) -> int:
     """Find tools with high failure rates."""
     rows = await spans_repo.tool_failure_hotspots()
     count = 0
@@ -97,7 +97,7 @@ async def _analyse_tool_failures(spans_repo: TelemetrySpansRepo, obs_repo: Obser
     return count
 
 
-async def _analyse_turn_escalation(summary_repo: TelemetrySummaryRepo, obs_repo: ObservationsRepo) -> int:
+async def _analyse_turn_escalation(summary_repo: TelemetrySummaryRepository, obs_repo: ObservationsRepository) -> int:
     """Find jobs where cost/turn escalates significantly in the second half."""
     rows = await summary_repo.turn_escalation_jobs()
     if len(rows) < 3:
@@ -119,7 +119,7 @@ async def _analyse_turn_escalation(summary_repo: TelemetrySummaryRepo, obs_repo:
     return 1
 
 
-async def _analyse_retry_waste(spans_repo: TelemetrySpansRepo, obs_repo: ObservationsRepo) -> int:
+async def _analyse_retry_waste(spans_repo: TelemetrySpansRepository, obs_repo: ObservationsRepository) -> int:
     """Find tools where retries are common and costly."""
     rows = await spans_repo.retry_hotspots()
     count = 0
@@ -148,7 +148,7 @@ async def _analyse_retry_waste(spans_repo: TelemetrySpansRepo, obs_repo: Observa
     return count
 
 
-async def _analyse_compaction_storms(summary_repo: TelemetrySummaryRepo, obs_repo: ObservationsRepo) -> int:
+async def _analyse_compaction_storms(summary_repo: TelemetrySummaryRepository, obs_repo: ObservationsRepository) -> int:
     """Detect jobs with excessive context compactions."""
     rows = await summary_repo.compaction_storm_jobs()
     if len(rows) < 2:
@@ -183,7 +183,7 @@ async def _analyse_compaction_storms(summary_repo: TelemetrySummaryRepo, obs_rep
 
 
 async def _analyse_cache_efficiency_regression(
-    summary_repo: TelemetrySummaryRepo, obs_repo: ObservationsRepo,
+    summary_repo: TelemetrySummaryRepository, obs_repo: ObservationsRepository,
 ) -> int:
     """Detect drops in cache hit rate compared to the prior period."""
     row = await summary_repo.cache_efficiency_periods()
