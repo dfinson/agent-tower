@@ -13,10 +13,12 @@ from typing import Any, Protocol, runtime_checkable
 
 import structlog
 
+from backend.models.domain import CodePlaneError
+
 log = structlog.get_logger()
 
 
-class NamingError(Exception):
+class NamingError(CodePlaneError):
     """Raised when the LLM fails to produce valid names after all retries."""
 
 

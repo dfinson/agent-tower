@@ -8,7 +8,7 @@ from typing import Annotated, Any
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.api_schemas import (
@@ -335,8 +335,6 @@ async def analytics_job_context(
 
     data = await TelemetrySummaryRepo(session).job_context(job_id)
     if data is None:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail="Job telemetry not found")
     return JobContextResponse(**data)
 

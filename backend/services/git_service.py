@@ -12,13 +12,15 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from backend.models.domain import CodePlaneError
+
 if TYPE_CHECKING:
     from backend.config import CPLConfig
 
 log = structlog.get_logger()
 
 
-class GitError(Exception):
+class GitError(CodePlaneError):
     """Raised when a git subprocess fails."""
 
     def __init__(self, message: str, stderr: str = "") -> None:
