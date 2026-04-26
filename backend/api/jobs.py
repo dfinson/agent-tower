@@ -406,21 +406,21 @@ async def get_job_logs(
     events = await svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=limit)
     lines = []
     for event in events:
-        p = event.payload
-        event_level = p.get("level", "info")
+        payload = event.payload
+        event_level = payload.get("level", "info")
         if _level_order.get(event_level, 1) < min_priority:
             continue
-        event_session = p.get("session_number")
+        event_session = payload.get("session_number")
         if session is not None and (event_session or 1) != session:
             continue
         lines.append(
             LogLinePayload(
                 job_id=event.job_id,
-                seq=p.get("seq", 0),
-                timestamp=p.get("timestamp", event.timestamp),
+                seq=payload.get("seq", 0),
+                timestamp=payload.get("timestamp", event.timestamp),
                 level=event_level,
-                message=p.get("message", ""),
-                context=p.get("context"),
+                message=payload.get("message", ""),
+                context=payload.get("context"),
                 session_number=event_session,
             )
         )
@@ -553,25 +553,25 @@ async def get_job_steps(
 
     result: list[PlanStepPayload] = []
     for sid in seen_order:
-        p = latest_by_id[sid]
+        step_payload = latest_by_id[sid]
         # Skip pending steps that were never started (dropped on finalization)
-        if p.get("status") == "pending":
+        if step_payload.get("status") == "pending":
             continue
         result.append(
             PlanStepPayload(
                 job_id=job_id,
-                plan_step_id=p.get("plan_step_id", ""),
-                label=p.get("label", ""),
-                summary=p.get("summary"),
-                status=p.get("status", "pending"),
-                order=p.get("order", 0),
-                tool_count=p.get("tool_count", 0),
-                files_written=p.get("files_written"),
-                started_at=p.get("started_at"),
-                completed_at=p.get("completed_at"),
-                duration_ms=p.get("duration_ms"),
-                start_sha=p.get("start_sha"),
-                end_sha=p.get("end_sha"),
+                plan_step_id=step_payload.get("plan_step_id", ""),
+                label=step_payload.get("label", ""),
+                summary=step_payload.get("summary"),
+                status=step_payload.get("status", "pending"),
+                order=step_payload.get("order", 0),
+                tool_count=step_payload.get("tool_count", 0),
+                files_written=step_payload.get("files_written"),
+                started_at=step_payload.get("started_at"),
+                completed_at=step_payload.get("completed_at"),
+                duration_ms=step_payload.get("duration_ms"),
+                start_sha=step_payload.get("start_sha"),
+                end_sha=step_payload.get("end_sha"),
             )
         )
     return StepListResponse(items=result)
@@ -600,12 +600,12 @@ async def get_step_diff(
     for ev in events:
         if ev.payload.get("plan_step_id") == step_id:
             # Take the latest event for this step (events are chronological)
-            s = ev.payload.get("start_sha")
-            e = ev.payload.get("end_sha")
-            if s:
-                start_sha = s
-            if e:
-                end_sha = e
+            start = ev.payload.get("start_sha")
+            end = ev.payload.get("end_sha")
+            if start:
+                start_sha = start
+            if end:
+                end_sha = end
 
     # Fallback: try StepRow table (internal step IDs like step-XXXX)
     if not start_sha or not end_sha:
@@ -785,15 +785,15 @@ async def search_transcript(
     events = await event_repo.search_transcript(job_id, q, roles=roles, step_id=step_id, limit=limit)
     results = []
     for evt in events:
-        p = evt.payload
+        payload = evt.payload
         results.append(
             TranscriptSearchResult(
-                seq=int(p.get("seq", 0)),
-                role=str(p.get("role", "")),
-                content=str(p.get("content", "")),
-                tool_name=str(p.get("tool_name")) if p.get("tool_name") else None,
-                step_id=str(p.get("step_id")) if p.get("step_id") else None,
-                step_number=int(p["step_number"]) if p.get("step_number") is not None else None,
+                seq=int(payload.get("seq", 0)),
+                role=str(payload.get("role", "")),
+                content=str(payload.get("content", "")),
+                tool_name=str(payload.get("tool_name")) if payload.get("tool_name") else None,
+                step_id=str(payload.get("step_id")) if payload.get("step_id") else None,
+                step_number=int(payload["step_number"]) if payload.get("step_number") is not None else None,
                 timestamp=evt.timestamp,
             )
         )
