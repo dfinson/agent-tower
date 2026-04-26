@@ -1326,7 +1326,7 @@ class RuntimeService:
         await self._clear_sdk_session_id(job_id)
         try:
             fallback_prompt = await self._build_resume_handoff_prompt(job_id, config.prompt)
-        except Exception:
+        except (OSError, KeyError, ValueError, LookupError):
             log.warning("resume_handoff_prompt_build_failed", job_id=job_id, exc_info=True)
             return _SessionAttemptResult(error_reason="Resume handoff prompt build failed")
 
