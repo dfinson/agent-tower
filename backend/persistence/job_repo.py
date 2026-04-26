@@ -270,7 +270,8 @@ class JobRepository(BaseRepository):
 
     async def update_failure_reason(self, job_id: str, reason: str) -> None:
         """Set the failure reason on a job row."""
-        from datetime import UTC, datetime as dt
+        from datetime import UTC
+        from datetime import datetime as dt
         await self._update_row(job_id, failure_reason=reason, completed_at=dt.now(UTC))
 
     async def update_resolution(self, job_id: str, resolution: str, pr_url: str | None = None) -> None:

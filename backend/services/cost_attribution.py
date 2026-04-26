@@ -20,10 +20,6 @@ from backend.services.tool_classifier import classify_tool
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
-    from backend.persistence.file_access_repo import FileAccessRepository
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
 
 class CostBucket(TypedDict):

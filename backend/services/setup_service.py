@@ -18,6 +18,7 @@ from backend.config import get_codeplane_dir, init_config, load_config, save_con
 
 # Re-export everything that external callers import from this module.
 from backend.services.setup_checks import (  # noqa: F401
+    _SYSTEM,
     DEPENDENCIES,
     AgentAuthStatus,
     AgentCLIStatus,
@@ -26,7 +27,6 @@ from backend.services.setup_checks import (  # noqa: F401
     Dependency,
     _console,
     _render_check_line,
-    _SYSTEM,
     check_agent_cli,
     render_checks,
     render_summary,
@@ -35,7 +35,6 @@ from backend.services.setup_checks import (  # noqa: F401
 from backend.services.setup_wizard import (  # noqa: F401
     execute_setup_wizard,
 )
-
 
 # ---------------------------------------------------------------------------
 # Inline fix helpers (used by preflight)

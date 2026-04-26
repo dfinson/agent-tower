@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, cast
 
 import structlog
 
-from backend.config import build_session_config, DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
+from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT, build_session_config
 from backend.models.domain import (
     TERMINAL_STATES,
     CodePlaneError,
@@ -279,7 +279,6 @@ class RuntimeService:
         If any step fails, the job is transitioned to ``failed`` so the user
         sees the error instead of a stuck-in-preparing state.
         """
-        from backend.persistence.job_repo import JobRepository
 
         try:
             async with self._session_factory() as session:

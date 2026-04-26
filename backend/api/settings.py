@@ -11,6 +11,8 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.config import (
+    DEFAULT_SELF_REVIEW_PROMPT,
+    DEFAULT_VERIFY_PROMPT,
     CPLConfig,
     load_config,
     register_repo,
@@ -36,7 +38,6 @@ from backend.models.api_schemas import (
 )
 from backend.services.git_service import GitError, GitService
 from backend.services.platform_adapter import PlatformRegistry, detect_platform
-from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
 
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
 

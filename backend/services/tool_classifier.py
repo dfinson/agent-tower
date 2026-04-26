@@ -7,9 +7,6 @@ from tool arguments.
 
 from __future__ import annotations
 
-import json
-from typing import Any
-
 from backend.services.parsing_utils import ensure_dict
 
 TOOL_CATEGORIES: dict[str, str] = {

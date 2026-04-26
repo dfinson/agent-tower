@@ -51,6 +51,7 @@ class _MergeOutcome(StrEnum):
 
 
 from backend.validators import REF_PATTERN as _REF_PATTERN
+
 _PR_TITLE_MAX_PROMPT_LEN = 80
 _CHERRY_PICK_ALREADY_APPLIED_PATTERNS = (
     "empty commit set passed",

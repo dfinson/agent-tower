@@ -32,7 +32,6 @@ class CompletionResult:
 # Re-export for backwards compatibility — canonical location is backend.models.domain
 from backend.models.domain import AgentSDK  # noqa: E402
 
-
 # Model prefixes accepted by each SDK.  An empty tuple means "any model".
 _SDK_MODEL_PREFIXES: dict[AgentSDK, tuple[str, ...]] = {
     AgentSDK.copilot: (),  # Copilot proxies to multiple providers — any model

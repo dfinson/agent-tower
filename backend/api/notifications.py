@@ -6,7 +6,6 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter
 
 from backend.models.api_schemas import (
-    CamelModel,
     SubscriptionRequest,
     UnsubscribeRequest,
     VapidKeyResponse,
