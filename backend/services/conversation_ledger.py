@@ -11,6 +11,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
 
+import structlog
+
+log = structlog.get_logger()
+
 
 class MessageCategory(StrEnum):
     """Category of a conversation message for prompt composition."""
@@ -154,6 +158,7 @@ def make_counter(model: str) -> TokenCounter:
     try:
         return TiktokenCounter(model)
     except Exception:
+        log.debug("tiktoken_counter_failed", model=model)
         pass
 
     if "claude" in model.lower():

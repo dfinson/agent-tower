@@ -402,6 +402,7 @@ def _extract_json(raw: str, job_id: str, original_task: str, session_number: int
         json.loads(text)
         return text
     except (json.JSONDecodeError, ValueError):
+        log.debug("summarization_direct_json_parse_failed", job_id=job_id, text_len=len(text))
         pass
 
     # Try to extract first JSON object
@@ -413,6 +414,7 @@ def _extract_json(raw: str, job_id: str, original_task: str, session_number: int
             log.warning("summarization_json_extracted_from_text", job_id=job_id)
             return candidate
         except (json.JSONDecodeError, ValueError):
+            log.debug("summarization_extracted_json_parse_failed", job_id=job_id)
             pass
 
     # Fallback: store raw text wrapped in a minimal envelope

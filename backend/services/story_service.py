@@ -192,6 +192,7 @@ async def _build_references(
                 if isinstance(edits, list) and edits:
                     ref["editCount"] = len(edits)
             except (json.JSONDecodeError, TypeError):
+                log.debug("edit_motivations_parse_failed", raw_edits=raw_edits[:80] if isinstance(raw_edits, str) else type(raw_edits).__name__)
                 pass
         seen[key] = ref
 
@@ -381,6 +382,7 @@ class StoryService:
                 try:
                     return json.loads(cached)
                 except (json.JSONDecodeError, TypeError):
+                    log.debug("story_cache_parse_failed", job_id=job_id)
                     pass
             try:
                 return await self._generate(session, job_id, verbosity=verbosity)
