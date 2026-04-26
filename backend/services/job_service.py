@@ -316,7 +316,7 @@ class JobService:
 
         try:
             title, description, branch, worktree_name = await self._resolve_job_name(spec, resolved_repo)
-        except NamingError:
+        except NamingError as exc:
             import hashlib
 
             h = hashlib.sha256(f"{spec.prompt}{now.isoformat()}".encode()).hexdigest()[:12]
