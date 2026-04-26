@@ -458,7 +458,7 @@ class RuntimeService:
             job_repo = JobRepository(session)
             reloaded = await job_repo.get(job_id)
         if reloaded is None:
-            raise ValueError(f"Job {job_id} not found after recovery reset")
+            raise JobNotFoundError(f"Job {job_id} not found after recovery reset")
 
         try:
             await self.start_or_enqueue(
@@ -493,7 +493,7 @@ class RuntimeService:
             job_repo = JobRepository(session)
             final_job = await job_repo.get(job_id)
         if final_job is None:
-            raise ValueError(f"Job {job_id} not found after recovery start")
+            raise JobNotFoundError(f"Job {job_id} not found after recovery start")
         return final_job
 
     async def _rollback_recovery(self, job_id: str, snapshot: _RecoverySnapshot) -> None:
@@ -884,7 +884,9 @@ class RuntimeService:
                 svc = self._make_job_service(session)
                 current_job = await svc.get_job(job_id)
                 if current_job is None:
-                    raise ValueError(f"Job {job_id} not found before post-conflict merge")
+                    from backend.services.job_service import JobNotFoundError
+
+                    raise JobNotFoundError(f"Job {job_id} not found before post-conflict merge")
 
                 log.info("job_attempting_post_conflict_merge", job_id=job_id)
                 resolved, final_pr_url, _, _ = await svc.execute_resolve(
@@ -2238,6 +2240,7 @@ class RuntimeService:
         the work is in the base branch and a follow-up must be started as a fresh job.
         """
         from backend.models.domain import PermissionMode
+        from backend.services.job_service import StateConflictError
 
         normalized_instruction = instruction.strip()
         if not normalized_instruction:
@@ -2251,7 +2254,7 @@ class RuntimeService:
             # base branch, so a new job should be started from scratch instead.
             _merged_resolutions = (Resolution.merged, Resolution.pr_created)
             if original.resolution in _merged_resolutions:
-                raise ValueError(
+                raise StateConflictError(
                     f"Job {job_id} has already been merged (resolution={original.resolution.value}). "
                     "Start a new job instead of creating a follow-up."
                 )
@@ -2355,7 +2358,7 @@ class RuntimeService:
             job_repo = JobRepository(session)
             job = await job_repo.get(job_id)
         if job is None:
-            raise ValueError(f"Job {job_id} not found after resume reset")
+            raise JobNotFoundError(f"Job {job_id} not found after resume reset")
 
         try:
             await self.start_or_enqueue(
@@ -2416,7 +2419,7 @@ class RuntimeService:
             job_repo = JobRepository(session)
             reloaded = await job_repo.get(job_id)
         if reloaded is None:
-            raise ValueError(f"Job {job_id} not found after start")
+            raise JobNotFoundError(f"Job {job_id} not found after start")
         return reloaded
 
     async def _cleanup_job_worktree(self, job: Job) -> None:
