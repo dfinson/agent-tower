@@ -1221,10 +1221,10 @@ async def get_job_telemetry(
         bucket = TelemetryCostBucket(
             dimension=row.get("dimension", "unknown"),
             bucket=row.get("bucket", "unknown"),
-            cost_usd=float(row.get("cost_usd", 0) or 0),
-            input_tokens=int(row.get("input_tokens", 0) or 0),
-            output_tokens=int(row.get("output_tokens", 0) or 0),
-            call_count=int(row.get("call_count", 0) or 0),
+            cost_usd=float(row.get("cost_usd", 0)),
+            input_tokens=int(row.get("input_tokens", 0)),
+            output_tokens=int(row.get("output_tokens", 0)),
+            call_count=int(row.get("call_count", 0)),
         )
         dimension = str(row.get("dimension", "unknown"))
         grouped_dimensions.setdefault(dimension, []).append(bucket)
@@ -1256,11 +1256,11 @@ async def get_job_telemetry(
     _MANY_TURNS = 20
     _MANY_FILES = 15
     signals: list[str] = []
-    diff_lines = int(summary.get("diff_lines_added", 0) or 0) + int(
-        summary.get("diff_lines_removed", 0) or 0
+    diff_lines = int(summary.get("diff_lines_added", 0)) + int(
+        summary.get("diff_lines_removed", 0)
     )
-    total_turns = int(summary.get("total_turns", 0) or 0)
-    unique_files = int(file_stats.get("unique_files", 0) or 0)
+    total_turns = int(summary.get("total_turns", 0))
+    unique_files = int(file_stats.get("unique_files", 0))
     if diff_lines > _LARGE_DIFF_LINES:
         signals.append("large_diff")
     if total_turns > _MANY_TURNS:
@@ -1323,27 +1323,27 @@ async def get_job_telemetry(
             edit_efficiency=grouped_dimensions.get("edit_efficiency", []),
         ),
         turn_economics=TelemetryTurnEconomics(
-            total_turns=int(summary.get("total_turns", 0) or 0),
-            peak_turn_cost_usd=float(summary.get("peak_turn_cost_usd", 0) or 0),
-            avg_turn_cost_usd=float(summary.get("avg_turn_cost_usd", 0) or 0),
-            cost_first_half_usd=float(summary.get("cost_first_half_usd", 0) or 0),
-            cost_second_half_usd=float(summary.get("cost_second_half_usd", 0) or 0),
+            total_turns=int(summary.get("total_turns", 0)),
+            peak_turn_cost_usd=float(summary.get("peak_turn_cost_usd", 0)),
+            avg_turn_cost_usd=float(summary.get("avg_turn_cost_usd", 0)),
+            cost_first_half_usd=float(summary.get("cost_first_half_usd", 0)),
+            cost_second_half_usd=float(summary.get("cost_second_half_usd", 0)),
             turn_curve=turn_curve,
         ),
         file_access=TelemetryFileAccess(
             stats=TelemetryFileStats(
-                total_accesses=int(file_stats.get("total_accesses", 0) or 0),
-                unique_files=int(file_stats.get("unique_files", 0) or 0),
-                total_reads=int(file_stats.get("total_reads", 0) or 0),
-                total_writes=int(file_stats.get("total_writes", 0) or 0),
-                reread_count=int(file_stats.get("reread_count", 0) or 0),
+                total_accesses=int(file_stats.get("total_accesses", 0)),
+                unique_files=int(file_stats.get("unique_files", 0)),
+                total_reads=int(file_stats.get("total_reads", 0)),
+                total_writes=int(file_stats.get("total_writes", 0)),
+                reread_count=int(file_stats.get("reread_count", 0)),
             ),
             top_files=[
                 TelemetryFileEntry(
                     file_path=str(row.get("file_path", "")),
-                    access_count=int(row.get("access_count", 0) or 0),
-                    read_count=int(row.get("read_count", 0) or 0),
-                    write_count=int(row.get("write_count", 0) or 0),
+                    access_count=int(row.get("access_count", 0)),
+                    read_count=int(row.get("read_count", 0)),
+                    write_count=int(row.get("write_count", 0)),
                 )
                 for row in top_files
             ],
