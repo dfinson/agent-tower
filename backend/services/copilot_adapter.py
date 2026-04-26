@@ -98,13 +98,16 @@ class CopilotAdapter(BaseAgentAdapter):
     @staticmethod
     async def _stop_client(client: CopilotClient) -> None:
         """Stop a CopilotClient, terminating its CLI server process."""
+        from copilot.client import ProcessExitedError
+        from copilot.jsonrpc import JsonRpcError
+
         try:
             await asyncio.wait_for(client.stop(), timeout=CLIENT_STOP_TIMEOUT_S)
         except TimeoutError:
             log.warning("copilot_client_stop_timeout_forcing")
             with contextlib.suppress(Exception):
                 await client.force_stop()
-        except Exception:
+        except (ProcessExitedError, JsonRpcError, OSError):
             log.warning("copilot_client_stop_failed", exc_info=True)
             with contextlib.suppress(Exception):
                 await client.force_stop()
@@ -294,7 +297,7 @@ class CopilotAdapter(BaseAgentAdapter):
         if data.arguments is not None:
             try:
                 args_str = _json.dumps(data.arguments) if not isinstance(data.arguments, str) else data.arguments
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 log.debug("tool_args_serialize_failed", tool_id=tool_id, exc_info=True)
                 args_str = str(data.arguments)
         t_name = data.tool_name or data.mcp_tool_name or "tool"
@@ -687,14 +690,16 @@ class CopilotAdapter(BaseAgentAdapter):
             else:
                 event_payload = payload if isinstance(payload, dict) else {}
             queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
-        except Exception:
-            log.warning("copilot_queue_put_failed", session_id=session_id)
+        except (asyncio.QueueFull, AttributeError):
+            log.warning("copilot_queue_put_failed", session_id=session_id, exc_info=True)
         if kind == SessionEventKind.done or kind == SessionEventKind.error:
             with contextlib.suppress(Exception):
                 queue.put_nowait(None)  # sentinel
 
     async def create_session(self, config: SessionConfig) -> str:
         from copilot import CopilotClient
+        from copilot.client import ProcessExitedError
+        from copilot.jsonrpc import JsonRpcError
         from copilot.types import ResumeSessionConfig
         from copilot.types import SessionConfig as SdkSessionConfig
 
@@ -744,7 +749,7 @@ class CopilotAdapter(BaseAgentAdapter):
             try:
                 session = await client.resume_session(_resume_id, resume_opts)
                 log.info("sdk_session_resumed", sdk_session_id=_resume_id)
-            except Exception:
+            except (JsonRpcError, ProcessExitedError, ConnectionError, TimeoutError):
                 log.warning("sdk_session_resume_failed_creating_new", sdk_session_id=_resume_id, exc_info=True)
                 session = await client.create_session(session_opts)
         else:
@@ -816,10 +821,10 @@ class CopilotAdapter(BaseAgentAdapter):
             self._bridge_to_session_queue(kind_str, data, payload, queue, session_id, job_id=job_id)
 
         session.on(_on_event)
-        # Send initial prompt
+        # Send initial prompt — cleanup on any failure.
         try:
             await session.send({"prompt": config.prompt, "mode": "immediate", "attachments": []})
-        except Exception:
+        except BaseException:
             self._cleanup_session(session_id)
             raise
         log.info("copilot_session_created", session_id=session_id)
@@ -849,32 +854,41 @@ class CopilotAdapter(BaseAgentAdapter):
             self._cleanup_session(session_id)
 
     async def send_message(self, session_id: str, message: str) -> None:
+        from copilot.client import ProcessExitedError
+        from copilot.jsonrpc import JsonRpcError
+
         session = self._sessions.get(session_id)
         if session is None:
             log.warning("copilot_send_no_session", session_id=session_id)
             return
         try:
             await session.send({"prompt": message, "mode": "immediate", "attachments": []})
-        except Exception:
+        except (JsonRpcError, ProcessExitedError, ConnectionError):
             log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
 
     async def interrupt_session(self, session_id: str) -> None:
+        from copilot.client import ProcessExitedError
+        from copilot.jsonrpc import JsonRpcError
+
         session = self._sessions.get(session_id)
         if session is None:
             return
         try:
             await session.abort()
             log.info("copilot_session_interrupted", session_id=session_id)
-        except Exception:
+        except (JsonRpcError, ProcessExitedError):
             log.warning("copilot_interrupt_failed", session_id=session_id, exc_info=True)
 
     async def abort_session(self, session_id: str) -> None:
+        from copilot.client import ProcessExitedError
+        from copilot.jsonrpc import JsonRpcError
+
         session = self._sessions.get(session_id)
         if session is None:
             return
         try:
             await session.abort()
-        except Exception:
+        except (JsonRpcError, ProcessExitedError):
             log.warning("copilot_abort_failed", session_id=session_id, exc_info=True)
         finally:
             self._cleanup_session(session_id)
@@ -883,6 +897,8 @@ class CopilotAdapter(BaseAgentAdapter):
         """Create a minimal session for single-turn completion, collect the response."""
         from copilot import CopilotClient
         from copilot import PermissionRequestResult as _Result
+        from copilot.client import ProcessExitedError
+        from copilot.jsonrpc import JsonRpcError
         from copilot.types import SessionConfig as SdkSessionConfig
 
         from backend.services.agent_adapter import CompletionResult
@@ -928,7 +944,7 @@ class CopilotAdapter(BaseAgentAdapter):
             except TimeoutError:
                 log.warning("complete_timeout")
             return CompletionResult(text="\n".join(collected))
-        except Exception:
+        except (JsonRpcError, ProcessExitedError, ConnectionError, OSError):
             log.error("complete_failed", prompt_len=len(prompt), exc_info=True)
             return CompletionResult()
         finally:
@@ -936,6 +952,6 @@ class CopilotAdapter(BaseAgentAdapter):
                 cleanup_session = self._sessions.get(tmp_session_id)
                 if cleanup_session:
                     await cleanup_session.abort()
-            except Exception:
+            except (JsonRpcError, ProcessExitedError):
                 log.warning("copilot_complete_cleanup_failed", session_id=tmp_session_id, exc_info=True)
             self._cleanup_session(tmp_session_id)

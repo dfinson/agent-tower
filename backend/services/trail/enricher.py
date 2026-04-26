@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
@@ -177,12 +178,12 @@ class TrailEnricher:
                     await self._repo.create(s_node)
                     processed += 1
 
-            except Exception:
+            except (SQLAlchemyError, KeyError, ValueError, OSError):
                 log.debug("trail_enrichment_failed", job_id=job_id, exc_info=True)
                 for node in job_nodes:
                     try:
                         await self._repo.update_enrichment(node.id, enrichment="failed")
-                    except Exception:
+                    except SQLAlchemyError:
                         log.debug("enrichment_status_update_failed", node_id=node.id, exc_info=True)
 
         return processed
@@ -253,7 +254,7 @@ class TrailEnricher:
                     )
                 )
                 processed += 1
-            except Exception:
+            except (SQLAlchemyError, KeyError, ValueError, OSError):
                 log.debug("trail_title_recovery_failed", node_id=node.id, exc_info=True)
 
         return processed
