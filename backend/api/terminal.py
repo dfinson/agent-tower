@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-router = APIRouter(prefix="/api/terminal", tags=["terminal"])
+router = APIRouter(tags=["terminal"])
 
 
 @dataclass
@@ -57,7 +57,7 @@ def _svc() -> TerminalService:
 # ------------------------------------------------------------------
 
 
-@router.post("/sessions", response_model=CreateTerminalSessionResponse, status_code=201)
+@router.post("/terminal/sessions", response_model=CreateTerminalSessionResponse, status_code=201)
 async def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSessionResponse:
     """Create a new terminal session."""
     svc = _svc()
@@ -80,7 +80,7 @@ async def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSes
     )
 
 
-@router.get("/sessions", response_model=list[TerminalSessionInfo])
+@router.get("/terminal/sessions", response_model=list[TerminalSessionInfo])
 async def list_sessions() -> list[TerminalSessionInfo]:
     """List all active terminal sessions."""
     svc = _svc()
@@ -88,7 +88,7 @@ async def list_sessions() -> list[TerminalSessionInfo]:
     return [TerminalSessionInfo(**s) for s in sessions]
 
 
-@router.delete("/sessions/{session_id}", status_code=204)
+@router.delete("/terminal/sessions/{session_id}", status_code=204)
 async def delete_session(session_id: str) -> None:
     """Kill a terminal session."""
     svc = _svc()
@@ -97,7 +97,7 @@ async def delete_session(session_id: str) -> None:
         raise HTTPException(status_code=404, detail="Session not found")
 
 
-@router.get("/observer/{job_id}", response_model=TerminalSessionInfo)
+@router.get("/terminal/observer/{job_id}", response_model=TerminalSessionInfo)
 async def get_observer_terminal(job_id: str) -> TerminalSessionInfo:
     """Return the observer terminal session for a running job, if one exists."""
     svc = _svc()
@@ -107,7 +107,7 @@ async def get_observer_terminal(job_id: str) -> TerminalSessionInfo:
     raise HTTPException(status_code=404, detail="No observer terminal for this job")
 
 
-@router.post("/ask", response_model=TerminalAskResponse)
+@router.post("/terminal/ask", response_model=TerminalAskResponse)
 async def ask_ai(req: TerminalAskRequest) -> TerminalAskResponse:
     """Translate natural language to a shell command using the utility model."""
     # Access utility session from app state (set in main.py)
@@ -147,7 +147,7 @@ User request: {req.prompt}"""
 # ------------------------------------------------------------------
 
 
-@router.websocket("/ws")
+@router.websocket("/terminal/ws")
 async def terminal_ws(ws: WebSocket) -> None:
     """Bidirectional terminal I/O over WebSocket.
 

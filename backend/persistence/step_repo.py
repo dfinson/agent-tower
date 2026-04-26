@@ -15,7 +15,12 @@ if TYPE_CHECKING:
 
 
 class StepRepository:
-    """Persistence for execution steps."""
+    """Persistence for execution steps.
+
+    Unlike other repos that extend BaseRepository with a shared session,
+    this repo uses a session_factory to create independent sessions per
+    operation—each write commits immediately for fire-and-forget semantics.
+    """
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory

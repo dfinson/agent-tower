@@ -9,13 +9,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import structlog
+from dishka.integrations.fastapi import DishkaRoute
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 if TYPE_CHECKING:
     import httpx
 
-router = APIRouter(tags=["preview"])
+router = APIRouter(tags=["preview"], route_class=DishkaRoute)
 
 log = structlog.get_logger()
 

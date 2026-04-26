@@ -191,8 +191,7 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(settings.router, prefix="/api")
     app.include_router(analytics.router, prefix="/api")
     app.include_router(notifications.router, prefix="/api")
-    # Terminal router has its own /api/terminal prefix
-    app.include_router(terminal.router)
+    app.include_router(terminal.router, prefix="/api")
     # Port preview proxy
     app.include_router(preview.router, prefix="/api")
     # Job sharing (read-only via share tokens)
