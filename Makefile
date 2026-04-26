@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test run down restart ci clean help
+.PHONY: install lint format typecheck test run down restart ci clean audit help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -34,6 +34,9 @@ restart: ## Restart the server (pause sessions, stop, then start)
 	uv run cpl restart --remote
 
 ci: lint format typecheck test ## Run full CI pipeline
+
+audit: ## Audit dependencies for known vulnerabilities
+	uv run pip-audit --desc
 
 clean: ## Remove build artifacts and caches
 	rm -rf frontend/dist frontend/node_modules/.vite
