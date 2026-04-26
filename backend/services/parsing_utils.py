@@ -1,9 +1,15 @@
-"""Shared parsing utilities for service-layer code."""
+"""Shared parsing and error-handling utilities for service-layer code."""
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from structlog.stdlib import BoundLogger
 
 
 def ensure_dict(raw: str | dict[str, Any] | Any) -> dict[str, Any] | None:
@@ -21,3 +27,24 @@ def ensure_dict(raw: str | dict[str, Any] | Any) -> dict[str, Any] | None:
             return None
         return parsed if isinstance(parsed, dict) else None
     return None
+
+
+@asynccontextmanager
+async def best_effort(
+    logger: BoundLogger,
+    operation: str,
+    *,
+    level: str = "debug",
+    **log_kwargs: Any,
+) -> AsyncIterator[None]:
+    """Suppress and log exceptions for non-critical side-effect operations.
+
+    Usage::
+
+        async with best_effort(log, "telemetry_artifact", job_id=job_id):
+            await store_something()
+    """
+    try:
+        yield
+    except Exception:
+        getattr(logger, level)(f"{operation}_failed", exc_info=True, **log_kwargs)
