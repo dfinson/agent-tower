@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from backend.services.parsing_utils import ensure_dict
+
 TOOL_CATEGORIES: dict[str, str] = {
     # file_read — reading file contents
     "read_file": "file_read",
@@ -142,13 +144,8 @@ def extract_tool_target(tool_name: str, tool_args: str | None) -> str:
     if not tool_args:
         return ""
 
-    parsed: dict[str, Any] = {}
-    try:
-        parsed = json.loads(tool_args) if isinstance(tool_args, str) else tool_args
-    except (json.JSONDecodeError, TypeError):
-        return ""
-
-    if not isinstance(parsed, dict):
+    parsed = ensure_dict(tool_args)
+    if parsed is None:
         return ""
 
     category = classify_tool(tool_name)
@@ -183,13 +180,8 @@ def extract_file_paths(tool_name: str, tool_args: str | None) -> list[str]:
     if not tool_args:
         return []
 
-    parsed: dict[str, Any] = {}
-    try:
-        parsed = json.loads(tool_args) if isinstance(tool_args, str) else tool_args
-    except (json.JSONDecodeError, TypeError):
-        return []
-
-    if not isinstance(parsed, dict):
+    parsed = ensure_dict(tool_args)
+    if parsed is None:
         return []
 
     paths: list[str] = []

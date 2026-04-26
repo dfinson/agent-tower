@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from backend.services.parsing_utils import ensure_dict
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -243,15 +245,8 @@ class MotivationService:
                         processed += 1
                         continue
 
-                    parsed_args: dict[str, Any] = {}
-                    try:
-                        parsed_args = json.loads(tool_args_raw) if isinstance(tool_args_raw, str) else tool_args_raw
-                    except (json.JSONDecodeError, TypeError):
-                        await repo.set_edit_motivations(span["id"], "[]")
-                        processed += 1
-                        continue
-
-                    if not isinstance(parsed_args, dict):
+                    parsed_args = ensure_dict(tool_args_raw)
+                    if parsed_args is None:
                         await repo.set_edit_motivations(span["id"], "[]")
                         processed += 1
                         continue
