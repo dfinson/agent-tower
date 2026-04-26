@@ -1254,7 +1254,6 @@ async def get_job_telemetry(
             log.debug("live_duration_parse_failed", job_id=job_id, exc_info=True)
 
     # Review signals: test co-modifications
-    spans_repo = TelemetrySpansRepository(session)
     test_co_mods = await spans_repo.test_co_modifications(job_id)
 
     # Review complexity tier — thresholds are calibrated against historical

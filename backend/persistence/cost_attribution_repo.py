@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from backend.models.domain import CostAttributionRow
 from backend.persistence.repository import BaseRepository
 
 
@@ -90,7 +91,7 @@ class CostAttributionRepository(BaseRepository):
             )
         await self._session.flush()
 
-    async def for_job(self, job_id: str) -> list[dict[str, Any]]:
+    async def for_job(self, job_id: str) -> list[CostAttributionRow]:
         """Fetch all attribution rows for a job."""
         result = await self._session.execute(
             text("""
