@@ -63,6 +63,13 @@ from backend.models.api_schemas import (
     TurnSummaryPayload,
 )
 from backend.models.events import DomainEventKind
+from backend.persistence.approval_repo import ApprovalRepository
+from backend.persistence.cost_attribution_repo import CostAttributionRepository
+from backend.persistence.event_repo import EventRepository
+from backend.persistence.file_access_repo import FileAccessRepository
+from backend.persistence.job_repo import JobRepository
+from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitError, GitService
@@ -441,7 +448,7 @@ async def get_job_diff(
     job_id: str,
     svc: FromDishka[JobService],
     diff_service: FromDishka[DiffService],
-    session: FromDishka[AsyncSession],
+    spans_repo: FromDishka[TelemetrySpansRepository],
 ) -> DiffListResponse:
     """Return the current diff for a job.
 
@@ -478,9 +485,7 @@ async def get_job_diff(
         files = [DiffFileModel.model_validate(f) for f in raw_files]
 
     # Enrich with per-file write/retry churn data
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-
-    churn_rows = await TelemetrySpansRepository(session).file_write_churn(job_id)
+    churn_rows = await spans_repo.file_write_churn(job_id)
     if churn_rows:
         churn_by_file = {r["tool_target"]: r for r in churn_rows}
         for f in files:
@@ -594,6 +599,7 @@ async def get_step_diff(
     session: FromDishka[AsyncSession],
     svc: FromDishka[JobService],
     git: FromDishka[GitService],
+    spans_repo: FromDishka[TelemetrySpansRepository],
 ) -> StepDiffPayload:
     """Return the Git diff for a specific step.
 
@@ -667,9 +673,6 @@ async def get_step_diff(
         turn_id_for_lookup = str(step_row.turn_id)
 
     try:
-        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-
-        spans_repo = TelemetrySpansRepository(session)
         spans = await spans_repo.file_write_spans_for_step(
             job_id=job_id, turn_id=turn_id_for_lookup,
         )
@@ -777,7 +780,7 @@ async def get_step_diff(
 @router.get("/jobs/{job_id}/transcript/search", response_model=TranscriptSearchListResponse)
 async def search_transcript(
     job_id: str,
-    session: FromDishka[AsyncSession],
+    event_repo: FromDishka[EventRepository],
     q: str = Query(..., min_length=2, max_length=200),  # noqa: B008
     roles: list[str] | None = Query(None),  # noqa: B008
     step_id: str | None = None,
@@ -785,13 +788,11 @@ async def search_transcript(
 ) -> TranscriptSearchListResponse:
     """Full-text search within a job's transcript events."""
     from backend.models.api_schemas import TranscriptRole
-    from backend.persistence.event_repo import EventRepository
 
     _valid_roles = {r.value for r in TranscriptRole}
     if roles:
         roles = [r for r in roles if r in _valid_roles]
 
-    event_repo = EventRepository(session)
     events = await event_repo.search_transcript(job_id, q, roles=roles, step_id=step_id, limit=limit)
     results = []
     for evt in events:
@@ -874,6 +875,7 @@ async def get_job_snapshot(
     svc: FromDishka[JobService],
     session: FromDishka[AsyncSession],
     diff_service: FromDishka[DiffService],
+    approval_repo: FromDishka[ApprovalRepository],
 ) -> JobSnapshotResponse:
     """Full state hydration for a single job.
 
@@ -1015,9 +1017,7 @@ async def get_job_snapshot(
 
     # Build approvals from DB state (includes resolution status)
     from backend.models.api_schemas import ApprovalResponse
-    from backend.persistence.approval_repo import ApprovalRepository
 
-    approval_repo = ApprovalRepository(session)
     db_approvals = await approval_repo.list_for_job(job_id)
     approval_list: list[ApprovalResponse] = [
         ApprovalResponse(
@@ -1149,7 +1149,11 @@ async def get_job_snapshot(
 @router.get("/jobs/{job_id}/telemetry", response_model=JobTelemetryResponse)
 async def get_job_telemetry(
     job_id: str,
-    session: FromDishka[AsyncSession],
+    cost_repo: FromDishka[CostAttributionRepository],
+    file_repo: FromDishka[FileAccessRepository],
+    job_repo: FromDishka[JobRepository],
+    spans_repo: FromDishka[TelemetrySpansRepository],
+    summary_repo: FromDishka[TelemetrySummaryRepository],
 ) -> JobTelemetryResponse:
     """Get telemetry data for a job run.
 
@@ -1159,17 +1163,11 @@ async def get_job_telemetry(
     import json
     from datetime import UTC, datetime
 
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
-    from backend.persistence.file_access_repo import FileAccessRepository
-    from backend.persistence.job_repo import JobRepository
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-    summary = await TelemetrySummaryRepository(session).get(job_id)
+    summary = await summary_repo.get(job_id)
     if summary is None:
         return JobTelemetryResponse(job_id=job_id, available=False)
 
-    job_row = await JobRepository(session).get(job_id)
+    job_row = await job_repo.get(job_id)
     sdk = job_row.sdk if job_row else ""
 
     # Parse quota JSON if present
@@ -1186,10 +1184,10 @@ async def get_job_telemetry(
     current_ctx = summary.get("current_context_tokens", 0)
 
     # Load span detail for tool/LLM call breakdowns
-    spans = await TelemetrySpansRepository(session).list_for_job(job_id)
-    attribution_rows = await CostAttributionRepository(session).for_job(job_id)
-    file_stats = await FileAccessRepository(session).reread_stats(job_id)
-    top_files = await FileAccessRepository(session).most_accessed_files(job_id=job_id)
+    spans = await spans_repo.list_for_job(job_id)
+    attribution_rows = await cost_repo.for_job(job_id)
+    file_stats = await file_repo.reread_stats(job_id)
+    top_files = await file_repo.most_accessed_files(job_id=job_id)
     tool_calls: list[TelemetryToolCall] = []
     llm_calls: list[TelemetryLlmCall] = []
     for span in spans:

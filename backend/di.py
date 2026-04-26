@@ -10,10 +10,18 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, NewType
 
+import httpx
 from dishka import Provider, Scope, from_context, provide
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.config import CPLConfig
+from backend.persistence.approval_repo import ApprovalRepository
+from backend.persistence.cost_attribution_repo import CostAttributionRepository
+from backend.persistence.event_repo import EventRepository
+from backend.persistence.file_access_repo import FileAccessRepository
+from backend.persistence.job_repo import JobRepository
+from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 from backend.services.analytics_service import AnalyticsService
 from backend.services.approval_service import ApprovalService
 from backend.services.artifact_service import ArtifactService
@@ -36,6 +44,7 @@ from backend.services.voice_service import VoiceService
 # NewType wrappers for plain values that need unique DI keys
 CachedModelsBySdk = NewType("CachedModelsBySdk", dict[str, Any])
 VoiceMaxBytes = NewType("VoiceMaxBytes", int)
+PreviewHttpClient = NewType("PreviewHttpClient", httpx.AsyncClient)
 
 
 class AppProvider(Provider):
@@ -72,6 +81,16 @@ class AppProvider(Provider):
     @provide
     def story_service(self, sister_sessions: SisterSessionManager) -> StoryService:
         return StoryService(completer=sister_sessions)
+
+    @provide
+    async def preview_http_client(self) -> AsyncIterator[PreviewHttpClient]:
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0),
+        )
+        try:
+            yield PreviewHttpClient(client)
+        finally:
+            await client.aclose()
 
 
 class RequestProvider(Provider):
@@ -113,3 +132,31 @@ class RequestProvider(Provider):
     @provide
     def artifact_service(self, session: AsyncSession) -> ArtifactService:
         return ArtifactService.from_session(session)
+
+    @provide
+    def approval_repo(self, session: AsyncSession) -> ApprovalRepository:
+        return ApprovalRepository(session)
+
+    @provide
+    def cost_attribution_repo(self, session: AsyncSession) -> CostAttributionRepository:
+        return CostAttributionRepository(session)
+
+    @provide
+    def event_repo(self, session: AsyncSession) -> EventRepository:
+        return EventRepository(session)
+
+    @provide
+    def file_access_repo(self, session: AsyncSession) -> FileAccessRepository:
+        return FileAccessRepository(session)
+
+    @provide
+    def job_repo(self, session: AsyncSession) -> JobRepository:
+        return JobRepository(session)
+
+    @provide
+    def telemetry_spans_repo(self, session: AsyncSession) -> TelemetrySpansRepository:
+        return TelemetrySpansRepository(session)
+
+    @provide
+    def telemetry_summary_repo(self, session: AsyncSession) -> TelemetrySummaryRepository:
+        return TelemetrySummaryRepository(session)

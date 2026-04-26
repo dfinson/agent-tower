@@ -6,11 +6,12 @@ Routes: ``/api/preview/{port}/{path}``
 
 from __future__ import annotations
 
-import httpx
 import structlog
-from dishka.integrations.fastapi import DishkaRoute
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
+
+from backend.di import PreviewHttpClient
 
 router = APIRouter(tags=["preview"], route_class=DishkaRoute)
 
@@ -32,19 +33,8 @@ _BLOCKED_REQUEST_HEADERS = frozenset(
     }
 )
 
-# Shared httpx client — created lazily to avoid import-time side effects.
-_client = None
-
-
-def _get_client() -> httpx.AsyncClient:  # noqa: ANN202
-    global _client  # noqa: PLW0603
-    if _client is None:
-        _client = httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0))
-    return _client
-
-
 @router.api_route("/preview/{port:int}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"])
-async def preview_proxy(port: int, path: str, request: Request) -> Response:
+async def preview_proxy(port: int, path: str, request: Request, client: FromDishka[PreviewHttpClient]) -> Response:
     """Reverse-proxy a request to a local development server."""
     if port < 1024 or port > 65535:
         return JSONResponse({"detail": f"Port {port} not allowed (must be 1024-65535)"}, status_code=400)
@@ -60,7 +50,6 @@ async def preview_proxy(port: int, path: str, request: Request) -> Response:
             forward_headers[key] = value
 
     try:
-        client = _get_client()
         body = await request.body()
         upstream_response = await client.request(
             method=request.method,
