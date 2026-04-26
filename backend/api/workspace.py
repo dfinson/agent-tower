@@ -6,9 +6,7 @@ from pathlib import Path
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import CPLConfig
 from backend.models.api_schemas import WorkspaceEntry, WorkspaceEntryType, WorkspaceFileResponse, WorkspaceListResponse
 from backend.services.job_service import JobService
 
@@ -18,14 +16,12 @@ router = APIRouter(tags=["workspace"], route_class=DishkaRoute)
 @router.get("/jobs/{job_id}/workspace", response_model=WorkspaceListResponse)
 async def list_workspace(
     job_id: str,
-    session: FromDishka[AsyncSession],
-    config: FromDishka[CPLConfig],
+    job_svc: FromDishka[JobService],
     path: str = "",
     cursor: str | None = Query(None),
     limit: int = Query(200, ge=1, le=200),
 ) -> WorkspaceListResponse:
     """List files in the job's worktree (max 200 entries per page)."""
-    job_svc = JobService.from_session(session, config, git_service=None)
     job = await job_svc.get_job(job_id)
 
     worktree = Path(job.worktree_path or job.repo).resolve()
@@ -72,12 +68,10 @@ async def list_workspace(
 @router.get("/jobs/{job_id}/workspace/file", response_model=WorkspaceFileResponse)
 async def get_workspace_file(
     job_id: str,
-    session: FromDishka[AsyncSession],
-    config: FromDishka[CPLConfig],
+    job_svc: FromDishka[JobService],
     path: str = Query(..., description="Relative path within the worktree"),
 ) -> WorkspaceFileResponse:
     """Get the contents of a single file in the job's worktree."""
-    job_svc = JobService.from_session(session, config, git_service=None)
     job = await job_svc.get_job(job_id)
 
     worktree = Path(job.worktree_path or job.repo).resolve()
