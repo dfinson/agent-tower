@@ -186,14 +186,13 @@ class ApprovalService:
                             await repo.resolve(aid, "denied", now)
                         await session.commit()
                 except Exception:
-                    log.debug("cleanup_orphan_resolve_failed", job_id=job_id, exc_info=True)
+                    log.warning("cleanup_orphan_resolve_failed", job_id=job_id, exc_info=True)
 
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(_resolve_orphans(), name=f"approval-cleanup-{job_id[:8]}")
             except RuntimeError:
-                log.debug("approval_cleanup_task_scheduling_failed", job_id=job_id)
-                pass
+                log.warning("approval_cleanup_task_scheduling_failed", job_id=job_id)
             log.debug("approval_futures_canceled", job_id=job_id, count=len(to_remove))
 
     def is_trusted(self, job_id: str) -> bool:

@@ -157,9 +157,8 @@ def make_counter(model: str) -> TokenCounter:
     """
     try:
         return TiktokenCounter(model)
-    except Exception:
+    except KeyError:
         log.debug("tiktoken_counter_failed", model=model)
-        pass
 
     if "claude" in model.lower():
         return ClaudeTokenCounter()

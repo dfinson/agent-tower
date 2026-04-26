@@ -347,7 +347,7 @@ class SisterSessionManager:
                     model=self._model,
                 )
                 return result.text or ""
-            except Exception:
+            except (OSError, RuntimeError, TimeoutError):
                 log.warning("fast_complete_failed_falling_back", exc_info=True)
 
         # Slow path — full SDK session
@@ -361,7 +361,7 @@ class SisterSessionManager:
                         raise
                     session._primed = False  # noqa: SLF001  # retry without context
             return ""
-        except Exception:
+        except (OSError, RuntimeError):
             log.warning("sister_oneshot_failed", exc_info=True)
             return ""
         finally:

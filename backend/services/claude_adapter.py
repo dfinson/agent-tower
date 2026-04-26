@@ -454,7 +454,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         if isinstance(tool_input, dict):
             try:
                 args_str = json.dumps(tool_input)
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 args_str = str(tool_input)
 
         # Record start time for duration calculation
@@ -909,7 +909,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         try:
             # Start a new turn on the existing session
             await client.query(message)
-        except Exception:
+        except (OSError, RuntimeError):
             log.warning("claude_send_message_failed", session_id=session_id, exc_info=True)
 
     async def interrupt_session(self, session_id: str) -> None:
@@ -918,7 +918,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             return
         try:
             await client.interrupt()
-        except Exception:
+        except (OSError, RuntimeError):
             log.warning("claude_interrupt_failed", session_id=session_id, exc_info=True)
 
     async def abort_session(self, session_id: str) -> None:
@@ -927,7 +927,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             return
         try:
             await client.interrupt()
-        except (Exception, asyncio.CancelledError):
+        except (OSError, RuntimeError, asyncio.CancelledError):
             log.warning("claude_abort_interrupt_failed", session_id=session_id, exc_info=True)
 
         # Kill subprocess with raw OS signals — see stream_events comment.
@@ -981,7 +981,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             await asyncio.wait_for(_run_query(), timeout=COMPLETION_TIMEOUT_S)
         except TimeoutError:
             log.warning("claude_complete_timeout", prompt_len=len(prompt))
-        except Exception:
+        except (OSError, RuntimeError):
             log.error("claude_complete_failed", prompt_len=len(prompt), exc_info=True)
             return CompletionResult()
         return CompletionResult(
