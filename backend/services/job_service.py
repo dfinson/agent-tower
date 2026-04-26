@@ -7,7 +7,7 @@ import glob
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from backend.persistence.job_repo import JobRepository
     from backend.services.event_bus import EventBus
     from backend.services.git_service import GitService
+    from backend.services.merge_service import MergeService
     from backend.services.naming_service import NamingService
 
 log = structlog.get_logger()
@@ -577,7 +578,7 @@ class JobService:
         self,
         job: Job,
         action: str,
-        merge_service: Any,
+        merge_service: MergeService,
     ) -> tuple[str, str | None, list[str] | None, str | None]:
         """Execute merge/PR/discard resolution and persist the outcome.
 
@@ -587,18 +588,7 @@ class JobService:
 
         Returns (resolution, pr_url, conflict_files, error).
         """
-        from backend.services.merge_service import MergeService
-
-        ms: MergeService = merge_service
-        result = await ms.resolve_job(
-            job_id=job.id,
-            action=action,
-            repo_path=job.repo,
-            worktree_path=job.worktree_path,
-            branch=job.branch,
-            base_ref=job.base_ref,
-            prompt=job.prompt,
-        )
+        result = await merge_service.resolve_job(job, action)
 
         from backend.services.merge_service import MergeStatus
 

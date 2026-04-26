@@ -394,15 +394,7 @@ class TestFalsePositiveConflicts:
 
         event_bus.subscribe(_collect)
 
-        result = await service.resolve_job(
-            job_id="job-1",
-            action="smart_merge",
-            repo_path=str(repo),
-            worktree_path=None,
-            branch="cpl/job-1",
-            base_ref="main",
-            prompt="test",
-        )
+        result = await service.resolve_job(_make_job(str(repo)), "smart_merge")
 
         # "Already applied" is not a real merge conflict — must be "error".
         assert result.status == "error", f"Expected error, got {result.status!r}"
@@ -440,15 +432,7 @@ class TestFalsePositiveConflicts:
 
         event_bus.subscribe(_collect)
 
-        result = await service.resolve_job(
-            job_id="job-1",
-            action="smart_merge",
-            repo_path=str(repo),
-            worktree_path=None,
-            branch="cpl/job-1",
-            base_ref="main",
-            prompt="test",
-        )
+        result = await service.resolve_job(_make_job(str(repo)), "smart_merge")
 
         assert result.status == "conflict"
         assert result.conflict_files  # should list the conflicting file
@@ -544,15 +528,7 @@ class TestOperatorMerge:
 
         event_bus.subscribe(_collect)
 
-        result = await service.resolve_job(
-            job_id="job-1",
-            action="merge",
-            repo_path=str(repo),
-            worktree_path=None,
-            branch="cpl/job-1",
-            base_ref="main",
-            prompt="test",
-        )
+        result = await service.resolve_job(_make_job(str(repo)), "merge")
 
         assert result.status == "error"
         conflict_events = [e for e in published if e.kind == DomainEventKind.merge_conflict]
@@ -590,15 +566,7 @@ class TestOperatorMerge:
 
         event_bus.subscribe(_collect)
 
-        result = await service.resolve_job(
-            job_id="job-1",
-            action="merge",
-            repo_path=str(repo),
-            worktree_path=None,
-            branch="cpl/job-1",
-            base_ref="main",
-            prompt="test",
-        )
+        result = await service.resolve_job(_make_job(str(repo)), "merge")
 
         assert result.status == "conflict"
         assert result.conflict_files
@@ -649,15 +617,7 @@ class TestOperatorMerge:
 
         event_bus.subscribe(_collect2)
 
-        result = await service.resolve_job(
-            job_id="job-1",
-            action="smart_merge",
-            repo_path=str(repo),
-            worktree_path=None,
-            branch="cpl/job-1",
-            base_ref="main",
-            prompt="test",
-        )
+        result = await service.resolve_job(_make_job(str(repo)), "smart_merge")
 
         assert result.status == "conflict"
         assert result.conflict_files
@@ -691,15 +651,7 @@ class TestOperatorMerge:
         service = _make_service(event_bus, session_factory)
         await _insert_job(session_factory, _make_job(str(repo)))
 
-        result = await service.resolve_job(
-            job_id="job-1",
-            action="merge",
-            repo_path=str(repo),
-            worktree_path=None,
-            branch="cpl/job-1",
-            base_ref="main",
-            prompt="test",
-        )
+        result = await service.resolve_job(_make_job(str(repo)), "merge")
 
         assert result.status == "merged"
 
