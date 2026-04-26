@@ -41,7 +41,7 @@ from backend.api import (
     workspace,
 )
 from backend.lifespan import lifespan
-from backend.models.domain import InvalidStateTransitionError
+from backend.models.domain import CodePlaneError, InvalidStateTransitionError
 from backend.services.agent_adapter import SDKModelMismatchError
 from backend.services.approval_service import ApprovalAlreadyResolvedError, ApprovalNotFoundError
 from backend.services.job_service import JobNotFoundError, RepoNotAllowedError, StateConflictError
@@ -230,6 +230,12 @@ def _register_domain_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(InvalidStateTransitionError)
     async def _invalid_state_transition(request: Request, exc: InvalidStateTransitionError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    # Fallback: catch any unhandled CodePlaneError subclass so new domain
+    # errors produce a structured JSON response instead of a bare 500.
+    @app.exception_handler(CodePlaneError)
+    async def _domain_error_fallback(request: Request, exc: CodePlaneError) -> JSONResponse:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
 def _mount_spa_fallback(app: FastAPI) -> None:

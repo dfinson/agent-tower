@@ -17,6 +17,7 @@ from backend.models.api_schemas import (
     TerminalAskResponse,
     TerminalSessionInfo,
 )
+from backend.models.domain import ServiceInitError
 from backend.services.auth import LOCALHOST_ADDRS, check_websocket_auth
 
 if TYPE_CHECKING:
@@ -48,7 +49,7 @@ def set_utility_session(session: object) -> None:
 
 def _svc() -> TerminalService:
     if _state.service is None:
-        raise RuntimeError("TerminalService not initialized")
+        raise ServiceInitError("TerminalService not initialized")
     return _state.service
 
 

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, TypedDict
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 class DomainEventKind(StrEnum):
@@ -105,8 +103,18 @@ class TranscriptPayloadDict(TypedDict, total=False):
     step_number: int | None
 
 
+class DiffFilePayloadDict(TypedDict, total=False):
+    path: str
+    status: str
+    additions: int
+    deletions: int
+    hunks: list[dict[str, Any]]
+    write_count: int | None
+    retry_count: int | None
+
+
 class DiffPayloadDict(TypedDict, total=False):
-    changed_files: list[dict[str, Any]]
+    changed_files: list[DiffFilePayloadDict]
 
 
 class ApprovalRequestedPayloadDict(TypedDict, total=False):
@@ -321,3 +329,19 @@ class DomainEvent:
     def make_event_id() -> str:
         """Generate a unique event ID."""
         return f"evt-{uuid.uuid4().hex[:12]}"
+
+    @classmethod
+    def for_job(
+        cls,
+        job_id: str,
+        kind: DomainEventKind,
+        payload: EventPayload,
+    ) -> DomainEvent:
+        """Convenience factory that fills ``event_id`` and ``timestamp`` automatically."""
+        return cls(
+            event_id=cls.make_event_id(),
+            job_id=job_id,
+            timestamp=datetime.now(UTC),
+            kind=kind,
+            payload=payload,
+        )
