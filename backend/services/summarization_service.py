@@ -185,7 +185,7 @@ class SummarizationService:
                     job_id,
                     kinds=[DomainEventKind.diff_updated],
                 )
-                changed_files = _extract_changed_files(diff_events)
+                changed_files = extract_changed_files(diff_events)
 
             # --- Build prompt ---
             changed_files_text = "\n".join(sorted(changed_files)) if changed_files else "None recorded"
@@ -249,7 +249,7 @@ class SummarizationService:
                 transcript_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.transcript_updated])
                 diff_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.diff_updated])
 
-                changed_files = _extract_changed_files(diff_events)
+                changed_files = extract_changed_files(diff_events)
 
                 # Build cleaned turns — keep assistant content + tool metadata, drop noise
                 turns: list[TranscriptTurn] = []
@@ -377,7 +377,7 @@ def _format_transcript(turns: list[TranscriptTurn]) -> str:
     return "\n---\n".join(parts) if parts else "(no transcript recorded)"
 
 
-def _extract_changed_files(diff_events: list[DomainEvent]) -> list[str]:
+def extract_changed_files(diff_events: list[DomainEvent]) -> list[str]:
     """Extract unique changed file paths from diff_updated events."""
     paths: set[str] = set()
     for ev in diff_events:
@@ -442,7 +442,7 @@ def _extract_json(raw: str, job_id: str, original_task: str, session_number: int
     return json.dumps(fallback, indent=2)
 
 
-def _build_resume_prompt(
+def build_resume_prompt(
     summary_text: str | None,
     changed_files: list[str],
     instruction: str,
@@ -467,7 +467,7 @@ def _build_resume_prompt(
     )
 
 
-def _build_followup_prompt(
+def build_followup_prompt(
     summary_text: str | None,
     changed_files: list[str],
     instruction: str,
