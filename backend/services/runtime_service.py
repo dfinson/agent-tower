@@ -467,6 +467,7 @@ class RuntimeService:
                 resume_sdk_session_id=resume_sdk_session_id,
             )
         except Exception:
+            log.error("recovery_start_failed", job_id=job_id, exc_info=True)
             await self._rollback_recovery(job_id, snapshot)
             raise
 
@@ -2367,6 +2368,7 @@ class RuntimeService:
                 resume_sdk_session_id=resume_sdk_session_id,
             )
         except Exception:
+            log.error("resume_start_failed", job_id=job_id, exc_info=True)
             async with self._session_factory() as session:
                 job_repo = JobRepository(session)
                 await job_repo.restore_after_failed_resume(
