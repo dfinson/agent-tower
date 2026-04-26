@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from backend.models.db import TrailNodeRow
 from backend.persistence.trail_repo import TrailNodeRepository
@@ -25,8 +25,7 @@ class TrailQueryService:
         kinds: list[str] | None = None,
         flat: bool = False,
         after_seq: int | None = None,
-    ) -> dict:
-        """Fetch trail for a job."""
+    ) -> dict[str, Any]:
         nodes = await self._repo.get_by_job(job_id, kinds=kinds, after_seq=after_seq)
         total, enriched = await self._repo.count_by_job(job_id)
 
@@ -50,7 +49,7 @@ class TrailQueryService:
             "complete": total == enriched,
         }
 
-    async def get_summary(self, job_id: str) -> dict:
+    async def get_summary(self, job_id: str) -> dict[str, Any]:
         """Build a lightweight trail summary from node data."""
         nodes = await self._repo.get_by_job(job_id)
         total, enriched = await self._repo.count_by_job(job_id)
@@ -115,7 +114,7 @@ class TrailQueryService:
 # ------------------------------------------------------------------
 
 
-def _node_to_dict(node: TrailNodeRow) -> dict:
+def _node_to_dict(node: TrailNodeRow) -> dict[str, Any]:
     """Convert a TrailNodeRow to a response dict."""
     return {
         "id": node.id,

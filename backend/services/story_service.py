@@ -42,10 +42,33 @@ class StoryReference(TypedDict, total=False):
     editCount: int
 
 
+class _JobContext(TypedDict, total=False):
+    id: str
+    title: str | None
+    description: str | None
+    prompt: str
+    state: str
+    model: str | None
+
+
+class _TelemetryContext(TypedDict, total=False):
+    duration_ms: int | None
+    total_cost_usd: float | None
+    tool_call_count: int
+    tool_failure_count: int
+    retry_count: int
+
+
+class _ApprovalContext(TypedDict, total=False):
+    description: str
+    resolution: str | None
+    requires_explicit_approval: bool
+
+
 class StoryContext(TypedDict, total=False):
-    job: dict[str, Any]
-    telemetry: dict[str, Any]
-    approvals: list[dict[str, Any]]
+    job: _JobContext
+    telemetry: _TelemetryContext
+    approvals: list[_ApprovalContext]
 
 
 class StoryBlock(TypedDict, total=False):

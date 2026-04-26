@@ -41,6 +41,8 @@ from backend.models.domain import JobState, Resolution
 from backend.models.events import DomainEvent, DomainEventKind
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from backend.persistence.approval_repo import ApprovalRepository
     from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
@@ -673,7 +675,7 @@ class SSEManager:
     async def replay_from_factory(
         self,
         conn: SSEConnection,
-        session_factory: object,
+        session_factory: async_sessionmaker[AsyncSession],
         last_event_id: int,
     ) -> None:
         """Replay missed events using a session factory.
@@ -686,7 +688,7 @@ class SSEManager:
         from backend.persistence.event_repo import EventRepository
         from backend.persistence.job_repo import JobRepository
 
-        async with session_factory() as session:  # type: ignore[operator]
+        async with session_factory() as session:
             event_repo = EventRepository(session)
             job_repo = JobRepository(session)
             approval_repo = ApprovalRepository(session)

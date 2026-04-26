@@ -25,7 +25,7 @@ router = APIRouter(tags=["events"], route_class=DishkaRoute)
 async def stream_events(
     request: Request,
     sse_manager: FromDishka[SSEManager],
-    session_factory: FromDishka[async_sessionmaker],  # type: ignore[type-arg]
+    session_factory: FromDishka[async_sessionmaker],  # type: ignore[type-arg]  # dishka DI resolves the full parameterized type at runtime
     job_id: str | None = Query(default=None),
     last_event_id: str | None = Query(default=None, alias="Last-Event-ID"),
 ) -> StreamingResponse:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Coroutine
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -84,7 +85,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
-        self._clients: dict[str, object] = {}
+        self._clients: dict[str, Any] = {}  # SDK client type varies by adapter subclass
         self._session_to_job: dict[str, str] = {}
         self._paused_sessions: set[str] = set()
         self._tool_start_times: dict[str, float] = {}
@@ -271,7 +272,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
     # DB write pipeline
     # ------------------------------------------------------------------
 
-    def _schedule_db_write(self, coro: Any) -> None:  # noqa: ANN401
+    def _schedule_db_write(self, coro: Coroutine[Any, Any, None]) -> None:
         """Schedule an async DB write with backpressure."""
         try:
             loop = asyncio.get_running_loop()

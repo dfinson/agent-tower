@@ -111,7 +111,7 @@ class AgentAdapterInterface(ABC):
     @abstractmethod
     async def stream_events(self, session_id: str) -> AsyncIterator[SessionEvent]:
         """Stream events from a running session."""
-        yield  # type: ignore[misc]
+        yield  # type: ignore[misc]  # abstract async generator needs a yield for the type system
 
     @abstractmethod
     async def send_message(self, session_id: str, message: str) -> None:

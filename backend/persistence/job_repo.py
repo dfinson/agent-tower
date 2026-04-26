@@ -39,7 +39,7 @@ class JobRepository(BaseRepository):
             raise ValueError(f"Job {job_id!r} not found — cannot update a deleted or non-existent row")
         for field, value in updates.items():
             setattr(row, field, value)
-        row.version = (row.version if row.version is not None else 0) + 1  # type: ignore[assignment]
+        row.version = (row.version if row.version is not None else 0) + 1  # type: ignore[assignment]  # version column accepts int; mapped type is Optional
         await self._session.flush()
 
     async def list_ids(self) -> set[str]:
@@ -324,7 +324,7 @@ class JobRepository(BaseRepository):
         )
         result = await self._session.execute(stmt)
         await self._session.flush()
-        return int(result.rowcount) > 0  # type: ignore[attr-defined]
+        return int(result.rowcount) > 0  # type: ignore[attr-defined]  # CursorResult.rowcount not in generic stub
 
     async def update_title_and_branch(self, job_id: str, title: str | None = None, branch: str | None = None) -> None:
         """Update the title and/or branch of a job (used by async naming)."""
@@ -376,4 +376,4 @@ class JobRepository(BaseRepository):
 
         del_result = await self._session.execute(delete(DiffSnapshotRow).where(DiffSnapshotRow.job_id.in_(job_ids)))
         await self._session.flush()
-        return int(del_result.rowcount)  # type: ignore[attr-defined]
+        return int(del_result.rowcount)  # type: ignore[attr-defined]  # CursorResult.rowcount not in generic stub

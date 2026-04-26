@@ -85,8 +85,8 @@ class ApprovalRepository(BaseRepository):
             .values(resolution=resolution, resolved_at=resolved_at)
         )
         result = await self._session.execute(stmt)
-        # CursorResult.rowcount is always present but not in the generic type stub
-        if result.rowcount == 0:  # type: ignore[attr-defined]
+        # CursorResult.rowcount is always present for DML but missing from the generic Result type stub
+        if result.rowcount == 0:  # type: ignore[attr-defined]  # CursorResult.rowcount not in generic stub
             return None
         await self._session.flush()
         # Re-fetch the updated row

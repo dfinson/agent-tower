@@ -129,7 +129,7 @@ class LightweightCompleter:
         resp = await client.post(
             f"{self._base_url}/v1/messages",
             headers={
-                "x-api-key": self._api_key,  # type: ignore[arg-type]
+                "x-api-key": self._api_key,  # type: ignore[arg-type]  # _api_key is str at runtime; narrowed from str | None above
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },

@@ -286,7 +286,7 @@ class JobResponse(CamelModel):
     parent_job_id: str | None = None
 
     @classmethod
-    def from_domain(cls, job: Job, **overrides: object) -> JobResponse:
+    def from_domain(cls, job: Job, **overrides: Any) -> JobResponse:
         """Build a JobResponse from a domain Job, with optional field overrides."""
         return cls(
             id=job.id,
@@ -316,7 +316,7 @@ class JobResponse(CamelModel):
             verify_prompt=job.verify_prompt,
             self_review_prompt=job.self_review_prompt,
             parent_job_id=job.parent_job_id,
-            **overrides,  # type: ignore[arg-type]
+            **overrides,
         )
 
 

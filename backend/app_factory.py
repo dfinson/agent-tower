@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from dishka.integrations.fastapi import ContainerMiddleware  # type: ignore[attr-defined]
+from dishka.integrations.fastapi import ContainerMiddleware  # type: ignore[attr-defined]  # dishka fastapi integration lacks type stubs
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
