@@ -19,6 +19,8 @@ log = structlog.get_logger()
 
 _MAX_RESPONSE_BYTES = 50 * 1024 * 1024  # 50 MB cap on proxied responses
 
+_UPSTREAM_BASE = "http://127.0.0.1"
+
 # Headers that MUST NOT be forwarded to upstream (hop-by-hop + spoofable).
 _BLOCKED_REQUEST_HEADERS = frozenset(
     {
@@ -33,13 +35,18 @@ _BLOCKED_REQUEST_HEADERS = frozenset(
     }
 )
 
+# Response headers stripped before forwarding back to the client.
+_BLOCKED_RESPONSE_HEADERS = frozenset(
+    {"transfer-encoding", "connection", "content-encoding", "content-length"}
+)
+
 @router.api_route("/preview/{port:int}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"])
 async def preview_proxy(port: int, path: str, request: Request, client: FromDishka[PreviewHttpClient]) -> Response:
     """Reverse-proxy a request to a local development server."""
     if port < 1024 or port > 65535:
         return JSONResponse({"detail": f"Port {port} not allowed (must be 1024-65535)"}, status_code=400)
 
-    upstream_url = f"http://127.0.0.1:{port}/{path}"
+    upstream_url = f"{_UPSTREAM_BASE}:{port}/{path}"
     if request.url.query:
         upstream_url += f"?{request.url.query}"
 
@@ -68,8 +75,7 @@ async def preview_proxy(port: int, path: str, request: Request, client: FromDish
     # Forward response headers (skip hop-by-hop)
     response_headers = {}
     for key, value in upstream_response.headers.items():
-        lower = key.lower()
-        if lower not in ("transfer-encoding", "connection", "content-encoding", "content-length"):
+        if key.lower() not in _BLOCKED_RESPONSE_HEADERS:
             response_headers[key] = value
 
     content = upstream_response.content
