@@ -63,13 +63,15 @@ from backend.models.api_schemas import (
     TurnSummaryPayload,
 )
 from backend.models.events import DomainEventKind
+from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
-from backend.services.git_service import GitError
+from backend.services.git_service import GitError, GitService
 from backend.services.job_service import JobService, ProgressPreview
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
 from backend.services.sister_session import SisterSessionManager
+from backend.services.story_service import StoryService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
 if TYPE_CHECKING:
@@ -428,8 +430,7 @@ async def get_job_logs(
 async def get_job_diff(
     job_id: str,
     svc: FromDishka[JobService],
-    event_bus: FromDishka[EventBus],
-    config: FromDishka[CPLConfig],
+    diff_service: FromDishka[DiffService],
     session: FromDishka[AsyncSession],
 ) -> DiffListResponse:
     """Return the current diff for a job.
@@ -447,13 +448,8 @@ async def get_job_diff(
         and job.worktree_path
         and job.worktree_path != job.repo
     ):
-        from backend.services.diff_service import DiffService
-        from backend.services.git_service import GitService
-
-        git = GitService(config)
-        ds = DiffService(git_service=git, event_bus=event_bus)
         try:
-            files = await ds.calculate_diff(job.worktree_path, job.base_ref)
+            files = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
         except (GitError, OSError):
             structlog.get_logger(__name__).warning(
                 "get_job_diff_live_failed",
@@ -587,8 +583,7 @@ async def get_step_diff(
     step_id: str,
     session: FromDishka[AsyncSession],
     svc: FromDishka[JobService],
-    config: FromDishka[CPLConfig],
-    event_bus: FromDishka[EventBus],
+    git: FromDishka[GitService],
 ) -> StepDiffPayload:
     """Return the Git diff for a specific step.
 
@@ -596,8 +591,6 @@ async def get_step_diff(
     events, an internal step_id (step-*) from the StepRow table, or a
     turn_id from the SDK — all are looked up to find start_sha/end_sha.
     """
-    from backend.services.git_service import GitService
-
     start_sha: str | None = None
     end_sha: str | None = None
     step_row = None  # StepRow if found — used for preceding_context / turn_id
@@ -645,11 +638,8 @@ async def get_step_diff(
     if not job.worktree_path:
         return StepDiffPayload(step_id=step_id, diff="", files_changed=0)
 
-    git = GitService(config)
     diff_text = await git.diff_range(start_sha, end_sha, cwd=job.worktree_path)
     files_changed = diff_text.count("\ndiff --git ") + (1 if diff_text.startswith("diff --git ") else 0)
-
-    from backend.services.diff_service import DiffService
 
     changed_files = DiffService._parse_unified_diff(diff_text)
 
@@ -815,7 +805,7 @@ async def restore_to_sha(
     job_id: str,
     body: RestoreRequest,
     svc: FromDishka[JobService],
-    config: FromDishka[CPLConfig],
+    git: FromDishka[GitService],
 ) -> RestoreResponse:
     """Reset the job's worktree to a specific commit SHA.
 
@@ -823,8 +813,6 @@ async def restore_to_sha(
     Blocked while the agent is actively running.
     """
     from fastapi import HTTPException
-
-    from backend.services.git_service import GitService
 
     job = await svc.get_job(job_id)
     if job.state in ("running", "agent_running"):
@@ -835,7 +823,6 @@ async def restore_to_sha(
     if not job.worktree_path:
         raise HTTPException(status_code=404, detail="Job has no worktree.")
 
-    git = GitService(config)
     await git.reset_hard(body.sha, cwd=job.worktree_path)
     return RestoreResponse(restored=True, sha=body.sha)
 
@@ -876,8 +863,7 @@ async def get_job_snapshot(
     job_id: str,
     svc: FromDishka[JobService],
     session: FromDishka[AsyncSession],
-    event_bus: FromDishka[EventBus],
-    config: FromDishka[CPLConfig],
+    diff_service: FromDishka[DiffService],
 ) -> JobSnapshotResponse:
     """Full state hydration for a single job.
 
@@ -1008,13 +994,8 @@ async def get_job_snapshot(
         and job.worktree_path
         and job.worktree_path != job.repo
     ):
-        from backend.services.diff_service import DiffService
-        from backend.services.git_service import GitService
-
-        git = GitService(config)
-        ds = DiffService(git_service=git, event_bus=event_bus)
         with contextlib.suppress(GitError, OSError):
-            diff = await ds.calculate_diff(job.worktree_path, job.base_ref)
+            diff = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
 
     if not diff:
         diff_events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
@@ -1461,7 +1442,7 @@ async def unarchive_job(
 async def get_job_story(
     job_id: str,
     session: FromDishka[AsyncSession],
-    sister_sessions: FromDishka[SisterSessionManager],
+    story_service: FromDishka[StoryService],
     regenerate: bool = False,
     verbosity: str = Query(default="standard", pattern="^(summary|standard|detailed)$"),
 ) -> StoryResponse:
@@ -1472,14 +1453,10 @@ async def get_job_story(
     Pass ?regenerate=true to force a fresh generation.
     Verbosity: summary (one-sentence per file), standard (default), detailed (full rationale).
     """
-    from backend.services.story_service import StoryService
-
-    service = StoryService(completer=sister_sessions)
-
     if regenerate:
-        payload = await service.regenerate(session, job_id, verbosity=verbosity)
+        payload = await story_service.regenerate(session, job_id, verbosity=verbosity)
     else:
-        payload = await service.get_or_generate(session, job_id, verbosity=verbosity)
+        payload = await story_service.get_or_generate(session, job_id, verbosity=verbosity)
 
     if not payload:
         return StoryResponse(job_id=job_id, blocks=[], cached=False, verbosity=verbosity)
