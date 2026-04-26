@@ -24,6 +24,7 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.services.agent_adapter import AgentAdapterInterface, normalize_model_name
+from backend.services.parsing_utils import ensure_dict
 from backend.services.permission_policy import (
     PolicyDecision,
     evaluate,
@@ -177,11 +178,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         """Return True if the shell command appears to modify state."""
         if not tool_args_str:
             return False
-        try:
-            parsed = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
-        except (json.JSONDecodeError, TypeError):
+        parsed = ensure_dict(tool_args_str)
+        if parsed is None:
             return False
-        cmd = str(parsed.get("command", "")) if isinstance(parsed, dict) else ""
+        cmd = str(parsed.get("command", ""))
         if not cmd:
             return False
         cmd_lower = cmd.strip().lower()

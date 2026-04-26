@@ -1570,7 +1570,7 @@ class RuntimeService:
 
     async def _ingest_native_plan(self, job_id: str, payload: dict[str, object]) -> None:
         """Extract plan steps from a manage_todo_list / TodoWrite tool call."""
-        import json as _json
+        from backend.services.parsing_utils import ensure_dict
 
         if self._trail_service is None:
             return
@@ -1578,11 +1578,8 @@ class RuntimeService:
         if not raw_args:
             return
 
-        try:
-            args = _json.loads(raw_args) if isinstance(raw_args, str) else raw_args
-        except (ValueError, TypeError):
-            return
-        if not isinstance(args, dict):
+        args = ensure_dict(raw_args)
+        if args is None:
             return
 
         # Copilot: {"todoList": [...]}   Claude: {"todos": [...]}
@@ -1853,12 +1850,12 @@ class RuntimeService:
             cmd = ""
             raw_args = payload.get("tool_args")
             if raw_args:
-                import json as _json
+                from backend.services.parsing_utils import ensure_dict
 
-                try:
-                    args = _json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                args = ensure_dict(raw_args)
+                if args is not None:
                     cmd = args.get("command", "") or args.get("input", "")
-                except (ValueError, TypeError):
+                else:
                     cmd = str(raw_args)
             if cmd:
                 self._terminal_service.write_observer_output(

@@ -260,7 +260,7 @@ async def browse_directories(
 
     # Security: don't traverse above user's home
     home = Path.home().resolve()
-    if not str(base).startswith(str(home)) and base != home:
+    if not base.is_relative_to(home):
         raise HTTPException(status_code=403, detail="Access denied")
 
     entries: list[BrowseEntry] = []
