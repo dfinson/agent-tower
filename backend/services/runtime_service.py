@@ -1408,24 +1408,19 @@ class RuntimeService:
 
         self._last_activity[job_id] = time.monotonic()
 
+        _diff_eligible = self._diff_service is not None and worktree_path and base_ref
+
         # Diff recalculation on file changes
-        if (
-            session_event.kind == SessionEventKind.file_changed
-            and self._diff_service is not None
-            and worktree_path
-            and base_ref
-        ):
+        if _diff_eligible and session_event.kind == SessionEventKind.file_changed:
             await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
             return _EventAction.skip, None, None
 
         # Diff recalculation on tool completions (skip internal markers like report_intent)
         if (
-            session_event.kind == SessionEventKind.transcript
+            _diff_eligible
+            and session_event.kind == SessionEventKind.transcript
             and session_event.payload.get("role") == "tool_call"
             and session_event.payload.get("tool_name") != "report_intent"
-            and self._diff_service is not None
-            and worktree_path
-            and base_ref
         ):
             await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
 
