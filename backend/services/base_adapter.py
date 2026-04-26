@@ -13,7 +13,7 @@ import json
 import time
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 
@@ -190,7 +190,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self, job_id: str, category: str, tool_args_str: str | None,
     ) -> str | None:
         """Capture preceding transcript context for mutative tool actions."""
-        if category == "file_write" or category == "git_write":
+        if category in {"file_write", "git_write"}:
             return self._snapshot_preceding_context(job_id)
         if category == "shell" and self._is_mutative_shell(tool_args_str):
             return self._snapshot_preceding_context(job_id)
@@ -242,6 +242,17 @@ class BaseAgentAdapter(AgentAdapterInterface):
     def resume_tools(self, session_id: str) -> None:
         self._paused_sessions.discard(session_id)
 
+    # Per-job tracking dicts cleaned up together in _cleanup_session_state
+    _JOB_TRACKING_DICTS: ClassVar[tuple[str, ...]] = (
+        "_job_start_times",
+        "_job_main_models",
+        "_last_telemetry_broadcast",
+        "_turn_counters",
+        "_current_phases",
+        "_retry_trackers",
+        "_transcript_buffers",
+    )
+
     def _cleanup_session_state(self, session_id: str) -> None:
         """Pop shared per-session and per-job tracking dicts.
 
@@ -253,13 +264,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._clients.pop(session_id, None)
         self._queues.pop(session_id, None)
         if job_id:
-            self._job_start_times.pop(job_id, None)
-            self._job_main_models.pop(job_id, None)
-            self._last_telemetry_broadcast.pop(job_id, None)
-            self._turn_counters.pop(job_id, None)
-            self._current_phases.pop(job_id, None)
-            self._retry_trackers.pop(job_id, None)
-            self._transcript_buffers.pop(job_id, None)
+            for attr in self._JOB_TRACKING_DICTS:
+                getattr(self, attr).pop(job_id, None)
 
     # ------------------------------------------------------------------
     # DB write pipeline
