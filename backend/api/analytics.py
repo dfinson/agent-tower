@@ -72,13 +72,13 @@ async def analytics_overview(
     agg = await svc.aggregate(period_days=period)
     cost_trend = await svc.cost_by_day(period_days=period)
 
-    total_input = agg.get("total_input_tokens", 0) or 0
-    total_cache = agg.get("total_cache_read", 0) or 0
+    total_input = agg.get("total_input_tokens", 0)
+    total_cache = agg.get("total_cache_read", 0)
     cache_rate = (total_cache / total_input * 100) if total_input else 0
 
-    total_tools = agg.get("total_tool_calls", 0) or 0
-    total_failures = agg.get("total_tool_failures", 0) or 0
-    total_agent_errors = agg.get("total_agent_errors", 0) or 0
+    total_tools = agg.get("total_tool_calls", 0)
+    total_failures = agg.get("total_tool_failures", 0)
+    total_agent_errors = agg.get("total_agent_errors", 0)
     total_tool_errors = total_failures - total_agent_errors
     tool_success_rate = ((total_tools - total_failures) / total_tools * 100) if total_tools else 100
 
@@ -91,10 +91,10 @@ async def analytics_overview(
         failed=agg.get("failed", 0),
         cancelled=agg.get("cancelled", 0),
         running=agg.get("running", 0),
-        total_cost_usd=float(agg.get("total_cost_usd", 0) or 0),
+        total_cost_usd=float(agg.get("total_cost_usd", 0)),
         total_tokens=agg.get("total_tokens", 0),
-        avg_duration_ms=float(agg.get("avg_duration_ms", 0) or 0),
-        total_premium_requests=float(agg.get("total_premium_requests", 0) or 0),
+        avg_duration_ms=float(agg.get("avg_duration_ms", 0)),
+        total_premium_requests=float(agg.get("total_premium_requests", 0)),
         total_tool_calls=total_tools,
         total_tool_failures=total_failures,
         total_agent_errors=total_agent_errors,
@@ -102,9 +102,9 @@ async def analytics_overview(
         tool_success_rate=round(tool_success_rate, 1),
         cache_hit_rate=round(cache_rate, 1),
         cost_trend=cost_trend,
-        total_subagent_cost_usd=float(agg.get("total_subagent_cost_usd", 0) or 0),
-        total_retry_cost_usd=float(agg.get("total_retry_cost_usd", 0) or 0),
-        total_retry_count=int(agg.get("total_retry_count", 0) or 0),
+        total_subagent_cost_usd=float(agg.get("total_subagent_cost_usd", 0)),
+        total_retry_cost_usd=float(agg.get("total_retry_cost_usd", 0)),
+        total_retry_count=int(agg.get("total_retry_count", 0)),
     )
 
 

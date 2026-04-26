@@ -124,7 +124,7 @@ def _setup_home() -> None:
     if current:
         _console.print(f"  CODEPLANE_HOME is set to: [bold]{current}[/bold]")
         keep = questionary.confirm("  Keep this setting?", default=True).ask()
-        if keep or keep is None:
+        if keep is not False:
             return
 
     _console.print(f"  Default location: [bold]{default}[/bold]")
@@ -133,7 +133,7 @@ def _setup_home() -> None:
 
     use_default = questionary.confirm("  Use the default location?", default=True).ask()
 
-    if use_default or use_default is None:
+    if use_default is not False:
         tower_dir = default
     else:
         tower_dir = questionary.path(
