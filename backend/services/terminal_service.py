@@ -278,7 +278,9 @@ class TerminalService:
                 raise ValueError(f"Shell not found: {shell}")
 
         cwd = cwd or os.path.expanduser("~")
-        if not os.path.isdir(cwd):
+        # Resolve symlinks to prevent path traversal via symlinked cwd
+        resolved_cwd = os.path.realpath(cwd)
+        if not os.path.isdir(resolved_cwd):
             raise ValueError(f"Working directory does not exist: {cwd}")
 
         if self._loop is None:
@@ -287,9 +289,9 @@ class TerminalService:
         session_id = secrets.token_hex(16)
 
         if sys.platform == "win32":
-            session = self._create_session_windows(session_id, shell, cwd, job_id, prompt_label, cols, rows)
+            session = self._create_session_windows(session_id, shell, resolved_cwd, job_id, prompt_label, cols, rows)
         else:
-            session = self._create_session_posix(session_id, shell, cwd, job_id, prompt_label, cols, rows)
+            session = self._create_session_posix(session_id, shell, resolved_cwd, job_id, prompt_label, cols, rows)
 
         self._sessions[session_id] = session
 
