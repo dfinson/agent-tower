@@ -72,6 +72,10 @@ class StepEntriesReassignedPayloadDict(TypedDict, total=False):
     new_step_id: str
 
 
+class EmptyPayloadDict(TypedDict):
+    """Payload for events that carry no data (e.g. job_archived)."""
+
+
 
 class LogLinePayloadDict(TypedDict, total=False):
     seq: int
@@ -269,8 +273,7 @@ class TurnSummaryPayloadDict(TypedDict, total=False):
 
 
 # Union of all known payload shapes.  Used as the DomainEvent.payload type so
-# consumers get useful type information.  The ``dict[str, Any]`` fallback
-# covers event kinds whose payload is not yet formally typed.
+# consumers get useful type information.
 EventPayload = (
     LogLinePayloadDict
     | TranscriptPayloadDict
@@ -301,7 +304,7 @@ EventPayload = (
     | PlanStepUpdatedPayloadDict
     | TurnSummaryPayloadDict
     | StepEntriesReassignedPayloadDict
-    | dict[str, Any]
+    | EmptyPayloadDict
 )
 
 

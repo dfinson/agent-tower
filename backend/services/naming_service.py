@@ -236,7 +236,11 @@ class NamingService:
                 f"worktree={data.get('worktree_name')!r})"
             )
 
-        return title, description or title, branch, worktree  # type: ignore[return-value]
+        # After the None check above, title/branch/worktree are guaranteed str.
+        assert title is not None  # noqa: S101 — guarded by invalid check above
+        assert branch is not None  # noqa: S101
+        assert worktree is not None  # noqa: S101
+        return title, description or title, branch, worktree
 
     async def _regenerate_field(self, field: str, conflicting_value: str, prompt: str) -> str | None:
         """Re-prompt the LLM for a single conflicting field."""

@@ -163,7 +163,7 @@ class JobRepository(BaseRepository):
     async def update_state(
         self,
         job_id: str,
-        new_state: str,
+        new_state: JobState,
         updated_at: datetime,
         completed_at: datetime | None = None,
         failure_reason: str | None = None,
