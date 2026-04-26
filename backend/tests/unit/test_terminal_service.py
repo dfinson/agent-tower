@@ -16,6 +16,7 @@ try:
 except ImportError:
     termios = None  # type: ignore[assignment]
 
+from backend.models.domain import ServiceInitError
 from backend.services.terminal_service import (
     PtySession,
     TerminalService,
@@ -263,7 +264,7 @@ class TestCreateSession:
         # Add a fake session
         svc._sessions["existing"] = _make_session()
 
-        with pytest.raises(RuntimeError, match="Maximum terminal sessions"):
+        with pytest.raises(ServiceInitError, match="Maximum terminal sessions"):
             svc.create_session()
 
     @patch("backend.services.terminal_service.os.path.isfile", return_value=False)

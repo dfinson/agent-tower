@@ -62,8 +62,8 @@ class TunnelHandle:
             try:
                 p.terminate()
                 p.wait(timeout=5)
-            except Exception:
-                with contextlib.suppress(Exception):
+            except OSError:
+                with contextlib.suppress(OSError):
                     p.kill()
 
 
@@ -138,16 +138,18 @@ class TunnelWatchdog:
         try:
             current.terminate()
             current.wait(timeout=5)
-        except Exception:
-            with contextlib.suppress(Exception):
+        except OSError:
+            with contextlib.suppress(OSError):
                 current.kill()
 
     def _read_process_output(self, proc: subprocess.Popen[str]) -> str:
         if proc.stdout is None:
             return ""
-        with contextlib.suppress(Exception):
+        try:
             return proc.stdout.read(self._MAX_OUTPUT_BYTES).strip()
-        return ""
+        except OSError:
+            log.debug("tunnel_read_output_failed", exc_info=True)
+            return ""
 
     def _wait_for_recovery(self) -> bool:
         deadline = time.monotonic() + self._RECOVERY_TIMEOUT
@@ -274,11 +276,13 @@ def _start_output_drain(proc: subprocess.Popen[str]) -> None:
         return
 
     def _drain() -> None:
-        with contextlib.suppress(Exception):
+        try:
             while True:
                 chunk = stdout.read(8192)
                 if not chunk:
                     break
+        except OSError:
+            pass  # stream closed during shutdown
 
     threading.Thread(target=_drain, daemon=True, name="tunnel-stdout-drain").start()
 
@@ -290,8 +294,10 @@ def _wait_for_startup(proc: subprocess.Popen[str], *, label: str = "tunnel", tim
         if proc.poll() is not None:
             output = ""
             if proc.stdout:
-                with contextlib.suppress(Exception):
+                try:
                     output = proc.stdout.read(64 * 1024).strip()
+                except OSError:
+                    pass
             raise TunnelStartError(output or f"{label} process exited during startup")
         time.sleep(0.5)
 

@@ -21,6 +21,7 @@ from backend.models.api_schemas import (
     DiffUpdatePayload,
 )
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.services.git_service import GitError
 
 if TYPE_CHECKING:
     from backend.services.event_bus import EventBus
@@ -115,7 +116,7 @@ class DiffService:
             # not divergence on the base branch.
             try:
                 effective_base = await self._git.merge_base(base_ref, "HEAD", cwd=worktree_path)
-            except Exception:
+            except GitError:
                 log.debug("merge_base_fallback", worktree=worktree_path, base_ref=base_ref, exc_info=True)
                 effective_base = base_ref  # fallback to two-dot if merge-base fails
             if merge_in_progress:
@@ -126,8 +127,8 @@ class DiffService:
                     effective_base,
                     cwd=worktree_path,
                 )
-        except Exception as exc:
-            if "working directory does not exist" in str(exc):
+        except GitError as exc:
+            if "does not exist" in str(exc) or "not a git repository" in str(exc).lower():
                 log.info("diff_skipped_missing_worktree", worktree=worktree_path, base_ref=base_ref)
                 return []
             log.warning("diff_git_failed", worktree=worktree_path, base_ref=base_ref, exc_info=True)

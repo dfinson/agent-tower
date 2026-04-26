@@ -661,12 +661,12 @@ def _format_tool_display_impl(
     if tool_result is not None:
         hint_args_fn = _RESULT_HINTS_WITH_ARGS.get(lookup_name)
         if hint_args_fn is not None:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(ValueError, KeyError, TypeError):
                 label = f"{label} {hint_args_fn(tool_result, tool_success, tool_args)}"
         else:
             hint_fn = _RESULT_HINTS.get(lookup_name)
             if hint_fn is not None:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(ValueError, KeyError, TypeError):
                     label = f"{label} {hint_fn(tool_result, tool_success)}"
 
     return label

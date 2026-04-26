@@ -27,6 +27,7 @@ from backend.models.domain import (
     JobSpec,
     JobState,
     Resolution,
+    ServiceInitError,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
@@ -1260,7 +1261,7 @@ class RuntimeService:
         import time
 
         if self._approval_service is None:
-            raise RuntimeError("approval_service must be set before handling approvals")
+            raise ServiceInitError("approval_service must be set before handling approvals")
 
         async with self._session_factory() as sess:
             svc = self._make_job_service(sess)
@@ -2434,10 +2435,10 @@ class RuntimeService:
         worktree_path = job.worktree_path
         if not worktree_path or worktree_path == job.repo:
             return  # main worktree — leave it alone
-        from backend.services.git_service import GitService
+        from backend.services.git_service import GitError, GitService
 
         git = GitService(self._config)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(GitError, OSError):
             await git.remove_worktree(job.repo, worktree_path)
             log.info("worktree_cleaned_up", job_id=job.id, worktree=worktree_path)
 

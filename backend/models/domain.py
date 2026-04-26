@@ -105,6 +105,10 @@ class CodePlaneError(Exception):
     """Base exception for all CodePlane domain errors."""
 
 
+class ServiceInitError(CodePlaneError):
+    """Raised when a service is used before required dependencies are configured."""
+
+
 class AgentSDK(StrEnum):
     """Supported agent SDK backends."""
 
