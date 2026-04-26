@@ -224,7 +224,7 @@ class CreateRepoResponse(CamelModel):
     name: str
 
 
-class SuggestNamesRequest(BaseModel):
+class SuggestNamesRequest(CamelModel):
     prompt: str = Field(min_length=1, max_length=50_000)
     repo: str | None = None
 
