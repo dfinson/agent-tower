@@ -106,7 +106,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         # tool_name.  Kept to _TRANSCRIPT_BUFFER_SIZE entries per job.
         self._transcript_buffers: dict[str, list[dict[str, str]]] = {}
 
-    _TRANSCRIPT_BUFFER_SIZE = 10  # keep last N entries per job
+    # Ring buffer size per job: 10 entries × ~2KB each ≈ 20KB per active job.
+    # With typical 5–20 concurrent jobs this keeps total transcript memory
+    # under 400KB while retaining enough context for motivation extraction.
+    _TRANSCRIPT_BUFFER_SIZE = 10
 
     # ------------------------------------------------------------------
     # Queue management
