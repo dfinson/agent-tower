@@ -83,6 +83,16 @@ from backend.models.domain import JobSpec, JobState, PermissionMode, Resolution
 
 router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
 
+# Event query limits — bound the maximum rows returned from the event store.
+# Default (2000) covers a typical 1–2 hour session; ceiling (5000) accommodates
+# long-running jobs.  Plan/step events use the ceiling because each event is
+# small and completeness matters for the UI step tracker.
+_EVENT_QUERY_DEFAULT = 2000
+_EVENT_QUERY_CEILING = 5000
+# Progress headlines are short one-line status updates — 200 covers even
+# long sessions while keeping the snapshot response compact.
+_HEADLINE_QUERY_LIMIT = 200
+
 
 def _resolve_tool_display(payload: dict[str, Any]) -> str | None:
     """Return tool_display from payload, recomputing it from args if missing.
@@ -386,7 +396,7 @@ async def get_job_logs(
     job_id: str,
     svc: FromDishka[JobService],
     level: Annotated[str, Query(pattern="^(debug|info|warn|error)$")] = "debug",
-    limit: Annotated[int, Query(ge=1, le=5000)] = 2000,
+    limit: Annotated[int, Query(ge=1, le=_EVENT_QUERY_CEILING)] = _EVENT_QUERY_DEFAULT,
     session: Annotated[int | None, Query(ge=1, description="Filter to a specific session number (1-based)")] = None,
 ) -> LogListResponse:
     """Return historical log lines for a job, filtered by minimum severity.
@@ -486,14 +496,14 @@ async def get_job_diff(
 async def get_job_transcript(
     job_id: str,
     svc: FromDishka[JobService],
-    limit: int = Query(default=2000, ge=1, le=5000),
+    limit: int = Query(default=_EVENT_QUERY_DEFAULT, ge=1, le=_EVENT_QUERY_CEILING),
 ) -> TranscriptListResponse:
     """Return historical transcript entries for a job from the event store."""
     events = await svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=limit)
 
     # Build a turn_id → summary map from stored tool_group_summary events so
     # that restored transcripts include AI-generated group labels.
-    summary_events = await svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
+    summary_events = await svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING)
     group_summary_by_turn: dict[str, str] = {
         str(ev.payload.get("turn_id")): str(ev.payload.get("summary"))
         for ev in summary_events
@@ -536,7 +546,7 @@ async def get_job_steps(
     endpoint lets late-joining clients catch up on steps that were emitted
     before they connected.
     """
-    events = await svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
+    events = await svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=_EVENT_QUERY_CEILING)
     # De-duplicate: keep the latest event per plan_step_id (events are ordered chronologically)
     latest_by_id: dict[str, dict[str, Any]] = {}
     for ev in events:
@@ -596,7 +606,7 @@ async def get_step_diff(
     step_row = None  # StepRow if found — used for preceding_context / turn_id
 
     # Try plan_step_updated events first (plan step IDs like ps-XXXX)
-    events = await svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
+    events = await svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=_EVENT_QUERY_CEILING)
     for ev in events:
         if ev.payload.get("plan_step_id") == step_id:
             # Take the latest event for this step (events are chronological)
@@ -877,13 +887,13 @@ async def get_job_snapshot(
     # Collect all sub-resources in parallel via gather
     import asyncio as _aio
 
-    logs_coro = svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=2000)
-    transcript_coro = svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=2000)
-    timeline_coro = svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=200)
-    summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=5000)
-    steps_coro = svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=5000)
-    reassign_coro = svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=5000)
-    turn_summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=5000)
+    logs_coro = svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=_EVENT_QUERY_DEFAULT)
+    transcript_coro = svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=_EVENT_QUERY_DEFAULT)
+    timeline_coro = svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=_HEADLINE_QUERY_LIMIT)
+    summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING)
+    steps_coro = svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=_EVENT_QUERY_CEILING)
+    reassign_coro = svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=_EVENT_QUERY_CEILING)
+    turn_summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=_EVENT_QUERY_CEILING)
 
     (
         log_events,

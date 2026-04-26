@@ -61,10 +61,14 @@ LOCALHOST_ADDRS = {"127.0.0.1", "::1", "localhost"}
 AUTH_EXEMPT_PREFIXES: frozenset[str] = frozenset({"/api/auth/"})
 AUTH_EXEMPT_EXACT: frozenset[str] = frozenset({"/api/health"})
 
-# Rate limiting: track failed attempts per IP
+# Rate limiting: track failed attempts per IP.
+# Window + max follows OWASP brute-force mitigation guidance: short enough to
+# block automated attacks, lenient enough to avoid locking out legitimate users
+# who mistype a password a few times.  5 attempts/60s matches common defaults
+# in Fail2Ban and similar tools.
 _login_attempts: dict[str, list[float]] = defaultdict(list)
-_RATE_LIMIT_WINDOW = 60  # seconds
-_RATE_LIMIT_MAX = 5  # max attempts per window
+_RATE_LIMIT_WINDOW = 60  # seconds — sliding window for attempt counting
+_RATE_LIMIT_MAX = 5  # max failed attempts per window before lockout
 
 # Session token TTL (seconds).  Tokens older than this are rejected and purged.
 SESSION_TTL: float = 86400  # 24 hours
