@@ -6,12 +6,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from backend.models.domain import CodePlaneError
+from backend.models.domain import CodePlaneError, SDKModelMismatchError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.models.domain import SessionConfig, SessionEvent
+
+# Re-export for backward compatibility — canonical location is backend.models.domain
+__all__ = ["SDKModelMismatchError"]
 
 
 @dataclass(slots=True)
@@ -37,10 +40,6 @@ _SDK_MODEL_PREFIXES: dict[AgentSDK, tuple[str, ...]] = {
     AgentSDK.copilot: (),  # Copilot proxies to multiple providers — any model
     AgentSDK.claude: ("claude-",),  # Claude SDK only supports Anthropic models
 }
-
-
-class SDKModelMismatchError(CodePlaneError):
-    """Raised when a model is incompatible with the selected SDK."""
 
 
 def normalize_model_name(model: str) -> str:

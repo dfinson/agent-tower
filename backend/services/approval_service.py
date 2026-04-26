@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.models.domain import Approval, CodePlaneError
+from backend.models.domain import (
+    Approval,
+    ApprovalAlreadyResolvedError,
+    ApprovalNotFoundError,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -18,13 +22,11 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-
-class ApprovalNotFoundError(CodePlaneError):
-    """Raised when an approval request is not found."""
-
-
-class ApprovalAlreadyResolvedError(CodePlaneError):
-    """Raised when attempting to resolve an already-resolved approval."""
+# Re-export for backward compatibility — canonical location is backend.models.domain
+__all__ = [
+    "ApprovalAlreadyResolvedError",
+    "ApprovalNotFoundError",
+]
 
 
 class ApprovalService:
