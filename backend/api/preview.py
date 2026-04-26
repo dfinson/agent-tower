@@ -6,15 +6,11 @@ Routes: ``/api/preview/{port}/{path}``
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import httpx
 import structlog
 from dishka.integrations.fastapi import DishkaRoute
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
-
-if TYPE_CHECKING:
-    import httpx
 
 router = APIRouter(tags=["preview"], route_class=DishkaRoute)
 
@@ -43,8 +39,6 @@ _client = None
 def _get_client() -> httpx.AsyncClient:  # noqa: ANN202
     global _client  # noqa: PLW0603
     if _client is None:
-        import httpx
-
         _client = httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0))
     return _client
 

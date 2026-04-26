@@ -18,10 +18,13 @@ from backend.models.domain import (
     CodePlaneError,
     InvalidStateTransitionError,
     Job,
+    JobNotFoundError,
     JobSpec,
     JobState,
+    RepoNotAllowedError,
     Resolution,
     ServiceInitError,
+    StateConflictError,
     validate_state_transition,
 )
 from backend.services.agent_adapter import validate_sdk_model
@@ -44,17 +47,12 @@ log = structlog.get_logger()
 
 _MAX_COUNT_LIMIT = 10_000  # upper bound for count queries that scan all jobs
 
-
-class RepoNotAllowedError(CodePlaneError):
-    """Raised when a repo path is not in the allowlist."""
-
-
-class JobNotFoundError(CodePlaneError):
-    """Raised when a job ID does not exist."""
-
-
-class StateConflictError(CodePlaneError):
-    """Raised when a job action conflicts with its current state."""
+# Re-export for backward compatibility — canonical location is backend.models.domain
+__all__ = [
+    "JobNotFoundError",
+    "RepoNotAllowedError",
+    "StateConflictError",
+]
 
 
 _MAX_NAMING_COLLISION_RETRIES = 2

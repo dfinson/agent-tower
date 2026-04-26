@@ -43,10 +43,16 @@ from backend.api import (
     workspace,
 )
 from backend.lifespan import lifespan
-from backend.models.domain import CodePlaneError, InvalidStateTransitionError
-from backend.services.agent_adapter import SDKModelMismatchError
-from backend.services.approval_service import ApprovalAlreadyResolvedError, ApprovalNotFoundError
-from backend.services.job_service import JobNotFoundError, RepoNotAllowedError, StateConflictError
+from backend.models.domain import (
+    ApprovalAlreadyResolvedError,
+    ApprovalNotFoundError,
+    CodePlaneError,
+    InvalidStateTransitionError,
+    JobNotFoundError,
+    RepoNotAllowedError,
+    SDKModelMismatchError,
+    StateConflictError,
+)
 
 _FRONTEND_DIR = Path(__file__).resolve().parent / "web"
 

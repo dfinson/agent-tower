@@ -109,6 +109,30 @@ class ServiceInitError(CodePlaneError):
     """Raised when a service is used before required dependencies are configured."""
 
 
+class JobNotFoundError(CodePlaneError):
+    """Raised when a job ID does not exist."""
+
+
+class StateConflictError(CodePlaneError):
+    """Raised when a job action conflicts with its current state."""
+
+
+class RepoNotAllowedError(CodePlaneError):
+    """Raised when a repo path is not in the allowlist."""
+
+
+class ApprovalNotFoundError(CodePlaneError):
+    """Raised when an approval request is not found."""
+
+
+class ApprovalAlreadyResolvedError(CodePlaneError):
+    """Raised when attempting to resolve an already-resolved approval."""
+
+
+class SDKModelMismatchError(CodePlaneError):
+    """Raised when a model is incompatible with the selected SDK."""
+
+
 class AgentSDK(StrEnum):
     """Supported agent SDK backends."""
 
