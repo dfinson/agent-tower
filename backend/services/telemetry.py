@@ -19,12 +19,17 @@ from __future__ import annotations
 
 import os
 
-from opentelemetry import metrics, trace
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import InMemoryMetricReader, MetricReader
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+try:
+    from opentelemetry import metrics, trace
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader, MetricReader
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    _HAS_OTEL = True
+except ImportError:  # pragma: no cover
+    _HAS_OTEL = False
 
 # ---------------------------------------------------------------------------
 # Providers — always in-process; optionally export via OTLP.
@@ -32,12 +37,16 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 # mutate global OTEL state as a side-effect.
 # ---------------------------------------------------------------------------
 
-_memory_reader = InMemoryMetricReader()
-_span_exporter = InMemorySpanExporter()
+if _HAS_OTEL:
+    _memory_reader = InMemoryMetricReader()
+    _span_exporter = InMemorySpanExporter()
+else:  # pragma: no cover
+    _memory_reader = None  # type: ignore[assignment]
+    _span_exporter = None  # type: ignore[assignment]
 
 _initialised = False
-meter_provider: MeterProvider | None = None
-tracer_provider: TracerProvider | None = None
+meter_provider: MeterProvider | None = None  # type: ignore[type-arg]
+tracer_provider: TracerProvider | None = None  # type: ignore[type-arg]
 
 
 def init_telemetry() -> None:
@@ -50,6 +59,10 @@ def init_telemetry() -> None:
     global _initialised, meter_provider, tracer_provider  # noqa: PLW0603
 
     if _initialised:
+        return
+
+    if not _HAS_OTEL:
+        _initialised = True
         return
 
     metric_readers: list[MetricReader] = [_memory_reader]
@@ -90,8 +103,14 @@ def init_telemetry() -> None:
 # Instruments
 # ---------------------------------------------------------------------------
 
-meter = metrics.get_meter("codeplane")
-tracer = trace.get_tracer("codeplane")
+if _HAS_OTEL:
+    meter = metrics.get_meter("codeplane")
+    tracer = trace.get_tracer("codeplane")
+else:  # pragma: no cover
+    from unittest.mock import MagicMock as _MagicMock
+
+    meter = _MagicMock()
+    tracer = _MagicMock()
 
 # Counters (monotonic, incremented per event)
 tokens_input = meter.create_counter("cp.tokens.input", unit="tokens", description="Input tokens consumed")
@@ -125,7 +144,7 @@ quota_remaining_gauge = meter.create_gauge("cp.quota.remaining_pct", unit="%", d
 # Per-job span tracking — root span per job for waterfall views
 # ---------------------------------------------------------------------------
 
-_job_spans: dict[str, trace.Span] = {}
+_job_spans: dict[str, "trace.Span"] = {}  # type: ignore[type-arg]
 
 # Safety cap — prevent unbounded growth if end_job_span is never called
 _JOB_SPANS_MAX = 200
@@ -169,11 +188,11 @@ def end_job_span(job_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def get_memory_reader() -> InMemoryMetricReader:
+def get_memory_reader() -> InMemoryMetricReader | None:  # type: ignore[type-arg]
     """Return the in-memory metric reader for live API queries."""
     return _memory_reader
 
 
-def get_span_exporter() -> InMemorySpanExporter:
+def get_span_exporter() -> InMemorySpanExporter | None:  # type: ignore[type-arg]
     """Return the in-memory span exporter for live trace queries."""
     return _span_exporter

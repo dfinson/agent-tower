@@ -548,19 +548,13 @@ dependencies = [
     { name = "click" },
     { name = "dishka" },
     { name = "fastapi" },
-    { name = "faster-whisper" },
     { name = "github-copilot-sdk" },
     { name = "mcp" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-sdk" },
-    { name = "py-vapid" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
-    { name = "pywebpush" },
     { name = "pywinpty", marker = "sys_platform == 'win32'" },
     { name = "pyyaml" },
-    { name = "qrcode" },
     { name = "questionary" },
     { name = "rich" },
     { name = "sqlalchemy" },
@@ -569,8 +563,31 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.optional-dependencies]
+all = [
+    { name = "faster-whisper" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "py-vapid" },
+    { name = "pywebpush" },
+    { name = "qrcode" },
+]
+push = [
+    { name = "py-vapid" },
+    { name = "pywebpush" },
+    { name = "qrcode" },
+]
+telemetry = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+]
+voice = [
+    { name = "faster-whisper" },
+]
+
 [package.dev-dependencies]
 dev = [
+    { name = "codeplane", extra = ["all"] },
     { name = "httpx" },
     { name = "mypy" },
     { name = "pip-audit" },
@@ -589,21 +606,24 @@ requires-dist = [
     { name = "anthropic-tokenizer", specifier = ">=0.1.0" },
     { name = "claude-code-sdk", specifier = "~=0.0.25" },
     { name = "click", specifier = ">=8.0,<9" },
+    { name = "codeplane", extras = ["push"], marker = "extra == 'all'" },
+    { name = "codeplane", extras = ["telemetry"], marker = "extra == 'all'" },
+    { name = "codeplane", extras = ["voice"], marker = "extra == 'all'" },
     { name = "dishka", extras = ["fastapi"], specifier = ">=1.9.1" },
     { name = "fastapi", specifier = ">=0.115,<1" },
-    { name = "faster-whisper", specifier = ">=1.1,<2" },
+    { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.1,<2" },
     { name = "github-copilot-sdk", specifier = "~=0.1.32" },
     { name = "mcp", specifier = ">=1.9,<2" },
-    { name = "opentelemetry-api", specifier = ">=1.20,<2" },
-    { name = "opentelemetry-sdk", specifier = ">=1.20,<2" },
-    { name = "py-vapid", specifier = ">=1.9.4" },
+    { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.20,<2" },
+    { name = "opentelemetry-sdk", marker = "extra == 'telemetry'", specifier = ">=1.20,<2" },
+    { name = "py-vapid", marker = "extra == 'push'", specifier = ">=1.9.4" },
     { name = "pydantic", specifier = ">=2.0,<3" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.12.0" },
     { name = "python-multipart", specifier = ">=0.0.9,<1" },
-    { name = "pywebpush", specifier = ">=2.3.0" },
+    { name = "pywebpush", marker = "extra == 'push'", specifier = ">=2.3.0" },
     { name = "pywinpty", marker = "sys_platform == 'win32'", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
-    { name = "qrcode", specifier = ">=7.0,<9" },
+    { name = "qrcode", marker = "extra == 'push'", specifier = ">=7.0,<9" },
     { name = "questionary", specifier = ">=2.0,<3" },
     { name = "rich", specifier = ">=13.0,<14" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
@@ -611,9 +631,11 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.12.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32,<1" },
 ]
+provides-extras = ["voice", "push", "telemetry", "all"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "codeplane", extras = ["all"] },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mypy", specifier = ">=1.13,<2" },
     { name = "pip-audit", specifier = ">=2.10.0" },
