@@ -73,7 +73,7 @@ class Resolution(StrEnum):
 #
 # Enforced by validate_state_transition(); all external callers go
 # through JobService.transition_state().
-_VALID_TRANSITIONS: dict[str | None, set[str]] = {
+_VALID_TRANSITIONS: dict[JobState | None, set[JobState]] = {
     None: {JobState.preparing, JobState.running, JobState.queued},
     JobState.preparing: {JobState.queued, JobState.failed, JobState.canceled},
     JobState.queued: {JobState.running, JobState.canceled},
@@ -119,13 +119,13 @@ class AgentSDK(StrEnum):
 class InvalidStateTransitionError(CodePlaneError):
     """Raised when a job state transition is not allowed."""
 
-    def __init__(self, from_state: str | None, to_state: str) -> None:
+    def __init__(self, from_state: JobState | None, to_state: JobState) -> None:
         self.from_state = from_state
         self.to_state = to_state
         super().__init__(f"Invalid state transition: {from_state!r} -> {to_state!r}")
 
 
-def validate_state_transition(from_state: str | None, to_state: str) -> None:
+def validate_state_transition(from_state: JobState | None, to_state: JobState) -> None:
     """Validate a job state transition. Raises InvalidStateTransitionError if invalid."""
     valid_targets = _VALID_TRANSITIONS.get(from_state, set())
     if to_state not in valid_targets:
