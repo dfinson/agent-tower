@@ -11,7 +11,13 @@ from typing import Any
 
 from sqlalchemy import text
 
-from backend.models.domain import TelemetrySummaryRow
+from backend.models.domain import (
+    AggregateStats,
+    CostByDayRow,
+    CostByModelRow,
+    CostByRepoRow,
+    TelemetrySummaryRow,
+)
 from backend.persistence.repository import BaseRepository
 
 
@@ -314,7 +320,7 @@ class TelemetrySummaryRepository(BaseRepository):
         )
         return [TelemetrySummaryRow(**r) for r in result.mappings().all()]  # type: ignore[arg-type]
 
-    async def aggregate(self, *, period_days: int = 7) -> dict[str, Any]:
+    async def aggregate(self, *, period_days: int = 7) -> AggregateStats:
         """Return aggregate stats for the analytics overview."""
         result = await self._session.execute(
             text(f"""
@@ -345,7 +351,7 @@ class TelemetrySummaryRepository(BaseRepository):
         row = result.mappings().first()
         return dict(row) if row else {}
 
-    async def cost_by_day(self, *, period_days: int = 7) -> list[dict[str, Any]]:
+    async def cost_by_day(self, *, period_days: int = 7) -> list[CostByDayRow]:
         """Return daily cost breakdown."""
         result = await self._session.execute(
             text(f"""
@@ -361,7 +367,7 @@ class TelemetrySummaryRepository(BaseRepository):
         )
         return [dict(r) for r in result.mappings().all()]
 
-    async def cost_by_repo(self, *, period_days: int = 7) -> list[dict[str, Any]]:
+    async def cost_by_repo(self, *, period_days: int = 7) -> list[CostByRepoRow]:
         """Return per-repo cost / job count / token breakdown."""
         result = await self._session.execute(
             text(f"""
@@ -383,7 +389,7 @@ class TelemetrySummaryRepository(BaseRepository):
         )
         return [dict(r) for r in result.mappings().all()]
 
-    async def cost_by_model(self, *, period_days: int = 7) -> list[dict[str, Any]]:
+    async def cost_by_model(self, *, period_days: int = 7) -> list[CostByModelRow]:
         """Return per-model cost / job count / token breakdown with normalized metrics."""
         result = await self._session.execute(
             text(f"""

@@ -10,7 +10,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from backend.models.domain import TelemetrySummaryRow
+    from backend.models.domain import (
+        AggregateStats,
+        CostByDayRow,
+        CostByModelRow,
+        CostByRepoRow,
+        TelemetrySummaryRow,
+    )
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -27,22 +33,22 @@ class AnalyticsService:
 
     # -- Telemetry summary ---------------------------------------------------
 
-    async def aggregate(self, *, period_days: int) -> dict[str, Any]:
+    async def aggregate(self, *, period_days: int) -> AggregateStats:
         from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
         return await TelemetrySummaryRepository(self._session).aggregate(period_days=period_days)
 
-    async def cost_by_day(self, *, period_days: int) -> list[dict[str, Any]]:
+    async def cost_by_day(self, *, period_days: int) -> list[CostByDayRow]:
         from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
         return await TelemetrySummaryRepository(self._session).cost_by_day(period_days=period_days)
 
-    async def cost_by_model(self, *, period_days: int) -> list[dict[str, Any]]:
+    async def cost_by_model(self, *, period_days: int) -> list[CostByModelRow]:
         from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
         return await TelemetrySummaryRepository(self._session).cost_by_model(period_days=period_days)
 
-    async def cost_by_repo(self, *, period_days: int) -> list[dict[str, Any]]:
+    async def cost_by_repo(self, *, period_days: int) -> list[CostByRepoRow]:
         from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
         return await TelemetrySummaryRepository(self._session).cost_by_repo(period_days=period_days)
