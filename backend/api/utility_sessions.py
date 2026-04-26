@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
 
 from backend.services.sister_session import SisterSessionManager
+
+log = structlog.get_logger()
 
 router = APIRouter(tags=["utility-sessions"], route_class=DishkaRoute)
 
@@ -22,7 +25,8 @@ async def warm_utility_session(
     try:
         token = await sister_sessions.warm()
     except (ConnectionError, TimeoutError, OSError) as exc:
-        raise HTTPException(status_code=503, detail=f"Failed to warm session: {exc}") from exc
+        log.warning("warm_session_failed", exc_info=exc)
+        raise HTTPException(status_code=503, detail="Failed to warm session") from exc
     return {"sessionToken": token}
 
 

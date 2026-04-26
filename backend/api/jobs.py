@@ -180,7 +180,8 @@ async def suggest_names(
     try:
         title, description, branch_name, worktree_name = await naming.generate(body.prompt)
     except NamingError as exc:
-        raise HTTPException(status_code=503, detail=f"Naming failed: {exc}") from exc
+        structlog.get_logger().warning("naming_failed", exc_info=exc)
+        raise HTTPException(status_code=503, detail="Naming failed") from exc
 
     return SuggestNamesResponse(
         title=title,
@@ -356,7 +357,8 @@ async def continue_job(
     try:
         job = await runtime_service.create_followup_job(job_id, body.instruction)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        structlog.get_logger().warning("continue_job_rejected", job_id=job_id, exc_info=exc)
+        raise HTTPException(status_code=409, detail="Cannot create follow-up for this job") from exc
 
     return _job_to_create_response(job)
 
