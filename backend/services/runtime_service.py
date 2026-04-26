@@ -15,7 +15,6 @@ import asyncio
 import contextlib
 import dataclasses
 import enum
-import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 

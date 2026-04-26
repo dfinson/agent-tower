@@ -1,11 +1,9 @@
 """Trail endpoints — agent audit trail query API."""
 
-import json
 from typing import Annotated
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Query
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 from backend.models.api_schemas import (
     TrailBacktrack,
