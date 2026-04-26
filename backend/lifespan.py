@@ -281,6 +281,7 @@ async def _wire_core_services(
         config=config,
         approval_service=approval_service,
         diff_service=diff_service,
+        git_service=git_service,
         merge_service=merge_service,
         summarization_service=summarization_service,
         platform_registry=platform_registry,

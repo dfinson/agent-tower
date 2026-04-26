@@ -28,6 +28,8 @@ from backend.models.api_schemas import (
 from backend.models.events import DomainEventKind
 from backend.persistence.approval_repo import ApprovalRepository
 from backend.services.event_bus import EventBus
+from backend.services.git_service import GitService
+from backend.services.diff_service import DiffService
 from backend.services.job_service import JobService
 from backend.services.share_service import ShareService
 from backend.services.sse_manager import SSEConnection, SSEManager
@@ -171,6 +173,8 @@ async def get_shared_snapshot(
     approval_repo: FromDishka[ApprovalRepository],
     event_bus: FromDishka[EventBus],
     config: FromDishka[CPLConfig],
+    git_service: FromDishka[GitService],
+    diff_service: FromDishka[DiffService],
 ) -> JobSnapshotResponse:
     """Full state hydration via share token — same shape as /jobs/{id}/snapshot."""
     from backend.api.jobs import _job_to_response, _resolve_tool_display, _resolve_tool_display_full
@@ -286,13 +290,8 @@ async def get_shared_snapshot(
         and job.worktree_path
         and job.worktree_path != job.repo
     ):
-        from backend.services.diff_service import DiffService
-        from backend.services.git_service import GitService
-
-        git = GitService(config)
-        ds = DiffService(git_service=git, event_bus=event_bus)
         with contextlib.suppress(OSError, ValueError):
-            diff = await ds.calculate_diff(job.worktree_path, job.base_ref)
+            diff = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
     if not diff:
         diff_events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
         if diff_events:

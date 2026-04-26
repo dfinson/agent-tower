@@ -34,12 +34,13 @@ from backend.models.domain import (
     SessionEventKind,
 )
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.persistence.job_repo import JobRepository
+from backend.services.job_service import JobService
 from backend.validators import REF_PATTERN
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from backend.persistence.job_repo import JobRepository
     from backend.services.step_tracker import StepTracker
     from backend.services.terminal_service import TerminalService
     from backend.services.trail import TrailService
@@ -123,13 +124,12 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
-    from backend.persistence.job_repo import JobRepository
     from backend.services.adapter_registry import AdapterRegistry
     from backend.services.agent_adapter import AgentAdapterInterface
     from backend.services.approval_service import ApprovalService
     from backend.services.diff_service import DiffService
     from backend.services.event_bus import EventBus
-    from backend.services.job_service import JobService
+    from backend.services.git_service import GitService
     from backend.services.merge_service import MergeService
     from backend.services.platform_adapter import PlatformRegistry
     from backend.services.sister_session import SisterSessionManager
@@ -180,6 +180,7 @@ class RuntimeService:
         config: CPLConfig,
         approval_service: ApprovalService | None = None,
         diff_service: DiffService | None = None,
+        git_service: GitService | None = None,
         merge_service: MergeService | None = None,
         summarization_service: SummarizationService | None = None,
         platform_registry: PlatformRegistry | None = None,
@@ -193,6 +194,7 @@ class RuntimeService:
         self._config = config
         self._approval_service = approval_service
         self._diff_service = diff_service
+        self._git_service = git_service
         self._merge_service = merge_service
         self._summarization_service = summarization_service
         self._platform_registry = platform_registry
@@ -237,13 +239,9 @@ class RuntimeService:
         return self._adapter_registry.get_adapter(sdk)
 
     def _make_job_service(self, session: AsyncSession) -> JobService:
-        from backend.persistence.job_repo import JobRepository
-        from backend.services.git_service import GitService
-        from backend.services.job_service import JobService
-
         return JobService(
             job_repo=JobRepository(session),
-            git_service=GitService(self._config),
+            git_service=self._git_service,
             config=self._config,
             event_bus=self._event_bus,
         )
@@ -385,7 +383,6 @@ class RuntimeService:
         instruction: str = _SERVER_RESTART_RECOVERY_INSTRUCTION,
     ) -> Job:
         """Restart an active job after backend restart without marking it failed."""
-        from backend.persistence.job_repo import JobRepository
         from backend.services.job_service import JobNotFoundError, StateConflictError
 
         async with self._session_factory() as session:
@@ -470,8 +467,6 @@ class RuntimeService:
 
     async def _rollback_recovery(self, job_id: str, snapshot: _RecoverySnapshot) -> None:
         """Restore job state after a failed recovery attempt."""
-        from backend.persistence.job_repo import JobRepository
-
         async with self._session_factory() as session:
             job_repo = JobRepository(session)
             await job_repo.restore_after_failed_resume(
@@ -496,8 +491,6 @@ class RuntimeService:
 
         # DB-level compare-and-swap: prevents double-start if recovery and
         # an HTTP request race on the same job.  Only the winner proceeds.
-        from backend.persistence.job_repo import JobRepository
-
         async with self._session_factory() as session:
             repo = JobRepository(session)
             claimed = await repo.claim_for_start(job.id)
@@ -785,8 +778,6 @@ class RuntimeService:
         async with self._session_factory() as session:
             svc = self._make_job_service(session)
             await svc.transition_state(job_id, JobState.review, failure_reason=reason)
-            from backend.persistence.job_repo import JobRepository
-
             job_repo = JobRepository(session)
             await job_repo.update_resolution(job_id, Resolution.unresolved)
             await session.commit()
@@ -840,8 +831,6 @@ class RuntimeService:
             svc = self._make_job_service(session)
             await svc.transition_state(job_id, JobState.review)
             if not post_conflict_merge_requested or self._merge_service is None:
-                from backend.persistence.job_repo import JobRepository
-
                 job_repo = JobRepository(session)
                 await job_repo.update_resolution(job_id, final_resolution, pr_url=None)
                 if post_conflict_merge_requested and self._merge_service is None:
@@ -1891,8 +1880,6 @@ class RuntimeService:
         Raises domain exceptions (``StateConflictError``, ``JobNotFoundError``)
         so that callers can surface the real error instead of a generic failure.
         """
-        from backend.models.domain import TERMINAL_STATES
-        from backend.persistence.job_repo import JobRepository
         from backend.services.job_service import JobNotFoundError, StateConflictError
 
         async with self._session_factory() as session:
@@ -1971,8 +1958,6 @@ class RuntimeService:
                     job_id, (override_prompt, resume_sdk_session_id) = next(iter(self._pending_starts.items()))
                     self._pending_starts.pop(job_id, None)
                     async with self._session_factory() as session:
-                        from backend.persistence.job_repo import JobRepository
-
                         job = await JobRepository(session).get(job_id)
                     if job is not None:
                         await self._start_job(
@@ -2031,8 +2016,6 @@ class RuntimeService:
         """Persist the Copilot SDK session ID so resume_job() can reconnect to it later."""
         try:
             async with self._session_factory() as session:
-                from backend.persistence.job_repo import JobRepository
-
                 job_repo = JobRepository(session)
                 await job_repo.update_sdk_session_id(job_id, sdk_session_id)
                 await session.commit()
@@ -2043,8 +2026,6 @@ class RuntimeService:
         """Clear a stale Copilot SDK session ID so resume falls back cleanly."""
         try:
             async with self._session_factory() as session:
-                from backend.persistence.job_repo import JobRepository
-
                 job_repo = JobRepository(session)
                 await job_repo.update_sdk_session_id(job_id, None)
                 await session.commit()
@@ -2170,7 +2151,6 @@ class RuntimeService:
 
     async def _build_resume_handoff_prompt(self, job_id: str, instruction: str) -> str:
         """Build the opaque handoff prompt used when native resume is unavailable."""
-        from backend.persistence.job_repo import JobRepository
         from backend.services.job_service import JobNotFoundError
 
         async with self._session_factory() as session:
@@ -2249,8 +2229,6 @@ class RuntimeService:
         intact, no summarization cost). Fallback: use LLM-generated session summary when the
         SDK session is no longer available (daemon restart, session expired, etc.).
         """
-        from backend.models.domain import TERMINAL_STATES
-        from backend.persistence.job_repo import JobRepository
         from backend.services.job_service import JobNotFoundError, StateConflictError
 
         resumable_states = TERMINAL_STATES | {JobState.review}

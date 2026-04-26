@@ -355,6 +355,7 @@ class MergeService:
             await self._update_merge_status(job_id, "not_merged")
             return MergeResult(status=MergeStatus.error, error=error or "Merge failed without conflict markers")
 
+        # outcome is _MergeOutcome.conflict
         await self._update_merge_status(job_id, Resolution.conflict)
         await self._publish_merge_conflict(
             job_id,
@@ -393,7 +394,7 @@ class MergeService:
         except GitError:
             files = await self._git.get_conflict_files(cwd=repo_path)
             await self._git.merge_abort(cwd=repo_path)
-            return files if files else []
+            return files
 
     async def _create_pr(
         self,
@@ -689,6 +690,7 @@ class MergeService:
                 await self._update_merge_status(job_id, "not_merged")
                 return MergeResult(status=MergeStatus.error, error=error or "Merge failed without conflict markers")
 
+            # outcome is _MergeOutcome.conflict
             await self._update_merge_status(job_id, Resolution.conflict)
             await self._publish_merge_conflict(
                 job_id,
