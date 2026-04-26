@@ -568,6 +568,7 @@ class MergeConflictPayload(CamelModel):
     conflict_files: list[str]
     fallback: str  # pr_created | none
     pr_url: str | None = None
+    timestamp: datetime
 
 
 # --- Platform Models ---
