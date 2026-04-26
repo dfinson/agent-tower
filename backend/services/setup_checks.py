@@ -21,13 +21,12 @@ from typing import Any
 
 from rich.console import Console
 
-from backend.config import DEFAULT_CONFIG_PATH
+from backend.config import get_codeplane_dir
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-_IS_WSL = bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
 _SYSTEM = platform.system().lower()  # "linux", "darwin", "windows"
 
 _console = Console()
@@ -551,15 +550,16 @@ def verify_requirements(
         )
 
     # --- Environment ---
-    if DEFAULT_CONFIG_PATH.exists():
-        results.append(CheckResult("Config", CheckStatus.passed, str(DEFAULT_CONFIG_PATH), category="env"))
+    config_path = get_codeplane_dir() / "config.yaml"
+    if config_path.exists():
+        results.append(CheckResult("Config", CheckStatus.passed, str(config_path), category="env"))
     else:
         results.append(
             CheckResult(
                 "Config",
                 CheckStatus.warn,
                 "not found",
-                hint=f"Will be created at {DEFAULT_CONFIG_PATH}",
+                hint=f"Will be created at {config_path}",
                 category="env",
             )
         )
@@ -634,7 +634,8 @@ def verify_requirements(
 
     # --- Disk space ---
     try:
-        disk_path = DEFAULT_CONFIG_PATH.parent if DEFAULT_CONFIG_PATH.parent.exists() else Path.home()
+        cfg_dir = get_codeplane_dir()
+        disk_path = cfg_dir if cfg_dir.exists() else Path.home()
         usage = shutil.disk_usage(str(disk_path))
         free_gb = usage.free / (1024**3)
         if free_gb > 1:

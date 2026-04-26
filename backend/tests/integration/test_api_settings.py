@@ -514,7 +514,7 @@ class TestListSDKs:
 
     @pytest.mark.asyncio
     async def test_returns_available_sdks(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        from backend.services.setup_service import AgentAuthStatus, AgentCLIStatus
+        from backend.services.setup_checks import AgentAuthStatus, AgentCLIStatus
 
         def _mock_check(sdk_id: str) -> AgentCLIStatus:
             return AgentCLIStatus(

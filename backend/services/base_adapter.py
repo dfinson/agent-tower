@@ -768,29 +768,40 @@ class BaseAgentAdapter(AgentAdapterInterface):
         full_command_text: str | None,
     ) -> str:
         """Build a human-readable description for an approval request."""
-        if tool_kind == "shell" or tool_name == "Bash":
-            cmd = full_command_text or (str(tool_input.get("command", "")) if tool_input else "")
-            return f"Run shell: {cmd[:_TOOL_SUMMARY_MAX_CHARS]}"
-        if tool_kind == "write" or tool_name in ("Edit", "Write"):
-            fname = ""
-            if tool_input:
-                fname = str(tool_input.get("file_path", "") or tool_input.get("path", ""))
-            return f"Write file: {fname}"
-        if tool_name == "WebSearch":
-            q = ""
-            if tool_input:
-                q = str(tool_input.get("query", ""))[:_TOOL_SUMMARY_MAX_CHARS]
-            return f"Web search: {q}"
-        if tool_kind == "url" or tool_name == "WebFetch":
-            url = ""
-            if tool_input:
-                url = str(tool_input.get("url", ""))[:_TOOL_SUMMARY_MAX_CHARS]
-            return f"Fetch URL: {url}"
-        if tool_name == "Read":
-            fname = ""
-            if tool_input:
-                fname = str(tool_input.get("file_path", "") or tool_input.get("path", ""))
-            return f"Read file: {fname}"
+
+        def _get(key: str, *fallbacks: str) -> str:
+            if not tool_input:
+                return ""
+            for k in (key, *fallbacks):
+                val = tool_input.get(k, "")
+                if val:
+                    return str(val)
+            return ""
+
+        # Dispatch table: (prefix, primary_field, fallback_field, truncate)
+        _RULES: dict[str, tuple[str, str, str | None]] = {
+            "shell": ("Run shell:", "command", None),
+            "Bash": ("Run shell:", "command", None),
+            "write": ("Write file:", "file_path", "path"),
+            "Edit": ("Write file:", "file_path", "path"),
+            "Write": ("Write file:", "file_path", "path"),
+            "WebSearch": ("Web search:", "query", None),
+            "url": ("Fetch URL:", "url", None),
+            "WebFetch": ("Fetch URL:", "url", None),
+            "Read": ("Read file:", "file_path", "path"),
+        }
+
+        rule = _RULES.get(tool_name) or _RULES.get(tool_kind)
+        if rule:
+            prefix, primary, fallback = rule
+            if tool_kind == "shell" or tool_name == "Bash":
+                val = full_command_text or _get(primary)
+            elif fallback:
+                val = _get(primary, fallback)
+            else:
+                val = _get(primary)
+            return f"{prefix} {val[:_TOOL_SUMMARY_MAX_CHARS]}"
+
         # Generic
         if tool_name:
             summary = ""

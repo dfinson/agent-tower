@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import TYPE_CHECKING
+
+from backend.models.domain import CodePlaneError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -28,11 +29,8 @@ class CompletionResult:
     model: str = ""
 
 
-class AgentSDK(StrEnum):
-    """Supported agent SDK backends."""
-
-    copilot = "copilot"
-    claude = "claude"
+# Re-export for backwards compatibility — canonical location is backend.models.domain
+from backend.models.domain import AgentSDK  # noqa: E402
 
 
 # Model prefixes accepted by each SDK.  An empty tuple means "any model".
@@ -42,7 +40,7 @@ _SDK_MODEL_PREFIXES: dict[AgentSDK, tuple[str, ...]] = {
 }
 
 
-class SDKModelMismatchError(ValueError):
+class SDKModelMismatchError(CodePlaneError):
     """Raised when a model is incompatible with the selected SDK."""
 
 

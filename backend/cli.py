@@ -521,7 +521,7 @@ def _is_server_running(host: str, port: int) -> tuple[bool, list[int]]:
     via health-probe alone — callers that need PIDs should fall back to
     ``_find_pids_on_port``.
     """
-    from backend.services.setup_service import _find_cpl_processes
+    from backend.services.setup_checks import _find_cpl_processes
 
     # 1. Health endpoint
     status, _ = _api_get(f"http://{host}:{port}", "/health")
@@ -611,7 +611,7 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
     import os
     import time
 
-    from backend.services.setup_service import _find_cpl_processes
+    from backend.services.setup_checks import _find_cpl_processes
 
     pids = _find_pids_on_port(port)
     # Also include parent cpl-up processes that may not own the port directly

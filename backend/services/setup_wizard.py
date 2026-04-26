@@ -14,7 +14,7 @@ from pathlib import Path
 import questionary
 from rich.panel import Panel
 
-from backend.config import DEFAULT_CONFIG_PATH, init_config, load_config, save_config
+from backend.config import get_codeplane_dir, init_config, load_config, save_config
 from backend.services.setup_checks import (
     DEPENDENCIES,
     Dependency,
@@ -281,8 +281,9 @@ def _setup_config() -> None:
     """Step 4: Config initialization."""
     _step_header(4, _SETUP_TOTAL_STEPS, "Configuration")
 
-    if DEFAULT_CONFIG_PATH.exists():
-        _console.print(f"  [green]✓[/green]  Config exists at [bold]{DEFAULT_CONFIG_PATH}[/bold]")
+    config_path = get_codeplane_dir() / "config.yaml"
+    if config_path.exists():
+        _console.print(f"  [green]✓[/green]  Config exists at [bold]{config_path}[/bold]")
     else:
         path = init_config()
         _console.print(f"  [green]✓[/green]  Created [bold]{path}[/bold]")
@@ -295,4 +296,4 @@ def _setup_config() -> None:
     _console.print(f"    runtime.max_concurrent:  [bold]{config.runtime.max_concurrent_jobs}[/bold]")
     _console.print(f"    completion.strategy:     [bold]{config.completion.strategy}[/bold]")
     _console.print()
-    _console.print(f"  [dim]Edit: {DEFAULT_CONFIG_PATH}[/dim]")
+    _console.print(f"  [dim]Edit: {config_path}[/dim]")

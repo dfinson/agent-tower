@@ -47,10 +47,12 @@ _certs_url: str | None = None
 # refresh can be triggered from any request thread).
 _jwks_lock = threading.Lock()
 _jwks_keys: list[dict[str, Any]] = []
+from backend.models.domain import CodePlaneError
+
 _jwks_fetched_at: float = 0
 
 
-class CfAccessConfigError(RuntimeError):
+class CfAccessConfigError(CodePlaneError):
     """Raised when CF Access configuration is invalid or unreachable."""
 
 

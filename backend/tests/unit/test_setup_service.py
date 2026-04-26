@@ -5,7 +5,7 @@ from __future__ import annotations
 import errno
 from unittest.mock import patch
 
-from backend.services.setup_service import (
+from backend.services.setup_checks import (
     AgentAuthStatus,
     AgentCLIStatus,
     CheckResult,
@@ -15,10 +15,14 @@ from backend.services.setup_service import (
     _check_port,
     _check_server_running,
     _find_cpl_processes,
-    _get_env_persistence_instructions,
+    verify_requirements,
+)
+from backend.services.setup_service import (
     _offer_inline_fix,
     _should_prompt_for_warning,
-    verify_requirements,
+)
+from backend.services.setup_wizard import (
+    _get_env_persistence_instructions,
 )
 
 
@@ -458,7 +462,7 @@ class TestCheckServerRunning:
         assert running is True
         assert "1234" in detail
 
-    @patch("backend.services.setup_service._find_cpl_processes", return_value=[])
+    @patch("backend.services.setup_checks._find_cpl_processes", return_value=[])
     @patch("urllib.request.urlopen", side_effect=OSError("refused"))
     def test_not_running(self, _mock_url, _mock_procs) -> None:
         running, _ = _check_server_running("127.0.0.1", 8080)

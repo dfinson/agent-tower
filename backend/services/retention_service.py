@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.config import CODEPLANE_DIR
+from backend.config import get_codeplane_dir
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.job_repo import JobRepository
 
@@ -21,7 +21,9 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-ARTIFACTS_DIR = CODEPLANE_DIR / "artifacts"
+
+def _artifacts_dir() -> Path:
+    return get_codeplane_dir() / "artifacts"
 CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours
 
 
@@ -85,7 +87,7 @@ class RetentionService:
             await session.commit()
 
             # Delete files from disk — only if under the expected artifacts directory
-            artifacts_root = ARTIFACTS_DIR.resolve()
+            artifacts_root = _artifacts_dir().resolve()
             for artifact in expired:
                 disk_path = Path(artifact.disk_path).resolve()
                 if not disk_path.is_relative_to(artifacts_root):

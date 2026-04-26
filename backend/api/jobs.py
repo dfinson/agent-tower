@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
+
+log = structlog.get_logger()
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -158,7 +160,7 @@ async def suggest_names(
     try:
         title, description, branch_name, worktree_name = await naming.generate(body.prompt)
     except NamingError as exc:
-        structlog.get_logger().warning("naming_failed", exc_info=exc)
+        log.warning("naming_failed", exc_info=exc)
         raise HTTPException(status_code=503, detail="Naming failed") from exc
 
     return SuggestNamesResponse(
@@ -216,7 +218,7 @@ async def create_job(
                     session_token=body.session_token,
                 )
             except Exception:
-                structlog.get_logger().error(
+                log.error(
                     "background_job_setup_failed", job_id=job.id, exc_info=True
                 )
 
@@ -377,7 +379,7 @@ async def list_models(
             finally:
                 await _client.stop()
         except (ImportError, ConnectionError, TimeoutError, RuntimeError):
-            structlog.get_logger().debug("model_live_fetch_failed", sdk=resolved_sdk, exc_info=True)
+            log.debug("model_live_fetch_failed", sdk=resolved_sdk, exc_info=True)
     return ModelListResponse(items=[ModelInfoResponse.model_validate(m) for m in models])
 
 
@@ -451,7 +453,7 @@ async def get_job_diff(
         try:
             files = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
         except (GitError, OSError):
-            structlog.get_logger(__name__).warning(
+            log.warning(
                 "get_job_diff_live_failed",
                 job_id=job_id,
                 worktree_path=str(job.worktree_path),
@@ -687,7 +689,7 @@ async def get_step_diff(
             try:
                 edit_mots = json.loads(edit_mots_raw) if isinstance(edit_mots_raw, str) else edit_mots_raw
             except (json.JSONDecodeError, TypeError):
-                structlog.get_logger().debug("edit_motivation_parse_failed", job_id=job_id, exc_info=True)
+                log.debug("edit_motivation_parse_failed", job_id=job_id, exc_info=True)
                 continue
             if not isinstance(edit_mots, list) or not edit_mots:
                 continue
@@ -751,7 +753,7 @@ async def get_step_diff(
                         HunkMotivation(edit_key=edit_key, title=em_title, why=em_why),
                     )
     except (KeyError, ValueError, IndexError, TypeError):
-        structlog.get_logger().debug("motivation_annotation_failed", job_id=job_id, step_id=step_id, exc_info=True)
+        log.debug("motivation_annotation_failed", job_id=job_id, step_id=step_id, exc_info=True)
 
     return StepDiffPayload(
         step_id=step_id,
@@ -1243,7 +1245,7 @@ async def get_job_telemetry(
                 created = created.replace(tzinfo=UTC)
             duration_ms = int((datetime.now(UTC) - created).total_seconds() * 1000)
         except (ValueError, TypeError):
-            structlog.get_logger().debug("live_duration_parse_failed", job_id=job_id, exc_info=True)
+            log.debug("live_duration_parse_failed", job_id=job_id, exc_info=True)
 
     # Review signals: test co-modifications
     spans_repo = TelemetrySpansRepository(session)

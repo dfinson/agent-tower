@@ -327,7 +327,7 @@ async def list_sdks() -> SDKListResponse:
     import asyncio
 
     from backend.services.agent_adapter import AgentSDK
-    from backend.services.setup_service import _check_agent_auth, check_agent_cli
+    from backend.services.setup_checks import _check_agent_auth, check_agent_cli
 
     config = _get_config()
     default_sdk = config.runtime.default_sdk
