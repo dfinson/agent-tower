@@ -7,7 +7,6 @@ For each write:
 """
 import json
 import sqlite3
-import textwrap
 from pathlib import Path
 
 DB_PATH = Path.home() / ".codeplane" / "data.db"

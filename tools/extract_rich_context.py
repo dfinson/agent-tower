@@ -5,7 +5,6 @@ Outputs structured blocks that can be fed to an LLM for rich summarization.
 
 import json
 import sqlite3
-import textwrap
 from pathlib import Path
 
 DB_PATH = Path.home() / ".codeplane" / "data.db"
