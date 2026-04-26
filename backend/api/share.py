@@ -26,6 +26,7 @@ from backend.models.api_schemas import (
     TurnSummaryPayload,
 )
 from backend.models.events import DomainEventKind
+from backend.persistence.approval_repo import ApprovalRepository
 from backend.services.event_bus import EventBus
 from backend.services.job_service import JobService
 from backend.services.share_service import ShareService
@@ -167,6 +168,7 @@ async def get_shared_snapshot(
     share_service: FromDishka[ShareService],
     svc: FromDishka[JobService],
     session: FromDishka[AsyncSession],
+    approval_repo: FromDishka[ApprovalRepository],
     event_bus: FromDishka[EventBus],
     config: FromDishka[CPLConfig],
 ) -> JobSnapshotResponse:
@@ -174,7 +176,6 @@ async def get_shared_snapshot(
     from backend.api.jobs import _job_to_response, _resolve_tool_display, _resolve_tool_display_full
     from backend.models.api_schemas import ApprovalResponse
     from backend.models.domain import JobState
-    from backend.persistence.approval_repo import ApprovalRepository
 
     job_id = _validate_share(share_service, token)
     job = await svc.get_job(job_id)
@@ -299,7 +300,6 @@ async def get_shared_snapshot(
             diff = [DiffFileModel.model_validate(f) for f in raw_files]
 
     # Approvals
-    approval_repo = ApprovalRepository(session)
     db_approvals = await approval_repo.list_for_job(job_id)
     approval_list: list[ApprovalResponse] = [
         ApprovalResponse(
