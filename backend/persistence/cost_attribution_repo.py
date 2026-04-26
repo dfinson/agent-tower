@@ -14,7 +14,7 @@ from sqlalchemy import text
 from backend.persistence.repository import BaseRepository
 
 
-class CostAttributionRepo(BaseRepository):
+class CostAttributionRepository(BaseRepository):
     """Read/write for job_cost_attribution rows."""
 
     async def insert(

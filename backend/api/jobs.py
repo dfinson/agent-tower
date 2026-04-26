@@ -496,9 +496,9 @@ async def get_job_diff(
         files = [DiffFileModel.model_validate(f) for f in raw_files]
 
     # Enrich with per-file write/retry churn data
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
-    churn_rows = await TelemetrySpansRepo(session).file_write_churn(job_id)
+    churn_rows = await TelemetrySpansRepository(session).file_write_churn(job_id)
     if churn_rows:
         churn_by_file = {r["tool_target"]: r for r in churn_rows}
         for f in files:
@@ -691,9 +691,9 @@ async def get_step_diff(
         turn_id_for_lookup = str(step_row.turn_id)
 
     try:
-        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
+        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
-        spans_repo = TelemetrySpansRepo(session)
+        spans_repo = TelemetrySpansRepository(session)
         spans = await spans_repo.file_write_spans_for_step(
             job_id=job_id, turn_id=turn_id_for_lookup,
         )
@@ -1192,13 +1192,13 @@ async def get_job_telemetry(
     import json
     from datetime import UTC, datetime
 
-    from backend.persistence.cost_attribution_repo import CostAttributionRepo
-    from backend.persistence.file_access_repo import FileAccessRepo
+    from backend.persistence.cost_attribution_repo import CostAttributionRepository
+    from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.job_repo import JobRepository
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
-    summary = await TelemetrySummaryRepo(session).get(job_id)
+    summary = await TelemetrySummaryRepository(session).get(job_id)
     if summary is None:
         return JobTelemetryResponse(job_id=job_id, available=False)
 
@@ -1219,10 +1219,10 @@ async def get_job_telemetry(
     current_ctx = summary.get("current_context_tokens", 0)
 
     # Load span detail for tool/LLM call breakdowns
-    spans = await TelemetrySpansRepo(session).list_for_job(job_id)
-    attribution_rows = await CostAttributionRepo(session).for_job(job_id)
-    file_stats = await FileAccessRepo(session).reread_stats(job_id)
-    top_files = await FileAccessRepo(session).most_accessed_files(job_id=job_id)
+    spans = await TelemetrySpansRepository(session).list_for_job(job_id)
+    attribution_rows = await CostAttributionRepository(session).for_job(job_id)
+    file_stats = await FileAccessRepository(session).reread_stats(job_id)
+    top_files = await FileAccessRepository(session).most_accessed_files(job_id=job_id)
     tool_calls: list[TelemetryToolCall] = []
     llm_calls: list[TelemetryLlmCall] = []
     for span in spans:
@@ -1289,7 +1289,7 @@ async def get_job_telemetry(
             structlog.get_logger().debug("live_duration_parse_failed", job_id=job_id, exc_info=True)
 
     # Review signals: test co-modifications
-    spans_repo = TelemetrySpansRepo(session)
+    spans_repo = TelemetrySpansRepository(session)
     test_co_mods = await spans_repo.test_co_modifications(job_id)
 
     # Review complexity tier — thresholds are calibrated against historical

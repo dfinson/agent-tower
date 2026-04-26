@@ -1,4 +1,4 @@
-"""Tests for persistence repos — CostAttributionRepo, FileAccessRepo, ObservationsRepo, StepRepository."""
+"""Tests for persistence repos — CostAttributionRepository, FileAccessRepository, ObservationsRepository, StepRepository."""
 
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 from backend.models.db import Base, StepRow
-from backend.persistence.cost_attribution_repo import CostAttributionRepo
+from backend.persistence.cost_attribution_repo import CostAttributionRepository
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.persistence.file_access_repo import FileAccessRepo
+from backend.persistence.file_access_repo import FileAccessRepository
 from backend.persistence.job_repo import JobRepository
-from backend.persistence.observations_repo import ObservationsRepo
+from backend.persistence.observations_repo import ObservationsRepository
 from backend.persistence.step_repo import StepRepository
 from backend.tests.unit.conftest import make_job
 
@@ -63,14 +63,14 @@ async def _seed_job(session: AsyncSession) -> None:
     await session.commit()
 
 
-# ---- CostAttributionRepo ----
+# ---- CostAttributionRepository ----
 
 
-class TestCostAttributionRepo:
+class TestCostAttributionRepository:
     @pytest.mark.asyncio
     async def test_insert_and_for_job(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = CostAttributionRepo(session)
+        repo = CostAttributionRepository(session)
         await repo.insert(
             job_id="job-1",
             dimension="activity",
@@ -90,7 +90,7 @@ class TestCostAttributionRepo:
     @pytest.mark.asyncio
     async def test_delete_for_job(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = CostAttributionRepo(session)
+        repo = CostAttributionRepository(session)
         await repo.insert(job_id="job-1", dimension="activity", bucket="a")
         await session.commit()
 
@@ -103,7 +103,7 @@ class TestCostAttributionRepo:
     @pytest.mark.asyncio
     async def test_insert_batch_replaces(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = CostAttributionRepo(session)
+        repo = CostAttributionRepository(session)
         await repo.insert(job_id="job-1", dimension="old", bucket="stale")
         await session.commit()
 
@@ -124,7 +124,7 @@ class TestCostAttributionRepo:
     @pytest.mark.asyncio
     async def test_insert_batch_empty_rows(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = CostAttributionRepo(session)
+        repo = CostAttributionRepository(session)
         await repo.insert(job_id="job-1", dimension="x", bucket="y")
         await session.commit()
         # Empty batch still deletes existing rows
@@ -136,7 +136,7 @@ class TestCostAttributionRepo:
     @pytest.mark.asyncio
     async def test_by_dimension(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = CostAttributionRepo(session)
+        repo = CostAttributionRepository(session)
         await repo.insert(job_id="job-1", dimension="activity", bucket="reasoning", cost_usd=3.0, call_count=10)
         await repo.insert(job_id="job-1", dimension="activity", bucket="code_reading", cost_usd=1.0, call_count=5)
         await session.commit()
@@ -148,7 +148,7 @@ class TestCostAttributionRepo:
     @pytest.mark.asyncio
     async def test_fleet_summary(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = CostAttributionRepo(session)
+        repo = CostAttributionRepository(session)
         await repo.insert(job_id="job-1", dimension="activity", bucket="reasoning", cost_usd=5.0)
         await session.commit()
 
@@ -159,19 +159,19 @@ class TestCostAttributionRepo:
     @pytest.mark.asyncio
     async def test_for_job_empty(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = CostAttributionRepo(session)
+        repo = CostAttributionRepository(session)
         rows = await repo.for_job("job-1")
         assert rows == []
 
 
-# ---- FileAccessRepo ----
+# ---- FileAccessRepository ----
 
 
-class TestFileAccessRepo:
+class TestFileAccessRepository:
     @pytest.mark.asyncio
     async def test_record_and_reread_stats(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = FileAccessRepo(session)
+        repo = FileAccessRepository(session)
         # Read same file twice, write once
         await repo.record(job_id="job-1", file_path="/a.py", access_type="read")
         await repo.record(job_id="job-1", file_path="/a.py", access_type="read")
@@ -188,7 +188,7 @@ class TestFileAccessRepo:
     @pytest.mark.asyncio
     async def test_record_batch(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = FileAccessRepo(session)
+        repo = FileAccessRepository(session)
         await repo.record_batch(
             job_id="job-1",
             entries=[
@@ -204,14 +204,14 @@ class TestFileAccessRepo:
     @pytest.mark.asyncio
     async def test_record_batch_empty(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = FileAccessRepo(session)
+        repo = FileAccessRepository(session)
         await repo.record_batch(job_id="job-1", entries=[])
         # Should not raise
 
     @pytest.mark.asyncio
     async def test_most_accessed_files_for_job(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = FileAccessRepo(session)
+        repo = FileAccessRepository(session)
         for _ in range(5):
             await repo.record(job_id="job-1", file_path="/hot.py", access_type="read")
         await repo.record(job_id="job-1", file_path="/cold.py", access_type="read")
@@ -225,7 +225,7 @@ class TestFileAccessRepo:
     @pytest.mark.asyncio
     async def test_most_accessed_files_cross_job(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = FileAccessRepo(session)
+        repo = FileAccessRepository(session)
         await repo.record(job_id="job-1", file_path="/a.py", access_type="read")
         await session.commit()
 
@@ -236,19 +236,19 @@ class TestFileAccessRepo:
     @pytest.mark.asyncio
     async def test_reread_stats_empty_job(self, session: AsyncSession) -> None:
         await _seed_job(session)
-        repo = FileAccessRepo(session)
+        repo = FileAccessRepository(session)
         stats = await repo.reread_stats("job-1")
         assert stats["total_accesses"] == 0
         assert stats["reread_count"] == 0
 
 
-# ---- ObservationsRepo ----
+# ---- ObservationsRepository ----
 
 
-class TestObservationsRepo:
+class TestObservationsRepository:
     @pytest.mark.asyncio
     async def test_upsert_insert(self, session: AsyncSession) -> None:
-        repo = ObservationsRepo(session)
+        repo = ObservationsRepository(session)
         await repo.upsert(
             category="file_rereads",
             severity="warning",
@@ -268,7 +268,7 @@ class TestObservationsRepo:
 
     @pytest.mark.asyncio
     async def test_upsert_update(self, session: AsyncSession) -> None:
-        repo = ObservationsRepo(session)
+        repo = ObservationsRepository(session)
         await repo.upsert(
             category="file_rereads",
             severity="warning",
@@ -296,7 +296,7 @@ class TestObservationsRepo:
 
     @pytest.mark.asyncio
     async def test_list_active_filters_dismissed(self, session: AsyncSession) -> None:
-        repo = ObservationsRepo(session)
+        repo = ObservationsRepository(session)
         await repo.upsert(category="a", severity="warning", title="t1", detail="d", evidence={})
         await repo.upsert(category="b", severity="info", title="t2", detail="d", evidence={})
         await session.commit()
@@ -313,7 +313,7 @@ class TestObservationsRepo:
 
     @pytest.mark.asyncio
     async def test_list_active_filter_by_category(self, session: AsyncSession) -> None:
-        repo = ObservationsRepo(session)
+        repo = ObservationsRepository(session)
         await repo.upsert(category="file_rereads", severity="warning", title="t1", detail="d", evidence={})
         await repo.upsert(category="tool_failures", severity="warning", title="t2", detail="d", evidence={})
         await session.commit()
@@ -324,7 +324,7 @@ class TestObservationsRepo:
 
     @pytest.mark.asyncio
     async def test_list_active_filter_by_severity(self, session: AsyncSession) -> None:
-        repo = ObservationsRepo(session)
+        repo = ObservationsRepository(session)
         await repo.upsert(category="a", severity="critical", title="t1", detail="d", evidence={})
         await repo.upsert(category="b", severity="warning", title="t2", detail="d", evidence={})
         await session.commit()
@@ -335,7 +335,7 @@ class TestObservationsRepo:
 
     @pytest.mark.asyncio
     async def test_list_active_severity_ordering(self, session: AsyncSession) -> None:
-        repo = ObservationsRepo(session)
+        repo = ObservationsRepository(session)
         await repo.upsert(category="a", severity="info", title="info-obs", detail="d", evidence={})
         await repo.upsert(category="b", severity="critical", title="crit-obs", detail="d", evidence={})
         await repo.upsert(category="c", severity="warning", title="warn-obs", detail="d", evidence={})

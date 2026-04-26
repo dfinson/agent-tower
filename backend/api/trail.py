@@ -54,16 +54,16 @@ async def get_job_trail(
 ) -> TrailResponse:
     """Fetch the audit trail for a job."""
     kind_list = [k.strip() for k in kinds.split(",")] if kinds else None
-    data = await trail_service.get_trail(
+    trail = await trail_service.get_trail(
         job_id, kinds=kind_list, flat=flat, after_seq=after_seq,
     )
-    nodes = [_dict_to_node_response(n) for n in data["nodes"]]
+    nodes = [_dict_to_node_response(n) for n in trail["nodes"]]
     return TrailResponse(
-        job_id=data["job_id"],
+        job_id=trail["job_id"],
         nodes=nodes,
-        total_nodes=data["total_nodes"],
-        enriched_nodes=data["enriched_nodes"],
-        complete=data["complete"],
+        total_nodes=trail["total_nodes"],
+        enriched_nodes=trail["enriched_nodes"],
+        complete=trail["complete"],
     )
 
 
@@ -73,14 +73,14 @@ async def get_job_trail_summary(
     trail_service: FromDishka[TrailService],
 ) -> TrailSummaryResponse:
     """Get a lightweight trail summary for a job."""
-    data = await trail_service.get_summary(job_id)
+    trail_summary = await trail_service.get_summary(job_id)
     return TrailSummaryResponse(
-        job_id=data["job_id"],
-        goals=data["goals"],
-        approach=data.get("approach"),
+        job_id=trail_summary["job_id"],
+        goals=trail_summary["goals"],
+        approach=trail_summary.get("approach"),
         key_decisions=[
             TrailKeyDecision(decision=d["decision"], rationale=d.get("rationale"))
-            for d in data.get("key_decisions", [])
+            for d in trail_summary.get("key_decisions", [])
         ],
         backtracks=[
             TrailBacktrack(
@@ -88,11 +88,11 @@ async def get_job_trail_summary(
                 replacement=b["replacement"],
                 reason=b.get("reason"),
             )
-            for b in data.get("backtracks", [])
+            for b in trail_summary.get("backtracks", [])
         ],
-        files_explored=data.get("files_explored", 0),
-        files_modified=data.get("files_modified", 0),
-        verifications_passed=data.get("verifications_passed", 0),
-        verifications_failed=data.get("verifications_failed", 0),
-        enrichment_complete=data.get("enrichment_complete", False),
+        files_explored=trail_summary.get("files_explored", 0),
+        files_modified=trail_summary.get("files_modified", 0),
+        verifications_passed=trail_summary.get("verifications_passed", 0),
+        verifications_failed=trail_summary.get("verifications_failed", 0),
+        enrichment_complete=trail_summary.get("enrichment_complete", False),
     )

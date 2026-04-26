@@ -11,7 +11,7 @@ from sqlalchemy import text
 from backend.persistence.repository import BaseRepository
 
 
-class ObservationsRepo(BaseRepository):
+class ObservationsRepository(BaseRepository):
     """CRUD for the cost_observations table."""
 
     async def upsert(

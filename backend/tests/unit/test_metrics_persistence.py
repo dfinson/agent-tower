@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 from backend.models.db import Base, JobRow
 from backend.models.domain import JobState, PermissionMode
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
-from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
 
 @pytest.fixture
@@ -49,13 +49,13 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 
 # ---------------------------------------------------------------------------
-# TelemetrySummaryRepo
+# TelemetrySummaryRepository
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_summary_init_and_get(session: AsyncSession) -> None:
-    repo = TelemetrySummaryRepo(session)
+    repo = TelemetrySummaryRepository(session)
     await repo.init_job("job-1", sdk="copilot", model="gpt-4o")
     await session.commit()
 
@@ -69,7 +69,7 @@ async def test_summary_init_and_get(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_summary_increment(session: AsyncSession) -> None:
-    repo = TelemetrySummaryRepo(session)
+    repo = TelemetrySummaryRepository(session)
     await repo.init_job("job-1", sdk="claude", model="sonnet")
     await session.commit()
 
@@ -93,7 +93,7 @@ async def test_summary_increment(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_summary_finalize(session: AsyncSession) -> None:
-    repo = TelemetrySummaryRepo(session)
+    repo = TelemetrySummaryRepository(session)
     await repo.init_job("job-1", sdk="copilot")
     await session.commit()
 
@@ -109,13 +109,13 @@ async def test_summary_finalize(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_summary_get_missing_returns_none(session: AsyncSession) -> None:
-    repo = TelemetrySummaryRepo(session)
+    repo = TelemetrySummaryRepository(session)
     assert await repo.get("no-such-job") is None
 
 
 @pytest.mark.asyncio
 async def test_summary_set_model(session: AsyncSession) -> None:
-    repo = TelemetrySummaryRepo(session)
+    repo = TelemetrySummaryRepository(session)
     await repo.init_job("job-1", sdk="claude")
     await session.commit()
 
@@ -129,7 +129,7 @@ async def test_summary_set_model(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_summary_aggregate(session: AsyncSession) -> None:
-    repo = TelemetrySummaryRepo(session)
+    repo = TelemetrySummaryRepository(session)
     await repo.init_job("job-1", sdk="copilot", model="gpt-4o")
     await repo.increment("job-1", input_tokens=1000, output_tokens=500)
     await repo.finalize("job-1", status="completed", duration_ms=5000)
@@ -141,13 +141,13 @@ async def test_summary_aggregate(session: AsyncSession) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TelemetrySpansRepo
+# TelemetrySpansRepository
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_spans_insert_and_list(session: AsyncSession) -> None:
-    repo = TelemetrySpansRepo(session)
+    repo = TelemetrySpansRepository(session)
     await repo.insert(
         job_id="job-1",
         span_type="tool",
@@ -201,7 +201,7 @@ async def test_spans_insert_and_list(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_spans_tool_stats(session: AsyncSession) -> None:
-    repo = TelemetrySpansRepo(session)
+    repo = TelemetrySpansRepository(session)
     for i in range(5):
         await repo.insert(
             job_id="job-1",

@@ -20,10 +20,10 @@ from backend.services.tool_classifier import classify_tool
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.persistence.cost_attribution_repo import CostAttributionRepo
-from backend.persistence.file_access_repo import FileAccessRepo
-from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
-from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+from backend.persistence.cost_attribution_repo import CostAttributionRepository
+from backend.persistence.file_access_repo import FileAccessRepository
+from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
 
 class CostBucket(TypedDict):
@@ -46,7 +46,7 @@ class TurnContext(TypedDict):
 
 log = structlog.get_logger()
 
-_TOOL_CATEGORY_ACTIVITY = {
+_TOOL_CATEGORY_TO_ACTIVITY = {
     "file_write": "code_changes",
     "git_write": "code_changes",
     "git_read": "code_reading",
@@ -143,10 +143,10 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
     (e.g. ``code_changes`` → ``debugging``, ``refactoring``, ``feature_dev``).
     Also detects edit→shell→edit retry loops for one-shot rate computation.
     """
-    spans_repo = TelemetrySpansRepo(session)
-    attr_repo = CostAttributionRepo(session)
-    summary_repo = TelemetrySummaryRepo(session)
-    file_repo = FileAccessRepo(session)
+    spans_repo = TelemetrySpansRepository(session)
+    attr_repo = CostAttributionRepository(session)
+    summary_repo = TelemetrySummaryRepository(session)
+    file_repo = FileAccessRepository(session)
 
     spans = await spans_repo.list_for_job(job_id)
     if not spans:
@@ -393,7 +393,7 @@ def _derive_activity_weights(
     # a single phase bucket makes the activity breakdown useless for those phases.
     weights: dict[str, int] = {}
     for category in tool_categories:
-        activity = _TOOL_CATEGORY_ACTIVITY.get(category, "other_tools")
+        activity = _TOOL_CATEGORY_TO_ACTIVITY.get(category, "other_tools")
         weights[activity] = weights.get(activity, 0) + 1
 
     if not weights:

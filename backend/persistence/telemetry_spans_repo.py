@@ -16,7 +16,7 @@ from sqlalchemy import text
 from backend.persistence.repository import BaseRepository
 
 
-class TelemetrySpansRepo(BaseRepository):
+class TelemetrySpansRepository(BaseRepository):
     """Append-only insert of individual LLM/tool call spans."""
 
     async def insert(

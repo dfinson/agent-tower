@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 from backend.models.db import Base, JobRow
 from backend.models.domain import JobState, PermissionMode
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.persistence.telemetry_spans_repo import TelemetrySpansRepo
-from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepo
+from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 from backend.services.statistical_analysis import run_analysis
 
 
@@ -51,7 +51,7 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 async def _add_jobs(session: AsyncSession, count: int) -> list[str]:
     now = datetime.now(UTC)
-    summary = TelemetrySummaryRepo(session)
+    summary = TelemetrySummaryRepository(session)
     ids = []
     for i in range(1, count + 1):
         jid = f"job-extra-{i}"
@@ -87,7 +87,7 @@ async def test_run_analysis_empty_db(session: AsyncSession) -> None:
 async def test_phase_imbalance_not_run(session: AsyncSession) -> None:
     extra_ids = await _add_jobs(session, 3)
     now = datetime.now(UTC).isoformat()
-    summary = TelemetrySummaryRepo(session)
+    summary = TelemetrySummaryRepository(session)
 
     for jid in extra_ids:
         await summary.increment(jid, total_cost_usd=1.0, total_turns=10)
@@ -175,7 +175,7 @@ async def test_file_reread_above_10kb_flagged(session: AsyncSession) -> None:
 @pytest.mark.asyncio
 async def test_turn_escalation_below_050_not_flagged(session: AsyncSession) -> None:
     extra_ids = await _add_jobs(session, 4)
-    summary = TelemetrySummaryRepo(session)
+    summary = TelemetrySummaryRepository(session)
 
     for jid in extra_ids:
         await summary.increment(jid, total_cost_usd=0.30, total_turns=8)
@@ -195,7 +195,7 @@ async def test_turn_escalation_below_050_not_flagged(session: AsyncSession) -> N
 @pytest.mark.asyncio
 async def test_turn_escalation_above_050_flagged(session: AsyncSession) -> None:
     extra_ids = await _add_jobs(session, 4)
-    summary = TelemetrySummaryRepo(session)
+    summary = TelemetrySummaryRepository(session)
 
     for jid in extra_ids:
         await summary.increment(jid, total_cost_usd=2.0, total_turns=10)
@@ -214,7 +214,7 @@ async def test_turn_escalation_above_050_flagged(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_tool_failures_high_rate_flagged(session: AsyncSession) -> None:
-    spans = TelemetrySpansRepo(session)
+    spans = TelemetrySpansRepository(session)
 
     for i in range(12):
         success = i >= 3
@@ -239,7 +239,7 @@ async def test_tool_failures_high_rate_flagged(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_retry_waste_flagged(session: AsyncSession) -> None:
-    spans = TelemetrySpansRepo(session)
+    spans = TelemetrySpansRepository(session)
 
     for i in range(20):
         await spans.insert(
@@ -265,7 +265,7 @@ async def test_retry_waste_flagged(session: AsyncSession) -> None:
 @pytest.mark.asyncio
 async def test_compaction_storms_flagged(session: AsyncSession) -> None:
     extra_ids = await _add_jobs(session, 3)
-    summary = TelemetrySummaryRepo(session)
+    summary = TelemetrySummaryRepository(session)
 
     for jid in extra_ids:
         await summary.increment(jid, compactions=8, tokens_compacted=50000, total_turns=20)

@@ -24,16 +24,16 @@ if TYPE_CHECKING:
 router = APIRouter(tags=["approvals"], route_class=DishkaRoute)
 
 
-def _to_response(a: Approval) -> ApprovalResponse:
+def _to_response(approval: Approval) -> ApprovalResponse:
     return ApprovalResponse(
-        id=a.id,
-        job_id=a.job_id,
-        description=a.description,
-        proposed_action=a.proposed_action,
-        requested_at=a.requested_at,
-        resolved_at=a.resolved_at,
-        resolution=a.resolution,
-        requires_explicit_approval=a.requires_explicit_approval,
+        id=approval.id,
+        job_id=approval.job_id,
+        description=approval.description,
+        proposed_action=approval.proposed_action,
+        requested_at=approval.requested_at,
+        resolved_at=approval.resolved_at,
+        resolution=approval.resolution,
+        requires_explicit_approval=approval.requires_explicit_approval,
     )
 
 
