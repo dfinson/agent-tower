@@ -435,6 +435,10 @@ async def _init_optional_services(
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage engine lifecycle — create on startup, dispose on shutdown."""
+    from backend.services.telemetry import init_telemetry
+
+    init_telemetry()
+
     engine = create_engine()
     session_factory = create_session_factory(engine)
 

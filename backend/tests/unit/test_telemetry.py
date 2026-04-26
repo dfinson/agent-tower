@@ -8,6 +8,9 @@ import pytest
 
 from backend.services import telemetry
 
+# Ensure OTEL providers are initialised for all telemetry tests.
+telemetry.init_telemetry()
+
 
 class TestJobSpanLifecycle:
     """Tests for start_job_span / end_job_span lifecycle."""

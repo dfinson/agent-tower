@@ -20,16 +20,21 @@ import structlog
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.persistence.file_access_repo import FileAccessRepository
-from backend.persistence.observations_repo import ObservationsRepository
-from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+    from backend.persistence.file_access_repo import FileAccessRepository
+    from backend.persistence.observations_repo import ObservationsRepository
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
 log = structlog.get_logger()
 
 
 async def run_analysis(session: AsyncSession) -> int:
     """Run all analysis passes. Returns the number of observations written."""
+    from backend.persistence.file_access_repo import FileAccessRepository
+    from backend.persistence.observations_repo import ObservationsRepository
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
     obs_repo = ObservationsRepository(session)
     file_repo = FileAccessRepository(session)
     spans_repo = TelemetrySpansRepository(session)

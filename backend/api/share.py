@@ -15,12 +15,14 @@ from starlette.responses import StreamingResponse
 from backend.config import CPLConfig
 from backend.models.api_schemas import (
     CamelModel,
+    CreateShareRequest,
     DiffFileModel,
     JobResponse,
     JobSnapshotResponse,
     LogLinePayload,
     PlanStepPayload,
     ProgressHeadlinePayload,
+    ShareTokenResponse,
     TranscriptPayload,
     TurnSummaryPayload,
 )
@@ -36,16 +38,6 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 router = APIRouter(tags=["sharing"], route_class=DishkaRoute)
-
-
-class ShareTokenResponse(CamelModel):
-    token: str
-    job_id: str
-    url: str
-
-
-class CreateShareRequest(CamelModel):
-    job_id: str | None = None  # allow body-less POST where job_id is in path
 
 
 # ---------------------------------------------------------------------------

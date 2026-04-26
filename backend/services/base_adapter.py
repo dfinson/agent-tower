@@ -42,10 +42,10 @@ log = structlog.get_logger()
 # Shared adapter constants
 # ---------------------------------------------------------------------------
 
-# Truncation limits for approval action payloads and tool summaries
-_TOOL_ACTION_MAX = 2000
-_TOOL_SUMMARY_MAX = 200
-_TOOL_SUMMARY_FALLBACK = 120
+# Truncation limits for approval action payloads and tool summaries (characters)
+_TOOL_ACTION_MAX_CHARS = 2000
+_TOOL_SUMMARY_MAX_CHARS = 200
+_TOOL_SUMMARY_FALLBACK_CHARS = 120
 
 # SDK event stream queue timeout: if no event arrives within this window the
 # stream is considered stale.  330s accommodates long LLM generations plus a
@@ -664,7 +664,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             tool_input,
             full_command_text,
         )
-        proposed = full_command_text or (json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX] if tool_input else None)
+        proposed = full_command_text or (json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX_CHARS] if tool_input else None)
         resolution = await self._route_to_operator(
             session_id,
             job_id,
@@ -687,9 +687,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
         description = (
             "⚠️ git reset --hard — this will discard ALL uncommitted changes and "
-            f"move HEAD: {shell_cmd[:_TOOL_SUMMARY_MAX]}"
+            f"move HEAD: {shell_cmd[:_TOOL_SUMMARY_MAX_CHARS]}"
         )
-        proposed = json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX] if tool_input else shell_cmd
+        proposed = json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX_CHARS] if tool_input else shell_cmd
         approval = await self._approval_service.create_request(
             job_id=job_id,
             description=description,
@@ -764,7 +764,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         """Build a human-readable description for an approval request."""
         if tool_kind == "shell" or tool_name == "Bash":
             cmd = full_command_text or (str(tool_input.get("command", "")) if tool_input else "")
-            return f"Run shell: {cmd[:_TOOL_SUMMARY_MAX]}"
+            return f"Run shell: {cmd[:_TOOL_SUMMARY_MAX_CHARS]}"
         if tool_kind == "write" or tool_name in ("Edit", "Write"):
             fname = ""
             if tool_input:
@@ -773,12 +773,12 @@ class BaseAgentAdapter(AgentAdapterInterface):
         if tool_name == "WebSearch":
             q = ""
             if tool_input:
-                q = str(tool_input.get("query", ""))[:_TOOL_SUMMARY_MAX]
+                q = str(tool_input.get("query", ""))[:_TOOL_SUMMARY_MAX_CHARS]
             return f"Web search: {q}"
         if tool_kind == "url" or tool_name == "WebFetch":
             url = ""
             if tool_input:
-                url = str(tool_input.get("url", ""))[:_TOOL_SUMMARY_MAX]
+                url = str(tool_input.get("url", ""))[:_TOOL_SUMMARY_MAX_CHARS]
             return f"Fetch URL: {url}"
         if tool_name == "Read":
             fname = ""
@@ -790,8 +790,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
             summary = ""
             if tool_input:
                 try:
-                    summary = json.dumps(tool_input, default=str)[:_TOOL_SUMMARY_FALLBACK]
+                    summary = json.dumps(tool_input, default=str)[:_TOOL_SUMMARY_FALLBACK_CHARS]
                 except Exception:
-                    summary = str(tool_input)[:_TOOL_SUMMARY_FALLBACK]
+                    summary = str(tool_input)[:_TOOL_SUMMARY_FALLBACK_CHARS]
             return f"{tool_name}: {summary}"
         return full_command_text or tool_kind

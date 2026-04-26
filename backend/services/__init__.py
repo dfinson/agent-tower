@@ -15,7 +15,7 @@ Conceptual groups:
 * **Infrastructure** — ``event_bus``, ``sse_manager``, ``telemetry``,
   ``retention_service``, ``setup_service``.
 * **Utilities** — ``git_service``, ``naming_service``, ``summarization_service``,
-  ``utility_session``, ``tool_formatters``, ``voice_service``,
+  ``sister_session``, ``tool_formatters``, ``voice_service``,
   ``terminal_service``, ``platform_adapter``.
 """
 

@@ -27,43 +27,64 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 # ---------------------------------------------------------------------------
-# Providers — always in-process; optionally export via OTLP
+# Providers — always in-process; optionally export via OTLP.
+# Created lazily by init_telemetry() so importing this module does not
+# mutate global OTEL state as a side-effect.
 # ---------------------------------------------------------------------------
 
 _memory_reader = InMemoryMetricReader()
 _span_exporter = InMemorySpanExporter()
 
-_metric_readers: list[MetricReader] = [_memory_reader]
+_initialised = False
+meter_provider: MeterProvider | None = None
+tracer_provider: TracerProvider | None = None
 
-_endpoint = os.environ.get("OTEL_EXPORTER_ENDPOINT", "")
-if _endpoint:
-    try:
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # type: ignore[import-not-found]
-            OTLPMetricExporter,
-        )
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore[import-not-found]
-            OTLPSpanExporter,
-        )
-        from opentelemetry.sdk.metrics.export import (
-            PeriodicExportingMetricReader,
-        )
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-        _metric_readers.append(PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=_endpoint)))
-        _otlp_span_processor: BatchSpanProcessor | None = BatchSpanProcessor(OTLPSpanExporter(endpoint=_endpoint))
-    except ImportError:
-        _otlp_span_processor = None
-else:
-    _otlp_span_processor = None
+def init_telemetry() -> None:
+    """Configure OTEL providers and register them globally.
 
-meter_provider = MeterProvider(metric_readers=_metric_readers)
-tracer_provider = TracerProvider()
-tracer_provider.add_span_processor(SimpleSpanProcessor(_span_exporter))
-if _otlp_span_processor is not None:
-    tracer_provider.add_span_processor(_otlp_span_processor)
+    Safe to call more than once — subsequent calls are no-ops.
+    Must be called during application startup (e.g. from lifespan) before
+    any telemetry instruments are used.
+    """
+    global _initialised, meter_provider, tracer_provider  # noqa: PLW0603
 
-metrics.set_meter_provider(meter_provider)
-trace.set_tracer_provider(tracer_provider)
+    if _initialised:
+        return
+
+    metric_readers: list[MetricReader] = [_memory_reader]
+    otlp_span_processor = None
+
+    endpoint = os.environ.get("OTEL_EXPORTER_ENDPOINT", "")
+    if endpoint:
+        try:
+            from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # type: ignore[import-not-found]
+                OTLPMetricExporter,
+            )
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore[import-not-found]
+                OTLPSpanExporter,
+            )
+            from opentelemetry.sdk.metrics.export import (
+                PeriodicExportingMetricReader,
+            )
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+            metric_readers.append(PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=endpoint)))
+            otlp_span_processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
+        except ImportError:
+            pass
+
+    meter_provider = MeterProvider(metric_readers=metric_readers)
+    tracer_provider = TracerProvider()
+    tracer_provider.add_span_processor(SimpleSpanProcessor(_span_exporter))
+    if otlp_span_processor is not None:
+        tracer_provider.add_span_processor(otlp_span_processor)
+
+    metrics.set_meter_provider(meter_provider)
+    trace.set_tracer_provider(tracer_provider)
+
+    _initialised = True
+
 
 # ---------------------------------------------------------------------------
 # Instruments
