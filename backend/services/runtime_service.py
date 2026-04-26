@@ -311,27 +311,34 @@ class RuntimeService:
 
         Uses a dedicated DB session so this can run after the HTTP response.
         Publishes ``job_state_changed`` when transitioning to ``queued``.
+        If any step fails, the job is transitioned to ``failed`` so the user
+        sees the error instead of a stuck-in-preparing state.
         """
         from backend.persistence.job_repo import JobRepository
 
-        async with self._session_factory() as session:
-            svc = self._make_job_service(session)
-            updated_job = await svc.setup_workspace(job.id)
-            await session.commit()
+        try:
+            async with self._session_factory() as session:
+                svc = self._make_job_service(session)
+                updated_job = await svc.setup_workspace(job.id)
+                await session.commit()
 
-        if updated_job.state == JobState.failed:
-            await self._publish_state_event(job.id, JobState.preparing, JobState.failed)
+            if updated_job.state == JobState.failed:
+                await self._publish_state_event(job.id, JobState.preparing, JobState.failed)
+                return updated_job
+
+            # Publish preparing → queued transition
+            await self._publish_state_event(job.id, JobState.preparing, JobState.queued)
+
+            await self.start_or_enqueue(
+                updated_job,
+                permission_mode=permission_mode,
+                session_token=session_token,
+            )
             return updated_job
-
-        # Publish preparing → queued transition
-        await self._publish_state_event(job.id, JobState.preparing, JobState.queued)
-
-        await self.start_or_enqueue(
-            updated_job,
-            permission_mode=permission_mode,
-            session_token=session_token,
-        )
-        return updated_job
+        except Exception:
+            log.error("setup_and_start_failed", job_id=job.id, exc_info=True)
+            await self._fail_job(job.id, "Job setup failed")
+            raise
 
     async def start_or_enqueue(
         self,
