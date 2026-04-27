@@ -21,6 +21,11 @@ from backend.services.tool_classifier import classify_tool
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from backend.persistence.cost_attribution_repo import CostAttributionRepository
+    from backend.persistence.file_access_repo import FileAccessRepository
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
 log = structlog.get_logger()
 
 
@@ -144,10 +149,26 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
-    spans_repo = TelemetrySpansRepository(session)
-    attr_repo = CostAttributionRepository(session)
-    summary_repo = TelemetrySummaryRepository(session)
-    file_repo = FileAccessRepository(session)
+    await _compute_attribution(
+        job_id=job_id,
+        spans_repo=TelemetrySpansRepository(session),
+        attr_repo=CostAttributionRepository(session),
+        summary_repo=TelemetrySummaryRepository(session),
+        file_repo=FileAccessRepository(session),
+        session=session,
+    )
+
+
+async def _compute_attribution(
+    *,
+    job_id: str,
+    spans_repo: TelemetrySpansRepository,
+    attr_repo: CostAttributionRepository,
+    summary_repo: TelemetrySummaryRepository,
+    file_repo: FileAccessRepository,
+    session: AsyncSession,
+) -> None:
+    """Core attribution logic with explicit dependencies."""
 
     spans = await spans_repo.list_for_job(job_id)
     if not spans:
