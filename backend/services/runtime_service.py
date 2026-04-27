@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 import structlog
+from sqlalchemy.exc import DBAPIError
 
 from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT, build_session_config
 from backend.models.domain import (
@@ -619,7 +620,7 @@ class RuntimeService:
             try:
                 observer = self._terminal_service.create_observer_session(job_id=job_id)
                 self._observer_terminals[job_id] = observer.id
-            except Exception:
+            except (OSError, RuntimeError):
                 log.warning("observer_terminal_create_failed", job_id=job_id, exc_info=True)
 
         # Emit environment_setup phase
@@ -646,7 +647,7 @@ class RuntimeService:
                 worktree_path = job.worktree_path or job.repo
                 base_ref = job.base_ref
                 post_conflict_merge_requested = job.merge_status == Resolution.conflict
-        except Exception:
+        except DBAPIError:
             log.warning("diff_job_lookup_failed", job_id=job_id, exc_info=True)
 
         if worktree_path and self._step_tracker is not None:
@@ -748,7 +749,7 @@ class RuntimeService:
                         repo_path = job_for_tel.repo or ""
                         branch_name = job_for_tel.branch or ""
                         sdk_name = job_for_tel.sdk or ""
-                except Exception:
+                except DBAPIError:
                     log.warning("telemetry_init_job_lookup_failed", job_id=job_id, exc_info=True)
                 await TelemetrySummaryRepository(session).init_job(
                     job_id,
@@ -982,7 +983,7 @@ class RuntimeService:
                     payload={"job_id": job_id},
                 )
             )
-        except Exception:
+        except DBAPIError:
             log.warning("telemetry_finalize_failed", job_id=job_id, exc_info=True)
 
         # --- Store post-completion artifacts (telemetry, plan, approvals) ---
@@ -1069,7 +1070,7 @@ class RuntimeService:
                         )
 
                 await session.commit()
-        except Exception:
+        except DBAPIError:
             log.warning("post_completion_artifacts_failed", job_id=job_id, exc_info=True)
 
     def _start_snapshot_task(self, job_id: str) -> None:
@@ -1122,7 +1123,7 @@ class RuntimeService:
         if self._sister_sessions is not None:
             try:
                 await self._sister_sessions.close_job(job_id)
-            except Exception:
+            except (OSError, RuntimeError):
                 log.warning("sister_session_close_failed", job_id=job_id, exc_info=True)
         if self._approval_service is not None:
             await self._approval_service.cleanup_job(job_id)
@@ -1519,7 +1520,7 @@ class RuntimeService:
 
         try:
             await self._trail_service.feed_native_plan(job_id, items)
-        except Exception:
+        except (ValueError, TypeError, KeyError):
             log.warning("native_plan_ingest_failed", job_id=job_id, exc_info=True)
 
     async def _run_followup_turn(
@@ -1617,7 +1618,7 @@ class RuntimeService:
             async with self._session_factory() as session:
                 svc = self._make_job_service(session)
                 job = await svc.get_job(job_id)
-        except Exception:
+        except DBAPIError:
             log.warning("verify_job_lookup_failed", job_id=job_id, exc_info=True)
             return
 
@@ -2011,7 +2012,7 @@ class RuntimeService:
                 job_repo = JobRepository(session)
                 await job_repo.update_sdk_session_id(job_id, sdk_session_id)
                 await session.commit()
-        except Exception:
+        except DBAPIError:
             log.warning("persist_sdk_session_id_failed", job_id=job_id, exc_info=True)
 
     async def _clear_sdk_session_id(self, job_id: str) -> None:
@@ -2021,7 +2022,7 @@ class RuntimeService:
                 job_repo = JobRepository(session)
                 await job_repo.update_sdk_session_id(job_id, None)
                 await session.commit()
-        except Exception:
+        except DBAPIError:
             log.warning("clear_sdk_session_id_failed", job_id=job_id, exc_info=True)
 
     async def _load_handoff_context_for_job(
@@ -2095,7 +2096,7 @@ class RuntimeService:
                     async with self._session_factory() as fresh_session:
                         fresh_svc = ArtifactService(ArtifactRepository(fresh_session))
                         summary_artifact = await fresh_svc.get_latest_session_summary(job.id)
-                except Exception:
+                except DBAPIError:
                     log.warning("session_log_summarization_failed", job_id=job.id, exc_info=True)
 
             if summary_artifact is None:
@@ -2106,14 +2107,14 @@ class RuntimeService:
                     async with self._session_factory() as fresh_session:
                         fresh_svc = ArtifactService(ArtifactRepository(fresh_session))
                         summary_artifact = await fresh_svc.get_latest_session_summary(job.id)
-                except Exception:
+                except (DBAPIError, OSError):
                     log.warning("inline_summarization_failed", job_id=job.id, exc_info=True)
 
         summary_text: str | None = None
         if summary_artifact is not None:
             try:
                 summary_text = Path(summary_artifact.disk_path).read_text(encoding="utf-8")
-            except Exception:
+            except OSError:
                 log.warning("summary_read_failed", job_id=job.id, exc_info=True)
 
         return summary_text, changed_files

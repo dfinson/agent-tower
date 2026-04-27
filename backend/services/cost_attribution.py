@@ -250,7 +250,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         if has_edits:
             retries = _count_edit_retries(context.get("tool_categories", []))
             # Attribute to the dominant refined activity
-            dominant = max(refined_weights, key=refined_weights.get)  # type: ignore[arg-type]
+            dominant = max(refined_weights, key=lambda k: refined_weights[k])
             one_shot_by_activity[dominant]["edit_turns"] += 1
             one_shot_by_activity[dominant]["retries"] += retries
             if retries == 0:

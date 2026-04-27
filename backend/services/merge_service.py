@@ -94,6 +94,10 @@ class MergeResult:
     error: str | None = None
 
 
+# Persisted merge_status value for jobs whose branch has not yet been merged.
+_NOT_MERGED = "not_merged"
+
+
 class MergeService:
     """Orchestrates merging a job's branch back into its base branch."""
 
@@ -352,7 +356,7 @@ class MergeService:
             return MergeResult(status=MergeStatus.merged, strategy="merge")
 
         if outcome is _MergeOutcome.error:
-            await self._update_merge_status(job_id, "not_merged")
+            await self._update_merge_status(job_id, _NOT_MERGED)
             return MergeResult(status=MergeStatus.error, error=error or "Merge failed without conflict markers")
 
         # outcome is _MergeOutcome.conflict
@@ -419,7 +423,7 @@ class MergeService:
 
         if self._platform_registry is None:
             log.info("pr_creation_skipped_no_registry", job_id=job_id)
-            await self._update_merge_status(job_id, "not_merged")
+            await self._update_merge_status(job_id, _NOT_MERGED)
             return MergeResult(status=MergeStatus.skipped, error="No platform registry")
 
         adapter = await self._platform_registry.get_adapter(repo_path)
@@ -437,7 +441,7 @@ class MergeService:
             return MergeResult(status=MergeStatus.pr_created, strategy="pr", pr_url=pr_result.url)
 
         log.warning("pr_creation_failed", job_id=job_id, platform=adapter.name, error=pr_result.error)
-        await self._update_merge_status(job_id, "not_merged")
+        await self._update_merge_status(job_id, _NOT_MERGED)
         return MergeResult(status=MergeStatus.error, error=pr_result.error or "PR creation failed")
 
     async def _post_merge_cleanup(
@@ -687,7 +691,7 @@ class MergeService:
                 return MergeResult(status=MergeStatus.merged, strategy="merge")
 
             if outcome is _MergeOutcome.error:
-                await self._update_merge_status(job_id, "not_merged")
+                await self._update_merge_status(job_id, _NOT_MERGED)
                 return MergeResult(status=MergeStatus.error, error=error or "Merge failed without conflict markers")
 
             # outcome is _MergeOutcome.conflict
