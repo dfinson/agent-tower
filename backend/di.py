@@ -20,6 +20,7 @@ from backend.persistence.cost_attribution_repo import CostAttributionRepository
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.file_access_repo import FileAccessRepository
 from backend.persistence.job_repo import JobRepository
+from backend.persistence.step_repo import StepRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 from backend.services.analytics_service import AnalyticsService
@@ -37,7 +38,9 @@ from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
+from backend.services.step_diff_service import StepDiffService
 from backend.services.story_service import StoryService
+from backend.services.telemetry_query_service import TelemetryQueryService
 from backend.services.terminal_service import TerminalService
 from backend.services.trail import TrailService
 from backend.services.voice_service import VoiceService
@@ -83,6 +86,10 @@ class AppProvider(Provider):
     @provide
     def story_service(self, sister_sessions: SisterSessionManager) -> StoryService:
         return StoryService(completer=sister_sessions)
+
+    @provide
+    def step_repo(self, sf: async_sessionmaker[AsyncSession]) -> StepRepository:
+        return StepRepository(sf)
 
     @provide
     async def preview_http_client(self) -> AsyncIterator[PreviewHttpClient]:
@@ -165,3 +172,24 @@ class RequestProvider(Provider):
     @provide
     def telemetry_summary_repo(self, session: AsyncSession) -> TelemetrySummaryRepository:
         return TelemetrySummaryRepository(session)
+
+    @provide
+    def telemetry_query_service(
+        self,
+        cost_repo: CostAttributionRepository,
+        file_repo: FileAccessRepository,
+        job_repo: JobRepository,
+        spans_repo: TelemetrySpansRepository,
+        summary_repo: TelemetrySummaryRepository,
+    ) -> TelemetryQueryService:
+        return TelemetryQueryService(cost_repo, file_repo, job_repo, spans_repo, summary_repo)
+
+    @provide
+    def step_diff_service(
+        self,
+        job_svc: JobService,
+        step_repo: StepRepository,
+        git_service: GitService,
+        spans_repo: TelemetrySpansRepository,
+    ) -> StepDiffService:
+        return StepDiffService(job_svc, step_repo, git_service, spans_repo)

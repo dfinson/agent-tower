@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.responses import StreamingResponse
 
-from backend.config import CPLConfig
 from backend.models.api_schemas import (
     JobResponse,
     JobSnapshotResponse,
@@ -19,17 +18,11 @@ from backend.models.api_schemas import (
     ShareTokenResponse,
 )
 from backend.persistence.approval_repo import ApprovalRepository
-from backend.persistence.cost_attribution_repo import CostAttributionRepository
-from backend.persistence.file_access_repo import FileAccessRepository
-from backend.persistence.job_repo import JobRepository
-from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-from backend.services.event_bus import EventBus
-from backend.services.git_service import GitService
 from backend.services.diff_service import DiffService
 from backend.services.job_service import JobService
 from backend.services.share_service import ShareService
 from backend.services.sse_manager import SSEConnection, SSEManager
+from backend.services.telemetry_query_service import TelemetryQueryService
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -166,16 +159,12 @@ async def get_shared_snapshot(
     token: str,
     share_service: FromDishka[ShareService],
     svc: FromDishka[JobService],
-    session: FromDishka[AsyncSession],
     approval_repo: FromDishka[ApprovalRepository],
-    event_bus: FromDishka[EventBus],
-    config: FromDishka[CPLConfig],
-    git_service: FromDishka[GitService],
     diff_service: FromDishka[DiffService],
 ) -> JobSnapshotResponse:
     """Full state hydration via share token — same shape as /jobs/{id}/snapshot."""
     from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
-    from backend.api.snapshot_helpers import assemble_snapshot
+    from backend.services.snapshot_helpers import assemble_snapshot
 
     job_id = _validate_share(share_service, token)
     job = await svc.get_job(job_id)
@@ -206,16 +195,8 @@ async def get_shared_snapshot(
 async def get_shared_telemetry(
     token: str,
     share_service: FromDishka[ShareService],
-    cost_repo: FromDishka[CostAttributionRepository],
-    file_repo: FromDishka[FileAccessRepository],
-    job_repo: FromDishka[JobRepository],
-    spans_repo: FromDishka[TelemetrySpansRepository],
-    summary_repo: FromDishka[TelemetrySummaryRepository],
+    telemetry_svc: FromDishka[TelemetryQueryService],
 ) -> JobTelemetryResponse:
     """Read-only telemetry data via share token."""
     job_id = _validate_share(share_service, token)
-
-    # Delegate to the same telemetry logic used by the authenticated endpoint
-    from backend.api.job_telemetry import get_job_telemetry
-
-    return await get_job_telemetry(job_id, cost_repo, file_repo, job_repo, spans_repo, summary_repo)
+    return await telemetry_svc.get_telemetry(job_id)

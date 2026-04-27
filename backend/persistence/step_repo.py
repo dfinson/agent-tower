@@ -81,3 +81,10 @@ class StepRepository:
                 select(StepRow).where(StepRow.job_id == job_id).order_by(StepRow.step_number).limit(limit)
             )
             return list(result.scalars().all())
+
+    async def get_by_turn_id(self, job_id: str, turn_id: str) -> StepRow | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(StepRow).where(StepRow.job_id == job_id, StepRow.turn_id == turn_id)
+            )
+            return result.scalar_one_or_none()
