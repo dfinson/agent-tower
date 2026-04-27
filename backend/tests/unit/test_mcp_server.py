@@ -181,7 +181,7 @@ class TestJobTool:
 
     @pytest.mark.asyncio
     async def test_get_not_found(self, mcp_server) -> None:
-        from backend.services.job_service import JobNotFoundError
+        from backend.models.domain import JobNotFoundError
 
         with (
             patch("backend.mcp.server.JobService") as mock_svc_cls,

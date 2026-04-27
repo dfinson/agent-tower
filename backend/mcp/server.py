@@ -44,15 +44,10 @@ from backend.models.api_schemas import (
     WorkspaceEntryType,
     WorkspaceListResponse,
 )
-from backend.services.agent_adapter import SDKModelMismatchError
+from backend.models.domain import JobNotFoundError, RepoNotAllowedError, SDKModelMismatchError, StateConflictError
 from backend.services.artifact_service import ArtifactService
 from backend.services.git_service import GitError, GitService
-from backend.services.job_service import (
-    JobNotFoundError,
-    JobService,
-    RepoNotAllowedError,
-    StateConflictError,
-)
+from backend.services.job_service import JobService
 from backend.services.platform_adapter import detect_platform as _detect_platform
 
 if TYPE_CHECKING:
@@ -359,7 +354,7 @@ def _register_approval_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 return {"error": "approval_id and resolution are required for resolve"}
             if resolution not in (ApprovalResolution.approved, ApprovalResolution.rejected):
                 return {"error": "Resolution must be 'approved' or 'rejected'"}
-            from backend.services.approval_service import (
+            from backend.models.domain import (
                 ApprovalAlreadyResolvedError,
                 ApprovalNotFoundError,
             )

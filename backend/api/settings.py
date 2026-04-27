@@ -318,7 +318,7 @@ async def list_sdks() -> SDKListResponse:
     """List available agent SDKs, installation status, and auth status."""
     import asyncio
 
-    from backend.services.agent_adapter import AgentSDK
+    from backend.models.domain import AgentSDK
     from backend.services.setup_checks import _check_agent_auth, check_agent_cli
 
     config = _get_config()

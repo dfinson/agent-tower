@@ -47,13 +47,6 @@ log = structlog.get_logger()
 
 _MAX_COUNT_LIMIT = 10_000  # upper bound for count queries that scan all jobs
 
-# Re-export for backward compatibility — canonical location is backend.models.domain
-__all__ = [
-    "JobNotFoundError",
-    "RepoNotAllowedError",
-    "StateConflictError",
-]
-
 
 _MAX_NAMING_COLLISION_RETRIES = 2
 

@@ -8,11 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.models.domain import (
+    AgentSDK,
     PermissionMode,
     SessionConfig,
 )
 from backend.services.adapter_registry import AdapterRegistry
-from backend.services.agent_adapter import AgentAdapterInterface, AgentSDK
+from backend.services.agent_adapter import AgentAdapterInterface
 
 # ---------------------------------------------------------------------------
 # AdapterRegistry tests
@@ -273,7 +274,8 @@ class TestSDKModelValidation:
         validate_sdk_model("claude", "claude-3-haiku-20240307")
 
     def test_claude_rejects_non_claude_models(self) -> None:
-        from backend.services.agent_adapter import SDKModelMismatchError, validate_sdk_model
+        from backend.models.domain import SDKModelMismatchError
+        from backend.services.agent_adapter import validate_sdk_model
 
         with pytest.raises(SDKModelMismatchError, match="not compatible with the claude SDK"):
             validate_sdk_model("claude", "gpt-4o")
@@ -293,7 +295,8 @@ class TestSDKModelValidation:
         validate_sdk_model("claude", "")
 
     def test_unknown_sdk_raises(self) -> None:
-        from backend.services.agent_adapter import SDKModelMismatchError, validate_sdk_model
+        from backend.models.domain import SDKModelMismatchError
+        from backend.services.agent_adapter import validate_sdk_model
 
         with pytest.raises(SDKModelMismatchError, match="Unknown SDK"):
             validate_sdk_model("unknown", "gpt-4o")

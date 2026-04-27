@@ -23,12 +23,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-# Re-export for backward compatibility — canonical location is backend.models.domain
-__all__ = [
-    "ApprovalAlreadyResolvedError",
-    "ApprovalNotFoundError",
-]
-
 
 class ApprovalService:
     """Persists approval requests and routes operator decisions to the adapter.

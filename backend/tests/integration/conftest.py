@@ -31,10 +31,10 @@ from backend.config import CPLConfig
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
 from backend.models.db import Base, JobRow
 from backend.persistence.database import _set_sqlite_pragmas
+from backend.models.domain import JobNotFoundError
 from backend.services.approval_service import ApprovalService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
-from backend.services.job_service import JobNotFoundError
 from backend.services.merge_service import MergeService
 from backend.services.platform_adapter import PlatformRegistry
 from backend.services.runtime_service import RuntimeService
