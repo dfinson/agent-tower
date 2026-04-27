@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, or_, select
 
 from backend.models.db import DiffSnapshotRow, JobRow
-from backend.models.domain import Job, JobState, PermissionMode, Resolution
+from backend.models.domain import GitMergeOutcome, Job, JobState, PermissionMode, Resolution
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
@@ -64,7 +64,7 @@ class JobRepository(BaseRepository):
             updated_at=row.updated_at,
             completed_at=row.completed_at,
             pr_url=row.pr_url,
-            merge_status=row.merge_status,
+            merge_status=GitMergeOutcome(row.merge_status) if row.merge_status else None,
             title=row.title,
             description=row.description,
             worktree_name=row.worktree_name,
@@ -183,7 +183,7 @@ class JobRepository(BaseRepository):
         """Store the PR URL on a job row."""
         await self._update_row(job_id, pr_url=pr_url)
 
-    async def update_merge_status(self, job_id: str, merge_status: str, pr_url: str | None = None) -> None:
+    async def update_merge_status(self, job_id: str, merge_status: GitMergeOutcome, pr_url: str | None = None) -> None:
         """Update the merge status (and optionally PR URL) on a job row."""
         updates: dict[str, Any] = {"merge_status": merge_status}
         if pr_url is not None:
@@ -195,7 +195,7 @@ class JobRepository(BaseRepository):
         job_id: str,
         new_session_count: int,
         *,
-        merge_status: str | None = None,
+        merge_status: GitMergeOutcome | None = None,
     ) -> None:
         """Reset a terminal job back to running state for resumption."""
         from datetime import UTC, datetime
@@ -244,7 +244,7 @@ class JobRepository(BaseRepository):
         resolution: str | None,
         failure_reason: str | None,
         archived_at: datetime | None,
-        merge_status: str | None,
+        merge_status: GitMergeOutcome | None,
         pr_url: str | None,
     ) -> None:
         """Restore the persisted job row when resume setup fails before execution starts."""
