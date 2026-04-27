@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import structlog
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from backend.models.api_schemas import (
@@ -17,40 +16,20 @@ from backend.models.api_schemas import (
     TerminalAskResponse,
     TerminalSessionInfo,
 )
-from backend.models.domain import ServiceInitError
 from backend.services.auth import LOCALHOST_ADDRS, check_websocket_auth
-
-if TYPE_CHECKING:
-    from backend.services.terminal_service import TerminalService
+from backend.services.sister_session import SisterSessionManager
+from backend.services.terminal_service import TerminalService
 
 log = structlog.get_logger()
 
-router = APIRouter(tags=["terminal"])
+router = APIRouter(tags=["terminal"], route_class=DishkaRoute)
 
 
-@dataclass
-class _TerminalState:
-    """Encapsulates mutable wiring set by main.py during lifespan."""
-
-    service: TerminalService | None = field(default=None, repr=False)
-    utility_session: Any = field(default=None, repr=False)
-
-
-_state = _TerminalState()
-
-
-def set_terminal_service(service: TerminalService) -> None:
-    _state.service = service
-
-
-def set_utility_session(session: object) -> None:
-    _state.utility_session = session
-
-
-def _svc() -> TerminalService:
-    if _state.service is None:
-        raise ServiceInitError("TerminalService not initialized")
-    return _state.service
+def _require_svc(svc: TerminalService | None) -> TerminalService:
+    """Raise 503 when the terminal subsystem is disabled."""
+    if svc is None:
+        raise HTTPException(status_code=503, detail="Terminal service not enabled")
+    return svc
 
 
 # ------------------------------------------------------------------
@@ -59,9 +38,12 @@ def _svc() -> TerminalService:
 
 
 @router.post("/terminal/sessions", response_model=CreateTerminalSessionResponse, status_code=201)
-def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSessionResponse:
+def create_session(
+    req: CreateTerminalSessionRequest,
+    svc: FromDishka[TerminalService],
+) -> CreateTerminalSessionResponse:
     """Create a new terminal session."""
-    svc = _svc()
+    svc = _require_svc(svc)
     try:
         session = svc.create_session(
             cwd=req.cwd,
@@ -82,26 +64,26 @@ def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSessionRe
 
 
 @router.get("/terminal/sessions", response_model=list[TerminalSessionInfo])
-def list_sessions() -> list[TerminalSessionInfo]:
+def list_sessions(svc: FromDishka[TerminalService]) -> list[TerminalSessionInfo]:
     """List all active terminal sessions."""
-    svc = _svc()
+    svc = _require_svc(svc)
     sessions = svc.list_sessions()
     return [TerminalSessionInfo(**s) for s in sessions]
 
 
 @router.delete("/terminal/sessions/{session_id}", status_code=204)
-async def delete_session(session_id: str) -> None:
+async def delete_session(session_id: str, svc: FromDishka[TerminalService]) -> None:
     """Kill a terminal session."""
-    svc = _svc()
+    svc = _require_svc(svc)
     killed = await svc.kill_session(session_id)
     if not killed:
         raise HTTPException(status_code=404, detail="Session not found")
 
 
 @router.get("/terminal/observer/{job_id}", response_model=TerminalSessionInfo)
-def get_observer_terminal(job_id: str) -> TerminalSessionInfo:
+def get_observer_terminal(job_id: str, svc: FromDishka[TerminalService]) -> TerminalSessionInfo:
     """Return the observer terminal session for a running job, if one exists."""
-    svc = _svc()
+    svc = _require_svc(svc)
     for info in svc.list_sessions():
         if info.get("jobId") == job_id and info.get("observer"):
             return TerminalSessionInfo(**info)
@@ -109,11 +91,13 @@ def get_observer_terminal(job_id: str) -> TerminalSessionInfo:
 
 
 @router.post("/terminal/ask", response_model=TerminalAskResponse)
-async def ask_ai(req: TerminalAskRequest) -> TerminalAskResponse:
+async def ask_ai(
+    req: TerminalAskRequest,
+    sister_sessions: FromDishka[SisterSessionManager],
+) -> TerminalAskResponse:
     """Translate natural language to a shell command using the utility model."""
-    # Access utility session from app state (set in main.py)
     try:
-        if _state.utility_session is None:
+        if sister_sessions is None:
             return TerminalAskResponse(command="", explanation="AI assistant not available")
 
         prompt = f"""Translate this natural language request into a single shell command.
@@ -126,7 +110,7 @@ Terminal context (recent output):
 
 User request: {req.prompt}"""
 
-        result = await _state.utility_session.complete(prompt, timeout=10.0)
+        result = await sister_sessions.complete(prompt, timeout=10.0)
         try:
             parsed = json.loads(result.strip().removeprefix("```json").removesuffix("```").strip())
             return TerminalAskResponse(command=parsed["command"], explanation=parsed.get("explanation", ""))
@@ -191,7 +175,8 @@ async def terminal_ws(ws: WebSocket) -> None:
         return
 
     await ws.accept()
-    svc = _svc()
+    container = ws.app.state.dishka_container
+    svc = _require_svc(await container.get(TerminalService))
     attached_session_id: str | None = None
 
     try:

@@ -42,6 +42,8 @@ from backend.services.summarization_service import SummarizationService
 from backend.services.vapid_keys import get_or_create_vapid_keys
 from backend.services.voice_service import VoiceService
 
+from backend.services.terminal_service import TerminalService
+
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
@@ -49,7 +51,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.models.events import DomainEvent
-    from backend.services.terminal_service import TerminalService
 
 log = structlog.get_logger()
 
@@ -324,20 +325,15 @@ async def _init_optional_services(
     services: _CoreServices,
 ) -> _OptionalServices:
     """Initialise terminal, voice, retention, model cache, and MCP services."""
-    from backend.api import terminal
 
     # --- Terminal service ---
     terminal_service = None
     if config.terminal.enabled:
-        from backend.services.terminal_service import TerminalService
-
         terminal_service = TerminalService(
             max_sessions=config.terminal.max_sessions,
             default_shell=config.terminal.default_shell,
             scrollback_size_kb=config.terminal.scrollback_size_kb,
         )
-        terminal.set_terminal_service(terminal_service)
-        terminal.set_utility_session(services.sister_sessions)
         services.runtime_service.set_terminal_service(terminal_service)
         log.debug("terminal_service_enabled", max_sessions=config.terminal.max_sessions)
 
@@ -545,6 +541,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             PushService: push_service,
             ShareService: share_service,
             TrailService: trail_service,
+            TerminalService: optional.terminal_service,
         },
     )
     app.state.dishka_container = container

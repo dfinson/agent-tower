@@ -40,6 +40,7 @@ from backend.services.platform_adapter import PlatformRegistry
 from backend.services.runtime_service import RuntimeService
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
+from backend.services.terminal_service import TerminalService
 from backend.services.voice_service import VoiceService
 
 # ---------------------------------------------------------------------------
@@ -143,6 +144,11 @@ def mock_utility_session() -> AsyncMock:
 
 
 @pytest.fixture
+def mock_terminal_service() -> Mock:
+    return Mock()
+
+
+@pytest.fixture
 def voice_max_bytes_value() -> int:
     """Default voice max bytes — override in specific test classes for smaller limits."""
     return 10 * 1024 * 1024
@@ -174,6 +180,7 @@ async def app(
     mock_voice_service: Mock,
     mock_platform_registry: Mock,
     mock_utility_session: AsyncMock,
+    mock_terminal_service: Mock,
     voice_max_bytes_value: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncGenerator[FastAPI, None]:
@@ -224,6 +231,7 @@ async def app(
             VoiceService: mock_voice_service,
             CachedModelsBySdk: CachedModelsBySdk({}),
             VoiceMaxBytes: VoiceMaxBytes(voice_max_bytes_value),
+            TerminalService: mock_terminal_service,
         },
     )
     setup_dishka(container, application)
@@ -231,9 +239,6 @@ async def app(
     # -- config overrides (for non-dishka load_config calls) ----
     monkeypatch.setattr("backend.config.load_config", _test_config)
     monkeypatch.setattr("backend.services.job_service.load_config", _test_config)
-
-    # -- terminal module-level service -------------------------------------
-    terminal.set_terminal_service(Mock())
 
     yield application
 

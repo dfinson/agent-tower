@@ -38,6 +38,7 @@ from backend.services.share_service import ShareService
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.story_service import StoryService
+from backend.services.terminal_service import TerminalService
 from backend.services.trail import TrailService
 from backend.services.voice_service import VoiceService
 
@@ -69,6 +70,7 @@ class AppProvider(Provider):
     push_service = from_context(provides=PushService)
     share_service = from_context(provides=ShareService)
     trail_service = from_context(provides=TrailService)
+    terminal_service = from_context(provides=TerminalService)
 
     @provide
     def git_service(self, config: CPLConfig) -> GitService:
