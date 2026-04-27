@@ -247,7 +247,7 @@ class ActivityTracker:
                             },
                         )
                     )
-        except Exception:
+        except (OSError, ValueError, KeyError):
             log.warning("activity_label_refinement_failed", job_id=job_id, exc_info=True)
 
     async def _update_node_timeline(

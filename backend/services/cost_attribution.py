@@ -13,6 +13,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import structlog
+from sqlalchemy.exc import DBAPIError
 
 from backend.models.api_schemas import ExecutionPhase
 from backend.services.tool_classifier import classify_tool
@@ -166,7 +167,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         row = result.mappings().first()
         if row:
             job_prompt = row.get("prompt", "") or ""
-    except Exception:
+    except (DBAPIError, KeyError):
         log.warning("cost_attribution_prompt_fetch_failed", job_id=job_id, exc_info=True)
 
     # --- Aggregate by dimension ---
@@ -325,7 +326,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
             for f in changed_files:
                 diff_added += f.get("additions", 0)
                 diff_removed += f.get("deletions", 0)
-    except Exception:
+    except (DBAPIError, KeyError):
         log.warning("diff_lines_extraction_failed", job_id=job_id, exc_info=True)
 
     await summary_repo.set_turn_stats(

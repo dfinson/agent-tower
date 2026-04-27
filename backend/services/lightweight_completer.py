@@ -103,7 +103,7 @@ class LightweightCompleter:
         if self._provider == "anthropic":
             try:
                 return await self._anthropic_complete(prompt)
-            except Exception:
+            except (httpx.HTTPError, OSError, ValueError, KeyError):
                 log.warning(
                     "lightweight_anthropic_failed_falling_back",
                     exc_info=True,
@@ -112,7 +112,7 @@ class LightweightCompleter:
         if self._provider == "openai":
             try:
                 return await self._openai_complete(prompt)
-            except Exception:
+            except (httpx.HTTPError, OSError, ValueError, KeyError):
                 log.warning(
                     "lightweight_openai_failed_falling_back",
                     exc_info=True,

@@ -459,7 +459,7 @@ class StoryService:
         try:
             result = await self._completer.complete(full_prompt)
             raw = result.strip() if isinstance(result, str) else str(result).strip()
-        except Exception:
+        except (OSError, ValueError):
             log.warning("story_generation_failed", job_id=job_id, exc_info=True)
             return None
 

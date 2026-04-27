@@ -97,7 +97,7 @@ class PlanManager:
             return
         try:
             await self.infer_plan(job_id, sister)
-        except Exception:
+        except (OSError, ValueError, KeyError):
             log.warning("early_plan_inference_failed", job_id=job_id, exc_info=True)
 
     # ------------------------------------------------------------------
@@ -147,7 +147,7 @@ class PlanManager:
                 state.plan_established = True
                 for ps in steps:
                     await self._emit_plan_step(job_id, ps)
-        except Exception:
+        except (OSError, ValueError, KeyError):
             log.warning("plan_inference_failed", job_id=job_id, exc_info=True)
 
     # ------------------------------------------------------------------
@@ -211,7 +211,7 @@ class PlanManager:
                 if steps[candidate].status != "skipped" or candidate == active_idx:
                     target_idx = candidate
             state.sister_consecutive_failures = 0
-        except Exception:
+        except (OSError, ValueError, KeyError):
             state.sister_consecutive_failures += 1
             log.warning("turn_classification_failed", job_id=job_id, exc_info=True)
 
@@ -439,7 +439,7 @@ class PlanManager:
             try:
                 await self.infer_plan(job_id, sister)
                 state.sister_consecutive_failures = 0
-            except Exception:
+            except (OSError, ValueError, KeyError):
                 state.sister_consecutive_failures += 1
                 log.warning("plan_inference_failed_circuit", job_id=job_id, failures=state.sister_consecutive_failures)
             finally:
