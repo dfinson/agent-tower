@@ -113,6 +113,7 @@ class TunnelWatchdog:
             self._thread.join(timeout=5)
 
     def _health_ok(self, *, use_tunnel_url: bool = False) -> bool:
+        import urllib.error
         import urllib.request
 
         if use_tunnel_url or not self._local_port:
@@ -123,7 +124,7 @@ class TunnelWatchdog:
             req = urllib.request.Request(url, method="GET")
             with urllib.request.urlopen(req, timeout=self._HTTP_TIMEOUT) as resp:  # noqa: S310
                 return bool(resp.status == 200)
-        except Exception:
+        except (urllib.error.URLError, OSError, TimeoutError):
             log.warning("tunnel_health_check_failed", url=url, exc_info=True)
             return False
 

@@ -454,6 +454,96 @@ class CostByModelRow(TypedDict, total=False):
     cache_hit_rate: float
 
 
+class ToolStatsRow(TypedDict, total=False):
+    """Shape returned by TelemetrySpansRepository.tool_stats()."""
+
+    name: str
+    count: int
+    avg_duration_ms: float
+    total_duration_ms: float
+    failure_count: int
+    p50_duration_ms: float
+    p95_duration_ms: float
+    p99_duration_ms: float
+
+
+class ShellCommandRow(TypedDict):
+    """Shape returned by TelemetrySpansRepository.shell_command_breakdown()."""
+
+    command: str
+    call_count: int
+    total_cost_usd: float
+    avg_duration_ms: float
+    job_count: int
+
+
+class RetryCostSummary(TypedDict):
+    """Shape returned by TelemetrySpansRepository.retry_cost_summary()."""
+
+    retry_cost_usd: float
+    retry_count: int
+    total_spans: int
+    total_cost_usd: float
+
+
+class CostDimensionRow(TypedDict):
+    """Shape returned by CostAttributionRepository.by_dimension()."""
+
+    bucket: str
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    call_count: int
+    job_count: int
+
+
+class FleetCostRow(TypedDict):
+    """Shape returned by CostAttributionRepository.fleet_summary()."""
+
+    dimension: str
+    bucket: str
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    call_count: int
+    job_count: int
+    avg_cost_per_job: float
+
+
+class FileAccessRow(TypedDict):
+    """Shape returned by FileAccessRepository.most_accessed_files()."""
+
+    file_path: str
+    access_count: int
+    read_count: int
+    write_count: int
+    job_count: int
+
+
+class ModelComparisonRow(TypedDict, total=False):
+    """Shape returned by TelemetrySummaryRepository.model_comparison()."""
+
+    model: str
+    sdk: str
+    job_count: int
+    avg_cost: float
+    avg_duration_ms: float
+    total_cost_usd: float
+    premium_requests: float
+    merged: int
+    pr_created: int
+    discarded: int
+    failed: int
+    avg_verify_turns: float | None
+    verify_job_count: int
+    avg_diff_lines: float
+    cache_hit_rate: float
+    cost_per_job: float
+    cost_per_minute: float
+    cost_per_turn: float
+    cost_per_tool_call: float
+
+
 @dataclass
 class SessionEvent:
     kind: SessionEventKind

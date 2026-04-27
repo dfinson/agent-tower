@@ -12,10 +12,19 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from backend.models.domain import (
         AggregateStats,
+        CostAttributionRow,
         CostByDayRow,
         CostByModelRow,
         CostByRepoRow,
+        CostDimensionRow,
+        FileAccessRow,
+        FileAccessStatsRow,
+        FleetCostRow,
+        ModelComparisonRow,
+        RetryCostSummary,
+        ShellCommandRow,
         TelemetrySummaryRow,
+        ToolStatsRow,
     )
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,7 +96,7 @@ class AnalyticsService:
 
     async def model_comparison(
         self, *, period_days: int, repo: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ModelComparisonRow]:
         from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
         return await TelemetrySummaryRepository(self._session).model_comparison(
@@ -106,19 +115,19 @@ class AnalyticsService:
 
     # -- Telemetry spans -----------------------------------------------------
 
-    async def tool_stats(self, *, period_days: int) -> list[dict[str, Any]]:
+    async def tool_stats(self, *, period_days: int) -> list[ToolStatsRow]:
         from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
         return await TelemetrySpansRepository(self._session).tool_stats(period_days=period_days)
 
-    async def shell_command_breakdown(self, *, period_days: int) -> list[dict[str, Any]]:
+    async def shell_command_breakdown(self, *, period_days: int) -> list[ShellCommandRow]:
         from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
         return await TelemetrySpansRepository(self._session).shell_command_breakdown(
             period_days=period_days,
         )
 
-    async def retry_cost_summary(self, *, period_days: int) -> dict[str, Any]:
+    async def retry_cost_summary(self, *, period_days: int) -> RetryCostSummary:
         from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
         return await TelemetrySpansRepository(self._session).retry_cost_summary(
@@ -127,21 +136,21 @@ class AnalyticsService:
 
     # -- Cost attribution ----------------------------------------------------
 
-    async def cost_drivers_for_job(self, job_id: str) -> list[dict[str, Any]]:
+    async def cost_drivers_for_job(self, job_id: str) -> list[CostAttributionRow]:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
         return await CostAttributionRepository(self._session).for_job(job_id)
 
     async def cost_by_dimension(
         self, dimension: str, *, period_days: int,
-    ) -> list[dict[str, Any]]:
+    ) -> list[CostDimensionRow]:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
         return await CostAttributionRepository(self._session).by_dimension(
             dimension, period_days=period_days,
         )
 
-    async def fleet_cost_summary(self, *, period_days: int) -> list[dict[str, Any]]:
+    async def fleet_cost_summary(self, *, period_days: int) -> list[FleetCostRow]:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
         return await CostAttributionRepository(self._session).fleet_summary(
@@ -150,7 +159,7 @@ class AnalyticsService:
 
     # -- File access ---------------------------------------------------------
 
-    async def reread_stats(self, job_id: str) -> dict[str, Any]:
+    async def reread_stats(self, job_id: str) -> FileAccessStatsRow:
         from backend.persistence.file_access_repo import FileAccessRepository
 
         return await FileAccessRepository(self._session).reread_stats(job_id)
@@ -160,7 +169,7 @@ class AnalyticsService:
         *,
         job_id: str | None = None,
         period_days: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[FileAccessRow]:
         from backend.persistence.file_access_repo import FileAccessRepository
 
         repo = FileAccessRepository(self._session)
@@ -175,7 +184,7 @@ class AnalyticsService:
         *,
         category: str | None = None,
         severity: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any]]:  # ObservationsRepository schema varies
         from backend.persistence.observations_repo import ObservationsRepository
 
         return await ObservationsRepository(self._session).list_active(

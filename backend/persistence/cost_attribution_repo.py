@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from backend.models.domain import CostAttributionRow
+from backend.models.domain import CostAttributionRow, CostDimensionRow, FleetCostRow
 from backend.persistence.repository import BaseRepository
 
 
@@ -111,7 +111,7 @@ class CostAttributionRepository(BaseRepository):
         *,
         period_days: int = 30,
         limit: int = 50,
-    ) -> list[dict[str, Any]]:
+    ) -> list[CostDimensionRow]:
         """Aggregate attribution across jobs for a given dimension."""
         result = await self._session.execute(
             text(f"""
@@ -133,7 +133,7 @@ class CostAttributionRepository(BaseRepository):
         )
         return [dict(r) for r in result.mappings().all()]
 
-    async def fleet_summary(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+    async def fleet_summary(self, *, period_days: int = 30) -> list[FleetCostRow]:
         """Cross-job summary: top cost buckets across all dimensions."""
         result = await self._session.execute(
             text(f"""

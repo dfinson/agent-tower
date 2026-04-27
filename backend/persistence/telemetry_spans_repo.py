@@ -13,7 +13,13 @@ from typing import Any
 
 from sqlalchemy import text
 
-from backend.models.domain import FileChurnRow, TelemetrySpanRow
+from backend.models.domain import (
+    FileChurnRow,
+    RetryCostSummary,
+    ShellCommandRow,
+    TelemetrySpanRow,
+    ToolStatsRow,
+)
 from backend.persistence.repository import BaseRepository
 
 
@@ -209,7 +215,7 @@ class TelemetrySpansRepository(BaseRepository):
         )
         return [dict(r) for r in result.mappings().all()]
 
-    async def tool_stats(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+    async def tool_stats(self, *, period_days: int = 30) -> list[ToolStatsRow]:
         """Aggregate tool performance stats for analytics."""
         result = await self._session.execute(
             text(f"""
@@ -256,7 +262,7 @@ class TelemetrySpansRepository(BaseRepository):
 
         return rows
 
-    async def shell_command_breakdown(self, *, period_days: int = 30, limit: int = 30) -> list[dict[str, Any]]:
+    async def shell_command_breakdown(self, *, period_days: int = 30, limit: int = 30) -> list[ShellCommandRow]:
         """Aggregate shell commands by tool_target (first word of command).
 
         Groups shell-category tool spans by their extracted command name
@@ -332,7 +338,7 @@ class TelemetrySpansRepository(BaseRepository):
                 })
         return hits
 
-    async def retry_cost_summary(self, *, period_days: int = 30) -> dict[str, Any]:
+    async def retry_cost_summary(self, *, period_days: int = 30) -> RetryCostSummary:
         """Compute total cost and count of retry spans fleet-wide."""
         result = await self._session.execute(
             text(f"""
