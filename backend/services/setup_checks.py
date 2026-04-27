@@ -1,8 +1,10 @@
-"""Check infrastructure, data types, and verification engine for setup/preflight/doctor.
+"""Check infrastructure, verification engine, and rendering for setup/preflight/doctor.
 
 This module contains the shared verification engine used by ``cpl up``,
 ``cpl setup``, and ``cpl doctor``.  It defines the check result model,
-dependency descriptors, low-level probes, and Rich rendering helpers.
+low-level probes, and Rich rendering helpers.
+
+Dependency descriptors live in ``setup_dependencies.py``.
 """
 
 from __future__ import annotations
@@ -14,19 +16,22 @@ import shutil
 import socket
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
 from rich.console import Console
 
 from backend.config import get_codeplane_dir
+from backend.services.setup_dependencies import (  # noqa: F401 — re-exported
+    DEPENDENCIES,
+    Dependency,
+    _SYSTEM,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-_SYSTEM = platform.system().lower()  # "linux", "darwin", "windows"
 
 _console = Console()
 
@@ -50,98 +55,6 @@ class CheckResult:
     detail: str = ""
     hint: str = ""
     category: str = "general"
-
-
-# ---------------------------------------------------------------------------
-# Dependency descriptors (for setup auto-install)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class Dependency:
-    name: str
-    command: str
-    install_instructions: dict[str, str]
-    url: str
-    required: bool = True
-    auto_install_cmd: dict[str, list[str]] = field(default_factory=dict)
-
-
-DEPENDENCIES: list[Dependency] = [
-    Dependency(
-        name="Git",
-        command="git",
-        url="https://git-scm.com/downloads",
-        required=True,
-        install_instructions={
-            "linux": "sudo apt-get install -y git",
-            "darwin": "brew install git",
-            "windows": "Download from https://git-scm.com/downloads",
-        },
-        auto_install_cmd={
-            "linux": ["sudo", "apt-get", "install", "-y", "git"],
-            "darwin": ["brew", "install", "git"],
-        },
-    ),
-    Dependency(
-        name="Node.js",
-        command="node",
-        url="https://nodejs.org/",
-        required=True,
-        install_instructions={
-            "linux": (
-                "curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt-get install -y nodejs"
-            ),
-            "darwin": "brew install node",
-            "windows": "Download installer from https://nodejs.org/",
-        },
-        auto_install_cmd={
-            "linux": ["sudo", "apt-get", "install", "-y", "nodejs"],
-            "darwin": ["brew", "install", "node"],
-        },
-    ),
-    Dependency(
-        name="npm",
-        command="npm",
-        url="https://nodejs.org/",
-        required=True,
-        install_instructions={
-            "linux": "Included with Node.js — reinstall Node if missing",
-            "darwin": "Included with Node.js — reinstall Node if missing",
-            "windows": "Included with Node.js — reinstall Node if missing",
-        },
-    ),
-    Dependency(
-        name="GitHub CLI",
-        command="gh",
-        url="https://cli.github.com/",
-        required=True,
-        install_instructions={
-            "linux": (
-                "sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key 23F3D4EA75716059\n"
-                "sudo apt-add-repository https://cli.github.com/packages\n"
-                "sudo apt-get update && sudo apt-get install gh"
-            ),
-            "darwin": "brew install gh",
-            "windows": "winget install --id GitHub.cli",
-        },
-        auto_install_cmd={
-            "linux": ["sudo", "apt-get", "install", "-y", "gh"],
-            "darwin": ["brew", "install", "gh"],
-        },
-    ),
-    Dependency(
-        name="Dev Tunnels CLI",
-        command="devtunnel",
-        url="https://aka.ms/devtunnels/cli",
-        required=False,
-        install_instructions={
-            "linux": "Install from https://aka.ms/devtunnels/cli",
-            "darwin": "Install from https://aka.ms/devtunnels/cli",
-            "windows": "Install from https://aka.ms/devtunnels/cli",
-        },
-    ),
-]
 
 
 # ---------------------------------------------------------------------------
