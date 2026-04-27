@@ -16,18 +16,18 @@ router = APIRouter(tags=["notifications"], route_class=DishkaRoute)
 
 
 @router.get("/notifications/vapid-key", response_model=VapidKeyResponse)
-async def get_vapid_key(push_service: FromDishka[PushService]) -> VapidKeyResponse:
+def get_vapid_key(push_service: FromDishka[PushService]) -> VapidKeyResponse:
     """Return the VAPID public key for Web Push subscription."""
     return VapidKeyResponse(public_key=push_service.public_key)
 
 
 @router.post("/notifications/subscribe", status_code=204)
-async def subscribe(body: SubscriptionRequest, push_service: FromDishka[PushService]) -> None:
+def subscribe(body: SubscriptionRequest, push_service: FromDishka[PushService]) -> None:
     """Register a Web Push subscription."""
     push_service.subscribe({"endpoint": body.endpoint, "keys": body.keys})
 
 
 @router.post("/notifications/unsubscribe", status_code=204)
-async def unsubscribe(body: UnsubscribeRequest, push_service: FromDishka[PushService]) -> None:
+def unsubscribe(body: UnsubscribeRequest, push_service: FromDishka[PushService]) -> None:
     """Remove a Web Push subscription."""
     push_service.unsubscribe(body.endpoint)
