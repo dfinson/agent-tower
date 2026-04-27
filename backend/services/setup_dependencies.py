@@ -10,7 +10,7 @@ from __future__ import annotations
 import platform
 from dataclasses import dataclass, field
 
-_SYSTEM = platform.system().lower()  # "linux", "darwin", "windows"
+HOST_PLATFORM = platform.system().lower()  # "linux", "darwin", "windows"
 
 
 @dataclass

@@ -26,7 +26,7 @@ from backend.config import get_codeplane_dir
 from backend.services.setup_dependencies import (  # noqa: F401 — re-exported
     DEPENDENCIES,
     Dependency,
-    _SYSTEM,
+    HOST_PLATFORM,
 )
 
 # ---------------------------------------------------------------------------
@@ -429,7 +429,7 @@ def verify_requirements(
         if found:
             results.append(CheckResult(dep.name, CheckStatus.passed, version or "installed", category="deps"))
         elif dep.required:
-            hint = dep.install_instructions.get(_SYSTEM, dep.install_instructions.get("linux", ""))
+            hint = dep.install_instructions.get(HOST_PLATFORM, dep.install_instructions.get("linux", ""))
             results.append(CheckResult(dep.name, CheckStatus.fail, "not found", hint=hint, category="deps"))
         else:
             results.append(
