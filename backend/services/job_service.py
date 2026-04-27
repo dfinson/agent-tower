@@ -92,11 +92,7 @@ class JobService:
         git_service: GitService | None = None,
         naming_service: NamingService | None = None,
     ) -> JobService:
-        """Construct a JobService from a DB session.
-
-        This factory keeps persistence imports inside the service layer so
-        that callers (e.g. API routes) never import repository classes.
-        """
+        """Construct from a DB session."""
         from backend.persistence.event_repo import EventRepository
         from backend.persistence.job_repo import JobRepository
 
@@ -250,7 +246,7 @@ class JobService:
             # Still verify the pre-computed worktree_name doesn't collide
             existing_job_ids = await self._job_repo.list_ids()
             if worktree_name in existing_job_ids or (
-                worktree_name is not None and await self._job_repo.get(worktree_name) is not None
+                await self._job_repo.get(worktree_name) is not None
             ):
                 # Collision — fall through to LLM naming below
                 log.info("pre_named_collision", worktree_name=worktree_name)

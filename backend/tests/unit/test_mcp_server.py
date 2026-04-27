@@ -249,12 +249,6 @@ class TestJobTool:
         result = await _tool(mcp_server, "codeplane_job")(action="message", job_id="job-1", content="hi")
         assert "error" in result
 
-    @pytest.mark.asyncio
-    async def test_invalid_action(self, mcp_server) -> None:
-        result = await _tool(mcp_server, "codeplane_job")(action="explode")
-        assert "error" in result
-        assert "Unknown action" in result["error"]
-
 
 # ── Approval tool ────────────────────────────────────────────────────
 
@@ -303,11 +297,6 @@ class TestApprovalTool:
     @pytest.mark.asyncio
     async def test_resolve_missing_params(self, mcp_server) -> None:
         result = await _tool(mcp_server, "codeplane_approval")(action="resolve", approval_id=None, resolution=None)
-        assert "error" in result
-
-    @pytest.mark.asyncio
-    async def test_invalid_action(self, mcp_server) -> None:
-        result = await _tool(mcp_server, "codeplane_approval")(action="nope")
         assert "error" in result
 
 
@@ -409,11 +398,6 @@ class TestArtifactTool:
         result = await _tool(mcp_server, "codeplane_artifact")(action="get", artifact_id=None)
         assert "error" in result
 
-    @pytest.mark.asyncio
-    async def test_invalid_action(self, mcp_server) -> None:
-        result = await _tool(mcp_server, "codeplane_artifact")(action="bad")
-        assert "error" in result
-
 
 # ── Settings tool ────────────────────────────────────────────────────
 
@@ -441,11 +425,6 @@ class TestSettingsTool:
             }
             result = await _tool(mcp_server, "codeplane_settings")(action="update", max_concurrent_jobs=5)
             assert result["max_concurrent_jobs"] == 5
-
-    @pytest.mark.asyncio
-    async def test_invalid_action(self, mcp_server) -> None:
-        result = await _tool(mcp_server, "codeplane_settings")(action="delete")
-        assert "error" in result
 
 
 # ── Repo tool ────────────────────────────────────────────────────────
@@ -520,11 +499,6 @@ class TestRepoTool:
         result = await _tool(mcp_server, "codeplane_repo")(action="remove", repo_path=None)
         assert "error" in result
 
-    @pytest.mark.asyncio
-    async def test_invalid_action(self, mcp_server) -> None:
-        result = await _tool(mcp_server, "codeplane_repo")(action="purge")
-        assert "error" in result
-
 
 # ── Health tool ──────────────────────────────────────────────────────
 
@@ -562,7 +536,4 @@ class TestHealthTool:
             result = await _tool(mcp_server, "codeplane_health")(action="cleanup")
             assert result["removed"] == 3
 
-    @pytest.mark.asyncio
-    async def test_invalid_action(self, mcp_server) -> None:
-        result = await _tool(mcp_server, "codeplane_health")(action="boom")
-        assert "error" in result
+

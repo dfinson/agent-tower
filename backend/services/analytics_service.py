@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
 if TYPE_CHECKING:
     from backend.models.domain import (
         AggregateStats,
@@ -36,6 +38,8 @@ class AnalyticsService:
     the DI container).  Methods mirror the repository APIs that route
     handlers need.
     """
+
+    _log = structlog.get_logger()
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
