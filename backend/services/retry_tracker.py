@@ -20,12 +20,7 @@ class RetryResult:
 
 
 class RetryTracker:
-    """Tracks tool call outcomes per (tool_name, tool_target) pair.
-
-    A tool call is a retry if and only if a prior call with the
-    same (tool_name, tool_target) exists in this job and that prior
-    call failed (success = False). No windows, no thresholds.
-    """
+    """Tracks tool call outcomes per (tool_name, tool_target) pair."""
 
     def __init__(self) -> None:
         # Maps (tool_name, tool_target) → most-recent failure span_id (or None)

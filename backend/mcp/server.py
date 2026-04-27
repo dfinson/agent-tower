@@ -27,6 +27,7 @@ from backend.config import (
     unregister_repo,
 )
 from backend.models.api_schemas import (
+    ApprovalResolution,
     ApprovalResponse,
     ArtifactResponse,
     CreateJobResponse,
@@ -358,7 +359,7 @@ def _register_approval_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         if action == "resolve":
             if not approval_id or not resolution:
                 return {"error": "approval_id and resolution are required for resolve"}
-            if resolution not in ("approved", "rejected"):
+            if resolution not in (ApprovalResolution.approved, ApprovalResolution.rejected):
                 return {"error": "Resolution must be 'approved' or 'rejected'"}
             from backend.services.approval_service import (
                 ApprovalAlreadyResolvedError,

@@ -65,7 +65,7 @@ class JobRepository(BaseRepository):
             title=row.title,
             description=row.description,
             worktree_name=row.worktree_name,
-            permission_mode=PermissionMode(row.permission_mode or "full_auto"),
+            permission_mode=PermissionMode(row.permission_mode or PermissionMode.full_auto),
             session_count=row.session_count or 1,
             sdk_session_id=row.sdk_session_id,
             model=row.model,

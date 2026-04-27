@@ -292,38 +292,6 @@ def evaluate(
     This is the single public entry-point — callers pass the mode string
     directly instead of picking a mode-specific wrapper function.
     """
-    return _evaluate(
-        mode,
-        kind=kind,
-        workspace_path=workspace_path,
-        possible_paths=possible_paths,
-        full_command_text=full_command_text,
-        file_name=file_name,
-        path=path,
-        read_only=read_only,
-    )
-
-
-# Keep legacy wrappers for backward compatibility
-from functools import partial as _partial  # noqa: E402
-
-evaluate_full_auto = _partial(evaluate, "full_auto")
-evaluate_observe_only = _partial(evaluate, "observe_only")
-evaluate_review_and_approve = _partial(evaluate, "review_and_approve")
-
-
-def _evaluate(
-    mode: str,
-    *,
-    kind: str,
-    workspace_path: str,
-    possible_paths: list[str] | None = None,
-    file_name: str | None = None,
-    path: str | None = None,
-    full_command_text: str | None = None,
-    read_only: bool | None = None,
-) -> PolicyDecision:
-    """Core dispatcher: look up (mode, kind) in the rule table and resolve."""
     # Hard-gated commands always require approval, regardless of mode or trust level.
     # _HARD_GATED_SHELL_RE covers merge/pull/rebase/cherry-pick and simple git reset --hard.
     # is_git_reset_hard() additionally catches compound commands (e.g. cd /x && git reset --hard).
@@ -351,3 +319,11 @@ def _evaluate(
         full_command_text=full_command_text,
         read_only=read_only,
     )
+
+
+# Keep legacy wrappers for backward compatibility
+from functools import partial as _partial  # noqa: E402
+
+evaluate_full_auto = _partial(evaluate, PermissionMode.full_auto)
+evaluate_observe_only = _partial(evaluate, PermissionMode.observe_only)
+evaluate_review_and_approve = _partial(evaluate, PermissionMode.review_and_approve)
