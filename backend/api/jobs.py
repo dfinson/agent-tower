@@ -59,6 +59,7 @@ from backend.services.job_service import JobService, ProgressPreview
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
+from backend.services.step_tracker import hydrate_plan_steps
 from backend.services.story_service import StoryService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
@@ -1014,77 +1015,10 @@ async def get_job_snapshot(
         for a in db_approvals
     ]
 
-    # Build plan steps: detect the latest plan generation and reconstruct it.
-    #
-    # The step tracker replaces the in-memory plan when re-inferring, but old
-    # plan_step_updated events remain in the DB.  We detect generation
-    # boundaries: a batch of ≥2 *new* step IDs appearing together marks a
-    # new plan generation.  We keep only the latest generation's IDs, then
-    # overlay subsequent individual updates for those IDs.
-
-    # 1. Walk step_events chronologically and identify generation boundaries.
-    #    A "generation" starts whenever we see ≥2 never-before-seen IDs in a
-    #    burst (events within 5 seconds of each other).
-
-    seen_ids: set[str] = set()
-    current_gen_ids: list[str] = []  # ordered IDs for the current generation
-    current_gen_start: float = 0.0
-
-    for ev in step_events:
-        sid = ev.payload.get("plan_step_id", "")
-        if not sid:
-            continue
-        ts = ev.timestamp.timestamp() if hasattr(ev.timestamp, "timestamp") else 0.0
-        is_new = sid not in seen_ids
-
-        if is_new:
-            # If this new ID is far from the current burst, start a fresh burst
-            if not current_gen_ids or (ts - current_gen_start > 5.0):
-                # Commit previous burst as a generation if it had ≥2 new IDs
-                if len(current_gen_ids) >= 2:
-                    pass  # We'll override below; just keep accumulating
-                current_gen_ids = [sid]
-                current_gen_start = ts
-            else:
-                current_gen_ids.append(sid)
-            seen_ids.add(sid)
-
-    # If the last burst had ≥2 IDs, that's the latest generation.
-    # Otherwise fall back to using all seen IDs (single-step updates only).
-    if len(current_gen_ids) >= 2:
-        latest_gen: set[str] = set(current_gen_ids)
-    else:
-        latest_gen = seen_ids
-
-    # 2. Build the plan from latest generation IDs only.
-    step_latest: dict[str, dict[str, Any]] = {}
-    step_order: list[str] = []
-    for ev in step_events:
-        sid = ev.payload.get("plan_step_id", "")
-        if not sid or sid not in latest_gen:
-            continue
-        step_latest[sid] = ev.payload
-        if sid not in step_order:
-            step_order.append(sid)
-
+    # Build plan steps (with generation detection for re-inferred plans)
     plan_steps = [
-        PlanStepPayload(
-            job_id=job_id,
-            plan_step_id=p.get("plan_step_id", ""),
-            label=p.get("label", ""),
-            summary=p.get("summary"),
-            status=p.get("status", "pending"),
-            order=p.get("order", 0),
-            tool_count=p.get("tool_count", 0),
-            files_written=p.get("files_written"),
-            started_at=p.get("started_at"),
-            completed_at=p.get("completed_at"),
-            duration_ms=p.get("duration_ms"),
-            start_sha=p.get("start_sha"),
-            end_sha=p.get("end_sha"),
-        )
-        for sid in step_order
-        if (p := step_latest[sid])
+        PlanStepPayload(**p)
+        for p in hydrate_plan_steps(step_events, job_id, detect_generations=True)
     ]
 
     # Build turn summaries for the activity timeline.

@@ -38,6 +38,7 @@ from backend.services.diff_service import DiffService
 from backend.services.job_service import JobService
 from backend.services.share_service import ShareService
 from backend.services.sse_manager import SSEConnection, SSEManager
+from backend.services.step_tracker import hydrate_plan_steps
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -318,34 +319,12 @@ async def get_shared_snapshot(
         for a in db_approvals
     ]
 
-    # Plan steps
-    step_latest: dict[str, dict[str, Any]] = {}
-    step_order: list[str] = []
-    for ev in step_events:
-        sid = ev.payload.get("plan_step_id", "")
-        if not sid:
-            continue
-        step_latest[sid] = ev.payload
-        if sid not in step_order:
-            step_order.append(sid)
+    # Plan steps (no generation detection needed for shared snapshots)
     plan_steps = [
-        PlanStepPayload(
-            job_id=job_id,
-            plan_step_id=p.get("plan_step_id", ""),
-            label=p.get("label", ""),
-            summary=p.get("summary"),
-            status=p.get("status", "pending"),
-            order=p.get("order", 0),
-            tool_count=p.get("tool_count", 0),
-            files_written=p.get("files_written"),
-            started_at=p.get("started_at"),
-            completed_at=p.get("completed_at"),
-            duration_ms=p.get("duration_ms"),
-            start_sha=p.get("start_sha"),
-            end_sha=p.get("end_sha"),
+        PlanStepPayload(**p)
+        for p in hydrate_plan_steps(
+            step_events, job_id, detect_generations=False, exclude_pending=True
         )
-        for sid in step_order
-        if (p := step_latest[sid]).get("status") != "pending"
     ]
 
     # Turn summaries
