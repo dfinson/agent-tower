@@ -297,13 +297,6 @@ def run():
 
     print()
 
-    # Distribution of how many entries are actually available per step
-    all_available: list[int] = []
-    for job_id, job_steps in steps_by_job.items():
-        transcript_count = conn if False else 0  # we already closed conn, recalculate
-    # Re-count from data we already have — use the max window results
-    # If a step had < max_window entries, the window was smaller
-    # We can infer this from chars at max_window vs smaller windows
     print("NOTE: Token estimates use rough 4 chars/token. Actual varies by model.")
     print()
     print("INTERPRETATION GUIDE:")

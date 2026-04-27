@@ -6,7 +6,6 @@ import json
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, TrailNodeRow

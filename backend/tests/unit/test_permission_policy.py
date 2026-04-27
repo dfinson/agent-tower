@@ -16,6 +16,7 @@ from backend.models.domain import PermissionMode
 from backend.services.permission_policy import (
     _HARD_GATED_SHELL_RE,
     _READONLY_SHELL_RE,
+    PermissionRequest,
     PolicyDecision,
     _is_path_within_workspace,
     evaluate,
@@ -81,31 +82,31 @@ class TestGitResetHardHardBlock:
 
     @pytest.mark.parametrize("evaluate_fn", [evaluate_full_auto, evaluate_observe_only, evaluate_review_and_approve])
     def test_git_reset_hard_always_asks(self, tmp_path: Path, evaluate_fn) -> None:
-        result = evaluate_fn(
+        result = evaluate_fn(req=PermissionRequest(
             kind="shell",
             workspace_path=str(tmp_path),
             full_command_text="git reset --hard HEAD",
-        )
+        ))
         assert result == PolicyDecision.ask, (
             f"{evaluate_fn.__name__} returned {result!r} instead of 'ask' for git reset --hard"
         )
 
     @pytest.mark.parametrize("evaluate_fn", [evaluate_full_auto, evaluate_observe_only, evaluate_review_and_approve])
     def test_git_reset_hard_compound_command_always_asks(self, tmp_path: Path, evaluate_fn) -> None:
-        result = evaluate_fn(
+        result = evaluate_fn(req=PermissionRequest(
             kind="shell",
             workspace_path=str(tmp_path),
             full_command_text="git fetch && git reset --hard origin/main",
-        )
+        ))
         assert result == PolicyDecision.ask
 
     def test_normal_shell_auto_mode_still_approves(self, tmp_path: Path) -> None:
         """Confirm the hard-block only fires for git reset --hard, not all shell commands."""
-        result = evaluate_full_auto(
+        result = evaluate_full_auto(req=PermissionRequest(
             kind="shell",
             workspace_path=str(tmp_path),
             full_command_text="git status",
-        )
+        ))
         assert result == PolicyDecision.approve
 
 
@@ -258,7 +259,7 @@ class TestHardGateIntegration:
         ],
     )
     def test_auto_mode_asks_for_hard_gated(self, tmp_path: Path, cmd: str) -> None:
-        result = evaluate_full_auto(kind="shell", workspace_path=str(tmp_path), full_command_text=cmd)
+        result = evaluate_full_auto(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path), full_command_text=cmd))
         assert result == PolicyDecision.ask
 
     @pytest.mark.parametrize(
@@ -272,7 +273,7 @@ class TestHardGateIntegration:
         ],
     )
     def test_read_only_mode_asks_for_hard_gated(self, tmp_path: Path, cmd: str) -> None:
-        result = evaluate_observe_only(kind="shell", workspace_path=str(tmp_path), full_command_text=cmd)
+        result = evaluate_observe_only(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path), full_command_text=cmd))
         assert result == PolicyDecision.ask
 
     @pytest.mark.parametrize(
@@ -286,12 +287,12 @@ class TestHardGateIntegration:
         ],
     )
     def test_approval_required_mode_asks_for_hard_gated(self, tmp_path: Path, cmd: str) -> None:
-        result = evaluate_review_and_approve(kind="shell", workspace_path=str(tmp_path), full_command_text=cmd)
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path), full_command_text=cmd))
         assert result == PolicyDecision.ask
 
     def test_auto_mode_still_approves_normal_shell(self, tmp_path: Path) -> None:
         """Non-hard-gated commands remain auto-approved in auto mode."""
-        result = evaluate_full_auto(kind="shell", workspace_path=str(tmp_path), full_command_text="python script.py")
+        result = evaluate_full_auto(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path), full_command_text="python script.py"))
         assert result == PolicyDecision.approve
 
 
@@ -350,23 +351,23 @@ class TestEvaluateAuto:
     """AUTO mode: everything should be approved."""
 
     def test_read_approved(self, tmp_path: Path) -> None:
-        result = evaluate_full_auto(kind="read", workspace_path=str(tmp_path))
+        result = evaluate_full_auto(req=PermissionRequest(kind="read", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_memory_approved(self, tmp_path: Path) -> None:
-        result = evaluate_full_auto(kind="memory", workspace_path=str(tmp_path))
+        result = evaluate_full_auto(req=PermissionRequest(kind="memory", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_write_within_workspace(self, tmp_path: Path) -> None:
         ws = str(tmp_path)
         target = os.path.join(ws, "file.py")
-        result = evaluate_full_auto(kind="write", workspace_path=ws, file_name=target)
+        result = evaluate_full_auto(req=PermissionRequest(kind="write", workspace_path=ws, file_name=target))
         assert result == PolicyDecision.approve
 
     def test_write_with_path_param(self, tmp_path: Path) -> None:
         ws = str(tmp_path)
         target = os.path.join(ws, "file.py")
-        result = evaluate_full_auto(kind="write", workspace_path=ws, path=target)
+        result = evaluate_full_auto(req=PermissionRequest(kind="write", workspace_path=ws, path=target))
         assert result == PolicyDecision.approve
 
     def test_write_outside_workspace_still_approved(self, tmp_path: Path) -> None:
@@ -374,33 +375,33 @@ class TestEvaluateAuto:
         os.makedirs(ws, exist_ok=True)
         outside = str(tmp_path / "other" / "file.py")
         # AUTO mode approves writes even outside workspace (falls through to kind=="write")
-        result = evaluate_full_auto(kind="write", workspace_path=ws, file_name=outside)
+        result = evaluate_full_auto(req=PermissionRequest(kind="write", workspace_path=ws, file_name=outside))
         assert result == PolicyDecision.approve
 
     def test_shell_approved(self, tmp_path: Path) -> None:
-        result = evaluate_full_auto(kind="shell", workspace_path=str(tmp_path))
+        result = evaluate_full_auto(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_mcp_approved(self, tmp_path: Path) -> None:
-        result = evaluate_full_auto(kind="mcp", workspace_path=str(tmp_path))
+        result = evaluate_full_auto(req=PermissionRequest(kind="mcp", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_url_approved(self, tmp_path: Path) -> None:
-        result = evaluate_full_auto(kind="url", workspace_path=str(tmp_path))
+        result = evaluate_full_auto(req=PermissionRequest(kind="url", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_unknown_kind_approved(self, tmp_path: Path) -> None:
-        result = evaluate_full_auto(kind="unknown-thing", workspace_path=str(tmp_path))
+        result = evaluate_full_auto(req=PermissionRequest(kind="unknown-thing", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_possible_paths_all_inside(self, tmp_path: Path) -> None:
         ws = str(tmp_path)
         paths = [os.path.join(ws, "a.py"), os.path.join(ws, "b.py")]
-        result = evaluate_full_auto(kind="write", workspace_path=ws, possible_paths=paths)
+        result = evaluate_full_auto(req=PermissionRequest(kind="write", workspace_path=ws, possible_paths=paths))
         assert result == PolicyDecision.approve
 
     def test_write_no_path_info(self, tmp_path: Path) -> None:
-        result = evaluate_full_auto(kind="write", workspace_path=str(tmp_path))
+        result = evaluate_full_auto(req=PermissionRequest(kind="write", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
 
@@ -413,23 +414,23 @@ class TestEvaluateReadOnly:
     """READ_ONLY mode: reads + grep/find allowed; everything else denied."""
 
     def test_memory_approved(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="memory", workspace_path=str(tmp_path))
+        result = evaluate_observe_only(req=PermissionRequest(kind="memory", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_read_within_workspace(self, tmp_path: Path) -> None:
         ws = str(tmp_path)
         target = os.path.join(ws, "file.py")
-        result = evaluate_observe_only(kind="read", workspace_path=ws, file_name=target)
+        result = evaluate_observe_only(req=PermissionRequest(kind="read", workspace_path=ws, file_name=target))
         assert result == PolicyDecision.approve
 
     def test_read_with_path_param(self, tmp_path: Path) -> None:
         ws = str(tmp_path)
         target = os.path.join(ws, "file.py")
-        result = evaluate_observe_only(kind="read", workspace_path=ws, path=target)
+        result = evaluate_observe_only(req=PermissionRequest(kind="read", workspace_path=ws, path=target))
         assert result == PolicyDecision.approve
 
     def test_read_no_target_approved(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="read", workspace_path=str(tmp_path))
+        result = evaluate_observe_only(req=PermissionRequest(kind="read", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_read_outside_workspace_denied(self, tmp_path: Path) -> None:
@@ -437,51 +438,51 @@ class TestEvaluateReadOnly:
         outside = str(tmp_path / "secret")
         os.makedirs(ws, exist_ok=True)
         os.makedirs(outside, exist_ok=True)
-        result = evaluate_observe_only(kind="read", workspace_path=ws, file_name=outside)
+        result = evaluate_observe_only(req=PermissionRequest(kind="read", workspace_path=ws, file_name=outside))
         assert result == PolicyDecision.deny
 
     def test_shell_grep_approved(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="shell", workspace_path=str(tmp_path), full_command_text="grep -r pattern .")
+        result = evaluate_observe_only(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path), full_command_text="grep -r pattern ."))
         assert result == PolicyDecision.approve
 
     def test_shell_find_approved(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="shell", workspace_path=str(tmp_path), full_command_text="find . -name '*.py'")
+        result = evaluate_observe_only(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path), full_command_text="find . -name '*.py'"))
         assert result == PolicyDecision.approve
 
     def test_shell_rm_denied(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="shell", workspace_path=str(tmp_path), full_command_text="rm -rf /")
+        result = evaluate_observe_only(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path), full_command_text="rm -rf /"))
         assert result == PolicyDecision.deny
 
     def test_shell_no_command_denied(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="shell", workspace_path=str(tmp_path))
+        result = evaluate_observe_only(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.deny
 
     def test_mcp_readonly_approved(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="mcp", workspace_path=str(tmp_path), read_only=True)
+        result = evaluate_observe_only(req=PermissionRequest(kind="mcp", workspace_path=str(tmp_path), read_only=True))
         assert result == PolicyDecision.approve
 
     def test_mcp_mutation_denied(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="mcp", workspace_path=str(tmp_path), read_only=False)
+        result = evaluate_observe_only(req=PermissionRequest(kind="mcp", workspace_path=str(tmp_path), read_only=False))
         assert result == PolicyDecision.deny
 
     def test_mcp_no_readonly_flag_denied(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="mcp", workspace_path=str(tmp_path))
+        result = evaluate_observe_only(req=PermissionRequest(kind="mcp", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.deny
 
     def test_write_denied(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="write", workspace_path=str(tmp_path))
+        result = evaluate_observe_only(req=PermissionRequest(kind="write", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.deny
 
     def test_url_denied(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="url", workspace_path=str(tmp_path))
+        result = evaluate_observe_only(req=PermissionRequest(kind="url", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.deny
 
     def test_custom_tool_denied(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="custom-tool", workspace_path=str(tmp_path))
+        result = evaluate_observe_only(req=PermissionRequest(kind="custom-tool", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.deny
 
     def test_unknown_kind_denied(self, tmp_path: Path) -> None:
-        result = evaluate_observe_only(kind="something-new", workspace_path=str(tmp_path))
+        result = evaluate_observe_only(req=PermissionRequest(kind="something-new", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.deny
 
 
@@ -494,59 +495,59 @@ class TestEvaluateApprovalRequired:
     """APPROVAL_REQUIRED mode: reads auto-approve; rest needs approval."""
 
     def test_memory_approved(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="memory", workspace_path=str(tmp_path))
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="memory", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_read_approved(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="read", workspace_path=str(tmp_path))
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="read", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.approve
 
     def test_shell_grep_approved(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(
+        result = evaluate_review_and_approve(req=PermissionRequest(
             kind="shell", workspace_path=str(tmp_path), full_command_text="grep pattern file"
-        )
+        ))
         assert result == PolicyDecision.approve
 
     def test_shell_rg_approved(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(
+        result = evaluate_review_and_approve(req=PermissionRequest(
             kind="shell", workspace_path=str(tmp_path), full_command_text="rg pattern ."
-        )
+        ))
         assert result == PolicyDecision.approve
 
     def test_shell_dangerous_asks(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(
+        result = evaluate_review_and_approve(req=PermissionRequest(
             kind="shell", workspace_path=str(tmp_path), full_command_text="python script.py"
-        )
+        ))
         assert result == PolicyDecision.ask
 
     def test_shell_no_command_asks(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="shell", workspace_path=str(tmp_path))
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="shell", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.ask
 
     def test_write_asks(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="write", workspace_path=str(tmp_path))
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="write", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.ask
 
     def test_url_asks(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="url", workspace_path=str(tmp_path))
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="url", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.ask
 
     def test_mcp_readonly_approved(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="mcp", workspace_path=str(tmp_path), read_only=True)
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="mcp", workspace_path=str(tmp_path), read_only=True))
         assert result == PolicyDecision.approve
 
     def test_mcp_mutation_asks(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="mcp", workspace_path=str(tmp_path), read_only=False)
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="mcp", workspace_path=str(tmp_path), read_only=False))
         assert result == PolicyDecision.ask
 
     def test_mcp_no_readonly_flag_asks(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="mcp", workspace_path=str(tmp_path))
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="mcp", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.ask
 
     def test_custom_tool_asks(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="custom-tool", workspace_path=str(tmp_path))
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="custom-tool", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.ask
 
     def test_unknown_kind_asks(self, tmp_path: Path) -> None:
-        result = evaluate_review_and_approve(kind="something-new", workspace_path=str(tmp_path))
+        result = evaluate_review_and_approve(req=PermissionRequest(kind="something-new", workspace_path=str(tmp_path)))
         assert result == PolicyDecision.ask

@@ -267,25 +267,6 @@ class ArtifactService:
 
         return max(summaries, key=_session_num)
 
-    async def save_snapshot_to_disk(
-        self,
-        job_id: str,
-        session_number: int,
-        snapshot_json: str,
-        *,
-        slug: str = "",
-    ) -> Artifact:
-        """Persist a raw session snapshot (deduped transcript + changed files).
-
-        This is cheap (no LLM) and stored at session end. The actual
-        LLM-based summary is generated on-demand during cold resumes.
-
-        Delegates to `upsert_session_log` to maintain a single unified
-        session log per job.  Kept for backward compatibility.
-        """
-        session_data = json.loads(snapshot_json)
-        return await self.upsert_session_log(job_id, session_data, slug=slug)
-
     async def upsert_session_log(
         self,
         job_id: str,

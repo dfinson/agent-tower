@@ -298,18 +298,15 @@ class SummarizationService:
                             }
                         )
 
-                snapshot = json.dumps(
-                    {
-                        "original_task": job.prompt,
-                        "session_number": job.session_count,
-                        "transcript_turns": turns,
-                        "changed_files": changed_files,
-                    },
-                    indent=2,
-                )
+                session_data = {
+                    "original_task": job.prompt,
+                    "session_number": job.session_count,
+                    "transcript_turns": turns,
+                    "changed_files": changed_files,
+                }
 
                 slug = (job.worktree_name or job.title or "").strip()
-                await artifact_svc.save_snapshot_to_disk(job_id, job.session_count, snapshot, slug=slug)
+                await artifact_svc.upsert_session_log(job_id, session_data, slug=slug)
 
                 if job.worktree_path:
                     collected = await artifact_svc.collect_from_workspace(job_id, job.worktree_path)
