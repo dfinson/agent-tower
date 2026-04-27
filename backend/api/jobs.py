@@ -84,7 +84,7 @@ _EVENT_QUERY_CEILING = 5000
 _HEADLINE_QUERY_LIMIT = 200
 
 
-def _resolve_tool_display(payload: dict[str, Any]) -> str | None:
+def resolve_tool_display(payload: dict[str, Any]) -> str | None:
     """Return tool_display from payload, recomputing it from args if missing.
 
     Stored events pre-dating the tool_display field have no value in their
@@ -94,7 +94,7 @@ def _resolve_tool_display(payload: dict[str, Any]) -> str | None:
     return _resolve_display_field(payload, "tool_display", format_tool_display)
 
 
-def _resolve_tool_display_full(payload: dict[str, Any]) -> str | None:
+def resolve_tool_display_full(payload: dict[str, Any]) -> str | None:
     """Like _resolve_tool_display but returns the untruncated label.
 
     Recomputes tool_display_full from args when absent (e.g. events stored
@@ -120,7 +120,7 @@ def _resolve_display_field(
     return str(formatter(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success))
 
 
-def _job_to_response(job: Job, progress_preview: ProgressPreview | None = None) -> JobResponse:
+def job_to_response(job: Job, progress_preview: ProgressPreview | None = None) -> JobResponse:
     """Map a domain Job to a JobResponse."""
     return JobResponse.from_domain(
         job,
@@ -245,7 +245,7 @@ async def list_jobs(
     )
     progress_by_job = await svc.list_latest_progress_previews([job.id for job in jobs])
     return JobListResponse(
-        items=[_job_to_response(j, progress_by_job.get(j.id)) for j in jobs],
+        items=[job_to_response(j, progress_by_job.get(j.id)) for j in jobs],
         cursor=next_cursor,
         has_more=has_more,
     )
@@ -259,7 +259,7 @@ async def get_job(
     """Get full job detail."""
     job = await svc.get_job(job_id)
     progress_preview = await svc.get_latest_progress_preview(job_id)
-    return _job_to_response(job, progress_preview)
+    return job_to_response(job, progress_preview)
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=JobResponse)
@@ -274,7 +274,7 @@ async def cancel_job(
     # Also cancel the runtime task if running
     await runtime_service.cancel(job_id)
 
-    return _job_to_response(job)
+    return job_to_response(job)
 
 
 @router.post("/jobs/{job_id}/interrupt", status_code=204)
@@ -347,7 +347,7 @@ async def resume_job(
 ) -> JobResponse:
     """Resume a completed/failed/canceled job in-place, optionally with extra instruction."""
     job = await runtime_service.resume_job(job_id, body.instruction if body is not None else None)
-    return _job_to_response(job)
+    return job_to_response(job)
 
 
 @router.get("/models", response_model=ModelListResponse)
@@ -513,8 +513,8 @@ async def get_job_transcript(
             tool_issue=event.payload.get("tool_issue"),
             tool_intent=event.payload.get("tool_intent"),
             tool_title=event.payload.get("tool_title"),
-            tool_display=_resolve_tool_display(event.payload),
-            tool_display_full=_resolve_tool_display_full(event.payload),
+            tool_display=resolve_tool_display(event.payload),
+            tool_display_full=resolve_tool_display_full(event.payload),
             tool_duration_ms=event.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(event.payload.get("turn_id") or ""),
         )
@@ -932,8 +932,8 @@ async def get_job_snapshot(
             tool_issue=e.payload.get("tool_issue"),
             tool_intent=e.payload.get("tool_intent"),
             tool_title=e.payload.get("tool_title"),
-            tool_display=_resolve_tool_display(e.payload),
-            tool_display_full=_resolve_tool_display_full(e.payload),
+            tool_display=resolve_tool_display(e.payload),
+            tool_display_full=resolve_tool_display_full(e.payload),
             tool_duration_ms=e.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
             tool_visibility=e.payload.get("tool_visibility"),
@@ -1116,7 +1116,7 @@ async def get_job_snapshot(
     ]
 
     resp = JobSnapshotResponse(
-        job=_job_to_response(job, progress_preview),
+        job=job_to_response(job, progress_preview),
         logs=logs,
         transcript=transcript,
         diff=diff,

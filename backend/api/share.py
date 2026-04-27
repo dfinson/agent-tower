@@ -90,9 +90,9 @@ async def get_shared_job(
     progress = await svc.get_latest_progress_preview(job_id)
 
     # Import here to avoid circular dependency
-    from backend.api.jobs import _job_to_response
+    from backend.api.jobs import job_to_response
 
-    return _job_to_response(job, progress)
+    return job_to_response(job, progress)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ async def get_shared_snapshot(
     diff_service: FromDishka[DiffService],
 ) -> JobSnapshotResponse:
     """Full state hydration via share token — same shape as /jobs/{id}/snapshot."""
-    from backend.api.jobs import _job_to_response, _resolve_tool_display, _resolve_tool_display_full
+    from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
     from backend.models.api_schemas import ApprovalResponse
     from backend.models.domain import JobState
 
@@ -244,8 +244,8 @@ async def get_shared_snapshot(
             tool_issue=e.payload.get("tool_issue"),
             tool_intent=e.payload.get("tool_intent"),
             tool_title=e.payload.get("tool_title"),
-            tool_display=_resolve_tool_display(e.payload),
-            tool_display_full=_resolve_tool_display_full(e.payload),
+            tool_display=resolve_tool_display(e.payload),
+            tool_display_full=resolve_tool_display_full(e.payload),
             tool_duration_ms=e.payload.get("tool_duration_ms"),
             tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
             tool_visibility=e.payload.get("tool_visibility"),
@@ -364,7 +364,7 @@ async def get_shared_snapshot(
     ]
 
     resp = JobSnapshotResponse(
-        job=_job_to_response(job, progress_preview),
+        job=job_to_response(job, progress_preview),
         logs=logs,
         transcript=transcript,
         diff=diff,

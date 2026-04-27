@@ -21,6 +21,7 @@ from backend.services.tool_classifier import classify_tool
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+log = structlog.get_logger()
 
 
 class CostBucket(TypedDict):
@@ -40,8 +41,6 @@ class TurnContext(TypedDict):
     input_tokens: int
     output_tokens: int
     tool_categories: list[str]
-
-log = structlog.get_logger()
 
 _TOOL_CATEGORY_TO_ACTIVITY = {
     "file_write": "code_changes",

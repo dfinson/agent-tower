@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 
+from sqlalchemy.exc import DBAPIError
+
 from backend.models.api_schemas import ApprovalResolution
 from backend.models.domain import (
     PermissionMode,
@@ -317,7 +319,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 if handler is not None:
                     await handler(**kwargs)
                 await session.commit()
-        except Exception:
+        except (DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn=fn_name, exc_info=True)
             return
 
@@ -813,7 +815,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             if tool_input:
                 try:
                     summary = json.dumps(tool_input, default=str)[:_TOOL_SUMMARY_FALLBACK_CHARS]
-                except Exception:
+                except (TypeError, ValueError):
                     summary = str(tool_input)[:_TOOL_SUMMARY_FALLBACK_CHARS]
             return f"{tool_name}: {summary}"
         return full_command_text or tool_kind
