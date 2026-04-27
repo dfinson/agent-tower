@@ -27,7 +27,7 @@ import yaml
 
 from backend.models.domain import PermissionMode
 
-_log = structlog.get_logger()
+log = structlog.get_logger()
 
 
 def _resolve_codeplane_dir() -> Path:
@@ -314,7 +314,7 @@ def load_config(path: Path | None = None) -> CPLConfig:
         try:
             save_config(cfg, path)
         except Exception:
-            _log.warning("instance_id_persist_failed", exc_info=True)
+            log.warning("instance_id_persist_failed", exc_info=True)
 
     return cfg
 
@@ -508,7 +508,7 @@ def discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, Any]:
                         env=entry.get("env"),
                     )
         except Exception:
-            _log.warning("mcp_global_config_read_failed", path=str(global_config_path))
+            log.warning("mcp_global_config_read_failed", path=str(global_config_path))
 
     # 2. Repo-level: .vscode/mcp.json (takes precedence over global)
     mcp_json_path = Path(repo_path) / ".vscode" / "mcp.json"
@@ -527,7 +527,7 @@ def discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, Any]:
                         env=entry.get("env"),
                     )
         except Exception:
-            _log.warning("mcp_repo_config_read_failed", path=str(mcp_json_path))
+            log.warning("mcp_repo_config_read_failed", path=str(mcp_json_path))
 
     # 3. Apply .codeplane.yml disabled list
     codeplane_yml_path = Path(repo_path) / ".codeplane.yml"
@@ -540,7 +540,7 @@ def discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, Any]:
                 for name in disabled:
                     servers.pop(str(name), None)
         except Exception:
-            _log.warning("codeplane_yml_read_failed", path=str(codeplane_yml_path))
+            log.warning("codeplane_yml_read_failed", path=str(codeplane_yml_path))
 
     return servers
 
@@ -556,7 +556,7 @@ def resolve_protected_paths(repo_path: str) -> list[str]:
         paths = data.get("protected_paths", [])
         return [str(p) for p in paths] if isinstance(paths, list) else []
     except Exception:
-        _log.warning("protected_paths_read_failed", path=str(codeplane_yml), exc_info=True)
+        log.warning("protected_paths_read_failed", path=str(codeplane_yml), exc_info=True)
         return []
 
 
@@ -575,10 +575,10 @@ def resolve_permission_mode(repo_path: str) -> str | None:
             try:
                 return str(PermissionMode(str(mode)))
             except ValueError:
-                _log.debug("invalid_permission_mode", mode=mode)
+                log.debug("invalid_permission_mode", mode=mode)
         return None
     except Exception:
-        _log.warning("permission_mode_read_failed", path=str(codeplane_yml), exc_info=True)
+        log.warning("permission_mode_read_failed", path=str(codeplane_yml), exc_info=True)
         return None
 
 

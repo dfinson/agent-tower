@@ -665,7 +665,7 @@ class JobService:
     def build_job_resolved_event(
         self,
         job_id: str,
-        resolution: str,
+        resolution: Resolution,
         *,
         pr_url: str | None = None,
         conflict_files: list[str] | None = None,
