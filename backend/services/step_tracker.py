@@ -17,7 +17,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Sequence
 
 import structlog
 
@@ -334,3 +334,101 @@ class StepTracker:
         self._counters.pop(job_id, None)
         self._worktree_paths.pop(job_id, None)
         self._transcript_buffers.pop(job_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Plan hydration from persisted events
+# ---------------------------------------------------------------------------
+
+
+def _detect_latest_generation(step_events: Sequence[DomainEvent]) -> set[str]:
+    """Detect the latest plan generation from a sequence of plan_step_updated events.
+
+    The step tracker replaces the in-memory plan when re-inferring, but old
+    plan_step_updated events remain in the DB.  We detect generation
+    boundaries: a batch of >=2 *new* step IDs appearing together (within
+    5 seconds) marks a new plan generation.  Returns only the latest
+    generation's IDs.
+    """
+    seen_ids: set[str] = set()
+    current_gen_ids: list[str] = []
+    current_gen_start: float = 0.0
+
+    for ev in step_events:
+        sid = ev.payload.get("plan_step_id", "")
+        if not sid:
+            continue
+        ts = ev.timestamp.timestamp() if hasattr(ev.timestamp, "timestamp") else 0.0
+        is_new = sid not in seen_ids
+
+        if is_new:
+            if not current_gen_ids or (ts - current_gen_start > 5.0):
+                current_gen_ids = [sid]
+                current_gen_start = ts
+            else:
+                current_gen_ids.append(sid)
+            seen_ids.add(sid)
+
+    if len(current_gen_ids) >= 2:
+        return set(current_gen_ids)
+    return seen_ids
+
+
+def hydrate_plan_steps(
+    step_events: Sequence[DomainEvent],
+    job_id: str,
+    *,
+    detect_generations: bool = True,
+    exclude_pending: bool = False,
+) -> list[dict[str, Any]]:
+    """Build ordered plan step payloads from persisted plan_step_updated events.
+
+    Args:
+        step_events: Chronological plan_step_updated domain events.
+        job_id: The job these events belong to.
+        detect_generations: When True, detect plan re-inference and keep only
+            the latest generation's steps.  Set False for simpler contexts
+            (e.g. shared snapshots) that don't need generation filtering.
+        exclude_pending: When True, omit steps still in "pending" status.
+
+    Returns:
+        List of dicts suitable for constructing PlanStepPayload objects.
+    """
+    if detect_generations:
+        allowed_ids = _detect_latest_generation(step_events)
+    else:
+        allowed_ids = None
+
+    step_latest: dict[str, dict[str, Any]] = {}
+    step_order: list[str] = []
+    for ev in step_events:
+        sid = ev.payload.get("plan_step_id", "")
+        if not sid:
+            continue
+        if allowed_ids is not None and sid not in allowed_ids:
+            continue
+        step_latest[sid] = ev.payload
+        if sid not in step_order:
+            step_order.append(sid)
+
+    result: list[dict[str, Any]] = []
+    for sid in step_order:
+        p = step_latest[sid]
+        if exclude_pending and p.get("status") == "pending":
+            continue
+        result.append({
+            "job_id": job_id,
+            "plan_step_id": p.get("plan_step_id", ""),
+            "label": p.get("label", ""),
+            "summary": p.get("summary"),
+            "status": p.get("status", "pending"),
+            "order": p.get("order", 0),
+            "tool_count": p.get("tool_count", 0),
+            "files_written": p.get("files_written"),
+            "started_at": p.get("started_at"),
+            "completed_at": p.get("completed_at"),
+            "duration_ms": p.get("duration_ms"),
+            "start_sha": p.get("start_sha"),
+            "end_sha": p.get("end_sha"),
+        })
+    return result
