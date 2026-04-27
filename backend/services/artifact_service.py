@@ -41,11 +41,7 @@ class ArtifactService:
 
     @classmethod
     def from_session(cls, session: AsyncSession) -> ArtifactService:
-        """Construct an ArtifactService from a DB session.
-
-        This factory keeps persistence imports inside the service layer so
-        that callers (e.g. API routes) never import repository classes.
-        """
+        """Construct from a DB session."""
         from backend.persistence.artifact_repo import ArtifactRepository
 
         return cls(ArtifactRepository(session))

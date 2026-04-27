@@ -310,8 +310,6 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 timestamp=datetime.now(UTC),
             ).model_dump(mode="json")
 
-        return {"error": f"Unknown action: {action}. Use: create, list, get, cancel, rerun, message"}
-
 
 # ---------------------------------------------------------------------------
 # Approvals
@@ -382,8 +380,6 @@ def _register_approval_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 resolution=a.resolution,
                 requires_explicit_approval=a.requires_explicit_approval,
             ).model_dump(mode="json")
-
-        return {"error": f"Unknown action: {action}. Use: list, resolve"}
 
 
 # ---------------------------------------------------------------------------
@@ -487,8 +483,6 @@ def _register_workspace_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 return {"error": "Cannot read file"}
             return {"path": path, "content": file_content}
 
-        return {"error": f"Unknown action: {action}. Use: list, read"}
-
 
 # ---------------------------------------------------------------------------
 # Artifacts
@@ -553,8 +547,6 @@ def _register_artifact_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 phase=artifact.phase,
                 created_at=artifact.created_at,
             ).model_dump(mode="json")
-
-        return {"error": f"Unknown action: {action}. Use: list, get"}
 
 
 # ---------------------------------------------------------------------------
@@ -653,8 +645,6 @@ def _register_settings_tool(mcp: FastMCP) -> None:
                 self_review_prompt=config.verification.self_review_prompt,
             ).model_dump(mode="json")
 
-        return {"error": f"Unknown action: {action}. Use: get, update"}
-
 
 # ---------------------------------------------------------------------------
 # Repository Management
@@ -748,8 +738,6 @@ def _register_repo_tool(mcp: FastMCP) -> None:
                 return {"error": str(exc)}
             return {"status": "removed", "path": repo_path}
 
-        return {"error": f"Unknown action: {action}. Use: list, get, register, remove"}
-
 
 # ---------------------------------------------------------------------------
 # Health & Observability
@@ -795,5 +783,3 @@ def _register_health_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 except GitError:
                     log.warning("cleanup_worktrees_failed", repo=repo)
             return {"removed": total}
-
-        return {"error": f"Unknown action: {action}. Use: check, cleanup"}
