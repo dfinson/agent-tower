@@ -176,11 +176,13 @@ class ApprovalService:
                 try:
                     from datetime import UTC, datetime
 
+                    from backend.models.domain import ApprovalResolution
+
                     async with self._session_factory() as session:
                         repo = self._make_repo(session)
                         now = datetime.now(UTC)
                         for aid in to_remove:
-                            await repo.resolve(aid, "denied", now)
+                            await repo.resolve(aid, ApprovalResolution.rejected, now)
                         await session.commit()
                 except Exception:
                     log.warning("cleanup_orphan_resolve_failed", job_id=job_id, exc_info=True)
