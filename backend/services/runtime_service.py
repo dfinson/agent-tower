@@ -937,17 +937,17 @@ class RuntimeService:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                 # Determine status from job state
+                _TELEMETRY_STATUS: dict[JobState, str] = {
+                    JobState.failed: "failed",
+                    JobState.canceled: "cancelled",
+                    JobState.completed: "completed",
+                }
                 status = "review"
                 async with best_effort(log, "telemetry_finalize_status_lookup", job_id=job_id):
                     svc = self._make_job_service(session)
                     job_final = await svc.get_job(job_id)
                     if job_final is not None:
-                        if job_final.state == JobState.failed:
-                            status = "failed"
-                        elif job_final.state == JobState.canceled:
-                            status = "cancelled"
-                        elif job_final.state == JobState.completed:
-                            status = "completed"
+                        status = _TELEMETRY_STATUS.get(job_final.state, "review")
                 duration = int((_time.monotonic() - wall_start) * 1000)
 
                 await TelemetrySummaryRepository(session).finalize(
