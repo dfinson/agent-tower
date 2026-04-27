@@ -20,7 +20,7 @@ import structlog
 
 from sqlalchemy.exc import DBAPIError
 
-from backend.models.api_schemas import ApprovalResolution
+from backend.models.api_schemas import ApprovalResolution, ExecutionPhase
 from backend.models.domain import (
     PermissionMode,
     SessionEvent,
@@ -239,7 +239,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._session_to_job[session_id] = job_id
         self._job_start_times.setdefault(job_id, time.monotonic())
 
-    def set_execution_phase(self, job_id: str, phase: str) -> None:
+    def set_execution_phase(self, job_id: str, phase: ExecutionPhase) -> None:
         """Update the current execution phase for cost analytics span tagging."""
         self._current_phases[job_id] = phase
 

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
     PermissionMode,
     SessionConfig,
@@ -152,7 +153,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             self._model_verified.pop(job_id, None)
         super()._cleanup_session_state(session_id)
 
-    def set_execution_phase(self, job_id: str, phase: str) -> None:
+    def set_execution_phase(self, job_id: str, phase: ExecutionPhase) -> None:
         """Update the current execution phase for cost analytics span tagging."""
         self._current_phases[job_id] = phase
 

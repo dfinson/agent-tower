@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy import delete, select
 
+from backend.models.api_schemas import ArtifactType, ExecutionPhase
 from backend.models.db import ArtifactRow
 from backend.models.domain import Artifact
 from backend.persistence.repository import BaseRepository
@@ -18,11 +19,11 @@ class ArtifactRepository(BaseRepository):
             id=row.id,
             job_id=row.job_id,
             name=row.name,
-            type=row.type,
+            type=ArtifactType(row.type),
             mime_type=row.mime_type,
             size_bytes=row.size_bytes,
             disk_path=row.disk_path,
-            phase=row.phase,
+            phase=ExecutionPhase(row.phase),
             created_at=row.created_at,
         )
 
