@@ -10,6 +10,12 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
     from backend.models.api_schemas import ExecutionPhase
+    from backend.models.domain import (
+        ApprovalResolution,
+        GitMergeOutcome,
+        JobState,
+        Resolution,
+    )
 
 
 class DomainEventKind(StrEnum):
@@ -129,28 +135,28 @@ class ApprovalRequestedPayloadDict(TypedDict, total=False):
 
 class ApprovalResolvedPayloadDict(TypedDict, total=False):
     approval_id: str
-    resolution: str
+    resolution: ApprovalResolution
     timestamp: str
 
 
 class JobStatePayloadDict(TypedDict, total=False):
-    state: str
-    new_state: str
-    previous_state: str | None
+    state: JobState
+    new_state: JobState
+    previous_state: JobState | None
 
 
 class JobReviewPayloadDict(TypedDict, total=False):
     pr_url: str | None
-    merge_status: str | None  # Git merge operation outcome
-    resolution: str | None  # Overall job disposition
+    merge_status: GitMergeOutcome | None
+    resolution: Resolution | None
     model_downgraded: bool
     requested_model: str | None
     actual_model: str | None
 
 
 class JobCompletedPayloadDict(TypedDict, total=False):
-    resolution: str | None
-    merge_status: str | None
+    resolution: Resolution | None
+    merge_status: GitMergeOutcome | None
     pr_url: str | None
 
 
@@ -185,7 +191,7 @@ class SessionResumedPayloadDict(TypedDict, total=False):
 
 
 class JobResolvedPayloadDict(TypedDict, total=False):
-    resolution: str  # Overall job disposition (not the git merge outcome)
+    resolution: Resolution
     pr_url: str | None
     conflict_files: list[str] | None
     error: str | None
