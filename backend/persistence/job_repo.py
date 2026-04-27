@@ -20,6 +20,9 @@ def _safe_job_state(raw: str) -> JobState:
     try:
         return JobState(raw) if raw else JobState.queued
     except ValueError:
+        import structlog
+
+        structlog.get_logger().warning("unknown_job_state_defaulting_to_queued", raw_state=raw)
         return JobState.queued
 
 

@@ -7,16 +7,16 @@ from typing import TYPE_CHECKING
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-
-log = structlog.get_logger()
 from fastapi import APIRouter, Query, Request
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from starlette.responses import StreamingResponse
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-from starlette.responses import StreamingResponse
 
 from backend.services.sse_manager import SSEConnection, SSEManager
+
+log = structlog.get_logger()
 
 router = APIRouter(tags=["events"], route_class=DishkaRoute)
 
