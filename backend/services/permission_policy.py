@@ -319,11 +319,3 @@ def evaluate(
         full_command_text=full_command_text,
         read_only=read_only,
     )
-
-
-# Keep legacy wrappers for backward compatibility
-from functools import partial as _partial  # noqa: E402
-
-evaluate_full_auto = _partial(evaluate, PermissionMode.full_auto)
-evaluate_observe_only = _partial(evaluate, PermissionMode.observe_only)
-evaluate_review_and_approve = _partial(evaluate, PermissionMode.review_and_approve)
