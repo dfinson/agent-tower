@@ -367,7 +367,7 @@ def _register_approval_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
             )
 
             try:
-                a = await svc.resolve(approval_id, resolution)
+                a = await svc.resolve(approval_id, ApprovalResolution(resolution))
             except ApprovalNotFoundError as exc:
                 return {"error": str(exc)}
             except ApprovalAlreadyResolvedError as exc:

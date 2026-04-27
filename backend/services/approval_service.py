@@ -13,6 +13,7 @@ from backend.models.domain import (
     Approval,
     ApprovalAlreadyResolvedError,
     ApprovalNotFoundError,
+    ApprovalResolution,
 )
 
 if TYPE_CHECKING:
@@ -40,7 +41,7 @@ class ApprovalService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
         self._lock = asyncio.Lock()
-        self._pending_futures: dict[str, asyncio.Future[str]] = {}
+        self._pending_futures: dict[str, asyncio.Future[ApprovalResolution]] = {}
         self._approval_to_job: dict[str, str] = {}  # approval_id → job_id
         # approval_ids that require explicit operator approval and must not be
         # auto-resolved by a blanket trust grant (e.g. git reset --hard).
@@ -88,7 +89,7 @@ class ApprovalService:
 
         # Create a future the runtime can await
         loop = asyncio.get_running_loop()
-        future: asyncio.Future[str] = loop.create_future()
+        future: asyncio.Future[ApprovalResolution] = loop.create_future()
         async with self._lock:
             self._pending_futures[approval_id] = future
             self._approval_to_job[approval_id] = job_id
@@ -103,7 +104,7 @@ class ApprovalService:
         )
         return approval
 
-    async def resolve(self, approval_id: str, resolution: str) -> Approval:
+    async def resolve(self, approval_id: str, resolution: ApprovalResolution) -> Approval:
         """Resolve an approval and unblock the waiting runtime future."""
         now = datetime.now(UTC)
         async with self._session_factory() as session:
@@ -133,8 +134,8 @@ class ApprovalService:
         )
         return updated
 
-    async def wait_for_resolution(self, approval_id: str) -> str:
-        """Block until the operator resolves the approval. Returns resolution string."""
+    async def wait_for_resolution(self, approval_id: str) -> ApprovalResolution:
+        """Block until the operator resolves the approval. Returns resolution."""
         async with self._lock:
             future = self._pending_futures.get(approval_id)
         if future is None:
@@ -220,7 +221,7 @@ class ApprovalService:
             for approval in pending:
                 if approval.id in self._pending_futures:
                     continue  # already tracked (shouldn't happen, but defensive)
-                future: asyncio.Future[str] = loop.create_future()
+                future: asyncio.Future[ApprovalResolution] = loop.create_future()
                 self._pending_futures[approval.id] = future
                 self._approval_to_job[approval.id] = approval.job_id
                 recovered += 1
@@ -253,7 +254,7 @@ class ApprovalService:
         resolved_count = 0
         for aid in pending_ids:
             try:
-                await self.resolve(aid, "approved")
+                await self.resolve(aid, ApprovalResolution.approved)
                 resolved_count += 1
             except (ApprovalNotFoundError, ApprovalAlreadyResolvedError):
                 log.debug("trust_job_resolve_skipped", job_id=job_id, approval_id=aid)

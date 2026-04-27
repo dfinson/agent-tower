@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 
 from backend.models.db import ApprovalRow
-from backend.models.domain import Approval
+from backend.models.domain import Approval, ApprovalResolution
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ class ApprovalRepository(BaseRepository):
             proposed_action=row.proposed_action,
             requested_at=row.requested_at,
             resolved_at=row.resolved_at,
-            resolution=row.resolution,
+            resolution=ApprovalResolution(row.resolution) if row.resolution else None,
             requires_explicit_approval=row.requires_explicit_approval or False,
         )
 
@@ -71,7 +71,7 @@ class ApprovalRepository(BaseRepository):
     async def resolve(
         self,
         approval_id: str,
-        resolution: str,
+        resolution: ApprovalResolution,
         resolved_at: datetime,
     ) -> Approval | None:
         """Mark an approval as resolved atomically. Returns updated approval or None.

@@ -54,7 +54,7 @@ async def resolve_approval(
     approval_service: FromDishka[ApprovalService],
 ) -> ApprovalResponse:
     """Approve or reject a pending approval request."""
-    approval = await approval_service.resolve(approval_id, body.resolution.value)
+    approval = await approval_service.resolve(approval_id, body.resolution)
     return _to_response(approval)
 
 

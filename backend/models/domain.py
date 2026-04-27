@@ -60,6 +60,13 @@ class Resolution(StrEnum):
     conflict = "conflict"
 
 
+class ApprovalResolution(StrEnum):
+    """Outcome of an operator's approval decision."""
+
+    approved = "approved"
+    rejected = "rejected"
+
+
 class GitMergeOutcome(StrEnum):
     """Outcome of the automatic git merge operation after an agent session.
 
@@ -673,7 +680,7 @@ class Approval:
     proposed_action: str | None
     requested_at: datetime
     resolved_at: datetime | None = None
-    resolution: str | None = None
+    resolution: ApprovalResolution | None = None
     # When True this approval was triggered by a hard-blocked operation (e.g.
     # git reset --hard) and MUST NOT be auto-resolved by a blanket trust grant.
     # The operator must explicitly click Approve for each occurrence.

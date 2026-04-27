@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from backend.models.domain import (  # noqa: TC001 — Pydantic resolves annotations at runtime
+    ApprovalResolution,
     GitMergeOutcome,
     JobState,
     PermissionMode,
@@ -46,15 +47,11 @@ class ErrorResponse(CamelModel):
 
 
 # --- Enums ---
-# JobState, PermissionMode, and Resolution are imported from backend.models.domain
-# (canonical definitions live there). Re-exported here for backward compatibility.
+# JobState, PermissionMode, Resolution, and ApprovalResolution are imported from
+# backend.models.domain (canonical definitions live there). Re-exported here for
+# backward compatibility.
 
 from enum import StrEnum  # noqa: E402 — after domain imports to keep grouping clear
-
-
-class ApprovalResolution(StrEnum):
-    approved = "approved"
-    rejected = "rejected"
 
 
 class ResolutionAction(StrEnum):
