@@ -7,15 +7,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.models.domain import CodePlaneError, SDKModelMismatchError
+from backend.models.domain import AgentSDK, CodePlaneError, SDKModelMismatchError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.models.domain import SessionConfig, SessionEvent
-
-# Re-export for backward compatibility — canonical location is backend.models.domain
-__all__ = ["SDKModelMismatchError"]
 
 
 @dataclass(slots=True)
@@ -32,9 +29,6 @@ class CompletionResult:
     cost_usd: float = 0.0
     model: str = ""
 
-
-# Re-export for backwards compatibility — canonical location is backend.models.domain
-from backend.models.domain import AgentSDK  # noqa: E402
 
 # Model prefixes accepted by each SDK.  An empty tuple means "any model".
 _SDK_MODEL_PREFIXES: dict[AgentSDK, tuple[str, ...]] = {

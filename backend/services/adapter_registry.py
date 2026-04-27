@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.services.agent_adapter import AgentAdapterInterface, AgentSDK
+from backend.models.domain import AgentSDK
+from backend.services.agent_adapter import AgentAdapterInterface
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker

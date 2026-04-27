@@ -28,6 +28,7 @@ from backend.models.domain import (
     ApprovalResolution,
     CodePlaneError,
     Job,
+    JobNotFoundError,
     JobSpec,
     JobState,
     Resolution,
@@ -35,6 +36,7 @@ from backend.models.domain import (
     SessionConfig,
     SessionEvent,
     SessionEventKind,
+    StateConflictError,
 )
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.job_repo import JobRepository
@@ -352,7 +354,6 @@ class RuntimeService:
         from pathlib import Path
 
         from backend.services.git_service import GitError, GitService
-        from backend.services.job_service import StateConflictError
 
         if not job.worktree_path or job.worktree_path == job.repo:
             return job
@@ -386,7 +387,6 @@ class RuntimeService:
         instruction: str = _SERVER_RESTART_RECOVERY_INSTRUCTION,
     ) -> Job:
         """Restart an active job after backend restart without marking it failed."""
-        from backend.services.job_service import JobNotFoundError, StateConflictError
 
         async with self._session_factory() as session:
             job_repo = JobRepository(session)
@@ -842,8 +842,6 @@ class RuntimeService:
                 svc = self._make_job_service(session)
                 current_job = await svc.get_job(job_id)
                 if current_job is None:
-                    from backend.services.job_service import JobNotFoundError
-
                     raise JobNotFoundError(f"Job {job_id} not found before post-conflict merge")
 
                 log.info("job_attempting_post_conflict_merge", job_id=job_id)
@@ -1871,7 +1869,6 @@ class RuntimeService:
         Raises domain exceptions (``StateConflictError``, ``JobNotFoundError``)
         so that callers can surface the real error instead of a generic failure.
         """
-        from backend.services.job_service import JobNotFoundError, StateConflictError
 
         async with self._session_factory() as session:
             job_repo = JobRepository(session)
@@ -2142,7 +2139,6 @@ class RuntimeService:
 
     async def _build_resume_handoff_prompt(self, job_id: str, instruction: str) -> str:
         """Build the opaque handoff prompt used when native resume is unavailable."""
-        from backend.services.job_service import JobNotFoundError
 
         async with self._session_factory() as session:
             job_repo = JobRepository(session)
@@ -2158,7 +2154,6 @@ class RuntimeService:
         the work is in the base branch and a follow-up must be started as a fresh job.
         """
         from backend.models.domain import PermissionMode
-        from backend.services.job_service import StateConflictError
 
         normalized_instruction = instruction.strip()
         if not normalized_instruction:
@@ -2220,7 +2215,6 @@ class RuntimeService:
         intact, no summarization cost). Fallback: use LLM-generated session summary when the
         SDK session is no longer available (daemon restart, session expired, etc.).
         """
-        from backend.services.job_service import JobNotFoundError, StateConflictError
 
         resumable_states = TERMINAL_STATES | {JobState.review}
         normalized_instruction = _normalize_resume_instruction(instruction)

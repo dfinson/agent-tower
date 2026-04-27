@@ -17,7 +17,7 @@ from uuid import uuid4
 import pytest
 
 from backend.models.db import EventRow
-from backend.services.job_service import JobNotFoundError, StateConflictError
+from backend.models.domain import JobNotFoundError, StateConflictError
 
 if TYPE_CHECKING:
     from httpx import AsyncClient
