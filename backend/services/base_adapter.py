@@ -14,7 +14,7 @@ import time
 from collections.abc import Coroutine
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import structlog
 
@@ -298,7 +298,11 @@ class BaseAgentAdapter(AgentAdapterInterface):
         task = loop.create_task(coro)
         self._write_tasks.append(task)
 
-    async def _db_write(self, fn_name: str, **kwargs: Any) -> None:
+    _DbWriteOp = Literal[
+        "increment", "insert_span", "set_model", "set_context", "set_quota", "record_file_access",
+    ]
+
+    async def _db_write(self, fn_name: _DbWriteOp, **kwargs: Any) -> None:
         """Execute a telemetry DB write in its own session."""
         if self._session_factory is None:
             return
@@ -613,6 +617,20 @@ class BaseAgentAdapter(AgentAdapterInterface):
     # Permission evaluation (SDK-agnostic core)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _resolve_shell_command(
+        tool_kind: str,
+        tool_name: str,
+        tool_input: dict[str, Any] | None,
+        full_command_text: str | None,
+    ) -> str:
+        """Extract the shell command string from a tool permission request."""
+        if full_command_text:
+            return full_command_text
+        if tool_input and (tool_kind == "shell" or tool_name == "Bash"):
+            return str(tool_input.get("command", ""))
+        return ""
+
     async def _evaluate_permission(
         self,
         session_id: str,
@@ -640,9 +658,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return PermissionDecision.deny
 
         # Hard block: git reset --hard
-        shell_cmd = full_command_text or ""
-        if not shell_cmd and tool_input:
-            shell_cmd = str(tool_input.get("command", "")) if tool_kind == "shell" or tool_name == "Bash" else ""
+        shell_cmd = self._resolve_shell_command(tool_kind, tool_name, tool_input, full_command_text)
         if shell_cmd and is_git_reset_hard(shell_cmd):
             resolution = await self._hard_block_approval(
                 session_id,

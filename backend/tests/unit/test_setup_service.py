@@ -68,32 +68,32 @@ class TestCheckCommand:
 
 
 class TestEnvPersistenceInstructions:
-    @patch("backend.services.setup_wizard._SYSTEM", "linux")
+    @patch("backend.services.setup_wizard.HOST_PLATFORM", "linux")
     @patch("os.environ", {"SHELL": "/bin/bash"})
     def test_linux_bash(self) -> None:
         result = _get_env_persistence_instructions("TEST_VAR", "/opt/test")
         assert ".bashrc" in result
         assert "export TEST_VAR" in result
 
-    @patch("backend.services.setup_wizard._SYSTEM", "linux")
+    @patch("backend.services.setup_wizard.HOST_PLATFORM", "linux")
     @patch("os.environ", {"SHELL": "/bin/zsh"})
     def test_linux_zsh(self) -> None:
         result = _get_env_persistence_instructions("TEST_VAR", "/opt/test")
         assert ".zshrc" in result
 
-    @patch("backend.services.setup_wizard._SYSTEM", "linux")
+    @patch("backend.services.setup_wizard.HOST_PLATFORM", "linux")
     @patch("os.environ", {"SHELL": "/usr/bin/fish"})
     def test_linux_fish(self) -> None:
         result = _get_env_persistence_instructions("TEST_VAR", "/opt/test")
         assert "set -Ux" in result
 
-    @patch("backend.services.setup_wizard._SYSTEM", "darwin")
+    @patch("backend.services.setup_wizard.HOST_PLATFORM", "darwin")
     @patch("os.environ", {"SHELL": "/bin/zsh"})
     def test_macos(self) -> None:
         result = _get_env_persistence_instructions("TEST_VAR", "/opt/test")
         assert ".zshrc" in result
 
-    @patch("backend.services.setup_wizard._SYSTEM", "windows")
+    @patch("backend.services.setup_wizard.HOST_PLATFORM", "windows")
     def test_windows(self) -> None:
         result = _get_env_persistence_instructions("TEST_VAR", "C:\\test")
         assert "PowerShell" in result

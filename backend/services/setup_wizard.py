@@ -16,7 +16,7 @@ from rich.panel import Panel
 
 from backend.config import get_codeplane_dir, init_config, load_config, save_config
 from backend.services.setup_checks import (
-    _SYSTEM,
+    HOST_PLATFORM,
     DEPENDENCIES,
     Dependency,
     _check_command,
@@ -76,11 +76,11 @@ def _step_header(num: int, total: int, title: str) -> None:
 
 def _get_env_persistence_instructions(var_name: str, value: str) -> str:
     """Return OS-specific instructions for persisting an env var."""
-    if _SYSTEM == "darwin":
+    if HOST_PLATFORM == "darwin":
         shell = os.environ.get("SHELL", "/bin/zsh")
         rc = "~/.zshrc" if "zsh" in shell else "~/.bash_profile"
         return f'Add to {rc}:\n  export {var_name}="{value}"\nThen run: source {rc}'
-    elif _SYSTEM == "windows":
+    elif HOST_PLATFORM == "windows":
         return (
             f"Run in PowerShell (Admin):\n"
             f'  [System.Environment]::SetEnvironmentVariable("{var_name}", "{value}", "User")\n'
@@ -96,10 +96,10 @@ def _get_env_persistence_instructions(var_name: str, value: str) -> str:
 
 def _try_auto_install(dep: Dependency) -> bool:
     """Attempt auto-installation of a dependency. Returns True on success."""
-    if not dep.auto_install_cmd or _SYSTEM not in dep.auto_install_cmd:
+    if not dep.auto_install_cmd or HOST_PLATFORM not in dep.auto_install_cmd:
         return False
 
-    cmd = dep.auto_install_cmd[_SYSTEM]
+    cmd = dep.auto_install_cmd[HOST_PLATFORM]
     _console.print(f"  Attempting: [dim]{' '.join(cmd)}[/dim]")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -176,7 +176,7 @@ def _setup_dependencies() -> None:
         else:
             _console.print(f"  [yellow]![/yellow]  {dep.name}: not found [dim](optional)[/dim]")
 
-        if dep.auto_install_cmd and _SYSTEM in dep.auto_install_cmd:
+        if dep.auto_install_cmd and HOST_PLATFORM in dep.auto_install_cmd:
             should_install = questionary.confirm(
                 f"    Attempt automatic installation of {dep.name}?",
                 default=dep.required,
@@ -201,7 +201,7 @@ def _setup_dependencies() -> None:
 
 def _show_manual_instructions(dep: Dependency) -> None:
     """Show OS-specific manual installation instructions."""
-    key = _SYSTEM
+    key = HOST_PLATFORM
     instructions = dep.install_instructions.get(key, dep.install_instructions.get("linux", ""))
     _console.print()
     _console.print(f"  [yellow]Manual install for {dep.name}:[/yellow]")

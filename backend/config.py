@@ -20,12 +20,15 @@ import enum
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 import yaml
 
 from backend.models.domain import PermissionMode
+
+if TYPE_CHECKING:
+    from backend.models.domain import Job, SessionConfig
 
 log = structlog.get_logger()
 
@@ -583,10 +586,10 @@ def resolve_permission_mode(repo_path: str) -> str | None:
 
 
 def build_session_config(
-    job: Any,
+    job: Job,
     config: CPLConfig,
     permission_mode_override: str | None = None,
-) -> Any:
+) -> SessionConfig:
     """Build a SessionConfig from a Job record and resolved config.
 
     Permission mode priority: per-job override > .codeplane.yml > global config.
