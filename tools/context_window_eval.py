@@ -51,20 +51,7 @@ PROBLEM_WORDS = re.compile(
     re.IGNORECASE,
 )
 
-
-def _extract_file_identifiers(files: list[str]) -> set[str]:
-    """Extract searchable identifiers from file paths — basename and stem."""
-    ids = set()
-    for f in files:
-        if not f:
-            continue
-        ids.add(f)  # full path
-        if "/" in f:
-            ids.add(f.rsplit("/", 1)[-1])  # basename
-        stem = f.split("/")[-1].split(".")[0]
-        if stem:
-            ids.add(stem)
-    return ids
+from eval_helpers import extract_file_identifiers as _extract_file_identifiers
 
 
 def _build_entry_text(entry: dict) -> str:
