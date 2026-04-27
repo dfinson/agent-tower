@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from datetime import datetime
 
+    from backend.models.api_schemas import ArtifactType, ExecutionPhase
+
 
 class JobState(StrEnum):
     preparing = "preparing"
@@ -672,9 +674,9 @@ class Artifact:
     id: str
     job_id: str
     name: str
-    type: str
+    type: ArtifactType
     mime_type: str
     size_bytes: int
     disk_path: str
-    phase: str
+    phase: ExecutionPhase
     created_at: datetime

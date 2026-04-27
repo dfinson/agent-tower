@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import CodePlaneError, SDKModelMismatchError
 
 if TYPE_CHECKING:
@@ -149,5 +150,5 @@ class AgentAdapterInterface(ABC):
         """
         return CompletionResult()
 
-    def set_execution_phase(self, job_id: str, phase: str) -> None:  # noqa: B027
+    def set_execution_phase(self, job_id: str, phase: ExecutionPhase) -> None:  # noqa: B027
         """Update the current execution phase for a job (used by cost analytics)."""

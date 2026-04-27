@@ -336,9 +336,11 @@ class TestSessionState:
         adapter._cleanup_session_state("nonexistent")  # should not raise
 
     def test_set_execution_phase(self) -> None:
+        from backend.models.api_schemas import ExecutionPhase
+
         adapter = _make_adapter()
-        adapter.set_execution_phase("j1", "tool_execution")
-        assert adapter._current_phases["j1"] == "tool_execution"
+        adapter.set_execution_phase("j1", ExecutionPhase.agent_reasoning)
+        assert adapter._current_phases["j1"] == ExecutionPhase.agent_reasoning
 
 
 # ===================================================================
