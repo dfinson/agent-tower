@@ -25,6 +25,7 @@ from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT, bu
 from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
     TERMINAL_STATES,
+    ApprovalResolution,
     CodePlaneError,
     Job,
     JobSpec,
@@ -1187,11 +1188,8 @@ class RuntimeService:
         job_id: str,
         domain_event: DomainEvent,
         rejection_message: str,
-    ) -> str:
-        """Handle an approval_requested event: transition state, wait for operator, return resolution.
-
-        Returns the resolution string (``"approved"`` or ``"rejected"``).
-        """
+    ) -> ApprovalResolution:
+        """Handle an approval_requested event: transition state, wait for operator, return resolution."""
         import time
 
         if self._approval_service is None:
@@ -1225,7 +1223,7 @@ class RuntimeService:
 
         self._waiting_for_approval.discard(job_id)
 
-        if resolution == "rejected":
+        if resolution == ApprovalResolution.rejected:
             # Leave job in waiting_for_approval — the caller will fail it
             # via _fail_job which handles the waiting_for_approval → failed
             # transition.  Do NOT transition to running first.
@@ -1381,7 +1379,7 @@ class RuntimeService:
                 domain_event,
                 rejection_message,
             )
-            if resolution == "rejected":
+            if resolution == ApprovalResolution.rejected:
                 return _EventAction.abort, None, rejection_message
             return _EventAction.skip, None, None
 

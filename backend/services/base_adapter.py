@@ -20,8 +20,9 @@ import structlog
 
 from sqlalchemy.exc import DBAPIError
 
-from backend.models.api_schemas import ApprovalResolution, ExecutionPhase
+from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
+    ApprovalResolution,
     PermissionMode,
     SessionEvent,
     SessionEventKind,
@@ -692,11 +693,11 @@ class BaseAgentAdapter(AgentAdapterInterface):
         job_id: str | None,
         shell_cmd: str,
         tool_input: dict[str, Any] | None = None,
-    ) -> str:
-        """Route a hard-blocked command to the operator. Returns 'approved' or 'denied'."""
+    ) -> ApprovalResolution:
+        """Route a hard-blocked command to the operator."""
         if self._approval_service is None or job_id is None:
             log.error("git_reset_hard_blocked_no_infra", command=shell_cmd[:200])
-            return "denied"
+            return ApprovalResolution.rejected
 
         description = (
             "⚠️ git reset --hard — this will discard ALL uncommitted changes and "
@@ -735,14 +736,11 @@ class BaseAgentAdapter(AgentAdapterInterface):
         job_id: str | None,
         description: str,
         proposed_action: str | None = None,
-    ) -> str:
-        """Create an approval request, emit it, and block until resolved.
-
-        Returns ``'approved'`` or ``'denied'``.
-        """
+    ) -> ApprovalResolution:
+        """Create an approval request, emit it, and block until resolved."""
         if self._approval_service is None or job_id is None:
             log.warning("permission_ask_no_infra")
-            return "approved"
+            return ApprovalResolution.approved
 
         approval = await self._approval_service.create_request(
             job_id=job_id,
