@@ -22,6 +22,7 @@ import structlog
 from sqlalchemy.exc import DBAPIError
 
 from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT, build_session_config
+from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
     TERMINAL_STATES,
     CodePlaneError,
@@ -624,14 +625,14 @@ class RuntimeService:
                 log.warning("observer_terminal_create_failed", job_id=job_id, exc_info=True)
 
         # Emit environment_setup phase
-        self._resolve_adapter(config.sdk).set_execution_phase(job_id, "environment_setup")
+        self._resolve_adapter(config.sdk).set_execution_phase(job_id, ExecutionPhase.environment_setup)
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.execution_phase_changed,
-                payload={"phase": "environment_setup"},
+                payload={"phase": ExecutionPhase.environment_setup},
             )
         )
 
@@ -658,14 +659,14 @@ class RuntimeService:
         final_state = JobState.review
         try:
             # Emit agent_reasoning phase before main session execution
-            self._resolve_adapter(config.sdk).set_execution_phase(job_id, "agent_reasoning")
+            self._resolve_adapter(config.sdk).set_execution_phase(job_id, ExecutionPhase.agent_reasoning)
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
                     job_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.execution_phase_changed,
-                    payload={"phase": "agent_reasoning"},
+                    payload={"phase": ExecutionPhase.agent_reasoning},
                 )
             )
 
@@ -919,14 +920,14 @@ class RuntimeService:
 
         # Emit finalization phase
         async with best_effort(log, "execution_phase_event", job_id=job_id):
-            self._resolve_adapter(config.sdk).set_execution_phase(job_id, "finalization")
+            self._resolve_adapter(config.sdk).set_execution_phase(job_id, ExecutionPhase.finalization)
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
                     job_id=job_id,
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.execution_phase_changed,
-                    payload={"phase": "finalization"},
+                    payload={"phase": ExecutionPhase.finalization},
                 )
             )
 
@@ -941,12 +942,11 @@ class RuntimeService:
                     svc = self._make_job_service(session)
                     job_final = await svc.get_job(job_id)
                     if job_final is not None:
-                        st = str(job_final.state)
-                        if "fail" in st:
+                        if job_final.state == JobState.failed:
                             status = "failed"
-                        elif "cancel" in st:
+                        elif job_final.state == JobState.canceled:
                             status = "cancelled"
-                        elif st == "completed":
+                        elif job_final.state == JobState.completed:
                             status = "completed"
                 duration = int((_time.monotonic() - wall_start) * 1000)
 
@@ -1638,14 +1638,14 @@ class RuntimeService:
         )
 
         # Emit verification phase change
-        self._resolve_adapter(base_config.sdk).set_execution_phase(job_id, "verification")
+        self._resolve_adapter(base_config.sdk).set_execution_phase(job_id, ExecutionPhase.verification)
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.execution_phase_changed,
-                payload={"phase": "verification"},
+                payload={"phase": ExecutionPhase.verification},
             )
         )
 
