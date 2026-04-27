@@ -302,7 +302,7 @@ class TelemetrySpanRow(TypedDict, total=False):
     tool_category: str | None
     tool_target: str | None
     turn_number: int | None
-    execution_phase: str | None
+    execution_phase: ExecutionPhase | None
     is_retry: bool | None
     retries_span_id: int | None
     input_tokens: int | None
