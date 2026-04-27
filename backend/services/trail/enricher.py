@@ -269,6 +269,6 @@ class TrailEnricher:
                 title_count = await self.drain_titles()
                 if title_count:
                     log.info("trail_title_recovery_batch_processed", count=title_count)
-            except Exception:
+            except Exception:  # Safety-net: drain loop must not crash
                 log.warning("trail_enrichment_drain_error", exc_info=True)
             await asyncio.sleep(self._config.enrich_interval_seconds)

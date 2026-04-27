@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from sqlalchemy import select as sa_select
+from sqlalchemy.exc import DBAPIError
 
 from backend.models.db import JobRow, TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
@@ -86,7 +87,7 @@ class TrailNodeBuilder:
                 DomainEventKind.job_review,
             ):
                 await self._on_job_terminal(event)
-        except Exception:
+        except Exception:  # Safety-net: protect event loop from unexpected failures
             log.warning("trail_event_error", event_kind=event.kind, job_id=event.job_id, exc_info=True)
 
     async def _on_session_resumed(self, event: DomainEvent) -> None:
@@ -197,7 +198,7 @@ class TrailNodeBuilder:
                 row = result.scalar_one_or_none()
                 if row:
                     prompt = row.prompt or ""
-        except Exception:
+        except DBAPIError:
             log.warning("trail_goal_prompt_fetch_failed", job_id=job_id, exc_info=True)
 
         state.job_prompt = prompt
@@ -310,7 +311,7 @@ class TrailNodeBuilder:
         """Classify turn to plan item, generate title, emit SSE events."""
         try:
             await self._classify_and_emit_inner(job_id, node_id, payload)
-        except Exception:
+        except Exception:  # Safety-net: fire-and-forget task must not propagate
             log.warning(
                 "classify_and_emit_failed",
                 job_id=job_id,
@@ -319,7 +320,7 @@ class TrailNodeBuilder:
             )
             try:
                 await self._repo.update_enrichment(node_id, enrichment="pending")
-            except Exception:
+            except DBAPIError:
                 log.warning("enrichment_status_update_failed", node_id=node_id, exc_info=True)
 
     async def _classify_and_emit_inner(
