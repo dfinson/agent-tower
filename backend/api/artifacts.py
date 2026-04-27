@@ -38,11 +38,11 @@ async def list_artifacts(
     return ArtifactListResponse(items=items)
 
 
-@router.get("/artifacts/{artifact_id}")
+@router.get("/artifacts/{artifact_id}", response_class=FileResponse)
 async def download_artifact(
     artifact_id: str,
     svc: FromDishka[ArtifactService],
-) -> FileResponse:
+):
     """Download an artifact file."""
     artifact = await svc.get(artifact_id)
 

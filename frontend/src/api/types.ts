@@ -178,7 +178,9 @@ export interface ResolveJobResponse {
 
 // --- Artifact types ---
 
-export type ArtifactType = "diff_snapshot" | "agent_summary" | "session_snapshot" | "session_log" | "custom";
+export type ArtifactType = components["schemas"]["ArtifactType"];
+export type ExecutionPhase = components["schemas"]["ExecutionPhase"];
+export type GitMergeOutcome = components["schemas"]["GitMergeOutcome"];
 
 export interface ArtifactResponse {
   id: string;
@@ -187,7 +189,7 @@ export interface ArtifactResponse {
   type: ArtifactType;
   mimeType: string;
   sizeBytes: number;
-  phase: string;
+  phase: ExecutionPhase;
   createdAt: string;
 }
 
