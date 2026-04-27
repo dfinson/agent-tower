@@ -267,7 +267,7 @@ class ArtifactService:
 
         return max(summaries, key=_session_num)
 
-    async def store_session_snapshot(
+    async def save_snapshot_to_disk(
         self,
         job_id: str,
         session_number: int,
@@ -471,22 +471,8 @@ class ArtifactService:
         return await self._get_first_artifact_by_type(job_id, ArtifactType.session_log)
 
     async def get_session_log(self, job_id: str) -> Artifact | None:
-        """Return the unified session log, or fall back to the latest session_snapshot."""
-        unified = await self._get_session_log_artifact(job_id)
-        if unified is not None:
-            return unified
-        # Fall back to legacy session_snapshot for jobs that haven't been unified yet
-        return await self.get_latest_session_snapshot(job_id)
-
-    async def get_latest_session_snapshot(self, job_id: str) -> Artifact | None:
-        """Return the most recent session_snapshot artifact, or None."""
-        all_artifacts = await self._repo.list_for_job(job_id)
-        snapshots = [a for a in all_artifacts if a.type == ArtifactType.session_snapshot]
-        if not snapshots:
-            return None
-
-        # Sort by creation time — names are no longer guaranteed to contain a numeric session ID.
-        return max(snapshots, key=lambda a: a.created_at)
+        """Return the unified session log, or *None* if none exists."""
+        return await self._get_session_log_artifact(job_id)
 
     async def store_log_artifact(
         self,

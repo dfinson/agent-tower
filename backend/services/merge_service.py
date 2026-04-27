@@ -321,7 +321,7 @@ class MergeService:
         any other job that may be using the main worktree.
         """
         async with self._preserved_worktree(repo_path, job_id, "merge"):
-            result = await self._do_merge_steps(
+            result = await self._execute_merge_in_worktree(
                 job_id,
                 repo_path,
                 worktree_path,
@@ -331,7 +331,7 @@ class MergeService:
             )
         return result
 
-    async def _do_merge_steps(
+    async def _execute_merge_in_worktree(
         self,
         job_id: str,
         repo_path: str,

@@ -563,7 +563,9 @@ def verify_requirements(
                 )
             )
     except OSError:
-        pass
+        results.append(
+            CheckResult("Disk space", CheckStatus.warn, "Unable to check", hint="Could not read disk usage", category="env")
+        )
 
     return results
 

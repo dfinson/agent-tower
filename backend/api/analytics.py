@@ -47,15 +47,22 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 _PRICING_PATH = Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
-_MODEL_PRICING: dict[str, dict[str, object]] = {}
+_MODEL_PRICING: dict[str, dict[str, object]] | None = None
 
-try:
-    _MODEL_PRICING = json.loads(_PRICING_PATH.read_text())
-    log.info("model_pricing_loaded", count=len(_MODEL_PRICING))
-except FileNotFoundError:
-    log.warning("model_pricing_file_missing", path=str(_PRICING_PATH))
-except (json.JSONDecodeError, ValueError, OSError):
-    log.exception("model_pricing_load_error")
+
+def _get_model_pricing() -> dict[str, dict[str, object]]:
+    global _MODEL_PRICING  # noqa: PLW0603
+    if _MODEL_PRICING is None:
+        try:
+            _MODEL_PRICING = json.loads(_PRICING_PATH.read_text())
+            log.info("model_pricing_loaded", count=len(_MODEL_PRICING))
+        except FileNotFoundError:
+            log.warning("model_pricing_file_missing", path=str(_PRICING_PATH))
+            _MODEL_PRICING = {}
+        except (json.JSONDecodeError, ValueError, OSError):
+            log.exception("model_pricing_load_error")
+            _MODEL_PRICING = {}
+    return _MODEL_PRICING
 
 
 def _normalize_model_key(model: str) -> str:
@@ -186,10 +193,10 @@ def analytics_pricing(
         if not name:
             continue
         # Exact match first, then normalised
-        entry = _MODEL_PRICING.get(name)
+        entry = _get_model_pricing().get(name)
         if entry is None:
             norm = _normalize_model_key(name)
-            entry = _MODEL_PRICING.get(norm)
+            entry = _get_model_pricing().get(norm)
         result[name] = ModelPricingEntry(**entry) if entry is not None else None
     return AnalyticsPricingResponse(models=result)
 

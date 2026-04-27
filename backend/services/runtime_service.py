@@ -1082,7 +1082,7 @@ class RuntimeService:
             return
 
         task = asyncio.create_task(
-            self._summarization_service.store_session_snapshot(job_id),
+            self._summarization_service.save_snapshot_to_disk(job_id),
             name=f"snapshot-{job_id}",
         )
         self._snapshot_tasks[job_id] = task

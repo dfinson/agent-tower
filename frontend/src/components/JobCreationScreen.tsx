@@ -203,14 +203,14 @@ export function JobCreationScreen() {
       const result = await createJob({
         repo,
         prompt: prompt.trim(),
-        base_ref: baseRef || undefined,
+        baseRef: baseRef || undefined,
         branch: branch || undefined,
         title: cached?.title,
-        worktree_name: cached?.worktreeName,
-        permission_mode: permissionMode,
+        worktreeName: cached?.worktreeName,
+        permissionMode: permissionMode,
         model: model || undefined,
         sdk: activeSdk !== defaultSdk ? activeSdk : undefined,
-        session_token: sessionTokenRef.current ?? undefined,
+        sessionToken: sessionTokenRef.current ?? undefined,
       });
       jobCreatedRef.current = true;
       toast.success(`Job ${result.id} created`);

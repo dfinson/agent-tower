@@ -30,6 +30,7 @@ from backend.models.domain import (
 from backend.services.agent_adapter import AgentAdapterInterface, normalize_model_name
 from backend.services.parsing_utils import ensure_dict
 from backend.services.permission_policy import (
+    PermissionRequest,
     PolicyDecision,
     evaluate,
     is_git_reset_hard,
@@ -658,13 +659,15 @@ class BaseAgentAdapter(AgentAdapterInterface):
         # Policy evaluation
         decision = evaluate(
             mode=mode,
-            kind=tool_kind,
-            workspace_path=workspace_path,
-            full_command_text=full_command_text,
-            file_name=file_name,
-            path=path,
-            read_only=read_only,
-            possible_paths=possible_paths,
+            req=PermissionRequest(
+                kind=tool_kind,
+                workspace_path=workspace_path,
+                full_command_text=full_command_text,
+                file_name=file_name,
+                path=path,
+                read_only=read_only,
+                possible_paths=possible_paths,
+            ),
         )
         if decision == PolicyDecision.approve:
             return PermissionDecision.allow

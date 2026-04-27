@@ -209,7 +209,7 @@ class SummarizationService:
         log.info("summarization_complete", job_id=job_id, session=session_number)
         return summary_json
 
-    async def store_session_snapshot(self, job_id: str) -> None:
+    async def save_snapshot_to_disk(self, job_id: str) -> None:
         """Store a raw session snapshot (cheap, no LLM) for future cold resumes.
 
         LLM-based summarization is deferred to resume_job() and only fires
@@ -309,7 +309,7 @@ class SummarizationService:
                 )
 
                 slug = (job.worktree_name or job.title or "").strip()
-                await artifact_svc.store_session_snapshot(job_id, job.session_count, snapshot, slug=slug)
+                await artifact_svc.save_snapshot_to_disk(job_id, job.session_count, snapshot, slug=slug)
 
                 if job.worktree_path:
                     collected = await artifact_svc.collect_from_workspace(job_id, job.worktree_path)
