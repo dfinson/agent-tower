@@ -27,6 +27,11 @@ from backend.models.api_schemas import (
 )
 from backend.models.events import DomainEventKind
 from backend.persistence.approval_repo import ApprovalRepository
+from backend.persistence.cost_attribution_repo import CostAttributionRepository
+from backend.persistence.file_access_repo import FileAccessRepository
+from backend.persistence.job_repo import JobRepository
+from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
 from backend.services.diff_service import DiffService
@@ -380,12 +385,16 @@ async def get_shared_snapshot(
 async def get_shared_telemetry(
     token: str,
     share_service: FromDishka[ShareService],
-    session: FromDishka[AsyncSession],
+    cost_repo: FromDishka[CostAttributionRepository],
+    file_repo: FromDishka[FileAccessRepository],
+    job_repo: FromDishka[JobRepository],
+    spans_repo: FromDishka[TelemetrySpansRepository],
+    summary_repo: FromDishka[TelemetrySummaryRepository],
 ) -> JobTelemetryResponse:
     """Read-only telemetry data via share token."""
     job_id = _validate_share(share_service, token)
 
     # Delegate to the same telemetry logic used by the authenticated endpoint
-    from backend.api.jobs import get_job_telemetry
+    from backend.api.job_telemetry import get_job_telemetry
 
-    return await get_job_telemetry(job_id, session)
+    return await get_job_telemetry(job_id, cost_repo, file_repo, job_repo, spans_repo, summary_repo)

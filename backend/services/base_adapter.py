@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 
+from backend.models.api_schemas import ApprovalResolution
 from backend.models.domain import (
     PermissionMode,
     SessionEvent,
@@ -645,7 +646,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 shell_cmd,
                 tool_input,
             )
-            return PermissionDecision.allow if resolution == "approved" else PermissionDecision.deny
+            return PermissionDecision.allow if resolution == ApprovalResolution.approved else PermissionDecision.deny
 
         # Trust bypass
         if self._approval_service is not None and job_id and self._approval_service.is_trusted(job_id):
@@ -681,7 +682,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             description,
             proposed_action=proposed,
         )
-        return PermissionDecision.allow if resolution == "approved" else PermissionDecision.deny
+        return PermissionDecision.allow if resolution == ApprovalResolution.approved else PermissionDecision.deny
 
     async def _hard_block_approval(
         self,
