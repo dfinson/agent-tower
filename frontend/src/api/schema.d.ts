@@ -24,6 +24,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sister-sessions/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sister Session Metrics
+         * @description Return sister session metrics (global + per-job).
+         */
+        get: operations["sister_session_metrics_api_sister_sessions_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/suggest-names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suggest Names
+         * @description Generate a suggested title, branch name, and worktree name for a task description.
+         *
+         *     Uses a one-shot utility session (suggest-names is called before a job exists).
+         *     Returns 503 if the utility LLM is not configured.
+         */
+        post: operations["suggest_names_api_jobs_suggest_names_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs": {
         parameters: {
             query?: never;
@@ -43,6 +86,10 @@ export interface paths {
         /**
          * Create Job
          * @description Create a new job.
+         *
+         *     Returns immediately with ``state=preparing``. Workspace setup and agent
+         *     launch happen in a background task — the frontend watches progress via
+         *     SSE ``job_setup_progress`` events.
          */
         post: operations["create_job_api_jobs_post"];
         delete?: never;
@@ -85,6 +132,29 @@ export interface paths {
          * @description Cancel a running or queued job.
          */
         post: operations["cancel_job_api_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/interrupt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Interrupt Job
+         * @description Interrupt the agent's current shell command without canceling the job.
+         *
+         *     Sends a non-destructive interrupt (SIGINT-equivalent) to the SDK subprocess.
+         *     The agent session stays alive and can recover or receive new instructions.
+         */
+        post: operations["interrupt_job_api_jobs__job_id__interrupt_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -142,7 +212,7 @@ export interface paths {
         put?: never;
         /**
          * Continue Job
-         * @description Create a follow-up job with a new instruction on the same repo/config.
+         * @description Create a follow-up job with a new instruction and parent-job handoff context.
          */
         post: operations["continue_job_api_jobs__job_id__continue_post"];
         delete?: never;
@@ -162,7 +232,7 @@ export interface paths {
         put?: never;
         /**
          * Resume Job
-         * @description Resume a completed/failed/canceled job in-place with a new instruction.
+         * @description Resume a completed/failed/canceled job in-place, optionally with extra instruction.
          */
         post: operations["resume_job_api_jobs__job_id__resume_post"];
         delete?: never;
@@ -180,7 +250,10 @@ export interface paths {
         };
         /**
          * List Models
-         * @description Return the model list cached at server startup.
+         * @description Return the model list for the requested SDK, cached at server startup.
+         *
+         *     If the cache is empty for the copilot SDK (e.g. auth wasn't ready at
+         *     startup), attempt a live fetch so the user doesn't have to restart.
          */
         get: operations["list_models_api_models_get"];
         put?: never;
@@ -207,6 +280,10 @@ export interface paths {
          *     - ``info``   → info, warn, error
          *     - ``warn``   → warn, error
          *     - ``error``  → error only
+         *
+         *     ``session`` optionally restricts results to a single session number.
+         *     Session 1 is the initial run; subsequent numbers correspond to resume/
+         *     handoff sessions.  Omit to return logs from all sessions.
          */
         get: operations["get_job_logs_api_jobs__job_id__logs_get"];
         put?: never;
@@ -260,6 +337,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Steps
+         * @description Return plan steps for a job, hydrated from persisted PlanStepUpdated events.
+         *
+         *     During execution, plan steps are also delivered live via SSE.  This
+         *     endpoint lets late-joining clients catch up on steps that were emitted
+         *     before they connected.
+         */
+        get: operations["get_job_steps_api_jobs__job_id__steps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/steps/{step_id}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Step Diff
+         * @description Return the Git diff for a specific step.
+         *
+         *     The step_id can be either a plan_step_id (ps-*) from plan_step_updated
+         *     events, an internal step_id (step-*) from the StepRow table, or a
+         *     turn_id from the SDK — all are looked up to find start_sha/end_sha.
+         */
+        get: operations["get_step_diff_api_jobs__job_id__steps__step_id__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/transcript/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Transcript
+         * @description Full-text search within a job's transcript events.
+         */
+        get: operations["search_transcript_api_jobs__job_id__transcript_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore To Sha
+         * @description Reset the job's worktree to a specific commit SHA.
+         *
+         *     Destructive — requires frontend confirmation dialog.
+         *     Blocked while the agent is actively running.
+         */
+        post: operations["restore_to_sha_api_jobs__job_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/timeline": {
         parameters: {
             query?: never;
@@ -283,7 +451,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/jobs/{job_id}/telemetry": {
+    "/api/jobs/{job_id}/snapshot": {
         parameters: {
             query?: never;
             header?: never;
@@ -291,10 +459,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Job Telemetry
-         * @description Get telemetry data for a job run.
+         * Get Job Snapshot
+         * @description Full state hydration for a single job.
+         *
+         *     Returns the job, logs, transcript, diff, approvals, and timeline in a
+         *     single response. Used by the frontend after SSE reconnection or page
+         *     refresh to ensure the UI is fully consistent with backend state.
          */
-        get: operations["get_job_telemetry_api_jobs__job_id__telemetry_get"];
+        get: operations["get_job_snapshot_api_jobs__job_id__snapshot_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -314,7 +486,7 @@ export interface paths {
         put?: never;
         /**
          * Resolve Job
-         * @description Resolve a succeeded job: merge, create PR, discard, or resolve with agent.
+         * @description Resolve a review job: merge, create PR, discard, or resolve with agent.
          */
         post: operations["resolve_job_api_jobs__job_id__resolve_post"];
         delete?: never;
@@ -354,10 +526,101 @@ export interface paths {
         put?: never;
         /**
          * Unarchive Job
-         * @description Unarchive a job (show on Kanban board again).
+         * @description Archived jobs are final and cannot be returned to the active board.
          */
         post: operations["unarchive_job_api_jobs__job_id__unarchive_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/story": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Story
+         * @description Return a structured code-review story with validated change references.
+         *
+         *     Generated on demand using a cheap LLM for connective prose, with change
+         *     references built directly from telemetry spans.  Cached on the jobs table.
+         *     Pass ?regenerate=true to force a fresh generation.
+         *     Verbosity: summary (one-sentence per file), standard (default), detailed (full rationale).
+         */
+        get: operations["get_job_story_api_jobs__job_id__story_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/telemetry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Telemetry
+         * @description Get telemetry data for a job run.
+         *
+         *     Returns the persisted telemetry summary from the OTEL-backed SQLite store.
+         *     Includes per-call span detail (tool calls, LLM calls) when available.
+         */
+        get: operations["get_job_telemetry_api_jobs__job_id__telemetry_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/utility-sessions/warm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Warm Utility Session
+         * @description Pre-warm a utility session for the new-job panel.
+         *
+         *     Returns a session token that can be passed to ``POST /jobs`` or released
+         *     via ``DELETE /utility-sessions/{token}`` if the user navigates away.
+         */
+        post: operations["warm_utility_session_api_utility_sessions_warm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/utility-sessions/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Release Utility Session
+         * @description Release a pre-warmed session the user didn't use.
+         */
+        delete: operations["release_utility_session_api_utility_sessions__token__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -638,6 +901,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/repos/create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Repo Endpoint
+         * @description Create a new git repository and register it.
+         */
+        post: operations["create_repo_endpoint_api_settings_repos_create_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/cleanup-worktrees": {
         parameters: {
             query?: never;
@@ -709,11 +992,478 @@ export interface paths {
         };
         /**
          * List Sdks
-         * @description List available agent SDKs and their status.
+         * @description List available agent SDKs, installation status, and auth status.
          */
         get: operations["list_sdks_api_sdks_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Overview
+         * @description Aggregate analytics over the given period (days).
+         */
+        get: operations["analytics_overview_api_analytics_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Models
+         * @description Per-model cost and usage breakdown.
+         */
+        get: operations["analytics_models_api_analytics_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Tools
+         * @description Tool performance stats (call counts, failure rates, latency).
+         */
+        get: operations["analytics_tools_api_analytics_tools_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Repos
+         * @description Per-repo cost and usage breakdown.
+         */
+        get: operations["analytics_repos_api_analytics_repos_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Jobs
+         * @description Paginated per-job telemetry table.
+         */
+        get: operations["analytics_jobs_api_analytics_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/pricing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Pricing
+         * @description Return pricing info for the requested models.
+         *
+         *     Looks up each model by exact key first, then falls back to normalised
+         *     matching.  Returns ``null`` for models not found in the pricing data.
+         */
+        get: operations["analytics_pricing_api_analytics_pricing_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/cost-drivers/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cost Drivers For Job
+         * @description Per-job cost attribution breakdown by dimension.
+         */
+        get: operations["cost_drivers_for_job_api_analytics_cost_drivers__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/cost-drivers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet Cost Drivers
+         * @description Fleet-wide cost attribution: top cost buckets across all dimensions.
+         */
+        get: operations["fleet_cost_drivers_api_analytics_cost_drivers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/file-access/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * File Access For Job
+         * @description File access stats for a job — rereads, most-accessed files.
+         */
+        get: operations["file_access_for_job_api_analytics_file_access__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/file-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet File Access
+         * @description Fleet-wide most-accessed files across all jobs.
+         */
+        get: operations["fleet_file_access_api_analytics_file_access_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/turn-economics/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Turn Economics For Job
+         * @description Per-turn cost curve for a specific job.
+         */
+        get: operations["turn_economics_for_job_api_analytics_turn_economics__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/scorecard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Scorecard
+         * @description Top-level scorecard: budget per SDK, activity with resolution, quota, cost trend.
+         */
+        get: operations["analytics_scorecard_api_analytics_scorecard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/model-comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Model Comparison
+         * @description Per-model comparison with resolution data joined from jobs table.
+         */
+        get: operations["analytics_model_comparison_api_analytics_model_comparison_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/job-context/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analytics Job Context
+         * @description Per-job context: metrics + repo comparison + noteworthy flags.
+         */
+        get: operations["analytics_job_context_api_analytics_job_context__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Observations
+         * @description List active cost observations / anomalies.
+         */
+        get: operations["list_observations_api_analytics_observations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/observations/{observation_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Observation
+         * @description Dismiss an observation.
+         */
+        post: operations["dismiss_observation_api_analytics_observations__observation_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/analyse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger Analysis
+         * @description Manually trigger the statistical analysis pass.
+         */
+        post: operations["trigger_analysis_api_analytics_analyse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/shell-commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shell Command Breakdown
+         * @description Top shell commands by call count, aggregated from tool_target.
+         */
+        get: operations["shell_command_breakdown_api_analytics_shell_commands_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/retry-cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retry Cost Summary
+         * @description Fleet-wide retry cost and count.
+         */
+        get: operations["retry_cost_summary_api_analytics_retry_cost_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/edit-efficiency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet Edit Efficiency
+         * @description Fleet-wide one-shot success rate by activity category.
+         *
+         *     Reads the ``edit_efficiency`` dimension from cost attribution rows.
+         *     ``call_count`` = edit turns, ``input_tokens`` = one-shot turns,
+         *     ``output_tokens`` = total retries (repurposed columns).
+         */
+        get: operations["fleet_edit_efficiency_api_analytics_edit_efficiency_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/vapid-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Vapid Key
+         * @description Return the VAPID public key for Web Push subscription.
+         */
+        get: operations["get_vapid_key_api_notifications_vapid_key_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Subscribe
+         * @description Register a Web Push subscription.
+         */
+        post: operations["subscribe_api_notifications_subscribe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unsubscribe
+         * @description Remove a Web Push subscription.
+         */
+        post: operations["unsubscribe_api_notifications_unsubscribe_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -764,6 +1514,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/terminal/observer/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Observer Terminal
+         * @description Return the observer terminal session for a running job, if one exists.
+         */
+        get: operations["get_observer_terminal_api_terminal_observer__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/terminal/ask": {
         parameters: {
             query?: never;
@@ -784,10 +1554,357 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/preview/{port}/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Proxy
+         * @description Reverse-proxy a request to a local development server.
+         */
+        get: operations["preview_proxy_api_preview__port___path__get"];
+        /**
+         * Preview Proxy
+         * @description Reverse-proxy a request to a local development server.
+         */
+        put: operations["preview_proxy_api_preview__port___path__get"];
+        /**
+         * Preview Proxy
+         * @description Reverse-proxy a request to a local development server.
+         */
+        post: operations["preview_proxy_api_preview__port___path__get"];
+        /**
+         * Preview Proxy
+         * @description Reverse-proxy a request to a local development server.
+         */
+        delete: operations["preview_proxy_api_preview__port___path__get"];
+        options?: never;
+        /**
+         * Preview Proxy
+         * @description Reverse-proxy a request to a local development server.
+         */
+        head: operations["preview_proxy_api_preview__port___path__get"];
+        /**
+         * Preview Proxy
+         * @description Reverse-proxy a request to a local development server.
+         */
+        patch: operations["preview_proxy_api_preview__port___path__get"];
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Share Link
+         * @description Generate a read-only share URL for a job.
+         */
+        post: operations["create_share_link_api_jobs__job_id__share_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/share/{token}/job": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Shared Job
+         * @description Read-only job detail via share token.
+         */
+        get: operations["get_shared_job_api_share__token__job_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/share/{token}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Shared Events
+         * @description SSE stream scoped to a shared job (read-only).
+         */
+        get: operations["stream_shared_events_api_share__token__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/share/{token}/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Shared Snapshot
+         * @description Full state hydration via share token — same shape as /jobs/{id}/snapshot.
+         */
+        get: operations["get_shared_snapshot_api_share__token__snapshot_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/share/{token}/telemetry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Shared Telemetry
+         * @description Read-only telemetry data via share token.
+         */
+        get: operations["get_shared_telemetry_api_share__token__telemetry_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/trail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Trail
+         * @description Fetch the audit trail for a job.
+         */
+        get: operations["get_job_trail_api_jobs__job_id__trail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/trail/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job Trail Summary
+         * @description Get a lightweight trail summary for a job.
+         */
+        get: operations["get_job_trail_summary_api_jobs__job_id__trail_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnalyticsJobsResponse */
+        AnalyticsJobsResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Jobs
+             * @default []
+             */
+            jobs: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** AnalyticsModelsResponse */
+        AnalyticsModelsResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Models
+             * @default []
+             */
+            models: components["schemas"]["ModelStatsEntry"][];
+        };
+        /** AnalyticsOverviewResponse */
+        AnalyticsOverviewResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Totaljobs
+             * @default 0
+             */
+            totalJobs: number;
+            /**
+             * Succeeded
+             * @default 0
+             */
+            succeeded: number;
+            /**
+             * Review
+             * @default 0
+             */
+            review: number;
+            /**
+             * Completed
+             * @default 0
+             */
+            completed: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Cancelled
+             * @default 0
+             */
+            cancelled: number;
+            /**
+             * Running
+             * @default 0
+             */
+            running: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Totaltokens
+             * @default 0
+             */
+            totalTokens: number;
+            /**
+             * Avgdurationms
+             * @default 0
+             */
+            avgDurationMs: number;
+            /**
+             * Totalpremiumrequests
+             * @default 0
+             */
+            totalPremiumRequests: number;
+            /**
+             * Totaltoolcalls
+             * @default 0
+             */
+            totalToolCalls: number;
+            /**
+             * Totaltoolfailures
+             * @default 0
+             */
+            totalToolFailures: number;
+            /**
+             * Totalagenterrors
+             * @default 0
+             */
+            totalAgentErrors: number;
+            /**
+             * Totaltoolerrors
+             * @default 0
+             */
+            totalToolErrors: number;
+            /**
+             * Toolsuccessrate
+             * @default 0
+             */
+            toolSuccessRate: number;
+            /**
+             * Cachehitrate
+             * @default 0
+             */
+            cacheHitRate: number;
+            /**
+             * Costtrend
+             * @default []
+             */
+            costTrend: components["schemas"]["CostTrendEntry"][];
+            /**
+             * Totalsubagentcostusd
+             * @default 0
+             */
+            totalSubagentCostUsd: number;
+            /**
+             * Totalretrycostusd
+             * @default 0
+             */
+            totalRetryCostUsd: number;
+            /**
+             * Totalretrycount
+             * @default 0
+             */
+            totalRetryCount: number;
+        };
+        /**
+         * AnalyticsPricingResponse
+         * @description Pricing lookup response — model name → pricing entry (or null).
+         */
+        AnalyticsPricingResponse: {
+            /** Models */
+            models: {
+                [key: string]: components["schemas"]["ModelPricingEntry"] | null;
+            };
+        };
+        /** AnalyticsReposResponse */
+        AnalyticsReposResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Repos
+             * @default []
+             */
+            repos: components["schemas"]["RepoStatsEntry"][];
+        };
+        /** AnalyticsToolsResponse */
+        AnalyticsToolsResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Tools
+             * @default []
+             */
+            tools: components["schemas"]["ToolStatsEntry"][];
+        };
+        /** ApprovalListResponse */
+        ApprovalListResponse: {
+            /** Items */
+            items: components["schemas"]["ApprovalResponse"][];
+        };
         /**
          * ApprovalResolution
          * @enum {string}
@@ -811,7 +1928,10 @@ export interface components {
             /** Resolvedat */
             resolvedAt: string | null;
             resolution: components["schemas"]["ApprovalResolution"] | null;
-            /** Requiresexplicitapproval */
+            /**
+             * Requiresexplicitapproval
+             * @default false
+             */
             requiresExplicitApproval: boolean;
         };
         /** ArtifactListResponse */
@@ -843,30 +1963,104 @@ export interface components {
          * ArtifactType
          * @enum {string}
          */
-        ArtifactType: "diff_snapshot" | "agent_summary" | "session_snapshot" | "session_log" | "document" | "custom";
-        /** AskRequest */
-        AskRequest: {
-            /** Prompt */
-            prompt: string;
-            /** Context */
-            context?: string | null;
-        };
-        /** AskResponse */
-        AskResponse: {
-            /** Command */
-            command: string;
-            /** Explanation */
-            explanation: string;
-        };
+        ArtifactType: "diff_snapshot" | "agent_summary" | "session_snapshot" | "session_log" | "agent_plan" | "telemetry_report" | "approval_history" | "agent_log" | "document" | "custom";
         /** Body_transcribe_api_voice_transcribe_post */
         Body_transcribe_api_voice_transcribe_post: {
             /** Audio */
             audio: string;
         };
+        /** BrowseDirectoryResponse */
+        BrowseDirectoryResponse: {
+            /** Current */
+            current: string;
+            /** Parent */
+            parent?: string | null;
+            /** Items */
+            items: components["schemas"]["BrowseEntry"][];
+        };
+        /** BrowseEntry */
+        BrowseEntry: {
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /**
+             * Isgitrepo
+             * @default false
+             */
+            isGitRepo: boolean;
+        };
+        /** CleanupWorktreesResponse */
+        CleanupWorktreesResponse: {
+            /** Removed */
+            removed: number;
+        };
         /** ContinueJobRequest */
         ContinueJobRequest: {
             /** Instruction */
             instruction: string;
+        };
+        /** CostDriverEntry */
+        CostDriverEntry: {
+            /**
+             * Bucket
+             * @default
+             */
+            bucket: string;
+            /**
+             * Costusd
+             * @default 0
+             */
+            costUsd: number;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Callcount
+             * @default 0
+             */
+            callCount: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CostDriversJobResponse */
+        CostDriversJobResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Dimensions
+             * @default {}
+             */
+            dimensions: {
+                [key: string]: components["schemas"]["CostDriverEntry"][];
+            };
+        };
+        /** CostTrendEntry */
+        CostTrendEntry: {
+            /** Date */
+            date: string;
+            /**
+             * Cost
+             * @default 0
+             */
+            cost: number;
+            /**
+             * Jobs
+             * @default 0
+             */
+            jobs: number;
         };
         /** CreateJobRequest */
         CreateJobRequest: {
@@ -874,38 +2068,39 @@ export interface components {
             repo: string;
             /** Prompt */
             prompt: string;
-            /** Base Ref */
-            base_ref?: string | null;
+            /** Baseref */
+            baseRef?: string | null;
             /** Branch */
             branch?: string | null;
             /** Title */
             title?: string | null;
-            /** Worktree Name */
-            worktree_name?: string | null;
-            permission_mode?: components["schemas"]["PermissionMode"] | null;
+            /** Description */
+            description?: string | null;
+            /** Worktreename */
+            worktreeName?: string | null;
+            permissionMode?: components["schemas"]["PermissionMode"] | null;
             /** Model */
             model?: string | null;
             /** Sdk */
             sdk?: string | null;
             /** Verify */
             verify?: boolean | null;
-            /** Self Review */
-            self_review?: boolean | null;
-            /** Max Turns */
-            max_turns?: number | null;
-            /** Verify Prompt */
-            verify_prompt?: string | null;
-            /** Self Review Prompt */
-            self_review_prompt?: string | null;
-            /** Session Token */
-            session_token?: string | null;
+            /** Selfreview */
+            selfReview?: boolean | null;
+            /** Maxturns */
+            maxTurns?: number | null;
+            /** Verifyprompt */
+            verifyPrompt?: string | null;
+            /** Selfreviewprompt */
+            selfReviewPrompt?: string | null;
+            /** Sessiontoken */
+            sessionToken?: string | null;
         };
         /** CreateJobResponse */
         CreateJobResponse: {
             /** Id */
             id: string;
-            /** State */
-            state: string;
+            state: components["schemas"]["JobState"];
             /** Title */
             title?: string | null;
             /** Branch */
@@ -923,17 +2118,33 @@ export interface components {
              */
             createdAt: string;
         };
-        /** CreateSessionRequest */
-        CreateSessionRequest: {
+        /** CreateRepoRequest */
+        CreateRepoRequest: {
+            /** Path */
+            path: string;
+            /** Name */
+            name?: string | null;
+        };
+        /** CreateRepoResponse */
+        CreateRepoResponse: {
+            /** Path */
+            path: string;
+            /** Name */
+            name: string;
+        };
+        /** CreateTerminalSessionRequest */
+        CreateTerminalSessionRequest: {
             /** Shell */
             shell?: string | null;
             /** Cwd */
             cwd?: string | null;
             /** Jobid */
             jobId?: string | null;
+            /** Promptlabel */
+            promptLabel?: string | null;
         };
-        /** CreateSessionResponse */
-        CreateSessionResponse: {
+        /** CreateTerminalSessionResponse */
+        CreateTerminalSessionResponse: {
             /** Id */
             id: string;
             /** Shell */
@@ -956,6 +2167,10 @@ export interface components {
             deletions: number;
             /** Hunks */
             hunks: components["schemas"]["DiffHunkModel"][];
+            /** Writecount */
+            writeCount?: number | null;
+            /** Retrycount */
+            retryCount?: number | null;
         };
         /**
          * DiffFileStatus
@@ -986,11 +2201,239 @@ export interface components {
          * @enum {string}
          */
         DiffLineType: "context" | "addition" | "deletion";
+        /** DiffListResponse */
+        DiffListResponse: {
+            /** Items */
+            items: components["schemas"]["DiffFileModel"][];
+        };
+        /** DismissResponse */
+        DismissResponse: {
+            /** Status */
+            status: string;
+        };
+        /** EditEfficiencyCategory */
+        EditEfficiencyCategory: {
+            /**
+             * Activity
+             * @default
+             */
+            activity: string;
+            /**
+             * Editturns
+             * @default 0
+             */
+            editTurns: number;
+            /**
+             * Oneshotturns
+             * @default 0
+             */
+            oneShotTurns: number;
+            /**
+             * Retries
+             * @default 0
+             */
+            retries: number;
+            /**
+             * Oneshotrate
+             * @default 0
+             */
+            oneShotRate: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+        };
+        /** EditEfficiencyResponse */
+        EditEfficiencyResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: components["schemas"]["EditEfficiencyCategory"][];
+        };
         /**
          * ExecutionPhase
          * @enum {string}
          */
         ExecutionPhase: "environment_setup" | "agent_reasoning" | "verification" | "finalization" | "post_completion";
+        /** FileAccessEntry */
+        FileAccessEntry: {
+            /**
+             * Filepath
+             * @default
+             */
+            filePath: string;
+            /**
+             * Accesscount
+             * @default 0
+             */
+            accessCount: number;
+            /**
+             * Readcount
+             * @default 0
+             */
+            readCount: number;
+            /**
+             * Writecount
+             * @default 0
+             */
+            writeCount: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** FileAccessJobResponse */
+        FileAccessJobResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * @default {
+             *       "totalAccesses": 0,
+             *       "uniqueFiles": 0,
+             *       "totalReads": 0,
+             *       "totalWrites": 0,
+             *       "rereadCount": 0
+             *     }
+             */
+            stats: components["schemas"]["FileAccessStats"];
+            /**
+             * Topfiles
+             * @default []
+             */
+            topFiles: components["schemas"]["FileAccessEntry"][];
+        };
+        /** FileAccessStats */
+        FileAccessStats: {
+            /**
+             * Totalaccesses
+             * @default 0
+             */
+            totalAccesses: number;
+            /**
+             * Uniquefiles
+             * @default 0
+             */
+            uniqueFiles: number;
+            /**
+             * Totalreads
+             * @default 0
+             */
+            totalReads: number;
+            /**
+             * Totalwrites
+             * @default 0
+             */
+            totalWrites: number;
+            /**
+             * Rereadcount
+             * @default 0
+             */
+            rereadCount: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FileMotivation
+         * @description Per-file motivation annotation.
+         */
+        FileMotivation: {
+            /** Title */
+            title: string;
+            /** Why */
+            why: string;
+            /**
+             * Unmatchededits
+             * @default []
+             */
+            unmatchedEdits: components["schemas"]["HunkMotivation"][];
+        };
+        /** FleetCostDriversResponse */
+        FleetCostDriversResponse: {
+            /** Period */
+            period: number;
+            /** Dimension */
+            dimension?: string | null;
+            /** Buckets */
+            buckets?: components["schemas"]["CostDriverEntry"][] | null;
+            /** Summary */
+            summary?: components["schemas"]["FleetCostEntry"][] | null;
+        };
+        /** FleetCostEntry */
+        FleetCostEntry: {
+            /**
+             * Dimension
+             * @default
+             */
+            dimension: string;
+            /**
+             * Bucket
+             * @default
+             */
+            bucket: string;
+            /**
+             * Costusd
+             * @default 0
+             */
+            costUsd: number;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Callcount
+             * @default 0
+             */
+            callCount: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+            /**
+             * Avgcostperjob
+             * @default 0
+             */
+            avgCostPerJob: number;
+            /**
+             * Confidence
+             * @default
+             */
+            confidence: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** FleetFileAccessResponse */
+        FleetFileAccessResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Topfiles
+             * @default []
+             */
+            topFiles: components["schemas"]["FileAccessEntry"][];
+        };
+        /**
+         * GitMergeOutcome
+         * @description Outcome of the automatic git merge operation after an agent session.
+         *
+         *     Distinct from :class:`Resolution` which captures the *user's decision*.
+         *     This enum tracks only the mechanical result of the merge-back attempt.
+         * @enum {string}
+         */
+        GitMergeOutcome: "not_merged" | "merged" | "conflict" | "pr_created";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1013,6 +2456,116 @@ export interface components {
          * @enum {string}
          */
         HealthStatus: "healthy";
+        /**
+         * HunkMotivation
+         * @description Per-hunk motivation annotation.
+         */
+        HunkMotivation: {
+            /** Editkey */
+            editKey: string;
+            /** Title */
+            title: string;
+            /** Why */
+            why: string;
+        };
+        /** JobContextFlag */
+        JobContextFlag: {
+            /** Type */
+            type: string;
+            /** Message */
+            message: string;
+        };
+        /** JobContextJob */
+        JobContextJob: {
+            /**
+             * Cost
+             * @default 0
+             */
+            cost: number;
+            /**
+             * Durationms
+             * @default 0
+             */
+            durationMs: number;
+            /**
+             * Difflinesadded
+             * @default 0
+             */
+            diffLinesAdded: number;
+            /**
+             * Difflinesremoved
+             * @default 0
+             */
+            diffLinesRemoved: number;
+            /**
+             * Sdk
+             * @default
+             */
+            sdk: string;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Totalturns
+             * @default 0
+             */
+            totalTurns: number;
+            /**
+             * Peakturncostusd
+             * @default 0
+             */
+            peakTurnCostUsd: number;
+            /**
+             * Avgturncostusd
+             * @default 0
+             */
+            avgTurnCostUsd: number;
+            /**
+             * Costfirsthalfusd
+             * @default 0
+             */
+            costFirstHalfUsd: number;
+            /**
+             * Costsecondhalfusd
+             * @default 0
+             */
+            costSecondHalfUsd: number;
+        };
+        /** JobContextRepoAvg */
+        JobContextRepoAvg: {
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+            /**
+             * Avgcost
+             * @default 0
+             */
+            avgCost: number;
+            /**
+             * Avgdurationms
+             * @default 0
+             */
+            avgDurationMs: number;
+            /**
+             * Avgdifflines
+             * @default 0
+             */
+            avgDiffLines: number;
+        };
+        /** JobContextResponse */
+        JobContextResponse: {
+            job: components["schemas"]["JobContextJob"];
+            repoAvg?: components["schemas"]["JobContextRepoAvg"] | null;
+            /**
+             * Flags
+             * @default []
+             */
+            flags: components["schemas"]["JobContextFlag"][];
+        };
         /** JobListResponse */
         JobListResponse: {
             /** Items */
@@ -1032,8 +2585,9 @@ export interface components {
             prompt: string;
             /** Title */
             title?: string | null;
-            /** State */
-            state: string;
+            /** Description */
+            description?: string | null;
+            state: components["schemas"]["JobState"];
             /** Baseref */
             baseRef: string;
             /** Worktreepath */
@@ -1055,14 +2609,16 @@ export interface components {
             completedAt: string | null;
             /** Prurl */
             prUrl?: string | null;
-            /** Mergestatus */
-            mergeStatus?: string | null;
-            /** Resolution */
-            resolution?: string | null;
+            mergeStatus?: components["schemas"]["GitMergeOutcome"] | null;
+            resolution?: components["schemas"]["Resolution"] | null;
             /** Archivedat */
             archivedAt?: string | null;
             /** Failurereason */
             failureReason?: string | null;
+            /** Progressheadline */
+            progressHeadline?: string | null;
+            /** Progresssummary */
+            progressSummary?: string | null;
             /** Model */
             model?: string | null;
             /**
@@ -1082,6 +2638,232 @@ export interface components {
             verifyPrompt?: string | null;
             /** Selfreviewprompt */
             selfReviewPrompt?: string | null;
+            /** Parentjobid */
+            parentJobId?: string | null;
+        };
+        /**
+         * JobSnapshotResponse
+         * @description Full state hydration for a single job — used after reconnect or page refresh.
+         */
+        JobSnapshotResponse: {
+            job: components["schemas"]["JobResponse"];
+            /** Logs */
+            logs: components["schemas"]["LogLinePayload"][];
+            /** Transcript */
+            transcript: components["schemas"]["TranscriptPayload"][];
+            /** Diff */
+            diff: components["schemas"]["DiffFileModel"][];
+            /** Approvals */
+            approvals: components["schemas"]["ApprovalResponse"][];
+            /** Timeline */
+            timeline: components["schemas"]["ProgressHeadlinePayload"][];
+            /**
+             * Steps
+             * @default []
+             */
+            steps: components["schemas"]["PlanStepPayload"][];
+            /**
+             * Turnsummaries
+             * @default []
+             */
+            turnSummaries: components["schemas"]["TurnSummaryPayload"][];
+        };
+        /**
+         * JobState
+         * @enum {string}
+         */
+        JobState: "preparing" | "queued" | "running" | "waiting_for_approval" | "review" | "completed" | "failed" | "canceled";
+        /** JobTelemetryResponse */
+        JobTelemetryResponse: {
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /**
+             * Jobid
+             * @default
+             */
+            jobId: string;
+            /**
+             * Sdk
+             * @default
+             */
+            sdk: string;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Mainmodel
+             * @default
+             */
+            mainModel: string;
+            /**
+             * Durationms
+             * @default 0
+             */
+            durationMs: number;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Totaltokens
+             * @default 0
+             */
+            totalTokens: number;
+            /**
+             * Cachereadtokens
+             * @default 0
+             */
+            cacheReadTokens: number;
+            /**
+             * Cachewritetokens
+             * @default 0
+             */
+            cacheWriteTokens: number;
+            /**
+             * Totalcost
+             * @default 0
+             */
+            totalCost: number;
+            /**
+             * Contextwindowsize
+             * @default 0
+             */
+            contextWindowSize: number;
+            /**
+             * Currentcontexttokens
+             * @default 0
+             */
+            currentContextTokens: number;
+            /**
+             * Contextutilization
+             * @default 0
+             */
+            contextUtilization: number;
+            /**
+             * Compactions
+             * @default 0
+             */
+            compactions: number;
+            /**
+             * Tokenscompacted
+             * @default 0
+             */
+            tokensCompacted: number;
+            /**
+             * Toolcallcount
+             * @default 0
+             */
+            toolCallCount: number;
+            /**
+             * Totaltooldurationms
+             * @default 0
+             */
+            totalToolDurationMs: number;
+            /**
+             * Toolcalls
+             * @default []
+             */
+            toolCalls: components["schemas"]["TelemetryToolCall"][];
+            /**
+             * Llmcallcount
+             * @default 0
+             */
+            llmCallCount: number;
+            /**
+             * Totalllmdurationms
+             * @default 0
+             */
+            totalLlmDurationMs: number;
+            /**
+             * Llmcalls
+             * @default []
+             */
+            llmCalls: components["schemas"]["TelemetryLlmCall"][];
+            /**
+             * Approvalcount
+             * @default 0
+             */
+            approvalCount: number;
+            /**
+             * Totalapprovalwaitms
+             * @default 0
+             */
+            totalApprovalWaitMs: number;
+            /**
+             * Agentmessages
+             * @default 0
+             */
+            agentMessages: number;
+            /**
+             * Operatormessages
+             * @default 0
+             */
+            operatorMessages: number;
+            /**
+             * Premiumrequests
+             * @default 0
+             */
+            premiumRequests: number;
+            /**
+             * @default {
+             *       "activity": [],
+             *       "phase": [],
+             *       "editEfficiency": []
+             *     }
+             */
+            costDrivers: components["schemas"]["TelemetryCostDrivers"];
+            /**
+             * @default {
+             *       "totalTurns": 0,
+             *       "peakTurnCostUsd": 0,
+             *       "avgTurnCostUsd": 0,
+             *       "costFirstHalfUsd": 0,
+             *       "costSecondHalfUsd": 0,
+             *       "turnCurve": []
+             *     }
+             */
+            turnEconomics: components["schemas"]["TelemetryTurnEconomics"];
+            /**
+             * @default {
+             *       "stats": {
+             *         "rereadCount": 0,
+             *         "totalAccesses": 0,
+             *         "totalReads": 0,
+             *         "totalWrites": 0,
+             *         "uniqueFiles": 0
+             *       },
+             *       "topFiles": []
+             *     }
+             */
+            fileAccess: components["schemas"]["TelemetryFileAccess"];
+            /** Quotasnapshots */
+            quotaSnapshots?: {
+                [key: string]: components["schemas"]["TelemetryQuotaSnapshot"];
+            } | null;
+            /**
+             * @default {
+             *       "testCoModifications": []
+             *     }
+             */
+            reviewSignals: components["schemas"]["TelemetryReviewSignals"];
+            /**
+             * @default {
+             *       "tier": "quick",
+             *       "signals": []
+             *     }
+             */
+            reviewComplexity: components["schemas"]["TelemetryReviewComplexity"];
         };
         /**
          * LogLevel
@@ -1106,12 +2888,303 @@ export interface components {
             context?: {
                 [key: string]: unknown;
             } | null;
+            /** Sessionnumber */
+            sessionNumber?: number | null;
+        };
+        /** LogListResponse */
+        LogListResponse: {
+            /** Items */
+            items: components["schemas"]["LogLinePayload"][];
+        };
+        /** ModelComparisonResponse */
+        ModelComparisonResponse: {
+            /** Period */
+            period: number;
+            /** Repo */
+            repo?: string | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: components["schemas"]["ModelComparisonRow"][];
+        };
+        /** ModelComparisonRow */
+        ModelComparisonRow: {
+            /** Model */
+            model: string;
+            /** Sdk */
+            sdk: string;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+            /**
+             * Avgcost
+             * @default 0
+             */
+            avgCost: number;
+            /**
+             * Avgdurationms
+             * @default 0
+             */
+            avgDurationMs: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Premiumrequests
+             * @default 0
+             */
+            premiumRequests: number;
+            /**
+             * Merged
+             * @default 0
+             */
+            merged: number;
+            /**
+             * Prcreated
+             * @default 0
+             */
+            prCreated: number;
+            /**
+             * Discarded
+             * @default 0
+             */
+            discarded: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /** Avgverifyturns */
+            avgVerifyTurns?: number | null;
+            /**
+             * Verifyjobcount
+             * @default 0
+             */
+            verifyJobCount: number;
+            /**
+             * Avgdifflines
+             * @default 0
+             */
+            avgDiffLines: number;
+            /**
+             * Cachehitrate
+             * @default 0
+             */
+            cacheHitRate: number;
+            /**
+             * Costperjob
+             * @default 0
+             */
+            costPerJob: number;
+            /**
+             * Costperminute
+             * @default 0
+             */
+            costPerMinute: number;
+            /**
+             * Costperturn
+             * @default 0
+             */
+            costPerTurn: number;
+            /**
+             * Costpertoolcall
+             * @default 0
+             */
+            costPerToolCall: number;
+        };
+        /**
+         * ModelInfoResponse
+         * @description Model information returned by the agent SDK.
+         */
+        ModelInfoResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ModelListResponse */
+        ModelListResponse: {
+            /** Items */
+            items: components["schemas"]["ModelInfoResponse"][];
+        };
+        /**
+         * ModelPricingEntry
+         * @description Pricing info for a single model (snake_case keys from pricing JSON).
+         */
+        ModelPricingEntry: {
+            /**
+             * Cache Read
+             * @default 0
+             */
+            cache_read: number;
+            /**
+             * Cache Write
+             * @default 0
+             */
+            cache_write: number;
+            /**
+             * Input
+             * @default 0
+             */
+            input: number;
+            /**
+             * Max Input Tokens
+             * @default 0
+             */
+            max_input_tokens: number;
+            /**
+             * Max Output Tokens
+             * @default 0
+             */
+            max_output_tokens: number;
+            /**
+             * Output
+             * @default 0
+             */
+            output: number;
+            /**
+             * Provider
+             * @default
+             */
+            provider: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ModelStatsEntry */
+        ModelStatsEntry: {
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Sdk
+             * @default
+             */
+            sdk: string;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Totaltokens
+             * @default 0
+             */
+            totalTokens: number;
+            /**
+             * Avgdurationms
+             * @default 0
+             */
+            avgDurationMs: number;
+            /**
+             * Premiumrequests
+             * @default 0
+             */
+            premiumRequests: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ObservationEntry */
+        ObservationEntry: {
+            /**
+             * Id
+             * @default 0
+             */
+            id: number;
+            /**
+             * Category
+             * @default
+             */
+            category: string;
+            /**
+             * Severity
+             * @default
+             */
+            severity: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ObservationsListResponse */
+        ObservationsListResponse: {
+            /**
+             * Observations
+             * @default []
+             */
+            observations: components["schemas"]["ObservationEntry"][];
         };
         /**
          * PermissionMode
+         * @description Controls how the agent adapter handles SDK permission requests.
+         *
+         *     full_auto          — Everything auto-approved within worktree. No prompts.
+         *     observe_only       — Allow reads + grep/find. Block all writes/mutations.
+         *     review_and_approve — Always allow read_file. Require approval for
+         *                          shell commands (except grep/find), URL fetches,
+         *                          and any write operations.
          * @enum {string}
          */
         PermissionMode: "full_auto" | "observe_only" | "review_and_approve";
+        /**
+         * PlanStepPayload
+         * @description SSE payload for unified plan-step updates.
+         */
+        PlanStepPayload: {
+            /** Jobid */
+            jobId: string;
+            /** Planstepid */
+            planStepId: string;
+            /** Label */
+            label: string;
+            /** Summary */
+            summary?: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+            /**
+             * Toolcount
+             * @default 0
+             */
+            toolCount: number;
+            /** Fileswritten */
+            filesWritten?: string[] | null;
+            /** Startedat */
+            startedAt?: string | null;
+            /** Completedat */
+            completedAt?: string | null;
+            /** Durationms */
+            durationMs?: number | null;
+            /** Startsha */
+            startSha?: string | null;
+            /** Endsha */
+            endSha?: string | null;
+        };
         /** PlatformStatusListResponse */
         PlatformStatusListResponse: {
             /** Items */
@@ -1158,8 +3231,8 @@ export interface components {
         RegisterRepoRequest: {
             /** Source */
             source: string;
-            /** Clone To */
-            clone_to?: string | null;
+            /** Cloneto */
+            cloneTo?: string | null;
         };
         /** RegisterRepoResponse */
         RegisterRepoResponse: {
@@ -1193,28 +3266,136 @@ export interface components {
             /** Items */
             items: string[];
         };
+        /** RepoStatsEntry */
+        RepoStatsEntry: {
+            /**
+             * Repo
+             * @default
+             */
+            repo: string;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+            /**
+             * Succeeded
+             * @default 0
+             */
+            succeeded: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Totaltokens
+             * @default 0
+             */
+            totalTokens: number;
+            /**
+             * Toolcalls
+             * @default 0
+             */
+            toolCalls: number;
+            /**
+             * Avgdurationms
+             * @default 0
+             */
+            avgDurationMs: number;
+            /**
+             * Premiumrequests
+             * @default 0
+             */
+            premiumRequests: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * Resolution
+         * @description User-facing disposition of a completed job.
+         *
+         *     Distinct from ``Job.merge_status`` which tracks only the *git merge
+         *     operation* outcome.  ``resolution`` captures the *user's decision* about
+         *     what to do with the agent's work after it finishes.
+         * @enum {string}
+         */
+        Resolution: "unresolved" | "merged" | "pr_created" | "discarded" | "conflict";
+        /**
+         * ResolutionAction
+         * @enum {string}
+         */
+        ResolutionAction: "merge" | "smart_merge" | "create_pr" | "discard" | "agent_merge";
         /** ResolveApprovalRequest */
         ResolveApprovalRequest: {
             resolution: components["schemas"]["ApprovalResolution"];
         };
         /** ResolveJobRequest */
         ResolveJobRequest: {
-            /** Action */
-            action: string;
+            action: components["schemas"]["ResolutionAction"];
         };
         /** ResolveJobResponse */
         ResolveJobResponse: {
             /** Resolution */
-            resolution: string;
+            resolution: components["schemas"]["Resolution"] | components["schemas"]["ResolutionAction"];
             /** Prurl */
             prUrl?: string | null;
             /** Conflictfiles */
             conflictFiles?: string[] | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** RestoreRequest */
+        RestoreRequest: {
+            /** Sha */
+            sha: string;
+        };
+        /** RestoreResponse */
+        RestoreResponse: {
+            /** Restored */
+            restored: boolean;
+            /** Sha */
+            sha: string;
         };
         /** ResumeJobRequest */
         ResumeJobRequest: {
             /** Instruction */
-            instruction: string;
+            instruction?: string | null;
+        };
+        /** RetryCostResponse */
+        RetryCostResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Retrycostusd
+             * @default 0
+             */
+            retryCostUsd: number;
+            /**
+             * Retrycount
+             * @default 0
+             */
+            retryCount: number;
+            /**
+             * Totalspans
+             * @default 0
+             */
+            totalSpans: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Retrypct
+             * @default 0
+             */
+            retryPct: number;
         };
         /** SDKInfoResponse */
         SDKInfoResponse: {
@@ -1224,8 +3405,18 @@ export interface components {
             name: string;
             /** Enabled */
             enabled: boolean;
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "not_installed" | "not_configured";
+            /** Authenticated */
+            authenticated?: boolean | null;
+            /**
+             * Hint
+             * @default
+             */
+            hint: string;
         };
         /** SDKListResponse */
         SDKListResponse: {
@@ -1233,6 +3424,100 @@ export interface components {
             default: string;
             /** Sdks */
             sdks: components["schemas"]["SDKInfoResponse"][];
+        };
+        /** ScorecardActivity */
+        ScorecardActivity: {
+            /**
+             * Totaljobs
+             * @default 0
+             */
+            totalJobs: number;
+            /**
+             * Running
+             * @default 0
+             */
+            running: number;
+            /**
+             * Inreview
+             * @default 0
+             */
+            inReview: number;
+            /**
+             * Merged
+             * @default 0
+             */
+            merged: number;
+            /**
+             * Prcreated
+             * @default 0
+             */
+            prCreated: number;
+            /**
+             * Discarded
+             * @default 0
+             */
+            discarded: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+            /**
+             * Cancelled
+             * @default 0
+             */
+            cancelled: number;
+        };
+        /** ScorecardBudget */
+        ScorecardBudget: {
+            /** Sdk */
+            sdk: string;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Premiumrequests
+             * @default 0
+             */
+            premiumRequests: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+            /**
+             * Avgcostperjob
+             * @default 0
+             */
+            avgCostPerJob: number;
+            /**
+             * Avgdurationms
+             * @default 0
+             */
+            avgDurationMs: number;
+        };
+        /** ScorecardResponse */
+        ScorecardResponse: {
+            activity: components["schemas"]["ScorecardActivity"];
+            /**
+             * Budget
+             * @default []
+             */
+            budget: components["schemas"]["ScorecardBudget"][];
+            /** Quotajson */
+            quotaJson?: string | null;
+            /**
+             * Costtrend
+             * @default []
+             */
+            costTrend: components["schemas"]["CostTrendEntry"][];
+            /**
+             * Dailyspendlimitusd
+             * @default 0
+             */
+            dailySpendLimitUsd: number;
         };
         /** SendMessageRequest */
         SendMessageRequest: {
@@ -1249,27 +3534,11 @@ export interface components {
              */
             timestamp: string;
         };
-        /** SessionInfo */
-        SessionInfo: {
-            /** Id */
-            id: string;
-            /** Shell */
-            shell: string;
-            /** Cwd */
-            cwd: string;
-            /** Jobid */
-            jobId?: string | null;
-            /** Pid */
-            pid: number;
-            /** Clients */
-            clients: number;
-        };
         /** SettingsResponse */
         SettingsResponse: {
             /** Maxconcurrentjobs */
             maxConcurrentJobs: number;
-            /** Permissionmode */
-            permissionMode: string;
+            permissionMode: components["schemas"]["PermissionMode"];
             /** Autopush */
             autoPush: boolean;
             /** Cleanupworktree */
@@ -1293,10 +3562,743 @@ export interface components {
             /** Selfreviewprompt */
             selfReviewPrompt: string;
         };
+        /** ShareTokenResponse */
+        ShareTokenResponse: {
+            /** Token */
+            token: string;
+            /** Jobid */
+            jobId: string;
+            /** Url */
+            url: string;
+        };
+        /** ShellCommandEntry */
+        ShellCommandEntry: {
+            /**
+             * Command
+             * @default
+             */
+            command: string;
+            /**
+             * Callcount
+             * @default 0
+             */
+            callCount: number;
+            /**
+             * Totalcostusd
+             * @default 0
+             */
+            totalCostUsd: number;
+            /**
+             * Avgdurationms
+             * @default 0
+             */
+            avgDurationMs: number;
+            /**
+             * Jobcount
+             * @default 0
+             */
+            jobCount: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ShellCommandsResponse */
+        ShellCommandsResponse: {
+            /** Period */
+            period: number;
+            /**
+             * Commands
+             * @default []
+             */
+            commands: components["schemas"]["ShellCommandEntry"][];
+        };
+        /** SisterSessionGlobalMetrics */
+        SisterSessionGlobalMetrics: {
+            /** Totalcalls */
+            totalCalls: number;
+            /** Avglatencyms */
+            avgLatencyMs: number;
+            /** Activejobs */
+            activeJobs: number;
+            /** Poolsize */
+            poolSize: number;
+            /** Warmtokens */
+            warmTokens: number;
+        };
+        /** SisterSessionJobMetrics */
+        SisterSessionJobMetrics: {
+            /** Callcount */
+            callCount: number;
+            /** Avglatencyms */
+            avgLatencyMs: number;
+            /** Totallatencyms */
+            totalLatencyMs: number;
+            /** Inputtokens */
+            inputTokens: number;
+            /** Outputtokens */
+            outputTokens: number;
+            /** Costusd */
+            costUsd: number;
+        };
+        /** SisterSessionMetricsResponse */
+        SisterSessionMetricsResponse: {
+            global: components["schemas"]["SisterSessionGlobalMetrics"];
+            /** Jobs */
+            jobs: {
+                [key: string]: components["schemas"]["SisterSessionJobMetrics"];
+            };
+        };
+        /**
+         * StepDiffPayload
+         * @description Response for step-scoped Git diff.
+         */
+        StepDiffPayload: {
+            /** Stepid */
+            stepId: string;
+            /** Diff */
+            diff: string;
+            /** Fileschanged */
+            filesChanged: number;
+            /**
+             * Changedfiles
+             * @default []
+             */
+            changedFiles: components["schemas"]["DiffFileModel"][];
+            /** Stepcontext */
+            stepContext?: string | null;
+            /**
+             * Filemotivations
+             * @default {}
+             */
+            fileMotivations: {
+                [key: string]: components["schemas"]["FileMotivation"];
+            };
+            /**
+             * Hunkmotivations
+             * @default {}
+             */
+            hunkMotivations: {
+                [key: string]: components["schemas"]["HunkMotivation"];
+            };
+        };
+        /** StepListResponse */
+        StepListResponse: {
+            /** Items */
+            items: components["schemas"]["PlanStepPayload"][];
+        };
+        /**
+         * StoryBlock
+         * @description A single block in a structured code-review story.
+         */
+        StoryBlock: {
+            /** Type */
+            type: string;
+            /** Text */
+            text?: string | null;
+            /** Spanid */
+            spanId?: number | null;
+            /** Stepnumber */
+            stepNumber?: number | null;
+            /** Steptitle */
+            stepTitle?: string | null;
+            /** File */
+            file?: string | null;
+            /** Why */
+            why?: string | null;
+            /** Turnid */
+            turnId?: string | null;
+            /** Editcount */
+            editCount?: number | null;
+        };
+        /**
+         * StoryResponse
+         * @description Structured code-review story with validated change references.
+         */
+        StoryResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Blocks
+             * @default []
+             */
+            blocks: components["schemas"]["StoryBlock"][];
+            /**
+             * Cached
+             * @default false
+             */
+            cached: boolean;
+            /**
+             * Verbosity
+             * @default standard
+             */
+            verbosity: string;
+        };
+        /** SubscriptionRequest */
+        SubscriptionRequest: {
+            /** Endpoint */
+            endpoint: string;
+            /** Keys */
+            keys: {
+                [key: string]: string;
+            };
+        };
+        /** SuggestNamesRequest */
+        SuggestNamesRequest: {
+            /** Prompt */
+            prompt: string;
+            /** Repo */
+            repo?: string | null;
+        };
+        /** SuggestNamesResponse */
+        SuggestNamesResponse: {
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            /** Branchname */
+            branchName: string;
+            /** Worktreename */
+            worktreeName: string;
+        };
+        /** TelemetryCostBucket */
+        TelemetryCostBucket: {
+            /**
+             * Dimension
+             * @default unknown
+             */
+            dimension: string;
+            /**
+             * Bucket
+             * @default unknown
+             */
+            bucket: string;
+            /**
+             * Costusd
+             * @default 0
+             */
+            costUsd: number;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Callcount
+             * @default 0
+             */
+            callCount: number;
+        };
+        /** TelemetryCostDrivers */
+        TelemetryCostDrivers: {
+            /**
+             * Activity
+             * @default []
+             */
+            activity: components["schemas"]["TelemetryCostBucket"][];
+            /**
+             * Phase
+             * @default []
+             */
+            phase: components["schemas"]["TelemetryCostBucket"][];
+            /**
+             * Editefficiency
+             * @default []
+             */
+            editEfficiency: components["schemas"]["TelemetryCostBucket"][];
+        };
+        /** TelemetryFileAccess */
+        TelemetryFileAccess: {
+            /**
+             * @default {
+             *       "totalAccesses": 0,
+             *       "uniqueFiles": 0,
+             *       "totalReads": 0,
+             *       "totalWrites": 0,
+             *       "rereadCount": 0
+             *     }
+             */
+            stats: components["schemas"]["TelemetryFileStats"];
+            /**
+             * Topfiles
+             * @default []
+             */
+            topFiles: components["schemas"]["TelemetryFileEntry"][];
+        };
+        /** TelemetryFileEntry */
+        TelemetryFileEntry: {
+            /**
+             * Filepath
+             * @default
+             */
+            filePath: string;
+            /**
+             * Accesscount
+             * @default 0
+             */
+            accessCount: number;
+            /**
+             * Readcount
+             * @default 0
+             */
+            readCount: number;
+            /**
+             * Writecount
+             * @default 0
+             */
+            writeCount: number;
+        };
+        /** TelemetryFileStats */
+        TelemetryFileStats: {
+            /**
+             * Totalaccesses
+             * @default 0
+             */
+            totalAccesses: number;
+            /**
+             * Uniquefiles
+             * @default 0
+             */
+            uniqueFiles: number;
+            /**
+             * Totalreads
+             * @default 0
+             */
+            totalReads: number;
+            /**
+             * Totalwrites
+             * @default 0
+             */
+            totalWrites: number;
+            /**
+             * Rereadcount
+             * @default 0
+             */
+            rereadCount: number;
+        };
+        /** TelemetryLlmCall */
+        TelemetryLlmCall: {
+            /** Model */
+            model: string;
+            /**
+             * Inputtokens
+             * @default 0
+             */
+            inputTokens: number;
+            /**
+             * Outputtokens
+             * @default 0
+             */
+            outputTokens: number;
+            /**
+             * Cachereadtokens
+             * @default 0
+             */
+            cacheReadTokens: number;
+            /**
+             * Cachewritetokens
+             * @default 0
+             */
+            cacheWriteTokens: number;
+            /**
+             * Cost
+             * @default 0
+             */
+            cost: number;
+            /**
+             * Durationms
+             * @default 0
+             */
+            durationMs: number;
+            /**
+             * Issubagent
+             * @default false
+             */
+            isSubagent: boolean;
+            /**
+             * Offsetsec
+             * @default 0
+             */
+            offsetSec: number;
+            /**
+             * Callcount
+             * @default 1
+             */
+            callCount: number;
+        };
+        /** TelemetryQuotaSnapshot */
+        TelemetryQuotaSnapshot: {
+            /**
+             * Usedrequests
+             * @default 0
+             */
+            usedRequests: number;
+            /**
+             * Entitlementrequests
+             * @default 0
+             */
+            entitlementRequests: number;
+            /**
+             * Remainingpercentage
+             * @default 0
+             */
+            remainingPercentage: number;
+            /**
+             * Overage
+             * @default 0
+             */
+            overage: number;
+            /**
+             * Overageallowed
+             * @default false
+             */
+            overageAllowed: boolean;
+            /**
+             * Isunlimited
+             * @default false
+             */
+            isUnlimited: boolean;
+            /**
+             * Resetdate
+             * @default
+             */
+            resetDate: string;
+        };
+        /** TelemetryReviewComplexity */
+        TelemetryReviewComplexity: {
+            /**
+             * Tier
+             * @default quick
+             */
+            tier: string;
+            /**
+             * Signals
+             * @default []
+             */
+            signals: string[];
+        };
+        /** TelemetryReviewSignals */
+        TelemetryReviewSignals: {
+            /**
+             * Testcomodifications
+             * @default []
+             */
+            testCoModifications: unknown[];
+        };
+        /** TelemetryToolCall */
+        TelemetryToolCall: {
+            /** Name */
+            name: string;
+            /**
+             * Durationms
+             * @default 0
+             */
+            durationMs: number;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+            /**
+             * Offsetsec
+             * @default 0
+             */
+            offsetSec: number;
+            /** Motivationsummary */
+            motivationSummary?: string | null;
+            /** Editmotivations */
+            editMotivations?: unknown[] | null;
+        };
+        /** TelemetryTurnEconomics */
+        TelemetryTurnEconomics: {
+            /**
+             * Totalturns
+             * @default 0
+             */
+            totalTurns: number;
+            /**
+             * Peakturncostusd
+             * @default 0
+             */
+            peakTurnCostUsd: number;
+            /**
+             * Avgturncostusd
+             * @default 0
+             */
+            avgTurnCostUsd: number;
+            /**
+             * Costfirsthalfusd
+             * @default 0
+             */
+            costFirstHalfUsd: number;
+            /**
+             * Costsecondhalfusd
+             * @default 0
+             */
+            costSecondHalfUsd: number;
+            /**
+             * Turncurve
+             * @default []
+             */
+            turnCurve: components["schemas"]["TelemetryCostBucket"][];
+        };
+        /** TerminalAskRequest */
+        TerminalAskRequest: {
+            /** Prompt */
+            prompt: string;
+            /** Context */
+            context?: string | null;
+        };
+        /** TerminalAskResponse */
+        TerminalAskResponse: {
+            /** Command */
+            command: string;
+            /** Explanation */
+            explanation: string;
+        };
+        /** TerminalSessionInfo */
+        TerminalSessionInfo: {
+            /** Id */
+            id: string;
+            /** Shell */
+            shell: string;
+            /** Cwd */
+            cwd: string;
+            /** Jobid */
+            jobId?: string | null;
+            /** Pid */
+            pid?: number | null;
+            /** Clients */
+            clients: number;
+            /**
+             * Observer
+             * @default false
+             */
+            observer: boolean;
+        };
+        /** TimelineListResponse */
+        TimelineListResponse: {
+            /** Items */
+            items: components["schemas"]["ProgressHeadlinePayload"][];
+        };
+        /** ToolStatsEntry */
+        ToolStatsEntry: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /**
+             * Avgdurationms
+             * @default 0
+             */
+            avgDurationMs: number;
+            /**
+             * Totaldurationms
+             * @default 0
+             */
+            totalDurationMs: number;
+            /**
+             * Failurecount
+             * @default 0
+             */
+            failureCount: number;
+            /**
+             * P50Durationms
+             * @default 0
+             */
+            p50DurationMs: number;
+            /**
+             * P95Durationms
+             * @default 0
+             */
+            p95DurationMs: number;
+            /**
+             * P99Durationms
+             * @default 0
+             */
+            p99DurationMs: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TrailBacktrack
+         * @description A backtrack from the trail summary.
+         */
+        TrailBacktrack: {
+            /** Original */
+            original: string;
+            /** Replacement */
+            replacement: string;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * TrailKeyDecision
+         * @description A key decision from the trail summary.
+         */
+        TrailKeyDecision: {
+            /** Decision */
+            decision: string;
+            /** Rationale */
+            rationale?: string | null;
+        };
+        /**
+         * TrailNodeResponse
+         * @description A single trail node in the agent audit trail.
+         */
+        TrailNodeResponse: {
+            /** Id */
+            id: string;
+            /** Seq */
+            seq: number;
+            /** Anchorseq */
+            anchorSeq: number;
+            /** Kind */
+            kind: string;
+            /** Deterministickind */
+            deterministicKind?: string | null;
+            /** Phase */
+            phase?: string | null;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /** Enrichment */
+            enrichment: string;
+            /** Intent */
+            intent?: string | null;
+            /** Rationale */
+            rationale?: string | null;
+            /** Outcome */
+            outcome?: string | null;
+            /** Stepid */
+            stepId?: string | null;
+            /**
+             * Spanids
+             * @default []
+             */
+            spanIds: number[];
+            /** Turnid */
+            turnId?: string | null;
+            /**
+             * Files
+             * @default []
+             */
+            files: string[];
+            /** Startsha */
+            startSha?: string | null;
+            /** Endsha */
+            endSha?: string | null;
+            /** Supersedes */
+            supersedes?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /**
+             * Children
+             * @default []
+             */
+            children: components["schemas"]["TrailNodeResponse"][];
+        };
+        /**
+         * TrailResponse
+         * @description Trail endpoint response — flat or nested.
+         */
+        TrailResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Nodes
+             * @default []
+             */
+            nodes: components["schemas"]["TrailNodeResponse"][];
+            /**
+             * Totalnodes
+             * @default 0
+             */
+            totalNodes: number;
+            /**
+             * Enrichednodes
+             * @default 0
+             */
+            enrichedNodes: number;
+            /**
+             * Complete
+             * @default false
+             */
+            complete: boolean;
+        };
+        /**
+         * TrailSummaryResponse
+         * @description Lightweight trail summary for job list cards / PR descriptions.
+         */
+        TrailSummaryResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Goals
+             * @default []
+             */
+            goals: string[];
+            /** Approach */
+            approach?: string | null;
+            /**
+             * Keydecisions
+             * @default []
+             */
+            keyDecisions: components["schemas"]["TrailKeyDecision"][];
+            /**
+             * Backtracks
+             * @default []
+             */
+            backtracks: components["schemas"]["TrailBacktrack"][];
+            /**
+             * Filesexplored
+             * @default 0
+             */
+            filesExplored: number;
+            /**
+             * Filesmodified
+             * @default 0
+             */
+            filesModified: number;
+            /**
+             * Verificationspassed
+             * @default 0
+             */
+            verificationsPassed: number;
+            /**
+             * Verificationsfailed
+             * @default 0
+             */
+            verificationsFailed: number;
+            /**
+             * Enrichmentcomplete
+             * @default false
+             */
+            enrichmentComplete: boolean;
+        };
         /** TranscribeResponse */
         TranscribeResponse: {
             /** Text */
             text: string;
+        };
+        /** TranscriptListResponse */
+        TranscriptListResponse: {
+            /** Items */
+            items: components["schemas"]["TranscriptPayload"][];
         };
         /** TranscriptPayload */
         TranscriptPayload: {
@@ -1324,6 +4326,8 @@ export interface components {
             toolResult?: string | null;
             /** Toolsuccess */
             toolSuccess?: boolean | null;
+            /** Toolissue */
+            toolIssue?: string | null;
             /** Toolintent */
             toolIntent?: string | null;
             /** Tooltitle */
@@ -1332,14 +4336,128 @@ export interface components {
             toolDisplay?: string | null;
             /** Tooldisplayfull */
             toolDisplayFull?: string | null;
+            /** Tooldurationms */
+            toolDurationMs?: number | null;
             /** Toolgroupsummary */
             toolGroupSummary?: string | null;
+            /** Toolvisibility */
+            toolVisibility?: string | null;
+            /** Stepid */
+            stepId?: string | null;
+            /** Stepnumber */
+            stepNumber?: number | null;
         };
         /**
          * TranscriptRole
          * @enum {string}
          */
-        TranscriptRole: "agent" | "operator" | "tool_call" | "reasoning" | "divider";
+        TranscriptRole: "agent" | "agent_delta" | "operator" | "tool_call" | "tool_running" | "tool_output_delta" | "reasoning" | "reasoning_delta" | "divider";
+        /** TranscriptSearchListResponse */
+        TranscriptSearchListResponse: {
+            /** Items */
+            items: components["schemas"]["TranscriptSearchResult"][];
+        };
+        /**
+         * TranscriptSearchResult
+         * @description A transcript event matching a search query.
+         */
+        TranscriptSearchResult: {
+            /** Seq */
+            seq: number;
+            /** Role */
+            role: string;
+            /** Content */
+            content: string;
+            /** Toolname */
+            toolName?: string | null;
+            /** Stepid */
+            stepId?: string | null;
+            /** Stepnumber */
+            stepNumber?: number | null;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+        };
+        /** TriggerAnalysisResponse */
+        TriggerAnalysisResponse: {
+            /** Observationswritten */
+            observationsWritten: number;
+        };
+        /** TrustJobResponse */
+        TrustJobResponse: {
+            /** Resolved */
+            resolved: number;
+        };
+        /** TurnEconomicsResponse */
+        TurnEconomicsResponse: {
+            /** Jobid */
+            jobId: string;
+            /**
+             * Totalturns
+             * @default 0
+             */
+            totalTurns: number;
+            /**
+             * Peakturncostusd
+             * @default 0
+             */
+            peakTurnCostUsd: number;
+            /**
+             * Avgturncostusd
+             * @default 0
+             */
+            avgTurnCostUsd: number;
+            /**
+             * Costfirsthalfusd
+             * @default 0
+             */
+            costFirstHalfUsd: number;
+            /**
+             * Costsecondhalfusd
+             * @default 0
+             */
+            costSecondHalfUsd: number;
+            /**
+             * Turncurve
+             * @default []
+             */
+            turnCurve: components["schemas"]["CostDriverEntry"][];
+        };
+        /**
+         * TurnSummaryPayload
+         * @description SSE payload for activity timeline turn summaries.
+         */
+        TurnSummaryPayload: {
+            /** Jobid */
+            jobId: string;
+            /** Turnid */
+            turnId: string;
+            /** Title */
+            title: string;
+            /** Activityid */
+            activityId: string;
+            /** Activitylabel */
+            activityLabel: string;
+            /**
+             * Activitystatus
+             * @default active
+             */
+            activityStatus: string;
+            /**
+             * Isnewactivity
+             * @default false
+             */
+            isNewActivity: boolean;
+            /** Planitemid */
+            planItemId?: string | null;
+        };
+        /** UnsubscribeRequest */
+        UnsubscribeRequest: {
+            /** Endpoint */
+            endpoint: string;
+        };
         /**
          * UpdateSettingsRequest
          * @description Structured settings update — only include fields to change.
@@ -1384,6 +4502,16 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** VapidKeyResponse */
+        VapidKeyResponse: {
+            /** Publickey */
+            publicKey: string;
+        };
+        /** WarmSessionResponse */
+        WarmSessionResponse: {
+            /** Sessiontoken */
+            sessionToken: string;
+        };
         /** WorkspaceEntry */
         WorkspaceEntry: {
             /** Path */
@@ -1397,6 +4525,13 @@ export interface components {
          * @enum {string}
          */
         WorkspaceEntryType: "file" | "directory";
+        /** WorkspaceFileResponse */
+        WorkspaceFileResponse: {
+            /** Path */
+            path: string;
+            /** Content */
+            content: string;
+        };
         /** WorkspaceListResponse */
         WorkspaceListResponse: {
             /** Items */
@@ -1431,6 +4566,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    sister_session_metrics_api_sister_sessions_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SisterSessionMetricsResponse"];
+                };
+            };
+        };
+    };
+    suggest_names_api_jobs_suggest_names_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestNamesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestNamesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1564,6 +4752,35 @@ export interface operations {
             };
         };
     };
+    interrupt_job_api_jobs__job_id__interrupt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     rerun_job_api_jobs__job_id__rerun_post: {
         parameters: {
             query?: never;
@@ -1668,9 +4885,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
-                "application/json": components["schemas"]["ResumeJobRequest"];
+                "application/json": components["schemas"]["ResumeJobRequest"] | null;
             };
         };
         responses: {
@@ -1696,7 +4913,10 @@ export interface operations {
     };
     list_models_api_models_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description SDK id (copilot | claude). Omit for default. */
+                sdk?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1709,9 +4929,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["ModelListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1721,6 +4948,8 @@ export interface operations {
             query?: {
                 level?: string;
                 limit?: number;
+                /** @description Filter to a specific session number (1-based) */
+                session?: number | null;
             };
             header?: never;
             path: {
@@ -1736,7 +4965,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LogLinePayload"][];
+                    "application/json": components["schemas"]["LogListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1767,7 +4996,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DiffFileModel"][];
+                    "application/json": components["schemas"]["DiffListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1800,7 +5029,141 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TranscriptPayload"][];
+                    "application/json": components["schemas"]["TranscriptListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_steps_api_jobs__job_id__steps_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_step_diff_api_jobs__job_id__steps__step_id__diff_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+                step_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepDiffPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_transcript_api_jobs__job_id__transcript_search_get: {
+        parameters: {
+            query: {
+                q: string;
+                roles?: string[] | null;
+                step_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptSearchListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_to_sha_api_jobs__job_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1833,7 +5196,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProgressHeadlinePayload"][];
+                    "application/json": components["schemas"]["TimelineListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1847,7 +5210,7 @@ export interface operations {
             };
         };
     };
-    get_job_telemetry_api_jobs__job_id__telemetry_get: {
+    get_job_snapshot_api_jobs__job_id__snapshot_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1864,9 +5227,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JobSnapshotResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1973,6 +5334,120 @@ export interface operations {
             };
         };
     };
+    get_job_story_api_jobs__job_id__story_get: {
+        parameters: {
+            query?: {
+                regenerate?: boolean;
+                verbosity?: string;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_telemetry_api_jobs__job_id__telemetry_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTelemetryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    warm_utility_session_api_utility_sessions_warm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmSessionResponse"];
+                };
+            };
+        };
+    };
+    release_utility_session_api_utility_sessions__token__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     stream_events_api_events_get: {
         parameters: {
             query?: {
@@ -1990,9 +5465,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2022,7 +5495,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApprovalResponse"][];
+                    "application/json": components["schemas"]["ApprovalListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2088,9 +5561,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: number;
-                    };
+                    "application/json": components["schemas"]["TrustJobResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2186,9 +5657,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2256,9 +5725,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["WorkspaceFileResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2471,6 +5938,39 @@ export interface operations {
             };
         };
     };
+    create_repo_endpoint_api_settings_repos_create_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRepoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateRepoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cleanup_worktrees_api_settings_cleanup_worktrees_post: {
         parameters: {
             query?: never;
@@ -2486,9 +5986,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: number;
-                    };
+                    "application/json": components["schemas"]["CleanupWorktreesResponse"];
                 };
             };
         };
@@ -2510,9 +6008,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BrowseDirectoryResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2566,6 +6062,709 @@ export interface operations {
             };
         };
     };
+    analytics_overview_api_analytics_overview_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_models_api_analytics_models_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsModelsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_tools_api_analytics_tools_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsToolsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_repos_api_analytics_repos_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsReposResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_jobs_api_analytics_jobs_get: {
+        parameters: {
+            query?: {
+                period?: number;
+                sdk?: string | null;
+                model?: string | null;
+                status?: string | null;
+                repo?: string | null;
+                sort?: string;
+                desc?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsJobsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_pricing_api_analytics_pricing_get: {
+        parameters: {
+            query: {
+                /** @description Comma-separated model names to look up (e.g. 'claude-sonnet-4-6,claude-opus-4-5') */
+                models: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsPricingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cost_drivers_for_job_api_analytics_cost_drivers__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostDriversJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fleet_cost_drivers_api_analytics_cost_drivers_get: {
+        parameters: {
+            query?: {
+                period?: number;
+                dimension?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetCostDriversResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    file_access_for_job_api_analytics_file_access__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileAccessJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fleet_file_access_api_analytics_file_access_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetFileAccessResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    turn_economics_for_job_api_analytics_turn_economics__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnEconomicsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_scorecard_api_analytics_scorecard_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScorecardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_model_comparison_api_analytics_model_comparison_get: {
+        parameters: {
+            query?: {
+                period?: number;
+                repo?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelComparisonResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analytics_job_context_api_analytics_job_context__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobContextResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_observations_api_analytics_observations_get: {
+        parameters: {
+            query?: {
+                category?: string | null;
+                severity?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationsListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_observation_api_analytics_observations__observation_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                observation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DismissResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trigger_analysis_api_analytics_analyse_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerAnalysisResponse"];
+                };
+            };
+        };
+    };
+    shell_command_breakdown_api_analytics_shell_commands_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShellCommandsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_cost_summary_api_analytics_retry_cost_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryCostResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fleet_edit_efficiency_api_analytics_edit_efficiency_get: {
+        parameters: {
+            query?: {
+                period?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditEfficiencyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_vapid_key_api_notifications_vapid_key_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VapidKeyResponse"];
+                };
+            };
+        };
+    };
+    subscribe_api_notifications_subscribe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unsubscribe_api_notifications_unsubscribe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnsubscribeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sessions_api_terminal_sessions_get: {
         parameters: {
             query?: never;
@@ -2581,7 +6780,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionInfo"][];
+                    "application/json": components["schemas"]["TerminalSessionInfo"][];
                 };
             };
         };
@@ -2595,7 +6794,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateSessionRequest"];
+                "application/json": components["schemas"]["CreateTerminalSessionRequest"];
             };
         };
         responses: {
@@ -2605,7 +6804,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CreateSessionResponse"];
+                    "application/json": components["schemas"]["CreateTerminalSessionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2648,6 +6847,37 @@ export interface operations {
             };
         };
     };
+    get_observer_terminal_api_terminal_observer__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalSessionInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     ask_ai_api_terminal_ask_post: {
         parameters: {
             query?: never;
@@ -2657,7 +6887,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AskRequest"];
+                "application/json": components["schemas"]["TerminalAskRequest"];
             };
         };
         responses: {
@@ -2667,7 +6897,406 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AskResponse"];
+                    "application/json": components["schemas"]["TerminalAskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_proxy_api_preview__port___path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_proxy_api_preview__port___path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_proxy_api_preview__port___path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_proxy_api_preview__port___path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_proxy_api_preview__port___path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_proxy_api_preview__port___path__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_share_link_api_jobs__job_id__share_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_shared_job_api_share__token__job_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_shared_events_api_share__token__events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_shared_snapshot_api_share__token__snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobSnapshotResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_shared_telemetry_api_share__token__telemetry_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTelemetryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_trail_api_jobs__job_id__trail_get: {
+        parameters: {
+            query?: {
+                kinds?: string | null;
+                flat?: boolean;
+                after_seq?: number | null;
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_trail_summary_api_jobs__job_id__trail_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrailSummaryResponse"];
                 };
             };
             /** @description Validation Error */

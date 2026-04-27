@@ -100,14 +100,14 @@ async def get_shared_job(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/share/{token}/events", response_model=None)
+@router.get("/share/{token}/events", response_model=None, response_class=StreamingResponse)
 async def stream_shared_events(
     token: str,
     request: Request,
     share_service: FromDishka[ShareService],
     sse_manager: FromDishka[SSEManager],
     session_factory: FromDishka[async_sessionmaker],  # type: ignore[type-arg]  # dishka DI resolves the full parameterized type at runtime
-) -> StreamingResponse:
+):
     """SSE stream scoped to a shared job (read-only)."""
     job_id = share_service.validate(token)
     if job_id is None:
