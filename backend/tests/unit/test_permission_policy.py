@@ -10,16 +10,21 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
+from functools import partial
+
+from backend.models.domain import PermissionMode
 from backend.services.permission_policy import (
     _HARD_GATED_SHELL_RE,
     _READONLY_SHELL_RE,
     PolicyDecision,
     _is_path_within_workspace,
-    evaluate_full_auto,
-    evaluate_observe_only,
-    evaluate_review_and_approve,
+    evaluate,
     is_git_reset_hard,
 )
+
+evaluate_full_auto = partial(evaluate, PermissionMode.full_auto)
+evaluate_observe_only = partial(evaluate, PermissionMode.observe_only)
+evaluate_review_and_approve = partial(evaluate, PermissionMode.review_and_approve)
 
 # ---------------------------------------------------------------------------
 # is_git_reset_hard
