@@ -16,6 +16,7 @@ from backend.models.domain import (
     CostByDayRow,
     CostByModelRow,
     CostByRepoRow,
+    ModelComparisonRow,
     TelemetrySummaryRow,
 )
 from backend.persistence.repository import BaseRepository
@@ -349,7 +350,10 @@ class TelemetrySummaryRepository(BaseRepository):
             """),
         )
         row = result.mappings().first()
-        return dict(row) if row else {}
+        # COUNT/SUM without GROUP BY always returns a row, but guard defensively
+        if not row:
+            return AggregateStats()
+        return AggregateStats(**row)
 
     async def cost_by_day(self, *, period_days: int = 7) -> list[CostByDayRow]:
         """Return daily cost breakdown."""
@@ -503,7 +507,7 @@ class TelemetrySummaryRepository(BaseRepository):
             "costTrend": cost_trend,
         }
 
-    async def model_comparison(self, *, period_days: int = 30, repo: str | None = None) -> list[dict[str, Any]]:
+    async def model_comparison(self, *, period_days: int = 30, repo: str | None = None) -> list[ModelComparisonRow]:
         """Per-model stats joined with resolution data from jobs table."""
         repo_filter = ""
         params: dict[str, Any] = {}

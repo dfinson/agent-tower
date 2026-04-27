@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from backend.models.domain import FileAccessStatsRow
+from backend.models.domain import FileAccessRow, FileAccessStatsRow
 from backend.persistence.repository import BaseRepository
 
 
@@ -119,7 +119,7 @@ class FileAccessRepository(BaseRepository):
 
     async def most_accessed_files(
         self, *, job_id: str | None = None, period_days: int = 30, limit: int = 20
-    ) -> list[dict[str, Any]]:
+    ) -> list[FileAccessRow]:
         """Get most-accessed files, optionally filtered by job."""
         where = "WHERE 1=1"
         params: dict[str, Any] = {}

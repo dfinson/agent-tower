@@ -715,10 +715,6 @@ export const selectSignoffJobs = (state: AppState): JobSummary[] =>
     ),
   );
 
-/** @deprecated Use selectSignoffJobs instead */
-export const selectReviewJobs = (state: AppState): JobSummary[] =>
-  selectSignoffJobs(state);
-
 /** Attention: failed jobs that haven't been archived. */
 export const selectAttentionJobs = (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(
@@ -726,10 +722,6 @@ export const selectAttentionJobs = (state: AppState): JobSummary[] =>
       (j) => !j.archivedAt && j.state === "failed",
     ),
   );
-
-/** @deprecated Use selectAttentionJobs instead */
-export const selectFailedJobs = (state: AppState): JobSummary[] =>
-  selectAttentionJobs(state);
 
 /** Archived jobs loaded into the store (for the history browser). */
 export const selectArchivedJobs = (state: AppState): JobSummary[] =>
