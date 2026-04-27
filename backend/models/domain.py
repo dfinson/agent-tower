@@ -60,6 +60,19 @@ class Resolution(StrEnum):
     conflict = "conflict"
 
 
+class GitMergeOutcome(StrEnum):
+    """Outcome of the automatic git merge operation after an agent session.
+
+    Distinct from :class:`Resolution` which captures the *user's decision*.
+    This enum tracks only the mechanical result of the merge-back attempt.
+    """
+
+    not_merged = "not_merged"
+    merged = "merged"
+    conflict = "conflict"
+    pr_created = "pr_created"
+
+
 # Job state machine — authoritative transition table (see SPEC.md §12.2).
 #
 #   None ──► preparing ──► queued ──► running ──► review ──► completed
@@ -627,7 +640,7 @@ class Job:
     updated_at: datetime
     completed_at: datetime | None = None
     pr_url: str | None = None
-    merge_status: str | None = None
+    merge_status: GitMergeOutcome | None = None
     """Git merge operation outcome: ``not_merged`` | ``merged`` | ``conflict``."""
     resolution: Resolution | None = None
     """User-facing job disposition (see :class:`Resolution`)."""

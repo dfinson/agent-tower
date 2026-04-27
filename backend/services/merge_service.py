@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
     from backend.models.domain import Job
 
-from backend.models.domain import Resolution
+from backend.models.domain import GitMergeOutcome, Resolution
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.git_service import GitError
 
@@ -95,7 +95,7 @@ class MergeResult:
 
 
 # Persisted merge_status value for jobs whose branch has not yet been merged.
-_NOT_MERGED = "not_merged"
+_NOT_MERGED = GitMergeOutcome.not_merged
 
 
 class MergeService:
@@ -226,7 +226,7 @@ class MergeService:
 
         # Persist before publishing so the frontend never sees an event
         # that the DB hasn't committed.
-        await self._update_merge_status(job_id, Resolution.merged)
+        await self._update_merge_status(job_id, GitMergeOutcome.merged)
         await self._publish_merge_completed(job_id, branch, base_ref, "ff_only")
         await self._post_merge_cleanup(job_id, repo_path, None, branch)
         return MergeResult(status=MergeStatus.merged, strategy="ff_only")
@@ -350,7 +350,7 @@ class MergeService:
 
         if outcome is _MergeOutcome.success:
             log.info("merge_succeeded", job_id=job_id, branch=branch, base_ref=base_ref)
-            await self._update_merge_status(job_id, Resolution.merged)
+            await self._update_merge_status(job_id, GitMergeOutcome.merged)
             await self._publish_merge_completed(job_id, branch, base_ref, "merge")
             await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
             return MergeResult(status=MergeStatus.merged, strategy="merge")
@@ -360,7 +360,7 @@ class MergeService:
             return MergeResult(status=MergeStatus.error, error=error or "Merge failed without conflict markers")
 
         # outcome is _MergeOutcome.conflict
-        await self._update_merge_status(job_id, Resolution.conflict)
+        await self._update_merge_status(job_id, GitMergeOutcome.conflict)
         await self._publish_merge_conflict(
             job_id,
             branch,
@@ -437,7 +437,7 @@ class MergeService:
 
         if pr_result.ok:
             log.info("pr_created", job_id=job_id, pr_url=pr_result.url, platform=adapter.name)
-            await self._update_merge_status(job_id, Resolution.pr_created, pr_url=pr_result.url)
+            await self._update_merge_status(job_id, GitMergeOutcome.pr_created, pr_url=pr_result.url)
             return MergeResult(status=MergeStatus.pr_created, strategy="pr", pr_url=pr_result.url)
 
         log.warning("pr_creation_failed", job_id=job_id, platform=adapter.name, error=pr_result.error)
@@ -471,7 +471,7 @@ class MergeService:
     async def _update_merge_status(
         self,
         job_id: str,
-        merge_status: str,
+        merge_status: GitMergeOutcome,
         pr_url: str | None = None,
     ) -> None:
         """Persist merge status to the database with retry on SQLite lock.
@@ -685,7 +685,7 @@ class MergeService:
 
             if outcome is _MergeOutcome.success:
                 log.info("resolve_merge_succeeded", job_id=job_id, branch=branch)
-                await self._update_merge_status(job_id, Resolution.merged)
+                await self._update_merge_status(job_id, GitMergeOutcome.merged)
                 await self._publish_merge_completed(job_id, branch, base_ref, "merge")
                 await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
                 return MergeResult(status=MergeStatus.merged, strategy="merge")
@@ -695,7 +695,7 @@ class MergeService:
                 return MergeResult(status=MergeStatus.error, error=error or "Merge failed without conflict markers")
 
             # outcome is _MergeOutcome.conflict
-            await self._update_merge_status(job_id, Resolution.conflict)
+            await self._update_merge_status(job_id, GitMergeOutcome.conflict)
             await self._publish_merge_conflict(
                 job_id,
                 branch,
@@ -791,7 +791,7 @@ class MergeService:
                     await self._git.checkout(base_ref, cwd=repo_path)
                 except GitError:
                     log.warning("smart_merge_checkout_base_failed", job_id=job_id, exc_info=True)
-                await self._update_merge_status(job_id, Resolution.conflict)
+                await self._update_merge_status(job_id, GitMergeOutcome.conflict)
                 await self._publish_merge_conflict(
                     job_id,
                     branch,
@@ -803,7 +803,7 @@ class MergeService:
                 return MergeResult(status=MergeStatus.conflict, conflict_files=conflict_files)
 
             log.info("smart_merge_succeeded", job_id=job_id, branch=branch, base_ref=base_ref)
-            await self._update_merge_status(job_id, Resolution.merged)
+            await self._update_merge_status(job_id, GitMergeOutcome.merged)
             await self._publish_merge_completed(job_id, branch, base_ref, "cherry_pick")
             await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
             return MergeResult(status=MergeStatus.merged, strategy="cherry_pick")

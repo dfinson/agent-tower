@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from backend.models.domain import (  # noqa: TC001 — Pydantic resolves annotations at runtime
+    GitMergeOutcome,
     JobState,
     PermissionMode,
     Resolution,
@@ -273,8 +274,8 @@ class JobResponse(CamelModel):
     updated_at: datetime
     completed_at: datetime | None
     pr_url: str | None = None
-    merge_status: str | None = None
-    """Git merge operation outcome (``not_merged`` | ``merged`` | ``conflict``)."""
+    merge_status: GitMergeOutcome | None = None
+    """Git merge operation outcome — see :class:`~backend.models.domain.GitMergeOutcome`."""
     resolution: Resolution | None = None
     """User-facing job disposition — see :class:`~backend.models.domain.Resolution`."""
     archived_at: datetime | None = None
@@ -614,8 +615,8 @@ class JobReviewPayload(CamelModel):
 
     job_id: str
     pr_url: str | None = None
-    merge_status: str | None = None
-    """Git merge operation outcome (``not_merged`` | ``merged`` | ``conflict``)."""
+    merge_status: GitMergeOutcome | None = None
+    """Git merge operation outcome — see :class:`~backend.models.domain.GitMergeOutcome`."""
     resolution: str | None = None
     """User-facing job disposition — see :class:`~backend.models.domain.Resolution`."""
     model_downgraded: bool = False
