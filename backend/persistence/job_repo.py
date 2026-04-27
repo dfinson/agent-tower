@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, or_, select
 
 from backend.models.db import DiffSnapshotRow, JobRow
-from backend.models.domain import GitMergeOutcome, Job, JobState, PermissionMode, Resolution
+from backend.models.domain import GitMergeOutcome, Job, JobNotFoundError, JobState, PermissionMode, Resolution
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
@@ -39,7 +39,7 @@ class JobRepository(BaseRepository):
         result = await self._session.execute(select(JobRow).where(JobRow.id == job_id))
         row = result.scalar_one_or_none()
         if row is None:
-            raise ValueError(f"Job {job_id!r} not found — cannot update a deleted or non-existent row")
+            raise JobNotFoundError(f"Job {job_id!r} not found — cannot update a deleted or non-existent row")
         for field, value in updates.items():
             setattr(row, field, value)
         row.version = (row.version if row.version is not None else 0) + 1  # type: ignore[assignment]  # version column accepts int; mapped type is Optional

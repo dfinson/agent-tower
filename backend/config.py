@@ -313,7 +313,7 @@ def load_config(path: Path | None = None) -> CPLConfig:
         # Persist so the ID is stable across restarts
         try:
             save_config(cfg, path)
-        except Exception:
+        except (OSError, yaml.YAMLError):
             log.warning("instance_id_persist_failed", exc_info=True)
 
     return cfg
@@ -507,7 +507,7 @@ def discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, Any]:
                         args=entry.get("args", []),
                         env=entry.get("env"),
                     )
-        except Exception:
+        except (OSError, yaml.YAMLError):
             log.warning("mcp_global_config_read_failed", path=str(global_config_path))
 
     # 2. Repo-level: .vscode/mcp.json (takes precedence over global)
@@ -526,7 +526,7 @@ def discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, Any]:
                         args=entry.get("args", []),
                         env=entry.get("env"),
                     )
-        except Exception:
+        except (OSError, _json.JSONDecodeError):
             log.warning("mcp_repo_config_read_failed", path=str(mcp_json_path))
 
     # 3. Apply .codeplane.yml disabled list
@@ -539,7 +539,7 @@ def discover_mcp_servers(repo_path: str, config: CPLConfig) -> dict[str, Any]:
             if isinstance(disabled, list):
                 for name in disabled:
                     servers.pop(str(name), None)
-        except Exception:
+        except (OSError, yaml.YAMLError):
             log.warning("codeplane_yml_read_failed", path=str(codeplane_yml_path))
 
     return servers
@@ -555,7 +555,7 @@ def resolve_protected_paths(repo_path: str) -> list[str]:
             data = yaml.safe_load(f) or {}
         paths = data.get("protected_paths", [])
         return [str(p) for p in paths] if isinstance(paths, list) else []
-    except Exception:
+    except (OSError, yaml.YAMLError):
         log.warning("protected_paths_read_failed", path=str(codeplane_yml), exc_info=True)
         return []
 
@@ -577,7 +577,7 @@ def resolve_permission_mode(repo_path: str) -> str | None:
             except ValueError:
                 log.debug("invalid_permission_mode", mode=mode)
         return None
-    except Exception:
+    except (OSError, yaml.YAMLError):
         log.warning("permission_mode_read_failed", path=str(codeplane_yml), exc_info=True)
         return None
 
