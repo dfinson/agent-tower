@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 from backend.models.db import Base
-from backend.models.domain import Artifact, Job, JobState
+from backend.models.domain import Artifact, Job, JobNotFoundError, JobState
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.artifact_repo import ArtifactRepository
 from backend.persistence.database import _set_sqlite_pragmas
@@ -487,7 +487,7 @@ class TestUpdateStateEdgeCases:
     async def test_update_nonexistent_job_raises(self, session: AsyncSession) -> None:
         repo = JobRepository(session)
         now = datetime.now(UTC)
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(JobNotFoundError):
             await repo.update_state("nonexistent", "failed", now)
 
     @pytest.mark.asyncio

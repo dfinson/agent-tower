@@ -866,200 +866,25 @@ async def get_job_snapshot(
     single response. Used by the frontend after SSE reconnection or page
     refresh to ensure the UI is fully consistent with backend state.
     """
+    from backend.api.snapshot_helpers import assemble_snapshot
+
     job = await svc.get_job(job_id)
     progress_preview = await svc.get_latest_progress_preview(job_id)
 
-    # Collect all sub-resources in parallel via gather
-    import asyncio as _aio
-
-    logs_coro = svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=_EVENT_QUERY_DEFAULT)
-    transcript_coro = svc.list_events_by_job(job_id, [DomainEventKind.transcript_updated], limit=_EVENT_QUERY_DEFAULT)
-    timeline_coro = svc.list_events_by_job(job_id, [DomainEventKind.progress_headline], limit=_HEADLINE_QUERY_LIMIT)
-    summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING)
-    steps_coro = svc.list_events_by_job(job_id, [DomainEventKind.plan_step_updated], limit=_EVENT_QUERY_CEILING)
-    reassign_coro = svc.list_events_by_job(job_id, [DomainEventKind.step_entries_reassigned], limit=_EVENT_QUERY_CEILING)
-    turn_summary_coro = svc.list_events_by_job(job_id, [DomainEventKind.turn_summary], limit=_EVENT_QUERY_CEILING)
-
-    (
-        log_events,
-        transcript_events,
-        timeline_events,
-        summary_events,
-        step_events,
-        reassign_events,
-        turn_summary_events,
-    ) = await _aio.gather(
-        logs_coro,
-        transcript_coro,
-        timeline_coro,
-        summary_coro,
-        steps_coro,
-        reassign_coro,
-        turn_summary_coro,
+    return await assemble_snapshot(
+        job=job,
+        progress_preview=progress_preview,
+        svc=svc,
+        diff_service=diff_service,
+        approval_repo=approval_repo,
+        resolve_display=resolve_tool_display,
+        resolve_display_full=resolve_tool_display_full,
+        job_to_response=job_to_response,
+        filter_transcript_deltas=True,
+        detect_plan_generations=True,
+        exclude_pending_steps=False,
+        deduplicate_turn_summaries=True,
     )
-
-    # Build logs
-    logs = [
-        LogLinePayload(
-            job_id=e.job_id,
-            seq=e.payload.get("seq", 0),
-            timestamp=e.payload.get("timestamp", e.timestamp),
-            level=e.payload.get("level", "info"),
-            message=e.payload.get("message", ""),
-            context=e.payload.get("context"),
-        )
-        for e in log_events
-    ]
-
-    # Build transcript with group summaries
-    group_summary_by_turn: dict[str, str] = {
-        str(ev.payload.get("turn_id")): str(ev.payload.get("summary"))
-        for ev in summary_events
-        if ev.payload.get("turn_id") and ev.payload.get("summary")
-    }
-    transcript = [
-        TranscriptPayload(
-            job_id=e.job_id,
-            seq=e.payload.get("seq", 0),
-            timestamp=e.payload.get("timestamp", e.timestamp),
-            role=e.payload.get("role", "agent"),
-            content=e.payload.get("content", ""),
-            title=e.payload.get("title"),
-            turn_id=e.payload.get("turn_id"),
-            tool_name=e.payload.get("tool_name"),
-            tool_args=e.payload.get("tool_args"),
-            tool_result=e.payload.get("tool_result"),
-            tool_success=e.payload.get("tool_success"),
-            tool_issue=e.payload.get("tool_issue"),
-            tool_intent=e.payload.get("tool_intent"),
-            tool_title=e.payload.get("tool_title"),
-            tool_display=resolve_tool_display(e.payload),
-            tool_display_full=resolve_tool_display_full(e.payload),
-            tool_duration_ms=e.payload.get("tool_duration_ms"),
-            tool_group_summary=group_summary_by_turn.get(e.payload.get("turn_id") or ""),
-            tool_visibility=e.payload.get("tool_visibility"),
-            step_id=e.payload.get("step_id"),
-            step_number=e.payload.get("step_number"),
-        )
-        for e in transcript_events
-        if e.payload.get("role", "agent") not in ("tool_output_delta", "reasoning_delta")
-    ]
-
-    # Apply step reassignments so transcript entries have their final step_id.
-    # Without this, hydration returns the original step_id from when the entry
-    # was first persisted, causing entries to appear under the wrong step.
-    if reassign_events:
-        # Build a map: turn_id → (old_step_id, new_step_id) for each reassignment.
-        # Later reassignments for the same turn override earlier ones.
-        reassign_map: dict[str, tuple[str, str]] = {}
-        for ev in reassign_events:
-            tid = ev.payload.get("turn_id", "")
-            old_sid = ev.payload.get("old_step_id", "")
-            new_sid = ev.payload.get("new_step_id", "")
-            if tid and old_sid and new_sid:
-                reassign_map[tid] = (old_sid, new_sid)
-        if reassign_map:
-            for entry in transcript:
-                key = entry.turn_id or ""
-                if key in reassign_map:
-                    old_sid, new_sid = reassign_map[key]
-                    if entry.step_id == old_sid:
-                        entry.step_id = new_sid
-
-    # Build timeline
-    milestones: list[ProgressHeadlinePayload] = []
-    for event in timeline_events:
-        replaces = event.payload.get("replaces_count", 0)
-        if replaces > 0:
-            milestones = milestones[:-replaces] if replaces < len(milestones) else []
-        milestones.append(
-            ProgressHeadlinePayload(
-                job_id=event.job_id,
-                headline=event.payload.get("headline", ""),
-                headline_past=event.payload.get("headline_past", ""),
-                summary=event.payload.get("summary", ""),
-                timestamp=event.timestamp,
-            )
-        )
-
-    # Build diff (live or from snapshot)
-    diff: list[DiffFileModel] = []
-    if (
-        job.state in (JobState.running, JobState.waiting_for_approval)
-        and job.worktree_path
-        and job.worktree_path != job.repo
-    ):
-        with contextlib.suppress(GitError, OSError):
-            diff = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
-
-    if not diff:
-        diff_events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
-        if diff_events:
-            raw_files = diff_events[-1].payload.get("changed_files", [])
-            diff = [DiffFileModel.model_validate(f) for f in raw_files]
-
-    # Build approvals from DB state (includes resolution status)
-    from backend.models.api_schemas import ApprovalResponse
-
-    db_approvals = await approval_repo.list_for_job(job_id)
-    approval_list: list[ApprovalResponse] = [
-        ApprovalResponse(
-            id=a.id,
-            job_id=a.job_id,
-            description=a.description,
-            proposed_action=a.proposed_action,
-            requested_at=a.requested_at,
-            resolved_at=a.resolved_at,
-            resolution=a.resolution,
-        )
-        for a in db_approvals
-    ]
-
-    # Build plan steps (with generation detection for re-inferred plans)
-    plan_steps = [
-        PlanStepPayload(**p)
-        for p in hydrate_plan_steps(step_events, job_id, detect_generations=True)
-    ]
-
-    # Build turn summaries for the activity timeline.
-    # De-duplicate by turn_id: keep the LAST event per turn_id so label
-    # refinements and merge updates are reflected, but preserve the FIRST
-    # event's is_new_activity flag (the re-emit from _refine_activity_label
-    # always sends is_new_activity=False which would erase the boundary).
-    _turn_first_new: dict[str, bool] = {}  # turn_id → first is_new_activity
-    _turn_latest: dict[str, int] = {}
-    for idx, ev in enumerate(turn_summary_events):
-        tid = ev.payload.get("turn_id", "")
-        if tid:
-            if tid not in _turn_first_new:
-                _turn_first_new[tid] = bool(ev.payload.get("is_new_activity", False))
-            _turn_latest[tid] = idx
-    _keep_idxs = set(_turn_latest.values())
-    turn_summaries = [
-        TurnSummaryPayload(
-            job_id=job_id,
-            turn_id=ev.payload.get("turn_id", ""),
-            title=ev.payload.get("title", ""),
-            activity_id=ev.payload.get("activity_id", ""),
-            activity_label=ev.payload.get("activity_label", ""),
-            activity_status=ev.payload.get("activity_status", "active"),
-            is_new_activity=_turn_first_new.get(ev.payload.get("turn_id", ""), False),
-        )
-        for idx, ev in enumerate(turn_summary_events)
-        if idx in _keep_idxs and ev.payload.get("turn_id") and ev.payload.get("title")
-    ]
-
-    resp = JobSnapshotResponse(
-        job=job_to_response(job, progress_preview),
-        logs=logs,
-        transcript=transcript,
-        diff=diff,
-        approvals=approval_list,
-        timeline=milestones,
-        steps=plan_steps,
-        turn_summaries=turn_summaries,
-    )
-    return resp
 
 
 @router.post("/jobs/{job_id}/resolve", response_model=ResolveJobResponse)
