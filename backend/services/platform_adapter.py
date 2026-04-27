@@ -144,7 +144,7 @@ class GitHubAdapter:
                 error=stderr[:200] or "Not authenticated",
             )
         except Exception as exc:
-            return PlatformStatus(platform=self.name, authenticated=False, error=str(exc)[:200])
+            return PlatformStatus(platform=self.name, authenticated=False, error=str(exc))
 
     async def create_pr(
         self,
@@ -185,7 +185,7 @@ class GitHubAdapter:
             return PRResult(error=stderr[:4000] or f"gh exited {rc}")
         except Exception as exc:
             log.warning("github_pr_error", exc_info=True)
-            return PRResult(error=str(exc)[:2000])
+            return PRResult(error=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +227,7 @@ class AzureDevOpsAdapter:
                 error=stderr[:200] or "Not authenticated",
             )
         except Exception as exc:
-            return PlatformStatus(platform=self.name, authenticated=False, error=str(exc)[:200])
+            return PlatformStatus(platform=self.name, authenticated=False, error=str(exc))
 
     async def create_pr(
         self,
@@ -281,7 +281,7 @@ class AzureDevOpsAdapter:
             return PRResult(error=stderr[:4000] or f"az exited {rc}")
         except Exception as exc:
             log.warning("azdo_pr_error", exc_info=True)
-            return PRResult(error=str(exc)[:2000])
+            return PRResult(error=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +329,7 @@ class GitLabAdapter:
                 error=stderr[:200] or "Not authenticated",
             )
         except Exception as exc:
-            return PlatformStatus(platform=self.name, authenticated=False, error=str(exc)[:200])
+            return PlatformStatus(platform=self.name, authenticated=False, error=str(exc))
 
     async def create_pr(
         self,
@@ -372,7 +372,7 @@ class GitLabAdapter:
             return PRResult(error=stderr[:4000] or f"glab exited {rc}")
         except Exception as exc:
             log.warning("gitlab_mr_error", exc_info=True)
-            return PRResult(error=str(exc)[:2000])
+            return PRResult(error=str(exc))
 
 
 # ---------------------------------------------------------------------------
