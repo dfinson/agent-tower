@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import NamedTuple
 
@@ -39,6 +40,19 @@ class PolicyDecision(StrEnum):
     approve = "approve"
     ask = "ask"
     deny = "deny"
+
+
+@dataclass(frozen=True, slots=True)
+class PermissionRequest:
+    """Context for a single permission evaluation."""
+
+    kind: str
+    workspace_path: str
+    possible_paths: list[str] | None = field(default=None)
+    full_command_text: str | None = None
+    file_name: str | None = None
+    path: str | None = None
+    read_only: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -279,8 +293,10 @@ def _resolve(
 def evaluate(
     mode: str,
     *,
-    kind: str,
-    workspace_path: str,
+    req: PermissionRequest | None = None,
+    # Legacy keyword arguments — prefer passing a PermissionRequest.
+    kind: str = "",
+    workspace_path: str = "",
     possible_paths: list[str] | None = None,
     full_command_text: str | None = None,
     file_name: str | None = None,
@@ -291,31 +307,45 @@ def evaluate(
 
     This is the single public entry-point — callers pass the mode string
     directly instead of picking a mode-specific wrapper function.
+
+    Accepts either a ``PermissionRequest`` via *req* or individual keyword
+    arguments for backward compatibility.
     """
+    if req is None:
+        req = PermissionRequest(
+            kind=kind,
+            workspace_path=workspace_path,
+            possible_paths=possible_paths,
+            full_command_text=full_command_text,
+            file_name=file_name,
+            path=path,
+            read_only=read_only,
+        )
+
     # Hard-gated commands always require approval, regardless of mode or trust level.
     # _HARD_GATED_SHELL_RE covers merge/pull/rebase/cherry-pick and simple git reset --hard.
     # is_git_reset_hard() additionally catches compound commands (e.g. cd /x && git reset --hard).
     if (
-        kind == "shell"
-        and full_command_text
-        and (_HARD_GATED_SHELL_RE.search(full_command_text) or is_git_reset_hard(full_command_text))
+        req.kind == "shell"
+        and req.full_command_text
+        and (_HARD_GATED_SHELL_RE.search(req.full_command_text) or is_git_reset_hard(req.full_command_text))
     ):
-        log.info("hard_gated_command", command=full_command_text, mode=mode)
+        log.info("hard_gated_command", command=req.full_command_text, mode=mode)
         return _ASK
 
-    rule = _RULES.get((mode, kind))
+    rule = _RULES.get((mode, req.kind))
     if rule is None:
         default = _MODE_DEFAULTS.get(mode, _ASK)
         if default == _ASK:
-            log.warning("unknown_permission_kind", kind=kind)
+            log.warning("unknown_permission_kind", kind=req.kind)
         return default
 
     return _resolve(
         rule,
-        workspace_path=workspace_path,
-        file_name=file_name,
-        path=path,
-        possible_paths=possible_paths,
-        full_command_text=full_command_text,
-        read_only=read_only,
+        workspace_path=req.workspace_path,
+        file_name=req.file_name,
+        path=req.path,
+        possible_paths=req.possible_paths,
+        full_command_text=req.full_command_text,
+        read_only=req.read_only,
     )

@@ -391,7 +391,6 @@ class GenericGitAdapter:
         return PlatformStatus(
             platform=self.name,
             authenticated=True,
-            error="No platform detected — local merge only",
         )
 
     async def create_pr(

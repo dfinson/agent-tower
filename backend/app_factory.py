@@ -59,7 +59,7 @@ _FRONTEND_DIR = Path(__file__).resolve().parent / "web"
 
 # Allowed WebSocket origins — populated during middleware configuration so the
 # terminal WS endpoint can validate the Origin header.
-_allowed_ws_origins: set[str] = set()
+_allowed_ws_origins: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ _allowed_ws_origins: set[str] = set()
 # ---------------------------------------------------------------------------
 
 
-def get_allowed_ws_origins() -> set[str]:
+def get_allowed_ws_origins() -> frozenset[str]:
     """Return the set of allowed origins for WebSocket connections."""
     return _allowed_ws_origins
 
@@ -114,10 +114,11 @@ def _configure_middleware(
     # Populate allowed WS origins — localhost variants are always allowed;
     # configured CORS origins are added so the terminal WS endpoint can
     # validate the Origin header on upgrade requests.
-    _allowed_ws_origins.clear()
-    _allowed_ws_origins.update(origins)
-    _allowed_ws_origins.add("http://localhost:8080")
-    _allowed_ws_origins.add("http://127.0.0.1:8080")
+    global _allowed_ws_origins  # noqa: PLW0603
+    ws_origins = set(origins)
+    ws_origins.add("http://localhost:8080")
+    ws_origins.add("http://127.0.0.1:8080")
+    _allowed_ws_origins = frozenset(ws_origins)
 
     if origins:
         app.add_middleware(
