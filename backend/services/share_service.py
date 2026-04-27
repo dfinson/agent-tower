@@ -16,6 +16,10 @@ log = structlog.get_logger()
 DEFAULT_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 
 
+class InvalidShareTokenError(Exception):
+    """Raised when a share token is invalid or expired."""
+
+
 @dataclass
 class ShareToken:
     token: str
@@ -44,16 +48,19 @@ class ShareService:
         log.info("share_token_created", job_id=job_id, token=token[:8])
         return entry
 
-    def validate(self, token: str) -> str | None:
-        """Return the *job_id* if the token is valid, else ``None``."""
+    def validate(self, token: str) -> str:
+        """Return the *job_id* if the token is valid.
+
+        Raises ``InvalidShareTokenError`` if the token is unknown or expired.
+        """
         entry = self._tokens.get(token)
         if entry is None:
             log.debug("share_token_invalid", token=token[:8])
-            return None
+            raise InvalidShareTokenError("Invalid or expired share link")
         if time.monotonic() - entry.created_at > entry.ttl:
             del self._tokens[token]
             log.info("share_token_expired", job_id=entry.job_id, token=token[:8])
-            return None
+            raise InvalidShareTokenError("Invalid or expired share link")
         log.debug("share_token_validated", job_id=entry.job_id, token=token[:8])
         return entry.job_id
 

@@ -29,6 +29,20 @@ def ensure_dict(raw: str | dict[str, Any] | Any) -> dict[str, Any] | None:
     return None
 
 
+def safe_json_loads(raw: str | Any, *, default: Any = None) -> Any:
+    """Parse *raw* as JSON, returning *default* on any parse failure.
+
+    Catches ``JSONDecodeError`` (invalid JSON) and ``TypeError`` (non-string
+    input) — the two failure modes of ``json.loads``.  Use this instead of
+    bare ``json.loads`` + ad-hoc exception handling for the "parse or skip"
+    pattern.
+    """
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
 @asynccontextmanager
 async def best_effort(
     logger: BoundLogger,
