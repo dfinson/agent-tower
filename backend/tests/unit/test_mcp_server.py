@@ -258,9 +258,10 @@ class TestApprovalTool:
     async def test_list(self, mcp_server, mock_approval) -> None:
         mock_approval.list_for_job = AsyncMock(return_value=[_make_approval()])
         result = await _tool(mcp_server, "codeplane_approval")(action="list", job_id="job-123")
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["id"] == "apr-1"
+        assert isinstance(result, dict)
+        assert "items" in result
+        assert len(result["items"]) == 1
+        assert result["items"][0]["id"] == "apr-1"
 
     @pytest.mark.asyncio
     async def test_list_missing_job_id(self, mcp_server) -> None:

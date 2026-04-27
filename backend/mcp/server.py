@@ -328,26 +328,28 @@ def _register_approval_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         job_id: str | None = None,
         approval_id: str | None = None,
         resolution: str | None = None,
-    ) -> McpToolResult | list[dict[str, Any]]:
+    ) -> McpToolResult:
         svc = mcp_state.approval_service
 
         if action == "list":
             if not job_id:
                 return {"error": "job_id is required for list"}
             approvals = await svc.list_for_job(job_id)
-            return [
-                ApprovalResponse(
-                    id=a.id,
-                    job_id=a.job_id,
-                    description=a.description,
-                    proposed_action=a.proposed_action,
-                    requested_at=a.requested_at,
-                    resolved_at=a.resolved_at,
-                    resolution=a.resolution,
-                    requires_explicit_approval=a.requires_explicit_approval,
-                ).model_dump(mode="json")
-                for a in approvals
-            ]
+            return {
+                "items": [
+                    ApprovalResponse(
+                        id=a.id,
+                        job_id=a.job_id,
+                        description=a.description,
+                        proposed_action=a.proposed_action,
+                        requested_at=a.requested_at,
+                        resolved_at=a.resolved_at,
+                        resolution=a.resolution,
+                        requires_explicit_approval=a.requires_explicit_approval,
+                    ).model_dump(mode="json")
+                    for a in approvals
+                ]
+            }
 
         if action == "resolve":
             if not approval_id or not resolution:
