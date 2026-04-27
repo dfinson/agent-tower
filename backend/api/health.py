@@ -41,7 +41,7 @@ async def health(
 
 
 @router.get("/sister-sessions/metrics", response_model=SisterSessionMetricsResponse)
-async def sister_session_metrics(
+def sister_session_metrics(
     sister_sessions: FromDishka[SisterSessionManager],
 ) -> SisterSessionMetricsResponse:
     """Return sister session metrics (global + per-job)."""

@@ -169,7 +169,7 @@ async def analytics_jobs(
 
 
 @router.get("/analytics/pricing", response_model=AnalyticsPricingResponse)
-async def analytics_pricing(
+def analytics_pricing(
     models: str = Query(
         ...,
         description="Comma-separated model names to look up (e.g. 'claude-sonnet-4-6,claude-opus-4-5')",

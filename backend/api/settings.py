@@ -60,7 +60,7 @@ def _config_to_response(config: CPLConfig) -> SettingsResponse:
 
 
 @router.get("/settings", response_model=SettingsResponse)
-async def get_settings(
+def get_settings(
     config: FromDishka[CPLConfig],
 ) -> SettingsResponse:
     """Get current settings as structured data."""
@@ -68,7 +68,7 @@ async def get_settings(
 
 
 @router.put("/settings", response_model=SettingsResponse)
-async def update_settings(
+def update_settings(
     body: UpdateSettingsRequest,
 ) -> SettingsResponse:
     """Update settings. Only provided fields are changed."""
@@ -102,7 +102,7 @@ async def update_settings(
 
 
 @router.get("/settings/repos", response_model=RepoListResponse)
-async def list_repos(
+def list_repos(
     config: FromDishka[CPLConfig],
 ) -> RepoListResponse:
     """List registered repository paths."""
@@ -207,7 +207,7 @@ async def create_repo_endpoint(
 
 
 @router.delete("/settings/repos/{repo_path:path}", status_code=204)
-async def unregister_repo_endpoint(
+def unregister_repo_endpoint(
     repo_path: str,
     config: FromDishka[CPLConfig],
 ) -> None:
@@ -235,7 +235,7 @@ async def cleanup_worktrees(
 
 
 @router.get("/settings/browse", response_model=BrowseDirectoryResponse)
-async def browse_directories(
+def browse_directories(
     path: str = "~",
 ) -> BrowseDirectoryResponse:
     """List directories at a given path for the repo browser.

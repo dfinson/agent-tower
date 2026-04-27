@@ -59,7 +59,7 @@ def _svc() -> TerminalService:
 
 
 @router.post("/terminal/sessions", response_model=CreateTerminalSessionResponse, status_code=201)
-async def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSessionResponse:
+def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSessionResponse:
     """Create a new terminal session."""
     svc = _svc()
     try:
@@ -82,7 +82,7 @@ async def create_session(req: CreateTerminalSessionRequest) -> CreateTerminalSes
 
 
 @router.get("/terminal/sessions", response_model=list[TerminalSessionInfo])
-async def list_sessions() -> list[TerminalSessionInfo]:
+def list_sessions() -> list[TerminalSessionInfo]:
     """List all active terminal sessions."""
     svc = _svc()
     sessions = svc.list_sessions()
@@ -99,7 +99,7 @@ async def delete_session(session_id: str) -> None:
 
 
 @router.get("/terminal/observer/{job_id}", response_model=TerminalSessionInfo)
-async def get_observer_terminal(job_id: str) -> TerminalSessionInfo:
+def get_observer_terminal(job_id: str) -> TerminalSessionInfo:
     """Return the observer terminal session for a running job, if one exists."""
     svc = _svc()
     for info in svc.list_sessions():

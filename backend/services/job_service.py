@@ -278,8 +278,8 @@ class JobService:
 
         The job ID is the LLM-generated worktree name (e.g. "fix-login-bug").
         Naming is blocking: the LLM generates title, branch, and worktree name
-        before the job is persisted. If naming fails, NamingError is raised
-        and a failed job record is persisted with a hash-based ID.
+        before the job is persisted.  If naming fails, a job in ``failed``
+        state is returned with a hash-based ID; NamingError is not propagated.
 
         Returns the created Job domain object.
         Raises RepoNotAllowedError if the repo is not in the allowlist.
