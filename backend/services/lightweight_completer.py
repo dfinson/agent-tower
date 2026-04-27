@@ -103,6 +103,19 @@ class LightweightCompleter:
         if self._provider == "anthropic":
             try:
                 return await self._anthropic_complete(prompt)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in (401, 403):
+                    log.error(
+                        "lightweight_anthropic_auth_failed",
+                        status=exc.response.status_code,
+                    )
+                    self._provider = None
+                else:
+                    log.warning(
+                        "lightweight_anthropic_failed_falling_back",
+                        status=exc.response.status_code,
+                        exc_info=True,
+                    )
             except (httpx.HTTPError, OSError, ValueError, KeyError):
                 log.warning(
                     "lightweight_anthropic_failed_falling_back",
@@ -112,6 +125,19 @@ class LightweightCompleter:
         if self._provider == "openai":
             try:
                 return await self._openai_complete(prompt)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in (401, 403):
+                    log.error(
+                        "lightweight_openai_auth_failed",
+                        status=exc.response.status_code,
+                    )
+                    self._provider = None
+                else:
+                    log.warning(
+                        "lightweight_openai_failed_falling_back",
+                        status=exc.response.status_code,
+                        exc_info=True,
+                    )
             except (httpx.HTTPError, OSError, ValueError, KeyError):
                 log.warning(
                     "lightweight_openai_failed_falling_back",

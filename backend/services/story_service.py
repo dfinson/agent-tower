@@ -17,6 +17,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any, TypedDict
 
+import httpx
 import structlog
 
 if TYPE_CHECKING:
@@ -459,8 +460,8 @@ class StoryService:
         try:
             result = await self._completer.complete(full_prompt)
             raw = result.strip() if isinstance(result, str) else str(result).strip()
-        except (OSError, ValueError):
-            log.warning("story_generation_failed", job_id=job_id, exc_info=True)
+        except (httpx.HTTPError, OSError, ValueError):
+            log.warning("story_generation_llm_failed", job_id=job_id, exc_info=True)
             return None
 
         if not raw:
