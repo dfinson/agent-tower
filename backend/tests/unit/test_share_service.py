@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
 from unittest.mock import patch
 
-from backend.services.share_service import ShareService
+from backend.services.share_service import InvalidShareTokenError, ShareService
 
 
 class TestShareService:
@@ -22,7 +23,8 @@ class TestShareService:
 
     def test_validate_missing_token(self) -> None:
         svc = ShareService()
-        assert svc.validate("nonexistent") is None
+        with pytest.raises(InvalidShareTokenError):
+            svc.validate("nonexistent")
 
     def test_validate_expired_token(self) -> None:
         svc = ShareService(ttl=1)
@@ -31,13 +33,15 @@ class TestShareService:
         with patch("backend.services.share_service.time") as mock_time:
             # created_at is real monotonic; make "now" be 100s later
             mock_time.monotonic.return_value = entry.created_at + 100
-            assert svc.validate(entry.token) is None
+            with pytest.raises(InvalidShareTokenError):
+                svc.validate(entry.token)
 
     def test_revoke_existing(self) -> None:
         svc = ShareService()
         entry = svc.create_token("job-1")
         assert svc.revoke(entry.token) is True
-        assert svc.validate(entry.token) is None
+        with pytest.raises(InvalidShareTokenError):
+            svc.validate(entry.token)
 
     def test_revoke_missing(self) -> None:
         svc = ShareService()
@@ -52,7 +56,8 @@ class TestShareService:
             # Creating a new token triggers eviction
             svc.create_token("job-2")
         # entry1 should have been evicted
-        assert svc.validate(entry1.token) is None
+        with pytest.raises(InvalidShareTokenError):
+            svc.validate(entry1.token)
 
     def test_multiple_tokens_for_same_job(self) -> None:
         svc = ShareService()
