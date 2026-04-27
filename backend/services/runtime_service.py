@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
 import enum
+from dataclasses import dataclass, replace as dataclass_replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
@@ -96,7 +96,7 @@ class _EventAction(enum.Enum):
     abort = enum.auto()
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True)
 class _SessionAttemptResult:
     """Outcome of a single ``_execute_session_attempt`` call."""
 
@@ -106,7 +106,7 @@ class _SessionAttemptResult:
     downgrade: tuple[str, str] | None = None  # (requested, actual) model names
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True)
 class _RecoverySnapshot:
     """Pre-recovery job state for rollback on failure."""
 
@@ -514,13 +514,9 @@ class RuntimeService:
                 self._permission_overrides.pop(job.id, None),
             )
             if override_prompt is not None:
-                import dataclasses
-
-                session_config = dataclasses.replace(session_config, prompt=override_prompt)
+                session_config = dataclass_replace(session_config, prompt=override_prompt)
             if resume_sdk_session_id is not None:
-                import dataclasses
-
-                session_config = dataclasses.replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
+                session_config = dataclass_replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
 
             task = asyncio.create_task(
                 self._run_job_guarded(job.id, agent_session, session_config, session_number=job.session_count),
@@ -1252,8 +1248,6 @@ class RuntimeService:
         session_number: int = 1,
     ) -> _SessionAttemptResult:
         """Try a fresh session after a failed resume."""
-        import dataclasses
-
         await self._clear_sdk_session_id(job_id)
         try:
             fallback_prompt = await self._build_resume_handoff_prompt(job_id, config.prompt)
@@ -1268,7 +1262,7 @@ class RuntimeService:
         )
         fallback_session = _AgentSession()
         self._agent_sessions[job_id] = fallback_session
-        fallback_config = dataclasses.replace(
+        fallback_config = dataclass_replace(
             config,
             prompt=fallback_prompt,
             resume_sdk_session_id=None,
@@ -1543,10 +1537,8 @@ class RuntimeService:
         Returns ``(new_session_id, error_reason)``.  *error_reason* is set if
         the turn encountered an error; callers decide whether to abort.
         """
-        import dataclasses
-
         followup_session = _AgentSession()
-        followup_config = dataclasses.replace(
+        followup_config = dataclass_replace(
             base_config,
             prompt=prompt,
             resume_sdk_session_id=resume_session_id,

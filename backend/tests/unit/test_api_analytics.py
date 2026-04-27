@@ -225,7 +225,7 @@ async def test_fleet_cost_drivers_confidence_annotation():
     summary = result.summary
     assert len(summary) == 3
     # Activity rows get "approximate"
-    assert summary[0]["confidence"] == "approximate"
-    assert summary[2]["confidence"] == "approximate"
+    assert summary[0].confidence == "approximate"
+    assert summary[2].confidence == "approximate"
     # Non-activity rows get "exact"
-    assert summary[1]["confidence"] == "exact"
+    assert summary[1].confidence == "exact"

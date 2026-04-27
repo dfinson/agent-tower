@@ -878,7 +878,7 @@ class ScorecardResponse(CamelModel):
     activity: ScorecardActivity
     budget: list[ScorecardBudget] = []
     quota_json: str | None = None
-    cost_trend: list[dict[str, object]] = []
+    cost_trend: list[CostTrendEntry] = []
     daily_spend_limit_usd: float = 0.0
 
 
@@ -1095,6 +1095,70 @@ class RepoStatsEntry(CamelModel, extra="allow"):
     premium_requests: float = 0.0
 
 
+class ToolStatsEntry(CamelModel, extra="allow"):
+    name: str = ""
+    count: int = 0
+    avg_duration_ms: float = 0.0
+    total_duration_ms: float = 0.0
+    failure_count: int = 0
+    p50_duration_ms: float = 0.0
+    p95_duration_ms: float = 0.0
+    p99_duration_ms: float = 0.0
+
+
+class ShellCommandEntry(CamelModel, extra="allow"):
+    command: str = ""
+    call_count: int = 0
+    total_cost_usd: float = 0.0
+    avg_duration_ms: float = 0.0
+    job_count: int = 0
+
+
+class CostDriverEntry(CamelModel, extra="allow"):
+    bucket: str = ""
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    call_count: int = 0
+    job_count: int = 0
+
+
+class FleetCostEntry(CamelModel, extra="allow"):
+    dimension: str = ""
+    bucket: str = ""
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    call_count: int = 0
+    job_count: int = 0
+    avg_cost_per_job: float = 0.0
+    confidence: str = ""
+
+
+class FileAccessEntry(CamelModel, extra="allow"):
+    file_path: str = ""
+    access_count: int = 0
+    read_count: int = 0
+    write_count: int = 0
+    job_count: int = 0
+
+
+class FileAccessStats(CamelModel, extra="allow"):
+    total_accesses: int = 0
+    unique_files: int = 0
+    total_reads: int = 0
+    total_writes: int = 0
+    reread_count: int = 0
+
+
+class ObservationEntry(CamelModel, extra="allow"):
+    id: int = 0
+    category: str = ""
+    severity: str = ""
+    title: str = ""
+    detail: str = ""
+
+
 class AnalyticsOverviewResponse(CamelModel):
     period: int
     total_jobs: int = 0
@@ -1127,7 +1191,7 @@ class AnalyticsModelsResponse(CamelModel):
 
 class AnalyticsToolsResponse(CamelModel):
     period: int
-    tools: list[dict[str, object]] = []
+    tools: list[ToolStatsEntry] = []
 
 
 class AnalyticsReposResponse(CamelModel):
@@ -1142,25 +1206,25 @@ class AnalyticsJobsResponse(CamelModel):
 
 class CostDriversJobResponse(CamelModel):
     job_id: str
-    dimensions: dict[str, list[dict[str, object]]] = {}
+    dimensions: dict[str, list[CostDriverEntry]] = {}
 
 
 class FleetCostDriversResponse(CamelModel):
     period: int
     dimension: str | None = None
-    buckets: list[dict[str, object]] | None = None
-    summary: list[dict[str, object]] | None = None
+    buckets: list[CostDriverEntry] | None = None
+    summary: list[FleetCostEntry] | None = None
 
 
 class FileAccessJobResponse(CamelModel):
     job_id: str
-    stats: dict[str, object] = {}
-    top_files: list[dict[str, object]] = []
+    stats: FileAccessStats = FileAccessStats()
+    top_files: list[FileAccessEntry] = []
 
 
 class FleetFileAccessResponse(CamelModel):
     period: int
-    top_files: list[dict[str, object]] = []
+    top_files: list[FileAccessEntry] = []
 
 
 class TurnEconomicsResponse(CamelModel):
@@ -1170,11 +1234,11 @@ class TurnEconomicsResponse(CamelModel):
     avg_turn_cost_usd: float = 0.0
     cost_first_half_usd: float = 0.0
     cost_second_half_usd: float = 0.0
-    turn_curve: list[dict[str, object]] = []
+    turn_curve: list[CostDriverEntry] = []
 
 
 class ObservationsListResponse(CamelModel):
-    observations: list[dict[str, object]] = []
+    observations: list[ObservationEntry] = []
 
 
 class DismissResponse(CamelModel):
@@ -1187,7 +1251,7 @@ class TriggerAnalysisResponse(CamelModel):
 
 class ShellCommandsResponse(CamelModel):
     period: int
-    commands: list[dict[str, object]] = []
+    commands: list[ShellCommandEntry] = []
 
 
 class RetryCostResponse(CamelModel):

@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-
-log = structlog.get_logger()
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +68,8 @@ if TYPE_CHECKING:
     from backend.models.domain import Job
 
 from backend.models.domain import JobSpec, JobState, PermissionMode, Resolution
+
+log = structlog.get_logger()
 
 router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
 

@@ -1,5 +1,7 @@
 """Trail endpoints — agent audit trail query API."""
 
+from __future__ import annotations
+
 from typing import Annotated
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
