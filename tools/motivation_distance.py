@@ -42,7 +42,6 @@ def run():
     # Metrics collectors
     target_mention_distances = []  # turns back to first mention of target file
     problem_lang_distances = []    # turns back to first problem-identification language
-    any_reasoning_distances = []   # turns back to first reasoning/agent text
     no_target_mention = 0
     no_problem_lang = 0
 

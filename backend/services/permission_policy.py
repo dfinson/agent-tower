@@ -293,35 +293,13 @@ def _resolve(
 def evaluate(
     mode: str,
     *,
-    req: PermissionRequest | None = None,
-    # Legacy keyword arguments — prefer passing a PermissionRequest.
-    kind: str = "",
-    workspace_path: str = "",
-    possible_paths: list[str] | None = None,
-    full_command_text: str | None = None,
-    file_name: str | None = None,
-    path: str | None = None,
-    read_only: bool | None = None,
+    req: PermissionRequest,
 ) -> PolicyDecision:
     """Evaluate a permission request against the given mode.
 
     This is the single public entry-point — callers pass the mode string
     directly instead of picking a mode-specific wrapper function.
-
-    Accepts either a ``PermissionRequest`` via *req* or individual keyword
-    arguments for backward compatibility.
     """
-    if req is None:
-        req = PermissionRequest(
-            kind=kind,
-            workspace_path=workspace_path,
-            possible_paths=possible_paths,
-            full_command_text=full_command_text,
-            file_name=file_name,
-            path=path,
-            read_only=read_only,
-        )
-
     # Hard-gated commands always require approval, regardless of mode or trust level.
     # _HARD_GATED_SHELL_RE covers merge/pull/rebase/cherry-pick and simple git reset --hard.
     # is_git_reset_hard() additionally catches compound commands (e.g. cd /x && git reset --hard).

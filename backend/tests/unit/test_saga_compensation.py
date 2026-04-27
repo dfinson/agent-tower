@@ -59,7 +59,7 @@ class TestJobCreationCompensation:
             config=config,
         )
 
-        result = await svc.setup_workspace("fix-bug")
+        await svc.setup_workspace("fix-bug")
 
         # Job should be marked as failed
         job_repo.update_state.assert_called_once()
