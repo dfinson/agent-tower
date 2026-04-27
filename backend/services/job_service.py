@@ -282,7 +282,12 @@ class JobService:
         state is returned with a hash-based ID; NamingError is not propagated.
 
         Returns the created Job domain object.
-        Raises RepoNotAllowedError if the repo is not in the allowlist.
+
+        Raises:
+            RepoNotAllowedError: if the repo is not in the allowlist.
+            ServiceInitError: if GitService was not injected.
+            SDKModelMismatchError: if the requested model is incompatible
+                with the resolved SDK.
         """
         resolved_repo = self.validate_repo(spec.repo)
 

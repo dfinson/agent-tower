@@ -808,8 +808,10 @@ async def restore_to_sha(
     """
     from fastapi import HTTPException
 
+    from backend.models.domain import JobState
+
     job = await svc.get_job(job_id)
-    if job.state in ("running", "agent_running"):
+    if job.state in (JobState.running, JobState.waiting_for_approval):
         raise HTTPException(
             status_code=409,
             detail="Cannot restore while the agent is running. Cancel the job first.",

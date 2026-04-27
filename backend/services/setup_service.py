@@ -25,6 +25,7 @@ from backend.services.setup_checks import (  # noqa: F401
     CheckResult,
     CheckStatus,
     Dependency,
+    _check_agent_auth,
     _console,
     _render_check_line,
     check_agent_cli,

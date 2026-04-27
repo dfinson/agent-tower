@@ -139,8 +139,9 @@ class AgentAdapterInterface(ABC):
         """Non-agentic single-turn completion.
 
         Returns a ``CompletionResult`` with the response text and any
-        token/cost metadata the SDK exposes.  On error the ``text`` field
-        is ``None``.
+        token/cost metadata the SDK exposes.  On hard error ``text`` is
+        ``None``; on timeout ``text`` may be an empty string if no
+        partial content was collected.
         """
         return CompletionResult()
 
