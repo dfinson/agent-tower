@@ -793,7 +793,7 @@ async def search_transcript(
     return TranscriptSearchListResponse(items=results)
 
 
-@router.post("/jobs/{job_id}/restore")
+@router.post("/jobs/{job_id}/restore", response_model=RestoreResponse)
 async def restore_to_sha(
     job_id: str,
     body: RestoreRequest,
@@ -851,7 +851,7 @@ async def get_job_timeline(
     return TimelineListResponse(items=milestones)
 
 
-@router.get("/jobs/{job_id}/snapshot")
+@router.get("/jobs/{job_id}/snapshot", response_model=JobSnapshotResponse)
 async def get_job_snapshot(
     job_id: str,
     svc: FromDishka[JobService],
@@ -1139,7 +1139,7 @@ async def resolve_job(
     event_bus: FromDishka[EventBus],
 ) -> ResolveJobResponse:
     """Resolve a review job: merge, create PR, discard, or resolve with agent."""
-    job = await svc.resolve_job(job_id, body.action)
+    job = await svc.resolve_job(job_id)
 
     # agent_merge: hand the conflict back to the agent to resolve
     if body.action == ResolutionAction.agent_merge:

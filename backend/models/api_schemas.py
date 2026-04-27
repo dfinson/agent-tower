@@ -929,6 +929,12 @@ class ModelPricingEntry(BaseModel):
     provider: str = ""
 
 
+class AnalyticsPricingResponse(CamelModel):
+    """Pricing lookup response — model name → pricing entry (or null)."""
+
+    models: dict[str, ModelPricingEntry | None]
+
+
 # ---------------------------------------------------------------------------
 # Job telemetry response models
 # ---------------------------------------------------------------------------

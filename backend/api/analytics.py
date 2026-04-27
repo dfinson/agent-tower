@@ -15,6 +15,7 @@ from backend.models.api_schemas import (
     AnalyticsJobsResponse,
     AnalyticsModelsResponse,
     AnalyticsOverviewResponse,
+    AnalyticsPricingResponse,
     AnalyticsReposResponse,
     AnalyticsToolsResponse,
     CostDriversJobResponse,
@@ -167,13 +168,13 @@ async def analytics_jobs(
     return AnalyticsJobsResponse(period=period, jobs=rows)
 
 
-@router.get("/analytics/pricing")
+@router.get("/analytics/pricing", response_model=AnalyticsPricingResponse)
 async def analytics_pricing(
     models: str = Query(
         ...,
         description="Comma-separated model names to look up (e.g. 'claude-sonnet-4-6,claude-opus-4-5')",
     ),
-) -> dict[str, ModelPricingEntry | None]:
+) -> AnalyticsPricingResponse:
     """Return pricing info for the requested models.
 
     Looks up each model by exact key first, then falls back to normalised
@@ -190,7 +191,7 @@ async def analytics_pricing(
             norm = _normalize_model_key(name)
             entry = _MODEL_PRICING.get(norm)
         result[name] = ModelPricingEntry(**entry) if entry is not None else None
-    return result
+    return AnalyticsPricingResponse(models=result)
 
 
 # ---------------------------------------------------------------------------

@@ -164,7 +164,7 @@ def _validate_share(share_service: ShareService, token: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/share/{token}/snapshot")
+@router.get("/share/{token}/snapshot", response_model=JobSnapshotResponse)
 async def get_shared_snapshot(
     token: str,
     share_service: FromDishka[ShareService],
@@ -376,7 +376,7 @@ async def get_shared_snapshot(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/share/{token}/telemetry")
+@router.get("/share/{token}/telemetry", response_model=JobTelemetryResponse)
 async def get_shared_telemetry(
     token: str,
     share_service: FromDishka[ShareService],

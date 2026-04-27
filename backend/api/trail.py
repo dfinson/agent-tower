@@ -44,7 +44,7 @@ def _dict_to_node_response(d: dict) -> TrailNodeResponse:
     )
 
 
-@router.get("/jobs/{job_id}/trail")
+@router.get("/jobs/{job_id}/trail", response_model=TrailResponse)
 async def get_job_trail(
     job_id: str,
     trail_service: FromDishka[TrailService],
@@ -67,7 +67,7 @@ async def get_job_trail(
     )
 
 
-@router.get("/jobs/{job_id}/trail/summary")
+@router.get("/jobs/{job_id}/trail/summary", response_model=TrailSummaryResponse)
 async def get_job_trail_summary(
     job_id: str,
     trail_service: FromDishka[TrailService],

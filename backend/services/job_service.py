@@ -562,7 +562,7 @@ class JobService:
         jobs = await self._job_repo.list(state=JobState.queued, limit=_MAX_COUNT_LIMIT)
         return len(jobs)
 
-    async def resolve_job(self, job_id: str, action: str) -> Job:
+    async def resolve_job(self, job_id: str) -> Job:
         """Validate that a job is eligible for resolution.
 
         Raises StateConflictError if the job state or current resolution
@@ -580,7 +580,7 @@ class JobService:
         job: Job,
         action: str,
         merge_service: MergeService,
-    ) -> tuple[str, str | None, list[str] | None, str | None]:
+    ) -> tuple[Resolution, str | None, list[str] | None, str | None]:
         """Execute merge/PR/discard resolution and persist the outcome.
 
         On successful resolution (merged, pr_created, discarded), the job
@@ -626,7 +626,7 @@ class JobService:
         job: Job,
         action: str,
         merge_service: MergeService,
-    ) -> tuple[str, str | None, list[str] | None, str | None, list[DomainEvent]]:
+    ) -> tuple[Resolution, str | None, list[str] | None, str | None, list[DomainEvent]]:
         """Full resolve protocol: execute merge, persist result, build events.
 
         Returns (resolution, pr_url, conflict_files, error, events_to_publish).

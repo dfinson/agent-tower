@@ -52,4 +52,5 @@ class EventBus:
                     subscriber=str(self._subscribers[idx]),
                     event_kind=event.kind,
                     error=str(result),
+                    exc_info=result,
                 )

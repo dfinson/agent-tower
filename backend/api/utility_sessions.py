@@ -14,7 +14,7 @@ log = structlog.get_logger()
 router = APIRouter(tags=["utility-sessions"], route_class=DishkaRoute)
 
 
-@router.post("/utility-sessions/warm")
+@router.post("/utility-sessions/warm", response_model=WarmSessionResponse)
 async def warm_utility_session(
     sister_sessions: FromDishka[SisterSessionManager],
 ) -> WarmSessionResponse:
