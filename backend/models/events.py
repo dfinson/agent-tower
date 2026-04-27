@@ -6,7 +6,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
+
+if TYPE_CHECKING:
+    from backend.models.api_schemas import ExecutionPhase
 
 
 class DomainEventKind(StrEnum):
@@ -221,7 +224,7 @@ class AgentPlanUpdatedPayloadDict(TypedDict, total=False):
 
 
 class ExecutionPhasePayloadDict(TypedDict, total=False):
-    phase: str
+    phase: ExecutionPhase
 
 
 class TelemetryUpdatedPayloadDict(TypedDict, total=False):
