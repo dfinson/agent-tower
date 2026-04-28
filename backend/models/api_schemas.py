@@ -755,6 +755,10 @@ class TerminalSessionInfo(CamelModel):
     observer: bool = False
 
 
+class TerminalSessionListResponse(CamelModel):
+    items: list[TerminalSessionInfo]
+
+
 class TerminalAskRequest(CamelModel):
     prompt: str
     context: str | None = None  # recent terminal output for context

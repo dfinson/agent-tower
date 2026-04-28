@@ -15,6 +15,7 @@ from backend.models.api_schemas import (
     TerminalAskRequest,
     TerminalAskResponse,
     TerminalSessionInfo,
+    TerminalSessionListResponse,
 )
 from backend.services.auth import LOCALHOST_ADDRS, check_websocket_auth
 from backend.services.sister_session import SisterSessionManager
@@ -63,12 +64,12 @@ def create_session(
     )
 
 
-@router.get("/terminal/sessions", response_model=list[TerminalSessionInfo])
-def list_sessions(svc: FromDishka[TerminalService]) -> list[TerminalSessionInfo]:
+@router.get("/terminal/sessions", response_model=TerminalSessionListResponse)
+def list_sessions(svc: FromDishka[TerminalService]) -> TerminalSessionListResponse:
     """List all active terminal sessions."""
     svc = _require_svc(svc)
     sessions = svc.list_sessions()
-    return [TerminalSessionInfo(**s) for s in sessions]
+    return TerminalSessionListResponse(items=[TerminalSessionInfo(**s) for s in sessions])
 
 
 @router.delete("/terminal/sessions/{session_id}", status_code=204)
