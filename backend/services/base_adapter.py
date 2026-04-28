@@ -11,10 +11,11 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import Coroutine
+from collections.abc import AsyncIterator, Coroutine
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 
@@ -44,6 +45,11 @@ if TYPE_CHECKING:
     from backend.services.retry_tracker import RetryTracker
 
 log = structlog.get_logger()
+
+
+class _NoSessionFactory(Exception):
+    """Sentinel raised when no DB session factory is configured."""
+
 
 # ---------------------------------------------------------------------------
 # Shared adapter constants
@@ -298,42 +304,84 @@ class BaseAgentAdapter(AgentAdapterInterface):
         task = loop.create_task(coro)
         self._write_tasks.append(task)
 
-    _DbWriteOp = Literal[
-        "increment", "insert_span", "set_model", "set_context", "set_quota", "record_file_access",
-    ]
-
-    async def _db_write(self, fn_name: _DbWriteOp, **kwargs: Any) -> None:
-        """Execute a telemetry DB write in its own session."""
+    @asynccontextmanager
+    async def _db_session(self) -> AsyncIterator[AsyncSession]:
+        """Yield a scoped DB session with commit and error handling."""
         if self._session_factory is None:
-            return
+            raise _NoSessionFactory
+        async with self._session_factory() as session:
+            yield session
+            await session.commit()
+
+    async def _db_write_increment(self, *, job_id: str, **counters: int | float) -> None:
+        """Increment telemetry summary counters."""
         try:
-            async with self._session_factory() as session:
-                from backend.persistence.file_access_repo import FileAccessRepository
-                from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+            async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-                summary = TelemetrySummaryRepository(session)
-                dispatch = {
-                    "increment": summary.increment,
-                    "insert_span": TelemetrySpansRepository(session).insert,
-                    "set_model": summary.set_model,
-                    "set_context": summary.set_context,
-                    "set_quota": summary.set_quota,
-                    "record_file_access": FileAccessRepository(session).record,
-                }
-                handler = dispatch.get(fn_name)
-                if handler is not None:
-                    await handler(**kwargs)
-                await session.commit()
-        except (DBAPIError, OSError):
-            log.warning("telemetry_db_write_failed", fn=fn_name, exc_info=True)
+                await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
+        except (_NoSessionFactory, DBAPIError, OSError):
+            log.warning("telemetry_db_write_failed", fn="increment", exc_info=True)
             return
+        await self._maybe_broadcast_telemetry(job_id)
 
-        # Broadcast a debounced telemetry_updated SSE for summary changes
-        if fn_name != "insert_span":
-            job_id = kwargs.get("job_id")
-            if job_id:
-                await self._maybe_broadcast_telemetry(job_id)
+    async def _db_write_insert_span(self, *, job_id: str, **span_fields: Any) -> None:
+        """Insert a telemetry span row."""
+        try:
+            async with self._db_session() as session:
+                from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+                await TelemetrySpansRepository(session).insert(job_id=job_id, **span_fields)
+        except (_NoSessionFactory, DBAPIError, OSError):
+            log.warning("telemetry_db_write_failed", fn="insert_span", exc_info=True)
+
+    async def _db_write_set_model(self, *, job_id: str, model: str) -> None:
+        """Record the main model for a job."""
+        try:
+            async with self._db_session() as session:
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+                await TelemetrySummaryRepository(session).set_model(job_id=job_id, model=model)
+        except (_NoSessionFactory, DBAPIError, OSError):
+            log.warning("telemetry_db_write_failed", fn="set_model", exc_info=True)
+            return
+        await self._maybe_broadcast_telemetry(job_id)
+
+    async def _db_write_set_context(
+        self, *, job_id: str, current_tokens: int | None = None, window_size: int | None = None,
+    ) -> None:
+        """Record context window usage."""
+        try:
+            async with self._db_session() as session:
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+                await TelemetrySummaryRepository(session).set_context(
+                    job_id=job_id, current_tokens=current_tokens, window_size=window_size,
+                )
+        except (_NoSessionFactory, DBAPIError, OSError):
+            log.warning("telemetry_db_write_failed", fn="set_context", exc_info=True)
+            return
+        await self._maybe_broadcast_telemetry(job_id)
+
+    async def _db_write_set_quota(self, *, job_id: str, quota_remaining: str) -> None:
+        """Record remaining quota."""
+        try:
+            async with self._db_session() as session:
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+                await TelemetrySummaryRepository(session).set_quota(job_id=job_id, quota_json=quota_remaining)
+        except (_NoSessionFactory, DBAPIError, OSError):
+            log.warning("telemetry_db_write_failed", fn="set_quota", exc_info=True)
+            return
+        await self._maybe_broadcast_telemetry(job_id)
+
+    async def _db_write_record_file_access(
+        self, *, job_id: str, file_path: str, access_type: str, turn_number: int,
+    ) -> None:
+        """Record a file read/write access."""
+        try:
+            async with self._db_session() as session:
+                from backend.persistence.file_access_repo import FileAccessRepository
+                await FileAccessRepository(session).record(
+                    job_id=job_id, file_path=file_path, access_type=access_type, turn_number=turn_number,
+                )
+        except (_NoSessionFactory, DBAPIError, OSError):
+            log.warning("telemetry_db_write_failed", fn="record_file_access", exc_info=True)
 
     async def _maybe_broadcast_telemetry(self, job_id: str) -> None:
         """Publish telemetry_updated if debounce interval has elapsed."""
@@ -375,7 +423,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         if not actual_model or job_id in self._job_main_models:
             return
         self._job_main_models[job_id] = actual_model
-        self._schedule_db_write(self._db_write("set_model", job_id=job_id, model=actual_model))
+        self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=actual_model))
 
         if requested_model and normalize_model_name(actual_model) != normalize_model_name(requested_model):
             log.error(
@@ -428,8 +476,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         tel.llm_duration.record(duration_ms, {**attrs, "is_subagent": is_subagent})
 
         self._schedule_db_write(
-            self._db_write(
-                "increment",
+            self._db_write_increment(
                 job_id=job_id,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
@@ -465,8 +512,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         offset = time.monotonic() - job_start
 
         self._schedule_db_write(
-            self._db_write(
-                "insert_span",
+            self._db_write_insert_span(
                 job_id=job_id,
                 span_type="llm",
                 name=model or "unknown",
@@ -548,8 +594,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 file_rw_increment["file_write_count"] = 1
             for fpath in paths:
                 self._schedule_db_write(
-                    self._db_write(
-                        "record_file_access",
+                    self._db_write_record_file_access(
                         job_id=job_id,
                         file_path=fpath,
                         access_type=access_type,
@@ -570,8 +615,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
         # Summary increment
         self._schedule_db_write(
-            self._db_write(
-                "increment",
+            self._db_write_increment(
                 job_id=job_id,
                 tool_call_count=1,
                 tool_failure_count=0 if success else 1,
@@ -589,8 +633,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         preceding_context = self._maybe_capture_context(job_id, category, tool_args_str)
 
         self._schedule_db_write(
-            self._db_write(
-                "insert_span",
+            self._db_write_insert_span(
                 job_id=job_id,
                 span_type="tool",
                 name=tool_name,

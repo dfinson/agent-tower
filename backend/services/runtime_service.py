@@ -22,7 +22,7 @@ import structlog
 from sqlalchemy.exc import DBAPIError
 
 from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT, build_session_config
-from backend.models.api_schemas import ExecutionPhase
+from backend.models.api_schemas import ExecutionPhase, TranscriptRole
 from backend.models.domain import (
     TERMINAL_STATES,
     ApprovalResolution,
@@ -165,7 +165,7 @@ def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
     if event.kind != SessionEventKind.transcript:
         return False
     role = str(event.payload.get("role", ""))
-    return role != "operator"
+    return role != TranscriptRole.operator
 
 
 def _normalize_resume_instruction(instruction: str | None) -> str:
@@ -1832,7 +1832,7 @@ class RuntimeService:
                 "job_id": job_id,
                 "seq": 0,
                 "timestamp": now.isoformat(),
-                "role": "operator",
+                "role": TranscriptRole.operator,
                 "content": message,
             },
         )
@@ -2320,7 +2320,7 @@ class RuntimeService:
                     "job_id": job_id,
                     "seq": 0,
                     "timestamp": now.isoformat(),
-                    "role": "operator",
+                    "role": TranscriptRole.operator,
                     "content": normalized_instruction,
                 },
             )
