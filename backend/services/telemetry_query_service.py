@@ -38,6 +38,13 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+# Review complexity thresholds — calibrated against historical job data:
+# >500 diff lines ≈ top-10% by size, >20 turns ≈ extended sessions,
+# >15 unique files ≈ cross-cutting changes.
+_LARGE_DIFF_LINES = 500
+_MANY_TURNS = 20
+_MANY_FILES = 15
+
 
 class TelemetryQueryService:
     """Assembles a ``JobTelemetryResponse`` from the persistence layer."""
@@ -151,12 +158,7 @@ class TelemetryQueryService:
         # Review signals: test co-modifications
         test_co_mods = await self._spans_repo.test_co_modifications(job_id)
 
-        # Review complexity tier — thresholds are calibrated against historical
-        # job data: >500 diff lines ≈ top-10% by size, >20 turns ≈ extended
-        # sessions, >15 unique files ≈ cross-cutting changes.
-        _LARGE_DIFF_LINES = 500
-        _MANY_TURNS = 20
-        _MANY_FILES = 15
+        # Review complexity tier
         signals: list[str] = []
         diff_lines = int(summary.get("diff_lines_added", 0)) + int(
             summary.get("diff_lines_removed", 0)
