@@ -277,7 +277,7 @@ class JobRepository(BaseRepository):
         from datetime import datetime as dt
         await self._update_row(job_id, failure_reason=reason, completed_at=dt.now(UTC))
 
-    async def update_resolution(self, job_id: str, resolution: str, pr_url: str | None = None) -> None:
+    async def update_resolution(self, job_id: str, resolution: Resolution, pr_url: str | None = None) -> None:
         """Update the resolution status (and optionally PR URL) on a job row."""
         updates: dict[str, Any] = {"resolution": resolution}
         if pr_url is not None:

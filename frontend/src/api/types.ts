@@ -29,6 +29,10 @@ export interface Settings {
   maxArtifactSizeMb: number;
   autoArchiveDays: number;
   maxTurns: number;
+  verify: boolean;
+  selfReview: boolean;
+  verifyPrompt: string;
+  selfReviewPrompt: string;
 }
 
 // SSE payload types — not in the OpenAPI schema since they're sent via SSE,
@@ -40,14 +44,6 @@ export interface LogLine {
   level: "debug" | "info" | "warn" | "error";
   message: string;
   context: Record<string, unknown> | null;
-}
-
-export interface TranscriptEntry {
-  jobId: string;
-  seq: number;
-  timestamp: string;
-  role: "agent" | "operator";
-  content: string;
 }
 
 export interface ApprovalRequest {
