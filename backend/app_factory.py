@@ -31,6 +31,7 @@ from backend.api import (
     artifacts,
     events,
     health,
+    job_artifacts,
     job_telemetry,
     jobs,
     notifications,
@@ -193,6 +194,7 @@ def _register_routes(app: FastAPI) -> None:
     """Register all API routers."""
     app.include_router(health.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
+    app.include_router(job_artifacts.router, prefix="/api")
     app.include_router(job_telemetry.router, prefix="/api")
     app.include_router(utility_sessions.router, prefix="/api")
     app.include_router(events.router, prefix="/api")
