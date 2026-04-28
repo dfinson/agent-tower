@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from backend.api.jobs import archive_job, resolve_job
+from backend.api.job_artifacts import archive_job, resolve_job
 from backend.models.api_schemas import ResolveJobRequest
 from backend.models.domain import Job, JobState, PermissionMode, Resolution
 
