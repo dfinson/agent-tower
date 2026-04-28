@@ -11,12 +11,14 @@ from dataclasses import dataclass
 
 import structlog
 
+from backend.models.domain import CodePlaneError
+
 log = structlog.get_logger()
 
 DEFAULT_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 
 
-class InvalidShareTokenError(Exception):
+class InvalidShareTokenError(CodePlaneError):
     """Raised when a share token is invalid or expired."""
 
 

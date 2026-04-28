@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.responses import StreamingResponse
 
@@ -20,7 +20,7 @@ from backend.models.api_schemas import (
 from backend.persistence.approval_repo import ApprovalRepository
 from backend.services.diff_service import DiffService
 from backend.services.job_service import JobService
-from backend.services.share_service import InvalidShareTokenError, ShareService
+from backend.services.share_service import ShareService
 from backend.services.sse_manager import SSEConnection, SSEManager
 from backend.services.telemetry_query_service import TelemetryQueryService
 
@@ -68,10 +68,7 @@ async def get_shared_job(
     svc: FromDishka[JobService],
 ) -> JobResponse:
     """Read-only job detail via share token."""
-    try:
-        job_id = share_service.validate(token)
-    except InvalidShareTokenError:
-        raise HTTPException(status_code=404, detail="Invalid or expired share link")
+    job_id = share_service.validate(token)
     job = await svc.get_job(job_id)
     progress = await svc.get_latest_progress_preview(job_id)
 
@@ -95,10 +92,7 @@ async def stream_shared_events(
     session_factory: FromDishka[async_sessionmaker],  # type: ignore[type-arg]  # dishka DI resolves the full parameterized type at runtime
 ):
     """SSE stream scoped to a shared job (read-only)."""
-    try:
-        job_id = share_service.validate(token)
-    except InvalidShareTokenError:
-        raise HTTPException(status_code=404, detail="Invalid or expired share link")
+    job_id = share_service.validate(token)
 
     header_last_id = request.headers.get("Last-Event-ID")
     conn = SSEConnection(job_id=job_id)
@@ -139,18 +133,6 @@ async def stream_shared_events(
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _validate_share(share_service: ShareService, token: str) -> str:
-    """Validate a share token and return the job_id, or raise 404."""
-    try:
-        return share_service.validate(token)
-    except InvalidShareTokenError:
-        raise HTTPException(status_code=404, detail="Invalid or expired share link")
-
-
 # ---------------------------------------------------------------------------
 # Full snapshot — everything the shared UI needs in one request
 # ---------------------------------------------------------------------------
@@ -168,7 +150,7 @@ async def get_shared_snapshot(
     from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
     from backend.services.snapshot_helpers import assemble_snapshot
 
-    job_id = _validate_share(share_service, token)
+    job_id = share_service.validate(token)
     job = await svc.get_job(job_id)
     progress_preview = await svc.get_latest_progress_preview(job_id)
 
@@ -200,5 +182,5 @@ async def get_shared_telemetry(
     telemetry_svc: FromDishka[TelemetryQueryService],
 ) -> JobTelemetryResponse:
     """Read-only telemetry data via share token."""
-    job_id = _validate_share(share_service, token)
+    job_id = share_service.validate(token)
     return await telemetry_svc.get_telemetry(job_id)

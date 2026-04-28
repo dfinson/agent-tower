@@ -15,7 +15,7 @@ import { create } from "zustand";
 // ---------------------------------------------------------------------------
 
 import type { DiffFileModel, SDKInfo, StoryResponse } from "../api/types";
-import { fetchSDKs, fetchModels } from "../api/client";
+import { fetchSDKs, fetchModels, createTerminalSession as apiCreateTerminalSession, deleteTerminalSession as apiDeleteTerminalSession } from "../api/client";
 import { sseHandlers, enrichJob } from "./sseHandlers";
 export { enrichJob } from "./sseHandlers";
 
@@ -557,7 +557,7 @@ export const useStore = create<AppState>((set, get) => ({
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [id]: _removed, ...rest } = s.terminalSessions;
       // Delete the session on the backend (fire-and-forget)
-      fetch(`/api/terminal/sessions/${id}`, { method: "DELETE" }).catch((err) => console.error("Failed to delete terminal session", err));
+      apiDeleteTerminalSession(id).catch((err) => console.error("Failed to delete terminal session", err));
       const remaining = Object.keys(rest);
       return {
         terminalSessions: rest,
@@ -574,21 +574,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   createTerminalSession: async (opts) => {
     try {
-      const res = await fetch("/api/terminal/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cwd: opts?.cwd ?? null,
-          jobId: opts?.jobId ?? null,
-          promptLabel: opts?.label ?? null,
-        }),
+      const data = await apiCreateTerminalSession({
+        cwd: opts?.cwd ?? null,
+        jobId: opts?.jobId ?? null,
+        promptLabel: opts?.label ?? null,
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.error("[terminal] Failed to create session:", err);
-        return;
-      }
-      const data = await res.json();
 
       const baseLabel = opts?.label || data.cwd?.split("/").pop() || "Terminal";
 
