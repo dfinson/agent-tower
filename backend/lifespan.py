@@ -581,5 +581,5 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await optional.terminal_service.shutdown()
     await services.sister_sessions.shutdown()
     await services.runtime_service.shutdown()
-    await sse_manager.close_all()
+    sse_manager.close_all()
     await engine.dispose()

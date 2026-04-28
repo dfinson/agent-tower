@@ -323,9 +323,9 @@ class RuntimeService:
         if self._sister_sessions is not None:
             try:
                 if session_token:
-                    await self._sister_sessions.adopt(session_token, job.id)
+                    self._sister_sessions.adopt(session_token, job.id)
                 else:
-                    await self._sister_sessions.create_for_job(job.id)
+                    self._sister_sessions.create_for_job(job.id)
             except Exception:
                 log.warning("sister_session_setup_failed", job_id=job.id, exc_info=True)
 
@@ -1121,7 +1121,7 @@ class RuntimeService:
         self._observer_terminals.pop(job_id, None)
         if self._sister_sessions is not None:
             try:
-                await self._sister_sessions.close_job(job_id)
+                self._sister_sessions.close_job(job_id)
             except (OSError, RuntimeError):
                 log.warning("sister_session_close_failed", job_id=job_id, exc_info=True)
         if self._approval_service is not None:

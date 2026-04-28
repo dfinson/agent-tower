@@ -104,7 +104,7 @@ class TestJobCreationCompensation:
         git_service = AsyncMock()
         git_service.get_default_branch = AsyncMock(return_value="main")
         git_service.list_branches = AsyncMock(return_value=set())
-        git_service.list_worktree_names = AsyncMock(return_value=set())
+        git_service.list_worktree_names = MagicMock(return_value=set())
 
         config = _make_config()
 

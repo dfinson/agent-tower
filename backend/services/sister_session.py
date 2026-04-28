@@ -239,7 +239,7 @@ class SisterSessionManager:
 
     # -- Pre-warm (new-job panel) -------------------------------------------
 
-    async def warm(self) -> str:
+    def warm(self) -> str:
         """Hand out a pooled session under a token.
 
         Returns immediately — no blocking I/O.
@@ -250,7 +250,7 @@ class SisterSessionManager:
         log.debug("sister_session_warmed", token=token[:8])
         return token
 
-    async def release(self, token: str) -> bool:
+    def release(self, token: str) -> bool:
         """Return an unused warm session to the pool.  Returns True if found."""
         session = self._warm.pop(token, None)
         self._warm_created_at.pop(token, None)
@@ -266,7 +266,7 @@ class SisterSessionManager:
 
     # -- Job binding ---------------------------------------------------------
 
-    async def adopt(self, token: str, job_id: str) -> None:
+    def adopt(self, token: str, job_id: str) -> None:
         """Bind a pre-warmed session to a job.
 
         If the token is gone (expired / already released), a fresh pooled
@@ -280,7 +280,7 @@ class SisterSessionManager:
         self._jobs[job_id] = session
         log.debug("sister_session_adopted", job_id=job_id)
 
-    async def create_for_job(self, job_id: str) -> None:
+    def create_for_job(self, job_id: str) -> None:
         """Assign a pooled session to a job (resume / no pre-warm path)."""
         self._jobs[job_id] = self._pop_or_create()
         log.debug("sister_session_created", job_id=job_id)
@@ -293,7 +293,7 @@ class SisterSessionManager:
 
     # -- Cleanup -------------------------------------------------------------
 
-    async def close_job(self, job_id: str) -> None:
+    def close_job(self, job_id: str) -> None:
         """Remove the session binding for a finished job."""
         session = self._jobs.pop(job_id, None)
         if session is not None:

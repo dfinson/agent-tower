@@ -24,7 +24,7 @@ async def warm_utility_session(
     via ``DELETE /utility-sessions/{token}`` if the user navigates away.
     """
     try:
-        token = await sister_sessions.warm()
+        token = sister_sessions.warm()
     except (ConnectionError, TimeoutError, OSError) as exc:
         log.warning("warm_session_failed", exc_info=exc)
         raise HTTPException(status_code=503, detail="Failed to warm session") from exc
@@ -37,6 +37,6 @@ async def release_utility_session(
     sister_sessions: FromDishka[SisterSessionManager],
 ) -> None:
     """Release a pre-warmed session the user didn't use."""
-    found = await sister_sessions.release(token)
+    found = sister_sessions.release(token)
     if not found:
         raise HTTPException(status_code=404, detail="Session not found or already expired")
