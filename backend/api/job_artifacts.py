@@ -48,7 +48,7 @@ from backend.services.step_diff_service import StepDiffService
 from backend.services.step_tracker import hydrate_plan_steps
 from backend.services.story_service import StoryService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
-from backend.api.jobs import resolve_tool_display, resolve_tool_display_full
+from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
 
 log = structlog.get_logger()
 
