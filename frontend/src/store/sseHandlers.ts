@@ -14,7 +14,7 @@ import type {
   PlanStep,
   ActivityTimelineStep,
   ConnectionStatus,
-} from "./index";
+} from "./types";
 import type { DiffFileModel } from "../api/types";
 
 export type SSEHandler = (
