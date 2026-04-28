@@ -576,25 +576,14 @@ class CopilotAdapter(BaseAgentAdapter):
                         }
                         queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
                         return
-                    from backend.services.tool_formatters import (
-                        classify_tool_visibility,
-                        format_tool_display,
-                        format_tool_display_full,
-                    )
-
                     turn_id = buffered.get("turn_id") or self._get_turn_id(job_id, data)
-                    event_payload = {
-                        "role": "tool_running",
-                        "content": tool_name,
-                        "tool_name": tool_name,
-                        "tool_args": buffered.get("tool_args"),
-                        "turn_id": turn_id,
-                        "tool_intent": buffered.get("tool_intent"),
-                        "tool_title": buffered.get("tool_title"),
-                        "tool_display": format_tool_display(tool_name, buffered.get("tool_args")),
-                        "tool_display_full": format_tool_display_full(tool_name, buffered.get("tool_args")),
-                        "tool_visibility": classify_tool_visibility(tool_name, buffered.get("tool_args")),
-                    }
+                    event_payload = self._build_tool_running_payload(
+                        tool_name,
+                        buffered.get("tool_args"),
+                        turn_id,
+                        tool_intent=buffered.get("tool_intent"),
+                        tool_title=buffered.get("tool_title"),
+                    )
                 elif kind_str == "tool.execution_partial_result":
                     # Streaming stdout/stderr chunk from a running tool (typically Bash).
                     tool_id = (data.tool_call_id or "") if data else ""
@@ -633,60 +622,27 @@ class CopilotAdapter(BaseAgentAdapter):
                         result_obj = data.result
                         content = getattr(result_obj, "content", None) if result_obj is not None else None
                         if content:
-                            parts = content
-                            if isinstance(parts, list):
-                                result_text = "\n".join(
-                                    str(getattr(c, "text", c)) if getattr(c, "text", None) else str(c) for c in parts
-                                )
-                            else:
-                                result_text = str(parts)
+                            result_text = self._extract_result_text(content)
                         if not result_text and data.partial_output:
                             result_text = data.partial_output
-                    from backend.services.tool_formatters import (
-                        classify_tool_visibility,
-                        correct_edit_success,
-                        extract_tool_issue,
-                        format_tool_display,
-                        format_tool_display_full,
-                    )
 
                     tool_args_str = buffered.get("tool_args")
-                    success = bool(data.success) if data and data.success is not None else True
-                    # Correct false failures for file-edit tools
-                    if not success:
-                        success = correct_edit_success(tool_name, success, result_text)
-                    tool_issue = extract_tool_issue(result_text) if not success else None
+                    sdk_success = bool(data.success) if data and data.success is not None else True
                     # Compute tool execution duration
                     import time as _time
 
                     _start = self._tool_start_times.get(tool_id)
-                    dur_ms = int((_time.monotonic() - _start) * 1000) if _start is not None else None
-                    event_payload = {
-                        "role": "tool_call",
-                        "content": tool_name,
-                        "tool_name": tool_name,
-                        "tool_args": tool_args_str,
-                        "tool_result": result_text,
-                        "tool_success": success,
-                        "tool_issue": tool_issue or ("Tool reported an issue" if not success else None),
-                        "turn_id": buffered.get("turn_id") or self._get_turn_id(job_id, data),
-                        "tool_intent": buffered.get("tool_intent"),
-                        "tool_title": buffered.get("tool_title"),
-                        "tool_display": format_tool_display(
-                            tool_name,
-                            tool_args_str,
-                            tool_result=result_text or None,
-                            tool_success=success,
-                        ),
-                        "tool_display_full": format_tool_display_full(
-                            tool_name,
-                            tool_args_str,
-                            tool_result=result_text or None,
-                            tool_success=success,
-                        ),
-                        "tool_duration_ms": dur_ms,
-                        "tool_visibility": classify_tool_visibility(tool_name, tool_args_str),
-                    }
+                    dur_ms = ((_time.monotonic() - _start) * 1000) if _start is not None else None
+                    event_payload = self._build_tool_call_payload(
+                        tool_name,
+                        tool_args_str,
+                        result_text,
+                        sdk_success=sdk_success,
+                        turn_id=buffered.get("turn_id") or self._get_turn_id(job_id, data),
+                        duration_ms=dur_ms,
+                        tool_intent=buffered.get("tool_intent"),
+                        tool_title=buffered.get("tool_title"),
+                    )
             else:
                 event_payload = payload if isinstance(payload, dict) else {}
             queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))

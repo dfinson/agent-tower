@@ -1,101 +1,43 @@
-"""Post-completion merge-back orchestration.
-
-Attempts to merge a job's branch back into the base branch using an
-escalation strategy:
-
-1. Fast-forward merge (cleanest — no merge commit)
-2. Regular merge (if base has diverged but no conflicts)
-3. Fallback to PR creation (if conflicts are detected)
-"""
+"""MergeService class — post-completion merge-back orchestration."""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import shutil
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
-    from backend.models.domain import Job
-
 from backend.models.domain import GitMergeOutcome, Resolution
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.git_service import GitError
+from backend.services.merge_service._types import (
+    MergeResult,
+    MergeStatus,
+    _CHERRY_PICK_ALREADY_APPLIED_PATTERNS,
+    _MergeOutcome,
+    _NOT_MERGED,
+    _PR_TITLE_MAX_PROMPT_LEN,
+    _REF_PATTERN,
+    _classify_cherry_pick_failure,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CompletionConfig
+    from backend.models.domain import Job
     from backend.services.diff_service import DiffService
     from backend.services.event_bus import EventBus
     from backend.services.git_service import GitService
     from backend.services.platform_adapter import PlatformRegistry
 
 log = structlog.get_logger()
-
-
-class _MergeOutcome(StrEnum):
-    """Result of a low-level checkout-and-merge attempt."""
-
-    success = "success"
-    conflict = "conflict"
-    error = "error"
-
-
-from backend.validators import REF_PATTERN as _REF_PATTERN
-
-_PR_TITLE_MAX_PROMPT_LEN = 80
-_CHERRY_PICK_ALREADY_APPLIED_PATTERNS = (
-    "empty commit set passed",
-    "the previous cherry-pick is now empty",
-    "previous cherry-pick is now empty",
-    "patch contents already upstream",
-    "nothing to commit, working tree clean",
-)
-
-
-def _classify_cherry_pick_failure(exc: GitError) -> str:
-    """Map cherry-pick failures without conflict markers to a user-facing error."""
-    combined_message = "\n".join(part for part in (str(exc), exc.stderr) if part).lower()
-    if any(pattern in combined_message for pattern in _CHERRY_PICK_ALREADY_APPLIED_PATTERNS):
-        return (
-            "Cherry-pick stopped because one or more branch commits are already present"
-            " on the base branch; rebase the branch or create a PR"
-        )
-    return "Cherry-pick failed without conflict markers; check git configuration or hooks"
-
-
-class MergeStatus(StrEnum):
-    """Outcome status for a merge-back attempt."""
-
-    merged = "merged"
-    conflict = "conflict"
-    pr_created = "pr_created"
-    skipped = "skipped"
-    error = "error"
-
-
-@dataclass
-class MergeResult:
-    """Outcome of a merge-back attempt."""
-
-    status: MergeStatus
-    strategy: str | None = None  # ff_only | merge | pr
-    pr_url: str | None = None
-    conflict_files: list[str] | None = None
-    error: str | None = None
-
-
-# Persisted merge_status value for jobs whose branch has not yet been merged.
-_NOT_MERGED = GitMergeOutcome.not_merged
 
 
 class MergeService:
