@@ -614,7 +614,7 @@ class JobReviewPayload(CamelModel):
     pr_url: str | None = None
     merge_status: GitMergeOutcome | None = None
     """Git merge operation outcome — see :class:`~backend.models.domain.GitMergeOutcome`."""
-    resolution: str | None = None
+    resolution: Resolution | None = None
     """User-facing job disposition — see :class:`~backend.models.domain.Resolution`."""
     model_downgraded: bool = False
     requested_model: str | None = None
@@ -626,7 +626,7 @@ class JobCompletedPayload(CamelModel):
     """Emitted when an operator resolves a review job to a final state."""
 
     job_id: str
-    resolution: str | None = None
+    resolution: Resolution | None = None
     pr_url: str | None = None
     timestamp: datetime
 
@@ -1139,14 +1139,6 @@ class FileAccessEntry(CamelModel, extra="allow"):
     read_count: int = 0
     write_count: int = 0
     job_count: int = 0
-
-
-class FileAccessStats(CamelModel, extra="allow"):
-    total_accesses: int = 0
-    unique_files: int = 0
-    total_reads: int = 0
-    total_writes: int = 0
-    reread_count: int = 0
 
 
 class ObservationEntry(CamelModel, extra="allow"):

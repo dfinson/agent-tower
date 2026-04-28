@@ -113,14 +113,14 @@ const KIND_LABELS: Record<ClusterKind, { singular: string; plural: string; icon:
 
 // Phase 3: Semantic icon colors — warm up tool cluster icons
 const KIND_ICON_COLORS: Record<ClusterKind, string> = {
-  read:    "text-blue-400/50",
-  write:   "text-amber-400/50",
-  create:  "text-emerald-400/50",
-  execute: "text-emerald-400/50",
-  search:  "text-violet-400/50",
-  agent:   "text-primary/50",
-  web:     "text-cyan-400/50",
-  other:   "text-muted-foreground/50",
+  read:    "text-blue-400/70",
+  write:   "text-amber-400/70",
+  create:  "text-emerald-400/70",
+  execute: "text-emerald-400/70",
+  search:  "text-violet-400/70",
+  agent:   "text-primary/70",
+  web:     "text-cyan-400/70",
+  other:   "text-muted-foreground/60",
 };
 
 function clusterLabel(kind: ClusterKind, count: number): string {
@@ -493,20 +493,20 @@ function PhaseBox({
           onClick={() => setExpanded(true)}
           className={cn(
             "flex items-center gap-2 py-1.5 px-2.5 rounded-md flex-1 text-left",
-            "text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors",
-            "border border-transparent hover:border-border/40",
+            "text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors",
+            "border border-transparent hover:border-border/50",
           )}
         >
           <Icon size={12} className={cn("shrink-0", KIND_ICON_COLORS[cluster.kind])} />
           <span className="font-medium">{cluster.label}</span>
           {/* Phase 3: Show AI-generated tool group summary in collapsed view */}
           {cluster.entries[0]?.toolGroupSummary && (
-            <span className="text-[11px] text-muted-foreground/40 italic truncate ml-1 flex-1 min-w-0">
+            <span className="text-[11px] text-muted-foreground/50 italic truncate ml-1 flex-1 min-w-0">
               {cluster.entries[0].toolGroupSummary}
             </span>
           )}
           {totalDuration > 0 && (
-            <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
+            <span className="text-[10px] opacity-40 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
           )}
           {hasFailure && (
             <span className={cn(
@@ -516,7 +516,7 @@ function PhaseBox({
               {hasSubsequentActivity ? "recovered" : "error"}
             </span>
           )}
-          <ChevronRight size={11} className="opacity-30 shrink-0" />
+          <ChevronRight size={11} className="opacity-40 shrink-0" />
         </button>
         {hasEdits && onViewStepChanges && (
           <button
@@ -536,7 +536,7 @@ function PhaseBox({
   const selectedFile = files.find((f) => f.key === selectedKey);
 
   return (
-    <div className="rounded-md border border-border/40 bg-muted/5 overflow-hidden">
+    <div className="rounded-md border border-border/50 bg-muted/10 overflow-hidden">
       {/* Phase header */}
       <div className="flex items-center gap-1 pr-1">
         <button
@@ -546,9 +546,9 @@ function PhaseBox({
           <Icon size={12} className={cn("shrink-0", KIND_ICON_COLORS[cluster.kind])} />
           <span className="font-medium">{cluster.label}</span>
           {totalDuration > 0 && (
-            <span className="text-[10px] opacity-30 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
+            <span className="text-[10px] opacity-40 ml-auto shrink-0">{formatDuration(totalDuration)}</span>
           )}
-          <ChevronDown size={11} className="opacity-30 shrink-0" />
+          <ChevronDown size={11} className="opacity-40 shrink-0" />
         </button>
         {hasEdits && onViewStepChanges && (
           <button
@@ -674,8 +674,8 @@ function FileChip({
         "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono",
         "transition-colors cursor-pointer select-none",
         selected
-          ? "bg-primary/15 text-primary border border-primary/30"
-          : "bg-muted/30 text-muted-foreground hover:bg-accent/40 hover:text-foreground border border-transparent",
+          ? "bg-primary/20 text-primary border border-primary/40"
+          : "bg-muted/40 text-muted-foreground hover:bg-accent/50 hover:text-foreground border border-transparent",
         failed && "text-red-400",
         isRunning && "animate-pulse",
       )}
@@ -1066,12 +1066,12 @@ function GenericPreview({ entries }: { entries: TranscriptEntry[] }) {
 const OperatorMessage = memo(function OperatorMessage({ entry }: { entry: TranscriptEntry }) {
   return (
     <div className="flex gap-2 sm:gap-3 py-3 justify-end">
-      <div className="min-w-0 max-w-[85%] rounded-lg bg-primary/10 border border-primary/20 px-3 py-2">
+      <div className="min-w-0 max-w-[85%] rounded-lg bg-primary/20 border border-primary/30 px-3 py-2">
         <div className="text-[15px] sm:text-sm text-foreground leading-relaxed">
           <HighlightedMarkdown content={entry.content ?? ""} />
         </div>
       </div>
-      <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/15 flex items-center justify-center">
+      <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/25 flex items-center justify-center">
         <User size={13} className="text-primary" />
       </div>
     </div>
@@ -1130,12 +1130,12 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
       {(hasMessage || (hasReasoning && !hasTools)) && (
         <div className="flex gap-2 sm:gap-3">
           {/* Phase 1: Agent identity avatar */}
-          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/50 border border-border/30 flex items-center justify-center mt-0.5">
-            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
+          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/70 border border-border/50 flex items-center justify-center mt-0.5">
+            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/70" />} />
           </div>
           <div className={cn(
             "flex-1 min-w-0 rounded-lg px-2.5 sm:px-3 py-2 space-y-1.5",
-            isStreaming ? "bg-primary/5" : "bg-muted/5",
+            isStreaming ? "bg-card/90 border border-primary/20 animate-activity-shimmer" : "bg-card/60",
           )}>
             {/* Reasoning — expandable inside the bubble */}
             {hasReasoning && (
@@ -1163,10 +1163,10 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
       {/* Streaming with no committed message yet and no reasoning bubble shown */}
       {!displayMessage && isStreaming && streamingText && !hasReasoning && (
         <div className="flex gap-2 sm:gap-3">
-          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/50 border border-border/30 flex items-center justify-center mt-0.5">
-            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/60" />} />
+          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/70 border border-border/50 flex items-center justify-center mt-0.5">
+            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/70" />} />
           </div>
-          <div className="flex-1 min-w-0 rounded-lg bg-primary/5 px-3 py-2">
+          <div className="flex-1 min-w-0 rounded-lg bg-card/90 border border-primary/20 animate-activity-shimmer px-3 py-2">
             <div className="text-[15px] sm:text-[14px] text-foreground leading-relaxed">
               <HighlightedMarkdown content={streamingText} />
               <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
@@ -1199,7 +1199,7 @@ const CondensedTurnBlock = memo(function CondensedTurnBlock({
       ))}
       {turn.reasoning?.content && (
         <div className="mt-1">
-          <div className="flex-1 min-w-0 rounded-lg bg-muted/5 px-2.5 sm:px-3 py-2">
+          <div className="flex-1 min-w-0 rounded-lg bg-card/40 px-2.5 sm:px-3 py-2">
             <ReasoningHint content={turn.reasoning.content} />
           </div>
         </div>
@@ -1226,23 +1226,23 @@ function ReasoningHint({ content, streamingText }: { content: string; streamingT
 
   return (
     <div className={cn(
-      "text-xs text-foreground/50 leading-snug border-l-2 pl-2.5",
-      isLiveStreaming ? "animate-reasoning-pulse" : "border-primary/15",
+      "text-xs text-foreground/60 leading-snug border-l-2 pl-2.5",
+      isLiveStreaming ? "animate-reasoning-pulse" : "border-primary/30",
     )}>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 hover:text-foreground/70 transition-colors text-left w-full"
+        className="flex items-center gap-1.5 hover:text-foreground/80 transition-colors text-left w-full"
       >
-        <Brain size={12} className="shrink-0 text-primary/40" />
+        <Brain size={12} className="shrink-0 text-primary/50" />
         {showExpanded ? (
           <div ref={scrollRef} className="whitespace-pre-wrap max-h-48 overflow-y-auto flex-1 min-w-0 italic text-left">
             {trimWorktreePaths(displayContent)}
             {isLiveStreaming && (
-              <span className="inline-block w-1 h-3 bg-primary/50 animate-pulse ml-0.5 align-text-bottom" />
+              <span className="inline-block w-1 h-3 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
             )}
           </div>
         ) : (
-          <span className="text-[11px] text-primary/40 italic">Thinking…</span>
+          <span className="text-[11px] text-primary/50 italic">Thinking…</span>
         )}
       </button>
     </div>
