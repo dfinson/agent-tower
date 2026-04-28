@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, BarChart3, ListTree, Radio, Package, Loader2, Info } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, PanelLeftClose, BarChart3, ListTree, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -22,8 +22,9 @@ import { Tooltip } from "./ui/tooltip";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
-import { BottomSheet } from "./ui/bottom-sheet";
 import type { StepFilter } from "./DiffViewer";
+import { JobDetailSidebar } from "./JobDetailSidebar";
+import { MobileStatusRail, MobileJobDetailSheet, MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazyRetry(() => import("./DiffViewer"));
@@ -88,9 +89,6 @@ export function JobDetailScreen() {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(240, Math.min(360, window.innerWidth * 0.18)));
-  const isResizingRef = useRef(false);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
   const hasChanges = diffs.length > 0;
   const hasWorktree = !!job?.worktreePath && !job?.archivedAt;
@@ -131,35 +129,6 @@ export function JobDetailScreen() {
     () => mapToStepTurnId(visibleTurnId),
     [visibleTurnId, mapToStepTurnId],
   );
-
-  const resizeCleanupRef = useRef<(() => void) | null>(null);
-  // Clean up sidebar resize listeners on unmount (prevents leak if nav away mid-resize)
-  useEffect(() => () => { resizeCleanupRef.current?.(); }, []);
-  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizingRef.current = true;
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!isResizingRef.current) return;
-      const delta = ev.clientX - startX;
-      const newWidth = Math.max(160, Math.min(480, startWidth + delta));
-      setSidebarWidth(newWidth);
-    };
-    const onMouseUp = () => {
-      isResizingRef.current = false;
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-      resizeCleanupRef.current = null;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    resizeCleanupRef.current = onMouseUp;
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, [sidebarWidth]);
 
   const tabBarRef = useRef<HTMLDivElement>(null);
 
@@ -542,161 +511,41 @@ export function JobDetailScreen() {
   return (
     <div className="px-0 md:flex md:flex-col md:h-full md:min-h-0">
       {/* ── Mobile compact status rail (< 768px) ── */}
-      <div className="flex md:hidden items-center gap-2 h-10 px-2 border-b border-border bg-card shrink-0">
-        <button onClick={() => navigate("/")} className="p-1.5 -ml-1 text-muted-foreground hover:text-foreground transition-colors" aria-label="Back to dashboard">
-          <ArrowLeft size={16} />
-        </button>
-        <button
-          onClick={() => setMobileDetailOpen(true)}
-          className="flex-1 min-w-0 flex items-center gap-2 text-left"
-        >
-          <span className="text-sm font-semibold text-foreground truncate">
-            {job.title || job.id}
-          </span>
-        </button>
-        <span aria-live="polite"><StateBadge state={job.state} /></span>
-        <PopoverPrimitive.Root>
-          <PopoverPrimitive.Trigger asChild>
-            <button aria-label="Job actions" className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
-              <MoreHorizontal size={16} />
-            </button>
-          </PopoverPrimitive.Trigger>
-          <PopoverPrimitive.Portal>
-            <PopoverPrimitive.Content
-              side="bottom"
-              align="end"
-              sideOffset={4}
-              className="z-50 min-w-[160px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
-            >
-              {canCancel && (
-                <button
-                  onClick={() => setCancelOpen(true)}
-                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive transition-colors hover:bg-accent"
-                >
-                  <XCircle size={13} /> Cancel Job
-                </button>
-              )}
-              {canResume && (
-                <button
-                  onClick={handleResume}
-                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <RotateCcw size={13} /> Resume
-                </button>
-              )}
-              {hasWorktree && (
-                <button
-                  onClick={handleOpenJobTerminal}
-                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <TerminalSquare size={13} /> Terminal
-                  {jobTerminalCount > 0 && <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>}
-                </button>
-              )}
-              <button
-                onClick={() => setMobileDetailOpen(true)}
-                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <FolderGit2 size={13} /> Job Details
-              </button>
-            </PopoverPrimitive.Content>
-          </PopoverPrimitive.Portal>
-        </PopoverPrimitive.Root>
-      </div>
+      <MobileStatusRail
+        job={job}
+        onBack={() => navigate("/")}
+        onOpenDetail={() => setMobileDetailOpen(true)}
+        onCancelOpen={() => setCancelOpen(true)}
+        onResume={handleResume}
+        onOpenTerminal={handleOpenJobTerminal}
+        canCancel={canCancel}
+        canResume={canResume}
+        hasWorktree={hasWorktree}
+        jobTerminalCount={jobTerminalCount}
+      />
 
       {/* ── Mobile job detail bottom sheet ── */}
-      <BottomSheet open={mobileDetailOpen} onClose={() => setMobileDetailOpen(false)} title="Job Details">
-        <div className="space-y-3">
-          <div>
-            <h2 className="text-base font-bold text-foreground break-words">{job.title || job.id}</h2>
-            {job.title && <p className="text-xs text-muted-foreground font-mono mt-0.5">{job.id}</p>}
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <StateBadge state={job.state} />
-            <SdkBadge sdk={job.sdk} />
-          </div>
-          {(job.description || job.prompt) && (
-            <p className="text-sm text-muted-foreground">{job.description ?? job.prompt}</p>
-          )}
-          {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
-            <p className="text-sm italic text-primary/70">{job.progressHeadline}</p>
-          )}
-          {isPreparing && (
-            <div className="flex items-center gap-2 text-sm text-violet-400 animate-pulse">
-              <Loader2 size={14} className="animate-spin" />
-              {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up workspace…"}
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            {[
-              ["Branch", job.branch ?? "—"],
-              ["Base", job.baseRef],
-              ["Repo", job.repo.split("/").pop() ?? job.repo],
-              ...(job.model ? [["Model", job.model]] : []),
-              ["Created", new Date(job.createdAt).toLocaleString()],
-              ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
-            ].map(([label, value]) => (
-              <div key={label}>
-                <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wide">{label}</p>
-                <p className="text-sm break-all">{value}</p>
-              </div>
-            ))}
-          </div>
-          {job.prUrl && (
-            <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
-              <ExternalLink size={14} /> View Pull Request
-            </a>
-          )}
-          {/* Action buttons in sheet */}
-          <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-            {canCancel && (
-              <Button size="sm" variant="outline" className="text-destructive border-destructive/40" onClick={() => { setMobileDetailOpen(false); setCancelOpen(true); }}>
-                <XCircle size={14} /> Cancel
-              </Button>
-            )}
-            {canResume && (
-              <Button size="sm" variant="outline" loading={actionLoading} onClick={() => { setMobileDetailOpen(false); handleResume(); }}>
-                <RotateCcw size={14} /> Resume
-              </Button>
-            )}
-            {needsResolution && hasChanges && (
-              <>
-                {!hasMergeConflict && (
-                  <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "smart_merge"} disabled={resolveLoading !== null} onClick={() => { setMobileDetailOpen(false); handleResolve("smart_merge"); }}>
-                    <GitMerge size={14} /> Merge
-                  </Button>
-                )}
-                {hasMergeConflict && (
-                  <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "agent_merge"} disabled={resolveLoading !== null} onClick={() => { setMobileDetailOpen(false); handleResolve("agent_merge"); }}>
-                    <GitMerge size={14} /> Resolve with Agent
-                  </Button>
-                )}
-                <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "create_pr"} disabled={resolveLoading !== null} onClick={() => { setMobileDetailOpen(false); handleResolve("create_pr"); }}>
-                  <GitPullRequest size={14} /> Create PR
-                </Button>
-                <Button size="sm" variant="outline" className="gap-1 text-destructive border-destructive/40" onClick={() => { setMobileDetailOpen(false); setDiscardOpen(true); }}>
-                  <Trash2 size={14} /> Discard
-                </Button>
-              </>
-            )}
-            {needsResolution && !hasChanges && (
-              <Button size="sm" variant="outline" className="gap-1" onClick={() => { setMobileDetailOpen(false); setMarkDoneOpen(true); }}>
-                <CheckCircle2 size={14} /> Mark Done
-              </Button>
-            )}
-            {isResolved && !job.archivedAt && (
-              <Button size="sm" variant="outline" className="gap-1 text-green-600 border-green-500/40" onClick={() => { setMobileDetailOpen(false); setCompleteOpen(true); }}>
-                <CheckCircle2 size={14} /> Complete & Archive
-              </Button>
-            )}
-            {canArchive && (
-              <Button size="sm" variant="outline" className="gap-1" onClick={() => { setMobileDetailOpen(false); setCompleteOpen(true); }}>
-                <Archive size={14} /> {job.state === "failed" ? "Abandon" : "Archive"}
-              </Button>
-            )}
-          </div>
-        </div>
-      </BottomSheet>
+      <MobileJobDetailSheet
+        job={job}
+        open={mobileDetailOpen}
+        onClose={() => setMobileDetailOpen(false)}
+        isPreparing={isPreparing}
+        canCancel={canCancel}
+        canResume={canResume}
+        needsResolution={needsResolution}
+        hasChanges={hasChanges}
+        hasMergeConflict={hasMergeConflict}
+        isResolved={isResolved}
+        canArchive={canArchive}
+        actionLoading={actionLoading}
+        resolveLoading={resolveLoading}
+        onCancelOpen={() => setCancelOpen(true)}
+        onResume={handleResume}
+        onResolve={handleResolve}
+        onDiscardOpen={() => setDiscardOpen(true)}
+        onMarkDoneOpen={() => setMarkDoneOpen(true)}
+        onCompleteOpen={() => setCompleteOpen(true)}
+      />
 
       {/* ── Desktop slim toolbar (hidden on mobile) ── */}
       <div className="hidden md:flex md:shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 mb-2">
@@ -913,141 +762,19 @@ export function JobDetailScreen() {
             </div>
           )}
           {/* Activity Timeline sidebar — hidden on small screens */}
-          <div
-            className={cn(
-              "hidden lg:flex flex-col flex-shrink-0 md:h-full min-h-[22rem] rounded-lg border border-border bg-card overflow-hidden",
-              sidebarCollapsed && "w-10",
-            )}
-            style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
-          >
-            {sidebarCollapsed ? (
-              <button
-                onClick={() => setSidebarCollapsed(false)}
-                className="flex items-center justify-center h-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                title="Expand activity timeline"
-              >
-                <PanelLeftOpen size={18} />
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={() => setSidebarCollapsed(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-border hover:bg-accent/50 transition-colors"
-                  title="Collapse activity timeline"
-                >
-                  <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
-                  <span className="text-sm font-semibold text-muted-foreground">Activity</span>
-                </button>
-                {/* ── Job metadata panel ── */}
-                <div className="px-3 py-2 border-b border-border space-y-1.5 text-xs shrink-0 overflow-y-auto max-h-[40%]">
-                  {(job.description || job.prompt) && (
-                    <p className="text-muted-foreground line-clamp-3 text-[12px]">{job.description ?? job.prompt}</p>
-                  )}
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                    {[
-                      ["Branch", job.branch ?? "—"],
-                      ["Base", job.baseRef],
-                      ...(job.model ? [["Model", job.model]] : []),
-                      ["Created", new Date(job.createdAt).toLocaleString()],
-                      ...(job.completedAt ? [["Done", new Date(job.completedAt).toLocaleString()]] : []),
-                    ].map(([label, value]) => (
-                      <div key={label} className="min-w-0">
-                        <p className="text-[10px] text-muted-foreground/70 uppercase font-semibold tracking-wide">{label}</p>
-                        <p className="text-[12px] text-foreground/80 truncate" title={String(value)}>{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                  {job.prUrl && (
-                    <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-primary hover:underline">
-                      <ExternalLink size={11} /> Pull Request
-                    </a>
-                  )}
-                  {/* Status banners — compact in sidebar */}
-                  {job.modelDowngraded && (
-                    <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-1.5">
-                      <ArrowDownCircle size={13} className="text-amber-500 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-[11px] font-medium text-amber-500">Model downgraded</p>
-                        <p className="text-[11px] text-amber-400">
-                          {job.requestedModel} → {job.actualModel}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  {job.state === "failed" && (
-                    <div className="flex items-start gap-1.5 rounded border border-red-500/30 bg-red-500/10 p-1.5">
-                      <XCircle size={13} className="text-red-500 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-[11px] font-medium text-red-500">Failed</p>
-                        <p className="text-[11px] text-red-400 line-clamp-2">{job.failureReason ?? "No details"}</p>
-                      </div>
-                    </div>
-                  )}
-                  {job.state === "review" && (() => {
-                    const isConflict = hasMergeConflict;
-                    const isSignOff = job.resolution === "unresolved" || !job.resolution;
-                    return (
-                      <div className={`flex items-start gap-1.5 rounded border p-1.5 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
-                        {isConflict ? (
-                          <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
-                        ) : isSignOff ? (
-                          <GitMerge size={13} className="text-blue-500 shrink-0 mt-0.5" />
-                        ) : (
-                          <CheckCircle2 size={13} className="text-green-500 shrink-0 mt-0.5" />
-                        )}
-                        <p className={`text-[11px] font-medium ${isConflict ? "text-amber-500" : isSignOff ? "text-blue-500" : "text-green-500"}`}>
-                          {isConflict ? "Merge conflict" : isSignOff ? "Review required" : "Ready"}
-                        </p>
-                        {unresolvedResolutionError && (
-                          <p className="text-[11px] text-blue-300/90">Merge failed: {unresolvedResolutionError}</p>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  {job.state === "completed" && (
-                    <div className="flex items-start gap-1.5 rounded border border-green-500/30 bg-green-500/10 p-1.5">
-                      <CheckCircle2 size={13} className="text-green-500 shrink-0 mt-0.5" />
-                      <p className="text-[11px] font-medium text-green-500">
-                        {job.resolution === "merged" ? "Merged"
-                          : job.resolution === "pr_created" ? "PR created"
-                          : job.resolution === "discarded" ? "Discarded"
-                          : "Completed"}
-                      </p>
-                    </div>
-                  )}
-                  {job.state === "canceled" && (
-                    <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-1.5">
-                      <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
-                      <p className="text-[11px] font-medium text-amber-500">Canceled</p>
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 overflow-hidden">
-                  <ActivityTimeline
-                    jobId={jobId}
-                    jobState={job.state}
-                    onStepClick={(turnId) => {
-                      setScrollToTurnId(turnId);
-                      setSelectedTurnId(turnId);
-                    }}
-                    selectedTurnId={selectedTurnId}
-                    searchActive={searchActive}
-                    visibleStepTurnId={visibleStepTurnId}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-          {/* Drag handle for resizing sidebar */}
-          {!sidebarCollapsed && (
-            <div
-              className="hidden lg:flex items-center justify-center w-2 cursor-col-resize group flex-shrink-0"
-              onMouseDown={handleSidebarResizeStart}
-              title="Drag to resize"
-            >
-              <div className="w-0.5 h-8 rounded-full bg-border group-hover:bg-muted-foreground/60 transition-colors" />
-            </div>
-          )}
+          <JobDetailSidebar
+            job={job}
+            jobId={jobId}
+            selectedTurnId={selectedTurnId}
+            searchActive={searchActive}
+            visibleStepTurnId={visibleStepTurnId}
+            onStepClick={(turnId) => {
+              setScrollToTurnId(turnId);
+              setSelectedTurnId(turnId);
+            }}
+            hasMergeConflict={hasMergeConflict}
+            unresolvedResolutionError={unresolvedResolutionError}
+          />
           <div className="flex flex-col gap-4 flex-1 min-w-0 lg:pl-2">
             <div className="h-[calc(100dvh-92px)] md:h-full min-h-[22rem]">
               <CuratedFeed
@@ -1126,98 +853,28 @@ export function JobDetailScreen() {
       </div>{/* end tab content min-height wrapper */}
 
       {/* ── Mobile contextual footer — shows review actions above the bottom tab bar ── */}
-      {needsResolution && hasChanges && tab === "diff" && (
-        <div className="fixed bottom-[52px] inset-x-0 z-40 flex md:hidden items-center justify-center gap-2 px-3 py-2 border-t border-border bg-card/95 backdrop-blur-sm">
-          {!hasMergeConflict && (
-            <Button size="sm" className="flex-1 gap-1" loading={resolveLoading === "smart_merge"} disabled={resolveLoading !== null} onClick={() => handleResolve("smart_merge")}>
-              <GitMerge size={14} /> Merge
-            </Button>
-          )}
-          {hasMergeConflict && (
-            <Button size="sm" className="flex-1 gap-1" loading={resolveLoading === "agent_merge"} disabled={resolveLoading !== null} onClick={() => handleResolve("agent_merge")}>
-              <GitMerge size={14} /> Resolve
-            </Button>
-          )}
-          <Button size="sm" variant="outline" className="flex-1 gap-1" loading={resolveLoading === "create_pr"} disabled={resolveLoading !== null} onClick={() => handleResolve("create_pr")}>
-            <GitPullRequest size={14} /> PR
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1 text-destructive border-destructive/40" onClick={() => setDiscardOpen(true)}>
-            <Trash2 size={14} />
-          </Button>
-        </div>
-      )}
+      <MobileFooterActions
+        needsResolution={needsResolution}
+        hasChanges={hasChanges}
+        tab={tab}
+        hasMergeConflict={hasMergeConflict}
+        resolveLoading={resolveLoading}
+        onResolve={handleResolve}
+        onDiscardOpen={() => setDiscardOpen(true)}
+      />
 
-      {/* ── Mobile bottom tab bar (iOS-style) — max 5 primary + More overflow ── */}
-      <nav className="fixed bottom-0 inset-x-0 z-50 md:hidden flex items-end justify-around border-t border-border bg-card/95 backdrop-blur-sm safe-area-pb landscape:items-center" style={{ height: 52 }}>
-        {/* Activity toggle — visually distinct (opens overlay, not a tab) */}
-        <button
-          onClick={() => { if (tab !== "live") handleTabChange("live"); setMobileActivityOpen((o) => !o); setMobileMoreOpen(false); }}
-          className={cn(
-            "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors landscape:flex-row landscape:gap-1 landscape:py-0.5",
-            mobileActivityOpen ? "text-primary" : "text-muted-foreground active:text-foreground",
-          )}
-        >
-          <ListTree size={20} strokeWidth={mobileActivityOpen ? 2.5 : 1.5} className="landscape:!size-4" />
-          <span className={cn("text-[10px] leading-tight truncate landscape:hidden", mobileActivityOpen && "font-semibold")}>Activity</span>
-        </button>
-        {[
-          { id: "live", icon: Radio, label: "Live" },
-          ...(hasChanges ? [{ id: "diff", icon: GitBranch, label: "Changes" }] : []),
-          { id: "files", icon: FolderTree, label: "Files" },
-        ].map(({ id, icon: Icon, label }) => (
-          <button
-            key={id}
-            onClick={() => { setMobileActivityOpen(false); setMobileMoreOpen(false); handleTabChange(id); }}
-            className={cn(
-              "flex flex-col items-center justify-center gap-0.5 flex-1 pt-1.5 pb-1 min-w-0 transition-colors landscape:flex-row landscape:gap-1 landscape:py-0.5",
-              tab === id && !mobileActivityOpen
-                ? "text-primary"
-                : "text-muted-foreground active:text-foreground",
-            )}
-          >
-            <Icon size={20} strokeWidth={tab === id && !mobileActivityOpen ? 2.5 : 1.5} className="landscape:!size-4" />
-            <span className={cn("text-[10px] leading-tight truncate landscape:hidden", tab === id && !mobileActivityOpen && "font-semibold")}>{label}</span>
-          </button>
-        ))}
-        {/* More overflow — Metrics, Artifacts */}
-        <div className="relative flex-1 min-w-0">
-          <button
-            onClick={() => setMobileMoreOpen((o) => !o)}
-            className={cn(
-              "flex flex-col items-center justify-center gap-0.5 w-full pt-1.5 pb-1 transition-colors landscape:flex-row landscape:gap-1 landscape:py-0.5",
-              mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab) ? "text-primary" : "text-muted-foreground active:text-foreground",
-            )}
-          >
-            <MoreHorizontal size={20} strokeWidth={mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab) ? 2.5 : 1.5} className="landscape:!size-4" />
-            <span className={cn("text-[10px] leading-tight truncate landscape:hidden", (mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab)) && "font-semibold")}>More</span>
-          </button>
-          {mobileMoreOpen && (
-            <div className="absolute bottom-full right-0 mb-2 mr-1 rounded-md border border-border bg-popover shadow-lg py-1 min-w-[140px] animate-in fade-in-0 zoom-in-95">
-              <button
-                onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("shell"); }}
-                className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "shell" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
-              >
-                <TerminalSquare size={15} /> Shell
-              </button>
-              <button
-                onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("metrics"); }}
-                className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "metrics" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
-              >
-                <BarChart3 size={15} /> Metrics
-              </button>
-              {hasArtifacts && (
-                <button
-                  onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("artifacts"); }}
-                  className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "artifacts" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
-                >
-                  <Package size={15} /> Artifacts
-                  {artifactCount > 0 && <span className="ml-auto text-[10px] font-semibold text-primary">{artifactCount}</span>}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </nav>
+      {/* ── Mobile bottom tab bar (iOS-style) ── */}
+      <MobileBottomNav
+        tab={tab}
+        handleTabChange={handleTabChange}
+        hasChanges={hasChanges}
+        hasArtifacts={hasArtifacts}
+        artifactCount={artifactCount}
+        mobileActivityOpen={mobileActivityOpen}
+        setMobileActivityOpen={setMobileActivityOpen}
+        mobileMoreOpen={mobileMoreOpen}
+        setMobileMoreOpen={setMobileMoreOpen}
+      />
 
       <ConfirmDialog
         open={cancelOpen}
