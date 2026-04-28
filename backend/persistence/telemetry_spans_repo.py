@@ -181,7 +181,7 @@ class TelemetrySpansRepository(BaseRepository):
 
     async def file_write_spans_for_step(
         self, *, job_id: str, turn_id: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TelemetrySpanRow]:
         """Return file_write spans with motivation data for a specific step (by turn_id)."""
         result = await self._session.execute(
             text("""
@@ -199,7 +199,7 @@ class TelemetrySpansRepository(BaseRepository):
 
     async def motivated_spans_for_job(
         self, *, job_id: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TelemetrySpanRow]:
         """Return all file_write spans with motivation data for a job."""
         result = await self._session.execute(
             text("""

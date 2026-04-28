@@ -20,6 +20,7 @@ from backend.models.events import DomainEventKind
 from backend.services.diff_service import DiffService
 
 if TYPE_CHECKING:
+    from backend.models.domain import TelemetrySpanRow
     from backend.persistence.step_repo import StepRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.services.git_service import GitService
@@ -162,7 +163,7 @@ class StepDiffService:
 
     @staticmethod
     def _extract_hunk_motivations(
-        span: dict[str, Any],
+        span: TelemetrySpanRow,
         target: str,
         changed_files: list[Any],
         file_motivations: dict[str, FileMotivation],
