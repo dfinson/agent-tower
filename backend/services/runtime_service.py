@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, cast
 import structlog
 from sqlalchemy.exc import DBAPIError
 
-from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT, build_session_config
+from backend.config import build_session_config
 from backend.models.api_schemas import ExecutionPhase, TranscriptRole
 from backend.models.domain import (
     TERMINAL_STATES,
@@ -29,7 +29,6 @@ from backend.models.domain import (
     CodePlaneError,
     Job,
     JobNotFoundError,
-    JobSpec,
     JobState,
     Resolution,
     ServiceInitError,
@@ -46,7 +45,20 @@ from backend.services.runtime_handoff import (
     build_resume_handoff_prompt_for_job,
     load_handoff_context_for_job,
 )
+from backend.services.runtime_resume import (
+    attempt_resume_fallback as _attempt_resume_fallback_impl,
+    create_followup_job as _create_followup_job_impl,
+    ensure_resumable_worktree as _ensure_resumable_worktree_impl,
+    recover_active_job as _recover_active_job_impl,
+    resume_job as _resume_job_impl,
+    resume_orphaned as _resume_orphaned_impl,
+    rollback_recovery as _rollback_recovery_impl,
+)
 from backend.services.runtime_telemetry import RuntimeTelemetry
+from backend.services.runtime_verify import (
+    run_followup_turn as _run_followup_turn_impl,
+    run_verify_review as _run_verify_review_impl,
+)
 from backend.validators import REF_PATTERN
 
 if TYPE_CHECKING:
@@ -154,8 +166,6 @@ _SERVER_RESTART_RECOVERY_INSTRUCTION = (
     "Do not start over or create a duplicate job."
 )
 
-_DEFAULT_RESUME_INSTRUCTION = "Continue the current task from where you left off and finish it."
-
 # Heartbeat configuration
 _HEARTBEAT_INTERVAL_S = 30
 
@@ -172,12 +182,6 @@ def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
         return False
     role = str(event.payload.get("role", ""))
     return role != TranscriptRole.operator
-
-
-def _normalize_resume_instruction(instruction: str | None) -> str:
-    """Return a default continue instruction when the operator doesn't provide one."""
-    normalized = (instruction or "").strip()
-    return normalized or _DEFAULT_RESUME_INSTRUCTION
 
 
 class RuntimeService:
@@ -366,34 +370,7 @@ class RuntimeService:
 
     async def _ensure_resumable_worktree(self, job_repo: JobRepository, job: Job) -> Job:
         """Ensure a job has a usable worktree before resuming or recovering it."""
-        from pathlib import Path
-
-        from backend.services.git_service import GitError, GitService
-
-        if not job.worktree_path or job.worktree_path == job.repo:
-            return job
-
-        wt = Path(job.worktree_path)
-        if wt.exists():
-            return job
-
-        if not job.branch:
-            raise StateConflictError(
-                f"Job {job.id} cannot be resumed because its worktree is missing "
-                "and no branch is available to restore it."
-            )
-
-        git = GitService(self._config)
-        try:
-            new_wt = await git.reattach_worktree(job.repo, job.id, job.branch)
-            await job_repo.update_worktree_path(job.id, new_wt)
-            job.worktree_path = new_wt
-            log.info("worktree_reattached", job_id=job.id, path=new_wt)
-            return job
-        except GitError as exc:
-            raise StateConflictError(
-                f"Job {job.id} cannot be resumed because its worktree could not be restored: {exc}"
-            ) from exc
+        return await _ensure_resumable_worktree_impl(self, job_repo, job)
 
     async def _recover_active_job(
         self,
@@ -402,103 +379,11 @@ class RuntimeService:
         instruction: str = _SERVER_RESTART_RECOVERY_INSTRUCTION,
     ) -> Job:
         """Restart an active job after backend restart without marking it failed."""
-
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            job = await job_repo.get(job_id)
-            if job is None:
-                raise JobNotFoundError(f"Job {job_id} does not exist.")
-            if job.state not in (JobState.running, JobState.waiting_for_approval):
-                raise StateConflictError(f"Job {job_id} is not active and cannot be recovered (current: {job.state}).")
-
-            snapshot = _RecoverySnapshot(
-                state=job.state,
-                session_count=job.session_count,
-                completed_at=job.completed_at,
-                resolution=job.resolution,
-                failure_reason=job.failure_reason,
-                archived_at=job.archived_at,
-                merge_status=job.merge_status,
-                pr_url=job.pr_url,
-            )
-
-            job = await self._ensure_resumable_worktree(job_repo, job)
-
-            new_session_count = job.session_count + 1
-            if job.sdk_session_id:
-                override_prompt = instruction
-                resume_sdk_session_id: str | None = job.sdk_session_id
-            else:
-                override_prompt = await self._build_resume_handoff_prompt_for_job(
-                    session,
-                    job,
-                    instruction,
-                    new_session_count,
-                )
-                resume_sdk_session_id = None
-
-            await job_repo.reset_for_recovery(job_id, new_session_count, new_state=JobState.running)
-            await session.commit()
-
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            reloaded = await job_repo.get(job_id)
-        if reloaded is None:
-            raise JobNotFoundError(f"Job {job_id} not found after recovery reset")
-
-        try:
-            await self.start_or_enqueue(
-                reloaded,
-                override_prompt=override_prompt,
-                resume_sdk_session_id=resume_sdk_session_id,
-            )
-        except Exception:
-            log.error("recovery_start_failed", job_id=job_id, exc_info=True)
-            await self._rollback_recovery(job_id, snapshot)
-            raise
-
-        if snapshot.state == JobState.waiting_for_approval:
-            await self._publish_state_event(job_id, JobState.waiting_for_approval, JobState.running)
-
-        now = datetime.now(UTC)
-        await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=now,
-                kind=DomainEventKind.session_resumed,
-                payload={
-                    "session_number": new_session_count,
-                    "instruction": instruction,
-                    "timestamp": now.isoformat(),
-                    "reason": "process_restarted",
-                },
-            )
-        )
-
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            final_job = await job_repo.get(job_id)
-        if final_job is None:
-            raise JobNotFoundError(f"Job {job_id} not found after recovery start")
-        return final_job
+        return await _recover_active_job_impl(self, job_id, instruction=instruction)
 
     async def _rollback_recovery(self, job_id: str, snapshot: _RecoverySnapshot) -> None:
         """Restore job state after a failed recovery attempt."""
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            await job_repo.restore_after_failed_resume(
-                job_id,
-                previous_state=snapshot.state,
-                previous_session_count=snapshot.session_count,
-                completed_at=snapshot.completed_at,
-                resolution=snapshot.resolution,
-                failure_reason=snapshot.failure_reason,
-                archived_at=snapshot.archived_at,
-                merge_status=snapshot.merge_status,
-                pr_url=snapshot.pr_url,
-            )
-            await session.commit()
+        await _rollback_recovery_impl(self, job_id, snapshot)
 
     async def _start_job(
         self, job: Job, override_prompt: str | None = None, resume_sdk_session_id: str | None = None
@@ -1082,34 +967,9 @@ class RuntimeService:
         session_number: int = 1,
     ) -> _SessionAttemptResult:
         """Try a fresh session after a failed resume."""
-        await self._clear_sdk_session_id(job_id)
-        try:
-            fallback_prompt = await self._build_resume_handoff_prompt(job_id, config.prompt)
-        except (OSError, KeyError, ValueError, LookupError):
-            log.warning("resume_handoff_prompt_build_failed", job_id=job_id, exc_info=True)
-            return _SessionAttemptResult(error_reason="Resume handoff prompt build failed")
-
-        log.warning(
-            "resume_sdk_session_unusable_falling_back",
-            job_id=job_id,
-            sdk_session_id=config.resume_sdk_session_id,
+        return await _attempt_resume_fallback_impl(
+            self, job_id, config, worktree_path, base_ref, session_number=session_number,
         )
-        fallback_session = _AgentSession()
-        self._agent_sessions[job_id] = fallback_session
-        fallback_config = dataclass_replace(
-            config,
-            prompt=fallback_prompt,
-            resume_sdk_session_id=None,
-        )
-        fallback_result = await self._execute_session_attempt(
-            job_id,
-            fallback_session,
-            fallback_config,
-            worktree_path,
-            base_ref,
-            session_number=session_number,
-        )
-        return fallback_result
 
     async def _handle_job_canceled(
         self,
@@ -1366,75 +1226,11 @@ class RuntimeService:
         base_ref: str | None,
         session_number: int = 1,
     ) -> tuple[str | None, str | None]:
-        """Run a single follow-up agent turn (verify or self-review).
-
-        Returns ``(new_session_id, error_reason)``.  *error_reason* is set if
-        the turn encountered an error; callers decide whether to abort.
-        """
-        followup_session = _AgentSession()
-        followup_config = dataclass_replace(
-            base_config,
-            prompt=prompt,
-            resume_sdk_session_id=resume_session_id,
+        """Run a single follow-up agent turn (verify or self-review)."""
+        return await _run_followup_turn_impl(
+            self, job_id, prompt, base_config, resume_session_id,
+            worktree_path, base_ref, session_number=session_number,
         )
-
-        # Suppress echo of the follow-up prompt
-        self._echo_suppress.setdefault(job_id, set()).add(prompt)
-
-        error_reason: str | None = None
-        new_session_id: str | None = None
-
-        try:
-            async for event in followup_session.execute(followup_config, self._resolve_adapter(base_config.sdk)):
-                # Forward shell events to observer terminal.
-                self._forward_to_observer(job_id, event)
-
-                action, domain_event, evt_error = await self._process_agent_event(
-                    job_id,
-                    event,
-                    followup_session,
-                    worktree_path,
-                    base_ref,
-                    "Approval rejected during verification",
-                )
-
-                if action == _EventAction.skip:
-                    continue
-                if action == _EventAction.abort:
-                    error_reason = evt_error
-                    break
-
-                if domain_event is None:
-                    raise CodePlaneError("Event publish must always provide a domain event")
-
-                if evt_error:
-                    error_reason = evt_error
-
-                # Capture follow-up session ID
-                if new_session_id is None and followup_session.session_id:
-                    new_session_id = followup_session.session_id
-                    self._session_ids[job_id] = new_session_id
-                    await self._persist_sdk_session_id(job_id, new_session_id)
-
-                if domain_event.kind == DomainEventKind.log_line_emitted:
-                    domain_event.payload.setdefault("session_number", session_number)
-
-                # Step tracking for follow-up turns
-                if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
-                    role = domain_event.payload.get("role", "")
-                    if role != "agent_delta":
-                        await self._step_tracker.on_transcript_event(job_id, domain_event)
-                        current = self._step_tracker.current_step(job_id)
-                        if current:
-                            domain_event.payload["step_id"] = current.step_id
-                            domain_event.payload["step_number"] = current.step_number
-
-                await self._event_bus.publish(domain_event)
-        except Exception:
-            log.warning("followup_turn_failed", job_id=job_id, exc_info=True)
-            error_reason = "Follow-up turn execution error"
-
-        return new_session_id, error_reason
 
     async def _run_verify_review(
         self,
@@ -1446,83 +1242,10 @@ class RuntimeService:
         session_number: int = 1,
     ) -> None:
         """Run optional verify and self-review turns after the main agent session."""
-        job: Job | None = None
-        try:
-            async with self._session_factory() as session:
-                svc = self._make_job_service(session)
-                job = await svc.get_job(job_id)
-        except DBAPIError:
-            log.warning("verify_job_lookup_failed", job_id=job_id, exc_info=True)
-            return
-
-        if job is None:
-            return
-
-        do_verify = job.verify if job.verify is not None else self._config.verification.verify
-        do_self_review = job.self_review if job.self_review is not None else self._config.verification.self_review
-
-        if not do_verify and not do_self_review:
-            return
-
-        max_turns = job.max_turns if job.max_turns is not None else self._config.verification.max_turns
-        verify_prompt = job.verify_prompt or self._config.verification.verify_prompt or DEFAULT_VERIFY_PROMPT
-        self_review_prompt = (
-            job.self_review_prompt or self._config.verification.self_review_prompt or DEFAULT_SELF_REVIEW_PROMPT
+        await _run_verify_review_impl(
+            self, job_id, base_config, session_id,
+            worktree_path, base_ref, session_number=session_number,
         )
-
-        # Emit verification phase change
-        self._resolve_adapter(base_config.sdk).set_execution_phase(job_id, ExecutionPhase.verification)
-        await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.execution_phase_changed,
-                payload={"phase": ExecutionPhase.verification},
-            )
-        )
-
-        current_session_id = session_id
-
-        if do_verify:
-            for turn in range(1, max_turns + 1):
-                log.info("verify_turn_start", job_id=job_id, turn=turn, max_turns=max_turns)
-                new_sid, error = await self._run_followup_turn(
-                    job_id,
-                    verify_prompt,
-                    base_config,
-                    current_session_id,
-                    worktree_path,
-                    base_ref,
-                    session_number=session_number,
-                )
-                if new_sid:
-                    current_session_id = new_sid
-                if error:
-                    log.warning("verify_turn_error", job_id=job_id, turn=turn, error=error)
-                    break
-                log.info("verify_turn_complete", job_id=job_id, turn=turn)
-
-        if do_self_review:
-            log.info("self_review_start", job_id=job_id)
-            new_sid, error = await self._run_followup_turn(
-                job_id,
-                self_review_prompt,
-                base_config,
-                current_session_id,
-                worktree_path,
-                base_ref,
-                session_number=session_number,
-            )
-            if new_sid:
-                current_session_id = new_sid
-            if error:
-                log.warning("self_review_error", job_id=job_id, error=error)
-            else:
-                log.info("self_review_complete", job_id=job_id)
-
-        # Final diff snapshot after verify/review turns
-        await self._finalize_diff_safe(job_id, worktree_path, base_ref)
 
     async def _heartbeat_loop(self, job_id: str) -> None:
         """Emit periodic heartbeats for session health display."""
@@ -1685,61 +1408,8 @@ class RuntimeService:
         return True
 
     async def _resume_orphaned(self, job_id: str, message: str) -> bool:
-        """Auto-resume a job that has no live agent session.
-
-        Called by ``send_message`` when the in-memory session map has no entry
-        for the job.  This covers two cases:
-
-        * **Stale UI state** — the frontend still shows ``running`` or
-          ``waiting_for_approval`` but the agent already finished and the SSE
-          update hasn't reached the client yet.  The DB state will already be
-          terminal, so we can resume directly.
-
-                * **Orphaned non-terminal job** — the server restarted (or crashed)
-                    before ``recover_on_startup`` ran, leaving the DB in ``running`` or
-                    ``waiting_for_approval`` with no live task.  We recover it in place
-                    instead of creating a synthetic failure transition.
-
-        Returns ``True`` if the resume was successfully initiated, ``False`` if
-        the job does not exist.
-
-        Raises domain exceptions (``StateConflictError``, ``JobNotFoundError``)
-        so that callers can surface the real error instead of a generic failure.
-        """
-
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            job = await job_repo.get(job_id)
-
-        if job is None:
-            log.warning("send_message_job_not_found", job_id=job_id)
-            return False
-
-        if job.state not in TERMINAL_STATES and job.state != JobState.review:
-            # Orphaned non-terminal job — recover it in place.
-            log.warning(
-                "send_message_orphaned_non_terminal",
-                job_id=job_id,
-                state=job.state,
-            )
-            try:
-                await self._recover_active_job(job_id, instruction=message)
-            except (StateConflictError, JobNotFoundError):
-                raise
-            except Exception:
-                log.warning("send_message_auto_resume_failed", job_id=job_id, exc_info=True)
-                return False
-            return True
-
-        log.info("send_message_auto_resume", job_id=job_id)
-        try:
-            await self.resume_job(job_id, message)
-        except (StateConflictError, JobNotFoundError):
-            raise
-        except Exception:
-            log.warning("send_message_auto_resume_failed", job_id=job_id, exc_info=True)
-            return False
-        return True
+        """Auto-resume a job that has no live agent session."""
+        return await _resume_orphaned_impl(self, job_id, message)
 
     async def pause_job(self, job_id: str) -> bool:
         """Forcefully pause a running agent. Returns True if sent.
@@ -1898,190 +1568,12 @@ class RuntimeService:
             return await self._build_resume_handoff_prompt_for_job(session, job, instruction, job.session_count)
 
     async def create_followup_job(self, job_id: str, instruction: str) -> Job:
-        """Create and start a new follow-up job with parent-job handoff context.
-
-        Raises ValueError if the parent job has already been merged — once merged,
-        the work is in the base branch and a follow-up must be started as a fresh job.
-        """
-        from backend.models.domain import PermissionMode
-
-        normalized_instruction = instruction.strip()
-        if not normalized_instruction:
-            raise ValueError("Follow-up instruction must not be empty")
-
-        async with self._session_factory() as session:
-            svc = self._make_job_service(session)
-            original = await svc.get_job(job_id)
-
-            # Block follow-ups on already-merged jobs — the work is already in the
-            # base branch, so a new job should be started from scratch instead.
-            _merged_resolutions = (Resolution.merged, Resolution.pr_created)
-            if original.resolution in _merged_resolutions:
-                raise StateConflictError(
-                    f"Job {job_id} has already been merged (resolution={original.resolution.value}). "
-                    "Start a new job instead of creating a follow-up."
-                )
-
-            # Build a naming context hint so the LLM can produce a name that
-            # reflects both the new instruction AND its follow-up relationship.
-            parent_label = original.title or original.id
-            parent_job_context = (
-                f"This is a follow-up task continuing work from '{parent_label}' (parent job: {original.id})."
-            )
-
-            override_prompt = await self._build_followup_handoff_prompt_for_job(
-                session,
-                original,
-                normalized_instruction,
-            )
-            followup = await svc.create_job(JobSpec(
-                repo=original.repo,
-                prompt=normalized_instruction,
-                base_ref=original.base_ref,
-                permission_mode=original.permission_mode or PermissionMode.full_auto,
-                model=original.model,
-                sdk=original.sdk,
-                verify=original.verify,
-                self_review=original.self_review,
-                max_turns=original.max_turns,
-                verify_prompt=original.verify_prompt,
-                self_review_prompt=original.self_review_prompt,
-                parent_job_id=original.id,
-                parent_job_context=parent_job_context,
-            ))
-            await session.commit()
-
-        if followup.state != JobState.failed:
-            await self.start_or_enqueue(followup, override_prompt=override_prompt)
-            async with self._session_factory() as session:
-                followup = await self._make_job_service(session).get_job(followup.id)
-
-        return followup
+        """Create and start a new follow-up job with parent-job handoff context."""
+        return await _create_followup_job_impl(self, job_id, instruction)
 
     async def resume_job(self, job_id: str, instruction: str | None = None) -> Job:
-        """Resume a terminal or review job in-place.
-
-        Primary path: reconnect to the existing Copilot SDK session (full conversation history
-        intact, no summarization cost). Fallback: use LLM-generated session summary when the
-        SDK session is no longer available (daemon restart, session expired, etc.).
-        """
-
-        resumable_states = TERMINAL_STATES | {JobState.review}
-        normalized_instruction = _normalize_resume_instruction(instruction)
-
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            job = await job_repo.get(job_id)
-            if job is None:
-                raise JobNotFoundError(f"Job {job_id} does not exist.")
-            if job.state not in resumable_states:
-                raise StateConflictError(f"Job {job_id} is not in a resumable state (current: {job.state}).")
-
-            previous_state = job.state
-            previous_session_count = job.session_count
-            previous_completed_at = job.completed_at
-            previous_resolution = job.resolution
-            previous_failure_reason = job.failure_reason
-            previous_archived_at = job.archived_at
-            previous_merge_status = job.merge_status
-            previous_pr_url = job.pr_url
-            resume_merge_status = (
-                Resolution.conflict
-                if previous_merge_status == Resolution.conflict or previous_resolution == Resolution.conflict
-                else None
-            )
-
-            job = await self._ensure_resumable_worktree(job_repo, job)
-
-            new_session_count = job.session_count + 1
-
-            if job.sdk_session_id:
-                # Primary path: SDK native session resume — full history intact, no summarization cost.
-                log.info("resume_via_sdk_session", job_id=job_id, sdk_session_id=job.sdk_session_id)
-                override_prompt = normalized_instruction
-                resume_sdk_session_id: str | None = job.sdk_session_id
-            else:
-                log.info("resume_via_summarization", job_id=job_id)
-                override_prompt = await self._build_resume_handoff_prompt_for_job(
-                    session,
-                    job,
-                    normalized_instruction,
-                    new_session_count,
-                )
-                resume_sdk_session_id = None
-
-            await job_repo.reset_for_resume(job_id, new_session_count, merge_status=resume_merge_status)
-            await session.commit()
-
-        # Reload job and start execution
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            job = await job_repo.get(job_id)
-        if job is None:
-            raise JobNotFoundError(f"Job {job_id} not found after resume reset")
-
-        try:
-            await self.start_or_enqueue(
-                job,
-                override_prompt=override_prompt,
-                resume_sdk_session_id=resume_sdk_session_id,
-            )
-        except Exception:
-            log.error("resume_start_failed", job_id=job_id, exc_info=True)
-            async with self._session_factory() as session:
-                job_repo = JobRepository(session)
-                await job_repo.restore_after_failed_resume(
-                    job_id,
-                    previous_state=previous_state,
-                    previous_session_count=previous_session_count,
-                    completed_at=previous_completed_at,
-                    resolution=previous_resolution,
-                    failure_reason=previous_failure_reason,
-                    archived_at=previous_archived_at,
-                    merge_status=previous_merge_status,
-                    pr_url=previous_pr_url,
-                )
-                await session.commit()
-            raise
-
-        # Publish session_resumed only after startup succeeds so callers do not
-        # see a false-positive resume when task initialization fails.
-        now = datetime.now(UTC)
-        await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=now,
-                kind=DomainEventKind.session_resumed,
-                payload={
-                    "session_number": new_session_count,
-                    "instruction": normalized_instruction,
-                    "timestamp": now.isoformat(),
-                },
-            )
-        )
-        await self._event_bus.publish(
-            DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=now,
-                kind=DomainEventKind.transcript_updated,
-                payload={
-                    "job_id": job_id,
-                    "seq": 0,
-                    "timestamp": now.isoformat(),
-                    "role": TranscriptRole.operator,
-                    "content": normalized_instruction,
-                },
-            )
-        )
-
-        async with self._session_factory() as session:
-            job_repo = JobRepository(session)
-            reloaded = await job_repo.get(job_id)
-        if reloaded is None:
-            raise JobNotFoundError(f"Job {job_id} not found after start")
-        return reloaded
+        """Resume a terminal or review job in-place."""
+        return await _resume_job_impl(self, job_id, instruction)
 
     async def _cleanup_job_worktree(self, job: Job) -> None:
         """Remove the secondary worktree for a finished job (failed/canceled).
