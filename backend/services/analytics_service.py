@@ -47,24 +47,24 @@ class AnalyticsService:
     # -- Telemetry summary ---------------------------------------------------
 
     async def aggregate(self, *, period_days: int) -> AggregateStats:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).aggregate(period_days=period_days)
+        return await TelemetryAnalyticsRepository(self._session).aggregate(period_days=period_days)
 
     async def cost_by_day(self, *, period_days: int) -> list[CostByDayRow]:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).cost_by_day(period_days=period_days)
+        return await TelemetryAnalyticsRepository(self._session).cost_by_day(period_days=period_days)
 
     async def cost_by_model(self, *, period_days: int) -> list[CostByModelRow]:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).cost_by_model(period_days=period_days)
+        return await TelemetryAnalyticsRepository(self._session).cost_by_model(period_days=period_days)
 
     async def cost_by_repo(self, *, period_days: int) -> list[CostByRepoRow]:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).cost_by_repo(period_days=period_days)
+        return await TelemetryAnalyticsRepository(self._session).cost_by_repo(period_days=period_days)
 
     async def query_jobs(
         self,
@@ -79,9 +79,9 @@ class AnalyticsService:
         limit: int = 50,
         offset: int = 0,
     ) -> list[TelemetrySummaryRow]:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).query(
+        return await TelemetryAnalyticsRepository(self._session).query(
             period_days=period_days,
             sdk=sdk,
             model=model,
@@ -94,28 +94,28 @@ class AnalyticsService:
         )
 
     async def scorecard(self, *, period_days: int) -> dict[str, Any]:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).scorecard(period_days=period_days)
+        return await TelemetryAnalyticsRepository(self._session).scorecard(period_days=period_days)
 
     async def model_comparison(
         self, *, period_days: int, repo: str | None = None,
     ) -> list[ModelComparisonRow]:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).model_comparison(
+        return await TelemetryAnalyticsRepository(self._session).model_comparison(
             period_days=period_days, repo=repo,
         )
 
     async def job_context(self, job_id: str) -> dict[str, Any] | None:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).job_context(job_id)
+        return await TelemetryAnalyticsRepository(self._session).job_context(job_id)
 
     async def get_summary(self, job_id: str) -> TelemetrySummaryRow | None:
-        from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
-        return await TelemetrySummaryRepository(self._session).get(job_id)
+        return await TelemetryAnalyticsRepository(self._session).get(job_id)
 
     # -- Telemetry spans -----------------------------------------------------
 

@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.observations_repo import ObservationsRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+    from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
 log = structlog.get_logger()
 
@@ -33,12 +33,12 @@ async def run_analysis(session: AsyncSession) -> int:
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.observations_repo import ObservationsRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
-    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+    from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
     obs_repo = ObservationsRepository(session)
     file_repo = FileAccessRepository(session)
     spans_repo = TelemetrySpansRepository(session)
-    summary_repo = TelemetrySummaryRepository(session)
+    summary_repo = TelemetryAnalyticsRepository(session)
     count = 0
     count += await _analyse_file_rereads(file_repo, obs_repo)
     count += await _analyse_tool_failures(spans_repo, obs_repo)
@@ -102,7 +102,7 @@ async def _analyse_tool_failures(spans_repo: TelemetrySpansRepository, obs_repo:
     return count
 
 
-async def _analyse_turn_escalation(summary_repo: TelemetrySummaryRepository, obs_repo: ObservationsRepository) -> int:
+async def _analyse_turn_escalation(summary_repo: TelemetryAnalyticsRepository, obs_repo: ObservationsRepository) -> int:
     """Find jobs where cost/turn escalates significantly in the second half."""
     rows = await summary_repo.turn_escalation_jobs()
     if len(rows) < 3:
@@ -153,7 +153,7 @@ async def _analyse_retry_waste(spans_repo: TelemetrySpansRepository, obs_repo: O
     return count
 
 
-async def _analyse_compaction_storms(summary_repo: TelemetrySummaryRepository, obs_repo: ObservationsRepository) -> int:
+async def _analyse_compaction_storms(summary_repo: TelemetryAnalyticsRepository, obs_repo: ObservationsRepository) -> int:
     """Detect jobs with excessive context compactions."""
     rows = await summary_repo.compaction_storm_jobs()
     if len(rows) < 2:
@@ -188,7 +188,7 @@ async def _analyse_compaction_storms(summary_repo: TelemetrySummaryRepository, o
 
 
 async def _analyse_cache_efficiency_regression(
-    summary_repo: TelemetrySummaryRepository, obs_repo: ObservationsRepository,
+    summary_repo: TelemetryAnalyticsRepository, obs_repo: ObservationsRepository,
 ) -> int:
     """Detect drops in cache hit rate compared to the prior period."""
     row = await summary_repo.cache_efficiency_periods()

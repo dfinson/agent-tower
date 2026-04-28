@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 from backend.models.db import Base, JobRow
 from backend.models.domain import JobState, PermissionMode
 from backend.persistence.database import _set_sqlite_pragmas
+from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
@@ -135,7 +136,8 @@ async def test_summary_aggregate(session: AsyncSession) -> None:
     await repo.finalize("job-1", status="completed", duration_ms=5000)
     await session.commit()
 
-    agg = await repo.aggregate(period_days=7)
+    analytics = TelemetryAnalyticsRepository(session)
+    agg = await analytics.aggregate(period_days=7)
     assert agg["total_jobs"] == 1
     assert agg["completed"] == 1
 
