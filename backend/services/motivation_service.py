@@ -31,11 +31,11 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-_SYSTEM_PROMPT = (
-    "You explain why a code change was made. Write in abstract third person — no \"I\", "
+_PROMPT_BODY = (
+    "Write in abstract third person — no \"I\", "
     "no \"the agent\", no \"this edit\", no \"this change\".\n\n"
     "Output exactly two lines of plain text (no markdown, no headers, no bullets):\n"
-    "LINE 1: Title — ≤10 words. Name the file and what changed. No filler words.\n"
+    "LINE 1: Title — ≤10 words. {title_instruction}. No filler words.\n"
     "LINE 2: WHY — 1-2 sentences. Only explain what isn't obvious from the diff. "
     "Reference the specific prior finding, bug, or upstream change that caused this. "
     "Cite concrete file paths, function names, finding IDs, or todo IDs from the context. "
@@ -44,17 +44,12 @@ _SYSTEM_PROMPT = (
     "Never fabricate references. Only cite what appears in the provided context."
 )
 
-_EDIT_SYSTEM_PROMPT = (
-    "You explain why a specific code edit was made. Write in abstract third person — no \"I\", "
-    "no \"the agent\", no \"this edit\", no \"this change\".\n\n"
-    "Output exactly two lines of plain text (no markdown, no headers, no bullets):\n"
-    "LINE 1: Title — ≤10 words. Name the specific change. No filler words.\n"
-    "LINE 2: WHY — 1-2 sentences. Only explain what isn't obvious from the diff. "
-    "Reference the specific prior finding, bug, or upstream change that caused this. "
-    "Cite concrete file paths, function names, finding IDs, or todo IDs from the context. "
-    "Never restate what the diff already shows. Never say \"aligns with\", \"ensures consistency\", "
-    "\"improves maintainability\", or similar filler.\n\n"
-    "Never fabricate references. Only cite what appears in the provided context."
+_SYSTEM_PROMPT = "You explain why a code change was made. " + _PROMPT_BODY.format(
+    title_instruction="Name the file and what changed"
+)
+
+_EDIT_SYSTEM_PROMPT = "You explain why a specific code edit was made. " + _PROMPT_BODY.format(
+    title_instruction="Name the specific change"
 )
 
 # Batch size for each drain cycle
