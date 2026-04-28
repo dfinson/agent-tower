@@ -1,12 +1,4 @@
-"""Claude Agent SDK adapter — bridges the Claude Agent SDK into CodePlane.
-
-Uses ClaudeSDKClient for multi-turn session management. The SDK's async
-message iterator is consumed in a background task that pushes SessionEvent
-items onto an asyncio.Queue; stream_events() yields from the queue.
-
-Permission handling uses the ``can_use_tool`` callback to route tool
-approval requests through CodePlane's approval system.
-"""
+"""ClaudeAdapter class — bridges the Claude Agent SDK into CodePlane."""
 
 from __future__ import annotations
 
@@ -14,7 +6,6 @@ import asyncio
 import contextlib
 import json
 import os
-import signal
 import tempfile
 import time
 import uuid
@@ -36,6 +27,11 @@ from backend.services.base_adapter import (
     BaseAgentAdapter,
     PermissionDecision,
 )
+from backend.services.claude_adapter._helpers import (
+    _HIDDEN_TOOLS,
+    _PERMISSION_MODE_MAP,
+    _kill_sdk_subprocess,
+)
 from backend.services.permission_policy import PermissionRequest
 
 if TYPE_CHECKING:
@@ -47,64 +43,6 @@ if TYPE_CHECKING:
     from backend.services.event_bus import EventBus
 
 log = structlog.get_logger()
-
-# Claude SDK tool names that are internal / should not appear in transcript
-_HIDDEN_TOOLS: frozenset[str] = frozenset()
-
-# Map CodePlane permission modes to Claude SDK permission modes
-_PERMISSION_MODE_MAP: dict[PermissionMode, str] = {
-    PermissionMode.full_auto: "bypassPermissions",
-    PermissionMode.observe_only: "plan",
-    PermissionMode.review_and_approve: "default",
-}
-
-
-def _kill_sdk_subprocess(client: object | None) -> None:
-    """Terminate the SDK's CLI subprocess using raw OS signals.
-
-    This MUST be used instead of ``client.disconnect()`` or
-    ``transport.close()`` because both invoke anyio methods whose
-    cancel-scope teardown injects ``CancelledError`` into every
-    SQLAlchemy connection in the process via the greenlet adapter.
-
-    Pure OS calls (``os.kill`` / ``os.waitpid``) bypass anyio entirely
-    and cannot contaminate other asyncio tasks.
-    """
-    if client is None:
-        return
-    transport = getattr(client, "_transport", None)
-    if transport is None:
-        return
-    process = getattr(transport, "_process", None)
-    if process is None:
-        return
-    # anyio Process wraps an asyncio.subprocess.Process in _process
-    inner = getattr(process, "_process", None)
-    pid: int | None = None
-    if inner is not None:
-        pid = getattr(inner, "pid", None)
-    if pid is None:
-        pid = getattr(process, "pid", None)
-    if pid is None:
-        return
-    with contextlib.suppress(ProcessLookupError, OSError):
-        os.kill(pid, signal.SIGTERM)
-    with contextlib.suppress(ChildProcessError):
-        os.waitpid(pid, os.WNOHANG)
-    # Null out SDK internal references so the garbage collector doesn't
-    # try to clean them up through anyio (which triggers the connection
-    # pool contamination on __del__).
-    with contextlib.suppress(AttributeError, TypeError):
-        transport._process = None  # private access needed for cleanup
-        transport._stdout_stream = None
-        transport._stdin_stream = None
-        transport._ready = False
-    with contextlib.suppress(AttributeError, TypeError):
-        query = getattr(client, "_query", None)
-        if query is not None:
-            query._tg = None  # prevent cancel-scope teardown in GC
-            client._query = None  # type: ignore[attr-defined]
-        client._transport = None  # type: ignore[attr-defined]
 
 
 class ClaudeAdapter(BaseAgentAdapter):
@@ -477,28 +415,11 @@ class ClaudeAdapter(BaseAgentAdapter):
         }
 
         if tool_name not in _HIDDEN_TOOLS:
-            from backend.services.tool_formatters import (
-                classify_tool_visibility,
-                format_tool_display,
-                format_tool_display_full,
-            )
-
             self._enqueue(
                 session_id,
                 SessionEvent(
                     kind=SessionEventKind.transcript,
-                    payload={
-                        "role": "tool_running",
-                        "content": tool_name,
-                        "tool_name": tool_name,
-                        "tool_args": args_str,
-                        "turn_id": turn_id,
-                        "tool_intent": None,
-                        "tool_title": None,
-                        "tool_display": format_tool_display(tool_name, args_str),
-                        "tool_display_full": format_tool_display_full(tool_name, args_str),
-                        "tool_visibility": classify_tool_visibility(tool_name, args_str),
-                    },
+                    payload=self._build_tool_running_payload(tool_name, args_str, turn_id),
                 ),
             )
             self._enqueue_log(session_id, f"Tool started: {tool_name}", "debug", seq)
@@ -525,71 +446,19 @@ class ClaudeAdapter(BaseAgentAdapter):
         start = self._tool_start_times.pop(tool_use_id, time.monotonic())
         duration_ms = (time.monotonic() - start) * 1000
 
-        # Extract text from content (can be str or list of content blocks)
-        result_text = ""
-        if isinstance(content, str):
-            result_text = content
-        elif isinstance(content, list):
-            parts = []
-            for part in content:
-                if hasattr(part, "text"):
-                    parts.append(part.text)
-                else:
-                    parts.append(str(part))
-            result_text = "\n".join(parts)
-
-        success = not is_error
-        # Correct false failures for file-edit tools (SDK may report is_error
-        # even when the edit was applied to disk).
-        if not success:
-            from backend.services.tool_formatters import correct_edit_success
-
-            success = correct_edit_success(tool_name, success, result_text)
-
-        tool_issue = None
-        if not success:
-            from backend.services.tool_formatters import extract_tool_issue
-
-            tool_issue = extract_tool_issue(result_text) or "Tool reported an issue"
+        result_text = self._extract_result_text(content)
+        payload = self._build_tool_call_payload(
+            tool_name, tool_args_str, result_text,
+            sdk_success=not is_error,
+            turn_id=turn_id,
+            duration_ms=duration_ms,
+        )
+        success = payload["tool_success"]
 
         if tool_name not in _HIDDEN_TOOLS:
-            from backend.services.tool_formatters import (
-                classify_tool_visibility,
-                format_tool_display,
-                format_tool_display_full,
-            )
-
             self._enqueue(
                 session_id,
-                SessionEvent(
-                    kind=SessionEventKind.transcript,
-                    payload={
-                        "role": "tool_call",
-                        "content": tool_name,
-                        "tool_name": tool_name,
-                        "tool_args": tool_args_str,
-                        "tool_result": result_text,
-                        "tool_success": success,
-                        "tool_issue": tool_issue,
-                        "turn_id": turn_id,
-                        "tool_intent": None,
-                        "tool_title": None,
-                        "tool_display": format_tool_display(
-                            tool_name,
-                            tool_args_str,
-                            tool_result=result_text or None,
-                            tool_success=success,
-                        ),
-                        "tool_display_full": format_tool_display_full(
-                            tool_name,
-                            tool_args_str,
-                            tool_result=result_text or None,
-                            tool_success=success,
-                        ),
-                        "tool_duration_ms": int(duration_ms),
-                        "tool_visibility": classify_tool_visibility(tool_name, tool_args_str),
-                    },
-                ),
+                SessionEvent(kind=SessionEventKind.transcript, payload=payload),
             )
             self._enqueue_log(
                 session_id,

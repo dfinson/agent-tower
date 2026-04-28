@@ -538,6 +538,109 @@ class BaseAgentAdapter(AgentAdapterInterface):
             )
         )
 
+    # ------------------------------------------------------------------
+    # Shared tool event helpers (used by Claude + Copilot adapters)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_result_text(content: object) -> str:
+        """Convert SDK result content (str, list of blocks, or object) to plain text."""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                text = getattr(item, "text", None)
+                parts.append(text if text is not None else str(item))
+            return "\n".join(parts)
+        return str(content) if content else ""
+
+    def _build_tool_running_payload(
+        self,
+        tool_name: str,
+        tool_args: str | None,
+        turn_id: str | None,
+        *,
+        tool_intent: str | None = None,
+        tool_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Build the ``role=tool_running`` transcript event payload."""
+        from backend.services.tool_formatters import (
+            classify_tool_visibility,
+            format_tool_display,
+            format_tool_display_full,
+        )
+
+        return {
+            "role": "tool_running",
+            "content": tool_name,
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "turn_id": turn_id,
+            "tool_intent": tool_intent,
+            "tool_title": tool_title,
+            "tool_display": format_tool_display(tool_name, tool_args),
+            "tool_display_full": format_tool_display_full(tool_name, tool_args),
+            "tool_visibility": classify_tool_visibility(tool_name, tool_args),
+        }
+
+    def _build_tool_call_payload(
+        self,
+        tool_name: str,
+        tool_args: str | None,
+        result_text: str,
+        sdk_success: bool,
+        turn_id: str | None,
+        duration_ms: float | None,
+        *,
+        tool_intent: str | None = None,
+        tool_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Build the ``role=tool_call`` transcript event payload.
+
+        Applies edit-success correction and issue extraction automatically.
+        """
+        from backend.services.tool_formatters import (
+            classify_tool_visibility,
+            correct_edit_success,
+            extract_tool_issue,
+            format_tool_display,
+            format_tool_display_full,
+        )
+
+        success = sdk_success
+        if not success:
+            success = correct_edit_success(tool_name, success, result_text)
+
+        tool_issue: str | None = None
+        if not success:
+            tool_issue = extract_tool_issue(result_text) or "Tool reported an issue"
+
+        return {
+            "role": "tool_call",
+            "content": tool_name,
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "tool_result": result_text,
+            "tool_success": success,
+            "tool_issue": tool_issue,
+            "turn_id": turn_id,
+            "tool_intent": tool_intent,
+            "tool_title": tool_title,
+            "tool_display": format_tool_display(
+                tool_name, tool_args,
+                tool_result=result_text or None,
+                tool_success=success,
+            ),
+            "tool_display_full": format_tool_display_full(
+                tool_name, tool_args,
+                tool_result=result_text or None,
+                tool_success=success,
+            ),
+            "tool_duration_ms": int(duration_ms) if duration_ms is not None else None,
+            "tool_visibility": classify_tool_visibility(tool_name, tool_args),
+        }
+
     def _record_tool_telemetry(
         self,
         session_id: str,
