@@ -54,6 +54,7 @@ from backend.models.domain import (
     SDKModelMismatchError,
     StateConflictError,
 )
+from backend.services.share_service import InvalidShareTokenError
 
 _FRONTEND_DIR = Path(__file__).resolve().parent / "web"
 
@@ -241,6 +242,10 @@ def _register_domain_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(InvalidStateTransitionError)
     async def _invalid_state_transition(request: Request, exc: InvalidStateTransitionError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(InvalidShareTokenError)
+    async def _invalid_share_token(request: Request, exc: InvalidShareTokenError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": "Invalid or expired share link"})
 
     # Fallback: catch any unhandled CodePlaneError subclass so new domain
     # errors produce a structured JSON response instead of a bare 500.

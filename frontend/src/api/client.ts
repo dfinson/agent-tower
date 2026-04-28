@@ -730,13 +730,24 @@ export async function transcribeAudio(audio: Blob): Promise<string> {
   return data.text;
 }
 
-export async function createTerminalSession(
-  cwd: string,
-  jobId: string,
-): Promise<{ id: string }> {
-  return request<{ id: string }>("/terminal/sessions", {
+export async function createTerminalSession(opts: {
+  cwd?: string | null;
+  jobId?: string | null;
+  promptLabel?: string | null;
+}): Promise<{ id: string; cwd: string; jobId?: string | null }> {
+  return request<{ id: string; cwd: string; jobId?: string | null }>("/terminal/sessions", {
     method: "POST",
-    body: JSON.stringify({ cwd, jobId }),
+    body: JSON.stringify({
+      cwd: opts.cwd ?? null,
+      jobId: opts.jobId ?? null,
+      promptLabel: opts.promptLabel ?? null,
+    }),
+  });
+}
+
+export async function deleteTerminalSession(id: string): Promise<void> {
+  await request<unknown>(`/terminal/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }
 
