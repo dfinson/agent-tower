@@ -41,6 +41,12 @@ from backend.models.domain import (
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.job_repo import JobRepository
 from backend.services.job_service import JobService
+from backend.services.runtime_handoff import (
+    build_followup_handoff_prompt_for_job,
+    build_resume_handoff_prompt_for_job,
+    load_handoff_context_for_job,
+)
+from backend.services.runtime_telemetry import RuntimeTelemetry
 from backend.validators import REF_PATTERN
 
 if TYPE_CHECKING:
@@ -225,10 +231,19 @@ class RuntimeService:
         # Observer terminals: job_id → terminal session ID
         self._terminal_service: TerminalService | None = None
         self._observer_terminals: dict[str, str] = {}
+        # Telemetry subsystem (extracted)
+        self._telemetry = RuntimeTelemetry(
+            session_factory=session_factory,
+            event_bus=event_bus,
+            make_job_service=self._make_job_service,
+            resolve_adapter=self._resolve_adapter,
+            trail_service=trail_service,
+        )
 
     def set_trail_service(self, svc: TrailService) -> None:
         """Wire the TrailService for plan/activity tracking (late binding)."""
         self._trail_service = svc
+        self._telemetry.set_trail_service(svc)
 
     def set_terminal_service(self, svc: TerminalService) -> None:
         """Wire the TerminalService for agent observer terminals."""
@@ -615,7 +630,7 @@ class RuntimeService:
 
         tel.start_job_span(job_id, sdk=config.sdk, model=config.model or "")
 
-        asyncio.create_task(self._init_telemetry_row(job_id, config), name=f"telemetry-init-{job_id[:8]}")
+        asyncio.create_task(self._telemetry.init_telemetry_row(job_id, config), name=f"telemetry-init-{job_id[:8]}")
 
         # Create observer terminal for live agent shell output
         if self._terminal_service is not None:
@@ -727,7 +742,7 @@ class RuntimeService:
             await self._finalize_diff_safe(job_id, worktree_path, base_ref)
             await self._fail_job(job_id, f"Execution error: {exc}")
         finally:
-            await self._finalize_job_telemetry(job_id, _job_wall_start, config)
+            await self._telemetry.finalize_job_telemetry(job_id, _job_wall_start, config)
             heartbeat_task.cancel()
             self._heartbeat_tasks.pop(job_id, None)
             if self._trail_service is not None:
@@ -737,32 +752,7 @@ class RuntimeService:
             await self._cleanup_job_state(job_id)
 
     async def _init_telemetry_row(self, job_id: str, config: SessionConfig) -> None:
-        try:
-            async with self._session_factory() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-                repo_path = ""
-                branch_name = ""
-                sdk_name = ""
-                try:
-                    svc = self._make_job_service(session)
-                    job_for_tel = await svc.get_job(job_id)
-                    if job_for_tel is not None:
-                        repo_path = job_for_tel.repo or ""
-                        branch_name = job_for_tel.branch or ""
-                        sdk_name = job_for_tel.sdk or ""
-                except DBAPIError:
-                    log.warning("telemetry_init_job_lookup_failed", job_id=job_id, exc_info=True)
-                await TelemetrySummaryRepository(session).init_job(
-                    job_id,
-                    sdk=sdk_name or "unknown",
-                    model=config.model or "",
-                    repo=repo_path,
-                    branch=branch_name,
-                )
-                await session.commit()
-        except (Exception, asyncio.CancelledError):
-            log.warning("telemetry_init_failed", job_id=job_id, exc_info=True)
+        await self._telemetry.init_telemetry_row(job_id, config)
 
     async def _handle_model_downgrade(
         self,
@@ -910,167 +900,14 @@ class RuntimeService:
         return final_state
 
     async def _finalize_job_telemetry(self, job_id: str, wall_start: float, config: SessionConfig) -> None:
-        import time as _time
-
-        from backend.services import telemetry as tel
-        from backend.services.parsing_utils import best_effort
-
-        tel.end_job_span(job_id)
-
-        # Emit finalization phase
-        async with best_effort(log, "execution_phase_event", job_id=job_id):
-            self._resolve_adapter(config.sdk).set_execution_phase(job_id, ExecutionPhase.finalization)
-            await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
-                    timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.execution_phase_changed,
-                    payload={"phase": ExecutionPhase.finalization},
-                )
-            )
-
-        # Finalize the summary row with terminal status and duration.
-        try:
-            async with self._session_factory() as session:
-                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-                # Determine status from job state
-                _TELEMETRY_STATUS: dict[JobState, str] = {
-                    JobState.failed: "failed",
-                    JobState.canceled: "cancelled",
-                    JobState.completed: "completed",
-                }
-                status = "review"
-                async with best_effort(log, "telemetry_finalize_status_lookup", job_id=job_id):
-                    svc = self._make_job_service(session)
-                    job_final = await svc.get_job(job_id)
-                    if job_final is not None:
-                        status = _TELEMETRY_STATUS.get(job_final.state, "review")
-                duration = int((_time.monotonic() - wall_start) * 1000)
-
-                await TelemetrySummaryRepository(session).finalize(
-                    job_id,
-                    status=status,
-                    duration_ms=duration,
-                )
-                await session.commit()
-
-            # Run post-job cost attribution pipeline
-            async with best_effort(log, "cost_attribution", level="warning", job_id=job_id):
-                async with self._session_factory() as session:
-                    from backend.services.cost_attribution import compute_attribution
-
-                    await compute_attribution(session, job_id)
-                    await session.commit()
-
-            # Run statistical analysis (fire-and-forget, non-blocking)
-            async with best_effort(log, "statistical_analysis", job_id=job_id):
-                async with self._session_factory() as session:
-                    from backend.services.statistical_analysis import run_analysis
-
-                    await run_analysis(session)
-                    await session.commit()
-
-            # Signal clients that final telemetry is available
-            await self._event_bus.publish(
-                DomainEvent(
-                    event_id=DomainEvent.make_event_id(),
-                    job_id=job_id,
-                    timestamp=datetime.now(UTC),
-                    kind=DomainEventKind.telemetry_updated,
-                    payload={"job_id": job_id},
-                )
-            )
-        except DBAPIError:
-            log.warning("telemetry_finalize_failed", job_id=job_id, exc_info=True)
-
-        # --- Store post-completion artifacts (telemetry, plan, approvals) ---
-        await self._store_post_completion_artifacts(job_id)
+        await self._telemetry.finalize_job_telemetry(job_id, wall_start, config)
 
     async def _store_post_completion_artifacts(
         self,
         job_id: str,
     ) -> None:
         """Persist internal state (telemetry, plan, approvals) as downloadable artifacts."""
-        from backend.services.parsing_utils import best_effort
-
-        try:
-            # Look up job slug for human-friendly artifact names
-            slug = ""
-            async with best_effort(log, "slug_extraction", job_id=job_id):
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    job = await svc.get_job(job_id)
-                if job is not None:
-                    slug = (job.worktree_name or job.title or "").strip()
-
-            async with self._session_factory() as session:
-                from backend.persistence.artifact_repo import ArtifactRepository
-                from backend.services.artifact_service import ArtifactService
-
-                artifact_svc = ArtifactService(ArtifactRepository(session))
-
-                # Telemetry report – load from the persisted summary row
-                async with best_effort(log, "telemetry_artifact", job_id=job_id):
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-
-                    summary = await TelemetrySummaryRepository(session).get(job_id)
-                    if summary is not None:
-                        await artifact_svc.store_telemetry_report(
-                            job_id,
-                            summary,
-                            slug=slug,
-                        )
-
-                # Agent plan steps (from in-memory progress tracker)
-                if self._trail_service is not None:
-                    steps = self._trail_service.get_plan_steps(job_id)
-                    if steps:
-                        async with best_effort(log, "plan_artifact", job_id=job_id):
-                            await artifact_svc.store_agent_plan(job_id, steps, slug=slug)
-
-                # Approval history
-                async with best_effort(log, "approval_artifact", job_id=job_id):
-                    from backend.persistence.approval_repo import ApprovalRepository
-
-                    approval_repo = ApprovalRepository(session)
-                    approvals = await approval_repo.list_for_job(job_id)
-                    if approvals:
-                        approval_dicts = [
-                            {
-                                "id": a.id,
-                                "description": a.description,
-                                "proposed_action": a.proposed_action,
-                                "requested_at": a.requested_at.isoformat(),
-                                "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
-                                "resolution": a.resolution,
-                            }
-                            for a in approvals
-                        ]
-                        await artifact_svc.store_approval_history(
-                            job_id,
-                            approval_dicts,
-                            slug=slug,
-                        )
-
-                # Agent log artifact — snapshot of all log_line_emitted events as
-                # a plain-text file, grouped by session for jobs with handoffs.
-                async with best_effort(log, "log_artifact", job_id=job_id):
-                    from backend.persistence.event_repo import EventRepository
-
-                    event_repo = EventRepository(session)
-                    log_events = await event_repo.list_by_job(job_id, [DomainEventKind.log_line_emitted], limit=10000)
-                    if log_events:
-                        await artifact_svc.store_log_artifact(
-                            job_id,
-                            [e.payload for e in log_events],
-                            slug=slug,
-                        )
-
-                await session.commit()
-        except DBAPIError:
-            log.warning("post_completion_artifacts_failed", job_id=job_id, exc_info=True)
+        await self._telemetry.store_post_completion_artifacts(job_id)
 
     def _start_snapshot_task(self, job_id: str) -> None:
         if self._shutting_down:
@@ -2025,94 +1862,9 @@ class RuntimeService:
         session: AsyncSession,
         job: Job,
     ) -> tuple[str | None, list[str]]:
-        from pathlib import Path
-
-        from backend.persistence.artifact_repo import ArtifactRepository
-        from backend.persistence.event_repo import EventRepository
-        from backend.services.artifact_service import ArtifactService
-        from backend.services.summarization_service import extract_changed_files
-
-        artifact_repo = ArtifactRepository(session)
-        artifact_svc = ArtifactService(artifact_repo)
-        summary_artifact = await artifact_svc.get_latest_session_summary(job.id)
-
-        event_repo = EventRepository(session)
-        diff_events = await event_repo.list_by_job(job.id, kinds=[DomainEventKind.diff_updated])
-        changed_files = extract_changed_files(diff_events)
-
-        if summary_artifact is None and self._summarization_service is not None:
-            log_artifact = await artifact_svc.get_session_log(job.id)
-            if log_artifact is not None:
-                try:
-                    import json as _json
-
-                    log_text = Path(log_artifact.disk_path).read_text(encoding="utf-8")
-                    log_data = _json.loads(log_text)
-
-                    _parts: list[str] = []
-                    _counter = 0
-                    all_sessions = log_data.get("sessions", [])
-                    if not all_sessions and log_data.get("transcript_turns"):
-                        all_sessions = [log_data]
-                    for sess in all_sessions:
-                        sess_num = sess.get("session_number", "?")
-                        _turns = sess.get("transcript_turns", [])
-                        if len(all_sessions) > 1:
-                            _counter += 1
-                            _parts.append(f"=== Session {sess_num} ===")
-                        for t in _turns:
-                            role = t.get("role", "")
-                            if role == "tool_call":
-                                # Skip internal intent markers — they are frontend-only labels
-                                if t.get("tool_name") == "report_intent":
-                                    continue
-                                _counter += 1
-                                display = t.get("tool_display") or t.get("tool_intent") or t.get("tool_name", "tool")
-                                ok = "\u2713" if t.get("tool_success", True) else "\u2717"
-                                _parts.append(f"[{_counter}] TOOL {ok}: {display}")
-                            else:
-                                _counter += 1
-                                _parts.append(f"[{_counter}] {role.upper()}: {t.get('content', '')}")
-                    transcript_text = "\n---\n".join(_parts) or "(no transcript)"
-                    log_changed = log_data.get("all_changed_files") or log_data.get("changed_files", [])
-                    if log_changed:
-                        changed_files = log_changed
-                    await self._summarization_service.summarize_and_store(
-                        job.id,
-                        job.session_count,
-                        job.prompt,
-                        pre_built_transcript=transcript_text,
-                        pre_built_changed_files=changed_files,
-                    )
-                    # summarize_and_store commits in its own inner session; the
-                    # outer session's WAL read snapshot predates that commit and
-                    # cannot see the new artifact.  Open a fresh session so the
-                    # lookup reflects the latest committed state.
-                    async with self._session_factory() as fresh_session:
-                        fresh_svc = ArtifactService(ArtifactRepository(fresh_session))
-                        summary_artifact = await fresh_svc.get_latest_session_summary(job.id)
-                except DBAPIError:
-                    log.warning("session_log_summarization_failed", job_id=job.id, exc_info=True)
-
-            if summary_artifact is None:
-                try:
-                    await self._summarization_service.summarize_and_store(job.id, job.session_count, job.prompt)
-                    # Same fresh-session pattern: inner commit is not visible to
-                    # the outer session's transaction snapshot.
-                    async with self._session_factory() as fresh_session:
-                        fresh_svc = ArtifactService(ArtifactRepository(fresh_session))
-                        summary_artifact = await fresh_svc.get_latest_session_summary(job.id)
-                except (DBAPIError, OSError):
-                    log.warning("inline_summarization_failed", job_id=job.id, exc_info=True)
-
-        summary_text: str | None = None
-        if summary_artifact is not None:
-            try:
-                summary_text = Path(summary_artifact.disk_path).read_text(encoding="utf-8")
-            except OSError:
-                log.warning("summary_read_failed", job_id=job.id, exc_info=True)
-
-        return summary_text, changed_files
+        return await load_handoff_context_for_job(
+            session, self._session_factory, job, self._summarization_service
+        )
 
     async def _build_resume_handoff_prompt_for_job(
         self,
@@ -2121,10 +1873,9 @@ class RuntimeService:
         instruction: str,
         session_number: int,
     ) -> str:
-        from backend.services.summarization_service import build_resume_prompt
-
-        summary_text, changed_files = await self._load_handoff_context_for_job(session, job)
-        return build_resume_prompt(summary_text, changed_files, instruction, session_number, job.id, job.prompt)
+        return await build_resume_handoff_prompt_for_job(
+            session, self._session_factory, job, instruction, session_number, self._summarization_service
+        )
 
     async def _build_followup_handoff_prompt_for_job(
         self,
@@ -2132,10 +1883,9 @@ class RuntimeService:
         job: Job,
         instruction: str,
     ) -> str:
-        from backend.services.summarization_service import build_followup_prompt
-
-        summary_text, changed_files = await self._load_handoff_context_for_job(session, job)
-        return build_followup_prompt(summary_text, changed_files, instruction, job.id, job.prompt)
+        return await build_followup_handoff_prompt_for_job(
+            session, self._session_factory, job, instruction, self._summarization_service
+        )
 
     async def _build_resume_handoff_prompt(self, job_id: str, instruction: str) -> str:
         """Build the opaque handoff prompt used when native resume is unavailable."""
