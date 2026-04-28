@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -103,7 +103,9 @@ def mock_git_service() -> AsyncMock:
     svc.get_origin_url.return_value = "https://github.com/test/repo.git"
     svc.clone_repo.return_value = "/tmp/cloned"
     svc.list_branches.return_value = set()
-    svc.list_worktree_names.return_value = set()
+    svc.list_worktree_names = MagicMock(return_value=set())
+    svc.has_active_worktree = MagicMock(return_value=False)
+    svc.get_active_worktree_count = MagicMock(return_value=0)
     return svc
 
 

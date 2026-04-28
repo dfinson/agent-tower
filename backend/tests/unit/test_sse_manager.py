@@ -136,18 +136,16 @@ class TestBuildSSEData:
 
 
 class TestSSEConnection:
-    @pytest.mark.asyncio
-    async def test_send_enqueues_data(self) -> None:
+    def test_send_enqueues_data(self) -> None:
         conn = SSEConnection()
-        await conn.send("hello")
+        conn.send("hello")
         assert not conn.queue.empty()
         assert conn.queue.get_nowait() == "hello"
 
-    @pytest.mark.asyncio
-    async def test_send_on_closed_connection_is_noop(self) -> None:
+    def test_send_on_closed_connection_is_noop(self) -> None:
         conn = SSEConnection()
         conn.close()
-        await conn.send("hello")
+        conn.send("hello")
         assert conn.queue.empty()
 
     def test_job_id_scoping(self) -> None:
@@ -360,29 +358,27 @@ class TestSSEManager:
         await mgr.broadcast_domain_event(_make_event())
         assert conn.queue.empty()
 
-    @pytest.mark.asyncio
-    async def test_send_snapshot(self) -> None:
+    def test_send_snapshot(self) -> None:
         mgr = SSEManager()
         conn = SSEConnection()
         mgr.register(conn)
 
         snapshot = SnapshotPayload(jobs=[], pending_approvals=[])
-        await mgr.send_snapshot(conn, snapshot)
+        mgr.send_snapshot(conn, snapshot)
 
         data = conn.queue.get_nowait()
         assert "event: snapshot" in data
         # Snapshot frames must NOT have an id: line (avoids advancing cursor)
         assert "id:" not in data
 
-    @pytest.mark.asyncio
-    async def test_close_all(self) -> None:
+    def test_close_all(self) -> None:
         mgr = SSEManager()
         c1 = SSEConnection()
         c2 = SSEConnection()
         mgr.register(c1)
         mgr.register(c2)
 
-        await mgr.close_all()
+        mgr.close_all()
         assert mgr.connection_count == 0
         assert c1.closed
         assert c2.closed

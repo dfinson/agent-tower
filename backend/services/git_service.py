@@ -269,14 +269,14 @@ class GitService:
         except GitError:
             return None
 
-    async def has_active_worktree(self, repo_path: str) -> bool:
+    def has_active_worktree(self, repo_path: str) -> bool:
         """Check if any secondary worktree exists under the worktrees dir."""
         worktrees_dir = Path(repo_path) / self._worktrees_dirname
         if not worktrees_dir.exists():
             return False
         return any(worktrees_dir.iterdir())
 
-    async def get_active_worktree_count(self, repo_path: str) -> int:
+    def get_active_worktree_count(self, repo_path: str) -> int:
         """Count existing secondary worktrees for a repo."""
         worktrees_dir = Path(repo_path) / self._worktrees_dirname
         if not worktrees_dir.exists():
@@ -553,7 +553,7 @@ class GitService:
             log.debug("list_remote_branches_failed", repo_path=repo_path, exc_info=True)
         return branches
 
-    async def list_worktree_names(self, repo_path: str) -> set[str]:
+    def list_worktree_names(self, repo_path: str) -> set[str]:
         """Return a set of existing worktree directory names."""
         worktrees_dir = Path(repo_path) / self._worktrees_dirname
         if not worktrees_dir.exists():

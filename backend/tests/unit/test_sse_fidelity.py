@@ -18,33 +18,30 @@ from backend.services.sse_manager import SSEConnection, SSEManager, _format_sse
 class TestSSEBackpressure:
     """Queue overflow closes the connection for client reconnection."""
 
-    @pytest.mark.asyncio
-    async def test_queue_overflow_closes_connection(self) -> None:
+    def test_queue_overflow_closes_connection(self) -> None:
         """When the queue is full, connection is closed instead of silently dropping."""
         conn = SSEConnection(job_id="job-1")
         # Fill the queue to capacity (1024 items)
         for i in range(1024):
-            await conn.send(f"data: event-{i}\n\n")
+            conn.send(f"data: event-{i}\n\n")
         assert not conn.closed
 
         # One more should close the connection
-        await conn.send("data: overflow\n\n")
+        conn.send("data: overflow\n\n")
         assert conn.closed
 
-    @pytest.mark.asyncio
-    async def test_send_to_closed_connection_is_noop(self) -> None:
+    def test_send_to_closed_connection_is_noop(self) -> None:
         """Sending to a closed connection does nothing."""
         conn = SSEConnection(job_id="job-1")
         conn.close()
         # Should not raise
-        await conn.send("data: test\n\n")
+        conn.send("data: test\n\n")
         assert conn.queue.empty()
 
-    @pytest.mark.asyncio
-    async def test_normal_send_works(self) -> None:
+    def test_normal_send_works(self) -> None:
         """Normal sends queue data correctly."""
         conn = SSEConnection(job_id="job-1")
-        await conn.send("data: hello\n\n")
+        conn.send("data: hello\n\n")
         assert conn.queue.qsize() == 1
         item = conn.queue.get_nowait()
         assert item == "data: hello\n\n"

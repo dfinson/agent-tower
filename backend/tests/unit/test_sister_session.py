@@ -168,7 +168,7 @@ class TestWarmLifecycle:
     async def test_warm_returns_token(self) -> None:
         mgr = _make_manager()
         mgr._fill_pool()
-        token = await mgr.warm()
+        token = mgr.warm()
         assert isinstance(token, str)
         assert len(token) > 0
         assert token in mgr._warm
@@ -177,9 +177,9 @@ class TestWarmLifecycle:
     async def test_release_returns_to_pool(self) -> None:
         mgr = _make_manager(pool_size=2)
         mgr._fill_pool()
-        token = await mgr.warm()
+        token = mgr.warm()
         initial_pool_size = len(mgr._pool)
-        found = await mgr.release(token)
+        found = mgr.release(token)
         assert found is True
         assert token not in mgr._warm
         # Session recycled back to pool
@@ -188,15 +188,15 @@ class TestWarmLifecycle:
     @pytest.mark.asyncio
     async def test_release_unknown_token(self) -> None:
         mgr = _make_manager()
-        found = await mgr.release("nonexistent-token")
+        found = mgr.release("nonexistent-token")
         assert found is False
 
     @pytest.mark.asyncio
     async def test_adopt_binds_to_job(self) -> None:
         mgr = _make_manager()
         mgr._fill_pool()
-        token = await mgr.warm()
-        await mgr.adopt(token, "job-1")
+        token = mgr.warm()
+        mgr.adopt(token, "job-1")
         assert "job-1" in mgr._jobs
         assert token not in mgr._warm
 
@@ -204,21 +204,21 @@ class TestWarmLifecycle:
     async def test_adopt_missing_token_creates_new(self) -> None:
         mgr = _make_manager()
         mgr._fill_pool()
-        await mgr.adopt("expired-token", "job-2")
+        mgr.adopt("expired-token", "job-2")
         assert "job-2" in mgr._jobs
 
     @pytest.mark.asyncio
     async def test_create_for_job(self) -> None:
         mgr = _make_manager()
         mgr._fill_pool()
-        await mgr.create_for_job("job-3")
+        mgr.create_for_job("job-3")
         assert "job-3" in mgr._jobs
 
     @pytest.mark.asyncio
     async def test_get_returns_session(self) -> None:
         mgr = _make_manager()
         mgr._fill_pool()
-        await mgr.create_for_job("job-4")
+        mgr.create_for_job("job-4")
         session = mgr.get("job-4")
         assert isinstance(session, SisterSession)
 
@@ -238,15 +238,15 @@ class TestCloseAndMetrics:
     async def test_close_job_removes_binding(self) -> None:
         mgr = _make_manager()
         mgr._fill_pool()
-        await mgr.create_for_job("j1")
-        await mgr.close_job("j1")
+        mgr.create_for_job("j1")
+        mgr.close_job("j1")
         assert "j1" not in mgr._jobs
 
     @pytest.mark.asyncio
     async def test_close_job_preserves_metrics(self) -> None:
         mgr = _make_manager()
         mgr._fill_pool()
-        await mgr.create_for_job("j1")
+        mgr.create_for_job("j1")
         session = mgr.get("j1")
         session.call_count = 3
         session.total_latency_ms = 150.0
@@ -254,7 +254,7 @@ class TestCloseAndMetrics:
         session.total_output_tokens = 15
         session.total_cost_usd = 0.005
 
-        await mgr.close_job("j1")
+        mgr.close_job("j1")
 
         assert "j1" in mgr._closed_jobs
         snapshot = mgr._closed_jobs["j1"]
@@ -266,13 +266,13 @@ class TestCloseAndMetrics:
     @pytest.mark.asyncio
     async def test_close_job_nonexistent_noop(self) -> None:
         mgr = _make_manager()
-        await mgr.close_job("nope")  # should not raise
+        mgr.close_job("nope")  # should not raise
 
     @pytest.mark.asyncio
     async def test_get_metrics_structure(self) -> None:
         mgr = _make_manager(pool_size=2)
         mgr._fill_pool()
-        await mgr.create_for_job("j1")
+        mgr.create_for_job("j1")
         metrics = mgr.get_metrics()
         assert "global" in metrics
         assert "jobs" in metrics
@@ -288,11 +288,11 @@ class TestCloseAndMetrics:
         from backend.services.sister_session import _CLOSED_JOBS_MAX
 
         for i in range(_CLOSED_JOBS_MAX + 10):
-            await mgr.create_for_job(f"j-{i}")
+            mgr.create_for_job(f"j-{i}")
             session = mgr.get(f"j-{i}")
             session.call_count = 1
             session.total_latency_ms = 1.0
-            await mgr.close_job(f"j-{i}")
+            mgr.close_job(f"j-{i}")
 
         assert len(mgr._closed_jobs) <= _CLOSED_JOBS_MAX
 
@@ -310,8 +310,8 @@ class TestShutdown:
         # Patch the fast completer's close
         mgr._fast_completer.close = AsyncMock()
         mgr._fill_pool()
-        await mgr.create_for_job("j1")
-        token = await mgr.warm()
+        mgr.create_for_job("j1")
+        token = mgr.warm()
 
         await mgr.shutdown()
 

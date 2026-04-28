@@ -519,41 +519,36 @@ class TestCommitOperations:
 
 
 class TestHasActiveWorktree:
-    @pytest.mark.asyncio
-    async def test_no_worktrees_dir(self, git_service: GitService, tmp_path: Path) -> None:
-        result = await git_service.has_active_worktree(str(tmp_path))
+    def test_no_worktrees_dir(self, git_service: GitService, tmp_path: Path) -> None:
+        result = git_service.has_active_worktree(str(tmp_path))
         assert result is False
 
-    @pytest.mark.asyncio
-    async def test_empty_worktrees_dir(self, git_service: GitService, tmp_path: Path) -> None:
+    def test_empty_worktrees_dir(self, git_service: GitService, tmp_path: Path) -> None:
         wt_dir = tmp_path / ".codeplane-worktrees"
         wt_dir.mkdir()
-        result = await git_service.has_active_worktree(str(tmp_path))
+        result = git_service.has_active_worktree(str(tmp_path))
         assert result is False
 
-    @pytest.mark.asyncio
-    async def test_has_worktree(self, git_service: GitService, tmp_path: Path) -> None:
+    def test_has_worktree(self, git_service: GitService, tmp_path: Path) -> None:
         wt_dir = tmp_path / ".codeplane-worktrees"
         wt_dir.mkdir()
         (wt_dir / "job-1").mkdir()
-        result = await git_service.has_active_worktree(str(tmp_path))
+        result = git_service.has_active_worktree(str(tmp_path))
         assert result is True
 
 
 class TestGetActiveWorktreeCount:
-    @pytest.mark.asyncio
-    async def test_no_worktrees_dir(self, git_service: GitService, tmp_path: Path) -> None:
-        result = await git_service.get_active_worktree_count(str(tmp_path))
+    def test_no_worktrees_dir(self, git_service: GitService, tmp_path: Path) -> None:
+        result = git_service.get_active_worktree_count(str(tmp_path))
         assert result == 0
 
-    @pytest.mark.asyncio
-    async def test_counts_directories_only(self, git_service: GitService, tmp_path: Path) -> None:
+    def test_counts_directories_only(self, git_service: GitService, tmp_path: Path) -> None:
         wt_dir = tmp_path / ".codeplane-worktrees"
         wt_dir.mkdir()
         (wt_dir / "job-1").mkdir()
         (wt_dir / "job-2").mkdir()
         (wt_dir / "not-a-dir.txt").touch()
-        result = await git_service.get_active_worktree_count(str(tmp_path))
+        result = git_service.get_active_worktree_count(str(tmp_path))
         assert result == 2
 
 
@@ -911,19 +906,17 @@ class TestListBranches:
 
 
 class TestListWorktreeNames:
-    @pytest.mark.asyncio
-    async def test_no_worktrees_dir(self, git_service: GitService, tmp_path: Path) -> None:
-        result = await git_service.list_worktree_names(str(tmp_path))
+    def test_no_worktrees_dir(self, git_service: GitService, tmp_path: Path) -> None:
+        result = git_service.list_worktree_names(str(tmp_path))
         assert result == set()
 
-    @pytest.mark.asyncio
-    async def test_returns_directory_names(self, git_service: GitService, tmp_path: Path) -> None:
+    def test_returns_directory_names(self, git_service: GitService, tmp_path: Path) -> None:
         wt_dir = tmp_path / ".codeplane-worktrees"
         wt_dir.mkdir()
         (wt_dir / "job-1").mkdir()
         (wt_dir / "job-2").mkdir()
         (wt_dir / "not-dir.txt").touch()
-        result = await git_service.list_worktree_names(str(tmp_path))
+        result = git_service.list_worktree_names(str(tmp_path))
         assert result == {"job-1", "job-2"}
 
 

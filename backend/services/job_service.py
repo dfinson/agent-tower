@@ -174,9 +174,9 @@ class JobService:
 
         Retries if the generated worktree_name collides with an existing job.
         """
-        existing_branches, existing_worktrees, existing_job_ids = await asyncio.gather(
+        existing_worktrees = self._git.list_worktree_names(resolved_repo)
+        existing_branches, existing_job_ids = await asyncio.gather(
             self._git.list_branches(resolved_repo),
-            self._git.list_worktree_names(resolved_repo),
             self._job_repo.list_ids(),
         )
         exclude_names = existing_worktrees | existing_job_ids

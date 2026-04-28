@@ -131,7 +131,7 @@ class SSEConnection:
         self.queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1024)
         self.closed = False
 
-    async def send(self, data: str) -> None:
+    def send(self, data: str) -> None:
         if self.closed:
             return
         try:
@@ -531,7 +531,7 @@ class SSEManager:
                 if event.job_id != conn.job_id:
                     continue
                 # Scoped connections always get full streaming
-                await conn.send(frame)
+                conn.send(frame)
                 continue
 
             # Global connections: skip job-scoped-only events entirely
@@ -542,23 +542,23 @@ class SSEManager:
             if selective and sse_type in _SELECTIVE_SUPPRESSED:
                 continue
 
-            await conn.send(frame)
+            conn.send(frame)
 
         # Emit secondary SSE events per the mapping in §5.3.1
         derived = _build_derived_state_frame(event, sse_id=None)
         if derived is not None:
-            await self._broadcast_frame(derived, event.job_id)
+            self._broadcast_frame(derived, event.job_id)
 
-    async def _broadcast_frame(self, frame: str, job_id: str) -> None:
+    def _broadcast_frame(self, frame: str, job_id: str) -> None:
         """Send a pre-formatted frame to all relevant connections."""
         for conn in list(self._connections):
             if conn.closed:
                 continue
             if conn.job_id is not None and conn.job_id != job_id:
                 continue
-            await conn.send(frame)
+            conn.send(frame)
 
-    async def send_snapshot(self, conn: SSEConnection, snapshot: SnapshotPayload) -> None:
+    def send_snapshot(self, conn: SSEConnection, snapshot: SnapshotPayload) -> None:
         """Send a snapshot event to a specific connection.
 
         Snapshot frames omit the ``id:`` field so they don't advance the
@@ -570,7 +570,7 @@ class SSEManager:
             "snapshot",
             snapshot.model_dump_json(by_alias=True),
         )
-        await conn.send(frame)
+        conn.send(frame)
 
     @staticmethod
     async def _fetch_pending_approvals(
@@ -650,7 +650,7 @@ class SSEManager:
                 jobs=job_responses,
                 pending_approvals=await self._fetch_pending_approvals(approval_repo, conn.job_id),
             )
-            await self.send_snapshot(conn, snapshot)
+            self.send_snapshot(conn, snapshot)
 
             # Filter events to only those within the replay window
             events = [e for e in events if e.timestamp.replace(tzinfo=UTC) >= cutoff]
@@ -662,7 +662,7 @@ class SSEManager:
                 continue
             sse_id = str(event.db_id) if event.db_id is not None else event.event_id
             frame = _format_sse(sse_id, sse_type, _build_sse_data(event, sse_type))
-            await conn.send(frame)
+            conn.send(frame)
 
             # Mirror broadcast_domain_event(): emit a derived
             # job_state_changed frame so the client sees the state
@@ -670,7 +670,7 @@ class SSEManager:
             # replay cursor does not advance beyond the underlying event.
             derived = _build_derived_state_frame(event, sse_id=sse_id)
             if derived is not None:
-                await conn.send(derived)
+                conn.send(derived)
 
     async def replay_from_factory(
         self,
@@ -700,7 +700,7 @@ class SSEManager:
                 approval_repo=approval_repo,
             )
 
-    async def close_all(self) -> None:
+    def close_all(self) -> None:
         """Close all connections (used during shutdown)."""
         for conn in list(self._connections):
             conn.close()
