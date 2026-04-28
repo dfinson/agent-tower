@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from backend.models.db import TrailNodeRow
 from backend.persistence.trail_repo import TrailNodeRepository
+from backend.services.trail.models import TrailNodeDict, TrailResponse, TrailSummary
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -25,7 +26,7 @@ class TrailQueryService:
         kinds: list[str] | None = None,
         flat: bool = False,
         after_seq: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> TrailResponse:
         nodes = await self._repo.get_by_job(job_id, kinds=kinds, after_seq=after_seq)
         total, enriched = await self._repo.count_by_job(job_id)
 
@@ -49,7 +50,7 @@ class TrailQueryService:
             "complete": total == enriched,
         }
 
-    async def get_summary(self, job_id: str) -> dict[str, Any]:
+    async def get_summary(self, job_id: str) -> TrailSummary:
         """Build a lightweight trail summary from node data."""
         nodes = await self._repo.get_by_job(job_id)
         total, enriched = await self._repo.count_by_job(job_id)
@@ -114,7 +115,7 @@ class TrailQueryService:
 # ------------------------------------------------------------------
 
 
-def _node_to_dict(node: TrailNodeRow) -> dict[str, Any]:
+def _node_to_dict(node: TrailNodeRow) -> TrailNodeDict:
     """Convert a TrailNodeRow to a response dict."""
     return {
         "id": node.id,
@@ -151,10 +152,10 @@ def _node_to_dict(node: TrailNodeRow) -> dict[str, Any]:
     }
 
 
-def _build_tree(nodes: list[dict]) -> list[dict]:
+def _build_tree(nodes: list[TrailNodeDict]) -> list[TrailNodeDict]:
     """Build a nested tree from flat node dicts using parent_id."""
-    by_id: dict[str, dict] = {}
-    roots: list[dict] = []
+    by_id: dict[str, TrailNodeDict] = {}
+    roots: list[TrailNodeDict] = []
 
     for n in nodes:
         by_id[n["id"]] = n

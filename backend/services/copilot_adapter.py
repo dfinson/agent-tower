@@ -23,6 +23,7 @@ from backend.services.base_adapter import (
     BaseAgentAdapter,
     PermissionDecision,
 )
+from backend.services.permission_policy import PermissionRequest as PolicyRequest
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -142,19 +143,22 @@ class CopilotAdapter(BaseAgentAdapter):
         if request.full_command_text:
             tool_input["command"] = request.full_command_text
 
-        decision = await self._evaluate_permission(
-            sid,
-            self._session_to_job.get(sid),
-            config.permission_mode,
-            tool_kind=kind_val,
-            tool_name=request.tool_name or "",
-            tool_input=tool_input or None,
+        perm_request = PolicyRequest(
+            kind=kind_val,
             workspace_path=config.workspace_path,
             full_command_text=request.full_command_text,
             file_name=request.file_name,
             path=request.path,
             read_only=request.read_only,
             possible_paths=candidate_paths or None,
+        )
+        decision = await self._evaluate_permission(
+            sid,
+            self._session_to_job.get(sid),
+            config.permission_mode,
+            perm_request,
+            tool_name=request.tool_name or "",
+            tool_input=tool_input or None,
         )
         if decision == PermissionDecision.allow:
             return _Result(kind="approved")

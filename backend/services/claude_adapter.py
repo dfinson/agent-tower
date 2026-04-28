@@ -36,6 +36,7 @@ from backend.services.base_adapter import (
     BaseAgentAdapter,
     PermissionDecision,
 )
+from backend.services.permission_policy import PermissionRequest
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -207,13 +208,15 @@ class ClaudeAdapter(BaseAgentAdapter):
                 session_id,
                 job_id,
                 config.permission_mode,
-                tool_kind=tool_kind,
+                PermissionRequest(
+                    kind=tool_kind,
+                    workspace_path=config.workspace_path,
+                    full_command_text=full_cmd,
+                    file_name=file_name,
+                    path=file_name,
+                ),
                 tool_name=tool_name,
                 tool_input=input_data,
-                workspace_path=config.workspace_path,
-                full_command_text=full_cmd,
-                file_name=file_name,
-                path=file_name,
             )
             if decision == PermissionDecision.allow:
                 return PermissionResultAllow()

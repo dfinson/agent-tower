@@ -442,9 +442,11 @@ class TestEvaluatePermission:
     async def test_paused_session_denied(self) -> None:
         adapter = _make_adapter()
         adapter._paused_sessions.add("s1")
+        from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(
             "s1", "j1", MagicMock(),
-            tool_kind="shell", tool_name="Bash",
+            PermissionRequest(kind="shell", workspace_path=""),
+            tool_name="Bash",
         )
         assert result == PermissionDecision.deny
 
@@ -455,9 +457,11 @@ class TestEvaluatePermission:
         adapter = _make_adapter(approval_service=mock_approval)
 
         from backend.models.domain import PermissionMode
+        from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(
             "s1", "j1", PermissionMode.full_auto,
-            tool_kind="read", tool_name="Read",
+            PermissionRequest(kind="read", workspace_path=""),
+            tool_name="Read",
         )
         assert result == PermissionDecision.allow
 
@@ -470,10 +474,11 @@ class TestEvaluatePermission:
         adapter._queues["s1"] = asyncio.Queue()
 
         from backend.models.domain import PermissionMode
+        from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(
             "s1", "j1", PermissionMode.full_auto,
-            tool_kind="shell", tool_name="Bash",
-            full_command_text="git reset --hard HEAD~1",
+            PermissionRequest(kind="shell", workspace_path="", full_command_text="git reset --hard HEAD~1"),
+            tool_name="Bash",
         )
         assert result == PermissionDecision.deny
 
@@ -486,9 +491,10 @@ class TestEvaluatePermission:
         adapter._queues["s1"] = asyncio.Queue()
 
         from backend.models.domain import PermissionMode
+        from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(
             "s1", "j1", PermissionMode.full_auto,
-            tool_kind="shell", tool_name="Bash",
-            full_command_text="git reset --hard HEAD~1",
+            PermissionRequest(kind="shell", workspace_path="", full_command_text="git reset --hard HEAD~1"),
+            tool_name="Bash",
         )
         assert result == PermissionDecision.allow

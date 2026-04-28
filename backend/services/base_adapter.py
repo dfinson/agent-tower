@@ -636,16 +636,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         session_id: str,
         job_id: str | None,
         mode: PermissionMode,
+        request: PermissionRequest,
         *,
-        tool_kind: str,
         tool_name: str = "",
         tool_input: dict[str, Any] | None = None,
-        workspace_path: str = "",
-        full_command_text: str | None = None,
-        file_name: str | None = None,
-        path: str | None = None,
-        read_only: bool | None = None,
-        possible_paths: list[str] | None = None,
     ) -> PermissionDecision:
         """Evaluate a tool permission request against CodePlane's policy.
 
@@ -658,7 +652,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return PermissionDecision.deny
 
         # Hard block: git reset --hard
-        shell_cmd = self._resolve_shell_command(tool_kind, tool_name, tool_input, full_command_text)
+        shell_cmd = self._resolve_shell_command(
+            request.kind, tool_name, tool_input, request.full_command_text,
+        )
         if shell_cmd and is_git_reset_hard(shell_cmd):
             resolution = await self._hard_block_approval(
                 session_id,
@@ -673,18 +669,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return PermissionDecision.allow
 
         # Policy evaluation
-        decision = evaluate(
-            mode=mode,
-            req=PermissionRequest(
-                kind=tool_kind,
-                workspace_path=workspace_path,
-                full_command_text=full_command_text,
-                file_name=file_name,
-                path=path,
-                read_only=read_only,
-                possible_paths=possible_paths,
-            ),
-        )
+        decision = evaluate(mode=mode, req=request)
         if decision == PolicyDecision.approve:
             return PermissionDecision.allow
         if decision == PolicyDecision.deny:
@@ -692,12 +677,14 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
         # ask → route to operator
         description = self._build_permission_description(
-            tool_kind,
+            request.kind,
             tool_name,
             tool_input,
-            full_command_text,
+            request.full_command_text,
         )
-        proposed = full_command_text or (json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX_CHARS] if tool_input else None)
+        proposed = request.full_command_text or (
+            json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX_CHARS] if tool_input else None
+        )
         resolution = await self._route_to_operator(
             session_id,
             job_id,
