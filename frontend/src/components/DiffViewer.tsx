@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, MessageSquare, Send, Lock, Check, Minus, Filter, X, Lightbulb, Info, FolderOpen, AlertTriangle, Eye, ArrowUpDown, BookOpenCheck, Columns2 } from "lucide-react";
+import { FileCode, MessageSquare, Send, Lock, Filter, X, Lightbulb, AlertTriangle, FolderOpen } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
@@ -10,11 +10,12 @@ import { Spinner } from "./ui/spinner";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 import { MicButton } from "./VoiceButton";
-import { Tooltip } from "./ui/tooltip";
+
 import { useDrag } from "../hooks/useDrag";
 import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse, TestCoModification } from "../api/types";
 import { StoryBanner } from "./StoryBanner";
 import { BottomSheet } from "./ui/bottom-sheet";
+import { DiffViewerFileList, STATUS_ICON, STATUS_BADGE, STATUS_ICON_CLASS } from "./DiffViewerFileList";
 
 export interface StepFilter {
   /** Relative file paths that belong to this step */
@@ -38,28 +39,6 @@ interface DiffViewerProps {
   onNavigateToStep?: (seq: number, turnId?: string) => void;
 }
 
-const STATUS_ICON: Record<string, LucideIcon> = {
-  added: FilePlus,
-  deleted: FileMinus,
-  modified: FileEdit,
-  renamed: FileEdit,
-};
-
-const STATUS_BADGE: Record<string, string> = {
-  added: "text-green-400 border-green-800",
-  deleted: "text-red-400 border-red-800",
-  modified: "text-blue-400 border-blue-800",
-  renamed: "text-yellow-400 border-yellow-800",
-};
-
-const STATUS_ICON_CLASS: Record<string, string> = {
-  added: "text-green-400",
-  deleted: "text-red-400",
-  modified: "text-blue-400",
-  renamed: "text-yellow-400",
-};
-
-
 function guessLanguage(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   const map: Record<string, string> = {
@@ -81,53 +60,6 @@ function fileSpanRef(file: DiffFileModel): string {
     return start === end ? `L${start}` : `L${start}-L${end}`;
   });
   return `${file.path}:${spans.join(",")}`;
-}
-
-/**
- * Displays a file path truncated from the left by path segment when it overflows.
- * Always shows the full path if it fits; otherwise drops leading segments and
- * prepends "…/" until it fits (or only the filename remains).
- */
-function TruncatedPath({ path }: { path: string }) {
-  const containerRef = useRef<HTMLSpanElement>(null);
-  const [displayPath, setDisplayPath] = useState(path);
-
-  const computeTruncation = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const segments = path.split("/");
-
-    for (let start = 0; start < segments.length; start++) {
-      const candidate =
-        start === 0 ? path : "\u2026/" + segments.slice(start).join("/");
-      // Probe the width by temporarily setting textContent
-      el.textContent = candidate;
-      if (el.scrollWidth <= el.offsetWidth + 1 || start === segments.length - 1) {
-        setDisplayPath(candidate);
-        return;
-      }
-    }
-  }, [path]);
-
-  useLayoutEffect(() => {
-    computeTruncation();
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(computeTruncation);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [computeTruncation]);
-
-  return (
-    <span
-      ref={containerRef}
-      className="text-xs flex-1 min-w-0 overflow-hidden whitespace-nowrap text-foreground"
-      title={path}
-    >
-      {displayPath}
-    </span>
-  );
 }
 
 /** Determine if the diff is askable; historical jobs create follow-up jobs. */
@@ -160,7 +92,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
 
   // WS2: Blast radius — context files read but not written
   const [contextFiles, setContextFiles] = useState<{ filePath: string; readCount: number }[]>([]);
-  const [contextFilesOpen, setContextFilesOpen] = useState(false);
 
   // WS5: Test co-modification warnings
   const [testCoMods, setTestCoMods] = useState<TestCoModification[]>([]);
@@ -785,198 +716,29 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
       )}
       <div className="flex flex-col md:flex-row gap-3 md:gap-0 h-[calc(100dvh-14rem)] md:h-full min-h-[300px]">
         {/* File list sidebar — hidden on mobile, replaced by bottom sheet */}
-        <div
-          className="hidden md:flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
-          style={{ width: sidebarWidth }}
-        >
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-            <span className="text-xs font-semibold text-muted-foreground">{diffs.length} files</span>
-            <div className="flex items-center gap-2">
-              {/* WS1: Sort by churn toggle */}
-              {diffs.some((f) => (f.writeCount ?? 0) > 1) && (
-                <Tooltip content={sortByChurn ? "Sort by file order" : "Sort by edit churn"}>
-                  <button
-                    onClick={() => setSortByChurn(!sortByChurn)}
-                    className={cn(
-                      "p-0.5 rounded transition-colors",
-                      sortByChurn ? "text-orange-400 hover:text-orange-300" : "text-muted-foreground/40 hover:text-muted-foreground",
-                    )}
-                  >
-                    <ArrowUpDown size={13} />
-                  </button>
-                </Tooltip>
-              )}
-              {Object.keys(hunkMotivations).length > 0 && (
-                <Tooltip content={showIntent ? "Hide intent annotations" : "Show intent annotations"}>
-                  <button
-                    onClick={() => setShowIntent(!showIntent)}
-                    className={cn(
-                      "p-0.5 rounded transition-colors",
-                      showIntent ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/40 hover:text-muted-foreground",
-                    )}
-                  >
-                    <Lightbulb size={13} />
-                  </button>
-                </Tooltip>
-              )}
-              <Tooltip content={splitView ? "Unified diff" : "Split diff"}>
-                <button
-                  onClick={() => setSplitView(!splitView)}
-                  className={cn(
-                    "p-0.5 rounded transition-colors",
-                    splitView ? "text-blue-400 hover:text-blue-300" : "text-muted-foreground/40 hover:text-muted-foreground",
-                  )}
-                >
-                  <Columns2 size={13} />
-                </button>
-              </Tooltip>
-              <span className="text-xs text-green-400">+{totalAdditions}</span>
-              <span className="text-xs text-red-400">-{totalDeletions}</span>
-              {contextFiles.length > 0 && (
-                <span className="text-xs text-blue-400">· {contextFiles.length} read</span>
-              )}
-            </div>
-          </div>
-          {/* WS7: Review progress bar */}
-          {diffs.length > 1 && (
-            <div className="flex items-center gap-1.5 px-3 py-1 border-b border-border/50 bg-muted/10">
-              <BookOpenCheck size={11} className="text-muted-foreground/60 shrink-0" />
-              <span className="text-[10px] text-muted-foreground/70">{viewedFiles.size}/{diffs.length} reviewed</span>
-              <div className="flex-1 h-1 rounded-full bg-muted/30 overflow-hidden">
-                <div
-                  className="h-full bg-primary/60 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.round((viewedFiles.size / diffs.length) * 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
-          <div className="flex-1 overflow-y-auto">
-            {diffs.map((file, i) => {
-              const Icon = STATUS_ICON[file.status] ?? FileCode;
-              const fileChecked = isFileFullyChecked(i);
-              const filePartial = isFilePartiallyChecked(i);
-              const fileMot = fileMotivations[file.path];
-              const churn = file.writeCount ?? 0;
-              const isTestCoMod = testCoModPaths.has(file.path);
-              const isViewed = viewedFiles.has(i);
-              return (
-                <div key={i} className="flex flex-col">
-                  <div
-                    className={cn(
-                      "flex items-center gap-1.5 px-2 py-2 text-sm transition-colors w-full",
-                      i === selectedIdx ? "bg-accent" : "hover:bg-accent/50",
-                    )}
-                  >
-                    {/* WS7: Unviewed indicator */}
-                    {!isViewed && i !== selectedIdx ? (
-                      <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400" />
-                    ) : (
-                      <span className="shrink-0 w-1.5" />
-                    )}
-                    {/* File checkbox — tri-state: unchecked / partial (minus) / fully checked */}
-                    {canAsk ? (
-                      <Tooltip content="Select to ask about this file's changes">
-                        <button
-                          type="button"
-                          onClick={() => toggleFile(i)}
-                          className={cn(
-                            "shrink-0 w-5 h-5 md:w-4 md:h-4 rounded-[3px] border-2 flex items-center justify-center transition-colors cursor-pointer",
-                            fileChecked || filePartial
-                              ? "bg-primary border-primary text-primary-foreground"
-                              : "border-muted-foreground/60 hover:border-foreground/80",
-                          )}
-                        >
-                          {fileChecked && <Check size={12} strokeWidth={3} />}
-                          {filePartial && <Minus size={12} strokeWidth={3} />}
-                        </button>
-                      </Tooltip>
-                    ) : (
-                      <span className="shrink-0 w-5 md:w-4" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedIdx(i)}
-                      className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                    >
-                      <Icon size={14} className={cn("shrink-0", STATUS_ICON_CLASS[file.status])} />
-                      {/* WS5: Test co-mod warning */}
-                      {isTestCoMod && (
-                        <Tooltip content="Modified alongside test files in the same step">
-                          <AlertTriangle size={11} className="shrink-0 text-yellow-400" />
-                        </Tooltip>
-                      )}
-                      {fileMot && (
-                        <Tooltip
-                          content={
-                            <div className="max-w-[280px]">
-                              <p className="font-medium text-foreground">{fileMot.title}</p>
-                              {fileMot.why && (
-                                <p className="mt-0.5 text-muted-foreground">{fileMot.why}</p>
-                              )}
-                              {(fileMot.unmatchedEdits?.length ?? 0) > 0 && (
-                                <div className="mt-1.5 pt-1.5 border-t border-border">
-                                  <p className="text-[10px] text-muted-foreground/60 mb-1">Other edits:</p>
-                                  {fileMot.unmatchedEdits.map((e, ei) => (
-                                    <p key={ei} className="text-muted-foreground">{e.title}</p>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          }
-                          side="right"
-                        >
-                          <Info size={11} className="shrink-0 text-amber-400/70" />
-                        </Tooltip>
-                      )}
-                      <TruncatedPath path={file.path} />
-                      {/* WS1: Churn badge */}
-                      {churn >= 2 && (
-                        <Tooltip content={`${churn} writes${file.retryCount ? `, ${file.retryCount} retries` : ""}`}>
-                          <span className={cn(
-                            "text-[9px] font-bold rounded px-1 shrink-0",
-                            churn >= 4 ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",
-                          )}>
-                            {churn}×
-                          </span>
-                        </Tooltip>
-                      )}
-                      <span className={cn("text-xs border rounded px-1 hidden md:inline", STATUS_BADGE[file.status])}>
-                        +{file.additions} -{file.deletions}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* WS2: Context files read but not modified */}
-          {contextFiles.length > 0 && (
-            <div className="border-t border-border">
-              <button
-                type="button"
-                onClick={() => setContextFilesOpen(!contextFilesOpen)}
-                className="flex items-center gap-1.5 w-full px-3 py-1.5 text-left hover:bg-accent/30 transition-colors"
-              >
-                <Eye size={11} className="text-blue-400/70 shrink-0" />
-                <span className="text-[10px] text-muted-foreground">Context files read ({contextFiles.length})</span>
-              </button>
-              {contextFilesOpen && (
-                <div className="max-h-32 overflow-y-auto">
-                  {contextFiles.map((cf, ci) => (
-                    <div key={ci} className="flex items-center gap-2 px-3 py-1 text-[10px] text-muted-foreground/70">
-                      <FileCode size={10} className="shrink-0 text-blue-400/40" />
-                      <span className="flex-1 min-w-0 truncate" title={cf.filePath}>
-                        {cf.filePath}
-                      </span>
-                      <span className="text-blue-400/50 shrink-0">{cf.readCount}×</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <DiffViewerFileList
+          diffs={diffs}
+          selectedIdx={selectedIdx}
+          setSelectedIdx={setSelectedIdx}
+          sidebarWidth={sidebarWidth}
+          canAsk={canAsk}
+          sortByChurn={sortByChurn}
+          setSortByChurn={setSortByChurn}
+          splitView={splitView}
+          setSplitView={setSplitView}
+          showIntent={showIntent}
+          setShowIntent={setShowIntent}
+          hunkMotivations={hunkMotivations}
+          fileMotivations={fileMotivations}
+          viewedFiles={viewedFiles}
+          testCoModPaths={testCoModPaths}
+          contextFiles={contextFiles}
+          totalAdditions={totalAdditions}
+          totalDeletions={totalDeletions}
+          isFileFullyChecked={isFileFullyChecked}
+          isFilePartiallyChecked={isFilePartiallyChecked}
+          toggleFile={toggleFile}
+        />
 
         {/* Resize handle — desktop only */}
         {!isMobile && (
