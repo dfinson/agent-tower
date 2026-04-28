@@ -414,3 +414,14 @@ async def auth_middleware(request: Request, call_next: Callable[[Request], Await
 
     # Browser request — serve login page
     return HTMLResponse(_get_login_html(), status_code=401)
+
+
+def _reset_for_testing() -> None:
+    """Reset all module-level mutable state for test isolation."""
+    global _password_hash, _password_salt, _logo_b64  # noqa: PLW0603
+    _session_tokens.clear()
+    _login_attempts.clear()
+    _ws_auth_attempts.clear()
+    _password_hash = None
+    _password_salt = None
+    _logo_b64 = None

@@ -110,7 +110,7 @@ class TestListSessions:
 
         resp = await client.get("/api/terminal/sessions")
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["items"]
         assert len(data) == 2
         assert data[0]["id"] == "s1"
         assert data[1]["jobId"] == "job-1"
@@ -120,7 +120,7 @@ class TestListSessions:
 
         resp = await client.get("/api/terminal/sessions")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert resp.json()["items"] == []
 
 
 # ── Delete session ───────────────────────────────────────────────────
