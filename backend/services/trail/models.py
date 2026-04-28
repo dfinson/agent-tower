@@ -5,7 +5,84 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict
+
+
+# ---------------------------------------------------------------------------
+# TypedDict response shapes for TrailQueryService
+# ---------------------------------------------------------------------------
+
+
+class TrailNodeDict(TypedDict):
+    """Dict shape returned by ``_node_to_dict``."""
+
+    id: str
+    seq: int
+    anchor_seq: int | None
+    parent_id: str | None
+    kind: str
+    deterministic_kind: str | None
+    phase: str | None
+    timestamp: str | None
+    enrichment: str | None
+    intent: str | None
+    rationale: str | None
+    outcome: str | None
+    step_id: str | None
+    span_ids: list[str]
+    turn_id: str | None
+    files: list[str]
+    start_sha: str | None
+    end_sha: str | None
+    supersedes: str | None
+    tags: list[str]
+    title: str | None
+    agent_message: str | None
+    tool_names: list[str]
+    tool_count: int | None
+    duration_ms: int | None
+    plan_item_id: str | None
+    plan_item_label: str | None
+    plan_item_status: str | None
+    activity_id: str | None
+    activity_label: str | None
+    children: list[TrailNodeDict]
+
+
+class TrailResponse(TypedDict):
+    """Dict shape returned by ``TrailQueryService.get_trail``."""
+
+    job_id: str
+    nodes: list[TrailNodeDict]
+    total_nodes: int
+    enriched_nodes: int
+    complete: bool
+
+
+class _DecisionDict(TypedDict):
+    decision: str
+    rationale: str | None
+
+
+class _BacktrackDict(TypedDict):
+    original: str
+    replacement: str
+    reason: str | None
+
+
+class TrailSummary(TypedDict):
+    """Dict shape returned by ``TrailQueryService.get_summary``."""
+
+    job_id: str
+    goals: list[str]
+    approach: str | None
+    key_decisions: list[_DecisionDict]
+    backtracks: list[_BacktrackDict]
+    files_explored: int
+    files_modified: int
+    verifications_passed: int
+    verifications_failed: int
+    enrichment_complete: bool
 
 
 @dataclass
