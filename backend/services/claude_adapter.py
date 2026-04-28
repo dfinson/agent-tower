@@ -360,7 +360,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             from backend.services import telemetry as tel
 
             tel.messages_counter.add(1, {"job_id": job_id, "sdk": "claude", "role": "operator"})
-            self._schedule_db_write(self._db_write("increment", job_id=job_id, operator_messages=1))
+            self._schedule_db_write(self._db_write_increment(job_id=job_id, operator_messages=1))
 
     def _process_assistant_message(
         self,
@@ -401,8 +401,7 @@ class ClaudeAdapter(BaseAgentAdapter):
 
                     tel.messages_counter.add(1, {"job_id": job_id, "sdk": "claude", "role": "agent"})
                     self._schedule_db_write(
-                        self._db_write(
-                            "increment",
+                        self._db_write_increment(
                             job_id=job_id,
                             agent_messages=1,
                         )

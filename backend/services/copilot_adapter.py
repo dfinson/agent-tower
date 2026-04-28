@@ -283,10 +283,9 @@ class CopilotAdapter(BaseAgentAdapter):
                 tel.quota_remaining_gauge.set(remaining, {"job_id": job_id, "sdk": "copilot", "resource": key})
 
             self._schedule_db_write(
-                self._db_write(
-                    "set_quota",
+                self._db_write_set_quota(
                     job_id=job_id,
-                    quota_json=_json.dumps(parsed),
+                    quota_remaining=_json.dumps(parsed),
                 )
             )
 
@@ -373,8 +372,7 @@ class CopilotAdapter(BaseAgentAdapter):
         tel.context_tokens_gauge.set(current, attrs)
 
         self._schedule_db_write(
-            self._db_write(
-                "set_context",
+            self._db_write_set_context(
                 job_id=job_id,
                 current_tokens=current,
             )
@@ -390,8 +388,7 @@ class CopilotAdapter(BaseAgentAdapter):
         tel.tokens_compacted.add(max(0, pre - post), attrs)
 
         self._schedule_db_write(
-            self._db_write(
-                "increment",
+            self._db_write_increment(
                 job_id=job_id,
                 compactions=1,
                 tokens_compacted=max(0, pre - post),
@@ -401,8 +398,7 @@ class CopilotAdapter(BaseAgentAdapter):
         if post:
             tel.context_tokens_gauge.set(post, attrs)
             self._schedule_db_write(
-                self._db_write(
-                    "set_context",
+                self._db_write_set_context(
                     job_id=job_id,
                     current_tokens=post,
                 )
@@ -799,23 +795,23 @@ class CopilotAdapter(BaseAgentAdapter):
                     if data.token_limit:
                         window = int(data.token_limit)
                         tel.context_window_gauge.set(window, {"job_id": job_id, "sdk": "copilot"})
-                        self._schedule_db_write(self._db_write("set_context", job_id=job_id, window_size=window))
+                        self._schedule_db_write(self._db_write_set_context(job_id=job_id, window_size=window))
                 elif kind_str == "session.model_change":
                     if data.new_model:
                         self._job_main_models[job_id] = data.new_model
-                        self._schedule_db_write(self._db_write("set_model", job_id=job_id, model=data.new_model))
+                        self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=data.new_model))
                 elif kind_str == "assistant.message":
                     tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "agent"})
-                    self._schedule_db_write(self._db_write("increment", job_id=job_id, agent_messages=1))
+                    self._schedule_db_write(self._db_write_increment(job_id=job_id, agent_messages=1))
                 elif kind_str == "user.message":
                     tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "operator"})
-                    self._schedule_db_write(self._db_write("increment", job_id=job_id, operator_messages=1))
+                    self._schedule_db_write(self._db_write_increment(job_id=job_id, operator_messages=1))
                 elif kind_str == "session.shutdown":
                     total_pr = getattr(data, "total_premium_requests", None)
                     if data and total_pr is not None:
                         tel.premium_requests_counter.add(float(total_pr), {"job_id": job_id, "sdk": "copilot"})
                         self._schedule_db_write(
-                            self._db_write("increment", job_id=job_id, premium_requests=float(total_pr))
+                            self._db_write_increment(job_id=job_id, premium_requests=float(total_pr))
                         )
 
             # --- Emit log events for operational SDK events ---
