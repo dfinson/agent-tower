@@ -727,7 +727,7 @@ async def resolve_job(
     event_bus: FromDishka[EventBus],
 ) -> ResolveJobResponse:
     """Resolve a review job: merge, create PR, discard, or resolve with agent."""
-    job = await svc.resolve_job(job_id)
+    job = await svc.validate_for_resolution(job_id)
 
     # agent_merge: hand the conflict back to the agent to resolve
     if body.action == ResolutionAction.agent_merge:

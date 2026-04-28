@@ -192,8 +192,12 @@ function buildFeedItems(
       return true;
     });
 
-    // Filter out hidden tools (backend visibility + frontend fallback for legacy data)
-    const FRONTEND_HIDDEN = new Set(["report_intent", "manage_todo_list", "TodoWrite", "TodoRead", "Think", "Sql", "sql"]);
+    // Filter out hidden tools (backend visibility + frontend fallback for legacy data
+    // without toolVisibility field — must mirror backend _ALWAYS_HIDDEN in tool_formatters.py)
+    const FRONTEND_HIDDEN = new Set([
+      "report_intent", "manage_todo_list", "TodoWrite", "TodoRead",
+      "Think", "Sql", "sql", "ListMcpResourceTemplates", "ListMcpResources",
+    ]);
     currentTurn.toolCalls = currentTurn.toolCalls.filter((e) => {
       if (e.toolVisibility === "hidden") return false;
       const name = e.toolName?.includes("/") ? e.toolName.split("/").pop()! : e.toolName;

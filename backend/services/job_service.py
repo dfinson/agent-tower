@@ -556,7 +556,7 @@ class JobService:
         jobs = await self._job_repo.list(state=JobState.queued, limit=_MAX_COUNT_LIMIT)
         return len(jobs)
 
-    async def resolve_job(self, job_id: str) -> Job:
+    async def validate_for_resolution(self, job_id: str) -> Job:
         """Validate that a job is eligible for resolution.
 
         Raises StateConflictError if the job state or current resolution

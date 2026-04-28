@@ -58,7 +58,7 @@ async def test_resolve_job_publishes_after_commit() -> None:
         payload={"resolution": "discarded", "merge_status": "discarded", "pr_url": None},
     )
     svc = SimpleNamespace(
-        resolve_job=AsyncMock(return_value=_make_job("job-1")),
+        validate_for_resolution=AsyncMock(return_value=_make_job("job-1")),
         resolve_and_complete=AsyncMock(
             return_value=("discarded", None, None, None, [resolved_event, completed_event])
         ),
