@@ -25,7 +25,7 @@ from backend.services.setup_checks import (  # noqa: F401
     CheckResult,
     CheckStatus,
     Dependency,
-    _check_agent_auth,
+    check_agent_auth,
     _console,
     _render_check_line,
     check_agent_cli,
@@ -124,14 +124,14 @@ def _offer_inline_fix(warning: CheckResult) -> str:
                 fixes.append(("Install claude CLI", _INLINE_FIX_COMMANDS["claude_cli"]))
             else:
                 # CLI is installed but auth may be missing
-                auth = _check_agent_auth("claude")
+                auth = check_agent_auth("claude")
                 if auth.authenticated is not True:
                     fixes.append(("Authenticate claude CLI", _INLINE_FIX_COMMANDS["claude_auth"]))
         elif cli.sdk_id == "copilot":
             if not cli.cli_reachable:
                 fixes.append(("Install GitHub CLI", ["gh", "auth", "login"]))
             else:
-                auth = _check_agent_auth("copilot")
+                auth = check_agent_auth("copilot")
                 if auth.authenticated is not True:
                     fixes.append(("Authenticate GitHub CLI", _INLINE_FIX_COMMANDS["gh_auth"]))
 

@@ -634,7 +634,7 @@ class SSEManager:
                 single = await job_repo.get(conn.job_id)
                 fetched_jobs = [single] if single else []
             else:
-                fetched_jobs = [j for j in await job_repo.list(limit=10000) if j.archived_at is None]
+                fetched_jobs = await job_repo.list_all(include_archived=False)
 
             progress_by_job = await event_repo.list_latest_progress_previews([j.id for j in fetched_jobs])
 

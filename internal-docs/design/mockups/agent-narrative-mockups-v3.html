@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Narrative Mockups v3</title>
+<style>
+  :root {
+    --bg: hsl(220 14% 7%);
+    --surface: hsl(220 10% 10%);
+    --border: hsl(215 8% 18%);
+    --text: hsl(220 8% 82%);
+    --text-secondary: hsl(220 6% 58%);
+    --text-dim: hsl(220 5% 40%);
+    --accent: hsl(217 70% 58%);
+    --accent-dim: hsl(217 30% 40%);
+    --green: hsl(145 50% 52%);
+    --red: hsl(0 55% 58%);
+    --yellow: hsl(40 70% 55%);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    padding: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .scenario {
+    max-width: 680px;
+    margin: 0 auto 100px;
+  }
+
+  .scenario-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: hsl(220 10% 8%);
+  }
+
+  .tab {
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+  }
+
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .header {
+    padding: 20px 32px 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: hsl(220 8% 90%);
+  }
+
+  .verbosity {
+    display: flex;
+    gap: 2px;
+    background: hsl(220 10% 8%);
+    border-radius: 4px;
+    padding: 2px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .verbosity span {
+    padding: 3px 8px;
+    border-radius: 3px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .verbosity span.active {
+    background: hsl(220 10% 14%);
+    color: var(--text-secondary);
+  }
+
+  .meta {
+    padding: 8px 32px 20px;
+    font-size: 12px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .prose {
+    padding: 28px 32px 32px;
+    font-size: 14.5px;
+    line-height: 1.85;
+    color: var(--text);
+  }
+
+  .prose p {
+    margin-bottom: 18px;
+  }
+
+  .prose p:last-child {
+    margin-bottom: 0;
+  }
+
+  .prose .lede {
+    font-size: 15.5px;
+    color: hsl(220 8% 88%);
+    margin-bottom: 22px;
+  }
+
+  .prose hr {
+    border: none;
+    border-top: 1px solid hsl(215 8% 14%);
+    margin: 28px 0;
+  }
+
+  .time {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  code {
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12.5px;
+    background: hsl(220 10% 14%);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: hsl(200 40% 68%);
+  }
+
+  /* Interactive symbol — has hover card */
+  code.sym {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: hsl(200 30% 40%);
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+    position: relative;
+  }
+
+  code.sym:hover {
+    background: hsl(220 10% 18%);
+    text-decoration-style: solid;
+  }
+
+  /* Symbol hover card */
+  .sym-hover {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: hsl(220 12% 12%);
+    border: 1px solid hsl(215 8% 22%);
+    border-radius: 6px;
+    padding: 8px 12px;
+    min-width: 240px;
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    display: none;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+
+  code.sym:hover .sym-hover {
+    display: block;
+  }
+
+  .sym-hover .sym-kind {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent-dim);
+  }
+
+  .sym-hover .sym-loc {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  .sym-hover .sym-sig {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    margin: 4px 0;
+    padding: 4px 6px;
+    background: hsl(220 12% 8%);
+    border-radius: 3px;
+  }
+
+  .sym-hover .sym-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+
+  .sym-hover .sym-jump {
+    font-size: 10px;
+    color: var(--accent-dim);
+    margin-top: 6px;
+    cursor: pointer;
+  }
+
+  .file {
+    color: var(--accent-dim);
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12.5px;
+  }
+
+  .diff {
+    margin: 14px 0 18px;
+    padding: 12px 16px;
+    background: hsl(220 12% 8%);
+    border-radius: 5px;
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-x: auto;
+    border-left: 2px solid hsl(215 8% 16%);
+  }
+
+  .diff .add { color: hsl(145 45% 58%); }
+  .diff .del { color: hsl(0 45% 62%); }
+  .diff .ctx { color: var(--text-dim); }
+  .diff .file-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  /* Trail beat aside — left border colored by beat type */
+  .aside {
+    margin: 18px 0 22px;
+    padding: 2px 0 2px 16px;
+    border-left: 2px solid hsl(215 8% 22%);
+    color: var(--text-secondary);
+    font-size: 13.5px;
+    line-height: 1.75;
+  }
+
+  .aside.decide {
+    border-left-color: hsl(217 50% 45%);
+  }
+
+  .aside.backtrack {
+    border-left-color: hsl(40 60% 45%);
+  }
+
+  .aside.insight {
+    border-left-color: hsl(280 40% 50%);
+  }
+
+  .aside.retry {
+    border-left-color: hsl(0 45% 50%);
+  }
+
+  .aside .label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .aside.decide .label { color: hsl(217 50% 55%); }
+  .aside.backtrack .label { color: hsl(40 60% 55%); }
+  .aside.insight .label { color: hsl(280 40% 60%); }
+  .aside.retry .label { color: hsl(0 45% 60%); }
+
+  /* Read context — compact line-range citation */
+  .read-ctx {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    margin-bottom: 6px;
+    padding: 4px 8px;
+    background: hsl(220 10% 8%);
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  .read-ctx .read-icon {
+    color: var(--accent-dim);
+    font-size: 10px;
+    margin-right: 4px;
+  }
+
+  /* Activity group header */
+  .activity-header {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin: 28px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid hsl(215 8% 14%);
+  }
+
+  .activity-header .activity-count {
+    font-weight: 400;
+    color: var(--text-dim);
+    margin-left: 8px;
+  }
+
+  .test-results {
+    margin: 14px 0 18px;
+    padding: 10px 16px;
+    background: hsl(220 12% 8%);
+    border-radius: 5px;
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+
+  .test-results .pass { color: var(--green); }
+  .test-results .fail { color: var(--red); }
+
+  .outcome {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid hsl(215 8% 14%);
+  }
+
+  .outcome strong {
+    color: var(--green);
+    font-weight: 600;
+  }
+
+  .expandable {
+    margin: 8px 0 14px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .expandable::before {
+    content: '▸ ';
+    color: var(--accent-dim);
+  }
+
+  .collapse-msg {
+    padding: 24px 32px;
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  .collapse-msg a {
+    color: var(--accent-dim);
+    text-decoration: underline;
+    text-decoration-color: hsl(217 30% 30%);
+  }
+
+  /* Selection-activated conversation */
+  .selection-highlight {
+    background: hsl(217 50% 30% / 0.25);
+    border-radius: 2px;
+  }
+
+  .ask-fab {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: hsl(220 12% 14%);
+    border: 1px solid hsl(215 8% 24%);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    margin: 4px 0 0 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+
+  .ask-fab:hover {
+    background: hsl(220 12% 18%);
+    color: var(--text);
+  }
+
+  .conversation-panel {
+    margin: 16px 0;
+    border: 1px solid hsl(215 8% 18%);
+    border-radius: 8px;
+    background: hsl(220 12% 8%);
+    overflow: hidden;
+  }
+
+  .conversation-panel .conv-header {
+    padding: 10px 14px;
+    font-size: 11px;
+    color: var(--text-dim);
+    border-bottom: 1px solid hsl(215 8% 14%);
+    background: hsl(220 10% 7%);
+  }
+
+  .conversation-panel .conv-q {
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--text);
+    border-bottom: 1px solid hsl(215 8% 14%);
+  }
+
+  .conversation-panel .conv-q .conv-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent-dim);
+    margin-bottom: 4px;
+    display: block;
+  }
+
+  .conversation-panel .conv-a {
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.75;
+  }
+
+  .conversation-panel .conv-a .conv-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--green);
+    margin-bottom: 4px;
+    display: block;
+  }
+
+  .conversation-panel .conv-a .trail-cite {
+    font-size: 11px;
+    color: var(--text-dim);
+    background: hsl(220 10% 10%);
+    padding: 4px 8px;
+    border-radius: 3px;
+    border-left: 2px solid hsl(217 50% 45%);
+    margin: 8px 0;
+    display: block;
+  }
+
+  .conversation-panel .conv-input {
+    padding: 10px 14px;
+    border-top: 1px solid hsl(215 8% 14%);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .conversation-panel .conv-input input {
+    background: hsl(220 10% 10%);
+    border: 1px solid hsl(215 8% 18%);
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: var(--text);
+    font-size: 12px;
+    width: 100%;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- SCENARIO A: Full narrative — multi-session, trail beats,      -->
+<!-- read-write causality, activity groups, symbol hovers          -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-a">
+  <div class="scenario-label">Narrative A — Standard verbosity, complex multi-session job</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Refactor approval flow with explicit permission modes</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">15 files changed across 2 sessions · 48 minutes · 3 decisions · 1 backtrack</div>
+
+    <div class="prose">
+      <p class="lede">CodePlane's approval system is the gate between an autonomous agent and production-affecting actions — schema migrations, destructive file operations, anything the operator wants to review before it lands. Every approval request was treated identically: the agent asks, the operator says yes or no. There was no way to express that some operations should run autonomously while others require a human in the loop. The task was to add explicit permission modes so approval behavior varies per operation.</p>
+
+      <hr>
+
+      <div class="activity-header">Wire permission enum<span class="activity-count">· 8 files</span></div>
+
+      <div class="time">Session 1 · 0:00 – 0:08</div>
+
+      <p>I started by mapping the blast radius. <span class="read-ctx"><span class="read-icon">◀</span> approval_service.py:12–47</span> <span class="read-ctx"><span class="read-icon">◀</span> approval_tool.py:28–41</span></p>
+
+      <p>The approval lifecycle lives in <code class="sym">ApprovalService<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">approval_service.py:14</span><div class="sym-sig">class ApprovalService:</div><div class="sym-desc">Manages approval creation, resolution, and timeout</div><div class="sym-jump">View in diff →</div></span></code>. The entry point is <code class="sym">create_request()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:23</span><div class="sym-sig">async def create_request(self, job_id: str, message: str) -> Approval</div><div class="sym-desc">Creates an approval request and persists through repository</div><div class="sym-jump">View in diff →</div></span></code> — it takes a job ID and a human-readable message, persists the request through the repository layer, and returns the <code>Approval</code> model. Seven call sites depend on this method: three in <code class="sym">RuntimeService<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">runtime_service.py:31</span><div class="sym-sig">class RuntimeService:</div><div class="sym-desc">Orchestrates job lifecycle from creation to completion</div><div class="sym-jump">View in diff →</div></span></code>, three in test suites, and one in the MCP tool layer. That last caller — <span class="file">approval_tool.py:34</span> — uses <code>getattr(service, method_name)</code> to dispatch dynamically, which means it won't appear in any import graph or static call analysis.</p>
+
+      <div class="aside insight">
+        <span class="label">Insight</span>
+        <span class="file">approval_tool.py:34</span> dispatches via <code>getattr()</code>. Dynamic dispatch — invisible to static analysis, needs manual verification after signature changes.
+      </div>
+
+      <p>The design is a three-value enum — <code>AUTONOMOUS</code>, <code>SUPERVISED</code>, and <code>LOCKED</code> — representing the spectrum from "agent can proceed without asking" to "agent must stop and wait."</p>
+
+      <div class="aside decide">
+        <span class="label">Decision</span>
+        Made <code>permission_mode</code> a required parameter on <code class="sym">create_request()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:23</span><div class="sym-sig">async def create_request(self, job_id: str, message: str, permission_mode: PermissionMode) -> Approval</div><div class="sym-desc">Creates an approval request — now requires explicit permission mode</div><div class="sym-jump">View in diff →</div></span></code> rather than optional with a default. A default would silently mask call sites that haven't been updated to think about permissions. If a caller doesn't know its permission context, that's a bug the type system should catch.
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/models/domain.py +4</span>
+<span class="add">+class PermissionMode(str, Enum):</span>
+<span class="add">+    AUTONOMOUS = "autonomous"</span>
+<span class="add">+    SUPERVISED = "supervised"</span>
+<span class="add">+    LOCKED = "locked"</span>
+      </div>
+
+      <p>From there, the work was mostly mechanical — threading the new parameter through <code class="sym">setup_and_start()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">runtime_service.py:89</span><div class="sym-sig">async def setup_and_start(self, job_id: str, /) -> None</div><div class="sym-desc">Single entry point for launching a job with full configuration</div><div class="sym-jump">View in diff →</div></span></code> and <code class="sym">handle_approval()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">runtime_service.py:142</span><div class="sym-sig">async def handle_approval(self, approval_id: str, resolution: str) -> ApprovalResult</div><div class="sym-desc">Processes operator's approval/rejection decision</div><div class="sym-jump">View in diff →</div></span></code>, updating the repository column mapping, and adjusting test fixtures to supply valid enum values.</p>
+
+      <div class="expandable">8 files modified — all parameter threading</div>
+
+      <hr>
+
+      <div class="activity-header">Extract ApprovalResult<span class="activity-count">· 7 files</span></div>
+
+      <div class="time">Session 2 · 0:28 – 0:34</div>
+
+      <p>Session two started with three test failures from the signature change — expected. But while fixing them, I examined the callers more carefully. <span class="read-ctx"><span class="read-icon">◀</span> runtime_service.py:142–178</span> <span class="read-ctx"><span class="read-icon">◀</span> api/routes/approvals.py:45–62</span></p>
+
+      <p>Every single caller immediately destructured <code>resolved_at</code>, <code>resolution</code>, and now <code>permission_mode</code> off the <code>Approval</code> model that <code class="sym">resolve()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:67</span><div class="sym-sig">async def resolve(self, approval_id: str, resolution: str) -> Approval</div><div class="sym-desc">Closes an approval and returns the result to the requester</div><div class="sym-jump">View in diff →</div></span></code> returned. The model was serving two different roles — the initial request ("someone needs to approve this migration") and the outcome ("the operator approved it at 14:03 with supervised permissions"). These are conceptually different things, and packing both into the same object was already awkward before I added a third outcome field.</p>
+
+      <div class="aside backtrack">
+        <span class="label">Changed course</span>
+        Stopped extending the <code>Approval</code> model. Extracted a new <code class="sym">ApprovalResult<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">approval_service.py:15</span><div class="sym-sig">class ApprovalResult(CamelModel):</div><div class="sym-desc">Wraps approval with resolution metadata — new return type of resolve()</div><div class="sym-jump">View in diff →</div></span></code> that wraps the approval with its resolution metadata. This changed the return type of <code>resolve()</code> — a breaking change to code that existed before this job.
+      </div>
+
+      <div class="aside decide">
+        <span class="label">Decision</span>
+        Pydantic model rather than plain dict — callers get typed dot access and the OpenAPI schema picks up the new type automatically. The frontend will see <code>ApprovalResult</code> in generated TypeScript types without manual schema work.
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/services/approval_service.py +7 −2</span>
+<span class="del">-    async def resolve(self, ...) -> Approval:</span>
+<span class="add">+    async def resolve(self, ...) -> ApprovalResult:</span>
+<span class="ctx">         approval = await self._repo.get(approval_id)</span>
+<span class="ctx">         ...</span>
+<span class="del">-        return approval</span>
+<span class="add">+        return ApprovalResult(</span>
+<span class="add">+            approval=approval,</span>
+<span class="add">+            resolution=resolution,</span>
+<span class="add">+            resolved_at=now,</span>
+<span class="add">+            permission_mode=approval.permission_mode,</span>
+<span class="add">+        )</span>
+      </div>
+
+      <div class="test-results">
+<span class="pass">✓ 47 passed</span>  test_approval_service.py
+<span class="pass">✓ 12 passed</span>  test_api_approvals.py
+<span class="pass">✓ 83 passed</span>  test_runtime_service.py
+      </div>
+
+      <div class="outcome">
+        <p><strong>Completed.</strong> Permission modes are now threaded through the full approval lifecycle — from creation through resolution — and the approval model's dual-role problem is fixed. 142 tests passing across three suites. One risk: <span class="file">mcp/tools/approval_tool.py</span> calls the approval entry point <code class="sym">create_request()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:23</span><div class="sym-sig">async def create_request(self, job_id: str, message: str, permission_mode: PermissionMode) -> Approval</div><div class="sym-desc">Creates an approval request — now requires explicit permission mode</div><div class="sym-jump">View in diff →</div></span></code> through <code>getattr()</code>, bypassing import resolution. Needs manual review before merge to confirm the MCP layer passes a valid <code>PermissionMode</code>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO B: Same job, Brief verbosity                         -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-b">
+  <div class="scenario-label">Narrative B — Brief verbosity, same job</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Refactor approval flow with explicit permission modes</h1>
+      <div class="verbosity">
+        <span class="active">Brief</span>
+        <span>Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">15 files changed across 2 sessions · 48 minutes · 3 decisions · 1 backtrack</div>
+
+    <div class="prose">
+      <p class="lede">Added a <code class="sym">PermissionMode<span class="sym-hover"><span class="sym-kind">enum</span> · <span class="sym-loc">domain.py:8</span><div class="sym-sig">class PermissionMode(str, Enum): AUTONOMOUS | SUPERVISED | LOCKED</div><div class="sym-desc">Three-value permission spectrum for approval behavior</div><div class="sym-jump">View in diff →</div></span></code> enum (<code>AUTONOMOUS</code>, <code>SUPERVISED</code>, <code>LOCKED</code>) as a required parameter on <code class="sym">create_request()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:23</span><div class="sym-sig">async def create_request(self, job_id: str, message: str, permission_mode: PermissionMode) -> Approval</div><div class="sym-desc">Creates an approval request — now requires explicit permission mode</div><div class="sym-jump">View in diff →</div></span></code>, giving operators control over what runs unsupervised. Mid-job, discovered the <code>Approval</code> model was overloaded — serving as both request and outcome — so extracted <code class="sym">ApprovalResult<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">approval_service.py:15</span><div class="sym-sig">class ApprovalResult(CamelModel):</div><div class="sym-desc">Wraps approval with resolution metadata</div><div class="sym-jump">View in diff →</div></span></code> as the return type from <code>resolve()</code>. 142 tests passing.</p>
+
+      <div class="aside decide">
+        <span class="label">Decision</span>
+        Required parameter, not optional. If a call site doesn't know its permission context, that's a bug.
+      </div>
+
+      <div class="aside backtrack">
+        <span class="label">Changed course</span>
+        Callers were destructuring resolution metadata off the Approval model. Adding a third field made the overloading obvious. Extracted <code>ApprovalResult</code> — breaking change to pre-existing callers.
+      </div>
+
+      <div class="aside insight">
+        <span class="label">Unresolved</span>
+        <span class="file">approval_tool.py:34</span> dispatches via <code>getattr()</code>. Cannot be statically verified — needs manual review.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO C: Small clean job with read-write causality         -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-c">
+  <div class="scenario-label">Narrative C — Clean job, read-write causality</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Add retry cost tracking to analytics</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">3 files changed · 1 session · 12 minutes · 0 decisions</div>
+
+    <div class="prose">
+      <p class="lede">CodePlane tracks per-job analytics — duration, token usage, tool call counts — but had no visibility into how much failed retries cost. When an agent retries a failed LLM call, that's real money burned on work that didn't land.</p>
+
+      <p><span class="read-ctx"><span class="read-icon">◀</span> analytics_service.py:34–78</span> <span class="read-ctx"><span class="read-icon">◀</span> job_telemetry_spans schema:1–22</span></p>
+
+      <p>I examined the existing <code class="sym">AnalyticsService.aggregate()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">analytics_service.py:45</span><div class="sym-sig">async def aggregate(self, job_id: str) -> AnalyticsSummary</div><div class="sym-desc">Runs post-job aggregation pipeline across all telemetry spans</div><div class="sym-jump">View in diff →</div></span></code> pipeline at lines 34–78 and confirmed that <code>cost_usd</code> and <code>is_retry</code> were already present on every span row but never queried together. The data was there, it just needed a view. I added <code class="sym">retry_cost_summary()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">analytics_service.py:80</span><div class="sym-sig">async def retry_cost_summary(self, job_id: str) -> RetryCostBreakdown</div><div class="sym-desc">Sums cost_usd for retry-flagged spans, grouped by model</div><div class="sym-jump">View in diff →</div></span></code> and <code class="sym">fleet_cost_summary()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">analytics_service.py:102</span><div class="sym-sig">async def fleet_cost_summary(self) -> FleetCostBreakdown</div><div class="sym-desc">Cross-job retry cost rollup for the dashboard fleet view</div><div class="sym-jump">View in diff →</div></span></code>, both wired into the existing <code>aggregate()</code> pipeline that runs after each job completes. Straightforward plumbing, no design decisions — both methods query the telemetry spans table for retry-flagged entries, sum costs by model, and return breakdowns the dashboard can render. 23 tests passing.</p>
+
+      <div class="collapse-msg">
+        Nothing else to narrate for this job. The file-by-file walkthrough is in the <a href="#">Review</a> tab.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO D: Error → retry → recovery arc                      -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-d">
+  <div class="scenario-label">Narrative D — Error, retry chain, and recovery</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Add cost attribution with schema migration</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">17 files changed · 1 session · 35 minutes · 1 decision · 1 retry</div>
+
+    <div class="prose">
+      <p class="lede">CodePlane tracks what agents do — tool calls, token usage, duration — but couldn't answer "how much did this job cost?" The telemetry spans table stores model names and token counts, but no layer applies pricing and attributes costs back to individual jobs. The task was to build <code class="sym">CostAttributionService<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">cost_attribution.py:18</span><div class="sym-sig">class CostAttributionService:</div><div class="sym-desc">Reads spans post-job, applies per-model pricing, stores attribution records</div><div class="sym-jump">View in diff →</div></span></code> — reading spans after each job, applying per-model pricing, and storing attribution records the dashboard can query.</p>
+
+      <hr>
+
+      <div class="time">0:00 – 0:05</div>
+
+      <p><span class="read-ctx"><span class="read-icon">◀</span> runtime_service.py:82–134</span> <span class="read-ctx"><span class="read-icon">◀</span> base_adapter.py:310–345</span> <span class="read-ctx"><span class="read-icon">◀</span> di.py:45–89</span></p>
+
+      <p>I mapped the existing data flow first. When an agent makes an LLM call, the telemetry collector writes a span row with the model name, token counts, and a <code>cost_usd</code> field from the provider's response. The analytics module aggregates these into job-level sums, but there's no per-model breakdown and no attribution to specific activities within a job.</p>
+
+      <p>The design question was where to initialize the service. <code class="sym">setup_and_start()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">runtime_service.py:89</span><div class="sym-sig">async def setup_and_start(self, job_id: str, /) -> None</div><div class="sym-desc">Single entry point for launching a job — highest fan-in method in backend</div><div class="sym-jump">View in diff →</div></span></code> is the only place where a job's full configuration is available at launch time. It's called from four distinct code paths: the API route, <code class="sym">recover_on_startup()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">runtime_service.py:201</span><div class="sym-sig">async def recover_on_startup(self) -> None</div><div class="sym-desc">Resumes interrupted jobs from database state after server restart</div><div class="sym-jump">View in diff →</div></span></code>, the followup creation path, and two test suites.</p>
+
+      <div class="aside decide">
+        <span class="label">Decision</span>
+        Nullable parameter rather than required. <code class="sym">recover_on_startup()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">runtime_service.py:201</span><div class="sym-sig">async def recover_on_startup(self) -> None</div><div class="sym-desc">Resumes interrupted jobs — has no cost config available</div><div class="sym-jump">View in diff →</div></span></code> has no cost configuration available — it restores a job from database state where the original config may not have included cost tracking. <code>None</code> means "no cost tracking for this job."
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/services/runtime_service.py +3 −1</span>
+<span class="del">-    async def setup_and_start(self, job_id: str, /) -> None:</span>
+<span class="add">+    async def setup_and_start(</span>
+<span class="add">+        self, job_id: str, /, *, cost_config: CostConfig | None = None,</span>
+<span class="add">+    ) -> None:</span>
+      </div>
+
+      <div class="expandable">9 more files — service, repo, model, API schema, tests</div>
+
+      <p>The schema migration added a <code>cost_attributions</code> table and a <code>cost_config_json</code> column on the jobs table. Both needed operator approval. Approved after 8 seconds. Then I ran the test suite.</p>
+
+      <div class="test-results">
+<span class="pass">✓ 83 passed</span>  test_runtime_service.py
+<span class="fail">✗ 1 FAILED</span>  test_cost_attribution.py
+        FAILED test_attribute_span_writes_record
+<span class="fail">        TypeError: CostAttributionService.__init__() missing argument: 'bus'</span>
+      </div>
+
+      <div class="aside retry">
+        <span class="label">Retry — TypeError</span>
+        <code class="sym">CostAttributionService.__init__()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">cost_attribution.py:22</span><div class="sym-sig">def __init__(self, repo: CostAttributionRepository, bus: EventBus)</div><div class="sym-desc">Constructor — requires both repository and event bus</div><div class="sym-jump">View in diff →</div></span></code> takes two constructor dependencies — a <code>CostAttributionRepository</code> and an <code class="sym">EventBus<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">event_bus.py:12</span><div class="sym-sig">class EventBus:</div><div class="sym-desc">Internal pub/sub for domain events — drives SSE stream</div><div class="sym-jump">View in diff →</div></span></code> (it publishes a <code>CostAttributed</code> event so the SSE stream can push live cost updates). I registered the repository in the DI container but forgot the <code>EventBus</code> binding. The test fixture had the same omission.
+      </div>
+
+      <p><span class="read-ctx"><span class="read-icon">◀</span> di.py:45–89</span> <span class="read-ctx"><span class="read-icon">◀</span> test_cost_attribution.py:12–28</span></p>
+
+      <p>Two one-line fixes: one in <span class="file">backend/di.py</span> adding the <code>EventBus</code> to the container registration, one in the test's <code>@pytest.fixture</code>. Not a design issue — the constructor signature was correct; the wiring wasn't.</p>
+
+      <div class="test-results">
+<span class="pass">✓ 83 passed</span>  test_runtime_service.py
+<span class="pass">✓ 14 passed</span>  test_cost_attribution.py
+<span class="pass">✓ 23 passed</span>  test_analytics_service.py
+<span class="pass">✓  8 passed</span>  test_api_analytics.py
+      </div>
+
+      <div class="outcome">
+        <p><strong>Completed.</strong> Telemetry spans are now attributed with per-model cost breakdowns during job execution. The signature change to <code class="sym">setup_and_start()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">runtime_service.py:89</span><div class="sym-sig">async def setup_and_start(self, job_id: str, /, *, cost_config: CostConfig | None = None) -> None</div><div class="sym-desc">Job launch entry point — now accepts optional cost config</div><div class="sym-jump">View in diff →</div></span></code> is backward-compatible — <code>cost_config</code> defaults to <code>None</code>. 128 tests passing across four suites. The <code>CostAttributed</code> event is wired into the SSE stream for live dashboard updates.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO E: Symbol hover detail                               -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-e">
+  <div class="scenario-label">Narrative E — Symbol hover popover (Layer 2 detail)</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Add token expiry validation</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">4 files changed · 1 session · 18 minutes</div>
+
+    <div class="prose">
+      <p><span class="read-ctx"><span class="read-icon">◀</span> auth.py:45–78</span> <span class="read-ctx"><span class="read-icon">◀</span> config.py:12–30</span></p>
+
+      <p>I examined the <code class="sym">validate_token()<span class="sym-hover" style="display: block;"><span class="sym-kind">function</span> · <span class="sym-loc">auth.py:45</span><div class="sym-sig">def validate_token(token: str) -> Claims</div><div class="sym-desc">Validates JWT structure and signature, returns decoded claims</div><div class="sym-jump">View in diff →</div></span></code> method at lines 45–78 of auth.py. It validates JWT structure and verifies the signature, but never checks the <code class="sym">exp<span class="sym-hover" style="display: block;"><span class="sym-kind">field</span> · <span class="sym-loc">auth.py:52</span><div class="sym-sig">claims["exp"]  # JWT expiration timestamp</div><div class="sym-desc">Standard JWT expiry claim — seconds since epoch</div><div class="sym-jump">View in diff →</div></span></code> claim against current time. The <code class="sym">TokenConfig<span class="sym-hover" style="display: block;"><span class="sym-kind">class</span> · <span class="sym-loc">config.py:12</span><div class="sym-sig">class TokenConfig(BaseModel):</div><div class="sym-desc">Token lifetime, signing key, and algorithm settings</div><div class="sym-jump">View in diff →</div></span></code> class in config.py confirmed 30-minute token lifetimes, so silent acceptance of expired tokens was a real gap — any token with a valid signature would work indefinitely.</p>
+
+      <div class="diff">
+        <span class="file-label">backend/auth.py +2 −1</span>
+<span class="ctx">     claims = decode_jwt(token, key=config.signing_key)</span>
+<span class="del">-    if not claims:</span>
+<span class="add">+    if not claims or claims.get("exp", 0) &lt; time.time():</span>
+<span class="ctx">         raise InvalidTokenError("token invalid or expired")</span>
+      </div>
+
+      <p>A two-line change with real security impact. The <code>InvalidTokenError</code> message was already correct — it said "or expired" even when expiry was never actually checked. Now it means what it says.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO F: Selection-activated conversation                   -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-f">
+  <div class="scenario-label">Narrative F — Selection-activated conversation (Layer 3)</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Refactor approval flow with explicit permission modes</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">15 files changed across 2 sessions · 48 minutes</div>
+
+    <div class="prose">
+      <p>The design is a three-value enum — <code>AUTONOMOUS</code>, <code>SUPERVISED</code>, and <code>LOCKED</code> — representing the spectrum from "agent can proceed without asking" to "agent must stop and wait."</p>
+
+      <div class="aside decide">
+        <span class="label">Decision</span>
+        Made <code>permission_mode</code> a required parameter on <code>create_request()</code> rather than optional with a default. <span class="selection-highlight">A default would silently mask call sites that haven't been updated to think about permissions. If a caller doesn't know its permission context, that's a bug the type system should catch.</span>
+      </div>
+
+      <span class="ask-fab">💬 Ask about this</span>
+
+      <div class="conversation-panel">
+        <div class="conv-header">Re: "A default would silently mask call sites…"</div>
+        <div class="conv-q">
+          <span class="conv-label">You</span>
+          Why not make it optional with SUPERVISED as the default? That way existing callers keep working without changes.
+        </div>
+        <div class="conv-a">
+          <span class="conv-label">Agent</span>
+          The trail data shows the agent explicitly considered and rejected that approach:
+          <span class="trail-cite">DECIDE: Required parameter, not optional — if a call site doesn't know its permission context, that's a bug the type system should catch, not a thing that silently defaults to supervised.</span>
+          The concern was specifically about <span class="file">approval_tool.py:34</span>, which uses <code class="sym">getattr()<span class="sym-hover"><span class="sym-kind">builtin</span> · <span class="sym-loc">approval_tool.py:34</span><div class="sym-desc">Dynamic dispatch — invisible to static analysis</div></span></code> for dynamic dispatch. With a default value, that caller would silently get <code>SUPERVISED</code> without any developer explicitly choosing it. Since dynamic dispatch bypasses the type checker, the only safety net is the required parameter forcing a <code>TypeError</code> at runtime if <code>permission_mode</code> is missing.
+          <br><br>
+          There are currently 7 call sites. Three in <code class="sym">RuntimeService<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">runtime_service.py:31</span><div class="sym-desc">Orchestrates job lifecycle</div></span></code> and three in test suites were updated to pass explicit modes. The MCP tool caller is the one that was flagged as needing manual verification — it's the case where the required parameter catches a real gap.
+        </div>
+        <div class="conv-input">
+          <input type="text" placeholder="Ask a follow-up..." disabled>
+        </div>
+      </div>
+
+      <p>From there, the work was mostly mechanical — threading the new parameter through the runtime service's two entry points, updating the repository column mapping, and adjusting test fixtures to supply valid enum values.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO G: Activity-grouped narrative                        -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-g">
+  <div class="scenario-label">Narrative G — Activity-grouped changes with phase transitions</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Add SSE event compression with test infrastructure fixes</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">11 files changed · 1 session · 28 minutes · 1 decision · 1 insight</div>
+
+    <div class="prose">
+      <p class="lede">The SSE event stream sends every telemetry span as a separate event. For jobs with high tool-call rates, this floods the frontend with hundreds of small updates per second. The task was to add server-side compression — batching span events into periodic digests — without breaking existing consumers that expect individual events.</p>
+
+      <div class="activity-header">Implement event compression<span class="activity-count">· 6 files</span></div>
+
+      <div class="time">0:00 – 0:14</div>
+
+      <p><span class="read-ctx"><span class="read-icon">◀</span> sse_handler.py:23–67</span> <span class="read-ctx"><span class="read-icon">◀</span> event_bus.py:12–45</span></p>
+
+      <p>The existing <code class="sym">SSEHandler.stream()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">sse_handler.py:34</span><div class="sym-sig">async def stream(self, job_id: str) -> AsyncGenerator[str, None]</div><div class="sym-desc">Yields SSE-formatted events from the internal event bus</div><div class="sym-jump">View in diff →</div></span></code> method yields events one at a time from the internal <code class="sym">EventBus<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">event_bus.py:12</span><div class="sym-sig">class EventBus:</div><div class="sym-desc">Internal pub/sub for domain events</div><div class="sym-jump">View in diff →</div></span></code>. I added a <code class="sym">CompressionBuffer<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">sse_handler.py:78</span><div class="sym-sig">class CompressionBuffer:</div><div class="sym-desc">Accumulates span events and flushes as batched digests</div><div class="sym-jump">View in diff →</div></span></code> that sits between the bus and the stream generator. Span events accumulate in the buffer; a periodic flush emits a single <code>span_digest</code> event containing all accumulated spans. Non-span events (approvals, job state changes) pass through immediately — they're low-frequency and latency-sensitive.</p>
+
+      <div class="aside decide">
+        <span class="label">Decision</span>
+        Dual-mode stream: compressed clients send <code>Accept: application/x-sse-digest</code>, legacy clients get individual events unchanged. This avoids a breaking change to the existing frontend event dispatcher.
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/api/sse_handler.py +34 −3</span>
+<span class="ctx">     async def stream(self, job_id: str) -> AsyncGenerator[str, None]:</span>
+<span class="add">+        if self._compress:</span>
+<span class="add">+            buffer = CompressionBuffer(flush_interval=self._flush_ms)</span>
+<span class="add">+            async for batch in buffer.wrap(self._bus.subscribe(job_id)):</span>
+<span class="add">+                yield self._format_digest(batch)</span>
+<span class="add">+        else:</span>
+<span class="ctx">             async for event in self._bus.subscribe(job_id):</span>
+<span class="ctx">                 yield self._format_event(event)</span>
+      </div>
+
+      <hr>
+
+      <div class="activity-header">Fix test infrastructure<span class="activity-count">· 5 files</span></div>
+
+      <div class="time">0:14 – 0:28</div>
+
+      <div class="aside insight">
+        <span class="label">Insight</span>
+        The SSE test helpers were creating real <code>EventBus</code> instances with async subscriptions. Adding <code>CompressionBuffer</code> exposed a race condition: the test was asserting on events before the buffer had flushed. This wasn't a new bug — the tests were timing-dependent before, but the buffer made the window wide enough to fail reliably.
+      </div>
+
+      <p><span class="read-ctx"><span class="read-icon">◀</span> conftest.py:89–112</span> <span class="read-ctx"><span class="read-icon">◀</span> test_sse_handler.py:23–78</span></p>
+
+      <p>I replaced the real <code>EventBus</code> in test fixtures with a synchronous <code class="sym">FakeEventBus<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">conftest.py:95</span><div class="sym-sig">class FakeEventBus(EventBus):</div><div class="sym-desc">Synchronous test double — yields events immediately without async subscription</div><div class="sym-jump">View in diff →</div></span></code> that yields events immediately without async buffering. This eliminates the timing dependency for all SSE tests, not just the compression ones. Five test files updated to use the new fixture.</p>
+
+      <div class="test-results">
+<span class="pass">✓ 31 passed</span>  test_sse_handler.py
+<span class="pass">✓ 18 passed</span>  test_event_bus.py
+<span class="pass">✓  9 passed</span>  test_compression_buffer.py
+      </div>
+
+      <div class="outcome">
+        <p><strong>Completed.</strong> SSE compression is opt-in via the <code>Accept</code> header. Legacy clients are unaffected. The test infrastructure fix is a bonus — <code class="sym">FakeEventBus<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">conftest.py:95</span><div class="sym-sig">class FakeEventBus(EventBus):</div><div class="sym-desc">Synchronous test double for SSE tests</div><div class="sym-jump">View in diff →</div></span></code> eliminates timing-dependent test failures that predate this job. 58 tests passing across three suites.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO H: Multi-decision trail                              -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-h">
+  <div class="scenario-label">Narrative H — Multiple sequential decisions woven into prose</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Add rate limiting with Redis backend</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">9 files changed · 1 session · 22 minutes · 3 decisions</div>
+
+    <div class="prose">
+      <p class="lede">The API had no rate limiting. Any client could hammer any endpoint without constraint. The task was to add per-client rate limiting with configurable limits per route group.</p>
+
+      <div class="time">0:00 – 0:06</div>
+
+      <p><span class="read-ctx"><span class="read-icon">◀</span> app_factory.py:12–45</span> <span class="read-ctx"><span class="read-icon">◀</span> config.py:78–102</span> <span class="read-ctx"><span class="read-icon">◀</span> pyproject.toml:34–45</span></p>
+
+      <p>The first question was where in the request lifecycle to enforce limits. FastAPI supports middleware, dependencies, and router-level hooks. I examined <code class="sym">create_app()<span class="sym-hover"><span class="sym-kind">function</span> · <span class="sym-loc">app_factory.py:18</span><div class="sym-sig">def create_app() -> FastAPI</div><div class="sym-desc">Assembles the FastAPI application with all middleware and routes</div><div class="sym-jump">View in diff →</div></span></code> at lines 12–45 of app_factory.py. The middleware stack already includes CORS and request logging. Rate limiting as middleware would apply uniformly — no per-route granularity.</p>
+
+      <div class="aside decide">
+        <span class="label">Decision 1 of 3</span>
+        FastAPI dependency injection rather than middleware. A <code class="sym">RateLimitDep<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">rate_limit.py:23</span><div class="sym-sig">class RateLimitDep:</div><div class="sym-desc">Injectable dependency — checks rate limit, raises 429 if exceeded</div><div class="sym-jump">View in diff →</div></span></code> dependency can be parameterized per route group: <code>Depends(RateLimitDep(max_requests=100, window_seconds=60))</code>. Middleware can't express "jobs endpoints get 100 req/min but analytics endpoints get 1000."
+      </div>
+
+      <p>The second question was the backing store. Rate limiting needs a shared counter with TTL expiry. Options: in-memory dict (no horizontal scaling), SQLite (unnecessary persistence), Redis (standard choice but adds a dependency).</p>
+
+      <div class="aside decide">
+        <span class="label">Decision 2 of 3</span>
+        Redis, gated behind <code class="sym">RateLimitConfig<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">config.py:84</span><div class="sym-sig">class RateLimitConfig(BaseModel): redis_url: str | None = None</div><div class="sym-desc">Rate limit settings — None disables rate limiting entirely</div><div class="sym-jump">View in diff →</div></span></code>. When <code>redis_url</code> is <code>None</code>, rate limiting is disabled entirely — no Redis connection attempted, no middleware overhead. This keeps the single-user dev experience unchanged (no Redis required) while supporting production deployments.
+      </div>
+
+      <div class="aside insight">
+        <span class="label">Insight</span>
+        <span class="read-ctx"><span class="read-icon">◀</span> pyproject.toml:34–45</span> — <code>redis</code> was already in the optional dependencies group <code>[extra.production]</code> from a previous job that added caching. No new dependency to add.
+      </div>
+
+      <p>The third question was what to do when Redis is unreachable. The rate limiter runs on every request. If Redis goes down, should every request fail with a 500, or should the system degrade to unlimited?</p>
+
+      <div class="aside decide">
+        <span class="label">Decision 3 of 3</span>
+        Fail open. If Redis is unreachable, <code class="sym">RateLimitDep.__call__()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">rate_limit.py:34</span><div class="sym-sig">async def __call__(self, request: Request) -> None</div><div class="sym-desc">Checks counter, raises HTTPException(429) if over limit, passes through on Redis failure</div><div class="sym-jump">View in diff →</div></span></code> logs a warning and allows the request. The alternative — fail closed — would make Redis a hard dependency for the entire API, turning a rate-limiting feature into a availability risk. Rate limiting is a protection, not a gate.
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/api/rate_limit.py (new file) +47</span>
+<span class="add">+class RateLimitDep:</span>
+<span class="add">+    def __init__(self, max_requests: int, window_seconds: int):</span>
+<span class="add">+        self._max = max_requests</span>
+<span class="add">+        self._window = window_seconds</span>
+<span class="add">+</span>
+<span class="add">+    async def __call__(self, request: Request) -> None:</span>
+<span class="add">+        client_key = self._extract_key(request)</span>
+<span class="add">+        try:</span>
+<span class="add">+            count = await self._redis.incr(client_key)</span>
+<span class="add">+            if count == 1:</span>
+<span class="add">+                await self._redis.expire(client_key, self._window)</span>
+<span class="add">+            if count > self._max:</span>
+<span class="add">+                raise HTTPException(status_code=429)</span>
+<span class="add">+        except RedisError:</span>
+<span class="add">+            log.warning("rate_limit_redis_unreachable")</span>
+      </div>
+
+      <div class="test-results">
+<span class="pass">✓ 12 passed</span>  test_rate_limit.py
+<span class="pass">✓ 47 passed</span>  test_api_routes.py
+      </div>
+
+      <div class="outcome">
+        <p><strong>Completed.</strong> Rate limiting is active per route group when <code>redis_url</code> is configured, disabled entirely when it's <code>None</code>, and degrades gracefully when Redis is unreachable. Three architectural decisions — all documented in the trail — shape the design: dependency injection for per-route granularity, gated Redis for zero-config dev, fail-open for availability. 59 tests passing.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

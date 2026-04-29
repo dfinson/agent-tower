@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Narrative Mockups</title>
+<style>
+  :root {
+    --bg: hsl(220 20% 7%);
+    --card: hsl(220 12% 11%);
+    --card-raised: hsl(220 12% 14%);
+    --border: hsl(215 12% 21%);
+    --text: hsl(220 10% 88%);
+    --text-muted: hsl(220 10% 60%);
+    --text-dim: hsl(220 10% 45%);
+    --primary: hsl(217 91% 60%);
+    --primary-muted: hsl(217 50% 40%);
+    --red: hsl(0 72% 60%);
+    --red-bg: hsl(0 40% 12%);
+    --yellow: hsl(40 90% 60%);
+    --yellow-bg: hsl(40 40% 12%);
+    --green: hsl(140 60% 50%);
+    --green-bg: hsl(140 30% 10%);
+    --orange: hsl(25 90% 55%);
+    --purple: hsl(270 60% 65%);
+    --purple-bg: hsl(270 30% 12%);
+    --cyan: hsl(185 60% 55%);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    padding: 24px;
+  }
+
+  .scenario {
+    max-width: 720px;
+    margin: 0 auto 80px;
+  }
+
+  .scenario-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--primary);
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    background: hsl(217 91% 60% / 0.08);
+    border-radius: 4px;
+    display: inline-block;
+  }
+
+  .story-container {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: hsl(220 12% 9%);
+  }
+
+  .tab {
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+
+  .tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  .story-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .story-header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    flex: 1;
+  }
+
+  .verbosity-toggle {
+    display: flex;
+    gap: 2px;
+    background: hsl(220 12% 9%);
+    border-radius: 4px;
+    padding: 2px;
+    font-size: 11px;
+  }
+
+  .verbosity-toggle span {
+    padding: 3px 8px;
+    border-radius: 3px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .verbosity-toggle span.active {
+    background: var(--card-raised);
+    color: var(--text);
+  }
+
+  .story-meta {
+    padding: 12px 20px;
+    background: hsl(220 12% 9%);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .story-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .meta-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .dot-purple { background: var(--purple); }
+  .dot-green { background: var(--green); }
+  .dot-yellow { background: var(--yellow); }
+  .dot-red { background: var(--red); }
+  .dot-cyan { background: var(--cyan); }
+
+  .story-body {
+    padding: 20px;
+  }
+
+  /* Narrative prose */
+  .narrative {
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--text);
+  }
+
+  .narrative p {
+    margin-bottom: 16px;
+  }
+
+  .narrative p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Beat markers in the margin */
+  .beat {
+    position: relative;
+    margin-bottom: 24px;
+  }
+
+  .beat-marker {
+    position: absolute;
+    left: -32px;
+    top: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+  }
+
+  /* Phase labels */
+  .phase-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    margin-bottom: 12px;
+  }
+
+  .phase-goal {
+    color: var(--primary);
+    background: hsl(217 60% 15%);
+  }
+
+  .phase-explore {
+    color: var(--cyan);
+    background: hsl(185 30% 12%);
+  }
+
+  .phase-plan {
+    color: var(--purple);
+    background: var(--purple-bg);
+  }
+
+  .phase-execute {
+    color: var(--green);
+    background: var(--green-bg);
+  }
+
+  .phase-trouble {
+    color: var(--orange);
+    background: hsl(25 40% 12%);
+  }
+
+  .phase-backtrack {
+    color: var(--red);
+    background: var(--red-bg);
+  }
+
+  .phase-verify {
+    color: var(--yellow);
+    background: var(--yellow-bg);
+  }
+
+  .phase-resolve {
+    color: var(--green);
+    background: var(--green-bg);
+  }
+
+  /* Inline diff cards */
+  .diff-card {
+    margin: 12px 0 16px;
+    border: 1px solid hsl(215 12% 18%);
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .diff-header {
+    padding: 6px 10px;
+    background: hsl(220 12% 9%);
+    border-bottom: 1px solid hsl(215 12% 16%);
+    color: var(--text-muted);
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .diff-body {
+    padding: 8px 10px;
+    background: hsl(220 15% 8%);
+  }
+
+  .diff-line { white-space: pre; }
+  .diff-add { color: hsl(140 60% 60%); }
+  .diff-del { color: hsl(0 60% 65%); }
+  .diff-ctx { color: var(--text-dim); }
+
+  /* Decision callouts */
+  .decision-callout {
+    margin: 12px 0 16px;
+    padding: 12px 14px;
+    background: hsl(270 20% 12%);
+    border: 1px solid hsl(270 20% 22%);
+    border-left: 3px solid var(--purple);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .decision-callout .decision-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--purple);
+    margin-bottom: 4px;
+  }
+
+  /* Backtrack callouts */
+  .backtrack-callout {
+    margin: 12px 0 16px;
+    padding: 12px 14px;
+    background: hsl(0 20% 11%);
+    border: 1px solid hsl(0 20% 20%);
+    border-left: 3px solid var(--red);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .backtrack-callout .backtrack-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--red);
+    margin-bottom: 4px;
+  }
+
+  /* Insight callouts */
+  .insight-callout {
+    margin: 12px 0 16px;
+    padding: 12px 14px;
+    background: hsl(185 20% 10%);
+    border: 1px solid hsl(185 20% 20%);
+    border-left: 3px solid var(--cyan);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .insight-callout .insight-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    margin-bottom: 4px;
+  }
+
+  /* Approval gate */
+  .approval-gate {
+    margin: 12px 0 16px;
+    padding: 12px 14px;
+    background: hsl(40 20% 10%);
+    border: 1px solid hsl(40 20% 20%);
+    border-left: 3px solid var(--yellow);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .approval-gate .approval-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--yellow);
+    margin-bottom: 4px;
+  }
+
+  .approval-resolution {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--green);
+  }
+
+  /* Verification block */
+  .verify-block {
+    margin: 12px 0 16px;
+    padding: 10px 12px;
+    background: hsl(220 12% 9%);
+    border: 1px solid hsl(215 12% 16%);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+  }
+
+  .verify-pass { color: var(--green); }
+  .verify-fail { color: var(--red); }
+
+  /* Outcome box */
+  .outcome-box {
+    margin-top: 20px;
+    padding: 14px 16px;
+    background: hsl(220 12% 9%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .outcome-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 8px;
+    color: var(--green);
+  }
+
+  .outcome-body {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.7;
+  }
+
+  /* Timeline spine (left margin) */
+  .narrative-spine {
+    padding-left: 24px;
+    border-left: 2px solid hsl(215 12% 16%);
+    margin-left: 8px;
+  }
+
+  .spine-node {
+    position: relative;
+    margin-bottom: 24px;
+  }
+
+  .spine-node::before {
+    content: '';
+    position: absolute;
+    left: -29px;
+    top: 6px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: hsl(215 12% 25%);
+    border: 2px solid hsl(215 12% 16%);
+  }
+
+  .spine-node.node-goal::before { background: var(--primary); border-color: var(--primary); }
+  .spine-node.node-plan::before { background: var(--purple); border-color: var(--purple); }
+  .spine-node.node-insight::before { background: var(--cyan); border-color: var(--cyan); }
+  .spine-node.node-decision::before { background: var(--purple); border-color: var(--purple); }
+  .spine-node.node-backtrack::before { background: var(--red); border-color: var(--red); }
+  .spine-node.node-execute::before { background: var(--green); border-color: var(--green); }
+  .spine-node.node-approval::before { background: var(--yellow); border-color: var(--yellow); }
+  .spine-node.node-verify::before { background: var(--yellow); border-color: var(--yellow); }
+  .spine-node.node-resolve::before { background: var(--green); border-color: var(--green); width: 10px; height: 10px; left: -30px; top: 5px; }
+
+  .node-time {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    margin-bottom: 2px;
+  }
+
+  .file-link {
+    color: var(--primary-muted);
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    text-decoration: none;
+    border-bottom: 1px dashed hsl(217 40% 30%);
+  }
+
+  .tool-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    color: var(--text-dim);
+    background: hsl(220 12% 9%);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 4px;
+  }
+
+  .collapsed-section {
+    margin: 8px 0;
+    padding: 8px 12px;
+    background: hsl(220 12% 9%);
+    border: 1px solid hsl(215 12% 16%);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .collapsed-section .expand-arrow {
+    color: var(--primary-muted);
+    margin-right: 4px;
+  }
+
+  .exec-summary {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--text);
+  }
+
+  .exec-summary strong {
+    font-weight: 600;
+  }
+
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    background: hsl(220 12% 15%);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: hsl(200 70% 70%);
+  }
+
+  hr.section-break {
+    border: none;
+    border-top: 1px solid hsl(215 12% 14%);
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- SCENARIO A: Complex Multi-Session with Backtrack               -->
+<!-- Full narrative, standard verbosity                             -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-a">
+  <div class="scenario-label">Narrative A — Full Story: Approval Flow Refactor (2 sessions, 48min)</div>
+  <div class="story-container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="story-header">
+      <h1>Refactor approval flow with explicit permission modes</h1>
+      <div class="verbosity-toggle">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="story-meta">
+      <span><span class="meta-dot dot-purple"></span> 3 decisions</span>
+      <span><span class="meta-dot dot-red"></span> 1 backtrack</span>
+      <span><span class="meta-dot dot-cyan"></span> 2 insights</span>
+      <span><span class="meta-dot dot-yellow"></span> 1 approval</span>
+      <span>15 files · 2 sessions · 48min</span>
+    </div>
+
+    <!-- Executive Summary -->
+    <div class="exec-summary">
+      <strong>I added explicit permission modes to the approval service.</strong>
+      The task required threading a new <code>PermissionMode</code> enum through
+      the approval creation path and updating the return type of
+      <code>resolve()</code>. I changed course once — initially extending
+      the existing <code>Approval</code> model, then extracting a separate
+      <code>ApprovalResult</code> after realizing the approval table was
+      being overloaded. One caller in <code>mcp/tools/approval_tool.py</code>
+      uses dynamic dispatch and could not be verified.
+    </div>
+
+    <hr class="section-break">
+
+    <div class="story-body">
+      <div class="narrative-spine">
+
+        <!-- GOAL -->
+        <div class="spine-node node-goal">
+          <div class="node-time">Session 1 · 0:00</div>
+          <div class="phase-label phase-goal">Goal</div>
+          <div class="narrative">
+            <p>The task was to add explicit permission modes — <code>autonomous</code>,
+            <code>supervised</code>, <code>locked</code> — to the approval flow. The
+            operator's prompt mentioned this should affect both how approvals are created
+            and how their resolution is returned to callers.</p>
+          </div>
+        </div>
+
+        <!-- EXPLORE -->
+        <div class="spine-node">
+          <div class="node-time">Session 1 · 0:02</div>
+          <div class="phase-label phase-explore">Explore</div>
+          <div class="narrative">
+            <p>I started by reading <a class="file-link" href="#">approval_service.py</a>,
+            <a class="file-link" href="#">approval_repo.py</a>, and
+            <a class="file-link" href="#">api/approvals.py</a> to understand the current
+            approval creation path. Then I traced callers of
+            <code>create_request()</code>:</p>
+          </div>
+          <div class="collapsed-section">
+            <span class="expand-arrow">▸</span> 7 callers found across RuntimeService (3), tests (3), MCP tools (1)
+          </div>
+        </div>
+
+        <!-- INSIGHT 1 -->
+        <div class="spine-node node-insight">
+          <div class="node-time">Session 1 · 0:06</div>
+          <div class="insight-callout">
+            <div class="insight-label">Insight</div>
+            <code>mcp/tools/approval_tool.py</code> calls <code>create_request()</code>
+            via <code>getattr(service, method_name)</code>. Static analysis can't resolve
+            this. I noted it as a manual verification requirement.
+          </div>
+        </div>
+
+        <!-- PLAN -->
+        <div class="spine-node node-plan">
+          <div class="node-time">Session 1 · 0:08</div>
+          <div class="phase-label phase-plan">Plan</div>
+          <div class="narrative">
+            <p>I formed an approach: add the <code>PermissionMode</code> enum, extend
+            <code>create_request()</code> with a required parameter, and add the mode
+            as a column on the existing <code>Approval</code> model — keeping the return
+            type of <code>resolve()</code> unchanged. Update all callers, then add a
+            migration.</p>
+          </div>
+        </div>
+
+        <!-- DECISION 1 -->
+        <div class="spine-node node-decision">
+          <div class="node-time">Session 1 · 0:08</div>
+          <div class="decision-callout">
+            <div class="decision-label">Decision</div>
+            Made the <code>permission_mode</code> parameter required (not optional with
+            a default). Rationale: every approval creation site should explicitly declare
+            its permission context. A default would mask missing intent.
+          </div>
+        </div>
+
+        <!-- EXECUTE -->
+        <div class="spine-node node-execute">
+          <div class="node-time">Session 1 · 0:10 → 0:22</div>
+          <div class="phase-label phase-execute">Execute</div>
+          <div class="narrative">
+            <p>I created the enum and modified <code>create_request()</code>:</p>
+          </div>
+          <div class="diff-card">
+            <div class="diff-header">
+              <span>backend/models/domain.py</span>
+              <span>+8 −0</span>
+            </div>
+            <div class="diff-body">
+<div class="diff-line diff-add">+class PermissionMode(str, Enum):</div>
+<div class="diff-line diff-add">+    AUTONOMOUS = "autonomous"</div>
+<div class="diff-line diff-add">+    SUPERVISED = "supervised"</div>
+<div class="diff-line diff-add">+    LOCKED = "locked"</div>
+            </div>
+          </div>
+          <div class="narrative">
+            <p>Then updated <code>RuntimeService.setup_and_start()</code>,
+            <code>RuntimeService.resume_job()</code>, and all three test files to pass
+            the new parameter. The repository layer needed column mapping updates.</p>
+          </div>
+          <div class="collapsed-section">
+            <span class="expand-arrow">▸</span> 8 files modified in this phase — expand for per-file diffs
+          </div>
+        </div>
+
+        <!-- APPROVAL GATE -->
+        <div class="spine-node node-approval">
+          <div class="node-time">Session 1 · 0:22</div>
+          <div class="approval-gate">
+            <div class="approval-label">Approval Gate</div>
+            I requested permission to modify the database schema: "Add
+            <code>permission_mode</code> column to the <code>approvals</code> table."
+            <div class="approval-resolution">✓ Approved · 12s wait</div>
+          </div>
+        </div>
+
+        <!-- SESSION BOUNDARY -->
+        <div class="spine-node" style="border-left-color: var(--orange);">
+          <div class="node-time" style="color: var(--orange);">Session 2 · 0:28</div>
+          <div class="phase-label phase-trouble">Session 2 — Fix Tests + Evolve Return Type</div>
+          <div class="narrative">
+            <p>Returning to fix test failures. Three tests were passing the old
+            signature. While updating them, I reviewed how callers use the
+            return value from <code>resolve()</code>.</p>
+          </div>
+        </div>
+
+        <!-- INSIGHT 2 -->
+        <div class="spine-node node-insight">
+          <div class="node-time">Session 2 · 0:32</div>
+          <div class="insight-callout">
+            <div class="insight-label">Insight</div>
+            The <code>Approval</code> model was accumulating resolution metadata
+            (<code>resolved_at</code>, <code>resolution</code>, now
+            <code>permission_mode</code>) that callers needed to destructure after every
+            <code>resolve()</code> call. The model was becoming a carrier bag for two
+            different concerns: the request and the outcome.
+          </div>
+        </div>
+
+        <!-- BACKTRACK -->
+        <div class="spine-node node-backtrack">
+          <div class="node-time">Session 2 · 0:34</div>
+          <div class="backtrack-callout">
+            <div class="backtrack-label">Backtrack — Changed Approach</div>
+            I initially planned to keep the <code>Approval</code> model intact and add
+            fields to it. I reversed that decision. Instead I extracted a new
+            <code>ApprovalResult</code> wrapper that holds the approval plus its resolution
+            metadata. This changes the return type of <code>resolve()</code> —
+            a breaking change to code that existed before this job.
+          </div>
+        </div>
+
+        <!-- DECISION 2 -->
+        <div class="spine-node node-decision">
+          <div class="node-time">Session 2 · 0:34</div>
+          <div class="decision-callout">
+            <div class="decision-label">Decision</div>
+            Introduced <code>ApprovalResult</code> as a separate Pydantic model rather
+            than a dict or tuple. Rationale: callers should get a typed object they can
+            dot-access, and the schema generation picks it up for the API contract.
+          </div>
+        </div>
+
+        <!-- EXECUTE 2 -->
+        <div class="spine-node node-execute">
+          <div class="node-time">Session 2 · 0:36 → 0:44</div>
+          <div class="phase-label phase-execute">Execute</div>
+          <div class="narrative">
+            <p>I created the result model and updated <code>resolve()</code>:</p>
+          </div>
+          <div class="diff-card">
+            <div class="diff-header">
+              <span>backend/services/approval_service.py</span>
+              <span>+6 −2</span>
+            </div>
+            <div class="diff-body">
+<div class="diff-line diff-del">-    async def resolve(self, approval_id: str, resolution: ApprovalResolution) -> Approval:</div>
+<div class="diff-line diff-add">+    async def resolve(self, approval_id: str, resolution: ApprovalResolution) -> ApprovalResult:</div>
+<div class="diff-line diff-ctx">         approval = await self._repo.get(approval_id)</div>
+<div class="diff-line diff-ctx">         ...</div>
+<div class="diff-line diff-del">-        return approval</div>
+<div class="diff-line diff-add">+        return ApprovalResult(</div>
+<div class="diff-line diff-add">+            approval=approval,</div>
+<div class="diff-line diff-add">+            resolution=resolution,</div>
+<div class="diff-line diff-add">+            resolved_at=now,</div>
+<div class="diff-line diff-add">+            permission_mode=approval.permission_mode,</div>
+<div class="diff-line diff-add">+        )</div>
+            </div>
+          </div>
+          <div class="narrative">
+            <p>Updated <code>api/approvals.py</code> and
+            <code>RuntimeService._handle_approval()</code> to unpack the new type.
+            Updated test assertions.</p>
+          </div>
+        </div>
+
+        <!-- VERIFY -->
+        <div class="spine-node node-verify">
+          <div class="node-time">Session 2 · 0:44</div>
+          <div class="phase-label phase-verify">Verify</div>
+          <div class="verify-block"><span class="verify-pass">✓ 47 tests passed</span> in test_approval_service.py
+<span class="verify-pass">✓ 12 tests passed</span> in test_api_approvals.py
+<span class="verify-pass">✓ 83 tests passed</span> in test_runtime_service.py</div>
+        </div>
+
+        <!-- OUTCOME -->
+        <div class="spine-node node-resolve">
+          <div class="node-time">Session 2 · 0:48</div>
+          <div class="outcome-box">
+            <div class="outcome-title">Completed — 15 files, 2 sessions, 48 minutes</div>
+            <div class="outcome-body">
+              The permission mode is threaded through the full approval lifecycle.
+              All callers updated and tests passing. One risk remains:
+              <code>mcp/tools/approval_tool.py</code> uses dynamic dispatch to call
+              <code>create_request()</code> and was not updated — it could not be
+              statically verified. This needs manual verification before merge.
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /narrative-spine -->
+    </div><!-- /story-body -->
+  </div><!-- /story-container -->
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO B: Same job, Brief verbosity                         -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-b">
+  <div class="scenario-label">Narrative B — Brief Verbosity (same job, compressed)</div>
+  <div class="story-container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="story-header">
+      <h1>Refactor approval flow with explicit permission modes</h1>
+      <div class="verbosity-toggle">
+        <span class="active">Brief</span>
+        <span>Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="story-meta">
+      <span><span class="meta-dot dot-purple"></span> 3 decisions</span>
+      <span><span class="meta-dot dot-red"></span> 1 backtrack</span>
+      <span><span class="meta-dot dot-cyan"></span> 2 insights</span>
+      <span><span class="meta-dot dot-yellow"></span> 1 approval</span>
+      <span>15 files · 2 sessions · 48min</span>
+    </div>
+
+    <div class="exec-summary">
+      <strong>Added <code>PermissionMode</code> enum and threaded it through the approval
+      creation path.</strong> Changed course mid-job: extracted <code>ApprovalResult</code>
+      as a separate return type for <code>resolve()</code> instead of overloading
+      <code>Approval</code>. All callers updated except
+      <code>mcp/tools/approval_tool.py</code> (dynamic dispatch, unverifiable).
+      142 tests passing. Two sessions, 48 minutes.
+    </div>
+
+    <hr class="section-break">
+
+    <div class="story-body">
+      <div class="narrative-spine">
+
+        <div class="spine-node node-decision">
+          <div class="decision-callout">
+            <div class="decision-label">Key Decision</div>
+            Made <code>permission_mode</code> required (not optional with default).
+            Every call site must declare its permission context explicitly.
+          </div>
+        </div>
+
+        <div class="spine-node node-backtrack">
+          <div class="backtrack-callout">
+            <div class="backtrack-label">Changed Course</div>
+            Initially extended the <code>Approval</code> model. After seeing the
+            pattern of callers destructuring resolution metadata, extracted a separate
+            <code>ApprovalResult</code> type — breaking the return type of
+            <code>resolve()</code>.
+          </div>
+        </div>
+
+        <div class="spine-node node-insight">
+          <div class="insight-callout">
+            <div class="insight-label">Unresolved</div>
+            <code>mcp/tools/approval_tool.py:34</code> calls <code>create_request()</code>
+            via <code>getattr()</code>. Static analysis cannot resolve this. Manual
+            verification required.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO C: Small clean job — narrative collapses to summary   -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-c">
+  <div class="scenario-label">Narrative C — Small Clean Job (narrative collapses)</div>
+  <div class="story-container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="story-header">
+      <h1>Add retry cost tracking to analytics</h1>
+      <div class="verbosity-toggle">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="story-meta">
+      <span><span class="meta-dot dot-purple"></span> 0 decisions</span>
+      <span><span class="meta-dot dot-red"></span> 0 backtracks</span>
+      <span>3 files · 1 session · 12min</span>
+    </div>
+
+    <div class="exec-summary">
+      <strong>Added <code>retry_cost_summary()</code> and
+      <code>fleet_cost_summary()</code> to <code>AnalyticsService</code> and wired them
+      to the existing aggregate method.</strong>
+      Straightforward addition — no decisions to call out, no direction changes,
+      no failed attempts. Read the service, added the methods, updated the test.
+      All 23 tests passing.
+    </div>
+
+    <hr class="section-break">
+
+    <div class="story-body" style="padding: 16px 20px;">
+      <div style="font-size: 12px; color: var(--text-dim); text-align: center; padding: 20px 0;">
+        No decisions, backtracks, or approval gates in this job.<br>
+        The full edit walkthrough is available in the <a style="color: var(--primary-muted); text-decoration: underline;" href="#">Review tab</a>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO D: Job with error, retry, and recovery               -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-d">
+  <div class="scenario-label">Narrative D — Error, Retry, and Recovery Arc</div>
+  <div class="story-container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="story-header">
+      <h1>Add cost attribution with schema migration</h1>
+      <div class="verbosity-toggle">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="story-meta">
+      <span><span class="meta-dot dot-purple"></span> 2 decisions</span>
+      <span><span class="meta-dot dot-red"></span> 1 backtrack</span>
+      <span><span class="meta-dot dot-cyan"></span> 1 insight</span>
+      <span><span class="meta-dot dot-yellow"></span> 2 approvals</span>
+      <span>17 files · 1 session · 35min</span>
+    </div>
+
+    <div class="exec-summary">
+      <strong>Built a new <code>CostAttributionService</code> and wired it into the
+      runtime pipeline.</strong> Had to add a <code>cost_config</code> parameter to
+      <code>RuntimeService.setup_and_start()</code> — the primary execution entry point.
+      Hit a test failure that revealed a missing DI registration; fixed it and
+      confirmed with a full test run. Two schema approval gates (new table + column).
+    </div>
+
+    <hr class="section-break">
+
+    <div class="story-body">
+      <div class="narrative-spine">
+
+        <!-- GOAL -->
+        <div class="spine-node node-goal">
+          <div class="node-time">0:00</div>
+          <div class="phase-label phase-goal">Goal</div>
+          <div class="narrative">
+            <p>The task was to add cost attribution — tracking which model calls cost
+            how much per job, and making that data queryable via the analytics API.</p>
+          </div>
+        </div>
+
+        <!-- EXPLORE + PLAN -->
+        <div class="spine-node node-plan">
+          <div class="node-time">0:03</div>
+          <div class="phase-label phase-plan">Approach</div>
+          <div class="narrative">
+            <p>After reading the existing analytics and telemetry modules, I planned to:
+            create a new <code>CostAttributionService</code> with its own repository,
+            feed it from <code>RuntimeService</code> after each telemetry span,
+            and add an aggregation endpoint. This would require a new table and a
+            parameter on <code>setup_and_start()</code>.</p>
+          </div>
+        </div>
+
+        <!-- DECISION 1 -->
+        <div class="spine-node node-decision">
+          <div class="node-time">0:05</div>
+          <div class="decision-callout">
+            <div class="decision-label">Decision</div>
+            Made <code>cost_config</code> nullable on <code>setup_and_start()</code>
+            rather than required. Rationale: existing callers (including
+            <code>recover_on_startup()</code>) don't have cost configuration. A required
+            parameter would force all callers to construct a config object even when cost
+            tracking is disabled. <code>None</code> means "no cost tracking for this job."
+          </div>
+        </div>
+
+        <!-- EXECUTE -->
+        <div class="spine-node node-execute">
+          <div class="node-time">0:06 → 0:18</div>
+          <div class="phase-label phase-execute">Build</div>
+          <div class="narrative">
+            <p>Created the service, repository, model, and API schema. Wired the
+            service into the DI container and added the parameter to
+            <code>setup_and_start()</code>:</p>
+          </div>
+          <div class="diff-card">
+            <div class="diff-header">
+              <span>backend/services/runtime_service.py</span>
+              <span>+4 −1</span>
+            </div>
+            <div class="diff-body">
+<div class="diff-line diff-del">-    async def setup_and_start(self, job_id: str, /) -> None:</div>
+<div class="diff-line diff-add">+    async def setup_and_start(</div>
+<div class="diff-line diff-add">+        self, job_id: str, /, *, cost_config: CostConfig | None = None,</div>
+<div class="diff-line diff-add">+    ) -> None:</div>
+            </div>
+          </div>
+          <div class="collapsed-section">
+            <span class="expand-arrow">▸</span> 9 more files modified — expand for details
+          </div>
+        </div>
+
+        <!-- APPROVAL 1 -->
+        <div class="spine-node node-approval">
+          <div class="node-time">0:18</div>
+          <div class="approval-gate">
+            <div class="approval-label">Approval Gate</div>
+            "Create new <code>cost_attributions</code> table in alembic migration."
+            <div class="approval-resolution">✓ Approved · 8s wait</div>
+          </div>
+        </div>
+
+        <!-- VERIFY — FAIL -->
+        <div class="spine-node node-verify">
+          <div class="node-time">0:22</div>
+          <div class="phase-label phase-trouble">Verification Failed</div>
+          <div class="verify-block"><span class="verify-pass">✓ 83 tests passed</span> in test_runtime_service.py
+<span class="verify-fail">✗ 1 test FAILED</span> in test_cost_attribution.py
+  FAILED test_attribute_span_writes_record
+  <span class="verify-fail">TypeError: CostAttributionService.__init__() missing argument: 'bus'</span></div>
+        </div>
+
+        <!-- INSIGHT -->
+        <div class="spine-node node-insight">
+          <div class="node-time">0:23</div>
+          <div class="insight-callout">
+            <div class="insight-label">Insight</div>
+            The test failure wasn't in the service logic — it was in the DI container.
+            I registered <code>CostAttributionService</code> with only the repository,
+            forgetting it also takes an <code>EventBus</code> dependency. The test's
+            own fixture had the same omission.
+          </div>
+        </div>
+
+        <!-- BACKTRACK -->
+        <div class="spine-node node-backtrack">
+          <div class="node-time">0:24</div>
+          <div class="backtrack-callout">
+            <div class="backtrack-label">Fix — DI Registration</div>
+            Updated the DI container registration and test fixture to include
+            the <code>EventBus</code> dependency. Not a design change, but a missed
+            wiring in two places.
+          </div>
+        </div>
+
+        <!-- VERIFY — PASS -->
+        <div class="spine-node node-verify">
+          <div class="node-time">0:27</div>
+          <div class="phase-label phase-verify">Verify</div>
+          <div class="verify-block"><span class="verify-pass">✓ 83 tests passed</span> in test_runtime_service.py
+<span class="verify-pass">✓ 14 tests passed</span> in test_cost_attribution.py
+<span class="verify-pass">✓ 23 tests passed</span> in test_analytics_service.py
+<span class="verify-pass">✓  8 tests passed</span> in test_api_analytics.py</div>
+        </div>
+
+        <!-- APPROVAL 2 -->
+        <div class="spine-node node-approval">
+          <div class="node-time">0:30</div>
+          <div class="approval-gate">
+            <div class="approval-label">Approval Gate</div>
+            "Add <code>cost_config_json</code> column to <code>jobs</code> table."
+            <div class="approval-resolution">✓ Approved · 5s wait</div>
+          </div>
+        </div>
+
+        <!-- OUTCOME -->
+        <div class="spine-node node-resolve">
+          <div class="node-time">0:35</div>
+          <div class="outcome-box">
+            <div class="outcome-title">Completed — 17 files, 1 session, 35 minutes</div>
+            <div class="outcome-body">
+              Cost attribution pipeline is live: spans are attributed during execution,
+              aggregated via the analytics API, and stored with a dedicated repository.
+              The <code>setup_and_start()</code> signature change is nullable, so existing
+              callers continue to work without cost config. 128 tests passing across 4
+              test suites.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -31,8 +31,8 @@ if TYPE_CHECKING:
     from backend.models.domain import SessionConfig
     from backend.services.runtime_service import (
         RuntimeService,
-        _RecoverySnapshot,
-        _SessionAttemptResult,
+        RecoverySnapshot,
+        SessionAttemptResult,
     )
 
 log = structlog.get_logger()
@@ -84,7 +84,7 @@ async def ensure_resumable_worktree(host: RuntimeService, job_repo: JobRepositor
         ) from exc
 
 
-async def rollback_recovery(host: RuntimeService, job_id: str, snapshot: _RecoverySnapshot) -> None:
+async def rollback_recovery(host: RuntimeService, job_id: str, snapshot: RecoverySnapshot) -> None:
     """Restore job state after a failed recovery attempt."""
     async with host._session_factory() as session:
         job_repo = JobRepository(session)
@@ -109,7 +109,7 @@ async def recover_active_job(
     instruction: str = _SERVER_RESTART_RECOVERY_INSTRUCTION,
 ) -> Job:
     """Restart an active job after backend restart without marking it failed."""
-    from backend.services.runtime_service import _RecoverySnapshot
+    from backend.services.runtime_service import RecoverySnapshot
 
     async with host._session_factory() as session:
         job_repo = JobRepository(session)
@@ -119,7 +119,7 @@ async def recover_active_job(
         if job.state not in (JobState.running, JobState.waiting_for_approval):
             raise StateConflictError(f"Job {job_id} is not active and cannot be recovered (current: {job.state}).")
 
-        snapshot = _RecoverySnapshot(
+        snapshot = RecoverySnapshot(
             state=job.state,
             session_count=job.session_count,
             completed_at=job.completed_at,
@@ -199,23 +199,23 @@ async def attempt_resume_fallback(
     worktree_path: str | None,
     base_ref: str | None,
     session_number: int = 1,
-) -> _SessionAttemptResult:
+) -> SessionAttemptResult:
     """Try a fresh session after a failed resume."""
-    from backend.services.runtime_service import _AgentSession, _SessionAttemptResult
+    from backend.services.runtime_service import AgentSession, SessionAttemptResult
 
     await host._clear_sdk_session_id(job_id)
     try:
         fallback_prompt = await _build_resume_handoff_prompt(host, job_id, config.prompt)
     except (OSError, KeyError, ValueError, LookupError):
         log.warning("resume_handoff_prompt_build_failed", job_id=job_id, exc_info=True)
-        return _SessionAttemptResult(error_reason="Resume handoff prompt build failed")
+        return SessionAttemptResult(error_reason="Resume handoff prompt build failed")
 
     log.warning(
         "resume_sdk_session_unusable_falling_back",
         job_id=job_id,
         sdk_session_id=config.resume_sdk_session_id,
     )
-    fallback_session = _AgentSession()
+    fallback_session = AgentSession()
     host._agent_sessions[job_id] = fallback_session
     fallback_config = dataclass_replace(
         config,

@@ -14,7 +14,7 @@ from backend.services.setup_checks import (
     _check_command,
     _check_port,
     _check_server_running,
-    _find_cpl_processes,
+    find_cpl_processes,
     verify_requirements,
 )
 from backend.services.setup_service import (
@@ -169,7 +169,7 @@ class TestCheckPort:
 
 
 class TestAgentCheckResult:
-    @patch("backend.services.setup_checks._check_agent_auth")
+    @patch("backend.services.setup_checks.check_agent_auth")
     @patch("backend.services.setup_checks.check_agent_cli")
     def test_ready_but_unauthenticated_agent_is_warning(self, mock_check_agent_cli, mock_check_agent_auth) -> None:
         mock_check_agent_cli.return_value = AgentCLIStatus(
@@ -186,7 +186,7 @@ class TestAgentCheckResult:
         assert "not authenticated" in result.detail
         assert result.hint == "Run: gh auth login"
 
-    @patch("backend.services.setup_checks._check_agent_auth")
+    @patch("backend.services.setup_checks.check_agent_auth")
     @patch("backend.services.setup_checks.check_agent_cli")
     def test_ready_agent_with_unknown_auth_is_warning(self, mock_check_agent_cli, mock_check_agent_auth) -> None:
         mock_check_agent_cli.return_value = AgentCLIStatus(
@@ -392,7 +392,7 @@ class TestFindCplProcesses:
                 "returncode": 0,
             },
         )()
-        pids = _find_cpl_processes()
+        pids = find_cpl_processes()
         assert 1234 in pids
 
     @patch("platform.system", return_value="Linux")
@@ -406,7 +406,7 @@ class TestFindCplProcesses:
                 "returncode": 0,
             },
         )()
-        pids = _find_cpl_processes()
+        pids = find_cpl_processes()
         assert 9999 not in pids
 
     @patch("platform.system", return_value="Linux")
@@ -420,13 +420,13 @@ class TestFindCplProcesses:
                 "returncode": 0,
             },
         )()
-        pids = _find_cpl_processes()
+        pids = find_cpl_processes()
         assert 4321 in pids
 
     @patch("platform.system", return_value="Linux")
     @patch("subprocess.run", side_effect=FileNotFoundError)
     def test_returns_empty_on_missing_ps(self, _mock_run, _mock_sys) -> None:
-        assert _find_cpl_processes() == []
+        assert find_cpl_processes() == []
 
 
 # ---------------------------------------------------------------------------
@@ -455,14 +455,14 @@ class TestCheckServerRunning:
         assert running is True
         assert "v1.0" in detail
 
-    @patch("backend.services.setup_checks._find_cpl_processes", return_value=[1234])
+    @patch("backend.services.setup_checks.find_cpl_processes", return_value=[1234])
     @patch("urllib.request.urlopen", side_effect=OSError("refused"))
     def test_falls_back_to_process_scan(self, _mock_url, _mock_procs) -> None:
         running, detail = _check_server_running("127.0.0.1", 8080)
         assert running is True
         assert "1234" in detail
 
-    @patch("backend.services.setup_checks._find_cpl_processes", return_value=[])
+    @patch("backend.services.setup_checks.find_cpl_processes", return_value=[])
     @patch("urllib.request.urlopen", side_effect=OSError("refused"))
     def test_not_running(self, _mock_url, _mock_procs) -> None:
         running, _ = _check_server_running("127.0.0.1", 8080)

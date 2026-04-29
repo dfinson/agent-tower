@@ -6,7 +6,7 @@ import contextlib
 import json
 import re
 
-from backend.services.tool_formatters._display import _extract_issue_from_json, _truncate
+from backend.services.tool_formatters._display import extract_issue_from_json, truncate
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +126,9 @@ def extract_tool_issue(tool_result: str | None) -> str | None:
 
     with contextlib.suppress(json.JSONDecodeError, TypeError):
         parsed = json.loads(stripped)
-        candidate = _extract_issue_from_json(parsed)
+        candidate = extract_issue_from_json(parsed)
         if candidate:
-            return _truncate(" ".join(candidate.split()), 120)
+            return truncate(" ".join(candidate.split()), 120)
 
     lines = [" ".join(line.split()) for line in stripped.splitlines() if line.strip()]
     if not lines:
@@ -137,9 +137,9 @@ def extract_tool_issue(tool_result: str | None) -> str | None:
     for line in lines:
         lowered = line.lower()
         if lowered.startswith(("error:", "errors:", "failed:", "failure:", "warning:", "warnings:")):
-            return _truncate(line, 120)
+            return truncate(line, 120)
 
-    return _truncate(lines[0], 120)
+    return truncate(lines[0], 120)
 
 
 # ---------------------------------------------------------------------------

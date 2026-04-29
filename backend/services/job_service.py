@@ -496,6 +496,22 @@ class JobService:
         next_cursor = jobs[-1].id if has_more and jobs else None
         return jobs, next_cursor, has_more
 
+    async def list_all_jobs(
+        self,
+        state: str | None = None,
+        archived: bool | None = None,
+    ) -> list[Job]:
+        """List all matching jobs without pagination.
+
+        Use only for internal recovery/snapshot paths — not for API responses.
+        """
+        include_archived: bool | None = None
+        if archived is True:
+            include_archived = True
+        elif archived is False:
+            include_archived = False
+        return await self._job_repo.list_all(state=state, include_archived=include_archived)
+
     async def transition_state(self, job_id: str, new_state: JobState, *, failure_reason: str | None = None) -> Job:
         """Transition a job's state. Validates the transition."""
         job = await self.get_job(job_id)
@@ -655,6 +671,38 @@ class JobService:
             )
 
         return resolution, pr_url, conflict_files, error, events
+
+    async def build_conflict_resume_prompt(self, job_id: str) -> str:
+        """Build an agent prompt instructing it to resolve merge conflicts.
+
+        Fetches the latest merge_conflict event for the job to identify
+        conflicting files, then constructs a structured resolution prompt.
+        """
+        from backend.models.events import DomainEventKind
+
+        conflict_events = await self.list_events_by_job(
+            job_id, kinds=[DomainEventKind.merge_conflict],
+        )
+        conflict_files: list[str] = []
+        if conflict_events:
+            conflict_files = conflict_events[-1].payload.get("conflict_files", [])
+
+        job = await self.get_job(job_id)
+        files_detail = (
+            "\nThe following files have conflicts:\n" + "\n".join(f"  - {f}" for f in conflict_files)
+            if conflict_files
+            else ""
+        )
+        return (
+            f"A merge conflict was detected when attempting to merge branch '{job.branch}' "
+            f"into '{job.base_ref}'.{files_detail}\n\n"
+            "Please resolve the merge conflicts:\n"
+            "1. Run `git merge <base_ref>` in the worktree to reproduce the conflict markers\n"
+            "2. Edit the conflicting files to resolve all conflicts, preserving the functional "
+            "intent of both sides without compromising either set of changes\n"
+            "3. Stage and commit the resolved files\n"
+            "Do not make any other modifications beyond resolving the merge conflicts."
+        )
 
     def build_job_resolved_event(
         self,

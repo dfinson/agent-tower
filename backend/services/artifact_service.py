@@ -300,7 +300,7 @@ class ArtifactService:
             # Append to existing unified log
             try:
                 log_contents = json.loads(Path(existing_log.disk_path).read_text(encoding="utf-8"))
-            except Exception:
+            except (json.JSONDecodeError, OSError):
                 log.warning(
                     "session_log_read_failed",
                     job_id=job_id,
@@ -368,7 +368,7 @@ class ArtifactService:
                 merged_files.update(snap_data.get("changed_files", []))
                 if not original_task:
                     original_task = snap_data.get("original_task", "")
-            except Exception:
+            except (json.JSONDecodeError, OSError):
                 log.warning("session_snapshot_migration_failed", artifact_id=snap.id, job_id=job_id)
 
         # Add the current session (avoid duplicates)

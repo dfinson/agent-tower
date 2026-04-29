@@ -230,7 +230,7 @@ class RuntimeTelemetry:
                     from backend.persistence.event_repo import EventRepository
 
                     event_repo = EventRepository(session)
-                    log_events = await event_repo.list_by_job(job_id, [DomainEventKind.log_line_emitted], limit=10000)
+                    log_events = await event_repo.list_all_by_job(job_id, [DomainEventKind.log_line_emitted])
                     if log_events:
                         await artifact_svc.store_log_artifact(
                             job_id,

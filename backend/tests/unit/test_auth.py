@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,7 +36,7 @@ def _make_request(
     req.headers = headers or {}
 
     if json_raises:
-        req.json = AsyncMock(side_effect=Exception("bad json"))
+        req.json = AsyncMock(side_effect=json.JSONDecodeError("bad json", "", 0))
     else:
         req.json = AsyncMock(return_value=json_body or {})
     return req

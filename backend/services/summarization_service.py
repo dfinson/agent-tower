@@ -155,33 +155,27 @@ class SummarizationService:
         of re-reading from the event store.
         """
         from backend.persistence.artifact_repo import ArtifactRepository
-        from backend.persistence.event_repo import EventRepository
+        from backend.persistence.trail_repo import TrailNodeRepository
         from backend.services.artifact_service import ArtifactService
 
         async with self._session_factory() as session:
-            event_repo = EventRepository(session)
             artifact_repo = ArtifactRepository(session)
 
             # --- Fetch and clean transcript ---
             if pre_built_transcript is not None:
                 transcript_text = pre_built_transcript
             else:
-                transcript_events = await event_repo.list_by_job(
-                    job_id,
-                    kinds=[DomainEventKind.transcript_updated],
-                )
-                cleaned_turns = _clean_transcript(transcript_events)
+                trail_repo = TrailNodeRepository(self._session_factory)
+                transcript_nodes = await trail_repo.get_transcript_nodes(job_id)
+                cleaned_turns = _clean_transcript_from_trail(transcript_nodes)
                 transcript_text = _format_transcript(cleaned_turns)
 
             # --- Fetch changed file paths ---
             if pre_built_changed_files is not None:
                 changed_files = pre_built_changed_files
             else:
-                diff_events = await event_repo.list_by_job(
-                    job_id,
-                    kinds=[DomainEventKind.diff_updated],
-                )
-                changed_files = extract_changed_files(diff_events)
+                trail_repo = TrailNodeRepository(self._session_factory)
+                changed_files = await trail_repo.get_all_changed_files(job_id)
 
             # --- Build prompt ---
             changed_files_text = "\n".join(sorted(changed_files)) if changed_files else "None recorded"
@@ -211,6 +205,8 @@ class SummarizationService:
         LLM-based summarization is deferred to resume_job() and only fires
         when the SDK session is no longer available for native reconnection.
         """
+        # TODO(trail-migration): migrate to TrailNodeRepository once trail nodes
+        # carry per-tool metadata (tool_display, tool_intent, tool_success).
         from backend.persistence.artifact_repo import ArtifactRepository
         from backend.persistence.event_repo import EventRepository
         from backend.persistence.job_repo import JobRepository
@@ -238,7 +234,7 @@ class SummarizationService:
                         recorded = {s.get("session_number") for s in log_data.get("sessions", [])}
                         if job.session_count in recorded:
                             return  # already captured this session
-                    except Exception:
+                    except (json.JSONDecodeError, OSError):
                         log.warning("session_log_parse_failed", job_id=job_id, exc_info=True)
 
                 # Build snapshot from events
@@ -359,6 +355,33 @@ def _clean_transcript(events: list[DomainEvent]) -> list[TranscriptTurn]:
         prev_role = role
         prev_content = content
         result.append({"role": role, "content": content, "timestamp": ev.payload.get("timestamp", "")})
+
+    return result
+
+
+def _clean_transcript_from_trail(nodes: list) -> list[TranscriptTurn]:
+    """Build cleaned transcript turns from trail nodes (agent_message field).
+
+    Trail nodes carry agent_message for step nodes. The node's kind indicates
+    the role: 'request' nodes are operator messages, all others are agent.
+    """
+    seen: set[str] = set()
+    result: list[TranscriptTurn] = []
+
+    for node in nodes:
+        content = (node.agent_message or "").strip()
+        if not content:
+            continue
+
+        role = "operator" if node.kind == "request" else "agent"
+
+        key = f"{role}:{content}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        timestamp = node.timestamp.isoformat() if node.timestamp else ""
+        result.append({"role": role, "content": content, "timestamp": timestamp})
 
     return result
 

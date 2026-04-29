@@ -543,7 +543,6 @@ source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
-    { name = "anthropic-tokenizer" },
     { name = "claude-code-sdk" },
     { name = "click" },
     { name = "cryptography" },
@@ -561,18 +560,19 @@ dependencies = [
     { name = "rich" },
     { name = "sqlalchemy" },
     { name = "structlog" },
-    { name = "tiktoken" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
 all = [
+    { name = "anthropic-tokenizer" },
     { name = "faster-whisper" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
     { name = "py-vapid" },
     { name = "pywebpush" },
     { name = "qrcode" },
+    { name = "tiktoken" },
 ]
 push = [
     { name = "py-vapid" },
@@ -582,6 +582,10 @@ push = [
 telemetry = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
+]
+tokenizer = [
+    { name = "anthropic-tokenizer" },
+    { name = "tiktoken" },
 ]
 voice = [
     { name = "faster-whisper" },
@@ -604,17 +608,18 @@ dev = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20,<1" },
     { name = "alembic", specifier = ">=1.14,<2" },
-    { name = "anthropic-tokenizer", specifier = ">=0.1.0,<1" },
-    { name = "claude-code-sdk", specifier = "~=0.0.25" },
+    { name = "anthropic-tokenizer", marker = "extra == 'tokenizer'", specifier = ">=0.1.0,<1" },
+    { name = "claude-code-sdk", specifier = ">=0.0.25,<0.1" },
     { name = "click", specifier = ">=8.0,<9" },
     { name = "codeplane", extras = ["push"], marker = "extra == 'all'" },
     { name = "codeplane", extras = ["telemetry"], marker = "extra == 'all'" },
+    { name = "codeplane", extras = ["tokenizer"], marker = "extra == 'all'" },
     { name = "codeplane", extras = ["voice"], marker = "extra == 'all'" },
-    { name = "cryptography", specifier = ">=46.0.7,<47" },
+    { name = "cryptography", specifier = ">=46.0,<47" },
     { name = "dishka", extras = ["fastapi"], specifier = ">=1.9.1,<2" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.1,<2" },
-    { name = "github-copilot-sdk", specifier = "~=0.1.32" },
+    { name = "github-copilot-sdk", specifier = ">=0.1.32,<0.2" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mcp", specifier = ">=1.9,<2" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.20,<2" },
@@ -631,10 +636,10 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0,<14" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "structlog", specifier = ">=24.0,<26" },
-    { name = "tiktoken", specifier = ">=0.12.0,<1" },
+    { name = "tiktoken", marker = "extra == 'tokenizer'", specifier = ">=0.12.0,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32,<1" },
 ]
-provides-extras = ["voice", "push", "telemetry", "all"]
+provides-extras = ["voice", "push", "telemetry", "tokenizer", "all"]
 
 [package.metadata.requires-dev]
 dev = [

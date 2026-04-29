@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Narrative Mockups v2</title>
+<style>
+  :root {
+    --bg: hsl(220 14% 7%);
+    --surface: hsl(220 10% 10%);
+    --border: hsl(215 8% 18%);
+    --text: hsl(220 8% 82%);
+    --text-secondary: hsl(220 6% 58%);
+    --text-dim: hsl(220 5% 40%);
+    --accent: hsl(217 70% 58%);
+    --accent-dim: hsl(217 30% 40%);
+    --green: hsl(145 50% 52%);
+    --red: hsl(0 55% 58%);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    padding: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .scenario {
+    max-width: 680px;
+    margin: 0 auto 100px;
+  }
+
+  .scenario-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  /* Product chrome — minimal */
+  .container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: hsl(220 10% 8%);
+  }
+
+  .tab {
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+  }
+
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .header {
+    padding: 20px 32px 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: hsl(220 8% 90%);
+  }
+
+  .verbosity {
+    display: flex;
+    gap: 2px;
+    background: hsl(220 10% 8%);
+    border-radius: 4px;
+    padding: 2px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .verbosity span {
+    padding: 3px 8px;
+    border-radius: 3px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .verbosity span.active {
+    background: hsl(220 10% 14%);
+    color: var(--text-secondary);
+  }
+
+  .meta {
+    padding: 8px 32px 20px;
+    font-size: 12px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* The prose body — this is where the blog feel lives */
+  .prose {
+    padding: 28px 32px 32px;
+    font-size: 14.5px;
+    line-height: 1.85;
+    color: var(--text);
+  }
+
+  .prose p {
+    margin-bottom: 18px;
+  }
+
+  .prose p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Lede paragraph — slightly larger */
+  .prose .lede {
+    font-size: 15.5px;
+    color: hsl(220 8% 88%);
+    margin-bottom: 22px;
+  }
+
+  /* Section breaks — just a thin line with space */
+  .prose hr {
+    border: none;
+    border-top: 1px solid hsl(215 8% 14%);
+    margin: 28px 0;
+  }
+
+  /* Time markers — subtle, in the margin-ish */
+  .time {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  /* Inline code */
+  code {
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12.5px;
+    background: hsl(220 10% 14%);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: hsl(200 40% 68%);
+  }
+
+  /* File paths — styled like links */
+  .file {
+    color: var(--accent-dim);
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12.5px;
+  }
+
+  /* Diff blocks — clean, no header bar, just indented code */
+  .diff {
+    margin: 14px 0 18px;
+    padding: 12px 16px;
+    background: hsl(220 12% 8%);
+    border-radius: 5px;
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-x: auto;
+    border-left: 2px solid hsl(215 8% 16%);
+  }
+
+  .diff .add { color: hsl(145 45% 58%); }
+  .diff .del { color: hsl(0 45% 62%); }
+  .diff .ctx { color: var(--text-dim); }
+  .diff .file-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  /* Key moments — just a left border accent and slight indent.
+     NOT a colored box. NOT a callout. Just a typographic nudge. */
+  .aside {
+    margin: 18px 0 22px;
+    padding: 2px 0 2px 16px;
+    border-left: 2px solid hsl(215 8% 22%);
+    color: var(--text-secondary);
+    font-size: 13.5px;
+    line-height: 1.75;
+  }
+
+  .aside .label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  /* Test results — monospace, compact */
+  .test-results {
+    margin: 14px 0 18px;
+    padding: 10px 16px;
+    background: hsl(220 12% 8%);
+    border-radius: 5px;
+    font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+
+  .test-results .pass { color: var(--green); }
+  .test-results .fail { color: var(--red); }
+
+  /* Outcome — slightly set apart but still prose */
+  .outcome {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid hsl(215 8% 14%);
+  }
+
+  .outcome strong {
+    color: var(--green);
+    font-weight: 600;
+  }
+
+  /* Collapsed detail — low-key toggle */
+  .expandable {
+    margin: 8px 0 14px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .expandable::before {
+    content: '▸ ';
+    color: var(--accent-dim);
+  }
+
+  /* Brief mode — just the lede + asides */
+  .brief-body {
+    padding: 28px 32px 32px;
+  }
+
+  /* Collapse state message */
+  .collapse-msg {
+    padding: 24px 32px;
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  .collapse-msg a {
+    color: var(--accent-dim);
+    text-decoration: underline;
+    text-decoration-color: hsl(217 30% 30%);
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- SCENARIO A: Full narrative — reads like a blog post           -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-a">
+  <div class="scenario-label">Narrative A — Standard verbosity, complex job</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Refactor approval flow with explicit permission modes</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">15 files changed across 2 sessions · 48 minutes</div>
+
+    <div class="prose">
+      <p class="lede">CodePlane's approval system is the gate between an
+      autonomous agent and production-affecting actions — schema migrations,
+      destructive file operations, anything the operator wants to review before
+      it lands. Until now, every approval request was treated identically: the
+      agent asks, the operator says yes or no, and execution resumes. There was
+      no way to express that some operations should run autonomously while
+      others require a human in the loop. The task was to add explicit
+      permission modes so that approval behavior can vary per operation, giving
+      operators fine-grained control over what an agent can do unsupervised.</p>
+
+      <hr>
+
+      <div class="time">Session 1 · 0:00 – 0:08</div>
+
+      <p>I started by mapping the blast radius. The approval lifecycle lives
+      in <code>ApprovalService</code>, which handles creation, resolution,
+      and timeout. The entry point is <code>create_request()</code> — it takes
+      a job ID and a human-readable message, persists the request through the
+      repository layer, and returns the <code>Approval</code> model. Seven
+      call sites depend on this method: three in <code>RuntimeService</code>
+      (for schema changes, destructive operations, and manual approval gates),
+      three in test suites, and one in the MCP tool layer. That last caller is
+      the interesting one — <span class="file">approval_tool.py</span> uses
+      <code>getattr(service, method_name)</code> to dispatch dynamically, which
+      means it won't appear in any import graph or static call analysis. I
+      flagged it as a loose end that would need manual verification later.</p>
+
+      <p>The design itself is a three-value enum — <code>AUTONOMOUS</code>,
+      <code>SUPERVISED</code>, and <code>LOCKED</code> — representing the
+      spectrum from "agent can proceed without asking" to "agent must stop and
+      wait." I made <code>permission_mode</code> a required parameter on
+      <code>create_request()</code> rather than optional with a default,
+      because a default would silently mask call sites that haven't been
+      updated to think about permissions. If a caller doesn't know what
+      permission context it's operating in, that's a bug the type system
+      should catch, not a thing that silently defaults to supervised.</p>
+
+      <div class="aside">
+        <span class="label">Decision</span>
+        Required parameter, not optional with a default. If a call site
+        doesn't know its permission context, that's a bug — a default
+        would hide it.
+      </div>
+
+      <hr>
+
+      <div class="time">Session 1 · 0:10 – 0:22</div>
+
+      <p>The enum definition is straightforward:</p>
+
+      <div class="diff">
+        <span class="file-label">backend/models/domain.py</span>
+<span class="add">+class PermissionMode(str, Enum):</span>
+<span class="add">+    AUTONOMOUS = "autonomous"</span>
+<span class="add">+    SUPERVISED = "supervised"</span>
+<span class="add">+    LOCKED = "locked"</span>
+      </div>
+
+      <p>From there, the work was mostly mechanical — threading the new
+      parameter through <code>RuntimeService.setup_and_start()</code> and
+      <code>RuntimeService.handle_approval()</code>, updating the repository's
+      column mapping to persist the mode in the approvals table, and adjusting
+      test fixtures to supply valid enum values. The schema migration added a
+      <code>permission_mode</code> column to the <code>approvals</code> table,
+      which needed operator approval (the irony of needing an approval to ship
+      the approval feature). Approved after 12 seconds.</p>
+
+      <div class="expandable">8 files modified — all parameter threading</div>
+
+      <hr>
+
+      <div class="time">Session 2 · 0:28 – 0:34</div>
+
+      <p>Session two started with three test failures from the signature change,
+      which were expected. But while fixing them, I looked more carefully at
+      what callers actually do with the return value of <code>resolve()</code>
+      — the method that closes an approval and returns the result to whoever
+      requested it.
+      The pattern I found was concerning: every single caller immediately
+      destructured <code>resolved_at</code>, <code>resolution</code>, and now
+      <code>permission_mode</code> off the <code>Approval</code> model that
+      <code>resolve()</code> returned. The
+      model was serving two different roles — it represented the initial request
+      ("someone needs to approve this schema migration") and the outcome
+      ("the operator approved it at 14:03 with supervised permissions"). These
+      are conceptually different things, and packing both into the same object
+      was already awkward before I added a third outcome field. Adding
+      <code>permission_mode</code> made the overloading impossible to ignore.</p>
+
+      <p>This wasn't in the original plan, but I decided to fix the modeling
+      problem now rather than ship a worse version of the same structural
+      issue. The alternative — leaving <code>Approval</code> as a grab-bag
+      of request and outcome fields — would make the next feature addition
+      even harder to reason about.</p>
+
+      <div class="aside">
+        <span class="label">Changed course</span>
+        Stopped extending the Approval model. Extracted a new
+        <code>ApprovalResult</code> that wraps the approval with its
+        resolution metadata. This changed the return type of
+        <code>resolve()</code> — a breaking change to code that existed
+        before this job.
+      </div>
+
+      <hr>
+
+      <div class="time">Session 2 · 0:36 – 0:44</div>
+
+      <p>The extraction gives each concept its own type. <code>Approval</code>
+      stays as the request — who asked, what for, when. <code>ApprovalResult</code>
+      carries the outcome — what was decided, when, and under what permission
+      mode:</p>
+
+      <div class="diff">
+        <span class="file-label">backend/services/approval_service.py</span>
+<span class="del">-    async def resolve(self, ...) -> Approval:</span>
+<span class="add">+    async def resolve(self, ...) -> ApprovalResult:</span>
+<span class="ctx">         approval = await self._repo.get(approval_id)</span>
+<span class="ctx">         ...</span>
+<span class="del">-        return approval</span>
+<span class="add">+        return ApprovalResult(</span>
+<span class="add">+            approval=approval,</span>
+<span class="add">+            resolution=resolution,</span>
+<span class="add">+            resolved_at=now,</span>
+<span class="add">+            permission_mode=approval.permission_mode,</span>
+<span class="add">+        )</span>
+      </div>
+
+      <p>I chose a Pydantic model rather than a plain dict so that callers
+      get typed dot access and the OpenAPI schema picks up the new type
+      automatically — the frontend will see <code>ApprovalResult</code> in
+      the generated TypeScript types without any manual schema work. Four
+      callers needed updating: the API route handler, RuntimeService's
+      internal approval handler, and two test files. Each was a clean
+      swap — replace <code>approval.resolved_at</code> with
+      <code>result.resolved_at</code>.</p>
+
+      <div class="test-results">
+<span class="pass">✓ 47 passed</span>  test_approval_service.py
+<span class="pass">✓ 12 passed</span>  test_api_approvals.py
+<span class="pass">✓ 83 passed</span>  test_runtime_service.py
+      </div>
+
+      <div class="outcome">
+        <p><strong>Completed.</strong> Permission modes are now threaded
+        through the full approval lifecycle — from creation through
+        resolution — and the approval model's dual-role problem is fixed.
+        142 tests passing across three suites. One risk remains:
+        <span class="file">mcp/tools/approval_tool.py</span> — the
+        dynamically-dispatched MCP caller I flagged in session one —
+        calls the approval entry point <code>create_request()</code>
+        through <code>getattr()</code>, so it bypasses normal import
+        resolution. It was not updated because the call pattern
+        can't be statically verified — this needs manual review before
+        merge to confirm the MCP layer passes a valid
+        <code>PermissionMode</code>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO B: Same job, Brief verbosity                         -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-b">
+  <div class="scenario-label">Narrative B — Brief verbosity, same job</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Refactor approval flow with explicit permission modes</h1>
+      <div class="verbosity">
+        <span class="active">Brief</span>
+        <span>Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">15 files changed across 2 sessions · 48 minutes</div>
+
+    <div class="prose">
+      <p class="lede">CodePlane's approval system gates autonomous agent
+      actions that affect production — schema migrations, destructive
+      operations, anything requiring human sign-off. Every approval was
+      treated identically until now. I added a <code>PermissionMode</code>
+      enum (<code>AUTONOMOUS</code>, <code>SUPERVISED</code>,
+      <code>LOCKED</code>) as a required parameter on
+      <code>create_request()</code>, giving operators control over what
+      runs unsupervised. Mid-job, I discovered the <code>Approval</code>
+      model was overloaded — serving as both request and outcome — so I
+      extracted <code>ApprovalResult</code> as the return type from
+      <code>resolve()</code>. All callers updated except
+      <span class="file">mcp/tools/approval_tool.py</span>, which uses
+      <code>getattr()</code> dynamic dispatch and can't be statically
+      verified. 142 tests passing.</p>
+
+      <div class="aside">
+        <span class="label">Decision</span>
+        Required parameter, not optional. If a call site doesn't know
+        its permission context, that's a bug.
+      </div>
+
+      <div class="aside">
+        <span class="label">Changed course</span>
+        Callers were destructuring resolution metadata off the Approval
+        model after every <code>resolve()</code> call. Adding a third
+        field made the overloading obvious. Extracted
+        <code>ApprovalResult</code> — breaking change to pre-existing
+        callers.
+      </div>
+
+      <div class="aside">
+        <span class="label">Unresolved</span>
+        <span class="file">approval_tool.py:34</span> dispatches via
+        <code>getattr()</code>. Cannot be statically verified — needs
+        manual review.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO C: Small clean job — narrative collapses              -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-c">
+  <div class="scenario-label">Narrative C — Clean job, nothing to narrate</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Add retry cost tracking to analytics</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">3 files changed · 1 session · 12 minutes</div>
+
+    <div class="prose">
+      <p class="lede">CodePlane tracks per-job analytics — duration, token
+      usage, tool call counts — but had no visibility into how much failed
+      retries cost. When an agent retries a failed LLM call, that's real
+      money burned on work that didn't land. I added
+      <code>retry_cost_summary()</code> and <code>fleet_cost_summary()</code>
+      to <code>AnalyticsService</code>, wired into the existing
+      <code>aggregate()</code> pipeline that runs after each job completes.
+      Both methods query the telemetry spans table for retry-flagged entries,
+      sum costs by model, and return breakdowns the dashboard can render.
+      Straightforward plumbing, no design decisions — the data was already
+      there, it just needed a view. 23 tests passing.</p>
+
+      <div class="collapse-msg">
+        Nothing else to narrate for this job. The file-by-file walkthrough
+        is in the <a href="#">Review</a> tab.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCENARIO D: Error → recovery arc                              -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-d">
+  <div class="scenario-label">Narrative D — Error, diagnosis, and recovery</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Add cost attribution with schema migration</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span class="active">Standard</span>
+        <span>Detailed</span>
+      </div>
+    </div>
+    <div class="meta">17 files changed · 1 session · 35 minutes</div>
+
+    <div class="prose">
+      <p class="lede">CodePlane tracks what agents do — tool calls, token
+      usage, duration — but until now it couldn't answer "how much did this
+      job cost?" The telemetry spans table already stores which LLM model
+      was called and how many tokens were consumed, but there was no layer
+      that applies pricing to those raw numbers and attributes costs back to
+      individual jobs. The task was to build that layer: a
+      <code>CostAttributionService</code> that reads spans after each job,
+      applies per-model pricing, and stores attribution records the dashboard
+      can query. The tricky part wasn't the service itself — it was wiring
+      it into <code>setup_and_start()</code>, the single highest fan-in
+      method in the backend, where changing the signature ripples into every
+      code path that launches a job.</p>
+
+      <hr>
+
+      <div class="time">0:00 – 0:05</div>
+
+      <p>I mapped the existing data flow first. When an agent makes an LLM
+      call, the telemetry collector writes a span row with the model name,
+      input/output token counts, and a <code>cost_usd</code> field that the
+      SDK populates from the provider's response. The analytics module
+      aggregates these into job-level summaries, but the aggregation is
+      just sums — there's no per-model breakdown, no attribution to specific
+      activities within a job, and no fleet-wide rollup. Cost attribution
+      sits between the raw spans and the aggregate: it reads individual span
+      costs, groups them by model and activity, and writes structured records
+      that the API can serve to the dashboard.</p>
+
+      <p>The design question was where to initialize the service.
+      <code>setup_and_start()</code> is the only place where a job's full
+      configuration is available at launch time. It's called from four
+      distinct code paths: the API route that starts new jobs, the
+      <code>recover_on_startup()</code> method that resumes interrupted
+      jobs after a server restart, the followup job creation path, and
+      two test suites. Each of these would need to pass cost configuration
+      into the method.</p>
+
+      <div class="aside">
+        <span class="label">Decision</span>
+        Nullable parameter rather than required.
+        <code>recover_on_startup()</code> has no cost configuration
+        available — it's restoring a job from database state where the
+        original config may not have included cost tracking. Making the
+        parameter required would force it to fabricate a config object
+        just to satisfy the type system. <code>None</code> means "no cost
+        tracking for this job," and existing callers continue working
+        without changes.
+      </div>
+
+      <hr>
+
+      <div class="time">0:06 – 0:18</div>
+
+      <p>The new service, repository, Pydantic model, and API schema
+      endpoint follow CodePlane's standard patterns — dependency injection
+      through the DI container, async session-scoped repository, Pydantic
+      response model with <code>CamelModel</code> base for automatic
+      camelCase serialization. The signature change on
+      <code>setup_and_start()</code> is where the real impact lives:</p>
+
+      <div class="diff">
+        <span class="file-label">backend/services/runtime_service.py</span>
+<span class="del">-    async def setup_and_start(self, job_id: str, /) -> None:</span>
+<span class="add">+    async def setup_and_start(</span>
+<span class="add">+        self, job_id: str, /, *, cost_config: CostConfig | None = None,</span>
+<span class="add">+    ) -> None:</span>
+      </div>
+
+      <p>This is a keyword-only parameter after the positional slash, so
+      existing callers that don't pass <code>cost_config</code> continue
+      to work — it defaults to <code>None</code>. The API route and the
+      followup creation path were updated to pass the config; the recovery
+      path and test infrastructure pass nothing and get the default.</p>
+
+      <div class="expandable">9 more files — service, repo, model, API schema, tests</div>
+
+      <p>The schema migration added a <code>cost_attributions</code> table
+      and a <code>cost_config_json</code> column on the jobs table. Both
+      needed operator approval. Approved in 8 seconds. Then I ran the
+      test suite and hit a failure.</p>
+
+      <div class="test-results">
+<span class="pass">✓ 83 passed</span>  test_runtime_service.py
+<span class="fail">✗ 1 FAILED</span>  test_cost_attribution.py
+        FAILED test_attribute_span_writes_record
+<span class="fail">        TypeError: CostAttributionService.__init__() missing argument: 'bus'</span>
+      </div>
+
+      <hr>
+
+      <div class="time">0:22 – 0:27</div>
+
+      <p>The error message tells the whole story.
+      <code>CostAttributionService.__init__()</code> takes two constructor
+      dependencies — a <code>CostAttributionRepository</code> and an
+      <code>EventBus</code> (it publishes a <code>CostAttributed</code>
+      domain event after writing records, so the SSE stream can push live
+      cost updates to the dashboard). I registered the repository in the
+      DI container but forgot the <code>EventBus</code> binding. The test
+      fixture had the same omission — it was building the service manually
+      with only one argument. Two one-line fixes: one in
+      <span class="file">backend/di.py</span> and one in the test's
+      <code>@pytest.fixture</code>.</p>
+
+      <div class="aside">
+        <span class="label">Fixed</span>
+        Added <code>EventBus</code> to the DI registration and the test
+        fixture. Not a design issue — just missed wiring in two places.
+        The service's constructor signature was correct; the container
+        configuration wasn't.
+      </div>
+
+      <p>After the fix, a second schema approval was needed (adding the
+      <code>cost_config_json</code> column to the jobs table). Approved
+      in 5 seconds. Full suite:</p>
+
+      <div class="test-results">
+<span class="pass">✓ 83 passed</span>  test_runtime_service.py
+<span class="pass">✓ 14 passed</span>  test_cost_attribution.py
+<span class="pass">✓ 23 passed</span>  test_analytics_service.py
+<span class="pass">✓  8 passed</span>  test_api_analytics.py
+      </div>
+
+      <div class="outcome">
+        <p><strong>Completed.</strong> Telemetry spans are now attributed
+        with per-model cost breakdowns during job execution, and the results
+        are queryable through the analytics API. The signature change to
+        the job launch entry point <code>setup_and_start()</code> is
+        backward-compatible — the <code>cost_config</code> parameter
+        defaults to <code>None</code>, so existing callers like the
+        server-restart recovery path <code>recover_on_startup()</code>
+        pass nothing and continue working
+        exactly as before. 128 tests passing across four suites. The
+        <code>CostAttributed</code> event is wired into the SSE stream, so
+        the dashboard will show live cost updates as spans complete.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

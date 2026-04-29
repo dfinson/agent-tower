@@ -328,25 +328,31 @@ async def _compute_attribution(
     # --- File I/O stats ---
     file_stats = await file_repo.reread_stats(job_id)
 
-    # --- Diff line counts from the latest diff snapshot ---
+    # --- Diff line counts from trail nodes (step boundaries with SHA refs) ---
     diff_added = 0
     diff_removed = 0
     try:
-        from backend.models.events import DomainEventKind
-        from backend.persistence.event_repo import EventRepository
+        from sqlalchemy import text as sa_text
 
-        event_repo = EventRepository(session)
-        diff_events = await event_repo.list_by_job(
-            job_id,
-            kinds=[DomainEventKind.diff_updated],
-            limit=100,
+        # Get the latest step node with file data for this job
+        result = await session.execute(
+            sa_text(
+                "SELECT files FROM trail_nodes "
+                "WHERE job_id = :job_id AND files IS NOT NULL "
+                "ORDER BY seq DESC LIMIT 1"
+            ),
+            {"job_id": job_id},
         )
-        if diff_events:
-            changed_files = diff_events[-1].payload.get("changed_files", [])
-            for f in changed_files:
-                diff_added += f.get("additions", 0)
-                diff_removed += f.get("deletions", 0)
-    except (DBAPIError, KeyError):
+        row = result.mappings().first()
+        if row and row.get("files"):
+            import json as _json
+
+            files_data = _json.loads(row["files"])
+            for f in files_data:
+                if isinstance(f, dict):
+                    diff_added += f.get("additions", 0)
+                    diff_removed += f.get("deletions", 0)
+    except (DBAPIError, KeyError, ValueError):
         log.warning("diff_lines_extraction_failed", job_id=job_id, exc_info=True)
 
     await summary_repo.set_turn_stats(

@@ -170,3 +170,77 @@ class TrailNodeRepository:
             )
             result = await session.execute(stmt)
             return list(result.scalars().all())
+
+    # ------------------------------------------------------------------
+    # Projection methods for downstream consumer migration
+    # ------------------------------------------------------------------
+
+    async def get_transcript_nodes(
+        self,
+        job_id: str,
+        *,
+        limit: int | None = None,
+    ) -> list[TrailNodeRow]:
+        """Fetch trail nodes carrying transcript content for a job.
+
+        Returns nodes with agent_message set, ordered chronologically.
+        """
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.job_id == job_id)
+                .where(TrailNodeRow.agent_message.isnot(None))
+                .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
+            )
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_file_changes_by_step(
+        self,
+        job_id: str,
+    ) -> list[TrailNodeRow]:
+        """Fetch step nodes that carry file manifests, ordered chronologically."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.job_id == job_id)
+                .where(TrailNodeRow.kind.in_(["modify", "shell", "explore"]))
+                .where(TrailNodeRow.files.isnot(None))
+                .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_latest_step_boundary(
+        self,
+        job_id: str,
+    ) -> TrailNodeRow | None:
+        """Fetch the most recent step node with file information for a job."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.job_id == job_id)
+                .where(TrailNodeRow.kind.in_(["modify", "shell", "explore"]))
+                .where(TrailNodeRow.files.isnot(None))
+                .order_by(TrailNodeRow.seq.desc())
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def get_all_changed_files(self, job_id: str) -> list[str]:
+        """Return sorted unique file paths changed across all steps in a job."""
+        step_nodes = await self.get_file_changes_by_step(job_id)
+        paths: set[str] = set()
+        for node in step_nodes:
+            if node.files:
+                for path in json.loads(node.files):
+                    if isinstance(path, str):
+                        paths.add(path)
+                    elif isinstance(path, dict):
+                        p = path.get("path", "")
+                        if p:
+                            paths.add(p)
+        return sorted(paths)

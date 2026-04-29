@@ -458,26 +458,32 @@ class TestSummarizeAndStore:
 
     @pytest.mark.asyncio
     async def test_reads_events_when_no_pre_built_data(self) -> None:
-        """When no pre-built data, reads from EventRepository."""
+        """When no pre-built data, reads from TrailNodeRepository."""
         valid_json = _valid_summary_json()
         svc, adapter, mock_db = self._make_service(adapter_response=valid_json)
 
-        transcript_events = [
-            _transcript_event("agent", "I fixed the bug"),
-            _transcript_event("operator", "Thanks"),
-        ]
-        diff_events = [
-            _diff_event([{"path": "src/a.py"}]),
-        ]
+        # Create mock trail nodes with agent_message
+        mock_node_agent = MagicMock()
+        mock_node_agent.agent_message = "I fixed the bug"
+        mock_node_agent.kind = "modify"
+        mock_node_agent.timestamp = datetime.now(UTC)
 
-        mock_event_repo = AsyncMock()
-        mock_event_repo.list_by_job = AsyncMock(side_effect=[transcript_events, diff_events])
+        mock_node_operator = MagicMock()
+        mock_node_operator.agent_message = "Thanks"
+        mock_node_operator.kind = "request"
+        mock_node_operator.timestamp = datetime.now(UTC)
+
+        mock_trail_repo = AsyncMock()
+        mock_trail_repo.get_transcript_nodes = AsyncMock(
+            return_value=[mock_node_agent, mock_node_operator]
+        )
+        mock_trail_repo.get_all_changed_files = AsyncMock(return_value=["src/a.py"])
 
         mock_artifact_svc = AsyncMock()
         mock_artifact_svc.store_session_summary = AsyncMock()
 
         with (
-            patch("backend.persistence.event_repo.EventRepository", return_value=mock_event_repo),
+            patch("backend.persistence.trail_repo.TrailNodeRepository", return_value=mock_trail_repo),
             patch("backend.persistence.artifact_repo.ArtifactRepository"),
             patch("backend.services.artifact_service.ArtifactService", return_value=mock_artifact_svc),
         ):
@@ -487,12 +493,8 @@ class TestSummarizeAndStore:
                 original_task="Fix the bug",
             )
 
-        assert mock_event_repo.list_by_job.await_count == 2
-        first_call = mock_event_repo.list_by_job.call_args_list[0]
-        assert first_call[0][0] == "job-1"
-        assert DomainEventKind.transcript_updated in first_call[1]["kinds"]
-        second_call = mock_event_repo.list_by_job.call_args_list[1]
-        assert DomainEventKind.diff_updated in second_call[1]["kinds"]
+        mock_trail_repo.get_transcript_nodes.assert_awaited_once_with("job-1")
+        mock_trail_repo.get_all_changed_files.assert_awaited_once_with("job-1")
 
     @pytest.mark.asyncio
     async def test_adapter_receives_formatted_prompt(self) -> None:

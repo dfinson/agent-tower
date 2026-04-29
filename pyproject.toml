@@ -15,7 +15,7 @@ dependencies = [
     "aiosqlite>=0.20,<1",
     "alembic>=1.14,<2",
     # Agent SDK
-    "github-copilot-sdk~=0.1.32",
+    "github-copilot-sdk>=0.1.32,<0.2",
     # Structured logging
     "structlog>=24.0,<26",
     # Terminal UI
@@ -31,23 +31,23 @@ dependencies = [
     "mcp>=1.9,<2",
     # Windows ConPTY terminal backend (POSIX uses the stdlib pty module)
     "pywinpty>=2.0 ; sys_platform == 'win32'",
-    "claude-code-sdk~=0.0.25",
+    "claude-code-sdk>=0.0.25,<0.1",
     "httpx>=0.28,<1",
     "dishka[fastapi]>=1.9.1,<2",
-    "tiktoken>=0.12.0,<1",
-    "anthropic-tokenizer>=0.1.0,<1",
     "pyjwt[crypto]>=2.12.0,<3",
-    "cryptography>=46.0.7,<47",
+    "cryptography>=46.0,<47",
 ]
 
 [project.optional-dependencies]
 voice = ["faster-whisper>=1.1,<2"]
 push = ["pywebpush>=2.3.0", "py-vapid>=1.9.4", "qrcode>=7.0,<9"]
 telemetry = ["opentelemetry-api>=1.20,<2", "opentelemetry-sdk>=1.20,<2"]
+tokenizer = ["tiktoken>=0.12.0,<1", "anthropic-tokenizer>=0.1.0,<1"]
 all = [
     "codeplane[voice]",
     "codeplane[push]",
     "codeplane[telemetry]",
+    "codeplane[tokenizer]",
 ]
 
 [project.scripts]

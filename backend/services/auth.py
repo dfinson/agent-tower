@@ -40,6 +40,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import secrets
 import time
 from collections import defaultdict
@@ -334,7 +335,7 @@ async def authenticate_login_request(request: Request) -> Response:
     try:
         body = await request.json()
         password = body.get("password", "")
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         return JSONResponse({"detail": "Invalid request"}, status_code=400)
 
     if not _check_password(password):

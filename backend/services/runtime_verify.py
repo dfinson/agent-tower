@@ -39,9 +39,9 @@ async def run_followup_turn(
     Returns ``(new_session_id, error_reason)``.  *error_reason* is set if
     the turn encountered an error; callers decide whether to abort.
     """
-    from backend.services.runtime_service import _AgentSession, _EventAction
+    from backend.services.runtime_service import AgentSession, EventAction
 
-    followup_session = _AgentSession()
+    followup_session = AgentSession()
     followup_config = dataclass_replace(
         base_config,
         prompt=prompt,
@@ -68,9 +68,9 @@ async def run_followup_turn(
                 "Approval rejected during verification",
             )
 
-            if action == _EventAction.skip:
+            if action == EventAction.skip:
                 continue
-            if action == _EventAction.abort:
+            if action == EventAction.abort:
                 error_reason = evt_error
                 break
 

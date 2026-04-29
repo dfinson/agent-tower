@@ -517,7 +517,7 @@ class TestListSDKs:
             )
 
         monkeypatch.setattr("backend.services.setup_service.check_agent_cli", _mock_check)
-        monkeypatch.setattr("backend.services.setup_service._check_agent_auth", _mock_auth)
+        monkeypatch.setattr("backend.services.setup_service.check_agent_auth", _mock_auth)
 
         resp = await client.get("/api/sdks")
         assert resp.status_code == 200

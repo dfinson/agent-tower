@@ -6,6 +6,7 @@ Routes: ``/api/preview/{port}/{path}``
 
 from __future__ import annotations
 
+import httpx
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Request
@@ -64,7 +65,7 @@ async def preview_proxy(port: int, path: str, request: Request, client: FromDish
             headers=forward_headers,
             content=body if body else None,
         )
-    except Exception as exc:
+    except httpx.HTTPError as exc:
         error_type = type(exc).__name__
         log.debug("preview_proxy_error", port=port, path=path, error=error_type)
         return JSONResponse(

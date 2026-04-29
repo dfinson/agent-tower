@@ -47,7 +47,7 @@ from backend.services.agent_adapter import AgentAdapterInterface, CompletionResu
 from backend.services.event_bus import EventBus
 from backend.services.runtime_service import (
     RuntimeService,
-    _AgentSession,
+    AgentSession,
 )
 
 log = structlog.get_logger()
@@ -1210,7 +1210,7 @@ class TestFakeAgentAdapter:
 class TestAgentSession:
     async def test_execute_yields_events(self) -> None:
         adapter = FakeAgentAdapter(delay=0.0)
-        session = _AgentSession()
+        session = AgentSession()
         config = SessionConfig(workspace_path="/tmp", prompt="test")
 
         events = []
@@ -1222,7 +1222,7 @@ class TestAgentSession:
 
     async def test_send_message_after_execute(self) -> None:
         adapter = FakeAgentAdapter(delay=0.0)
-        session = _AgentSession()
+        session = AgentSession()
         config = SessionConfig(workspace_path="/tmp", prompt="test")
 
         # Must run execute first so session_id is set
@@ -1234,7 +1234,7 @@ class TestAgentSession:
 
     async def test_abort(self) -> None:
         adapter = FakeAgentAdapter(delay=0.0)
-        session = _AgentSession()
+        session = AgentSession()
         config = SessionConfig(workspace_path="/tmp", prompt="test")
 
         async for _ in session.execute(config, adapter):
@@ -1244,7 +1244,7 @@ class TestAgentSession:
 
     async def test_pause_and_resume_tools(self) -> None:
         adapter = FakeAgentAdapter(delay=0.0)
-        session = _AgentSession()
+        session = AgentSession()
         config = SessionConfig(workspace_path="/tmp", prompt="test")
 
         async for _ in session.execute(config, adapter):

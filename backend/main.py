@@ -14,12 +14,12 @@ from __future__ import annotations
 
 from backend.app_factory import create_app
 from backend.cli import cli
-from backend.logging_config import _ConsoleNoiseFilter, setup_logging
+from backend.logging_config import ConsoleNoiseFilter, setup_logging
 
 # Default app instance for ``uvicorn backend.main:app``
 app = create_app()
 
-__all__ = ["_ConsoleNoiseFilter", "app", "cli", "create_app", "setup_logging"]
+__all__ = ["ConsoleNoiseFilter", "app", "cli", "create_app", "setup_logging"]
 
 if __name__ == "__main__":
     cli()

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 ToolArgs = dict[str, Any]
 
 
-def _truncate(s: str, max_len: int = 60) -> str:
+def truncate(s: str, max_len: int = 60) -> str:
     # Truncation removed — CSS handles display overflow
     return s
 
@@ -39,19 +39,19 @@ def _parse_args(tool_args: str | None) -> ToolArgs:
         return {}
 
 
-def _extract_issue_from_json(value: Any) -> str | None:
+def extract_issue_from_json(value: Any) -> str | None:
     if isinstance(value, dict):
         for key in ("error", "message", "detail", "details", "stderr"):
             candidate = value.get(key)
             if isinstance(candidate, str) and candidate.strip():
                 return candidate.strip()
         for nested in value.values():
-            found = _extract_issue_from_json(nested)
+            found = extract_issue_from_json(nested)
             if found:
                 return found
     elif isinstance(value, list):
         for item in value:
-            found = _extract_issue_from_json(item)
+            found = extract_issue_from_json(item)
             if found:
                 return found
     return None
@@ -336,7 +336,7 @@ def _fmt_fetch_webpage(args: ToolArgs) -> str:
             p = urlparse(url)
             short = p.netloc + p.path
             return f"Fetch {short}"
-        except Exception:
+        except ValueError:
             log.warning("url_parse_failed", url=url)
     return "Fetch webpage"
 
@@ -652,6 +652,7 @@ def _format_tool_display_impl(
         try:
             label = formatter(args)
         except Exception:
+            log.debug("tool_formatter_failed", tool_name=tool_name, exc_info=True)
             label = tool_name
 
     if tool_result is not None:

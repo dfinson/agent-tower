@@ -9,7 +9,7 @@ from backend.services.tool_formatters import (
     _parse_args,
     _short_path,
     _trim_worktree_paths,
-    _truncate,
+    truncate,
     extract_tool_issue,
     format_tool_display,
 )
@@ -21,25 +21,25 @@ from backend.services.tool_formatters import (
 
 class TestTruncate:
     def test_short_string_unchanged(self):
-        assert _truncate("hello", 60) == "hello"
+        assert truncate("hello", 60) == "hello"
 
     def test_exact_length_unchanged(self):
         s = "a" * 60
-        assert _truncate(s, 60) == s
+        assert truncate(s, 60) == s
 
     def test_long_string_passthrough(self):
         s = "a" * 80
-        assert _truncate(s, 60) == s
+        assert truncate(s, 60) == s
 
     def test_custom_max_len_passthrough(self):
         s = "abcdef"
-        assert _truncate(s, 4) == "abcdef"
+        assert truncate(s, 4) == "abcdef"
 
     def test_empty_string(self):
-        assert _truncate("", 60) == ""
+        assert truncate("", 60) == ""
 
     def test_any_string_passthrough(self):
-        assert _truncate("abc", 1) == "abc"
+        assert truncate("abc", 1) == "abc"
 
 
 class TestParseArgs:

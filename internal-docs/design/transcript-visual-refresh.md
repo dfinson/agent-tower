@@ -1,6 +1,7 @@
 ---
 title: "Transcript Visual Refresh: Presence, Temperature, and Liveness"
 description: "Design audit and implementation plan for the CuratedFeed transcript, addressing ghost UI, monochrome temperature, liveness signals, and avatar noise."
+status: proposed
 ---
 
 ## Context

@@ -60,13 +60,28 @@ class EventRepository(BaseRepository):
         kinds: list[DomainEventKind],
         limit: int = 2000,
     ) -> list[DomainEvent]:
-        """List all events for a job filtered by kind, ordered by db id."""
+        """List events for a job filtered by kind, ordered by db id."""
         stmt = (
             select(EventRow)
             .where(EventRow.job_id == job_id)
             .where(EventRow.kind.in_([k.value for k in kinds]))
             .order_by(EventRow.id)
             .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return [self._to_domain(row) for row in result.scalars().all()]
+
+    async def list_all_by_job(
+        self,
+        job_id: str,
+        kinds: list[DomainEventKind],
+    ) -> list[DomainEvent]:
+        """List all events for a job filtered by kind, without an upper bound."""
+        stmt = (
+            select(EventRow)
+            .where(EventRow.job_id == job_id)
+            .where(EventRow.kind.in_([k.value for k in kinds]))
+            .order_by(EventRow.id)
         )
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]

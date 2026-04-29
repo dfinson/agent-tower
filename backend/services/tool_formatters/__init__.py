@@ -2,11 +2,11 @@
 
 from backend.services.tool_formatters._display import (
     _count_lines,
-    _extract_issue_from_json,
+    extract_issue_from_json,
     _parse_args,
     _short_path,
     _trim_worktree_paths,
-    _truncate,
+    truncate,
     format_tool_display,
     format_tool_display_full,
 )

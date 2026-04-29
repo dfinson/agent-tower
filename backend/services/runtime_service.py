@@ -69,7 +69,7 @@ if TYPE_CHECKING:
     from backend.services.trail import TrailService
 
 
-class _AgentSession:
+class AgentSession:
     """Thin wrapper around the adapter for a single running agent session."""
 
     def __init__(self) -> None:
@@ -111,7 +111,7 @@ class _AgentSession:
             await self._adapter.abort_session(self._session_id)
 
 
-class _EventAction(enum.Enum):
+class EventAction(enum.Enum):
     """Action directive returned by ``_process_agent_event``."""
 
     skip = enum.auto()
@@ -120,7 +120,7 @@ class _EventAction(enum.Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class _SessionAttemptResult:
+class SessionAttemptResult:
     """Outcome of a single ``_execute_session_attempt`` call."""
 
     session_id: str | None = None
@@ -130,7 +130,7 @@ class _SessionAttemptResult:
 
 
 @dataclass(frozen=True, slots=True)
-class _RecoverySnapshot:
+class RecoverySnapshot:
     """Pre-recovery job state for rollback on failure."""
 
     state: JobState
@@ -216,7 +216,7 @@ class RuntimeService:
         self._sister_sessions = sister_sessions
         self._step_tracker = step_tracker
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._agent_sessions: dict[str, _AgentSession] = {}
+        self._agent_sessions: dict[str, AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_activity: dict[str, float] = {}
         self._waiting_for_approval: set[str] = set()
@@ -381,7 +381,7 @@ class RuntimeService:
         """Restart an active job after backend restart without marking it failed."""
         return await _recover_active_job_impl(self, job_id, instruction=instruction)
 
-    async def _rollback_recovery(self, job_id: str, snapshot: _RecoverySnapshot) -> None:
+    async def _rollback_recovery(self, job_id: str, snapshot: RecoverySnapshot) -> None:
         """Restore job state after a failed recovery attempt."""
         await _rollback_recovery_impl(self, job_id, snapshot)
 
@@ -402,7 +402,7 @@ class RuntimeService:
             log.warning("job_start_claim_lost", job_id=job.id)
             return
 
-        agent_session = _AgentSession()
+        agent_session = AgentSession()
         self._agent_sessions[job.id] = agent_session
 
         # The DB CAS already set the state to running; publish the event
@@ -444,7 +444,7 @@ class RuntimeService:
     async def _run_job_guarded(
         self,
         job_id: str,
-        agent_session: _AgentSession,
+        agent_session: AgentSession,
         config: SessionConfig,
         session_number: int = 1,
     ) -> None:
@@ -491,7 +491,7 @@ class RuntimeService:
     async def _run_job(
         self,
         job_id: str,
-        agent_session: _AgentSession,
+        agent_session: AgentSession,
         config: SessionConfig,
         session_number: int = 1,
     ) -> None:
@@ -965,7 +965,7 @@ class RuntimeService:
         worktree_path: str | None,
         base_ref: str | None,
         session_number: int = 1,
-    ) -> _SessionAttemptResult:
+    ) -> SessionAttemptResult:
         """Try a fresh session after a failed resume."""
         return await _attempt_resume_fallback_impl(
             self, job_id, config, worktree_path, base_ref, session_number=session_number,
@@ -974,7 +974,7 @@ class RuntimeService:
     async def _handle_job_canceled(
         self,
         job_id: str,
-        agent_session: _AgentSession,
+        agent_session: AgentSession,
         worktree_path: str | None,
         base_ref: str | None,
     ) -> None:
@@ -1017,11 +1017,11 @@ class RuntimeService:
         self,
         job_id: str,
         session_event: SessionEvent,
-        agent_session: _AgentSession,
+        agent_session: AgentSession,
         worktree_path: str | None,
         base_ref: str | None,
         rejection_message: str,
-    ) -> tuple[_EventAction, DomainEvent | None, str | None]:
+    ) -> tuple[EventAction, DomainEvent | None, str | None]:
         """Process a single agent session event (shared by main + follow-up loops).
 
         Returns ``(action, domain_event, error_reason)``:
@@ -1041,7 +1041,7 @@ class RuntimeService:
         # Diff recalculation on file changes
         if _diff_eligible and session_event.kind == SessionEventKind.file_changed:
             await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
-            return _EventAction.skip, None, None
+            return EventAction.skip, None, None
 
         # Diff recalculation on tool completions (skip internal markers like report_intent)
         if (
@@ -1054,7 +1054,7 @@ class RuntimeService:
 
         domain_event = self._translate_event(job_id, session_event)
         if domain_event is None:
-            return _EventAction.skip, None, None
+            return EventAction.skip, None, None
 
         error_reason: str | None = None
         if domain_event.kind == DomainEventKind.job_failed:
@@ -1065,7 +1065,7 @@ class RuntimeService:
             content = domain_event.payload.get("content", "")
             if content in self._echo_suppress[job_id]:
                 self._echo_suppress[job_id].discard(content)
-                return _EventAction.skip, None, None
+                return EventAction.skip, None, None
 
         # Handle approval requests
         if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
@@ -1075,20 +1075,20 @@ class RuntimeService:
                 rejection_message,
             )
             if resolution == ApprovalResolution.rejected:
-                return _EventAction.abort, None, rejection_message
-            return _EventAction.skip, None, None
+                return EventAction.abort, None, rejection_message
+            return EventAction.skip, None, None
 
-        return _EventAction.publish, domain_event, error_reason
+        return EventAction.publish, domain_event, error_reason
 
     async def _execute_session_attempt(
         self,
         job_id: str,
-        agent_session: _AgentSession,
+        agent_session: AgentSession,
         config: SessionConfig,
         worktree_path: str | None,
         base_ref: str | None,
         session_number: int = 1,
-    ) -> _SessionAttemptResult:
+    ) -> SessionAttemptResult:
         session_id: str | None = None
         error_reason: str | None = None
         made_progress = False
@@ -1109,9 +1109,9 @@ class RuntimeService:
                 "Approval rejected by operator",
             )
 
-            if action == _EventAction.skip:
+            if action == EventAction.skip:
                 continue
-            if action == _EventAction.abort:
+            if action == EventAction.abort:
                 error_reason = evt_error
                 break
 
@@ -1185,7 +1185,7 @@ class RuntimeService:
 
             await self._event_bus.publish(domain_event)
 
-        return _SessionAttemptResult(
+        return SessionAttemptResult(
             session_id=session_id,
             error_reason=error_reason,
             made_progress=made_progress,
@@ -1676,14 +1676,14 @@ class RuntimeService:
             svc = self._make_job_service(session)
             # Recover jobs that were already in progress before the backend restart.
             for state in (JobState.running, JobState.waiting_for_approval):
-                jobs, _, _ = await svc.list_jobs(state=state, limit=10000)
+                jobs = await svc.list_all_jobs(state=state)
                 orphaned_jobs.extend((job, state) for job in jobs)
 
             # Re-enqueue queued jobs
-            queued_jobs, _, _ = await svc.list_jobs(state=JobState.queued, limit=10000)
+            queued_jobs = await svc.list_all_jobs(state=JobState.queued)
 
             # Re-run setup for jobs that were mid-preparation when we crashed
-            preparing, _, _ = await svc.list_jobs(state=JobState.preparing, limit=10000)
+            preparing = await svc.list_all_jobs(state=JobState.preparing)
             preparing_jobs.extend(preparing)
 
         for job in preparing_jobs:

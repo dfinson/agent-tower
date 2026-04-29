@@ -319,7 +319,7 @@ async def list_sdks() -> SDKListResponse:
     import asyncio
 
     from backend.models.domain import AgentSDK
-    from backend.services.setup_checks import _check_agent_auth, check_agent_cli
+    from backend.services.setup_checks import check_agent_auth, check_agent_cli
 
     config = load_config()
     default_sdk = config.runtime.default_sdk
@@ -341,7 +341,7 @@ async def list_sdks() -> SDKListResponse:
             continue
 
         # Run auth check in a thread to avoid blocking the event loop on subprocess.
-        auth = await asyncio.to_thread(_check_agent_auth, sdk.value)
+        auth = await asyncio.to_thread(check_agent_auth, sdk.value)
 
         if auth.authenticated is True:
             status = "ready"

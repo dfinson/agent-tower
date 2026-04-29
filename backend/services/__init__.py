@@ -26,8 +26,7 @@ Conceptual groups:
 * **Auth & sharing** — ``auth``, ``cf_access``, ``share_service``,
   ``vapid_keys``.
 * **Content** — ``artifact_service``, ``story_service``,
-  ``conversation_ledger``, ``motivation_service``,
-  ``lightweight_completer``.
+  ``motivation_service``, ``lightweight_completer``.
 """
 
 __all__ = [
@@ -38,7 +37,6 @@ __all__ = [
     "auth",
     "base_adapter",
     "claude_adapter",
-    "conversation_ledger",
     "copilot_adapter",
     "cost_attribution",
     "diff_service",

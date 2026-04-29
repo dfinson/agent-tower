@@ -14,6 +14,24 @@ import { InlineDiffBlock } from "./InlineDiffBlock";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 
+/** Split text on `backtick` spans and render inline <code> elements. */
+function renderInlineCode(text: string): React.ReactNode[] {
+  const parts = text.split(/(`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={i}
+          className="font-mono text-[0.85em] text-primary/80 bg-muted/40 px-1 py-px rounded"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 type Verbosity = "summary" | "standard" | "detailed";
 
 interface StoryBannerProps {
@@ -156,7 +174,7 @@ export function StoryBanner({ jobId, diffs, onSelectFile }: StoryBannerProps) {
               <div className="text-sm text-muted-foreground leading-relaxed">
                 {story!.blocks.map((block, i) => {
                   if (block.type === "narrative" && block.text) {
-                    return <span key={`n-${i}`}>{block.text}</span>;
+                    return <span key={`n-${i}`}>{renderInlineCode(block.text)}</span>;
                   }
                   if (block.type === "reference" && block.file) {
                     const idx = findFileIdx(diffs, block.file);

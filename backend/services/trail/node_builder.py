@@ -112,6 +112,9 @@ class TrailNodeBuilder:
         from backend.persistence.event_repo import EventRepository
         async with self._session_factory() as session:
             event_repo = EventRepository(session)
+            # Agents produce ~5-20 plan steps with ~3 state transitions each
+            # (pending → active → completed), yielding 15-60 events in practice.
+            # 200 provides ~3× headroom over observed maximums.
             plan_events = await event_repo.list_by_job(
                 job_id, [DomainEventKind.plan_step_updated], limit=200,
             )
@@ -144,7 +147,9 @@ class TrailNodeBuilder:
                 (i for i, s in enumerate(steps) if s.status == "active"), -1
             )
 
-        # Restore activity timeline from persisted trail nodes with titles
+        # Restore activity timeline from persisted trail nodes with titles.
+        # Typical agent sessions produce 50-200 tool invocations (shell, file
+        # edits, searches); 500 provides 2.5-10× headroom over observed runs.
         work_nodes = await self._repo.get_by_job(
             job_id, kinds=["shell", "modify", "explore"], limit=500,
         )

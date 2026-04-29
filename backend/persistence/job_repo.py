@@ -163,6 +163,26 @@ class JobRepository(BaseRepository):
         result = await self._session.execute(stmt)
         return [self._to_domain(row) for row in result.scalars().all()]
 
+    async def list_all(
+        self,
+        state: str | None = None,
+        include_archived: bool | None = None,
+    ) -> list[Job]:
+        """List all jobs matching filters, without an upper bound.
+
+        Use only in internal recovery/snapshot paths — not for API responses.
+        """
+        stmt = select(JobRow).order_by(JobRow.created_at.desc(), JobRow.id.desc())
+        if state is not None:
+            states = [s.strip() for s in state.split(",")]
+            stmt = stmt.where(JobRow.state.in_(states))
+        if include_archived is False:
+            stmt = stmt.where(JobRow.archived_at.is_(None))
+        elif include_archived is True:
+            stmt = stmt.where(JobRow.archived_at.is_not(None))
+        result = await self._session.execute(stmt)
+        return [self._to_domain(row) for row in result.scalars().all()]
+
     async def update_state(
         self,
         job_id: str,

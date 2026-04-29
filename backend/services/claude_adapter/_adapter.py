@@ -71,6 +71,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         self._model_verified: dict[str, bool] = {}
         # Stderr capture files for debugging failed sessions
         self._stderr_files: dict[str, str] = {}
+        self._stderr_file_objects: dict[str, Any] = {}  # session_id → open file
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -80,6 +81,10 @@ class ClaudeAdapter(BaseAgentAdapter):
         task = self._consumer_tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
+        stderr_fobj = self._stderr_file_objects.pop(session_id, None)
+        if stderr_fobj:
+            with contextlib.suppress(OSError):
+                stderr_fobj.close()
         stderr_path = self._stderr_files.pop(session_id, None)
         if stderr_path:
             with contextlib.suppress(OSError):
@@ -652,6 +657,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         stderr_fd, stderr_path = tempfile.mkstemp(prefix="claude_stderr_", suffix=".log")
         stderr_file = os.fdopen(stderr_fd, "w")
         self._stderr_files[session_id] = stderr_path
+        self._stderr_file_objects[session_id] = stderr_file
 
         # Build options
         options = ClaudeCodeOptions(

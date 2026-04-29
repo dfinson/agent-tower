@@ -1,6 +1,7 @@
 ---
 title: Action Policy
 description: "Design for CodePlane's action classification and operator approval system. Binary property classification, DB-persisted rules, trust grants, and a unified notification inbox."
+status: proposed
 ---
 
 ## Overview

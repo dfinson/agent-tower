@@ -1,0 +1,101 @@
+/**
+ * Miscellaneous SSE event handlers: snapshot, heartbeat, diff, session, telemetry.
+ */
+
+import type { JobSummary, ApprovalRequest, TranscriptEntry, ConnectionStatus } from "../types";
+import type { DiffFileModel } from "../../api/types";
+import type { SSEHandler, AppState } from "./types";
+import { enrichJob } from "./jobHandlers";
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+export function handleSnapshot(_state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobs = (payload.jobs as JobSummary[]) ?? [];
+  const rawApprovals =
+    (payload.pendingApprovals as ApprovalRequest[]) ?? [];
+  const jobMap = Object.fromEntries(jobs.map((j) => [j.id, enrichJob(j)]));
+  // Drop approvals whose job is no longer in waiting_for_approval.
+  // This covers the server-restart recovery path where the backend resets
+  // the job to running without resolving its pending approval in the DB,
+  // and the SSE gap is large enough that only a snapshot is sent (no
+  // job_state_changed replay event to trigger the in-flight eviction).
+  const approvals = rawApprovals.filter(
+    (a) => jobMap[a.jobId]?.state === "waiting_for_approval",
+  );
+  return {
+    jobs: jobMap,
+    approvals: Object.fromEntries(approvals.map((a) => [a.id, a])),
+  };
+}
+
+export function handleSessionHeartbeat(state: AppState): Partial<AppState> | null {
+  if (state.connectionStatus !== "connected") {
+    return { connectionStatus: "connected" as ConnectionStatus };
+  }
+  return null;
+}
+
+export function handleDiffUpdate(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  const changedFiles = (payload.changedFiles as DiffFileModel[]) ?? [];
+  return {
+    diffs: { ...state.diffs, [jobId]: changedFiles },
+  };
+}
+
+export function handleSessionResumed(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  const timestamp = payload.timestamp as string;
+  const divider: TranscriptEntry = {
+    jobId,
+    seq: -99,
+    timestamp,
+    role: "divider",
+    content: "Session",
+  };
+  const existing = state.transcript[jobId] ?? [];
+  // Deduplicate: two SSE connections may deliver the same event
+  const resetFields = {
+    state: "running",
+    resolution: null,
+    conflictFiles: null,
+    failureReason: null,
+    progressHeadline: null,
+    progressSummary: null,
+    archivedAt: null,
+    modelDowngraded: false,
+    requestedModel: null,
+    actualModel: null,
+    prUrl: null,
+    mergeStatus: null,
+    completedAt: null,
+  };
+  if (existing.some((e) => e.role === "divider" && e.timestamp === divider.timestamp)) {
+    return { jobs: state.jobs[jobId] ? { ...state.jobs, [jobId]: { ...state.jobs[jobId], ...resetFields } } : state.jobs };
+  }
+  return {
+    transcript: { ...state.transcript, [jobId]: [...existing, divider] },
+    jobs: state.jobs[jobId]
+      ? { ...state.jobs, [jobId]: { ...state.jobs[jobId], ...resetFields } }
+      : state.jobs,
+  };
+}
+
+export function handleTelemetryUpdated(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  // Increment the per-job version counter so MetricsPanel re-fetches.
+  const jobId = payload.jobId as string;
+  const prev = state.telemetryVersions[jobId] ?? 0;
+  return {
+    telemetryVersions: { ...state.telemetryVersions, [jobId]: prev + 1 },
+  };
+}
+
+export const miscHandlers: Record<string, SSEHandler> = {
+  snapshot: handleSnapshot,
+  session_heartbeat: handleSessionHeartbeat,
+  diff_update: handleDiffUpdate,
+  session_resumed: handleSessionResumed,
+  telemetry_updated: handleTelemetryUpdated,
+};

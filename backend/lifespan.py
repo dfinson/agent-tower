@@ -7,6 +7,7 @@ graceful shutdown.  Extracted from main.py to keep concerns separated.
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -135,7 +136,7 @@ def _init_event_infrastructure(
                 session_factory=session_factory,
                 write_lock=persist_lock,
             )
-        except Exception:
+        except OperationalError:
             log.error(
                 "event_persist_failed_queued_for_retry",
                 event_id=event.event_id,
@@ -172,7 +173,7 @@ def _init_event_infrastructure(
                     job_id=event.job_id,
                     retry_attempt=attempt + 1,
                 )
-            except Exception:
+            except OperationalError:
                 next_attempt = attempt + 1
                 if next_attempt < _DEAD_LETTER_MAX_RETRIES:
                     dead_letter.put_nowait((event, next_attempt))
@@ -371,7 +372,7 @@ async def _init_optional_services(
 
         cached_models_by_sdk["claude"] = _json.loads(_claude_models_path.read_text())
         log.debug("claude_models_loaded", count=len(cached_models_by_sdk["claude"]))
-    except Exception as exc:
+    except (json.JSONDecodeError, OSError) as exc:
         log.warning("claude_models_load_failed", error=str(exc))
         cached_models_by_sdk["claude"] = []
 

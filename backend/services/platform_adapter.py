@@ -476,6 +476,7 @@ class PlatformRegistry:
             try:
                 origin_url = await git.get_origin_url(repo_path)
             except Exception:
+                log.debug("platform_origin_url_fetch_failed", repo=repo_path, exc_info=True)
                 origin_url = None
 
         platform = detect_platform(origin_url)

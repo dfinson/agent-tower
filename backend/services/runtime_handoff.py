@@ -30,19 +30,15 @@ async def load_handoff_context_for_job(
     from pathlib import Path
 
     from backend.persistence.artifact_repo import ArtifactRepository
-    from backend.persistence.event_repo import EventRepository
+    from backend.persistence.trail_repo import TrailNodeRepository
     from backend.services.artifact_service import ArtifactService
-    from backend.services.summarization_service import extract_changed_files
 
     artifact_repo = ArtifactRepository(session)
     artifact_svc = ArtifactService(artifact_repo)
     summary_artifact = await artifact_svc.get_latest_session_summary(job.id)
 
-    from backend.models.events import DomainEventKind
-
-    event_repo = EventRepository(session)
-    diff_events = await event_repo.list_by_job(job.id, kinds=[DomainEventKind.diff_updated])
-    changed_files = extract_changed_files(diff_events)
+    trail_repo = TrailNodeRepository(session_factory)
+    changed_files = await trail_repo.get_all_changed_files(job.id)
 
     if summary_artifact is None and summarization_service is not None:
         log_artifact = await artifact_svc.get_session_log(job.id)

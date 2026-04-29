@@ -1,3 +1,8 @@
+---
+title: "Trail Service: Canonical Provenance Authority"
+status: in-progress
+---
+
 # Trail Service: Canonical Provenance Authority
 
 > The trail is the single source of truth for what an agent did, why, and in what order.

@@ -415,28 +415,7 @@ async def resolve_job(
         if job.resolution != Resolution.conflict:
             raise HTTPException(status_code=409, detail="agent_merge is only valid when resolution is 'conflict'")
 
-        # Retrieve conflict files from the latest merge_conflict event
-        conflict_events = await svc.list_events_by_job(job_id, kinds=[DomainEventKind.merge_conflict])
-        conflict_files: list[str] = []
-        if conflict_events:
-            conflict_files = conflict_events[-1].payload.get("conflict_files", [])
-
-        files_detail = (
-            "\nThe following files have conflicts:\n" + "\n".join(f"  - {f}" for f in conflict_files)
-            if conflict_files
-            else ""
-        )
-        conflict_prompt = (
-            f"A merge conflict was detected when attempting to merge branch '{job.branch}' "
-            f"into '{job.base_ref}'.{files_detail}\n\n"
-            "Please resolve the merge conflicts:\n"
-            "1. Run `git merge <base_ref>` in the worktree to reproduce the conflict markers\n"
-            "2. Edit the conflicting files to resolve all conflicts, preserving the functional "
-            "intent of both sides without compromising either set of changes\n"
-            "3. Stage and commit the resolved files\n"
-            "Do not make any other modifications beyond resolving the merge conflicts."
-        )
-
+        conflict_prompt = await svc.build_conflict_resume_prompt(job_id)
         await runtime_service.resume_job(job_id, conflict_prompt)
         return ResolveJobResponse(resolution="agent_merge")
 

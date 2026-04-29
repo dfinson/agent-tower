@@ -44,7 +44,7 @@ _CONSOLE_NOISE_PREFIXES: tuple[str, ...] = (
 _SUPPRESSED_WARNINGS: tuple[tuple[str, str], ...] = (("uvicorn.error", "Invalid HTTP request received."),)
 
 
-class _ConsoleNoiseFilter(logging.Filter):
+class ConsoleNoiseFilter(logging.Filter):
     """Keep warnings/errors on console while suppressing chatty info logs."""
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -125,14 +125,14 @@ def setup_logging(
         console_handler: logging.Handler = ConsoleLogHandler(
             console_log=dashboard,
             fallback_formatter=console_formatter,
-            fallback_filter=_ConsoleNoiseFilter(),
+            fallback_filter=ConsoleNoiseFilter(),
         )
     else:
         console_int = _LOG_LEVEL_MAP.get(console_level.lower(), logging.INFO)
         plain = logging.StreamHandler()
         plain.setLevel(console_int)
         plain.setFormatter(console_formatter)
-        plain.addFilter(_ConsoleNoiseFilter())
+        plain.addFilter(ConsoleNoiseFilter())
         console_handler = plain
 
     root_logger = logging.getLogger()

@@ -129,7 +129,7 @@ def _check_server_running(host: str, port: int) -> tuple[bool, str]:
         pass
 
     # 2. Fallback — scan for a cpl process (cross-platform)
-    pids = _find_cpl_processes()
+    pids = find_cpl_processes()
     if pids:
         pids_str = ", ".join(str(p) for p in pids)
         return True, f"process detected (PID {pids_str}) but /health not reachable"
@@ -137,7 +137,7 @@ def _check_server_running(host: str, port: int) -> tuple[bool, str]:
     return False, "not reachable"
 
 
-def _find_cpl_processes() -> list[int]:
+def find_cpl_processes() -> list[int]:
     """Return PIDs of running ``cpl up`` / ``cpl restart`` processes (cross-platform)."""
     pids: list[int] = []
     _system = platform.system()
@@ -261,7 +261,7 @@ class AgentCLIStatus:
     hint: str  # actionable suggestion, empty when ready
 
 
-def _check_agent_auth(sdk_id: str) -> AgentAuthStatus:
+def check_agent_auth(sdk_id: str) -> AgentAuthStatus:
     """Best-effort auth status for agent CLIs.
 
     This is advisory only. Unknown status should not be treated as a failure.
@@ -326,7 +326,7 @@ def _build_agent_check_result(sdk_id: str) -> CheckResult:
             category="agent",
         )
 
-    auth = _check_agent_auth(sdk_id)
+    auth = check_agent_auth(sdk_id)
     if auth.authenticated is False:
         return CheckResult(
             cli.name,
