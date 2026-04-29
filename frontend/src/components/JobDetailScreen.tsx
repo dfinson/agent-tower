@@ -24,6 +24,8 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
 import type { StepFilter } from "./DiffViewer";
 import { JobDetailSidebar } from "./JobDetailSidebar";
+import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
+import { NavMenuSlideout } from "./NavMenuSlideout";
 import { MobileStatusRail, MobileJobDetailSheet, MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
@@ -547,11 +549,12 @@ export function JobDetailScreen() {
         onCompleteOpen={() => setCompleteOpen(true)}
       />
 
-      {/* ── Desktop slim toolbar (hidden on mobile) ── */}
-      <div className="hidden md:flex md:shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 mb-2">
-        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => navigate("/")}>
-          <ArrowLeft size={14} />
-        </Button>
+      {/* ── Desktop header bar (replaces app header on job detail) ── */}
+      <div className="hidden md:flex md:shrink-0 items-center gap-2 h-12 border-b border-border bg-card px-4">
+        <button onClick={() => navigate("/")} className="flex items-center gap-2 shrink-0 hover:opacity-80 transition-opacity">
+          <img src="/mark.png" alt="" className="h-7 w-7 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
+        </button>
+        <span className="text-muted-foreground/40 text-sm">/</span>
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <h1 className="text-sm font-bold text-foreground truncate">{job.title || job.id}</h1>
           <span aria-live="polite"><StateBadge state={job.state} /></span>
@@ -659,6 +662,10 @@ export function JobDetailScreen() {
             </Button>
           )}
         </div>
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          <ConnectionStatusIndicator />
+          <NavMenuSlideout />
+        </div>
       </div>
 
       {completeOpen && job && (
@@ -666,7 +673,7 @@ export function JobDetailScreen() {
       )}
 
       {/* Tab bar — desktop shows all tabs + terminal button; mobile shows scrollable strip */}
-      <Tabs value={tab} onValueChange={handleTabChange} className="md:mb-2 md:shrink-0" ref={tabBarRef}>
+      <Tabs value={tab} onValueChange={handleTabChange} className="md:shrink-0 md:px-3 lg:px-4 md:pt-1" ref={tabBarRef}>
         {/* Desktop layout (hidden on mobile) */}
         <div className="hidden md:flex items-center gap-2">
           <TabsList className="overflow-x-auto">
@@ -722,7 +729,7 @@ export function JobDetailScreen() {
       {/* Tab content — full-bleed on mobile, min-height on desktop */}
       <div
         className={cn(
-          "min-h-0 pb-[52px] md:pb-0 md:flex-1 md:flex md:flex-col md:overflow-hidden",
+          "min-h-0 pb-[52px] md:pb-0 md:flex-1 md:flex md:flex-col md:overflow-hidden md:px-3 lg:px-4",
           slideDir === "left" && "animate-slide-left",
           slideDir === "right" && "animate-slide-right",
         )}

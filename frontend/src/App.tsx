@@ -6,9 +6,9 @@ import { modKey } from "./lib/utils";
 import { CommandPalette } from "./components/CommandPalette";
 import { NavMenuSlideout } from "./components/NavMenuSlideout";
 import { useSSE } from "./hooks/useSSE";
-import { useStore, selectConnectionStatus } from "./store";
+import { useStore } from "./store";
 import { DashboardScreen } from "./components/DashboardScreen";
-import { DotBadge } from "./components/ui/badge";
+import { ConnectionStatusIndicator } from "./components/ConnectionStatusIndicator";
 import { Spinner } from "./components/ui/spinner";
 import { lazyRetry } from "./lib/lazyRetry";
 
@@ -78,25 +78,6 @@ class ErrorBoundary extends Component<
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Connection status                                                   */
-/* ------------------------------------------------------------------ */
-
-function ConnectionStatusIndicator() {
-  const status = useStore(selectConnectionStatus);
-  const color = status === "connected" ? "green" : status === "disconnected" ? "red" : "yellow";
-  const label =
-    status === "connecting" ? "Connecting\u2026"
-    : status === "reconnecting" ? "Reconnecting\u2026"
-    : status === "connected" ? "Connected"
-    : "Disconnected";
-  return (
-    <DotBadge color={color} aria-live="polite" aria-label={`Connection status: ${label}`}>
-      {label}
-    </DotBadge>
-  );
-}
-
 function RouteFallback() {
   return (
     <div className="flex items-center justify-center py-20">
@@ -155,7 +136,7 @@ export function App() {
 
   return (
     <div className="flex flex-col h-[100dvh] overflow-x-hidden">
-      <header className={`flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card ${isJobDetail ? "hidden md:flex" : ""}`}>
+      <header className={`flex items-center justify-between px-4 h-12 shrink-0 border-b border-border bg-card ${isJobDetail ? "hidden" : ""}`}>
         <Link to="/" className="no-underline flex items-center gap-3.5 hover:opacity-80 transition-opacity">
           <img src="/mark.png" alt="" className="h-8 w-8 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
           <span className="font-semibold text-white/95 tracking-tight leading-none">
@@ -197,7 +178,7 @@ export function App() {
         </div>
       </header>
 
-      <main className={`flex-1 ${isJobDetail ? "p-0 md:px-3 lg:px-4 md:py-2 overflow-y-auto md:overflow-hidden md:flex md:flex-col" : "p-3 sm:p-4 md:p-6 overflow-y-auto"} ${terminalDrawerOpen ? "min-h-0" : ""}`}>
+      <main className={`flex-1 ${isJobDetail ? "p-0 md:px-0 md:py-0 overflow-y-auto md:overflow-hidden md:flex md:flex-col" : "p-3 sm:p-4 md:p-6 overflow-y-auto"} ${terminalDrawerOpen ? "min-h-0" : ""}`}>
         <ErrorBoundary>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
