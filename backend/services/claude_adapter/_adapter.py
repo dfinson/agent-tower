@@ -97,13 +97,13 @@ class ClaudeAdapter(BaseAgentAdapter):
         self._current_phases[job_id] = phase
 
     def _read_session_stderr(self, session_id: str) -> str:
-        """Read captured stderr from the Claude subprocess (last 4 KB)."""
+        """Read captured stderr from the Claude subprocess."""
         path = self._stderr_files.get(session_id)
         if not path:
             return ""
         try:
             with open(path) as f:
-                return f.read()[-4096:]
+                return f.read()
         except OSError:
             return ""
 
@@ -256,7 +256,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                     log.error(
                         "claude_consumer_error",
                         session_id=session_id,
-                        stderr_tail=stderr_snippet[:500] if stderr_snippet else "",
+                        stderr_tail=stderr_snippet if stderr_snippet else "",
                         exc_info=True,
                     )
                     error_msg = f"Claude SDK session error: {exc}"

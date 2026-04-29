@@ -248,7 +248,7 @@ class NamingService:
             rename_prompt = _RENAME_PROMPT.format(
                 field=field,
                 conflicting_value=conflicting_value,
-                prompt=prompt[:500],
+                prompt=prompt,
             )
             raw = await self._backend.complete(rename_prompt)
             data = _extract_json(raw)

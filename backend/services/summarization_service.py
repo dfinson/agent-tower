@@ -31,10 +31,6 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-# Truncation limits for session snapshot buffers
-_DEDUP_KEY_MAX = 500
-_TRANSCRIPT_CONTENT_MAX = 2000
-
 # ---------------------------------------------------------------------------
 # Summarization prompt
 # ---------------------------------------------------------------------------
@@ -261,14 +257,14 @@ class SummarizationService:
                     if role == "agent" or role == "assistant":
                         if not content:
                             continue
-                        key = content[:_DEDUP_KEY_MAX]
+                        key = content
                         if key in seen:
                             continue
                         seen.add(key)
                         turns.append(
                             {
                                 "role": "assistant",
-                                "content": content[:_TRANSCRIPT_CONTENT_MAX],
+                                "content": content,
                                 "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
                             }
                         )
@@ -278,7 +274,7 @@ class SummarizationService:
                         turns.append(
                             {
                                 "role": "operator",
-                                "content": content[:_TRANSCRIPT_CONTENT_MAX],
+                                "content": content,
                                 "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
                             }
                         )

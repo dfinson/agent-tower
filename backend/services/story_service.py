@@ -216,7 +216,7 @@ async def _build_references(
                 if isinstance(edits, list) and edits:
                     ref["editCount"] = len(edits)
             except (json.JSONDecodeError, TypeError):
-                log.debug("edit_motivations_parse_failed", raw_edits=raw_edits[:80] if isinstance(raw_edits, str) else type(raw_edits).__name__)
+                log.debug("edit_motivations_parse_failed", raw_edits=raw_edits if isinstance(raw_edits, str) else type(raw_edits).__name__)
                 pass
         seen[key] = ref
 

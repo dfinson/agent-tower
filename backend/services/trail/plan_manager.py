@@ -11,7 +11,6 @@ import structlog
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.trail.models import (
     SISTER_FAILURE_THRESHOLD,
-    TOOL_INTENT_MAX,
     PlanStep,
     TrailJobState,
     make_plan_step_id,
@@ -62,16 +61,12 @@ class PlanManager:
 
         if role == "agent" and content:
             state.recent_messages.append(content)
-            if len(state.recent_messages) > 5:
-                state.recent_messages = state.recent_messages[-5:]
 
             if len(state.recent_messages) == 1 and not state.plan_established:
                 await self._try_early_plan(job_id)
 
         if role == "tool_call" and tool_intent:
-            state.recent_tool_intents.append(tool_intent[:TOOL_INTENT_MAX])
-            if len(state.recent_tool_intents) > 10:
-                state.recent_tool_intents = state.recent_tool_intents[-10:]
+            state.recent_tool_intents.append(tool_intent)
 
     async def feed_tool_name(self, job_id: str, tool_name: str) -> None:
         """Track tool usage for summary context and early plan trigger."""
@@ -81,8 +76,6 @@ class PlanManager:
 
         if tool_name not in state.recent_tool_names:
             state.recent_tool_names.append(tool_name)
-        if len(state.recent_tool_names) > 10:
-            state.recent_tool_names = state.recent_tool_names[-10:]
 
         state.tool_call_count += 1
         if state.tool_call_count == 3 and not state.plan_established:
@@ -134,7 +127,7 @@ class PlanManager:
                 steps.append(
                     PlanStep(
                         plan_step_id=make_plan_step_id(),
-                        label=label.strip()[:60],
+                        label=label.strip(),
                         status="active" if i == 0 else "pending",
                         order=i,
                         started_at=now if i == 0 else None,
@@ -179,8 +172,8 @@ class PlanManager:
             f"  {i + 1}. [{s.status}] {s.label}" + (f" -- {s.summary}" if s.summary else "")
             for i, s in enumerate(steps)
         )
-        tools = ", ".join(state.recent_tool_names[-6:])
-        intents = "; ".join(state.recent_tool_intents[-3:])
+        tools = ", ".join(state.recent_tool_names)
+        intents = "; ".join(state.recent_tool_intents)
 
         prompt = CLASSIFY_PROMPT.format(
             plan_block=plan_block,
@@ -197,13 +190,13 @@ class PlanManager:
             raw = await sister.complete(prompt)
             raw = strip_code_fences(raw)
             parsed = json.loads(raw)
-            summary = str(parsed.get("summary", ""))[:200]
+            summary = str(parsed.get("summary", ""))
             new_status = str(parsed.get("status", "active"))
             if new_status not in ("active", "done"):
                 new_status = "active"
             ul = parsed.get("updated_label")
             if isinstance(ul, str) and ul.strip():
-                updated_label = ul.strip()[:60]
+                updated_label = ul.strip()
 
             raw_assign = parsed.get("assign_to")
             if isinstance(raw_assign, int) and 1 <= raw_assign <= len(steps):

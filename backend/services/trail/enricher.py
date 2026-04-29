@@ -205,7 +205,7 @@ class TrailEnricher:
                 if files_written:
                     title = f"Edited {', '.join(files_written[:3])}"
                 elif node.agent_message:
-                    title = node.agent_message[:60].split("\n")[0]
+                    title = node.agent_message.split("\n")[0]
                 else:
                     title = "Work in progress"
 

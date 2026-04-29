@@ -127,7 +127,7 @@ class StepDiffService:
         hunk_motivations: dict[str, HunkMotivation] = {}
 
         if step_row and hasattr(step_row, "preceding_context") and step_row.preceding_context:
-            step_context = str(step_row.preceding_context)[:500]
+            step_context = str(step_row.preceding_context)
 
         # Find the turn_id to look up telemetry spans
         turn_id_for_lookup = step_id

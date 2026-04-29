@@ -55,11 +55,6 @@ class _NoSessionFactory(Exception):
 # Shared adapter constants
 # ---------------------------------------------------------------------------
 
-# Truncation limits for approval action payloads and tool summaries (characters)
-_TOOL_ACTION_MAX_CHARS = 2000
-_TOOL_SUMMARY_MAX_CHARS = 200
-_TOOL_SUMMARY_FALLBACK_CHARS = 120
-
 # SDK event stream queue timeout: if no event arrives within this window the
 # stream is considered stale.  330s accommodates long LLM generations plus a
 # safety margin over the typical ~300s provider timeout.
@@ -744,7 +739,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 duration_ms=duration_ms,
                 attrs={
                     "success": success,
-                    **({"error_snippet": result_text[:2000]} if not success and result_text else {}),
+                    **({"error_snippet": result_text} if not success and result_text else {}),
                 },
                 tool_category=category,
                 tool_target=target,
@@ -829,7 +824,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             request.full_command_text,
         )
         proposed = request.full_command_text or (
-            json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX_CHARS] if tool_input else None
+            json.dumps(tool_input, default=str) if tool_input else None
         )
         resolution = await self._route_to_operator(
             session_id,
@@ -848,14 +843,14 @@ class BaseAgentAdapter(AgentAdapterInterface):
     ) -> ApprovalResolution:
         """Route a hard-blocked command to the operator."""
         if self._approval_service is None or job_id is None:
-            log.error("git_reset_hard_blocked_no_infra", command=shell_cmd[:200])
+            log.error("git_reset_hard_blocked_no_infra", command=shell_cmd)
             return ApprovalResolution.rejected
 
         description = (
             "⚠️ git reset --hard — this will discard ALL uncommitted changes and "
-            f"move HEAD: {shell_cmd[:_TOOL_SUMMARY_MAX_CHARS]}"
+            f"move HEAD: {shell_cmd}"
         )
-        proposed = json.dumps(tool_input, default=str)[:_TOOL_ACTION_MAX_CHARS] if tool_input else shell_cmd
+        proposed = json.dumps(tool_input, default=str) if tool_input else shell_cmd
         approval = await self._approval_service.create_request(
             job_id=job_id,
             description=description,
@@ -878,7 +873,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             "git_reset_hard_awaiting_operator",
             approval_id=approval.id,
             job_id=job_id,
-            command=shell_cmd[:200],
+            command=shell_cmd,
         )
         return await self._approval_service.wait_for_resolution(approval.id)
 
@@ -957,15 +952,15 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 val = _get(primary, fallback)
             else:
                 val = _get(primary)
-            return f"{prefix} {val[:_TOOL_SUMMARY_MAX_CHARS]}"
+            return f"{prefix} {val}"
 
         # Generic
         if tool_name:
             summary = ""
             if tool_input:
                 try:
-                    summary = json.dumps(tool_input, default=str)[:_TOOL_SUMMARY_FALLBACK_CHARS]
+                    summary = json.dumps(tool_input, default=str)
                 except (TypeError, ValueError):
-                    summary = str(tool_input)[:_TOOL_SUMMARY_FALLBACK_CHARS]
+                    summary = str(tool_input)
             return f"{tool_name}: {summary}"
         return full_command_text or tool_kind

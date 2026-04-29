@@ -118,7 +118,7 @@ User request: {req.prompt}"""
         except (json.JSONDecodeError, KeyError):
             log.warning(
                 "terminal_ask_parse_failed",
-                raw_result=result[:200],
+                raw_result=result,
                 prompt=req.prompt,
                 exc_info=True,
             )

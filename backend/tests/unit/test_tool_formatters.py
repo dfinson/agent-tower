@@ -27,24 +27,19 @@ class TestTruncate:
         s = "a" * 60
         assert _truncate(s, 60) == s
 
-    def test_long_string_truncated(self):
+    def test_long_string_passthrough(self):
         s = "a" * 80
-        result = _truncate(s, 60)
-        assert len(result) == 60
-        assert result.endswith("…")
+        assert _truncate(s, 60) == s
 
-    def test_custom_max_len(self):
+    def test_custom_max_len_passthrough(self):
         s = "abcdef"
-        result = _truncate(s, 4)
-        assert result == "abc…"
-        assert len(result) == 4
+        assert _truncate(s, 4) == "abcdef"
 
     def test_empty_string(self):
         assert _truncate("", 60) == ""
 
-    def test_one_char_max(self):
-        # max_len=1 → s[:0] + "…" = "…"
-        assert _truncate("abc", 1) == "…"
+    def test_any_string_passthrough(self):
+        assert _truncate("abc", 1) == "abc"
 
 
 class TestParseArgs:
@@ -160,13 +155,10 @@ class TestFmtBash:
     def test_no_args(self):
         assert _fmt("bash") == "bash"
 
-    def test_long_command_truncated(self):
+    def test_long_command_passthrough(self):
         cmd = "x" * 100
         result = _fmt("bash", {"command": cmd})
-        assert result.startswith("$ ")
-        assert result.endswith("…")
-        # "$ " (2 chars) + truncated command (55 chars)
-        assert len(result) == 57
+        assert result == f"$ {cmd}"
 
 
 class TestFmtRunInTerminal:
@@ -314,10 +306,10 @@ class TestFmtGrepSearch:
     def test_no_query(self):
         assert _fmt("grep_search", {}) == "Grep search"
 
-    def test_long_query_truncated(self):
+    def test_long_query_passthrough(self):
         query = "a" * 80
         result = _fmt("grep_search", {"query": query})
-        assert result.endswith('…"')
+        assert result == f'Grep: "{query}"'
 
 
 class TestFmtSemanticSearch:
@@ -473,12 +465,12 @@ class TestFmtRenameSymbol:
     def test_only_old_name(self):
         assert _fmt("vscode_renameSymbol", {"oldName": "foo"}) == "Rename symbol"
 
-    def test_long_names_truncated(self):
+    def test_long_names_passthrough(self):
         result = _fmt(
             "vscode_renameSymbol",
             {"oldName": "a" * 50, "newName": "b" * 50},
         )
-        assert "…" in result
+        assert result == f"Rename {'a' * 50} → {'b' * 50}"
 
 
 class TestFmtListCodeUsages:

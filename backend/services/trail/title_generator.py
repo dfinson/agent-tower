@@ -51,18 +51,18 @@ class TitleGenerator:
                     done_count += 1
 
         current_act_id = state.activities[-1].activity_id if state.activities else None
-        recent_titles = [s.title for s in state.activity_steps if s.activity_id == current_act_id][-5:]
+        recent_titles = [s.title for s in state.activity_steps if s.activity_id == current_act_id]
         recent_block = "\n".join(f"  - {t}" for t in recent_titles) if recent_titles else "  (none yet)"
 
-        tools = ", ".join(state.recent_tool_names[-6:])
+        tools = ", ".join(state.recent_tool_names)
 
         prompt = TITLE_PROMPT.format(
             job_prompt=state.job_prompt or "(unknown)",
             active_plan_label=active_label,
             done_count=done_count,
             total_count=total_count,
-            files_read=", ".join(files_read[:8]) or "(none)",
-            files_written=", ".join(files_written[:8]) or "(none)",
+            files_read=", ".join(files_read) or "(none)",
+            files_written=", ".join(files_written) or "(none)",
             tools=tools or "(none)",
             duration_s=round(duration_ms / 1000, 1),
             agent_msg=agent_msg or "(no message)",
@@ -79,7 +79,7 @@ class TitleGenerator:
             parsed = json.loads(raw)
             tt = parsed.get("title")
             if isinstance(tt, str) and tt.strip():
-                title = tt.strip()[:80]
+                title = tt.strip()
             mp = parsed.get("merge_with_previous")
             if isinstance(mp, bool):
                 merge_prev = mp
@@ -96,5 +96,5 @@ class TitleGenerator:
         if files_written:
             return f"Edited {', '.join(files_written[:3])}"
         if agent_msg:
-            return agent_msg[:60].split("\n")[0]
+            return agent_msg.split("\n")[0]
         return "Work in progress"

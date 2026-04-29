@@ -189,7 +189,7 @@ class ConsoleLog:
         if record.levelno < logging.ERROR:
             return
         msg = record.getMessage()
-        first_line = (msg.splitlines()[0] if msg else "(no message)")[:120]
+        first_line = (msg.splitlines()[0] if msg else "(no message)")
         short_name = record.name
         for prefix in ("backend.services.", "backend.api.", "backend."):
             if short_name.startswith(prefix):
@@ -253,12 +253,12 @@ class ConsoleLog:
                 line = Text()
                 line.append(ts, style="dim")
                 line.append("       ↳ ", style="dim")
-                line.append(headline[:80])
+                line.append(headline)
                 self._console.print(line)
 
         elif kind == DomainEventKind.approval_requested:
             desc = str(event.payload.get("description") or "approval needed")
-            self._print_event(ts, "⏸", "waiting_for_approval", event.job_id, f"approval needed · {desc[:60]}")
+            self._print_event(ts, "⏸", "waiting_for_approval", event.job_id, f"approval needed · {desc}")
 
     def _print_event(self, ts: str, icon: str, state: str, job_id: str, message: str) -> None:
         style = _STATE_STYLE.get(state, "")

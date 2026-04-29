@@ -126,7 +126,7 @@ class TrailNodeBuilder:
                 p = ev.payload
                 ps = PlanStep(
                     plan_step_id=ps_id,
-                    label=str(p.get("label", ""))[:60],
+                    label=str(p.get("label", "")),
                     status=str(p.get("status", "pending")),
                     order=p.get("order", 0) or 0,
                     summary=p.get("summary"),

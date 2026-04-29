@@ -25,9 +25,8 @@ ToolArgs = dict[str, Any]
 
 
 def _truncate(s: str, max_len: int = 60) -> str:
-    if len(s) <= max_len:
-        return s
-    return s[: max_len - 1] + "…"
+    # Truncation removed — CSS handles display overflow
+    return s
 
 
 def _parse_args(tool_args: str | None) -> ToolArgs:
@@ -125,8 +124,6 @@ def _build_formatter(spec: _FormatSpec, no_truncate: bool = False) -> Callable[[
                 display = _short_path(v) if spec.use_path else v
                 if spec.trim_paths:
                     display = _trim_worktree_paths(display)
-                if spec.truncate and not no_truncate:
-                    display = _truncate(display, spec.truncate)
                 if spec.quote:
                     display = f'"{display}"'
                 return f"{spec.prefix}{spec.separator}{display}"
@@ -255,9 +252,9 @@ def _fmt_computer(args: ToolArgs) -> str:
         return "Take screenshot"
     if action == "key":
         key = args.get("text", "")
-        return f"Key: {_truncate(key, 20)}" if key else "Press key"
+        return f"Key: {key}" if key else "Press key"
     if action == "type":
-        text = _truncate(args.get("text", ""), 30)
+        text = args.get("text", "")
         return f"Type: {text}" if text else "Type text"
     if action in ("mouse_move", "left_click", "right_click", "double_click"):
         coord = args.get("coordinate", [])
@@ -266,7 +263,7 @@ def _fmt_computer(args: ToolArgs) -> str:
             return f"{label} ({coord[0]}, {coord[1]})"
         return label
     if action:
-        return f"Computer: {_truncate(action, 30)}"
+        return f"Computer: {action}"
     return "Computer action"
 
 
@@ -274,7 +271,7 @@ def _fmt_read_mcp_resource(args: ToolArgs) -> str:
     """Formatter for Claude SDK's ReadMcpResource tool."""
     uri = args.get("uri", "")
     if uri:
-        return f"Read MCP: {_truncate(uri, 50)}"
+        return f"Read MCP: {uri}"
     server = args.get("server_name", "")
     return f"Read MCP resource ({server})" if server else "Read MCP resource"
 
@@ -337,10 +334,10 @@ def _fmt_fetch_webpage(args: ToolArgs) -> str:
 
         try:
             p = urlparse(url)
-            short = p.netloc + p.path[:30]
-            return f"Fetch {_truncate(short, 50)}"
+            short = p.netloc + p.path
+            return f"Fetch {short}"
         except Exception:
-            log.warning("url_parse_failed", url=url[:80])
+            log.warning("url_parse_failed", url=url)
     return "Fetch webpage"
 
 
@@ -348,7 +345,7 @@ def _fmt_rename_symbol(args: ToolArgs) -> str:
     old = args.get("oldName", args.get("old_name", ""))
     new = args.get("newName", args.get("new_name", ""))
     if old and new:
-        return f"Rename {_truncate(old, 20)} → {_truncate(new, 20)}"
+        return f"Rename {old} → {new}"
     return "Rename symbol"
 
 
@@ -378,7 +375,7 @@ def _count_lines(result: str) -> int:
 def _hint_bash(result: str, success: bool) -> str:
     if not success:
         first = result.strip().splitlines()[0] if result.strip() else "error"
-        return f"→ FAIL: {_truncate(first, 40)}"
+        return f"→ FAIL: {first}"
     n = _count_lines(result)
     return f"→ {n} lines" if n else "→ done"
 
@@ -630,7 +627,7 @@ def _extract_description_from_args(tool_args: str | None, max_len: int = 60) -> 
     for key in _DESCRIPTION_KEYS:
         val = args.get(key, "")
         if isinstance(val, str) and val.strip():
-            return _truncate(val.strip(), max_len)
+            return val.strip()
     return None
 
 

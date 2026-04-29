@@ -84,8 +84,7 @@ def _build_user_prompt(
 def _compute_edit_key(tool_name: str, parsed_args: dict[str, Any]) -> str:
     """Compute a stable fingerprint for a single edit operation."""
     if tool_name in ("create", "create_file", "Write"):
-        # Whole-file create — fingerprint from first 200 chars of content
-        content = str(parsed_args.get("file_text", "") or parsed_args.get("content", ""))[:200]
+        content = str(parsed_args.get("file_text", "") or parsed_args.get("content", ""))
         h = hashlib.sha256(content.encode("utf-8", errors="replace")).hexdigest()[:12]
         return f"create:{h}"
     # Replace/edit tools — fingerprint from old_str
@@ -94,7 +93,7 @@ def _compute_edit_key(tool_name: str, parsed_args: dict[str, Any]) -> str:
         or parsed_args.get("oldString", "")
         or parsed_args.get("old_string", "")
         or ""
-    )[:200]
+    )
     if old_str:
         h = hashlib.sha256(old_str.encode("utf-8", errors="replace")).hexdigest()[:12]
         return f"replace:{h}"
@@ -102,7 +101,7 @@ def _compute_edit_key(tool_name: str, parsed_args: dict[str, Any]) -> str:
     line = parsed_args.get("insert_line") or parsed_args.get("insertLine")
     if line is not None:
         return f"insert:L{line}"
-    return f"unknown:{hashlib.sha256(json.dumps(parsed_args, sort_keys=True)[:200].encode()).hexdigest()[:12]}"
+    return f"unknown:{hashlib.sha256(json.dumps(parsed_args, sort_keys=True).encode()).hexdigest()[:12]}"
 
 
 def _format_mini_diff(tool_name: str, parsed_args: dict[str, Any], file_path: str | None) -> str:

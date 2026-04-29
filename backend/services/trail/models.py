@@ -190,5 +190,4 @@ DETERMINISTIC_KINDS = frozenset({"goal", "explore", "modify", "request", "summar
 SEMANTIC_KINDS = frozenset({"plan", "insight", "decide", "backtrack", "verify"})
 ALL_KINDS = DETERMINISTIC_KINDS | SEMANTIC_KINDS
 
-TOOL_INTENT_MAX = 80
 SISTER_FAILURE_THRESHOLD = 5

@@ -224,7 +224,7 @@ class ActivityTracker:
             parsed = json.loads(raw)
             new_label = parsed.get("label")
             if isinstance(new_label, str) and new_label.strip():
-                activity.label = new_label.strip()[:80]
+                activity.label = new_label.strip()
                 last_step = next(
                     (s for s in reversed(state.activity_steps) if s.activity_id == activity.activity_id),
                     None,

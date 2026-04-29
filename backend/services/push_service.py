@@ -47,16 +47,16 @@ class PushService:
         endpoint = subscription_info.get("endpoint", "")
         keys = subscription_info.get("keys", {})
         if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
-            log.warning("push_subscribe_invalid", endpoint=endpoint[:50] if endpoint else "empty")
+            log.warning("push_subscribe_invalid", endpoint=endpoint if endpoint else "empty")
             return
         self._subscriptions[endpoint] = PushSubscription(endpoint=endpoint, keys=keys)
-        log.info("push_subscribed", endpoint=endpoint[:50], total=len(self._subscriptions))
+        log.info("push_subscribed", endpoint=endpoint, total=len(self._subscriptions))
 
     def unsubscribe(self, endpoint: str) -> None:
         """Remove a push subscription."""
         removed = self._subscriptions.pop(endpoint, None)
         if removed:
-            log.info("push_unsubscribed", endpoint=endpoint[:50], total=len(self._subscriptions))
+            log.info("push_unsubscribed", endpoint=endpoint, total=len(self._subscriptions))
 
     async def notify(self, *, title: str, body: str, tag: str = "cpl", url: str = "/") -> None:
         """Send a push notification to all subscribers (fire-and-forget)."""
@@ -80,9 +80,9 @@ class PushService:
                 error_msg = str(exc)
                 if "410" in error_msg or "404" in error_msg:
                     stale.append(endpoint)
-                    log.debug("push_subscription_expired", endpoint=endpoint[:50])
+                    log.debug("push_subscription_expired", endpoint=endpoint)
                 else:
-                    log.warning("push_send_failed", endpoint=endpoint[:50], error=error_msg)
+                    log.warning("push_send_failed", endpoint=endpoint, error=error_msg)
 
         for ep in stale:
             self._subscriptions.pop(ep, None)
