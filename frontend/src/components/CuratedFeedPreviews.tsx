@@ -112,7 +112,7 @@ export function PhaseBox({
           <Icon size={12} className={cn("shrink-0", KIND_ICON_COLORS[cluster.kind])} />
           <span className="font-medium">{cluster.label}</span>
           {cluster.entries[0]?.toolGroupSummary && (
-            <span className="text-[11px] text-muted-foreground/50 italic truncate ml-1 flex-1 min-w-0">
+            <span className="text-[11px] text-muted-foreground/[0.55] italic truncate ml-1 flex-1 min-w-0">
               {cluster.entries[0].toolGroupSummary}
             </span>
           )}

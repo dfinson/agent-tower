@@ -55,7 +55,7 @@ function HighlightedMarkdown({ content }: { content: string }) {
 const OperatorMessage = memo(function OperatorMessage({ entry }: { entry: TranscriptEntry }) {
   return (
     <div className="flex gap-2 sm:gap-3 py-3 justify-end">
-      <div className="min-w-0 max-w-[85%] rounded-lg bg-primary/20 border border-primary/30 px-3 py-2">
+      <div className="min-w-0 max-w-[85%] rounded-lg bg-primary/[0.18] border border-primary/25 px-3 py-2">
         <div className="text-[15px] sm:text-sm text-foreground leading-relaxed">
           <HighlightedMarkdown content={entry.content ?? ""} />
         </div>
@@ -115,12 +115,9 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
       {/* Agent bubble — message + reasoning grouped together */}
       {(hasMessage || (hasReasoning && !hasTools)) && (
-        <div className="flex gap-2 sm:gap-3">
-          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/70 border border-border/50 flex items-center justify-center mt-0.5">
-            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/70" />} />
-          </div>
+        <div>
           <div className={cn(
-            "flex-1 min-w-0 rounded-lg px-2.5 sm:px-3 py-2 space-y-1.5",
+            "min-w-0 rounded-lg px-2.5 sm:px-3 py-2 space-y-1.5",
             isStreaming ? "bg-card/90 border border-primary/20 animate-activity-shimmer" : "bg-card/60",
           )}>
             {hasReasoning && (
@@ -145,11 +142,8 @@ const AgentTurnBlock = memo(function AgentTurnBlock({
 
       {/* Streaming with no committed message yet and no reasoning bubble shown */}
       {!displayMessage && isStreaming && streamingText && !hasReasoning && (
-        <div className="flex gap-2 sm:gap-3">
-          <div className="shrink-0 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-muted/70 border border-border/50 flex items-center justify-center mt-0.5">
-            <SdkIcon sdk={sdk} size={14} fallback={<Bot size={13} className="text-muted-foreground/70" />} />
-          </div>
-          <div className="flex-1 min-w-0 rounded-lg bg-card/90 border border-primary/20 animate-activity-shimmer px-3 py-2">
+        <div>
+          <div className="min-w-0 rounded-lg bg-card/90 border border-primary/20 animate-activity-shimmer px-3 py-2">
             <div className="text-[15px] sm:text-[14px] text-foreground leading-relaxed">
               <HighlightedMarkdown content={streamingText} />
               <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />

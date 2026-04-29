@@ -6,7 +6,7 @@
   :root {
     --background: 220 20% 7%;
     --foreground: 213 27% 90%;
-    --card: 215 22% 11%;
+    --card: 220 12% 11%;
     --card-foreground: 213 27% 90%;
     --popover: 215 22% 14%;
     --popover-foreground: 213 27% 90%;
@@ -94,6 +94,24 @@
 }
 .animate-reasoning-pulse {
   animation: reasoning-border-pulse 4s ease-in-out infinite;
+}
+
+/* Accessibility: disable continuous/decorative animations for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-activity-shimmer {
+    animation: none;
+    background: hsl(var(--primary) / 0.04);
+  }
+  .animate-reasoning-pulse {
+    animation: none;
+    border-left-color: hsl(var(--primary) / 0.30);
+  }
+  .animate-feed-enter {
+    animation: none;
+  }
+  .animate-glow-flicker {
+    animation: none;
+  }
 }
 
 /* Mobile tab-swipe transitions — M3 expressive default spatial (500ms) */
