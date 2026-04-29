@@ -1026,5 +1026,230 @@
   </div>
 </div>
 
+<!-- ============================================================ -->
+<!-- SCENARIO I: Detailed verbosity — same approval-flow job       -->
+<!-- as A and B, with expanded diffs, exploration context,         -->
+<!-- and alternatives considered at each decision                  -->
+<!-- ============================================================ -->
+<div class="scenario" id="scenario-i">
+  <div class="scenario-label">Narrative I — Detailed verbosity, same job as A &amp; B</div>
+  <div class="container">
+    <div class="tab-bar">
+      <div class="tab">Dashboard</div>
+      <div class="tab">Timeline</div>
+      <div class="tab active">Narrative</div>
+      <div class="tab">Review</div>
+      <div class="tab">Full Diff</div>
+    </div>
+    <div class="header">
+      <h1>Refactor approval flow with explicit permission modes</h1>
+      <div class="verbosity">
+        <span>Brief</span>
+        <span>Standard</span>
+        <span class="active">Detailed</span>
+      </div>
+    </div>
+    <div class="meta">15 files changed across 2 sessions · 48 minutes · 3 decisions · 1 backtrack</div>
+
+    <div class="prose">
+      <p class="lede">CodePlane's approval system is the gate between an autonomous agent and production-affecting actions — schema migrations, destructive file operations, anything the operator wants to review before it lands. Every approval request was treated identically: the agent asks, the operator says yes or no. There was no way to express that some operations should run autonomously while others require a human in the loop. The task was to add explicit permission modes so approval behavior varies per operation.</p>
+
+      <hr>
+
+      <div class="activity-header">Wire permission enum<span class="activity-count">· 8 files</span></div>
+
+      <div class="time">Session 1 · 0:00 – 0:08</div>
+
+      <p><span class="read-ctx"><span class="read-icon">◀</span> approval_service.py:12–47</span> <span class="read-ctx"><span class="read-icon">◀</span> approval_tool.py:28–41</span> <span class="read-ctx"><span class="read-icon">◀</span> runtime_service.py:82–134</span> <span class="read-ctx"><span class="read-icon">◀</span> test_approval_service.py:1–45</span></p>
+
+      <p>The approval lifecycle lives in <code class="sym">ApprovalService<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">approval_service.py:14</span><div class="sym-sig">class ApprovalService:</div><div class="sym-desc">Manages approval creation, resolution, and timeout</div><div class="sym-jump">View in diff →</div></span></code>. The entry point is <code class="sym">create_request()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:23</span><div class="sym-sig">async def create_request(self, job_id: str, message: str) -> Approval</div><div class="sym-desc">Creates an approval request and persists through repository</div><div class="sym-jump">View in diff →</div></span></code> — it takes a job ID and a human-readable message, persists the request through the repository layer, and returns the <code>Approval</code> model. Seven call sites depend on this method: three in <code class="sym">RuntimeService<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">runtime_service.py:31</span><div class="sym-sig">class RuntimeService:</div><div class="sym-desc">Orchestrates job lifecycle from creation to completion</div><div class="sym-jump">View in diff →</div></span></code>, three in test suites, and one in the MCP tool layer.</p>
+
+      <p>That last caller — <span class="file">approval_tool.py:34</span> — uses <code>getattr(service, method_name)</code> to dispatch dynamically. This is invisible to any import graph or static call analysis. At lines 28–41, the tool constructs a method name from the incoming MCP request type and calls it reflectively. No type checker will flag a missing parameter here.</p>
+
+      <div class="aside insight">
+        <span class="label">Insight</span>
+        <span class="file">approval_tool.py:34</span> dispatches via <code>getattr()</code>. Dynamic dispatch — invisible to static analysis, needs manual verification after signature changes.
+      </div>
+
+      <p>The existing approval model uses a flat structure — request metadata and resolution metadata coexist on the same <code>Approval</code> row. The <code>resolved_at</code>, <code>resolution</code>, and <code>message</code> fields all sit on one model regardless of whether the approval is pending or resolved. I noted this as a potential issue but deferred it — the immediate task was adding the permission dimension, not refactoring the data model.</p>
+
+      <div class="aside decide">
+        <span class="label">Decision</span>
+        Made <code>permission_mode</code> a required parameter on <code class="sym">create_request()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:23</span><div class="sym-sig">async def create_request(self, job_id: str, message: str, permission_mode: PermissionMode) -> Approval</div><div class="sym-desc">Creates an approval request — now requires explicit permission mode</div><div class="sym-jump">View in diff →</div></span></code> rather than optional with a default. A default would silently mask call sites that haven't been updated to think about permissions.
+      </div>
+
+      <p style="color: var(--text-dim); font-size: 13px; margin: -8px 0 14px; padding-left: 16px; border-left: 1px solid hsl(215 8% 14%);">
+        <strong>Alternatives considered:</strong>
+        (a) Optional parameter with <code>SUPERVISED</code> default — rejected because dynamic dispatch callers would silently inherit the default without any developer choosing it.
+        (b) Configuration-level default per repo — rejected because permission context depends on the specific operation, not the repository.
+        (c) Separate <code>set_permission()</code> method called after creation — rejected because it creates a window where the approval exists without a mode, complicating the state machine.
+      </p>
+
+      <div class="diff">
+        <span class="file-label">backend/models/domain.py +4</span>
+<span class="add">+class PermissionMode(str, Enum):</span>
+<span class="add">+    AUTONOMOUS = "autonomous"</span>
+<span class="add">+    SUPERVISED = "supervised"</span>
+<span class="add">+    LOCKED = "locked"</span>
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/services/approval_service.py +3 −1</span>
+<span class="del">-    async def create_request(self, job_id: str, message: str) -> Approval:</span>
+<span class="add">+    async def create_request(</span>
+<span class="add">+        self, job_id: str, message: str, permission_mode: PermissionMode,</span>
+<span class="add">+    ) -> Approval:</span>
+<span class="ctx">         approval = Approval(</span>
+<span class="ctx">             id=str(uuid4()),</span>
+<span class="ctx">             job_id=job_id,</span>
+<span class="add">+            permission_mode=permission_mode,</span>
+<span class="ctx">             message=message,</span>
+<span class="ctx">             created_at=utcnow(),</span>
+<span class="ctx">         )</span>
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/services/runtime_service.py +6 −2</span>
+<span class="ctx"> class RuntimeService:</span>
+<span class="ctx">     async def setup_and_start(self, job_id: str, /) -> None:</span>
+<span class="ctx">         ...</span>
+<span class="del">-        approval = await self._approval.create_request(job_id, msg)</span>
+<span class="add">+        approval = await self._approval.create_request(</span>
+<span class="add">+            job_id, msg, permission_mode=config.permission_mode,</span>
+<span class="add">+        )</span>
+<span class="ctx"> </span>
+<span class="ctx">     async def handle_approval(self, approval_id: str, resolution: str) -> ...</span>
+<span class="ctx">         ...</span>
+<span class="del">-        approval = await self._approval.create_request(job_id, follow_msg)</span>
+<span class="add">+        approval = await self._approval.create_request(</span>
+<span class="add">+            job_id, follow_msg, permission_mode=prev.permission_mode,</span>
+<span class="add">+        )</span>
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/persistence/approval_repo.py +2 −1</span>
+<span class="ctx"> class ApprovalRepository:</span>
+<span class="ctx">     async def create(self, approval: Approval) -> None:</span>
+<span class="ctx">         row = ApprovalRow(</span>
+<span class="ctx">             id=approval.id,</span>
+<span class="ctx">             job_id=approval.job_id,</span>
+<span class="add">+            permission_mode=approval.permission_mode.value,</span>
+<span class="ctx">             message=approval.message,</span>
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/mcp/tools/approval_tool.py +4 −1</span>
+<span class="ctx"> class ApprovalTool:</span>
+<span class="ctx">     async def execute(self, request: MCPRequest) -> MCPResponse:</span>
+<span class="ctx">         method_name = f"create_{request.type}_request"</span>
+<span class="ctx">         method = getattr(self._service, method_name)</span>
+<span class="del">-        result = await method(request.job_id, request.message)</span>
+<span class="add">+        result = await method(</span>
+<span class="add">+            request.job_id,</span>
+<span class="add">+            request.message,</span>
+<span class="add">+            permission_mode=PermissionMode(request.permission_mode),</span>
+<span class="add">+        )</span>
+      </div>
+
+      <p style="color: var(--text-dim); font-size: 12px;">+ 3 test fixture files updated with explicit permission_mode values</p>
+
+      <hr>
+
+      <div class="activity-header">Extract ApprovalResult<span class="activity-count">· 7 files</span></div>
+
+      <div class="time">Session 2 · 0:28 – 0:34</div>
+
+      <p><span class="read-ctx"><span class="read-icon">◀</span> runtime_service.py:142–178</span> <span class="read-ctx"><span class="read-icon">◀</span> api/routes/approvals.py:45–62</span> <span class="read-ctx"><span class="read-icon">◀</span> test_api_approvals.py:23–67</span></p>
+
+      <p>Session two started with three test failures from the signature change — expected. But while fixing them, the pattern became obvious. Every single caller immediately destructured <code>resolved_at</code>, <code>resolution</code>, and now <code>permission_mode</code> off the <code>Approval</code> model that <code class="sym">resolve()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:67</span><div class="sym-sig">async def resolve(self, approval_id: str, resolution: str) -> Approval</div><div class="sym-desc">Closes an approval and returns the result to the requester</div><div class="sym-jump">View in diff →</div></span></code> returned:</p>
+
+      <div class="diff">
+        <span class="file-label">Caller pattern — repeated in 4 locations</span>
+<span class="ctx"> result = await self._approval.resolve(approval_id, resolution)</span>
+<span class="ctx"> # Every caller then does:</span>
+<span class="ctx"> resolved_at = result.resolved_at</span>
+<span class="ctx"> resolution_val = result.resolution</span>
+<span class="ctx"> mode = result.permission_mode  # new field</span>
+      </div>
+
+      <p>The model was serving two different roles — the initial request ("someone needs to approve this migration") and the outcome ("the operator approved it at 14:03 with supervised permissions"). These are conceptually different things, and packing both into the same object was already awkward before adding a third outcome field.</p>
+
+      <div class="aside backtrack">
+        <span class="label">Changed course</span>
+        Stopped extending the <code>Approval</code> model. Extracted a new <code class="sym">ApprovalResult<span class="sym-hover"><span class="sym-kind">class</span> · <span class="sym-loc">approval_service.py:15</span><div class="sym-sig">class ApprovalResult(CamelModel):</div><div class="sym-desc">Wraps approval with resolution metadata — new return type of resolve()</div><div class="sym-jump">View in diff →</div></span></code> that wraps the approval with its resolution metadata. This changed the return type of <code>resolve()</code> — a breaking change to code that existed before this job.
+      </div>
+
+      <div class="aside decide">
+        <span class="label">Decision</span>
+        Pydantic model rather than plain dict — callers get typed dot access and the OpenAPI schema picks up the new type automatically. The frontend will see <code>ApprovalResult</code> in generated TypeScript types without manual schema work.
+      </div>
+
+      <p style="color: var(--text-dim); font-size: 13px; margin: -8px 0 14px; padding-left: 16px; border-left: 1px solid hsl(215 8% 14%);">
+        <strong>Alternatives considered:</strong>
+        (a) Plain dict return — rejected because callers lose type safety and autocomplete, and the OpenAPI schema wouldn't reflect the structure.
+        (b) Tuple return <code>(approval, resolution_meta)</code> — rejected because it forces callers to unpack positionally, which is error-prone when the tuple grows.
+        (c) Keep the overloaded Approval model and add an <code>is_resolved</code> property — rejected because it doesn't fix the conceptual split and adds state-checking overhead to every caller.
+      </p>
+
+      <div class="diff">
+        <span class="file-label">backend/services/approval_service.py +14 −2</span>
+<span class="add">+class ApprovalResult(CamelModel):</span>
+<span class="add">+    """Resolution outcome — separate from the approval request."""</span>
+<span class="add">+    approval: Approval</span>
+<span class="add">+    resolution: str</span>
+<span class="add">+    resolved_at: datetime</span>
+<span class="add">+    permission_mode: PermissionMode</span>
+<span class="add">+</span>
+<span class="ctx"> class ApprovalService:</span>
+<span class="ctx">     ...</span>
+<span class="del">-    async def resolve(self, ...) -> Approval:</span>
+<span class="add">+    async def resolve(self, ...) -> ApprovalResult:</span>
+<span class="ctx">         approval = await self._repo.get(approval_id)</span>
+<span class="ctx">         ...</span>
+<span class="del">-        return approval</span>
+<span class="add">+        return ApprovalResult(</span>
+<span class="add">+            approval=approval,</span>
+<span class="add">+            resolution=resolution,</span>
+<span class="add">+            resolved_at=now,</span>
+<span class="add">+            permission_mode=approval.permission_mode,</span>
+<span class="add">+        )</span>
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/api/routes/approvals.py +3 −4</span>
+<span class="del">-@router.post("/{approval_id}/resolve")</span>
+<span class="del">-async def resolve_approval(approval_id: str, body: ResolveBody) -> Approval:</span>
+<span class="del">-    result = await approval_svc.resolve(approval_id, body.resolution)</span>
+<span class="del">-    return result</span>
+<span class="add">+@router.post("/{approval_id}/resolve", response_model=ApprovalResultSchema)</span>
+<span class="add">+async def resolve_approval(approval_id: str, body: ResolveBody) -> ApprovalResult:</span>
+<span class="add">+    return await approval_svc.resolve(approval_id, body.resolution)</span>
+      </div>
+
+      <div class="diff">
+        <span class="file-label">backend/models/api_schemas.py +7</span>
+<span class="add">+class ApprovalResultSchema(CamelModel):</span>
+<span class="add">+    approval_id: str</span>
+<span class="add">+    resolution: str</span>
+<span class="add">+    resolved_at: datetime</span>
+<span class="add">+    permission_mode: PermissionMode</span>
+      </div>
+
+      <p style="color: var(--text-dim); font-size: 12px;">+ 4 more files: runtime_service.py caller updates, test_approval_service.py, test_api_approvals.py, test_runtime_service.py</p>
+
+      <div class="test-results">
+<span class="pass">✓ 47 passed</span>  test_approval_service.py
+<span class="pass">✓ 12 passed</span>  test_api_approvals.py
+<span class="pass">✓ 83 passed</span>  test_runtime_service.py
+      </div>
+
+      <div class="outcome">
+        <p><strong>Completed.</strong> Permission modes are now threaded through the full approval lifecycle — from creation through resolution — and the approval model's dual-role problem is fixed. 142 tests passing across three suites.</p>
+        <p>One risk: <span class="file">mcp/tools/approval_tool.py</span> calls the approval entry point <code class="sym">create_request()<span class="sym-hover"><span class="sym-kind">method</span> · <span class="sym-loc">approval_service.py:23</span><div class="sym-sig">async def create_request(self, job_id: str, message: str, permission_mode: PermissionMode) -> Approval</div><div class="sym-desc">Creates an approval request — now requires explicit permission mode</div><div class="sym-jump">View in diff →</div></span></code> through <code>getattr()</code>, bypassing import resolution. I updated the tool to pass <code>PermissionMode</code> explicitly (see diff above), but since the dispatch is dynamic, no static checker can confirm this call site is correct. Needs manual review before merge.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

@@ -1447,7 +1447,7 @@ existing convention:
 
 | Level | Content | Target length |
 |---|---|---|
-| **Brief** | Executive summary + decisions/backtracks/insights only. No prose spine, no diffs. | 80–150 words |
+| **Brief** | Executive summary + decisions/backtracks/insights only. No prose transitions, no diffs. | 80–150 words |
 | **Standard** | Full arc with prose transitions between beats. Inline diffs collapsed. | 300–600 words |
 | **Detailed** | Full arc with expanded diffs, exploration details, and alternatives considered at each decision point. | 600–1200 words |
 
@@ -1758,10 +1758,11 @@ Each layer is independently shippable and valuable:
 
 ### 11A.12 Visual Reference: Full Scenario Gallery
 
-The mockups below show eight scenarios covering the full range of narrative
+The mockups below show nine scenarios covering the full range of narrative
 states — from clean jobs through complex multi-session arcs, retry chains,
-trail beat integration, activity grouping, symbol hover interactions, and
-selection-activated conversation.
+trail beat integration, activity grouping, symbol hover interactions,
+selection-activated conversation, and all three verbosity levels (Brief,
+Standard, Detailed).
 
 Source HTML:
 [mockups/agent-narrative-mockups-v3.html](mockups/agent-narrative-mockups-v3.html)
@@ -1834,6 +1835,17 @@ The narrative weaves trail beats into the chronological flow rather than
 listing them separately. Demonstrates DECIDE → INSIGHT → DECIDE chains.
 
 ![Narrative H — Multiple sequential decisions woven into prose](mockups/narrative-h-multi-decision.png)
+
+#### 11A.12.9 Detailed Verbosity — Same Job as A & B, Fully Expanded
+
+Same approval-flow job at Detailed verbosity. All diffs are expanded inline
+(not collapsed). Exploration reads are shown with full context. Each decision
+includes an "Alternatives considered" block listing rejected approaches with
+rationale. The MCP tool dynamic-dispatch diff is shown explicitly rather
+than summarized. This is the maximum-information rendering — every code
+change visible, every trade-off documented.
+
+![Narrative I — Detailed verbosity with expanded diffs and alternatives](mockups/narrative-i-detailed.png)
 
 ---
 
