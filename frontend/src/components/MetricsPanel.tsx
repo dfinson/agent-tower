@@ -175,7 +175,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   const showEconomicsSection = showCacheEfficiency || showTurnEconomics || activityBuckets.length > 0;
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
+    <div className="md:h-full overflow-y-auto">
       <div className="space-y-4 p-4">
           {loading ? (
             <div className="flex justify-center py-8"><Spinner size="sm" /></div>
@@ -183,7 +183,27 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
             <p className="text-sm text-muted-foreground text-center py-8">No data available yet</p>
           ) : (
             <>
-              {/* Session Info — on top */}
+              {/* Stat cards — hero numbers first */}
+              {(() => {
+                const sdkConf = SDK_COST_CONFIG[data.sdk ?? ""] ?? DEFAULT_COST_CONFIG;
+                return (
+              <div className={cn("grid grid-cols-2 gap-3", (data.totalCost ?? 0) > 0 ? "md:grid-cols-3 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4")}>
+                <StatCard icon={<Clock size={14} />} label="Duration" value={formatDuration(data.durationMs ?? 0)} color="text-blue-400" />
+                {(data.totalCost ?? 0) > 0 && (
+                  <Tooltip content={sdkConf.costTooltip}>
+                    <div>
+                      <StatCard icon={<Zap size={14} />} label="Cost" value={formatUsd(data.totalCost ?? 0)} color="text-green-400" />
+                    </div>
+                  </Tooltip>
+                )}
+                <StatCard icon={<Cpu size={14} />} label="Tokens" value={formatTokens(data.totalTokens ?? 0)} color="text-violet-400" />
+                <StatCard icon={<Brain size={14} />} label={sdkConf.llmStatLabel} value={sdkConf.llmStatValue(data)} color="text-blue-400" />
+                <StatCard icon={<Wrench size={14} />} label="Tools" value={`${data.toolCallCount ?? 0}${fails ? ` (${fails} fail)` : ""}`} color="text-yellow-400" />
+              </div>
+                );
+              })()}
+
+              {/* Session Info */}
               <div className="flex flex-wrap items-center gap-3 text-xs">
                 {(data.mainModel || data.model) && (
                   <Badge variant="secondary" title="Main agent model">
@@ -261,26 +281,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   )}
                 </div>
               )}
-
-              {/* Stat cards */}
-              {(() => {
-                const sdkConf = SDK_COST_CONFIG[data.sdk ?? ""] ?? DEFAULT_COST_CONFIG;
-                return (
-              <div className={cn("grid grid-cols-2 gap-3", (data.totalCost ?? 0) > 0 ? "sm:grid-cols-5" : "sm:grid-cols-4")}>
-                <StatCard icon={<Clock size={14} />} label="Duration" value={formatDuration(data.durationMs ?? 0)} color="text-blue-400" />
-                <StatCard icon={<Cpu size={14} />} label="Tokens" value={formatTokens(data.totalTokens ?? 0)} color="text-violet-400" />
-                <StatCard icon={<Brain size={14} />} label={sdkConf.llmStatLabel} value={sdkConf.llmStatValue(data)} color="text-blue-400" />
-                <StatCard icon={<Wrench size={14} />} label="Tools" value={`${data.toolCallCount ?? 0}${fails ? ` (${fails} fail)` : ""}`} color="text-yellow-400" />
-                {(data.totalCost ?? 0) > 0 && (
-                  <Tooltip content={sdkConf.costTooltip}>
-                    <div>
-                      <StatCard icon={<Zap size={14} />} label="Cost" value={formatUsd(data.totalCost ?? 0)} color="text-green-400" />
-                    </div>
-                  </Tooltip>
-                )}
-              </div>
-                );
-              })()}
 
               {/* Token breakdown */}
               <div>
