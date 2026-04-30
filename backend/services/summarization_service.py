@@ -162,10 +162,10 @@ class SummarizationService:
             artifact_repo = ArtifactRepository(session)
 
             # --- Fetch and clean transcript ---
+            trail_repo = TrailNodeRepository(self._session_factory)
             if pre_built_transcript is not None:
                 transcript_text = pre_built_transcript
             else:
-                trail_repo = TrailNodeRepository(self._session_factory)
                 transcript_nodes = await trail_repo.get_transcript_nodes(job_id)
                 cleaned_turns = _clean_transcript_from_trail(transcript_nodes)
                 transcript_text = _format_transcript(cleaned_turns)
@@ -174,7 +174,6 @@ class SummarizationService:
             if pre_built_changed_files is not None:
                 changed_files = pre_built_changed_files
             else:
-                trail_repo = TrailNodeRepository(self._session_factory)
                 changed_files = await trail_repo.get_all_changed_files(job_id)
 
             # --- Build prompt ---

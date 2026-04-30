@@ -303,6 +303,19 @@ class StepTracker:
         if buf:
             preceding_context = json.dumps(buf[-8:], ensure_ascii=False)
 
+        # Compute diff line counts while the worktree is still alive
+        diff_additions = 0
+        diff_deletions = 0
+        if state.start_sha and end_sha and state.start_sha != end_sha and self._git_service:
+            cwd = self._worktree_paths.get(job_id)
+            if cwd:
+                try:
+                    diff_additions, diff_deletions = await self._git_service.diff_numstat(
+                        state.start_sha, end_sha, cwd=cwd
+                    )
+                except GitError:
+                    log.debug("step_diff_numstat_failed", job_id=job_id, exc_info=True)
+
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
@@ -323,6 +336,8 @@ class StepTracker:
                     "start_sha": state.start_sha,
                     "end_sha": end_sha,
                     "preceding_context": preceding_context,
+                    "diff_additions": diff_additions,
+                    "diff_deletions": diff_deletions,
                 },
             )
         )

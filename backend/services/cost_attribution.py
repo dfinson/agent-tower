@@ -328,15 +328,26 @@ async def _compute_attribution(
     # --- File I/O stats ---
     file_stats = await file_repo.reread_stats(job_id)
 
-    # --- Diff line counts ---
-    # Trail nodes store file paths but NOT per-file additions/deletions.
-    # The old EventRepository diff_updated events carried line counts in
-    # their payload, but that data is not replicated in trail nodes.
-    # GitService.diff_stat() would be the correct source but requires a
-    # live worktree (already cleaned up by the time attribution runs).
-    # Accept 0/0 — this is best-effort analytics, not billing data.
+    # --- Diff line counts from trail nodes ---
     diff_added = 0
     diff_removed = 0
+    try:
+        from sqlalchemy import text as sa_text
+
+        result = await session.execute(
+            sa_text(
+                "SELECT COALESCE(SUM(diff_additions), 0) AS added, "
+                "COALESCE(SUM(diff_deletions), 0) AS removed "
+                "FROM trail_nodes WHERE job_id = :job_id"
+            ),
+            {"job_id": job_id},
+        )
+        row = result.mappings().first()
+        if row:
+            diff_added = row["added"]
+            diff_removed = row["removed"]
+    except (DBAPIError, KeyError):
+        log.debug("cost_attribution_diff_stats_failed", job_id=job_id, exc_info=True)
 
     await summary_repo.set_turn_stats(
         job_id,

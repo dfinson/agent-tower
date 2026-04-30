@@ -10,16 +10,20 @@ from __future__ import annotations
 import ast
 import pathlib
 
-# Modules that are ALLOWED to import EventRepository
+# Modules that are ALLOWED to import EventRepository.
+# Categorized per unified-trail-service.md §6:
+#
+# --- Provenance infrastructure (ingestion + rehydration) ---
 ALLOWED_EVENT_REPO_CONSUMERS = {
-    "backend/persistence/event_repo.py",
-    "backend/services/trail/service.py",
-    "backend/services/trail/node_builder.py",
-    "backend/services/runtime_service.py",
-    "backend/services/runtime_telemetry.py",
-    # save_snapshot_to_disk still uses EventRepository (deferred migration)
+    "backend/persistence/event_repo.py",          # self
+    "backend/services/trail/service.py",           # rehydration on session_resumed
+    "backend/services/trail/node_builder.py",      # rehydration on session_resumed
+    "backend/services/runtime_service.py",         # hot-path event translation
+    # --- Infrastructure telemetry (not provenance — see §6.3) ---
+    "backend/services/runtime_telemetry.py",       # log_line_emitted only
+    # --- Deferred migration (Phase 2d: save_snapshot_to_disk) ---
     "backend/services/summarization_service.py",
-    # Infrastructure wiring and API layers (not provenance consumers)
+    # --- Application wiring (DI, lifecycle, API plumbing) ---
     "backend/di.py",
     "backend/lifespan.py",
     "backend/api/job_artifacts.py",

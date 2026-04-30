@@ -78,6 +78,8 @@ class TrailNodeBuilder:
                 self._on_step_started(event)
             elif event.kind == DomainEventKind.execution_phase_changed:
                 await self._on_phase_changed(event)
+            elif event.kind == DomainEventKind.transcript_updated:
+                await self._on_transcript_updated(event)
             elif event.kind == DomainEventKind.approval_requested:
                 await self._on_approval_requested(event)
             elif event.kind in (
@@ -287,6 +289,8 @@ class TrailNodeBuilder:
             tool_names=json.dumps(tool_names, ensure_ascii=False) if tool_names else None,
             tool_count=tool_count,
             duration_ms=duration_ms,
+            diff_additions=payload.get("diff_additions"),
+            diff_deletions=payload.get("diff_deletions"),
         )
         await self._repo.create(node)
         log.debug(
@@ -395,6 +399,47 @@ class TrailNodeBuilder:
         )
         await self._repo.create(node)
         log.debug("trail_request_node_created", job_id=job_id, node_id=node_id)
+
+    async def _on_transcript_updated(self, event: DomainEvent) -> None:
+        """Create a trail node for operator/user transcript messages.
+
+        Agent messages are already captured via step_completed (agent_message
+        field). This handler captures operator/user messages that would
+        otherwise be lost to the trail.
+        """
+        job_id = event.job_id
+        state = self._job_state.get(job_id)
+        if not state:
+            return
+
+        role = (event.payload or {}).get("role", "")
+        if role not in ("operator", "user"):
+            return
+
+        content = (event.payload or {}).get("content", "").strip()
+        if not content:
+            return
+
+        node_id = make_node_id()
+        seq = state.next_seq
+        state.next_seq += 1
+
+        node = TrailNodeRow(
+            id=node_id,
+            job_id=job_id,
+            seq=seq,
+            anchor_seq=seq,
+            parent_id=state.active_goal_id,
+            kind="request",
+            deterministic_kind="request",
+            phase=state.current_phase,
+            timestamp=event.timestamp,
+            enrichment="complete",
+            agent_message=content,
+            step_id=state.active_step_id,
+        )
+        await self._repo.create(node)
+        log.debug("trail_operator_message_created", job_id=job_id, node_id=node_id)
 
     async def _on_phase_changed(self, event: DomainEvent) -> None:
         """Create a summarize node for execution phase transitions."""

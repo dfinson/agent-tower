@@ -89,6 +89,25 @@ class GitService:
         """Run `git diff <ref1> <ref2>` comparing two commits (no working tree)."""
         return await self._run_git("diff", ref1, ref2, cwd=cwd)
 
+    async def diff_numstat(self, ref1: str, ref2: str, *, cwd: str | Path) -> tuple[int, int]:
+        """Return (additions, deletions) between two commits via --numstat."""
+        raw = await self._run_git("diff", "--numstat", ref1, ref2, cwd=cwd)
+        additions = 0
+        deletions = 0
+        for line in raw.strip().splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) >= 2:
+                # Binary files show "-" instead of numbers
+                try:
+                    additions += int(parts[0])
+                except ValueError:
+                    pass
+                try:
+                    deletions += int(parts[1])
+                except ValueError:
+                    pass
+        return additions, deletions
+
     async def merge_base(self, ref1: str, ref2: str, *, cwd: str | Path) -> str:
         """Return the merge-base commit between two refs."""
         return (await self._run_git("merge-base", ref1, ref2, cwd=cwd)).strip()

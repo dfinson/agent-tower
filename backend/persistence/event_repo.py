@@ -12,7 +12,9 @@ from backend.persistence.repository import BaseRepository
 
 
 class EventRepository(BaseRepository):
-    """Database access for domain event records."""
+    """Raw event persistence. Direct consumers: RuntimeService, TrailService,
+    RuntimeTelemetry (log lines). All other services must use
+    TrailNodeRepository projections. See internal-docs/design/unified-trail-service.md §6."""
 
     @staticmethod
     def _to_domain(row: EventRow) -> DomainEvent:

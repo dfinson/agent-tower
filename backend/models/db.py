@@ -329,6 +329,8 @@ class TrailNodeRow(Base):
     tool_names = Column(Text, nullable=True)  # JSON array
     tool_count = Column(Integer, nullable=True)
     duration_ms = Column(Integer, nullable=True)
+    diff_additions = Column(Integer, nullable=True)
+    diff_deletions = Column(Integer, nullable=True)
     # Plan/activity (populated by enrichment or native plan)
     title = Column(Text, nullable=True)
     plan_item_id = Column(String(36), nullable=True)
