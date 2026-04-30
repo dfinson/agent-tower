@@ -375,7 +375,6 @@ class PolicyConfigRow(Base):
     id: Mapped[int] = Column(Integer, primary_key=True, default=1)
     preset: Mapped[str] = Column(String(20), nullable=False, server_default="supervised")
     batch_window_seconds: Mapped[float] = Column(Float, nullable=False, server_default="5.0")
-    daily_budget_usd: Mapped[float | None] = Column(Float, nullable=True)
 
 
 class PathRuleRow(Base):

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
-import signal
+import threading
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -25,20 +25,28 @@ _REGEX_TIMEOUT_SECONDS = 1
 
 
 def _safe_regex_search(pattern: str, text: str) -> bool:
-    """Run ``re.search`` with a timeout to prevent ReDoS from user patterns."""
+    """Run ``re.search`` with a timeout to prevent ReDoS from user patterns.
 
-    def _timeout_handler(signum: int, frame: Any) -> None:  # noqa: ARG001
-        raise TimeoutError("regex match timed out")
+    Uses a daemon thread so it works on all platforms (no SIGALRM).
+    """
+    result: list[bool] = []
+    error: list[BaseException] = []
 
-    old = signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(_REGEX_TIMEOUT_SECONDS)
-    try:
-        return bool(re.search(pattern, text))
-    except (re.error, TimeoutError):
+    def _worker() -> None:
+        try:
+            result.append(bool(re.search(pattern, text)))
+        except re.error as exc:
+            error.append(exc)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout=_REGEX_TIMEOUT_SECONDS)
+    if t.is_alive():
+        log.warning("regex_match_timed_out", pattern=pattern[:80])
+        return False  # thread abandoned as daemon — will die with process
+    if error:
         return False
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old)
+    return result[0] if result else False
 
 
 class Tier(StrEnum):
@@ -102,7 +110,6 @@ class RepoPolicy:
     cost_rules: list[dict[str, Any]] = field(default_factory=list)
     mcp_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
     batch_window_seconds: float = 5.0
-    daily_budget_usd: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

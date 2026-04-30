@@ -340,8 +340,7 @@ CREATE TABLE policy_config (
     id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     preset TEXT NOT NULL DEFAULT 'supervised'
         CHECK (preset IN ('autonomous', 'supervised', 'strict')),
-    batch_window_seconds REAL NOT NULL DEFAULT 5.0,
-    daily_budget_usd REAL
+    batch_window_seconds REAL NOT NULL DEFAULT 5.0
 );
 
 CREATE TABLE path_rules (

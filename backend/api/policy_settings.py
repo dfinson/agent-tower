@@ -41,7 +41,6 @@ async def _notify_policy_changed(event_bus: EventBus) -> None:
 class PolicyConfigResponse(CamelModel):
     preset: str
     batch_window_seconds: float
-    daily_budget_usd: float | None = None
 
 
 class UpdatePresetRequest(CamelModel):
@@ -51,7 +50,6 @@ class UpdatePresetRequest(CamelModel):
 class UpdateConfigRequest(CamelModel):
     preset: str | None = Field(default=None, pattern=r"^(autonomous|supervised|strict)$")
     batch_window_seconds: float | None = None
-    daily_budget_usd: float | None = None
 
 
 class PathRuleRequest(CamelModel):

@@ -33,15 +33,14 @@ class PolicyRepository(BaseRepository):
         result = await self._session.execute(select(PolicyConfigRow).where(PolicyConfigRow.id == 1))
         row = result.scalar_one_or_none()
         if row is None:
-            return {"preset": "supervised", "batch_window_seconds": 5.0, "daily_budget_usd": None}
+            return {"preset": "supervised", "batch_window_seconds": 5.0}
         return {
             "preset": row.preset,
             "batch_window_seconds": row.batch_window_seconds,
-            "daily_budget_usd": row.daily_budget_usd,
         }
 
     async def update_config(self, **kwargs: Any) -> dict[str, Any]:
-        allowed = {"preset", "batch_window_seconds", "daily_budget_usd"}
+        allowed = {"preset", "batch_window_seconds"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return await self.get_config()

@@ -517,7 +517,6 @@ export function resolveBatch(
 export interface PolicyConfig {
   preset: string;
   batchWindowSeconds: number;
-  dailyBudgetUsd: number | null;
 }
 
 export interface PolicyState {
@@ -569,6 +568,19 @@ export function createActionRule(rule: { matchPattern: string; tier: string; rea
 
 export function deleteActionRule(id: string): Promise<void> {
   return request(`/settings/policy/action-rules/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function createCostRule(rule: { condition: string; promoteTo: string; thresholdValue: number | null; reason: string }): Promise<unknown> {
+  return request("/settings/policy/cost-rules", {
+    method: "POST",
+    body: JSON.stringify(rule),
+  });
+}
+
+export function deleteCostRule(id: string): Promise<void> {
+  return request(`/settings/policy/cost-rules/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }

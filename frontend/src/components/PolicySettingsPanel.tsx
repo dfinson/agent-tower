@@ -9,6 +9,8 @@ import {
   deletePathRule,
   createActionRule,
   deleteActionRule,
+  createCostRule,
+  deleteCostRule,
   deleteTrustGrant,
 } from "../api/client";
 import type { PolicyState } from "../api/client";
@@ -31,6 +33,11 @@ const TIERS = [
   { value: "gate", label: "Gate (●)" },
 ];
 
+const COST_TIERS = [
+  { value: "checkpoint", label: "Checkpoint (◐)" },
+  { value: "gate", label: "Gate (●)" },
+];
+
 export function PolicySettingsPanel() {
   const [policy, setPolicy] = useState<PolicyState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +47,7 @@ export function PolicySettingsPanel() {
   // New rule forms
   const [newPathRule, setNewPathRule] = useState({ pathPattern: "", tier: "gate", reason: "" });
   const [newActionRule, setNewActionRule] = useState({ matchPattern: "", tier: "gate", reason: "" });
+  const [newCostRule, setNewCostRule] = useState({ thresholdValue: "", promoteTo: "gate", reason: "" });
 
   // Debounced batch window
   const [localBatchWindow, setLocalBatchWindow] = useState<number | null>(null);
@@ -119,10 +127,32 @@ export function PolicySettingsPanel() {
     }
   };
 
+  const handleAddCostRule = async () => {
+    const threshold = parseFloat(newCostRule.thresholdValue);
+    if (isNaN(threshold) || threshold < 0) {
+      toast.error("Threshold must be a non-negative number");
+      return;
+    }
+    try {
+      await createCostRule({
+        condition: "job_spend_usd_gte",
+        promoteTo: newCostRule.promoteTo,
+        thresholdValue: threshold,
+        reason: newCostRule.reason,
+      });
+      setNewCostRule({ thresholdValue: "", promoteTo: "gate", reason: "" });
+      await load();
+      toast.success("Cost rule added");
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
   const handleDelete = async (type: string, id: string) => {
     try {
       if (type === "path") await deletePathRule(id);
       else if (type === "action") await deleteActionRule(id);
+      else if (type === "cost") await deleteCostRule(id);
       else if (type === "trust") await deleteTrustGrant(id);
       await load();
       toast.success("Rule deleted");
@@ -282,6 +312,58 @@ export function PolicySettingsPanel() {
             className="flex-1 text-xs"
           />
           <Button size="sm" variant="outline" onClick={handleAddActionRule} className="gap-1">
+            <Plus size={12} /> Add
+          </Button>
+        </div>
+      </div>
+
+      {/* Cost rules */}
+      <div className="space-y-2">
+        <Label>Cost Rules</Label>
+        <p className="text-xs text-muted-foreground">
+          Promote actions to a higher tier when cumulative job spend reaches a threshold.
+        </p>
+        {[...policy.costRules]
+          .sort((a, b) => (a.thresholdValue ?? 0) - (b.thresholdValue ?? 0))
+          .map((rule) => (
+          <div key={rule.id} className="flex items-center gap-2 text-xs bg-background border border-border/50 rounded px-2.5 py-1.5">
+            <code className="font-mono">${rule.thresholdValue?.toFixed(2) ?? "—"}</code>
+            <span className="text-muted-foreground">→ {rule.promoteTo}</span>
+            {rule.reason && <span className="text-muted-foreground flex-1 truncate">— {rule.reason}</span>}
+            {!rule.reason && <span className="flex-1" />}
+            <button
+              onClick={() => setDeleteTarget({ type: "cost", id: rule.id })}
+              className="text-red-400 hover:text-red-300 p-1"
+              aria-label="Delete cost rule"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ))}
+        <div className="flex gap-2 items-end">
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="Threshold ($)"
+            value={newCostRule.thresholdValue}
+            onChange={(e) => setNewCostRule((r) => ({ ...r, thresholdValue: e.target.value }))}
+            className="w-32 text-xs"
+          />
+          <select
+            value={newCostRule.promoteTo}
+            onChange={(e) => setNewCostRule((r) => ({ ...r, promoteTo: e.target.value }))}
+            className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+          >
+            {COST_TIERS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <Input
+            placeholder="Reason"
+            value={newCostRule.reason}
+            onChange={(e) => setNewCostRule((r) => ({ ...r, reason: e.target.value }))}
+            className="flex-1 text-xs"
+          />
+          <Button size="sm" variant="outline" onClick={handleAddCostRule} className="gap-1">
             <Plus size={12} /> Add
           </Button>
         </div>

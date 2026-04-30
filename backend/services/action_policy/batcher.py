@@ -76,6 +76,10 @@ class ApprovalBatcher:
         self._job_batches: dict[str, str] = {}  # job_id → active batch_id
         self._pending_futures: dict[str, asyncio.Future[BatchResult]] = {}
 
+    def set_batch_window(self, seconds: float) -> None:
+        """Update the batch window for future batches."""
+        self._batch_window = seconds
+
     async def submit_and_wait(
         self,
         job_id: str,

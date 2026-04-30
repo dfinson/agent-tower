@@ -941,6 +941,10 @@ class RuntimeService:
                 router = self._policy_routers[job_id]
                 if hasattr(router, "_trust") and hasattr(router._trust, "load"):
                     await router._trust.load()
+                # Update batcher window if changed
+                batcher = self._policy_batchers.get(job_id)
+                if batcher is not None and hasattr(batcher, "set_batch_window"):
+                    batcher.set_batch_window(db_config["batch_window_seconds"])
                 # Update policy in all registered adapters (only one will have the job)
                 for adapter in self._adapter_registry._adapters.values():
                     if hasattr(adapter, "update_repo_policy"):
