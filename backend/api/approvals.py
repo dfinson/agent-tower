@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException
 from backend.models.api_schemas import (
     ApprovalListResponse,
     ApprovalResponse,
+    ResolveBatchRequest,
+    ResolveBatchResponse,
     ResolveApprovalRequest,
     SendMessageRequest,
     SendMessageResponse,
@@ -87,3 +89,25 @@ async def send_message(
         seq=0,
         timestamp=datetime.now(UTC),
     )
+
+
+@router.post("/jobs/{job_id}/batches/resolve", response_model=ResolveBatchResponse)
+async def resolve_batch(
+    job_id: str,
+    body: ResolveBatchRequest,
+    runtime_service: FromDishka[RuntimeService],
+) -> ResolveBatchResponse:
+    """Resolve a pending action policy batch for a job."""
+    resolved = await runtime_service.resolve_policy_batch(
+        job_id=job_id,
+        batch_id=body.batch_id,
+        resolution=body.resolution,
+        approved_ids=body.approved_ids,
+        trust_grant_id=body.trust_grant_id,
+    )
+    if not resolved:
+        raise HTTPException(
+            status_code=404,
+            detail="Batch not found or already resolved",
+        )
+    return ResolveBatchResponse(resolved=True)

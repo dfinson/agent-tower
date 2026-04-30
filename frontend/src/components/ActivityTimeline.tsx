@@ -27,6 +27,12 @@ function StepDot({ active }: { active: boolean }) {
   );
 }
 
+const TIER_BADGE: Record<string, { icon: string; cls: string }> = {
+  observe: { icon: "○", cls: "text-muted-foreground/60" },
+  checkpoint: { icon: "◐", cls: "text-amber-400" },
+  gate: { icon: "●", cls: "text-red-400" },
+};
+
 /** Renders a single step with a brief flash when its title is updated (merge). */
 function StepButton({
   step,
@@ -36,7 +42,7 @@ function StepButton({
   searchActive,
   onStepClick,
 }: {
-  step: { turnId: string; title: string };
+  step: { turnId: string; title: string; tier?: string | null };
   isActive: boolean;
   isSelected: boolean;
   isVisible: boolean;
@@ -69,7 +75,7 @@ function StepButton({
       <StepDot active={isActive} />
       <span
         className={cn(
-          "text-[13px] leading-snug transition-opacity duration-300",
+          "text-[13px] leading-snug transition-opacity duration-300 flex-1",
           isActive ? "text-foreground font-medium" : "text-foreground/70",
           updated && "text-blue-400",
         )}
@@ -77,6 +83,17 @@ function StepButton({
       >
         {step.title}
       </span>
+      {(() => {
+        const badge = step.tier ? TIER_BADGE[step.tier] : undefined;
+        return badge ? (
+          <span
+            className={cn("text-[11px] shrink-0 leading-none", badge.cls)}
+            title={step.tier!}
+          >
+            {badge.icon}
+          </span>
+        ) : null;
+      })()}
     </button>
   );
 }

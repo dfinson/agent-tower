@@ -87,6 +87,19 @@ class ResolveApprovalRequest(CamelModel):
     resolution: ApprovalResolution
 
 
+class ResolveBatchRequest(CamelModel):
+    """Resolve a pending action policy batch."""
+
+    batch_id: str
+    resolution: str  # approved / rejected / partial / rollback
+    approved_ids: list[str] | None = None
+    trust_grant_id: str | None = None
+
+
+class ResolveBatchResponse(CamelModel):
+    resolved: bool
+
+
 class UpdateSettingsRequest(CamelModel):
     """Structured settings update — only include fields to change."""
 
@@ -879,6 +892,12 @@ class TrailNodeResponse(CamelModel):
     end_sha: str | None = None
     supersedes: str | None = None
     tags: list[str] = []
+    # Action policy fields
+    tier: str | None = None
+    reversible: bool | None = None
+    contained: bool | None = None
+    tier_reason: str | None = None
+    checkpoint_ref: str | None = None
     children: list[TrailNodeResponse] = []
 
 

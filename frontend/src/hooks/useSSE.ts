@@ -93,6 +93,8 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "diff_update",
         "approval_requested",
         "approval_resolved",
+        "batch_approval_requested",
+        "batch_approval_resolved",
         "session_heartbeat",
         "snapshot",
         "job_review",
@@ -113,8 +115,12 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "turn_summary",
         // Step reassignment (classifier moved turn to different plan item)
         "step_entries_reassigned",
+        // Action policy tier classification
+        "action_classified",
         // Job workspace setup progress (preparing → queued)
         "job_setup_progress",
+        // Policy settings changed (triggers settings panel refresh)
+        "policy_settings_changed",
       ];
 
       for (const eventType of eventTypes) {

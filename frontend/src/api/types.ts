@@ -57,6 +57,37 @@ export interface ApprovalRequest {
   requiresExplicitApproval: boolean;
 }
 
+// --- Action Policy batch types ---
+
+export type ActionTier = "observe" | "checkpoint" | "gate";
+
+export interface BatchAction {
+  id: string;
+  kind: string;
+  toolName: string | null;
+  path: string | null;
+  command: string | null;
+  tier: ActionTier;
+  reversible: boolean;
+  contained: boolean;
+  reason: string;
+  checkpointRef: string | null;
+}
+
+export interface BatchApprovalRequest {
+  batchId: string;
+  jobId: string;
+  actions: BatchAction[];
+  requestedAt: string;
+}
+
+export interface ResolveBatchRequest {
+  batchId: string;
+  resolution: "approved" | "rejected" | "partial" | "rollback";
+  approvedIds?: string[];
+  trustGrantId?: string;
+}
+
 export interface JobStateChangedPayload {
   jobId: string;
   previousState: string | null;

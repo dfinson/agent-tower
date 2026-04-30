@@ -148,6 +148,11 @@ def _node_to_dict(node: TrailNodeRow) -> TrailNodeDict:
         "plan_item_status": node.plan_item_status,
         "activity_id": node.activity_id,
         "activity_label": node.activity_label,
+        "tier": node.tier,
+        "reversible": node.reversible,
+        "contained": node.contained,
+        "tier_reason": node.tier_reason,
+        "checkpoint_ref": node.checkpoint_ref,
         "children": [],
     }
 

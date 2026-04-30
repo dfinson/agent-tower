@@ -92,10 +92,17 @@ export function handleTelemetryUpdated(state: AppState, payload: Record<string, 
   };
 }
 
+export function handlePolicySettingsChanged(_state: AppState): Partial<AppState> | null {
+  return {
+    policySettingsVersion: Date.now(),
+  };
+}
+
 export const miscHandlers: Record<string, SSEHandler> = {
   snapshot: handleSnapshot,
   session_heartbeat: handleSessionHeartbeat,
   diff_update: handleDiffUpdate,
   session_resumed: handleSessionResumed,
   telemetry_updated: handleTelemetryUpdated,
+  policy_settings_changed: handlePolicySettingsChanged,
 };

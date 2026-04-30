@@ -89,7 +89,7 @@ def test_domain_event_creation() -> None:
 
 
 def test_domain_event_kind_values() -> None:
-    assert len(DomainEventKind) == 34
+    assert len(DomainEventKind) == 38
 
 
 def test_job_domain_model() -> None:

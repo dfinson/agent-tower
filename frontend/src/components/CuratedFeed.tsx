@@ -22,9 +22,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useStore, selectJobTranscript, selectApprovals } from "../store";
-import type { TranscriptEntry, ApprovalRequest } from "../store";
-import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, ApiError } from "../api/client";
+import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals } from "../store";
+import type { TranscriptEntry, ApprovalRequest, BatchApproval } from "../store";
+import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, resolveBatch, ApiError } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { SdkIcon } from "./SdkBadge";
 import { MicButton } from "./VoiceButton";
@@ -289,6 +289,99 @@ function InlineApprovalCard({ approval }: { approval: ApprovalRequest }) {
   );
 }
 
+const TIER_ICON: Record<string, string> = {
+  observe: "○",
+  checkpoint: "◐",
+  gate: "●",
+};
+
+function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
+  const [resolving, setResolving] = useState<string | null>(null);
+
+  const handleResolve = async (resolution: "approved" | "rejected" | "rollback") => {
+    setResolving(resolution);
+    try {
+      await resolveBatch(batch.jobId, batch.batchId, resolution);
+    } catch (err) {
+      toast.error("Failed to resolve batch");
+      console.error("Failed to resolve batch:", err);
+    } finally {
+      setResolving(null);
+    }
+  };
+
+  const isResolved = !!batch.resolvedAt;
+
+  return (
+    <div className={cn(
+      "rounded-lg border px-4 py-3 my-2",
+      isResolved ? "border-border/40 bg-card/30" : "border-amber-600/30 bg-amber-950/10",
+    )}>
+      <div className="flex items-start gap-2.5">
+        <ShieldQuestion size={15} className={cn("shrink-0 mt-0.5", isResolved ? "text-muted-foreground/40" : "text-amber-400")} />
+        <div className="flex-1 min-w-0 space-y-2">
+          <p className="text-sm font-medium text-foreground/80">
+            Batch — {batch.actions.length} action{batch.actions.length !== 1 ? "s" : ""}
+          </p>
+          <div className="space-y-1">
+            {batch.actions.map((action) => (
+              <div key={action.id} className="flex items-start gap-1.5 text-xs text-muted-foreground/70">
+                <span className="text-amber-400/80 font-mono shrink-0">{TIER_ICON[action.tier] ?? "●"}</span>
+                <span className="min-w-0">
+                  {action.description}
+                  {!action.reversible && <span className="text-red-400/70 ml-1">irreversible</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+          {isResolved ? (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground/50">
+              {batch.resolution === "approved"
+                ? <><CheckCircle2 size={12} className="text-emerald-400/60" /> Approved</>
+                : batch.resolution === "rollback"
+                  ? <><XCircleIcon size={12} className="text-amber-400/60" /> Rolled back</>
+                  : <><XCircleIcon size={12} className="text-red-400/60" /> Rejected</>
+              }
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleResolve("approved")}
+                disabled={!!resolving}
+                className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-emerald-700/40 text-emerald-400 hover:bg-emerald-950/30"
+              >
+                {resolving === "approved" ? <Spinner className="w-3 h-3" /> : "Approve All"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleResolve("rejected")}
+                disabled={!!resolving}
+                className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-red-700/40 text-red-400 hover:bg-red-950/30"
+              >
+                {resolving === "rejected" ? <Spinner className="w-3 h-3" /> : "Reject"}
+              </Button>
+              {batch.actions.some((a) => a.checkpointRef) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleResolve("rollback")}
+                  disabled={!!resolving}
+                  className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-amber-700/40 text-amber-400 hover:bg-amber-950/30"
+                >
+                  {resolving === "rollback" ? <Spinner className="w-3 h-3" /> : "Rollback"}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DividerLine({ entry }: { entry: TranscriptEntry }) {
   const text = entry.content || "Session";
   const isStep = text !== "Session";
@@ -379,9 +472,11 @@ export function CuratedFeed({
   const navigate = useNavigate();
   const rawEntries = useStore(selectJobTranscript(jobId));
   const allApprovals = useStore(selectApprovals);
+  const allBatchApprovals = useStore(selectBatchApprovals);
   const streamingMessages = useStore((s) => s.streamingMessages);
   const allStreamingReasoning = useStore((s) => s.streamingReasoning);
   const jobApprovals = Object.values(allApprovals).filter((a) => a.jobId === jobId);
+  const jobBatchApprovals = Object.values(allBatchApprovals).filter((b) => b.jobId === jobId);
   const isJobLive = jobState === "running" || jobState === "waiting_for_approval";
 
   const entries = useMemo<TranscriptEntry[]>(() => [
@@ -396,8 +491,8 @@ export function CuratedFeed({
   ], [rawEntries, jobId, prompt, promptTimestamp]);
 
   const feedItems = useMemo(
-    () => buildFeedItems(entries, jobApprovals),
-    [entries, jobApprovals],
+    () => buildFeedItems(entries, jobApprovals, jobBatchApprovals),
+    [entries, jobApprovals, jobBatchApprovals],
   );
 
   // Virtualizer — auto-scroll only when user is at the bottom.
@@ -586,6 +681,7 @@ export function CuratedFeed({
           )
         );
       } else if (item.type === "approval") match = item.approval.description.toLowerCase().includes(q);
+      else if (item.type === "batch_approval") match = item.batch.summary.toLowerCase().includes(q);
       else match = true;
       if (match) set.add(idx);
     });
@@ -885,6 +981,8 @@ const FeedItemRenderer = memo(function FeedItemRenderer({
       return <CondensedTurnBlock turn={item.turn} clusters={item.clusters} sdk={sdk} onViewStepChanges={onViewStepChanges} />;
     case "approval":
       return <InlineApprovalCard approval={item.approval} />;
+    case "batch_approval":
+      return <InlineBatchApprovalCard batch={item.batch} />;
     case "divider":
       return <DividerLine entry={item.entry} />;
     default:

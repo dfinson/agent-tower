@@ -100,6 +100,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._approval_service = approval_service
         self._event_bus = event_bus
         self._session_factory = session_factory
+        self._policy_router: dict[str, Any] = {}  # job_id → PolicyRouter
+        self._repo_policies: dict[str, Any] = {}  # job_id → RepoPolicy
+        self._worktree_paths: dict[str, str] = {}  # job_id → cwd
         self._job_start_times: dict[str, float] = {}
         self._job_main_models: dict[str, str] = {}
         self._last_telemetry_broadcast: dict[str, float] = {}
@@ -261,6 +264,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         "_current_phases",
         "_retry_trackers",
         "_transcript_buffers",
+        "_policy_router",
+        "_repo_policies",
+        "_worktree_paths",
     )
 
     def _cleanup_session_state(self, session_id: str) -> None:
@@ -755,6 +761,25 @@ class BaseAgentAdapter(AgentAdapterInterface):
         )
 
     # ------------------------------------------------------------------
+    # Action policy integration
+    # ------------------------------------------------------------------
+
+    def set_policy_router(self, router: Any, policy: Any, job_id: str, cwd: str) -> None:
+        """Configure the action policy router for a job.
+
+        When set, ``_evaluate_permission`` routes through the classifier/router
+        before falling back to the legacy ``permission_policy.evaluate()`` path.
+        """
+        self._policy_router[job_id] = router
+        self._repo_policies[job_id] = policy
+        self._worktree_paths[job_id] = cwd
+
+    def update_repo_policy(self, job_id: str, policy: Any) -> None:
+        """Hot-swap the RepoPolicy for a running job (mid-job policy reload)."""
+        if job_id in self._repo_policies:
+            self._repo_policies[job_id] = policy
+
+    # ------------------------------------------------------------------
     # Permission evaluation (SDK-agnostic core)
     # ------------------------------------------------------------------
 
@@ -805,11 +830,17 @@ class BaseAgentAdapter(AgentAdapterInterface):
             )
             return PermissionDecision.allow if resolution == ApprovalResolution.approved else PermissionDecision.deny
 
-        # Trust bypass
+        # Trust bypass (legacy — checked before policy router for backwards compat)
         if self._approval_service is not None and job_id and self._approval_service.is_trusted(job_id):
             return PermissionDecision.allow
 
-        # Policy evaluation
+        # --- Action policy router (new system) ---
+        if job_id and job_id in self._policy_router:
+            return await self._evaluate_with_policy_router(
+                session_id, job_id, request, tool_name=tool_name, tool_input=tool_input,
+            )
+
+        # --- Legacy policy evaluation ---
         decision = evaluate(mode=mode, req=request)
         if decision == PolicyDecision.approve:
             return PermissionDecision.allow
@@ -833,6 +864,95 @@ class BaseAgentAdapter(AgentAdapterInterface):
             proposed_action=proposed,
         )
         return PermissionDecision.allow if resolution == ApprovalResolution.approved else PermissionDecision.deny
+
+    async def _evaluate_with_policy_router(
+        self,
+        session_id: str,
+        job_id: str,
+        request: PermissionRequest,
+        *,
+        tool_name: str = "",
+        tool_input: dict[str, Any] | None = None,
+    ) -> PermissionDecision:
+        """Route a permission request through the action policy classifier/router."""
+        from backend.services.action_policy.classifier import Action, ActionKind
+
+        # Map SDK permission request kind to Action
+        shell_cmd = self._resolve_shell_command(
+            request.kind, tool_name, tool_input, request.full_command_text,
+        )
+        kind_map = {
+            "read": ActionKind.sdk_tool,
+            "write": ActionKind.file,
+            "shell": ActionKind.shell,
+            "mcp": ActionKind.mcp_tool,
+            "url": ActionKind.sdk_tool,
+            "memory": ActionKind.sdk_tool,
+            "custom-tool": ActionKind.sdk_tool,
+        }
+        action = Action(
+            kind=kind_map.get(request.kind, ActionKind.sdk_tool),
+            path=request.file_name or request.path,
+            command=shell_cmd or None,
+            tool_name=tool_name or request.kind,
+            mcp_server=None,  # MCP tool metadata not in PermissionRequest
+            mcp_tool=tool_name if request.kind == "mcp" else None,
+            mcp_read_only=request.read_only or False,
+            job_id=job_id,
+            workspace_path=request.workspace_path,
+        )
+
+        policy = self._repo_policies[job_id]
+        cwd = self._worktree_paths.get(job_id)
+        router = self._policy_router[job_id]
+
+        # Fetch cost context for cost rule evaluation
+        cost_ctx = None
+        if policy.cost_rules:
+            cost_ctx = await self._get_cost_context(job_id)
+
+        decision = await router.route(action, policy, cwd=cwd, cost=cost_ctx)
+
+        # Emit action_classified event for timeline tier indicators
+        tier_str = decision.tier.value if decision.tier else None
+        if tier_str and self._event_bus is not None:
+            from backend.models.events import DomainEvent, DomainEventKind
+
+            cls = decision.classification
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.action_classified,
+                    payload={
+                        "tier": tier_str,
+                        "tool_name": tool_name or request.kind,
+                        "path": request.file_name or request.path,
+                        "reversible": cls.reversible if cls else False,
+                        "contained": cls.contained if cls else True,
+                        "checkpoint_ref": decision.checkpoint_ref,
+                    },
+                )
+            )
+
+        if decision.proceed:
+            return PermissionDecision.allow
+        return PermissionDecision.deny
+
+    async def _get_cost_context(self, job_id: str) -> "CostContext | None":
+        """Fetch current spend for a job to feed into cost rule evaluation."""
+        from backend.services.action_policy.classifier import CostContext
+
+        try:
+            async with self._db_session() as session:
+                from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+                summary = await TelemetrySummaryRepository(session).get(job_id)
+                if summary and summary.total_cost_usd is not None:
+                    return CostContext(job_spend_usd=summary.total_cost_usd)
+        except (_NoSessionFactory, DBAPIError, OSError):
+            log.debug("cost_context_fetch_failed", job_id=job_id, exc_info=True)
+        return None
 
     async def _hard_block_approval(
         self,

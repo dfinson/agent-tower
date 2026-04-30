@@ -20,6 +20,7 @@ export type {
   ConnectionStatus,
   JobSummary,
   ApprovalRequest,
+  BatchApproval,
   LogLine,
   TranscriptEntry,
   PlanStep,
@@ -37,6 +38,7 @@ export {
   selectConnectionStatus,
   selectReconnectAttempt,
   selectApprovals,
+  selectBatchApprovals,
   selectJobLogs,
   selectJobTranscript,
   selectJobDiffs,
@@ -196,6 +198,7 @@ export function _resetSdkInitForTesting() {
 export const useStore = create<AppState>((set, get) => ({
   jobs: {},
   approvals: {},
+  batchApprovals: {},
   logs: {},
   transcript: {},
   diffs: {},
@@ -210,6 +213,7 @@ export const useStore = create<AppState>((set, get) => ({
   connectionStatus: "reconnecting",
   reconnectAttempt: 0,
   hoveredPlanItemId: null,
+  policySettingsVersion: 0,
 
   // SDK + model catalogue
   sdks: [],

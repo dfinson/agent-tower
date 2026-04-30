@@ -55,7 +55,31 @@ def classify(reversible: bool, contained: bool, preset: Preset, policy: RepoPoli
             if reversible and contained:
                 return Tier.checkpoint
             return Tier.gate
+
+    # 3. Cost rule promotion — can only promote tier upward
+    for rule in policy.cost_rules:
+        if cost_condition_met(rule, current_job_spend_usd):
+            tier = max(tier, Tier(rule.promote_to))
 ```
+
+### Cost Rule Evaluation
+
+Cost rules promote tiers **after** preset resolution. They cannot lower a tier.
+Each cost rule has a `condition` (human label), `promote_to` (checkpoint or
+gate), and an optional `threshold_value` (USD). Evaluation compares the
+job's current total spend against the threshold:
+
+```python
+def cost_condition_met(rule: dict, job_spend_usd: float) -> bool:
+    threshold = rule.get("threshold_value")
+    if threshold is None:
+        return False  # No threshold configured — rule is informational only
+    return job_spend_usd >= threshold
+```
+
+The job spend is passed into the classifier as an optional `CostContext`
+from the telemetry summary. If no cost data is available (fresh job, no
+spans yet), cost rules are skipped.
 
 ## Input Channels
 
@@ -488,7 +512,12 @@ async def route(action: Action, policy: RepoPolicy, trust_store: TrustStore) -> 
 ```
 
 Policy is loaded from the DB once at job start via `PolicyRepository.load()`,
-cached in memory, and optionally reloaded if settings change mid-job via SSE.
+cached in memory, and reloaded when settings change mid-job. Any mutation to
+policy config, rules, MCP server configs, or trust grants publishes a
+`PolicySettingsChanged` domain event. The runtime service subscribes, reloads
+the `RepoPolicy` from DB, and pushes it into the adapter for every running job.
+This ensures operators can tighten or relax policy while jobs are in progress
+without waiting for a restart.
 
 ## Settings UI
 

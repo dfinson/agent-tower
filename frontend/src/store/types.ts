@@ -54,6 +54,28 @@ export interface ApprovalRequest {
   requiresExplicitApproval: boolean;
 }
 
+/** A batch of gate-tier actions awaiting operator approval. */
+export interface BatchApprovalAction {
+  id: string;
+  kind: string;
+  tier: string;
+  reason: string;
+  reversible: boolean;
+  contained: boolean;
+  checkpointRef: string | null;
+  description: string;
+}
+
+export interface BatchApproval {
+  batchId: string;
+  jobId: string;
+  actions: BatchApprovalAction[];
+  summary: string;
+  requestedAt: string;
+  resolvedAt: string | null;
+  resolution: string | null;
+}
+
 export interface LogLine {
   jobId: string;
   seq: number;
@@ -111,6 +133,8 @@ export interface ActivityTimelineStep {
   title: string;
   activityId: string;
   planItemId?: string | null;
+  /** Highest action policy tier seen during this turn. */
+  tier?: "observe" | "checkpoint" | "gate" | null;
 }
 
 /** A retrospective grouping of steps in the activity timeline. */
@@ -139,6 +163,7 @@ export interface AppState {
   // Data slices
   jobs: Record<string, JobSummary>;
   approvals: Record<string, ApprovalRequest>;
+  batchApprovals: Record<string, BatchApproval>; // keyed by batchId
   logs: Record<string, LogLine[]>; // keyed by jobId
   transcript: Record<string, TranscriptEntry[]>; // keyed by jobId
   diffs: Record<string, DiffFileModel[]>; // keyed by jobId
@@ -181,6 +206,8 @@ export interface AppState {
   reconnectAttempt: number;
   /** Plan item ID being hovered — used to highlight linked activities. */
   hoveredPlanItemId: string | null;
+  /** Incremented when policy settings change via SSE — triggers re-fetch. */
+  policySettingsVersion: number;
 
   // Actions
   setConnectionStatus: (status: ConnectionStatus) => void;

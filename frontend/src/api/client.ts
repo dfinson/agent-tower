@@ -497,6 +497,88 @@ export function trustJob(jobId: string): Promise<{ resolved: number }> {
   });
 }
 
+// --- Action Policy Batches ---
+
+export function resolveBatch(
+  jobId: string,
+  batchId: string,
+  resolution: "approved" | "rejected" | "partial" | "rollback",
+  approvedIds?: string[],
+  trustGrantId?: string,
+): Promise<{ resolved: boolean }> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/batches/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ batchId, resolution, approvedIds, trustGrantId }),
+  });
+}
+
+// --- Policy Settings ---
+
+export interface PolicyConfig {
+  preset: string;
+  batchWindowSeconds: number;
+  dailyBudgetUsd: number | null;
+}
+
+export interface PolicyState {
+  config: PolicyConfig;
+  pathRules: Array<{ id: string; pathPattern: string; tier: string; reason: string; createdAt: string }>;
+  actionRules: Array<{ id: string; matchPattern: string; tier: string; reason: string; createdAt: string }>;
+  costRules: Array<{ id: string; condition: string; promoteTo: string; thresholdValue: number | null; reason: string; createdAt: string }>;
+  mcpServers: Array<{ name: string; command: string; contained: boolean; reversible: boolean; trusted: boolean; createdAt: string }>;
+  trustGrants: Array<{ id: string; kinds: string[]; pathPattern: string | null; commandPattern: string | null; mcpServer: string | null; jobId: string | null; expiresAt: string | null; reason: string; createdAt: string }>;
+}
+
+export function fetchPolicySettings(): Promise<PolicyState> {
+  return request("/settings/policy");
+}
+
+export function updatePolicyPreset(preset: string): Promise<PolicyConfig> {
+  return request("/settings/policy/preset", {
+    method: "PUT",
+    body: JSON.stringify({ preset }),
+  });
+}
+
+export function updatePolicyConfig(config: Partial<PolicyConfig>): Promise<PolicyConfig> {
+  return request("/settings/policy/config", {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+}
+
+export function createPathRule(rule: { pathPattern: string; tier: string; reason: string }): Promise<unknown> {
+  return request("/settings/policy/path-rules", {
+    method: "POST",
+    body: JSON.stringify(rule),
+  });
+}
+
+export function deletePathRule(id: string): Promise<void> {
+  return request(`/settings/policy/path-rules/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function createActionRule(rule: { matchPattern: string; tier: string; reason: string }): Promise<unknown> {
+  return request("/settings/policy/action-rules", {
+    method: "POST",
+    body: JSON.stringify(rule),
+  });
+}
+
+export function deleteActionRule(id: string): Promise<void> {
+  return request(`/settings/policy/action-rules/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function deleteTrustGrant(id: string): Promise<void> {
+  return request(`/settings/policy/trust-grants/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 // --- Operator Messages ---
 
 export function sendOperatorMessage(

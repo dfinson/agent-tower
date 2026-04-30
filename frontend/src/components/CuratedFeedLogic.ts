@@ -5,7 +5,7 @@
  * classification, clustering, and file path utilities.
  */
 
-import type { TranscriptEntry, ApprovalRequest } from "../store";
+import type { TranscriptEntry, ApprovalRequest, BatchApproval } from "../store";
 import {
   parseArgs,
   stripMcpPrefix,
@@ -113,6 +113,7 @@ export type FeedItem =
   | { type: "turn"; turn: AgentTurn; clusters: ActionCluster[] }
   | { type: "condensed"; turn: AgentTurn; clusters: ActionCluster[] }
   | { type: "approval"; approval: ApprovalRequest }
+  | { type: "batch_approval"; batch: BatchApproval }
   | { type: "divider"; entry: TranscriptEntry };
 
 // ---------------------------------------------------------------------------
@@ -219,9 +220,11 @@ export function deduplicateByFile(entries: TranscriptEntry[]): PhaseFile[] {
 export function buildFeedItems(
   entries: TranscriptEntry[],
   approvals: ApprovalRequest[],
+  batchApprovals: BatchApproval[] = [],
 ): FeedItem[] {
   const items: FeedItem[] = [];
   const pendingApprovals = new Map(approvals.map((a) => [a.requestedAt, a]));
+  const pendingBatches = new Map(batchApprovals.map((b) => [b.requestedAt, b]));
 
   let currentTurn: AgentTurn | null = null;
 
@@ -279,6 +282,14 @@ export function buildFeedItems(
       }
     }
 
+    for (const [ts, batch] of pendingBatches) {
+      if (ts <= entry.timestamp) {
+        flushTurn();
+        items.push({ type: "batch_approval", batch });
+        pendingBatches.delete(ts);
+      }
+    }
+
     if (entry.role === "operator") {
       flushTurn();
       items.push({ type: "operator", entry });
@@ -331,6 +342,9 @@ export function buildFeedItems(
 
   for (const approval of pendingApprovals.values()) {
     items.push({ type: "approval", approval });
+  }
+  for (const batch of pendingBatches.values()) {
+    items.push({ type: "batch_approval", batch });
   }
 
   return items;

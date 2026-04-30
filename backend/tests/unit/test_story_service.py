@@ -207,11 +207,17 @@ def _make_session_mock(
             row = MagicMock()
             row.mappings.return_value = [
                 {"span_id": "s1", "file": "a.py", "why": "fix A",
-                 "edit_motivations": None, "turn_id": "t1",
-                 "started_at": "2024-01-01", "step_number": 1, "step_title": "step-1"},
+                 "edit_motivations": None, "tool_args_json": None,
+                 "tool_name": "write_file", "turn_id": "t1",
+                 "started_at": "2024-01-01", "is_retry": False,
+                 "error_kind": None, "execution_phase": None,
+                 "step_number": 1, "step_title": "step-1", "step_intent": None},
                 {"span_id": "s2", "file": "b.py", "why": "fix B",
-                 "edit_motivations": None, "turn_id": "t2",
-                 "started_at": "2024-01-02", "step_number": 2, "step_title": "step-2"},
+                 "edit_motivations": None, "tool_args_json": None,
+                 "tool_name": "write_file", "turn_id": "t2",
+                 "started_at": "2024-01-02", "is_retry": False,
+                 "error_kind": None, "execution_phase": None,
+                 "step_number": 2, "step_title": "step-2", "step_intent": None},
             ]
             return row
         # Default — UPDATE etc.

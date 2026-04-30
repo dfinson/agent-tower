@@ -81,6 +81,12 @@ class ApprovalRow(Base):
     # Hard-blocked operations (e.g. git reset --hard) set this to True so that
     # blanket trust grants cannot auto-resolve them.
     requires_explicit_approval: Mapped[bool] = Column(Boolean, nullable=False, server_default="0")
+    # Action policy metadata (populated by action classifier)
+    batch_id: Mapped[str | None] = Column(String(36), nullable=True)
+    tier: Mapped[str | None] = Column(String(12), nullable=True)
+    reversible: Mapped[bool | None] = Column(Boolean, nullable=True)
+    contained: Mapped[bool | None] = Column(Boolean, nullable=True)
+    checkpoint_ref: Mapped[str | None] = Column(String(80), nullable=True)
 
 
 class ArtifactRow(Base):
@@ -338,6 +344,13 @@ class TrailNodeRow(Base):
     plan_item_status = Column(String(10), nullable=True)
     activity_id = Column(String(36), nullable=True)
     activity_label = Column(Text, nullable=True)
+    # Action policy classification
+    tier = Column(String(12), nullable=True)
+    reversible = Column(Boolean, nullable=True)
+    contained = Column(Boolean, nullable=True)
+    tier_reason = Column(Text, nullable=True)
+    checkpoint_ref = Column(String(80), nullable=True)
+    rollback_status = Column(String(20), nullable=True)
     # Edges
     supersedes = Column(String(36), nullable=True)
     tags = Column(Text, nullable=True)  # JSON array
@@ -350,3 +363,76 @@ class TrailNodeRow(Base):
         Index("ix_trail_nodes_kind", "job_id", "kind"),
         Index("ix_trail_nodes_enrichment", "job_id", "enrichment"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Action Policy tables
+# ---------------------------------------------------------------------------
+
+class PolicyConfigRow(Base):
+    __tablename__ = "policy_config"
+
+    id: Mapped[int] = Column(Integer, primary_key=True, default=1)
+    preset: Mapped[str] = Column(String(20), nullable=False, server_default="supervised")
+    batch_window_seconds: Mapped[float] = Column(Float, nullable=False, server_default="5.0")
+    daily_budget_usd: Mapped[float | None] = Column(Float, nullable=True)
+
+
+class PathRuleRow(Base):
+    __tablename__ = "path_rules"
+
+    id: Mapped[str] = Column(String(36), primary_key=True)
+    path_pattern: Mapped[str] = Column(Text, nullable=False, unique=True)
+    tier: Mapped[str] = Column(String(12), nullable=False)
+    reason: Mapped[str] = Column(Text, nullable=False)
+    created_at: Mapped[str] = Column(Text, nullable=False)
+
+
+class ActionRuleRow(Base):
+    __tablename__ = "action_rules"
+
+    id: Mapped[str] = Column(String(36), primary_key=True)
+    match_pattern: Mapped[str] = Column(Text, nullable=False)
+    tier: Mapped[str] = Column(String(12), nullable=False)
+    reason: Mapped[str] = Column(Text, nullable=False)
+    created_at: Mapped[str] = Column(Text, nullable=False)
+
+
+class CostRuleRow(Base):
+    __tablename__ = "cost_rules"
+
+    id: Mapped[str] = Column(String(36), primary_key=True)
+    condition: Mapped[str] = Column(Text, nullable=False)
+    promote_to: Mapped[str] = Column(String(12), nullable=False)
+    threshold_value: Mapped[float | None] = Column(Float, nullable=True)
+    reason: Mapped[str] = Column(Text, nullable=False)
+    created_at: Mapped[str] = Column(Text, nullable=False)
+
+
+class MCPServerConfigRow(Base):
+    __tablename__ = "mcp_server_configs"
+
+    name: Mapped[str] = Column(Text, primary_key=True)
+    command: Mapped[str] = Column(Text, nullable=False)
+    args_json: Mapped[str | None] = Column(Text, nullable=True)
+    env_json: Mapped[str | None] = Column(Text, nullable=True)
+    contained: Mapped[bool] = Column(Boolean, nullable=False, server_default="0")
+    reversible: Mapped[bool] = Column(Boolean, nullable=False, server_default="0")
+    trusted: Mapped[bool] = Column(Boolean, nullable=False, server_default="0")
+    tool_overrides_json: Mapped[str | None] = Column(Text, nullable=True)
+    created_at: Mapped[str] = Column(Text, nullable=False)
+
+
+class TrustGrantRow(Base):
+    __tablename__ = "trust_grants"
+
+    id: Mapped[str] = Column(String(36), primary_key=True)
+    job_id: Mapped[str | None] = Column(String(36), nullable=True)
+    kinds_json: Mapped[str] = Column(Text, nullable=False)
+    path_pattern: Mapped[str | None] = Column(Text, nullable=True)
+    excludes_json: Mapped[str | None] = Column(Text, nullable=True)
+    command_pattern: Mapped[str | None] = Column(Text, nullable=True)
+    mcp_server: Mapped[str | None] = Column(Text, nullable=True)
+    expires_at: Mapped[str | None] = Column(Text, nullable=True)
+    created_at: Mapped[str] = Column(Text, nullable=False)
+    reason: Mapped[str] = Column(Text, nullable=False)

@@ -16,7 +16,7 @@ import contextlib
 import enum
 from dataclasses import dataclass, replace as dataclass_replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from sqlalchemy.exc import DBAPIError
@@ -222,10 +222,15 @@ class RuntimeService:
         self._waiting_for_approval: set[str] = set()
         self._session_ids: dict[str, str] = {}
         self._permission_overrides: dict[str, str] = {}  # job_id → permission_mode
+        self._policy_routers: dict[str, Any] = {}  # job_id → PolicyRouter
+        self._policy_batchers: dict[str, Any] = {}  # job_id → ApprovalBatcher
         self._dequeue_lock = asyncio.Lock()
         self._shutting_down = False
         self._snapshot_tasks: dict[str, asyncio.Task[None]] = {}
         self._pending_starts: dict[str, tuple[str | None, str | None]] = {}
+
+        # Subscribe to policy settings changes for mid-job reload
+        self._event_bus.subscribe(self._on_policy_settings_changed)
         self._queued_override_prompts: dict[str, str] = {}
         self._queued_resume_session_ids: dict[str, str] = {}
         # Contents to suppress when the SDK echoes them back (already published locally)
@@ -571,6 +576,9 @@ class RuntimeService:
                 )
             )
 
+            # --- Wire action policy router (if policy config exists in DB) ---
+            await self._setup_action_policy(job_id, config, worktree_path)
+
             result = await self._execute_session_attempt(
                 job_id,
                 agent_session,
@@ -821,6 +829,127 @@ class RuntimeService:
         if self._step_tracker is not None:
             await self._step_tracker.on_job_terminal(job_id, outcome)
 
+    async def _setup_action_policy(
+        self,
+        job_id: str,
+        config: SessionConfig,
+        worktree_path: str | None,
+    ) -> None:
+        """Load action policy from DB and wire the PolicyRouter into the adapter.
+
+        If no policy config exists (fresh install before migration), this is a no-op
+        and the legacy permission_policy.evaluate() path is used.
+        """
+        try:
+            from backend.persistence.policy_repo import PolicyRepository
+            from backend.services.action_policy.batcher import ApprovalBatcher
+            from backend.services.action_policy.checkpoint_service import CheckpointService
+            from backend.services.action_policy.classifier import Preset, RepoPolicy
+            from backend.services.action_policy.router import PolicyRouter
+            from backend.services.action_policy.trust_store import TrustStore
+
+            async with self._session_factory() as session:
+                repo = PolicyRepository(session)
+                db_config = await repo.get_config()
+
+                path_rules = await repo.list_path_rules()
+                action_rules = await repo.list_action_rules()
+                cost_rules = await repo.list_cost_rules()
+                mcp_configs_list = await repo.list_mcp_configs()
+
+            # Build MCP config lookup: name → server config dict
+            mcp_configs = {c["name"]: c for c in mcp_configs_list}
+
+            # Build in-memory policy object
+            policy = RepoPolicy(
+                preset=Preset(db_config["preset"]),
+                path_rules=path_rules,
+                action_rules=action_rules,
+                cost_rules=cost_rules,
+                mcp_configs=mcp_configs,
+            )
+
+            # Create router components
+            checkpoint_svc = CheckpointService(self._git_service)
+            trust_store = TrustStore(self._session_factory)
+            await trust_store.load()
+            batcher = ApprovalBatcher(
+                event_bus=self._event_bus,
+                batch_window_seconds=db_config["batch_window_seconds"],
+            )
+
+            router = PolicyRouter(
+                checkpoint_service=checkpoint_svc,
+                trust_store=trust_store,
+                batcher=batcher,
+            )
+
+            # Wire into adapter
+            adapter = self._resolve_adapter(config.sdk)
+            adapter.set_policy_router(router, policy, job_id, worktree_path or "")
+            self._policy_routers[job_id] = router
+            self._policy_batchers[job_id] = batcher
+
+            log.info(
+                "action_policy_configured",
+                job_id=job_id,
+                preset=db_config["preset"],
+                path_rules=len(path_rules),
+                action_rules=len(action_rules),
+            )
+        except Exception:
+            log.warning("action_policy_setup_failed", job_id=job_id, exc_info=True)
+            # Non-fatal — fall back to legacy permission evaluation
+
+    async def _on_policy_settings_changed(self, event: DomainEvent) -> None:
+        """Reload action policy for all running jobs when settings change."""
+        if event.kind != DomainEventKind.policy_settings_changed:
+            return
+
+        job_ids = list(self._policy_routers.keys())
+        if not job_ids:
+            return
+
+        log.info("policy_settings_changed_reloading", job_count=len(job_ids))
+
+        try:
+            from backend.persistence.policy_repo import PolicyRepository
+            from backend.services.action_policy.classifier import Preset, RepoPolicy
+
+            async with self._session_factory() as session:
+                repo = PolicyRepository(session)
+                db_config = await repo.get_config()
+                path_rules = await repo.list_path_rules()
+                action_rules = await repo.list_action_rules()
+                cost_rules = await repo.list_cost_rules()
+                mcp_configs_list = await repo.list_mcp_configs()
+
+            mcp_configs = {c["name"]: c for c in mcp_configs_list}
+
+            new_policy = RepoPolicy(
+                preset=Preset(db_config["preset"]),
+                path_rules=path_rules,
+                action_rules=action_rules,
+                cost_rules=cost_rules,
+                mcp_configs=mcp_configs,
+            )
+
+            for job_id in job_ids:
+                if job_id not in self._policy_routers:
+                    continue  # job finished between iteration start and now
+                # Reload trust store on the router (trust grants may have changed)
+                router = self._policy_routers[job_id]
+                if hasattr(router, "_trust") and hasattr(router._trust, "load"):
+                    await router._trust.load()
+                # Update policy in all registered adapters (only one will have the job)
+                for adapter in self._adapter_registry._adapters.values():
+                    if hasattr(adapter, "update_repo_policy"):
+                        adapter.update_repo_policy(job_id, new_policy)
+
+            log.info("policy_reloaded_for_jobs", job_count=len(job_ids))
+        except Exception:
+            log.warning("policy_reload_failed", exc_info=True)
+
     async def _cleanup_job_state(self, job_id: str) -> None:
         """Remove all per-job in-memory state and trigger post-job hooks."""
         # Last-resort guard: if the job is still non-terminal after all error
@@ -836,6 +965,11 @@ class RuntimeService:
         self._last_activity.pop(job_id, None)
         self._waiting_for_approval.discard(job_id)
         self._session_ids.pop(job_id, None)
+        # Clean up action policy router state
+        router = self._policy_routers.pop(job_id, None)
+        if router is not None:
+            router.cleanup_job(job_id)
+        self._policy_batchers.pop(job_id, None)
         self._echo_suppress.pop(job_id, None)
         self._pending_starts.pop(job_id, None)
         self._queued_override_prompts.pop(job_id, None)
@@ -1406,6 +1540,46 @@ class RuntimeService:
         # Suppress the SDK echo so the same content is not published twice.
         self._echo_suppress.setdefault(job_id, set()).add(message)
         return True
+
+    async def resolve_policy_batch(
+        self,
+        job_id: str,
+        batch_id: str,
+        resolution: str,
+        approved_ids: list[str] | None = None,
+        trust_grant_id: str | None = None,
+    ) -> bool:
+        """Resolve a pending action policy batch.
+
+        Called by the operator via the approvals API. The resolution
+        unblocks the batcher which unblocks the SDK permission callback.
+
+        Returns True if the batch was found and resolved.
+        """
+        from backend.services.action_policy.batcher import BatchResolution
+
+        batcher = self._policy_batchers.get(job_id)
+        if batcher is None:
+            return False
+        res = BatchResolution(resolution)
+        approved_set = set(approved_ids) if approved_ids else None
+        resolved = batcher.resolve_batch(batch_id, res, approved_set, trust_grant_id)
+
+        if resolved:
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.batch_approval_resolved,
+                    payload={
+                        "batch_id": batch_id,
+                        "resolution": resolution,
+                    },
+                )
+            )
+
+        return resolved
 
     async def _resume_orphaned(self, job_id: str, message: str) -> bool:
         """Auto-resume a job that has no live agent session."""

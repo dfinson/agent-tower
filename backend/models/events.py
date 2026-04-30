@@ -28,6 +28,8 @@ class DomainEventKind(StrEnum):
     diff_updated = "DiffUpdated"
     approval_requested = "ApprovalRequested"
     approval_resolved = "ApprovalResolved"
+    batch_approval_requested = "BatchApprovalRequested"
+    batch_approval_resolved = "BatchApprovalResolved"
     job_review = "JobReview"
     job_completed = "JobCompleted"
     job_failed = "JobFailed"
@@ -53,6 +55,8 @@ class DomainEventKind(StrEnum):
     plan_step_updated = "PlanStepUpdated"
     step_entries_reassigned = "StepEntriesReassigned"
     turn_summary = "TurnSummary"
+    action_classified = "ActionClassified"
+    policy_settings_changed = "PolicySettingsChanged"
 
 
 # ---------------------------------------------------------------------------

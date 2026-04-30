@@ -81,6 +81,10 @@ class GitService:
             )
         return stdout
 
+    async def run_git(self, *args: str, cwd: str | Path) -> str:
+        """Public wrapper for running arbitrary git commands. Raises GitError on failure."""
+        return await self._run_git(*args, cwd=cwd)
+
     async def diff(self, diff_spec: str, *, cwd: str | Path) -> str:
         """Run `git diff <diff_spec>` and return raw output."""
         return await self._run_git("diff", diff_spec, cwd=cwd)
@@ -177,6 +181,13 @@ class GitService:
     async def rev_parse(self, ref: str, *, cwd: str | Path) -> str:
         """Resolve a ref to its full commit SHA."""
         return await self._run_git("rev-parse", ref, cwd=cwd)
+
+    async def tag(self, name: str, *, message: str = "", cwd: str | Path) -> None:
+        """Create an annotated git tag."""
+        if message:
+            await self._run_git("tag", "-a", name, "-m", message, cwd=cwd)
+        else:
+            await self._run_git("tag", name, cwd=cwd)
 
     async def reset_hard(self, sha: str, *, cwd: str | Path) -> None:
         await self._run_git("reset", "--hard", sha, cwd=cwd)

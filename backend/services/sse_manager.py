@@ -60,6 +60,8 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.diff_updated: "diff_update",
     DomainEventKind.approval_requested: "approval_requested",
     DomainEventKind.approval_resolved: "approval_resolved",
+    DomainEventKind.batch_approval_requested: "batch_approval_requested",
+    DomainEventKind.batch_approval_resolved: "batch_approval_resolved",
     DomainEventKind.job_review: "job_review",
     DomainEventKind.job_completed: "job_completed",
     DomainEventKind.job_failed: "job_failed",
@@ -86,6 +88,8 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.plan_step_updated: "plan_step_updated",
     DomainEventKind.step_entries_reassigned: "step_entries_reassigned",
     DomainEventKind.turn_summary: "turn_summary",
+    DomainEventKind.action_classified: "action_classified",
+    DomainEventKind.policy_settings_changed: "policy_settings_changed",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -237,6 +241,30 @@ def _build_plan_step_updated(event: DomainEvent) -> str:
     ).model_dump_json(by_alias=True)
 
 
+def _build_batch_approval_requested(event: DomainEvent) -> str:
+    import json
+    p = event.payload
+    return json.dumps({
+        "jobId": event.job_id,
+        "batch_id": p.get("batch_id", ""),
+        "batch_size": p.get("batch_size", 0),
+        "summary": p.get("summary", ""),
+        "actions": p.get("actions", []),
+        "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
+    })
+
+
+def _build_batch_approval_resolved(event: DomainEvent) -> str:
+    import json
+    p = event.payload
+    return json.dumps({
+        "jobId": event.job_id,
+        "batch_id": p.get("batch_id", ""),
+        "resolution": p.get("resolution", ""),
+        "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
+    })
+
+
 # ---------------------------------------------------------------------------
 # Unified SSE payload registry
 # ---------------------------------------------------------------------------
@@ -249,6 +277,8 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
     "job_state_changed": _build_job_state_changed,
     "job_review": _build_job_review,
     "plan_step_updated": _build_plan_step_updated,
+    "batch_approval_requested": _build_batch_approval_requested,
+    "batch_approval_resolved": _build_batch_approval_resolved,
     # --- Field-map builders (declarative) ---
     "log_line": (
         LogLinePayload,

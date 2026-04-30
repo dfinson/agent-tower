@@ -42,6 +42,11 @@ def _dict_to_node_response(d: dict) -> TrailNodeResponse:
         end_sha=d.get("end_sha"),
         supersedes=d.get("supersedes"),
         tags=d.get("tags", []),
+        tier=d.get("tier"),
+        reversible=d.get("reversible"),
+        contained=d.get("contained"),
+        tier_reason=d.get("tier_reason"),
+        checkpoint_ref=d.get("checkpoint_ref"),
         children=children,
     )
 

@@ -29,6 +29,7 @@ export const selectConnectionStatus = (state: AppState) =>
 export const selectReconnectAttempt = (state: AppState) =>
   state.reconnectAttempt;
 export const selectApprovals = (state: AppState) => state.approvals;
+export const selectBatchApprovals = (state: AppState) => state.batchApprovals;
 
 export const selectJobLogs = (jobId: string) => (state: AppState) =>
   state.logs[jobId] ?? EMPTY_LOGS;

@@ -218,10 +218,44 @@ export function handleStepEntriesReassigned(state: AppState, payload: Record<str
   };
 }
 
+const TIER_PRIORITY: Record<string, number> = { observe: 1, checkpoint: 2, gate: 3 };
+
+export function handleActionClassified(_state: AppState, payload: Record<string, unknown>, getFresh: () => AppState): Partial<AppState> | null {
+  const jobId = payload.jobId as string;
+  const tier = payload.tier as string | undefined;
+  if (!jobId || !tier) return null;
+
+  const freshTimeline = getFresh().activityTimelines[jobId];
+  if (!freshTimeline || freshTimeline.activities.length === 0) return null;
+
+  // Update the last step (current turn) with the highest tier
+  const activities = freshTimeline.activities.map((a, ai) => {
+    if (ai !== freshTimeline.activities.length - 1) return a;
+    const steps = a.steps.map((s, si) => {
+      if (si !== a.steps.length - 1) return s;
+      const currentPriority = TIER_PRIORITY[s.tier ?? ""] ?? 0;
+      const newPriority = TIER_PRIORITY[tier] ?? 0;
+      if (newPriority > currentPriority) {
+        return { ...s, tier: tier as "observe" | "checkpoint" | "gate" };
+      }
+      return s;
+    });
+    return { ...a, steps };
+  });
+
+  return {
+    activityTimelines: {
+      ...getFresh().activityTimelines,
+      [jobId]: { activities },
+    },
+  };
+}
+
 export const timelineHandlers: Record<string, SSEHandler> = {
   progress_headline: handleProgressHeadline,
   agent_plan_updated: handleAgentPlanUpdated,
   plan_step_updated: handlePlanStepUpdated,
   turn_summary: handleTurnSummary,
   step_entries_reassigned: handleStepEntriesReassigned,
+  action_classified: handleActionClassified,
 };
