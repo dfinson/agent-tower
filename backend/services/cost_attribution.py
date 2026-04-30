@@ -328,32 +328,15 @@ async def _compute_attribution(
     # --- File I/O stats ---
     file_stats = await file_repo.reread_stats(job_id)
 
-    # --- Diff line counts from trail nodes (step boundaries with SHA refs) ---
+    # --- Diff line counts ---
+    # Trail nodes store file paths but NOT per-file additions/deletions.
+    # The old EventRepository diff_updated events carried line counts in
+    # their payload, but that data is not replicated in trail nodes.
+    # GitService.diff_stat() would be the correct source but requires a
+    # live worktree (already cleaned up by the time attribution runs).
+    # Accept 0/0 — this is best-effort analytics, not billing data.
     diff_added = 0
     diff_removed = 0
-    try:
-        from sqlalchemy import text as sa_text
-
-        # Get the latest step node with file data for this job
-        result = await session.execute(
-            sa_text(
-                "SELECT files FROM trail_nodes "
-                "WHERE job_id = :job_id AND files IS NOT NULL "
-                "ORDER BY seq DESC LIMIT 1"
-            ),
-            {"job_id": job_id},
-        )
-        row = result.mappings().first()
-        if row and row.get("files"):
-            import json as _json
-
-            files_data = _json.loads(row["files"])
-            for f in files_data:
-                if isinstance(f, dict):
-                    diff_added += f.get("additions", 0)
-                    diff_removed += f.get("deletions", 0)
-    except (DBAPIError, KeyError, ValueError):
-        log.warning("diff_lines_extraction_failed", job_id=job_id, exc_info=True)
 
     await summary_repo.set_turn_stats(
         job_id,

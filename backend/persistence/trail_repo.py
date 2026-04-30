@@ -183,13 +183,31 @@ class TrailNodeRepository:
     ) -> list[TrailNodeRow]:
         """Fetch trail nodes carrying transcript content for a job.
 
-        Returns nodes with agent_message set, ordered chronologically.
+        Returns nodes that have conversational content:
+        - Step nodes (modify/shell/explore) with agent_message set
+        - Request nodes with intent set (operator approval interactions)
+
+        Note: General operator chat messages (transcript_updated with
+        role=operator) are not yet captured as trail nodes. Only operator
+        approval requests appear here. Full operator transcript migration
+        requires TrailNodeBuilder to subscribe to transcript_updated events.
         """
+        from sqlalchemy import and_, or_
+
         async with self._session_factory() as session:
             stmt = (
                 select(TrailNodeRow)
                 .where(TrailNodeRow.job_id == job_id)
-                .where(TrailNodeRow.agent_message.isnot(None))
+                .where(
+                    or_(
+                        TrailNodeRow.agent_message.isnot(None),
+                        # Request nodes carry operator context in intent
+                        and_(
+                            TrailNodeRow.kind == "request",
+                            TrailNodeRow.intent.isnot(None),
+                        ),
+                    )
+                )
                 .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
             )
             if limit is not None:

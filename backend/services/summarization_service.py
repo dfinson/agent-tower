@@ -360,20 +360,28 @@ def _clean_transcript(events: list[DomainEvent]) -> list[TranscriptTurn]:
 
 
 def _clean_transcript_from_trail(nodes: list) -> list[TranscriptTurn]:
-    """Build cleaned transcript turns from trail nodes (agent_message field).
+    """Build cleaned transcript turns from trail nodes.
 
-    Trail nodes carry agent_message for step nodes. The node's kind indicates
-    the role: 'request' nodes are operator messages, all others are agent.
+    Step nodes (modify/shell/explore) carry agent content in agent_message.
+    Request nodes carry operator content in intent (approval interactions).
+
+    Note: General operator chat messages are not yet captured in the trail.
+    Only approval-request interactions appear as operator turns here.
     """
     seen: set[str] = set()
     result: list[TranscriptTurn] = []
 
     for node in nodes:
-        content = (node.agent_message or "").strip()
+        if node.kind == "request":
+            # Operator approval requests store content in intent
+            content = (node.intent or "").strip()
+            role = "operator"
+        else:
+            content = (node.agent_message or "").strip()
+            role = "agent"
+
         if not content:
             continue
-
-        role = "operator" if node.kind == "request" else "agent"
 
         key = f"{role}:{content}"
         if key in seen:

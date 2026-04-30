@@ -469,7 +469,8 @@ class TestSummarizeAndStore:
         mock_node_agent.timestamp = datetime.now(UTC)
 
         mock_node_operator = MagicMock()
-        mock_node_operator.agent_message = "Thanks"
+        mock_node_operator.agent_message = None
+        mock_node_operator.intent = "Thanks"
         mock_node_operator.kind = "request"
         mock_node_operator.timestamp = datetime.now(UTC)
 
