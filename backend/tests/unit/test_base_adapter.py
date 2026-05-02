@@ -444,7 +444,7 @@ class TestEvaluatePermission:
         adapter._paused_sessions.add("s1")
         from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(
-            "s1", "j1", MagicMock(),
+            "s1", "j1",
             PermissionRequest(kind="shell", workspace_path=""),
             tool_name="Bash",
         )
@@ -456,10 +456,9 @@ class TestEvaluatePermission:
         mock_approval.is_trusted.return_value = True
         adapter = _make_adapter(approval_service=mock_approval)
 
-        from backend.models.domain import PermissionMode
         from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(
-            "s1", "j1", PermissionMode.full_auto,
+            "s1", "j1",
             PermissionRequest(kind="read", workspace_path=""),
             tool_name="Read",
         )
@@ -473,10 +472,9 @@ class TestEvaluatePermission:
         adapter = _make_adapter(approval_service=mock_approval)
         adapter._queues["s1"] = asyncio.Queue()
 
-        from backend.models.domain import PermissionMode
         from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(
-            "s1", "j1", PermissionMode.full_auto,
+            "s1", "j1",
             PermissionRequest(kind="shell", workspace_path="", full_command_text="git reset --hard HEAD~1"),
             tool_name="Bash",
         )
@@ -490,10 +488,9 @@ class TestEvaluatePermission:
         adapter = _make_adapter(approval_service=mock_approval)
         adapter._queues["s1"] = asyncio.Queue()
 
-        from backend.models.domain import PermissionMode
         from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(
-            "s1", "j1", PermissionMode.full_auto,
+            "s1", "j1",
             PermissionRequest(kind="shell", workspace_path="", full_command_text="git reset --hard HEAD~1"),
             tool_name="Bash",
         )

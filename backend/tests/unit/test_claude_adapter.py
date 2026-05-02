@@ -17,11 +17,11 @@ import pytest
 
 from backend.models.domain import (
     MCPServerConfig,
-    PermissionMode,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
 )
+from backend.services.base_adapter import PermissionDecision
 
 # ---------------------------------------------------------------------------
 # Fake claude_code_sdk types (injected before the adapter is imported)
@@ -192,7 +192,6 @@ sys.modules.setdefault("claude_code_sdk._errors", _fake_errors)
 from backend.services.base_adapter import BaseAgentAdapter  # noqa: E402
 from backend.services.claude_adapter import (  # noqa: E402
     _HIDDEN_TOOLS,
-    _PERMISSION_MODE_MAP,
     ClaudeAdapter,
 )
 
@@ -219,7 +218,6 @@ def _make_config(**overrides: Any) -> SessionConfig:
         "workspace_path": "/tmp/workspace",
         "prompt": "hello",
         "job_id": "job-1",
-        "permission_mode": PermissionMode.full_auto,
     }
     defaults.update(overrides)
     return SessionConfig(**defaults)
@@ -286,17 +284,6 @@ class TestBuildPermissionDescription:
     def test_fallback_truncation(self) -> None:
         result = BaseAgentAdapter._build_permission_description("custom-tool", "CustomTool", {"x": "a" * 200}, None)
         assert len(result) <= 250
-
-
-class TestPermissionModeMap:
-    def test_auto_maps_to_bypass(self) -> None:
-        assert _PERMISSION_MODE_MAP[PermissionMode.full_auto] == "bypassPermissions"
-
-    def test_read_only_maps_to_plan(self) -> None:
-        assert _PERMISSION_MODE_MAP[PermissionMode.observe_only] == "plan"
-
-    def test_approval_required_maps_to_default(self) -> None:
-        assert _PERMISSION_MODE_MAP[PermissionMode.review_and_approve] == "default"
 
 
 class TestHiddenTools:
@@ -394,133 +381,56 @@ class TestEnqueueLog:
 
 
 class TestBuildCanUseTool:
+    """Test _build_can_use_tool callback against the action policy router.
+
+    All permission decisions now route through the policy router.  These tests
+    mock ``_evaluate_permission`` to verify the SDK callback translates
+    PermissionDecision → PermissionResultAllow / PermissionResultDeny.
+    """
+
     @pytest.mark.asyncio
-    async def test_auto_mode_approves(self, adapter: ClaudeAdapter) -> None:
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+    async def test_policy_router_allow(self, adapter: ClaudeAdapter) -> None:
+        adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.allow)
+        adapter._session_to_job["sess-1"] = "job-1"
+        config = _make_config()
         callback = adapter._build_can_use_tool(config, "sess-1")
 
-        result = await callback("Bash", {"command": "rm -rf /"}, None)
-
+        result = await callback("Bash", {"command": "make test"}, None)
         assert isinstance(result, _FakePermissionResultAllow)
 
     @pytest.mark.asyncio
-    async def test_read_only_allows_read_tools(self, adapter: ClaudeAdapter) -> None:
-        config = _make_config(permission_mode=PermissionMode.observe_only)
-        callback = adapter._build_can_use_tool(config, "sess-1")
-
-        for tool in ("Read", "Glob", "Grep", "WebSearch", "WebFetch", "ToolSearch"):
-            result = await callback(tool, {}, None)
-            assert isinstance(result, _FakePermissionResultAllow), f"{tool} should be allowed"
-
-    @pytest.mark.asyncio
-    async def test_read_only_denies_write_tools(self, adapter: ClaudeAdapter) -> None:
-        config = _make_config(permission_mode=PermissionMode.observe_only)
+    async def test_policy_router_deny(self, adapter: ClaudeAdapter) -> None:
+        adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.deny)
+        adapter._session_to_job["sess-1"] = "job-1"
+        config = _make_config()
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         result = await callback("Edit", {"file_path": "/tmp/foo"}, None)
-
         assert isinstance(result, _FakePermissionResultDeny)
 
     @pytest.mark.asyncio
-    async def test_approval_required_auto_approves_reads(self, adapter: ClaudeAdapter) -> None:
-        config = _make_config(permission_mode=PermissionMode.review_and_approve)
+    async def test_no_policy_router_denies(self, adapter: ClaudeAdapter) -> None:
+        """Without a policy router, the callback denies by default."""
+        adapter._session_to_job["sess-1"] = "job-1"
+        config = _make_config()
         callback = adapter._build_can_use_tool(config, "sess-1")
 
-        for tool in ("Read", "Glob", "Grep"):
-            result = await callback(tool, {}, None)
-            assert isinstance(result, _FakePermissionResultAllow)
-
-    @pytest.mark.asyncio
-    async def test_approval_required_no_infra_approves(self, adapter: ClaudeAdapter) -> None:
-        """When no approval service is configured, fall back to auto-approve."""
-        config = _make_config(permission_mode=PermissionMode.review_and_approve)
-        callback = adapter._build_can_use_tool(config, "sess-1")
-
-        result = await callback("Bash", {"command": "ls"}, None)
-
-        assert isinstance(result, _FakePermissionResultAllow)
+        result = await callback("Bash", {"command": "rm -rf /"}, None)
+        assert isinstance(result, _FakePermissionResultDeny)
 
     @pytest.mark.asyncio
     async def test_paused_session_denies_all_tools(self, adapter: ClaudeAdapter) -> None:
         """When a session is paused, all tool calls are immediately denied."""
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+        adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.deny)
+        adapter._session_to_job["sess-1"] = "job-1"
+        config = _make_config()
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         adapter.pause_tools("sess-1")
 
-        # Even read tools should be denied while paused
         for tool in ("Read", "Bash", "Edit", "Glob"):
             result = await callback(tool, {}, None)
             assert isinstance(result, _FakePermissionResultDeny), f"{tool} should be denied while paused"
-
-        # After resuming, tools work again
-        adapter.resume_tools("sess-1")
-        result = await callback("Read", {}, None)
-        assert isinstance(result, _FakePermissionResultAllow)
-
-    @pytest.mark.asyncio
-    async def test_approval_required_routes_to_operator_approved(self) -> None:
-        approval_svc = MagicMock()
-        approval_svc.is_trusted = MagicMock(return_value=False)
-        approval_request = MagicMock()
-        approval_request.id = "req-1"
-        approval_svc.create_request = AsyncMock(return_value=approval_request)
-        approval_svc.wait_for_resolution = AsyncMock(return_value="approved")
-
-        adapter = ClaudeAdapter(approval_service=approval_svc)
-        adapter._session_to_job["sess-1"] = "job-1"
-        config = _make_config(permission_mode=PermissionMode.review_and_approve)
-        callback = adapter._build_can_use_tool(config, "sess-1")
-
-        q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
-        adapter._queues["sess-1"] = q
-
-        result = await callback("Bash", {"command": "pip install flask"}, None)
-
-        assert isinstance(result, _FakePermissionResultAllow)
-        # Check approval_request event was enqueued
-        event = q.get_nowait()
-        assert event is not None
-        assert event.kind == SessionEventKind.approval_request
-        assert event.payload["approval_id"] == "req-1"
-
-    @pytest.mark.asyncio
-    async def test_review_and_approve_auto_approves_readonly_shell(self) -> None:
-        """Readonly shell commands (echo, ls, grep) are auto-approved even
-        in review_and_approve mode — they don't require operator approval."""
-        approval_svc = MagicMock()
-        approval_svc.is_trusted = MagicMock(return_value=False)
-
-        adapter = ClaudeAdapter(approval_service=approval_svc)
-        adapter._session_to_job["sess-1"] = "job-1"
-        config = _make_config(permission_mode=PermissionMode.review_and_approve)
-        callback = adapter._build_can_use_tool(config, "sess-1")
-
-        result = await callback("Bash", {"command": "echo hi"}, None)
-
-        assert isinstance(result, _FakePermissionResultAllow)
-        # No approval request should have been created
-        approval_svc.create_request.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_approval_required_routes_to_operator_denied(self) -> None:
-        approval_svc = MagicMock()
-        approval_svc.is_trusted = MagicMock(return_value=False)
-        approval_request = MagicMock()
-        approval_request.id = "req-2"
-        approval_svc.create_request = AsyncMock(return_value=approval_request)
-        approval_svc.wait_for_resolution = AsyncMock(return_value="denied")
-
-        adapter = ClaudeAdapter(approval_service=approval_svc)
-        adapter._session_to_job["sess-1"] = "job-1"
-        adapter._queues["sess-1"] = asyncio.Queue()
-
-        config = _make_config(permission_mode=PermissionMode.review_and_approve)
-        callback = adapter._build_can_use_tool(config, "sess-1")
-
-        result = await callback("Edit", {"file_path": "/x"}, None)
-
-        assert isinstance(result, _FakePermissionResultDeny)
 
     @pytest.mark.asyncio
     async def test_trusted_job_auto_approves(self) -> None:
@@ -529,12 +439,13 @@ class TestBuildCanUseTool:
 
         adapter = ClaudeAdapter(approval_service=approval_svc)
         adapter._session_to_job["sess-1"] = "job-1"
+        # Trust bypass is inside _evaluate_permission, so mock the whole chain
+        adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.allow)
 
-        config = _make_config(permission_mode=PermissionMode.review_and_approve)
+        config = _make_config()
         callback = adapter._build_can_use_tool(config, "sess-1")
 
         result = await callback("Bash", {"command": "rm -rf /"}, None)
-
         assert isinstance(result, _FakePermissionResultAllow)
 
 

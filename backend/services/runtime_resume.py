@@ -437,8 +437,6 @@ async def create_followup_job(host: RuntimeService, job_id: str, instruction: st
     Raises ValueError if the parent job has already been merged — once merged,
     the work is in the base branch and a follow-up must be started as a fresh job.
     """
-    from backend.models.domain import PermissionMode
-
     normalized_instruction = instruction.strip()
     if not normalized_instruction:
         raise ValueError("Follow-up instruction must not be empty")
@@ -472,7 +470,7 @@ async def create_followup_job(host: RuntimeService, job_id: str, instruction: st
             repo=original.repo,
             prompt=normalized_instruction,
             base_ref=original.base_ref,
-            permission_mode=original.permission_mode or PermissionMode.full_auto,
+            preset=original.preset,
             model=original.model,
             sdk=original.sdk,
             verify=original.verify,

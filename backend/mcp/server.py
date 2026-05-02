@@ -560,7 +560,7 @@ def _register_settings_tool(mcp: FastMCP) -> None:
             "View or update global settings. Actions: get, update."
             "\n\n"
             "- get: no extra params"
-            "\n- update: pass any combination of: max_concurrent_jobs, permission_mode,"
+            "\n- update: pass any combination of: max_concurrent_jobs,"
             " auto_push, cleanup_worktree,"
             " delete_branch_after_merge, artifact_retention_days,"
             " max_artifact_size_mb, auto_archive_days,"
@@ -570,7 +570,6 @@ def _register_settings_tool(mcp: FastMCP) -> None:
     async def codeplane_settings(
         action: Literal["get", "update"],
         max_concurrent_jobs: int | None = None,
-        permission_mode: str | None = None,
         auto_push: bool | None = None,
         cleanup_worktree: bool | None = None,
         delete_branch_after_merge: bool | None = None,
@@ -588,7 +587,6 @@ def _register_settings_tool(mcp: FastMCP) -> None:
         if action == "get":
             return SettingsResponse(
                 max_concurrent_jobs=config.runtime.max_concurrent_jobs,
-                permission_mode=config.runtime.permission_mode,
                 auto_push=config.completion.auto_push,
                 cleanup_worktree=config.completion.cleanup_worktree,
                 delete_branch_after_merge=config.completion.delete_branch_after_merge,
@@ -607,7 +605,6 @@ def _register_settings_tool(mcp: FastMCP) -> None:
 
             field_map: dict[str, tuple[str, str, Any]] = {
                 "max_concurrent_jobs": ("runtime", "max_concurrent_jobs", max_concurrent_jobs),
-                "permission_mode": ("runtime", "permission_mode", permission_mode),
                 "auto_push": ("completion", "auto_push", auto_push),
                 "cleanup_worktree": ("completion", "cleanup_worktree", cleanup_worktree),
                 "delete_branch_after_merge": ("completion", "delete_branch_after_merge", delete_branch_after_merge),
@@ -628,7 +625,6 @@ def _register_settings_tool(mcp: FastMCP) -> None:
             # Return updated settings
             return SettingsResponse(
                 max_concurrent_jobs=config.runtime.max_concurrent_jobs,
-                permission_mode=config.runtime.permission_mode,
                 auto_push=config.completion.auto_push,
                 cleanup_worktree=config.completion.cleanup_worktree,
                 delete_branch_after_merge=config.completion.delete_branch_after_merge,

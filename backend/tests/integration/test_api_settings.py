@@ -52,7 +52,6 @@ class TestGetSettings:
         data = resp.json()
         expected_keys = {
             "maxConcurrentJobs",
-            "permissionMode",
             "autoPush",
             "cleanupWorktree",
             "deleteBranchAfterMerge",
@@ -73,7 +72,6 @@ class TestGetSettings:
         resp = await client.get("/api/settings")
         data = resp.json()
         assert isinstance(data["maxConcurrentJobs"], int)
-        assert isinstance(data["permissionMode"], str)
         assert isinstance(data["autoPush"], bool)
         assert isinstance(data["cleanupWorktree"], bool)
         assert isinstance(data["artifactRetentionDays"], int)
@@ -115,7 +113,6 @@ class TestUpdateSettings:
         data = resp.json()
         assert data["autoPush"] is True
         assert data["maxConcurrentJobs"] == baseline["maxConcurrentJobs"]
-        assert data["permissionMode"] == baseline["permissionMode"]
 
     @pytest.mark.asyncio
     async def test_update_verification_fields(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:

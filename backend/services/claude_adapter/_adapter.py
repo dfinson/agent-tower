@@ -15,7 +15,6 @@ import structlog
 
 from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
-    PermissionMode,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
@@ -29,7 +28,6 @@ from backend.services.base_adapter import (
 )
 from backend.services.claude_adapter._helpers import (
     _HIDDEN_TOOLS,
-    _PERMISSION_MODE_MAP,
     _kill_sdk_subprocess,
 )
 from backend.services.permission_policy import PermissionRequest
@@ -150,7 +148,6 @@ class ClaudeAdapter(BaseAgentAdapter):
             decision = await self._evaluate_permission(
                 session_id,
                 job_id,
-                config.permission_mode,
                 PermissionRequest(
                     kind=tool_kind,
                     workspace_path=config.workspace_path,
@@ -663,7 +660,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         options = ClaudeCodeOptions(
             cwd=config.workspace_path,
             model=config.model,
-            permission_mode=_PERMISSION_MODE_MAP.get(config.permission_mode, "default"),  # type: ignore[arg-type]
+            permission_mode="default",  # Always use callback — policy router handles all decisions
             can_use_tool=self._build_can_use_tool(config, session_id),
             append_system_prompt=CODEPLANE_SYSTEM_PROMPT,
             extra_args={"debug-to-stderr": None},

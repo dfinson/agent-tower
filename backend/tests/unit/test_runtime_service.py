@@ -33,7 +33,7 @@ from backend.models.domain import (
     Job,
     JobSpec,
     JobState,
-    PermissionMode,
+    Preset,
     Resolution,
     SessionConfig,
     SessionEvent,
@@ -120,6 +120,15 @@ class FakeAgentAdapter(AgentAdapterInterface):
 
     async def complete(self, prompt: str) -> CompletionResult:
         return CompletionResult(text="{}")
+
+    def set_policy_router(self, router: object, policy: object, job_id: str, cwd: str) -> None:
+        pass
+
+    def update_repo_policy(self, job_id: str, policy: object) -> None:
+        pass
+
+    def set_job_id(self, session_id: str, job_id: str) -> None:
+        pass
 
 
 class FakeAdapterRegistry(AdapterRegistry):
@@ -228,7 +237,7 @@ async def _create_db_job(
             session_id=job.session_id,
             title=job.title,
             worktree_name=job.worktree_name,
-            permission_mode=job.permission_mode,
+            preset=job.preset,
             session_count=job.session_count,
             sdk_session_id=job.sdk_session_id,
             model=job.model,
@@ -269,7 +278,7 @@ async def _wait_until(
 @pytest.mark.asyncio
 async def test_create_followup_job_uses_parent_handoff_context(runtime: RuntimeService) -> None:
     parent = _make_job(job_id="parent", state=JobState.review)
-    parent.permission_mode = PermissionMode.observe_only
+    parent.preset = Preset.strict
     parent.model = "gpt-5.4"
     parent.sdk = "claude"
     parent.verify = True
@@ -298,7 +307,7 @@ async def test_create_followup_job_uses_parent_handoff_context(runtime: RuntimeS
             repo=parent.repo,
             prompt="Add regression coverage",
             base_ref=parent.base_ref,
-            permission_mode=PermissionMode.observe_only,
+            preset=Preset.strict,
             model="gpt-5.4",
             sdk="claude",
             verify=True,
@@ -351,6 +360,15 @@ class ResumeFallbackAdapter(AgentAdapterInterface):
 
     async def complete(self, prompt: str) -> CompletionResult:
         return CompletionResult(text="{}")
+
+    def set_policy_router(self, router: object, policy: object, job_id: str, cwd: str) -> None:
+        pass
+
+    def update_repo_policy(self, job_id: str, policy: object) -> None:
+        pass
+
+    def set_job_id(self, session_id: str, job_id: str) -> None:
+        pass
 
 
 # ---------------------------------------------------------------------------

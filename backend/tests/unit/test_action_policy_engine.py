@@ -300,7 +300,14 @@ class TestOnPolicySettingsChanged:
         mock_repo.list_cost_rules = AsyncMock(return_value=[])
         mock_repo.list_mcp_configs = AsyncMock(return_value=[])
 
-        with patch("backend.persistence.policy_repo.PolicyRepository", return_value=mock_repo):
+        # Mock JobRepository for per-job preset lookup
+        mock_job = MagicMock()
+        mock_job.preset = "strict"
+        mock_job_repo = MagicMock()
+        mock_job_repo.get = AsyncMock(return_value=mock_job)
+
+        with patch("backend.persistence.policy_repo.PolicyRepository", return_value=mock_repo), \
+             patch("backend.persistence.job_repo.JobRepository", return_value=mock_job_repo):
             svc._session_factory = _make_session_factory(mock_session)
             event = _make_policy_event()
             await svc._on_policy_settings_changed(event)
@@ -331,11 +338,18 @@ class TestOnPolicySettingsChanged:
         mock_repo.list_cost_rules = AsyncMock(return_value=[])
         mock_repo.list_mcp_configs = AsyncMock(return_value=[])
 
+        # Mock JobRepository for per-job preset lookup
+        mock_job = MagicMock()
+        mock_job.preset = "supervised"
+        mock_job_repo = MagicMock()
+        mock_job_repo.get = AsyncMock(return_value=mock_job)
+
         # Job is in routers when we take the snapshot...
         svc._policy_routers["job-1"] = MagicMock()
 
         mock_session = AsyncMock()
-        with patch("backend.persistence.policy_repo.PolicyRepository", return_value=mock_repo):
+        with patch("backend.persistence.policy_repo.PolicyRepository", return_value=mock_repo), \
+             patch("backend.persistence.job_repo.JobRepository", return_value=mock_job_repo):
             svc._session_factory = _make_session_factory(mock_session)
             # ...but remove it before the per-job loop runs
             # We simulate by patching __contains__ to return False

@@ -6,17 +6,8 @@ import contextlib
 import os
 import signal
 
-from backend.models.domain import PermissionMode
-
 # Claude SDK tool names that are internal / should not appear in transcript
 _HIDDEN_TOOLS: frozenset[str] = frozenset()
-
-# Map CodePlane permission modes to Claude SDK permission modes
-_PERMISSION_MODE_MAP: dict[PermissionMode, str] = {
-    PermissionMode.full_auto: "bypassPermissions",
-    PermissionMode.observe_only: "plan",
-    PermissionMode.review_and_approve: "default",
-}
 
 
 def _kill_sdk_subprocess(client: object | None) -> None:

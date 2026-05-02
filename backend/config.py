@@ -25,8 +25,6 @@ from typing import TYPE_CHECKING, Any
 import structlog
 import yaml
 
-from backend.models.domain import PermissionMode
-
 if TYPE_CHECKING:
     from backend.models.domain import Job, SessionConfig
 
@@ -116,7 +114,6 @@ class ServerConfig:
 class RuntimeConfig:
     max_concurrent_jobs: int = 2
     worktrees_dirname: str = ".codeplane-worktrees"
-    permission_mode: str = PermissionMode.full_auto
     utility_model: str = "gpt-4o-mini"  # cheap/fast model for naming, summaries, etc.
     default_sdk: str = "copilot"  # copilot | claude
     suppressed_preflight_agent_prompts: list[str] = field(default_factory=list)
@@ -564,7 +561,13 @@ def resolve_protected_paths(repo_path: str) -> list[str]:
 
 
 def resolve_permission_mode(repo_path: str) -> str | None:
-    """Read permission_mode from .codeplane.yml if present (per-repo override)."""
+    """Read permission_mode from .codeplane.yml if present (per-repo override).
+
+    .. deprecated::
+        Retained for backward compat with .codeplane.yml files. Preset is now
+        set per-job at creation time. This function is only used for migration
+        or config validation.
+    """
     from backend.models.domain import PermissionMode
 
     codeplane_yml = Path(repo_path) / ".codeplane.yml"
@@ -588,29 +591,13 @@ def resolve_permission_mode(repo_path: str) -> str | None:
 def build_session_config(
     job: Job,
     config: CPLConfig,
-    permission_mode_override: str | None = None,
 ) -> SessionConfig:
-    """Build a SessionConfig from a Job record and resolved config.
-
-    Permission mode priority: per-job override > .codeplane.yml > global config.
-    """
-    from backend.models.domain import PermissionMode, SessionConfig
+    """Build a SessionConfig from a Job record and resolved config."""
+    from backend.models.domain import SessionConfig
 
     workspace = job.worktree_path or job.repo
     mcp_servers = discover_mcp_servers(job.repo, config)
     protected_paths = resolve_protected_paths(job.repo)
-
-    # Resolve permission_mode with priority chain
-    if permission_mode_override:
-        mode_str = permission_mode_override
-    else:
-        repo_mode = resolve_permission_mode(job.repo)
-        mode_str = repo_mode or config.runtime.permission_mode
-
-    try:
-        mode = PermissionMode(mode_str)
-    except ValueError:
-        mode = PermissionMode.full_auto
 
     return SessionConfig(
         workspace_path=workspace,
@@ -620,5 +607,4 @@ def build_session_config(
         sdk=job.sdk,
         mcp_servers=mcp_servers,
         protected_paths=protected_paths,
-        permission_mode=mode,
     )

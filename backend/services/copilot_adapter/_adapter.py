@@ -155,7 +155,6 @@ class CopilotAdapter(BaseAgentAdapter):
         decision = await self._evaluate_permission(
             sid,
             self._session_to_job.get(sid),
-            config.permission_mode,
             perm_request,
             tool_name=request.tool_name or "",
             tool_input=tool_input or None,

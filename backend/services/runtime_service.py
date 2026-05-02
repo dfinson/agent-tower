@@ -221,7 +221,6 @@ class RuntimeService:
         self._last_activity: dict[str, float] = {}
         self._waiting_for_approval: set[str] = set()
         self._session_ids: dict[str, str] = {}
-        self._permission_overrides: dict[str, str] = {}  # job_id → permission_mode
         self._policy_routers: dict[str, Any] = {}  # job_id → PolicyRouter
         self._policy_batchers: dict[str, Any] = {}  # job_id → ApprovalBatcher
         self._dequeue_lock = asyncio.Lock()
@@ -296,7 +295,6 @@ class RuntimeService:
     async def setup_and_start(
         self,
         job: Job,
-        permission_mode: str | None = None,
         session_token: str | None = None,
     ) -> Job:
         """Background task: create worktree for a ``preparing`` job then start it.
@@ -322,7 +320,6 @@ class RuntimeService:
 
             await self.start_or_enqueue(
                 updated_job,
-                permission_mode=permission_mode,
                 session_token=session_token,
             )
             return updated_job
@@ -336,12 +333,9 @@ class RuntimeService:
         job: Job,
         override_prompt: str | None = None,
         resume_sdk_session_id: str | None = None,
-        permission_mode: str | None = None,
         session_token: str | None = None,
     ) -> None:
         """Start the job if capacity allows, otherwise keep it queued."""
-        if permission_mode:
-            self._permission_overrides[job.id] = permission_mode
 
         # Adopt or create the sister session for this job
         if self._sister_sessions is not None:
@@ -419,7 +413,6 @@ class RuntimeService:
             session_config = build_session_config(
                 job,
                 self._config,
-                self._permission_overrides.pop(job.id, None),
             )
             if override_prompt is not None:
                 session_config = dataclass_replace(session_config, prompt=override_prompt)
@@ -576,8 +569,9 @@ class RuntimeService:
                 )
             )
 
-            # --- Wire action policy router (if policy config exists in DB) ---
-            await self._setup_action_policy(job_id, config, worktree_path)
+            # --- Wire action policy router (mandatory) ---
+            job_preset = job.preset if job is not None else "supervised"
+            await self._setup_action_policy(job_id, config, worktree_path, job_preset=job_preset)
 
             result = await self._execute_session_attempt(
                 job_id,
@@ -834,72 +828,72 @@ class RuntimeService:
         job_id: str,
         config: SessionConfig,
         worktree_path: str | None,
+        job_preset: str = "supervised",
     ) -> None:
         """Load action policy from DB and wire the PolicyRouter into the adapter.
 
-        If no policy config exists (fresh install before migration), this is a no-op
-        and the legacy permission_policy.evaluate() path is used.
+        The policy router is mandatory — if setup fails, the exception propagates
+        and the job will fail.  There is no legacy fallback path.
         """
-        try:
-            from backend.persistence.policy_repo import PolicyRepository
-            from backend.services.action_policy.batcher import ApprovalBatcher
-            from backend.services.action_policy.checkpoint_service import CheckpointService
-            from backend.services.action_policy.classifier import Preset, RepoPolicy
-            from backend.services.action_policy.router import PolicyRouter
-            from backend.services.action_policy.trust_store import TrustStore
+        from backend.persistence.policy_repo import PolicyRepository
+        from backend.services.action_policy.batcher import ApprovalBatcher
+        from backend.services.action_policy.checkpoint_service import CheckpointService
+        from backend.services.action_policy.classifier import Preset, RepoPolicy
+        from backend.services.action_policy.router import PolicyRouter
+        from backend.services.action_policy.trust_store import TrustStore
 
-            async with self._session_factory() as session:
-                repo = PolicyRepository(session)
-                db_config = await repo.get_config()
+        async with self._session_factory() as session:
+            repo = PolicyRepository(session)
+            db_config = await repo.get_config()
 
-                path_rules = await repo.list_path_rules()
-                action_rules = await repo.list_action_rules()
-                cost_rules = await repo.list_cost_rules()
-                mcp_configs_list = await repo.list_mcp_configs()
+            path_rules = await repo.list_path_rules()
+            action_rules = await repo.list_action_rules()
+            cost_rules = await repo.list_cost_rules()
+            mcp_configs_list = await repo.list_mcp_configs()
 
-            # Build MCP config lookup: name → server config dict
-            mcp_configs = {c["name"]: c for c in mcp_configs_list}
+        # Build MCP config lookup: name → server config dict
+        mcp_configs = {c["name"]: c for c in mcp_configs_list}
 
-            # Build in-memory policy object
-            policy = RepoPolicy(
-                preset=Preset(db_config["preset"]),
-                path_rules=path_rules,
-                action_rules=action_rules,
-                cost_rules=cost_rules,
-                mcp_configs=mcp_configs,
-            )
+        # Per-job preset overrides the global policy config preset
+        effective_preset = job_preset
 
-            # Create router components
-            checkpoint_svc = CheckpointService(self._git_service)
-            trust_store = TrustStore(self._session_factory)
-            await trust_store.load()
-            batcher = ApprovalBatcher(
-                event_bus=self._event_bus,
-                batch_window_seconds=db_config["batch_window_seconds"],
-            )
+        # Build in-memory policy object
+        policy = RepoPolicy(
+            preset=Preset(effective_preset),
+            path_rules=path_rules,
+            action_rules=action_rules,
+            cost_rules=cost_rules,
+            mcp_configs=mcp_configs,
+        )
 
-            router = PolicyRouter(
-                checkpoint_service=checkpoint_svc,
-                trust_store=trust_store,
-                batcher=batcher,
-            )
+        # Create router components
+        checkpoint_svc = CheckpointService(self._git_service)
+        trust_store = TrustStore(self._session_factory)
+        await trust_store.load()
+        batcher = ApprovalBatcher(
+            event_bus=self._event_bus,
+            batch_window_seconds=db_config["batch_window_seconds"],
+        )
 
-            # Wire into adapter
-            adapter = self._resolve_adapter(config.sdk)
-            adapter.set_policy_router(router, policy, job_id, worktree_path or "")
-            self._policy_routers[job_id] = router
-            self._policy_batchers[job_id] = batcher
+        router = PolicyRouter(
+            checkpoint_service=checkpoint_svc,
+            trust_store=trust_store,
+            batcher=batcher,
+        )
 
-            log.info(
-                "action_policy_configured",
-                job_id=job_id,
-                preset=db_config["preset"],
-                path_rules=len(path_rules),
-                action_rules=len(action_rules),
-            )
-        except Exception:
-            log.warning("action_policy_setup_failed", job_id=job_id, exc_info=True)
-            # Non-fatal — fall back to legacy permission evaluation
+        # Wire into adapter
+        adapter = self._resolve_adapter(config.sdk)
+        adapter.set_policy_router(router, policy, job_id, worktree_path or "")
+        self._policy_routers[job_id] = router
+        self._policy_batchers[job_id] = batcher
+
+        log.info(
+            "action_policy_configured",
+            job_id=job_id,
+            preset=effective_preset,
+            path_rules=len(path_rules),
+            action_rules=len(action_rules),
+        )
 
     async def _on_policy_settings_changed(self, event: DomainEvent) -> None:
         """Reload action policy for all running jobs when settings change."""
@@ -913,6 +907,7 @@ class RuntimeService:
         log.info("policy_settings_changed_reloading", job_count=len(job_ids))
 
         try:
+            from backend.persistence.job_repo import JobRepository
             from backend.persistence.policy_repo import PolicyRepository
             from backend.services.action_policy.classifier import Preset, RepoPolicy
 
@@ -924,19 +919,31 @@ class RuntimeService:
                 cost_rules = await repo.list_cost_rules()
                 mcp_configs_list = await repo.list_mcp_configs()
 
-            mcp_configs = {c["name"]: c for c in mcp_configs_list}
+                # Look up per-job presets
+                job_repo = JobRepository(session)
+                job_presets: dict[str, str] = {}
+                for jid in job_ids:
+                    job = await job_repo.get(jid)
+                    if job is not None:
+                        job_presets[jid] = job.preset
 
-            new_policy = RepoPolicy(
-                preset=Preset(db_config["preset"]),
-                path_rules=path_rules,
-                action_rules=action_rules,
-                cost_rules=cost_rules,
-                mcp_configs=mcp_configs,
-            )
+            mcp_configs = {c["name"]: c for c in mcp_configs_list}
 
             for job_id in job_ids:
                 if job_id not in self._policy_routers:
                     continue  # job finished between iteration start and now
+
+                # Use per-job preset, fall back to global
+                effective_preset = job_presets.get(job_id, db_config["preset"])
+
+                new_policy = RepoPolicy(
+                    preset=Preset(effective_preset),
+                    path_rules=path_rules,
+                    action_rules=action_rules,
+                    cost_rules=cost_rules,
+                    mcp_configs=mcp_configs,
+                )
+
                 # Reload trust store on the router (trust grants may have changed)
                 router = self._policy_routers[job_id]
                 if hasattr(router, "_trust") and hasattr(router._trust, "load"):

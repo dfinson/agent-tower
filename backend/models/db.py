@@ -37,6 +37,7 @@ class JobRow(Base):
     description: Mapped[str | None] = Column(Text, nullable=True)
     worktree_name: Mapped[str | None] = Column(String, nullable=True)
     permission_mode: Mapped[str] = Column(String, nullable=False, default=PermissionMode.full_auto)
+    preset: Mapped[str] = Column(String, nullable=False, server_default="supervised")
     session_count: Mapped[int] = Column(Integer, nullable=False, default=1)
     sdk_session_id: Mapped[str | None] = Column(String, nullable=True)
     model: Mapped[str | None] = Column(String, nullable=True)

@@ -7,7 +7,19 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, or_, select
 
 from backend.models.db import DiffSnapshotRow, JobRow
-from backend.models.domain import GitMergeOutcome, Job, JobNotFoundError, JobState, PermissionMode, Resolution
+from backend.models.domain import GitMergeOutcome, Job, JobNotFoundError, JobState, PermissionMode, Preset, Resolution
+
+
+# Map preset → legacy permission_mode for the DB column (backward compat only).
+_PRESET_PM_MAP = {
+    Preset.autonomous: PermissionMode.full_auto,
+    Preset.supervised: PermissionMode.review_and_approve,
+    Preset.strict: PermissionMode.review_and_approve,
+}
+
+
+def _preset_to_permission_mode(preset: Preset) -> str:
+    return _PRESET_PM_MAP.get(preset, PermissionMode.review_and_approve)
 from backend.persistence.repository import BaseRepository
 
 if TYPE_CHECKING:
@@ -68,7 +80,7 @@ class JobRepository(BaseRepository):
             title=row.title,
             description=row.description,
             worktree_name=row.worktree_name,
-            permission_mode=PermissionMode(row.permission_mode or PermissionMode.full_auto),
+            preset=Preset(row.preset) if row.preset else Preset.supervised,
             session_count=row.session_count or 1,
             sdk_session_id=row.sdk_session_id,
             model=row.model,
@@ -104,7 +116,8 @@ class JobRepository(BaseRepository):
             title=job.title,
             description=job.description,
             worktree_name=job.worktree_name,
-            permission_mode=job.permission_mode,
+            permission_mode=_preset_to_permission_mode(job.preset),
+            preset=job.preset,
             session_count=job.session_count,
             sdk_session_id=job.sdk_session_id,
             model=job.model,

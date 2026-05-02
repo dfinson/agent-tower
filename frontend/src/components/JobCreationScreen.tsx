@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, PlaneTakeoff, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { createJob, fetchRepos, fetchSettings, fetchRepoDetail, suggestNames, fetchModelComparison, warmUtilitySession, releaseUtilitySession } from "../api/client";
-import type { PermissionMode, SDKInfo } from "../api/types";
+import { createJob, fetchRepos, fetchSettings, fetchRepoDetail, suggestNames, fetchModelComparison, warmUtilitySession, releaseUtilitySession, fetchPolicySettings } from "../api/client";
+import type { SDKInfo } from "../api/types";
 import { useStore } from "../store";
 import { PromptWithVoice } from "./VoiceButton";
 import { AddRepoModal } from "./AddRepoModal";
@@ -42,7 +42,7 @@ export function JobCreationScreen() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [addRepoOpen, setAddRepoOpen] = useState(false);
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>("review_and_approve");
+  const [preset, setPreset] = useState<"autonomous" | "supervised" | "strict">("supervised");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [sdk, setSdk] = useState<string | null>(null);
   const [branchSuggesting, setBranchSuggesting] = useState(false);
@@ -93,13 +93,16 @@ export function JobCreationScreen() {
   }, [activeSdk, modelsBySdk, defaultModelBySdk]);
 
   useEffect(() => {
-    fetchSettings()
-      .then((settings) => {
-        setPermissionMode(settings.permissionMode as PermissionMode);
+    fetchPolicySettings()
+      .then((policy) => {
+        const p = policy.config.preset;
+        if (p === "autonomous" || p === "supervised" || p === "strict") {
+          setPreset(p);
+        }
         setSettingsLoaded(true);
       })
       .catch(() => {
-        toast.error("Failed to load settings");
+        toast.error("Failed to load policy settings");
         setSettingsLoaded(true); // fall back to hardcoded defaults so the form is usable
       });
     fetchRepos()
@@ -207,7 +210,7 @@ export function JobCreationScreen() {
         branch: branch || undefined,
         title: cached?.title,
         worktreeName: cached?.worktreeName,
-        permissionMode: permissionMode,
+        preset: preset,
         model: model || undefined,
         sdk: activeSdk !== defaultSdk ? activeSdk : undefined,
         sessionToken: sessionTokenRef.current ?? undefined,
@@ -220,7 +223,7 @@ export function JobCreationScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [repo, prompt, voiceState, baseRef, branch, model, navigate, permissionMode, activeSdk, defaultSdk]);
+  }, [repo, prompt, voiceState, baseRef, branch, model, navigate, preset, activeSdk, defaultSdk]);
 
   const enabledSdks = sdks.filter((s) => s.enabled);
   const showSdkSelector = enabledSdks.length > 1;
@@ -287,21 +290,21 @@ export function JobCreationScreen() {
           />
 
           <div className="flex flex-col gap-1.5">
-            <Label>Permission Mode</Label>
+            <Label>Preset</Label>
             <div className={`flex gap-2 transition-opacity ${!settingsLoaded ? "opacity-50 pointer-events-none" : ""}`}>
               {(
                 [
-                  { value: "full_auto", label: "Full Auto", title: "Approve all operations within the worktree silently" },
-                  { value: "review_and_approve", label: "Review & Approve", title: "Require approval for writes, shell commands, and URL fetches" },
-                  { value: "observe_only", label: "Observe Only", title: "Deny all writes and mutations" },
-                ] as { value: PermissionMode; label: string; title: string }[]
+                  { value: "autonomous" as const, label: "Autonomous", title: "Contained actions auto-approved. Non-contained actions gated." },
+                  { value: "supervised" as const, label: "Supervised", title: "Reversible & contained auto-approved. Irreversible or non-contained actions gated." },
+                  { value: "strict" as const, label: "Strict", title: "Reversible & contained get checkpointed. Everything else gated." },
+                ]
               ).map(({ value, label, title }) => (
                 <Tooltip key={value} content={title}>
                   <button
                     type="button"
-                    onClick={() => setPermissionMode(value)}
+                    onClick={() => setPreset(value)}
                     className={`flex-1 rounded-md border px-3 py-1.5 sm:py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium transition-colors ${
-                      permissionMode === value
+                      preset === value
                         ? "border-primary bg-primary text-primary-foreground"
                         : "border-border bg-transparent text-muted-foreground hover:text-foreground hover:border-foreground/40"
                     }`}

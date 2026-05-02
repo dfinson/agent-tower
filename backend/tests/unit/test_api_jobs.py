@@ -8,7 +8,7 @@ import pytest
 
 from backend.api.job_artifacts import archive_job, resolve_job
 from backend.models.api_schemas import ResolveJobRequest
-from backend.models.domain import Job, JobState, PermissionMode, Resolution
+from backend.models.domain import Job, JobState, Preset, Resolution
 
 
 def _make_job(job_id: str, *, resolution: Resolution | None = Resolution.unresolved) -> Job:
@@ -25,7 +25,7 @@ def _make_job(job_id: str, *, resolution: Resolution | None = Resolution.unresol
         created_at=now,
         updated_at=now,
         resolution=resolution,
-        permission_mode=PermissionMode.full_auto,
+        preset=Preset.autonomous,
     )
 
 

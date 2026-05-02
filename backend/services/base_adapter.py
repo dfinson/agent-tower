@@ -24,7 +24,6 @@ from sqlalchemy.exc import DBAPIError
 from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
     ApprovalResolution,
-    PermissionMode,
     SessionEvent,
     SessionEventKind,
 )
@@ -32,8 +31,6 @@ from backend.services.agent_adapter import AgentAdapterInterface, normalize_mode
 from backend.services.parsing_utils import ensure_dict
 from backend.services.permission_policy import (
     PermissionRequest,
-    PolicyDecision,
-    evaluate,
     is_git_reset_hard,
 )
 
@@ -801,7 +798,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self,
         session_id: str,
         job_id: str | None,
-        mode: PermissionMode,
         request: PermissionRequest,
         *,
         tool_name: str = "",
@@ -810,8 +806,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         """Evaluate a tool permission request against CodePlane's policy.
 
         Returns ``PermissionDecision.allow`` or ``PermissionDecision.deny``.
-        When the policy says "ask", this method routes to the operator and
-        blocks until a resolution is received.
+        All decisions are routed through the action policy router.  The router
+        handles observe (auto-approve), checkpoint (savepoint + approve), and
+        gate (route to operator) tiers.
         """
         # Paused — immediately deny
         if session_id in self._paused_sessions:
@@ -834,36 +831,19 @@ class BaseAgentAdapter(AgentAdapterInterface):
         if self._approval_service is not None and job_id and self._approval_service.is_trusted(job_id):
             return PermissionDecision.allow
 
-        # --- Action policy router (new system) ---
+        # --- Action policy router ---
         if job_id and job_id in self._policy_router:
             return await self._evaluate_with_policy_router(
                 session_id, job_id, request, tool_name=tool_name, tool_input=tool_input,
             )
 
-        # --- Legacy policy evaluation ---
-        decision = evaluate(mode=mode, req=request)
-        if decision == PolicyDecision.approve:
-            return PermissionDecision.allow
-        if decision == PolicyDecision.deny:
-            return PermissionDecision.deny
-
-        # ask → route to operator
-        description = self._build_permission_description(
-            request.kind,
-            tool_name,
-            tool_input,
-            request.full_command_text,
+        log.error(
+            "no_policy_router_for_job",
+            job_id=job_id,
+            session_id=session_id,
+            tool_name=tool_name,
         )
-        proposed = request.full_command_text or (
-            json.dumps(tool_input, default=str) if tool_input else None
-        )
-        resolution = await self._route_to_operator(
-            session_id,
-            job_id,
-            description,
-            proposed_action=proposed,
-        )
-        return PermissionDecision.allow if resolution == ApprovalResolution.approved else PermissionDecision.deny
+        return PermissionDecision.deny
 
     async def _evaluate_with_policy_router(
         self,

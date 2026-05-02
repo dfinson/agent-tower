@@ -26,7 +26,6 @@ import { SettingsScreen } from "../SettingsScreen";
 
 const defaultSettings = {
   maxConcurrentJobs: 2,
-  permissionMode: "full_auto",
   autoPush: true,
   cleanupWorktree: true,
   deleteBranchAfterMerge: true,

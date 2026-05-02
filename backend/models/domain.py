@@ -210,6 +210,20 @@ class PermissionMode(StrEnum):
         return None
 
 
+class Preset(StrEnum):
+    """Action policy preset — controls how the policy router classifies agent actions.
+
+    autonomous — Contained actions auto-approved. Non-contained actions gated.
+    supervised — Reversible + contained auto-approved. Irreversible or
+                 non-contained actions gated.
+    strict     — Reversible + contained get checkpointed. Everything else gated.
+    """
+
+    autonomous = "autonomous"
+    supervised = "supervised"
+    strict = "strict"
+
+
 class SessionEventKind(StrEnum):
     log = "log"
     transcript = "transcript"
@@ -581,7 +595,6 @@ class SessionConfig:
     model: str | None = None
     mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
     protected_paths: list[str] = field(default_factory=list)
-    permission_mode: PermissionMode = PermissionMode.full_auto
     blocking_permission_handler: Callable[[str, str], Awaitable[str]] | None = None
     # Set when resuming a job to reconnect to an existing Copilot SDK session
     resume_sdk_session_id: str | None = None
@@ -598,7 +611,7 @@ class JobSpec:
     title: str | None = None
     description: str | None = None
     worktree_name: str | None = None
-    permission_mode: PermissionMode = PermissionMode.full_auto
+    preset: Preset = Preset.supervised
     model: str | None = None
     sdk: str | None = None
     verify: bool | None = None
@@ -655,7 +668,7 @@ class Job:
     title: str | None = None
     description: str | None = None
     worktree_name: str | None = None
-    permission_mode: PermissionMode = PermissionMode.full_auto
+    preset: Preset = Preset.supervised
     session_count: int = 1
     sdk_session_id: str | None = None
     model: str | None = None

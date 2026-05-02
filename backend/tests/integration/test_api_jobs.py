@@ -417,7 +417,7 @@ class TestJobControl:
         fake_job.base_ref = "main"
         fake_job.worktree_path = "/tmp/wt"
         fake_job.branch = "fix/branch"
-        fake_job.permission_mode = None
+        fake_job.preset = "supervised"
         fake_job.created_at = datetime.now(UTC)
         fake_job.updated_at = datetime.now(UTC)
         fake_job.completed_at = None
@@ -488,7 +488,7 @@ class TestJobControl:
         fake_job.base_ref = "main"
         fake_job.worktree_path = "/tmp/wt"
         fake_job.branch = "fix/branch"
-        fake_job.permission_mode = None
+        fake_job.preset = "supervised"
         fake_job.created_at = datetime.now(UTC)
         fake_job.updated_at = datetime.now(UTC)
         fake_job.completed_at = None

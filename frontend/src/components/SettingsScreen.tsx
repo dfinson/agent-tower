@@ -15,37 +15,6 @@ import { Label } from "./ui/label";
 import { Spinner } from "./ui/spinner";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 
-const PERMISSION_MODES = [
-  { value: "full_auto", label: "Full Auto" },
-  { value: "review_and_approve", label: "Review & Approve" },
-  { value: "observe_only", label: "Observe Only" },
-];
-
-function SelectField({ label, value, options, onChange, description }: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (v: string) => void;
-  description?: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={label}
-        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-      {description && <p className="text-xs text-muted-foreground">{description}</p>}
-    </div>
-  );
-}
-
 function NumberField({ label, value, onChange, min, max, description, placeholder }: {
   label: string;
   value: number;
@@ -289,13 +258,6 @@ export function SettingsScreen() {
             max={10}
             placeholder="5"
             description="Maximum number of agent jobs that can run simultaneously."
-          />
-          <SelectField
-            label="Permission Mode"
-            value={settings.permissionMode}
-            options={PERMISSION_MODES}
-            onChange={(v) => patch({ permissionMode: v })}
-            description="Default approval policy for new jobs"
           />
         </div>
       </div>

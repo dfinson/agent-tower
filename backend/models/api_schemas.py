@@ -17,6 +17,7 @@ from backend.models.domain import (  # noqa: TC001 — Pydantic resolves annotat
     GitMergeOutcome,
     JobState,
     PermissionMode,
+    Preset,
     Resolution,
 )
 
@@ -40,7 +41,7 @@ class CreateJobRequest(CamelModel):
     title: str | None = None
     description: str | None = None
     worktree_name: str | None = None
-    permission_mode: PermissionMode | None = None
+    preset: Preset | None = None
     model: str | None = None
     sdk: str | None = None
     verify: bool | None = None
@@ -104,7 +105,6 @@ class UpdateSettingsRequest(CamelModel):
     """Structured settings update — only include fields to change."""
 
     max_concurrent_jobs: int | None = Field(None, ge=1, le=10)
-    permission_mode: PermissionMode | None = None
     auto_push: bool | None = None
     cleanup_worktree: bool | None = None
     delete_branch_after_merge: bool | None = None
@@ -120,7 +120,6 @@ class UpdateSettingsRequest(CamelModel):
 
 class SettingsResponse(CamelModel):
     max_concurrent_jobs: int
-    permission_mode: PermissionMode
     auto_push: bool
     cleanup_worktree: bool
     delete_branch_after_merge: bool
@@ -184,7 +183,7 @@ class JobResponse(CamelModel):
     base_ref: str
     worktree_path: str | None
     branch: str | None
-    permission_mode: PermissionMode | None = None
+    preset: Preset | None = None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
@@ -220,7 +219,7 @@ class JobResponse(CamelModel):
             base_ref=job.base_ref,
             worktree_path=job.worktree_path,
             branch=job.branch,
-            permission_mode=job.permission_mode,
+            preset=job.preset,
             created_at=job.created_at,
             updated_at=job.updated_at,
             completed_at=job.completed_at,

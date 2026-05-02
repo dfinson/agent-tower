@@ -44,7 +44,6 @@ router = APIRouter(tags=["settings"], route_class=DishkaRoute)
 def _config_to_response(config: CPLConfig) -> SettingsResponse:
     return SettingsResponse(
         max_concurrent_jobs=config.runtime.max_concurrent_jobs,
-        permission_mode=config.runtime.permission_mode,
         auto_push=config.completion.auto_push,
         cleanup_worktree=config.completion.cleanup_worktree,
         delete_branch_after_merge=config.completion.delete_branch_after_merge,
@@ -78,7 +77,6 @@ def update_settings(
     # Declarative mapping: request field → (config section, config attribute)
     _FIELD_MAP: dict[str, tuple[str, str]] = {
         "max_concurrent_jobs": ("runtime", "max_concurrent_jobs"),
-        "permission_mode": ("runtime", "permission_mode"),
         "auto_push": ("completion", "auto_push"),
         "cleanup_worktree": ("completion", "cleanup_worktree"),
         "delete_branch_after_merge": ("completion", "delete_branch_after_merge"),
@@ -94,8 +92,7 @@ def update_settings(
 
     for field, (section, attr) in _FIELD_MAP.items():
         if field in updates:
-            value = str(updates[field]) if field == "permission_mode" else updates[field]
-            setattr(getattr(config, section), attr, value)
+            setattr(getattr(config, section), attr, updates[field])
 
     save_config(config)
     return _config_to_response(config)

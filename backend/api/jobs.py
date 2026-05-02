@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from backend.models.domain import Job
 
-from backend.models.domain import JobSpec, JobState, PermissionMode
+from backend.models.domain import JobSpec, JobState, Preset
 
 log = structlog.get_logger()
 
@@ -146,7 +146,7 @@ async def create_job(
         title=body.title,
         description=body.description,
         worktree_name=body.worktree_name,
-        permission_mode=body.permission_mode or PermissionMode.full_auto,
+        preset=body.preset or Preset.supervised,
         model=body.model,
         sdk=body.sdk,
         verify=body.verify,
@@ -166,7 +166,6 @@ async def create_job(
             try:
                 await runtime_service.setup_and_start(
                     job,
-                    permission_mode=body.permission_mode.value if body.permission_mode else None,
                     session_token=body.session_token,
                 )
             except Exception:

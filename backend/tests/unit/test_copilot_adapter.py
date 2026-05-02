@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.models.domain import (
-    PermissionMode,
     SessionConfig,
     SessionEvent,
     SessionEventKind,
@@ -203,10 +202,20 @@ def _make_config(**overrides: Any) -> SessionConfig:
         "workspace_path": "/tmp/workspace",
         "prompt": "hello world",
         "job_id": "job-1",
-        "permission_mode": PermissionMode.full_auto,
+    
     }
     defaults.update(overrides)
     return SessionConfig(**defaults)
+
+
+def _install_auto_approve_router(adapter: Any, job_id: str = "job-1") -> None:
+    """Install a mock policy router that auto-approves everything."""
+    from backend.services.base_adapter import PermissionDecision
+    mock_router = MagicMock()
+    adapter._policy_router[job_id] = mock_router
+    adapter._repo_policies[job_id] = MagicMock()
+    adapter._worktree_paths[job_id] = "/tmp/workspace"
+    adapter._evaluate_with_policy_router = AsyncMock(return_value=PermissionDecision.allow)
 
 
 # ---------------------------------------------------------------------------
@@ -1445,7 +1454,7 @@ class TestHandlePermissionRequestGitResetHard:
     @pytest.mark.asyncio
     async def test_git_reset_hard_requires_approval_in_auto_mode(self) -> None:
         adapter, approval_service = self._make_adapter_with_approval()
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+        config = _make_config()
 
         approval = MagicMock()
         approval.id = "apr-1"
@@ -1467,7 +1476,7 @@ class TestHandlePermissionRequestGitResetHard:
         """Trust grant must NOT bypass the git reset --hard block."""
         adapter, approval_service = self._make_adapter_with_approval()
         approval_service.is_trusted = MagicMock(return_value=True)  # trusted job
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+        config = _make_config()
 
         approval = MagicMock()
         approval.id = "apr-trust"
@@ -1486,7 +1495,7 @@ class TestHandlePermissionRequestGitResetHard:
     @pytest.mark.asyncio
     async def test_git_reset_hard_rejected_by_operator(self) -> None:
         adapter, approval_service = self._make_adapter_with_approval()
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+        config = _make_config()
 
         approval = MagicMock()
         approval.id = "apr-2"
@@ -1503,7 +1512,7 @@ class TestHandlePermissionRequestGitResetHard:
     @pytest.mark.asyncio
     async def test_git_reset_hard_denied_when_no_infra(self) -> None:
         adapter = CopilotAdapter(approval_service=None)
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+        config = _make_config()
 
         result = await adapter._handle_permission_request(
             self._make_request("git reset --hard HEAD"),
@@ -1514,9 +1523,10 @@ class TestHandlePermissionRequestGitResetHard:
 
     @pytest.mark.asyncio
     async def test_normal_shell_in_auto_mode_not_affected(self) -> None:
-        """Regular shell commands in auto mode still go through normal path."""
+        """Regular shell commands still go through normal path (policy router)."""
         adapter, approval_service = self._make_adapter_with_approval()
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+        _install_auto_approve_router(adapter, "job-1")
+        config = _make_config()
 
         result = await adapter._handle_permission_request(
             self._make_request("git status"),
@@ -1543,7 +1553,7 @@ class TestPauseTools:
         adapter.set_job_id(self._SESSION_ID, "job-pause")
         adapter.pause_tools(self._SESSION_ID)
 
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+        config = _make_config()
 
         for kind in ("shell", "write", "url"):
             request = _FakePermissionRequest(kind=kind, full_command_text="echo hello")
@@ -1559,11 +1569,12 @@ class TestPauseTools:
         """After resume_tools, permission requests go through the normal path."""
         adapter = CopilotAdapter()
         adapter.set_job_id(self._SESSION_ID, "job-pause")
+        _install_auto_approve_router(adapter, "job-pause")
 
         adapter.pause_tools(self._SESSION_ID)
         adapter.resume_tools(self._SESSION_ID)
 
-        config = _make_config(permission_mode=PermissionMode.full_auto)
+        config = _make_config()
         request = _FakePermissionRequest(kind="shell", full_command_text="echo hello")
         result = await adapter._handle_permission_request(
             request,

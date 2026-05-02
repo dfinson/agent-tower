@@ -10,6 +10,7 @@ vi.mock("../../api/client", () => ({
   fetchModels: vi.fn(),
   fetchSDKs: vi.fn(),
   fetchSettings: vi.fn(),
+  fetchPolicySettings: vi.fn(),
   fetchRepoDetail: vi.fn(),
   suggestNames: vi.fn(),
   fetchModelComparison: vi.fn().mockResolvedValue({ models: [] }),
@@ -67,6 +68,7 @@ import {
   fetchRepos,
   fetchSDKs,
   fetchSettings,
+  fetchPolicySettings,
   suggestNames,
 } from "../../api/client";
 import { JobCreationScreen } from "../JobCreationScreen";
@@ -84,7 +86,7 @@ async function renderScreen() {
   );
 
   await waitFor(() => {
-    expect(fetchSettings).toHaveBeenCalled();
+    expect(fetchPolicySettings).toHaveBeenCalled();
     expect(fetchRepos).toHaveBeenCalled();
   });
 }
@@ -104,9 +106,11 @@ beforeEach(() => {
   ]);
   vi.mocked(fetchSDKs).mockResolvedValue({ default: "copilot", sdks: [] });
   vi.mocked(fetchRepoDetail).mockResolvedValue({ currentBranch: "main", baseBranch: "main" } as any);
+  vi.mocked(fetchPolicySettings).mockResolvedValue({
+    config: { preset: "autonomous" },
+  } as any);
   vi.mocked(fetchSettings).mockResolvedValue({
     maxConcurrentJobs: 2,
-    permissionMode: "full_auto",
     autoPush: true,
     cleanupWorktree: true,
     deleteBranchAfterMerge: true,
@@ -176,7 +180,7 @@ describe("JobCreationScreen", () => {
     });
   });
 
-  it("uses the configured permission mode by default", async () => {
+  it("uses the configured preset by default", async () => {
     vi.mocked(createJob).mockResolvedValueOnce({ id: "j-auto" } as any);
 
     await renderScreen();
@@ -186,7 +190,7 @@ describe("JobCreationScreen", () => {
 
     await waitFor(() => {
       expect(createJob).toHaveBeenCalledWith(
-        expect.objectContaining({ permission_mode: "full_auto" }),
+        expect.objectContaining({ preset: "autonomous" }),
       );
     });
   });
