@@ -2078,7 +2078,7 @@ export interface components {
             description?: string | null;
             /** Worktreename */
             worktreeName?: string | null;
-            permissionMode?: components["schemas"]["PermissionMode"] | null;
+            preset?: components["schemas"]["Preset"] | null;
             /** Model */
             model?: string | null;
             /** Sdk */
@@ -2594,7 +2594,7 @@ export interface components {
             worktreePath: string | null;
             /** Branch */
             branch: string | null;
-            permissionMode?: components["schemas"]["PermissionMode"] | null;
+            preset?: components["schemas"]["Preset"] | null;
             /**
              * Createdat
              * Format: date-time
@@ -3136,17 +3136,16 @@ export interface components {
             observations: components["schemas"]["ObservationEntry"][];
         };
         /**
-         * PermissionMode
-         * @description Controls how the agent adapter handles SDK permission requests.
+         * Preset
+         * @description Action policy preset — controls how the policy router classifies agent actions.
          *
-         *     full_auto          — Everything auto-approved within worktree. No prompts.
-         *     observe_only       — Allow reads + grep/find. Block all writes/mutations.
-         *     review_and_approve — Always allow read_file. Require approval for
-         *                          shell commands (except grep/find), URL fetches,
-         *                          and any write operations.
+         *     autonomous  — Contained actions auto-approved. Non-contained actions gated.
+         *     supervised — Reversible + contained auto-approved. Irreversible or
+         *                  non-contained actions gated.
+         *     strict     — Reversible + contained get checkpointed. Everything else gated.
          * @enum {string}
          */
-        PermissionMode: "full_auto" | "observe_only" | "review_and_approve";
+        Preset: "autonomous" | "supervised" | "strict";
         /**
          * PlanStepPayload
          * @description SSE payload for unified plan-step updates.
@@ -3538,7 +3537,6 @@ export interface components {
         SettingsResponse: {
             /** Maxconcurrentjobs */
             maxConcurrentJobs: number;
-            permissionMode: components["schemas"]["PermissionMode"];
             /** Autopush */
             autoPush: boolean;
             /** Cleanupworktree */
@@ -4465,7 +4463,6 @@ export interface components {
         UpdateSettingsRequest: {
             /** Maxconcurrentjobs */
             maxConcurrentJobs?: number | null;
-            permissionMode?: components["schemas"]["PermissionMode"] | null;
             /** Autopush */
             autoPush?: boolean | null;
             /** Cleanupworktree */

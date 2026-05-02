@@ -294,12 +294,12 @@ export function JobCreationScreen() {
             <div className={`flex gap-2 transition-opacity ${!settingsLoaded ? "opacity-50 pointer-events-none" : ""}`}>
               {(
                 [
-                  { value: "autonomous" as const, label: "Autonomous", title: "Contained actions auto-approved. Non-contained actions gated." },
-                  { value: "supervised" as const, label: "Supervised", title: "Reversible & contained auto-approved. Irreversible or non-contained actions gated." },
-                  { value: "strict" as const, label: "Strict", title: "Reversible & contained get checkpointed. Everything else gated." },
+                  { value: "autonomous" as const, label: "Autonomous", tip: "Agent works freely on your code. Only asks before network access or actions outside the project." },
+                  { value: "supervised" as const, label: "Supervised", tip: "Agent can edit files and run safe commands. Asks before anything irreversible or external." },
+                  { value: "strict" as const, label: "Strict", tip: "Agent creates a restore point before every edit. Asks permission for commands and external actions." },
                 ]
-              ).map(({ value, label, title }) => (
-                <Tooltip key={value} content={title}>
+              ).map(({ value, label, tip }) => (
+                <Tooltip key={value} content={tip}>
                   <button
                     type="button"
                     onClick={() => setPreset(value)}
@@ -314,6 +314,11 @@ export function JobCreationScreen() {
                 </Tooltip>
               ))}
             </div>
+            <p className="text-xs text-muted-foreground leading-snug">
+              {preset === "autonomous" && "Agent works freely on your code. Only asks before network access or actions outside the project."}
+              {preset === "supervised" && "Agent can edit files and run safe commands. Asks before anything irreversible or external."}
+              {preset === "strict" && "Agent creates a restore point before every edit. Asks permission for commands and external actions."}
+            </p>
           </div>
 
           {showSdkSelector && (
