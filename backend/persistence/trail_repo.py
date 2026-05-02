@@ -274,3 +274,35 @@ class TrailNodeRepository:
             )
             row = result.one()
             return int(row[0]), int(row[1])
+
+    async def get_write_nodes_for_step(
+        self,
+        job_id: str,
+        turn_id: str,
+    ) -> list[TrailNodeRow]:
+        """Fetch write sub-nodes for a specific step (by turn_id)."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.job_id == job_id)
+                .where(TrailNodeRow.turn_id == turn_id)
+                .where(TrailNodeRow.kind == "write")
+                .order_by(TrailNodeRow.seq)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_write_nodes_for_job(
+        self,
+        job_id: str,
+    ) -> list[TrailNodeRow]:
+        """Fetch all write sub-nodes for a job, ordered chronologically."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.job_id == job_id)
+                .where(TrailNodeRow.kind == "write")
+                .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())

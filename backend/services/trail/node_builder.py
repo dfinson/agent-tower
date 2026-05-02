@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -28,6 +29,61 @@ if TYPE_CHECKING:
     from backend.services.trail.plan_manager import PlanManager
 
 log = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Snippet extraction (shared with StoryService — pure function)
+# ---------------------------------------------------------------------------
+
+def _extract_snippet(tool_args_json: str | None, tool_name: str | None) -> str:
+    """Extract a compact code snippet from tool_args_json.
+
+    Shows old→new for replacements, first lines for creates/inserts.
+    """
+    if not tool_args_json:
+        return ""
+    try:
+        args = json.loads(tool_args_json) if isinstance(tool_args_json, str) else tool_args_json
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(args, dict):
+        return ""
+
+    max_lines = 8
+
+    old_str = str(
+        args.get("old_str", "")
+        or args.get("oldString", "")
+        or args.get("old_string", "")
+        or ""
+    )
+    new_str = str(
+        args.get("new_str", "")
+        or args.get("newString", "")
+        or args.get("new_string", "")
+        or ""
+    )
+    if old_str or new_str:
+        old_lines = old_str.strip().splitlines()[:max_lines]
+        new_lines = new_str.strip().splitlines()[:max_lines]
+        parts: list[str] = []
+        for line in old_lines:
+            parts.append(f"- {line}")
+        for line in new_lines:
+            parts.append(f"+ {line}")
+        return "\n".join(parts)
+
+    content = str(args.get("file_text", "") or args.get("content", ""))
+    if content:
+        lines = [ln for ln in content.strip().splitlines() if ln.strip()][:max_lines]
+        return "\n".join(f"+ {ln}" for ln in lines)
+
+    new_text = str(args.get("new_text", "") or args.get("newText", "") or "")
+    if new_text:
+        lines = new_text.strip().splitlines()[:max_lines]
+        return "\n".join(f"+ {ln}" for ln in lines)
+
+    return ""
 
 
 def classify_step(payload: dict) -> str:
@@ -301,6 +357,19 @@ class TrailNodeBuilder:
             step_id=step_id,
         )
 
+        # Create write sub-nodes for modify steps (§13.1)
+        if kind == "modify" and turn_id:
+            await self._create_write_sub_nodes(
+                job_id=job_id,
+                parent_node_id=node_id,
+                anchor_seq=seq,
+                turn_id=turn_id,
+                step_id=step_id,
+                phase=state.current_phase,
+                timestamp=event.timestamp,
+                state=state,
+            )
+
         # Emit any pending events waiting for this step
         if state.pending_events:
             pending = state.pending_events[:]
@@ -310,6 +379,90 @@ class TrailNodeBuilder:
 
         # --- Plan classification + title + SSE (fire-and-forget) ---
         asyncio.ensure_future(self._classify_and_emit(job_id, node_id, payload))
+
+    async def _create_write_sub_nodes(
+        self,
+        *,
+        job_id: str,
+        parent_node_id: str,
+        anchor_seq: int,
+        turn_id: str,
+        step_id: str | None,
+        phase: str | None,
+        timestamp: datetime,
+        state: TrailJobState,
+    ) -> None:
+        """Create write sub-nodes from file_write telemetry spans (§13.1).
+
+        One ``write`` node per ``file_write`` span, as children of the parent
+        ``modify`` node.  Carries per-file granularity data that downstream
+        consumers (StoryService, MotivationService, SummarizationService) need.
+        """
+        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+
+        try:
+            async with self._session_factory() as session:
+                spans_repo = TelemetrySpansRepository(session)
+                spans = await spans_repo.file_write_spans_for_step(
+                    job_id=job_id, turn_id=turn_id,
+                )
+
+            if not spans:
+                return
+
+            write_nodes: list[TrailNodeRow] = []
+            for span in spans:
+                wn_id = make_node_id()
+                seq = state.next_seq
+                state.next_seq += 1
+
+                file_path = span.get("tool_target") or ""
+                snippet = _extract_snippet(
+                    span.get("tool_args_json"), span.get("name"),
+                )
+
+                write_nodes.append(
+                    TrailNodeRow(
+                        id=wn_id,
+                        job_id=job_id,
+                        seq=seq,
+                        anchor_seq=anchor_seq,
+                        parent_id=parent_node_id,
+                        kind="write",
+                        deterministic_kind="write",
+                        phase=phase,
+                        timestamp=timestamp,
+                        enrichment="complete",
+                        step_id=step_id,
+                        turn_id=turn_id,
+                        files=json.dumps([file_path], ensure_ascii=False) if file_path else None,
+                        tool_name=span.get("name"),
+                        snippet=snippet or None,
+                        is_retry=bool(span.get("is_retry")) if span.get("is_retry") is not None else None,
+                        error_kind=span.get("error_kind"),
+                        write_summary=span.get("motivation_summary"),
+                        edit_motivations=span.get("edit_motivations"),
+                        preceding_context=span.get("preceding_context"),
+                    )
+                )
+
+            if write_nodes:
+                await self._repo.create_many(write_nodes)
+                log.debug(
+                    "trail_write_sub_nodes_created",
+                    job_id=job_id,
+                    parent_id=parent_node_id,
+                    count=len(write_nodes),
+                )
+
+        except (DBAPIError, OSError):
+            # Write sub-node creation is best-effort — don't break the hot path
+            log.warning(
+                "trail_write_sub_nodes_failed",
+                job_id=job_id,
+                parent_id=parent_node_id,
+                exc_info=True,
+            )
 
     async def _classify_and_emit(
         self,

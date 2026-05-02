@@ -354,6 +354,16 @@ class TrailNodeRow(Base):
     # Edges
     supersedes = Column(String(36), nullable=True)
     tags = Column(Text, nullable=True)  # JSON array
+    # Write sub-node columns (kind="write", children of modify nodes)
+    tool_name = Column(String(100), nullable=True)
+    snippet = Column(Text, nullable=True)
+    is_retry = Column(Boolean, nullable=True)
+    error_kind = Column(String(50), nullable=True)
+    write_summary = Column(Text, nullable=True)
+    edit_motivations = Column(Text, nullable=True)  # JSON array
+    tool_display = Column(String(200), nullable=True)
+    tool_intent = Column(Text, nullable=True)
+    tool_success = Column(Boolean, nullable=True)
 
     __table_args__ = (
         Index("ix_trail_nodes_job_id", "job_id"),

@@ -8,12 +8,15 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.models.db import Base, TrailNodeRow
+from backend.models.db import Base, JobTelemetrySpanRow, TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.event_bus import EventBus
 from backend.services.trail import TrailService
-from backend.services.trail.node_builder import classify_step as _classify_step
+from backend.services.trail.node_builder import (
+    _extract_snippet,
+    classify_step as _classify_step,
+)
 from backend.services.trail.prompts import parse_enrichment_response as _parse_enrichment_response
 
 
@@ -606,3 +609,280 @@ class TestTrailFullLifecycle:
         total, enriched = await trail_repo.count_by_job(job_id)
         assert total == 6
         assert enriched == 3  # goal + 2 summarize
+
+
+# ---------------------------------------------------------------------------
+# _extract_snippet unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestExtractSnippet:
+    def test_replacement_old_new(self):
+        args = json.dumps({"old_str": "foo()", "new_str": "bar()"})
+        result = _extract_snippet(args, "edit_file")
+        assert "- foo()" in result
+        assert "+ bar()" in result
+
+    def test_create_file_text(self):
+        args = json.dumps({"file_text": "import os\nprint('hi')\n"})
+        result = _extract_snippet(args, "create_file")
+        assert "+ import os" in result
+        assert "+ print('hi')" in result
+
+    def test_insert_new_text(self):
+        args = json.dumps({"new_text": "added line"})
+        result = _extract_snippet(args, "insert_text")
+        assert "+ added line" in result
+
+    def test_empty_args(self):
+        assert _extract_snippet(None, "write_file") == ""
+        assert _extract_snippet("", "write_file") == ""
+
+    def test_invalid_json(self):
+        assert _extract_snippet("not json", "write_file") == ""
+
+    def test_no_recognized_keys(self):
+        args = json.dumps({"unrelated": "data"})
+        assert _extract_snippet(args, "write_file") == ""
+
+    def test_camel_case_keys(self):
+        args = json.dumps({"oldString": "a", "newString": "b"})
+        result = _extract_snippet(args, "edit")
+        assert "- a" in result
+        assert "+ b" in result
+
+
+# ---------------------------------------------------------------------------
+# Write sub-node creation (§13.1)
+# ---------------------------------------------------------------------------
+
+
+async def _insert_file_write_span(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    job_id: str,
+    turn_id: str,
+    name: str = "write_file",
+    tool_target: str = "src/a.py",
+    tool_args_json: str | None = None,
+    motivation_summary: str | None = None,
+    edit_motivations: str | None = None,
+    is_retry: bool = False,
+    error_kind: str | None = None,
+    preceding_context: str | None = None,
+) -> None:
+    """Insert a file_write telemetry span directly into the DB for testing."""
+    now = datetime.now(UTC).isoformat()
+    async with session_factory() as session:
+        span = JobTelemetrySpanRow(
+            job_id=job_id,
+            span_type="tool",
+            name=name,
+            started_at=str(datetime.now(UTC).timestamp()),
+            duration_ms="100",
+            attrs_json="{}",
+            created_at=datetime.now(UTC),
+            tool_category="file_write",
+            tool_target=tool_target,
+            tool_args_json=tool_args_json,
+            turn_id=turn_id,
+            motivation_summary=motivation_summary,
+            edit_motivations=edit_motivations,
+            is_retry=is_retry,
+            error_kind=error_kind,
+            preceding_context=preceding_context,
+        )
+        session.add(span)
+        await session.commit()
+
+
+class TestWriteSubNodes:
+    async def test_modify_step_creates_write_sub_nodes(
+        self, trail_service, trail_repo, session_factory,
+    ):
+        """A modify step with file_write spans should produce write sub-nodes."""
+        await trail_service.handle_event(_job_started_event())
+
+        # Insert file_write spans BEFORE step_completed fires
+        await _insert_file_write_span(
+            session_factory, job_id="job-1", turn_id="turn-1",
+            name="write_file", tool_target="src/a.py",
+            tool_args_json=json.dumps({"file_text": "new content"}),
+            motivation_summary="Adding new module",
+        )
+        await _insert_file_write_span(
+            session_factory, job_id="job-1", turn_id="turn-1",
+            name="edit_file", tool_target="src/b.py",
+            tool_args_json=json.dumps({"old_str": "old", "new_str": "new"}),
+            is_retry=True,
+            error_kind="syntax_error",
+        )
+
+        # Fire step_completed with files_written
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.step_completed,
+            payload={
+                "step_id": "step-1",
+                "turn_id": "turn-1",
+                "files_written": ["src/a.py", "src/b.py"],
+                "start_sha": "aaa",
+                "end_sha": "bbb",
+            },
+        ))
+
+        nodes = await trail_repo.get_by_job("job-1")
+        # goal + modify + 2 write sub-nodes
+        assert len(nodes) == 4
+
+        modify_node = [n for n in nodes if n.kind == "modify"][0]
+        write_nodes = [n for n in nodes if n.kind == "write"]
+        assert len(write_nodes) == 2
+
+        # Write nodes are children of modify
+        for wn in write_nodes:
+            assert wn.parent_id == modify_node.id
+            assert wn.deterministic_kind == "write"
+            assert wn.enrichment == "complete"
+            assert wn.step_id == "step-1"
+            assert wn.turn_id == "turn-1"
+
+        # Check per-file data
+        w1 = next(wn for wn in write_nodes if json.loads(wn.files) == ["src/a.py"])
+        assert w1.tool_name == "write_file"
+        assert w1.snippet is not None
+        assert "+ new content" in w1.snippet
+        assert w1.write_summary == "Adding new module"
+
+        w2 = next(wn for wn in write_nodes if json.loads(wn.files) == ["src/b.py"])
+        assert w2.tool_name == "edit_file"
+        assert w2.is_retry is True
+        assert w2.error_kind == "syntax_error"
+
+    async def test_explore_step_no_write_nodes(
+        self, trail_service, trail_repo, session_factory,
+    ):
+        """Explore steps should not produce write sub-nodes."""
+        await trail_service.handle_event(_job_started_event())
+
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.step_completed,
+            payload={
+                "step_id": "step-1",
+                "turn_id": "turn-1",
+                "files_read": ["src/a.py"],
+            },
+        ))
+
+        nodes = await trail_repo.get_by_job("job-1")
+        write_nodes = [n for n in nodes if n.kind == "write"]
+        assert len(write_nodes) == 0
+
+    async def test_modify_step_no_spans_no_write_nodes(
+        self, trail_service, trail_repo, session_factory,
+    ):
+        """A modify step with no file_write spans produces no write sub-nodes."""
+        await trail_service.handle_event(_job_started_event())
+
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.step_completed,
+            payload={
+                "step_id": "step-1",
+                "turn_id": "turn-1",
+                "files_written": ["src/a.py"],
+                "start_sha": "aaa",
+                "end_sha": "bbb",
+            },
+        ))
+
+        nodes = await trail_repo.get_by_job("job-1")
+        # goal + modify, no write sub-nodes
+        assert len(nodes) == 2
+        assert nodes[1].kind == "modify"
+
+    async def test_write_nodes_anchor_seq_matches_parent(
+        self, trail_service, trail_repo, session_factory,
+    ):
+        """Write sub-nodes share anchor_seq with their parent modify node."""
+        await trail_service.handle_event(_job_started_event())
+
+        await _insert_file_write_span(
+            session_factory, job_id="job-1", turn_id="turn-1",
+            tool_target="src/a.py",
+        )
+
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.step_completed,
+            payload={
+                "step_id": "step-1",
+                "turn_id": "turn-1",
+                "files_written": ["src/a.py"],
+            },
+        ))
+
+        nodes = await trail_repo.get_by_job("job-1")
+        modify_node = [n for n in nodes if n.kind == "modify"][0]
+        write_nodes = [n for n in nodes if n.kind == "write"]
+
+        assert len(write_nodes) == 1
+        assert write_nodes[0].anchor_seq == modify_node.anchor_seq
+
+    async def test_modify_without_turn_id_no_write_nodes(
+        self, trail_service, trail_repo, session_factory,
+    ):
+        """A modify step without turn_id skips write sub-node creation."""
+        await trail_service.handle_event(_job_started_event())
+
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.step_completed,
+            payload={
+                "step_id": "step-1",
+                # no turn_id
+                "files_written": ["src/a.py"],
+                "start_sha": "aaa",
+                "end_sha": "bbb",
+            },
+        ))
+
+        nodes = await trail_repo.get_by_job("job-1")
+        assert len(nodes) == 2  # goal + modify only
+        write_nodes = [n for n in nodes if n.kind == "write"]
+        assert len(write_nodes) == 0
+
+    async def test_seq_is_monotonic_with_write_nodes(
+        self, trail_service, trail_repo, session_factory,
+    ):
+        """Sequence numbers remain monotonic when write sub-nodes are interleaved."""
+        await trail_service.handle_event(_job_started_event())
+
+        await _insert_file_write_span(
+            session_factory, job_id="job-1", turn_id="turn-1",
+            tool_target="src/a.py",
+        )
+        await _insert_file_write_span(
+            session_factory, job_id="job-1", turn_id="turn-1",
+            tool_target="src/b.py",
+        )
+
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.step_completed,
+            payload={
+                "step_id": "step-1",
+                "turn_id": "turn-1",
+                "files_written": ["src/a.py", "src/b.py"],
+            },
+        ))
+
+        # Another step
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.step_completed,
+            payload={
+                "step_id": "step-2",
+                "turn_id": "turn-2",
+                "files_read": ["src/c.py"],
+            },
+        ))
+
+        nodes = await trail_repo.get_by_job("job-1")
+        seqs = [n.seq for n in nodes]
+        assert seqs == sorted(seqs)
+        assert len(set(seqs)) == len(seqs)  # all unique

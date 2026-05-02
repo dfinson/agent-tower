@@ -251,10 +251,10 @@ These services bypass the trail and access raw data directly:
 *Migration*: Deferred — requires trail nodes to carry per-tool-call metadata (see §13.3). Already has a `TODO(trail-migration)` comment.
 
 **StoryService** — runs 6 raw SQL queries against `job_telemetry_spans`, `trail_nodes`, `steps`, `jobs`, `job_telemetry_summary`, and `approvals`. Builds narrative from raw span data, extracting snippets from `tool_args_json` and deduplicating file writes by file+step. The most complex violator.
-*Migration*: Deferred — requires the `write` sub-node concept (see §13.1) so trail carries per-file-write granularity.
+*Migration*: Deferred — `write` sub-nodes now exist (§13.1). Consumer migration to read from `TrailNodeRepository.get_write_nodes_for_job()` instead of raw SQL on `job_telemetry_spans` is next.
 
 **MotivationService** — runs an independent drain loop parsing `preceding_context` and `tool_args_json` from `job_telemetry_spans`. Produces `motivation_summary` (file-level) and `edit_motivations` (edit-level). Duplicates work the trail enricher should own.
-*Migration*: Fold into trail enrichment (see §13.2). Requires `write` sub-nodes for edit-level granularity.
+*Migration*: Fold into trail enrichment (see §13.2). `write` sub-nodes now exist (§13.1); ready for enricher absorption.
 
 **JobService** — wraps `EventRepository` and exposes `list_events_by_job()`, `get_latest_progress_preview()`, and `list_latest_progress_previews()`. Used by API routes (`job_artifacts.py`) to serve transcript, diff, plan step, progress headline, and log events to the frontend.
 *Migration*: Phased. Infrastructure events (`log_line_emitted`) are acceptable per §6.3. Provenance events (`transcript_updated`, `diff_updated`, `plan_step_updated`, `progress_headline`) need trail-backed API endpoints. Requires per-turn transcript data in trail.
@@ -400,9 +400,9 @@ As deferred migrations complete, entries are removed from the allowlist.
 | 1 | Trail projection methods | ✅ Done | `trail_repo.py`, `test_trail_repo_projections.py` |
 | 2a | CostAttribution: raw SQL → repo | ✅ Done | `cost_attribution.py`, `trail_repo.py` |
 | 2b | RuntimeHandoff → trail repo | ✅ Done | `runtime_handoff.py` |
-| 2c | SummarizationService snapshot | ⏳ Deferred | Needs per-tool metadata on trail |
-| 2d | StoryService | ⏳ Deferred | Needs `write` sub-nodes (§13.1) |
-| 2e | MotivationService | ⏳ Deferred | Fold into enricher (§13.2) |
+| 2c | SummarizationService snapshot | ⏳ Deferred | Needs per-tool metadata populated on write sub-nodes |
+| 2d | StoryService | ⏳ Deferred | Write sub-nodes exist; needs consumer migration |
+| 2e | MotivationService | ⏳ Deferred | Write sub-nodes exist; fold into enricher (§13.2) |
 | 2f | JobService / API routes | ⏳ Deferred | Needs per-turn trail data |
 | 2g | SSE Manager replay | ⏳ Deferred | Needs replayable trail cursor |
 | 3 | Import guard test | ✅ Done | `test_architecture.py` |
@@ -512,27 +512,27 @@ Events published by the trail subsystem:
 
 ## 13. Known Gaps & Future Work
 
-### 13.1 Write Sub-Nodes (Granularity Bridge)
+### 13.1 Write Sub-Nodes (Granularity Bridge) — ✅ IMPLEMENTED
 
 Trail nodes are per-step — one node per `step_completed` event. Telemetry spans are per-tool-call — one span per `file_write`, `shell_exec`, etc. A single step can have multiple file writes. Trail knows "which files" (the `files` JSON array) but not "what changed in each file."
 
-**Proposal**: A new `write` node kind, created as children of `modify` nodes. One per `file_write` span. Carries: `file` (single path), `tool_name`, `snippet` (extracted from `tool_args_json`), `preceding_context`, `is_retry`, `error_kind`, `write_summary`, `edit_motivations`.
+**Implementation**: A `write` node kind, created as children of `modify` nodes during `_on_step_completed`. One per `file_write` telemetry span. Columns added to `trail_nodes` (migration 0029): `tool_name`, `snippet`, `is_retry`, `error_kind`, `write_summary`, `edit_motivations`, `tool_display`, `tool_intent`, `tool_success`. NodeBuilder queries `TelemetrySpansRepository.file_write_spans_for_step()` and batch-inserts write sub-nodes via `TrailNodeRepository.create_many()`. Projection methods: `get_write_nodes_for_step()`, `get_write_nodes_for_job()`.
 
-**Blocked consumers**: StoryService (needs per-file snippets), MotivationService (needs per-edit motivations), SummarizationService snapshot (needs per-tool metadata).
+**Unblocked consumers**: StoryService (per-file snippets), MotivationService (per-edit motivations), SummarizationService (per-tool metadata columns exist, need population).
 
 ### 13.2 MotivationService Absorption
 
 MotivationService runs an independent drain loop on `job_telemetry_spans`, duplicating the trail enricher's cognitive work at a different granularity. Two passes: file-level (`preceding_context` → `motivation_summary`) and edit-level (`tool_args` → `edit_motivations`).
 
-**Plan**: Fold both passes into the trail enricher. File-level motivations become an enrichment field on `modify` nodes. Edit-level motivations become enrichment on `write` sub-nodes (§13.1). The MotivationService drain loop and its separate LLM completer are retired.
+**Plan**: Fold both passes into the trail enricher. File-level motivations become an enrichment field on `modify` nodes. Edit-level motivations become enrichment on `write` sub-nodes (§13.1 — now implemented). The MotivationService drain loop and its separate LLM completer are retired.
 
-**Prerequisite**: `write` sub-nodes must exist first.
+**Prerequisite**: ✅ `write` sub-nodes exist. Ready to implement.
 
 ### 13.3 Per-Tool Metadata on Trail Nodes
 
 `SummarizationService.save_snapshot_to_disk()` preserves per-turn tool metadata: `tool_display`, `tool_intent`, `tool_success`. Trail nodes carry `tool_names` (JSON array of names) but not the per-call display/intent/success metadata.
 
-**Decision**: Derive from `write` sub-nodes (§13.1). Each `write` node already carries `tool_name` and per-call context. Add `tool_display`, `tool_intent`, `tool_success` as columns on `write` sub-nodes. SummarizationService reads them from there. No separate schema migration or `preceding_context` parsing needed — the data lands where it belongs as part of the `write` sub-node work.
+**Decision**: Derive from `write` sub-nodes (§13.1). Each `write` node already carries `tool_name` and per-call context. Columns `tool_display`, `tool_intent`, `tool_success` exist on `trail_nodes` (added in migration 0029). Currently NULL — population requires a source (agent adapter event data or `preceding_context` parsing). SummarizationService reads them from write sub-nodes once populated.
 
 ### 13.4 Fire-and-Forget Concurrency
 

@@ -46,6 +46,14 @@ def _node(
     files: list[str] | None = None,
     diff_additions: int | None = None,
     diff_deletions: int | None = None,
+    parent_id: str | None = None,
+    turn_id: str | None = None,
+    tool_name: str | None = None,
+    snippet: str | None = None,
+    is_retry: bool | None = None,
+    error_kind: str | None = None,
+    write_summary: str | None = None,
+    edit_motivations: str | None = None,
 ) -> TrailNodeRow:
     return TrailNodeRow(
         id=f"node-{seq}",
@@ -62,6 +70,14 @@ def _node(
         files=json.dumps(files, ensure_ascii=False) if files else None,
         diff_additions=diff_additions,
         diff_deletions=diff_deletions,
+        parent_id=parent_id,
+        turn_id=turn_id,
+        tool_name=tool_name,
+        snippet=snippet,
+        is_retry=is_retry,
+        error_kind=error_kind,
+        write_summary=write_summary,
+        edit_motivations=edit_motivations,
     )
 
 
@@ -294,3 +310,126 @@ class TestGetDiffLineCounts:
 
         assert added == 0
         assert removed == 0
+
+
+# ---------------------------------------------------------------------------
+# get_write_nodes_for_step
+# ---------------------------------------------------------------------------
+
+
+class TestGetWriteNodesForStep:
+    @pytest.mark.asyncio
+    async def test_returns_write_nodes_by_turn(self, repo: TrailNodeRepository) -> None:
+        await repo.create_many([
+            _node(seq=1, kind="modify", turn_id="turn-1", files=["a.py", "b.py"]),
+            _node(seq=2, kind="write", turn_id="turn-1", parent_id="node-1",
+                  files=["a.py"], tool_name="write_file", snippet="+ new code"),
+            _node(seq=3, kind="write", turn_id="turn-1", parent_id="node-1",
+                  files=["b.py"], tool_name="edit_file", snippet="- old\n+ new"),
+        ])
+
+        nodes = await repo.get_write_nodes_for_step("job-1", "turn-1")
+
+        assert len(nodes) == 2
+        assert nodes[0].tool_name == "write_file"
+        assert nodes[1].tool_name == "edit_file"
+
+    @pytest.mark.asyncio
+    async def test_excludes_other_turns(self, repo: TrailNodeRepository) -> None:
+        await repo.create_many([
+            _node(seq=1, kind="write", turn_id="turn-1", parent_id="p1",
+                  files=["a.py"], tool_name="write_file"),
+            _node(seq=2, kind="write", turn_id="turn-2", parent_id="p2",
+                  files=["b.py"], tool_name="write_file"),
+        ])
+
+        nodes = await repo.get_write_nodes_for_step("job-1", "turn-1")
+
+        assert len(nodes) == 1
+        assert json.loads(nodes[0].files) == ["a.py"]
+
+    @pytest.mark.asyncio
+    async def test_excludes_non_write_kinds(self, repo: TrailNodeRepository) -> None:
+        await repo.create_many([
+            _node(seq=1, kind="modify", turn_id="turn-1"),
+            _node(seq=2, kind="write", turn_id="turn-1", parent_id="node-1",
+                  files=["a.py"], tool_name="write_file"),
+            _node(seq=3, kind="explore", turn_id="turn-1"),
+        ])
+
+        nodes = await repo.get_write_nodes_for_step("job-1", "turn-1")
+
+        assert len(nodes) == 1
+        assert nodes[0].kind == "write"
+
+    @pytest.mark.asyncio
+    async def test_empty_result(self, repo: TrailNodeRepository) -> None:
+        nodes = await repo.get_write_nodes_for_step("job-1", "nonexistent")
+        assert nodes == []
+
+    @pytest.mark.asyncio
+    async def test_carries_motivation_data(self, repo: TrailNodeRepository) -> None:
+        edit_mots = json.dumps([{"edit_key": "a.py:10", "summary": "added guard"}])
+        await repo.create(_node(
+            seq=1, kind="write", turn_id="turn-1", parent_id="p1",
+            files=["a.py"], tool_name="write_file",
+            write_summary="Fixing auth bypass",
+            edit_motivations=edit_mots,
+            is_retry=True,
+            error_kind="syntax_error",
+        ))
+
+        nodes = await repo.get_write_nodes_for_step("job-1", "turn-1")
+
+        assert len(nodes) == 1
+        n = nodes[0]
+        assert n.write_summary == "Fixing auth bypass"
+        assert n.edit_motivations == edit_mots
+        assert n.is_retry is True
+        assert n.error_kind == "syntax_error"
+
+
+# ---------------------------------------------------------------------------
+# get_write_nodes_for_job
+# ---------------------------------------------------------------------------
+
+
+class TestGetWriteNodesForJob:
+    @pytest.mark.asyncio
+    async def test_returns_all_write_nodes(self, repo: TrailNodeRepository) -> None:
+        await repo.create_many([
+            _node(seq=1, kind="modify", turn_id="turn-1"),
+            _node(seq=2, kind="write", turn_id="turn-1", parent_id="node-1",
+                  files=["a.py"], tool_name="write_file"),
+            _node(seq=3, kind="modify", turn_id="turn-2"),
+            _node(seq=4, kind="write", turn_id="turn-2", parent_id="node-3",
+                  files=["b.py"], tool_name="edit_file"),
+            _node(seq=5, kind="explore"),
+        ])
+
+        nodes = await repo.get_write_nodes_for_job("job-1")
+
+        assert len(nodes) == 2
+        assert nodes[0].tool_name == "write_file"
+        assert nodes[1].tool_name == "edit_file"
+
+    @pytest.mark.asyncio
+    async def test_ordered_by_anchor_seq_then_seq(self, repo: TrailNodeRepository) -> None:
+        n1 = _node(seq=4, kind="write", turn_id="turn-2", parent_id="p2",
+                    files=["b.py"], tool_name="edit_file")
+        n1.anchor_seq = 3
+        n2 = _node(seq=2, kind="write", turn_id="turn-1", parent_id="p1",
+                    files=["a.py"], tool_name="write_file")
+        n2.anchor_seq = 1
+        await repo.create_many([n1, n2])
+
+        nodes = await repo.get_write_nodes_for_job("job-1")
+
+        assert len(nodes) == 2
+        assert nodes[0].tool_name == "write_file"  # anchor_seq=1
+        assert nodes[1].tool_name == "edit_file"   # anchor_seq=3
+
+    @pytest.mark.asyncio
+    async def test_empty_job(self, repo: TrailNodeRepository) -> None:
+        nodes = await repo.get_write_nodes_for_job("nonexistent")
+        assert nodes == []

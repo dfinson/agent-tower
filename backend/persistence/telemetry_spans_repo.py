@@ -186,7 +186,8 @@ class TelemetrySpansRepository(BaseRepository):
         result = await self._session.execute(
             text("""
                 SELECT id, job_id, name, tool_target, tool_args_json,
-                       motivation_summary, edit_motivations, turn_id
+                       motivation_summary, edit_motivations, turn_id,
+                       is_retry, error_kind, preceding_context, started_at
                 FROM job_telemetry_spans
                 WHERE job_id = :job_id
                   AND turn_id = :turn_id

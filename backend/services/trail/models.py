@@ -186,7 +186,7 @@ def make_node_id() -> str:
 # Constants
 # ---------------------------------------------------------------------------
 
-DETERMINISTIC_KINDS = frozenset({"goal", "explore", "modify", "request", "summarize", "delegate", "shell"})
+DETERMINISTIC_KINDS = frozenset({"goal", "explore", "modify", "request", "summarize", "delegate", "shell", "write"})
 SEMANTIC_KINDS = frozenset({"plan", "insight", "decide", "backtrack", "verify"})
 ALL_KINDS = DETERMINISTIC_KINDS | SEMANTIC_KINDS
 
