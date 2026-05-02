@@ -1060,3 +1060,211 @@ class TestTrailRepoWriteNodeQueries:
         edits = json.loads(updated.edit_motivations)
         assert len(edits) == 1
         assert edits[0]["edit_key"] == "k1"
+
+
+# ---------------------------------------------------------------------------
+# §13.3: update_tool_metadata + get_snapshot_turns
+# ---------------------------------------------------------------------------
+
+
+class TestToolMetadata:
+    """Tests for §13.3 per-tool metadata on trail nodes."""
+
+    @pytest.mark.asyncio
+    async def test_update_tool_metadata_matches_write_node(self, trail_repo):
+        """update_tool_metadata populates tool_display/intent/success on matching write node."""
+        node = TrailNodeRow(
+            id="wt1", job_id="j1", seq=1, anchor_seq=1,
+            kind="write", deterministic_kind="write",
+            timestamp=datetime.now(UTC), enrichment="complete",
+            parent_id="p1", turn_id="turn-1", tool_name="str_replace_editor",
+        )
+        await trail_repo.create(node)
+
+        updated = await trail_repo.update_tool_metadata(
+            "j1", "turn-1", "str_replace_editor",
+            tool_display="Edit config.py",
+            tool_intent="Update the config setting",
+            tool_success=True,
+        )
+        assert updated is True
+
+        result = await trail_repo.get("wt1")
+        assert result is not None
+        assert result.tool_display == "Edit config.py"
+        assert result.tool_intent == "Update the config setting"
+        assert result.tool_success is True
+
+    @pytest.mark.asyncio
+    async def test_update_tool_metadata_no_match(self, trail_repo):
+        """update_tool_metadata returns False when no matching write node exists."""
+        updated = await trail_repo.update_tool_metadata(
+            "j1", "turn-99", "nonexistent_tool",
+            tool_display="Display",
+        )
+        assert updated is False
+
+    @pytest.mark.asyncio
+    async def test_update_tool_metadata_skips_already_populated(self, trail_repo):
+        """update_tool_metadata only targets nodes with tool_display IS NULL."""
+        node = TrailNodeRow(
+            id="wt2", job_id="j1", seq=1, anchor_seq=1,
+            kind="write", deterministic_kind="write",
+            timestamp=datetime.now(UTC), enrichment="complete",
+            parent_id="p1", turn_id="turn-1", tool_name="write_file",
+            tool_display="Already set",
+        )
+        await trail_repo.create(node)
+
+        updated = await trail_repo.update_tool_metadata(
+            "j1", "turn-1", "write_file",
+            tool_display="New display",
+        )
+        assert updated is False
+
+        result = await trail_repo.get("wt2")
+        assert result is not None
+        assert result.tool_display == "Already set"
+
+    @pytest.mark.asyncio
+    async def test_get_snapshot_turns_all_types(self, trail_repo):
+        """get_snapshot_turns returns assistant, operator, and tool_call turns in order."""
+        now = datetime.now(UTC)
+        nodes = [
+            TrailNodeRow(
+                id="s1", job_id="j1", seq=1, anchor_seq=1,
+                kind="modify", deterministic_kind="modify",
+                timestamp=now, enrichment="complete",
+                agent_message="I'll update the config file.",
+            ),
+            TrailNodeRow(
+                id="s2", job_id="j1", seq=2, anchor_seq=2,
+                kind="request", deterministic_kind="request",
+                timestamp=now, enrichment="complete",
+                agent_message="Please clarify the requirement.",
+            ),
+            TrailNodeRow(
+                id="s3", job_id="j1", seq=3, anchor_seq=1,
+                kind="write", deterministic_kind="write",
+                timestamp=now, enrichment="complete",
+                parent_id="s1", turn_id="turn-1", tool_name="edit_file",
+                tool_display="Edit config.py line 42",
+                tool_success=True,
+            ),
+            # Write node WITHOUT tool_display — should NOT appear
+            TrailNodeRow(
+                id="s4", job_id="j1", seq=4, anchor_seq=1,
+                kind="write", deterministic_kind="write",
+                timestamp=now, enrichment="complete",
+                parent_id="s1", turn_id="turn-1", tool_name="read_file",
+            ),
+            # Step node without agent_message — should NOT appear
+            TrailNodeRow(
+                id="s5", job_id="j1", seq=5, anchor_seq=5,
+                kind="explore", deterministic_kind="explore",
+                timestamp=now, enrichment="complete",
+            ),
+        ]
+        await trail_repo.create_many(nodes)
+
+        turns = await trail_repo.get_snapshot_turns("j1")
+        assert len(turns) == 3
+        assert turns[0].id == "s1"  # assistant (modify with agent_message, anchor=1)
+        assert turns[1].id == "s3"  # tool_call (write with tool_display, anchor=1)
+        assert turns[2].id == "s2"  # operator (request, anchor=2)
+
+    @pytest.mark.asyncio
+    async def test_get_snapshot_turns_empty_job(self, trail_repo):
+        """get_snapshot_turns returns empty list for non-existent job."""
+        turns = await trail_repo.get_snapshot_turns("nonexistent")
+        assert turns == []
+
+
+class TestNodeBuilderToolCall:
+    """Tests for NodeBuilder handling tool_call transcript events (§13.3)."""
+
+    @pytest.mark.asyncio
+    async def test_tool_call_updates_write_sub_node(self, session_factory, trail_service, trail_repo):
+        """tool_call transcript event updates matching write sub-node with tool metadata."""
+        # Set up: start a job and create a write sub-node
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.job_state_changed,
+            payload={"new_state": "running"},
+        ))
+
+        # Create a write sub-node directly (simulating step_completed flow)
+        write_node = TrailNodeRow(
+            id="wn-tc1", job_id="job-1", seq=100, anchor_seq=100,
+            kind="write", deterministic_kind="write",
+            timestamp=datetime.now(UTC), enrichment="complete",
+            parent_id="goal-1", turn_id="turn-42", tool_name="str_replace_editor",
+        )
+        await trail_repo.create(write_node)
+
+        # Fire tool_call transcript event
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.transcript_updated,
+            payload={
+                "role": "tool_call",
+                "content": "str_replace_editor",
+                "tool_name": "str_replace_editor",
+                "turn_id": "turn-42",
+                "tool_display": "Edit app.py:10",
+                "tool_intent": "Fix the import statement",
+                "tool_success": True,
+            },
+        ))
+
+        # Verify write sub-node was updated
+        updated = await trail_repo.get("wn-tc1")
+        assert updated is not None
+        assert updated.tool_display == "Edit app.py:10"
+        assert updated.tool_intent == "Fix the import statement"
+        assert updated.tool_success is True
+
+    @pytest.mark.asyncio
+    async def test_tool_call_skips_report_intent(self, session_factory, trail_service, trail_repo):
+        """tool_call with tool_name='report_intent' is silently skipped."""
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.job_state_changed,
+            payload={"new_state": "running"},
+        ))
+
+        # Fire report_intent — should be ignored
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.transcript_updated,
+            payload={
+                "role": "tool_call",
+                "content": "report_intent",
+                "tool_name": "report_intent",
+                "turn_id": "turn-1",
+                "tool_display": None,
+            },
+        ))
+
+        nodes = await trail_repo.get_by_job("job-1")
+        # Only the goal node from job_state_changed, no extra nodes
+        tool_nodes = [n for n in nodes if n.tool_display is not None]
+        assert len(tool_nodes) == 0
+
+    @pytest.mark.asyncio
+    async def test_assistant_transcript_tracks_messages(self, session_factory, trail_service):
+        """assistant transcript events update the recent_messages buffer."""
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.job_state_changed,
+            payload={"new_state": "running"},
+        ))
+
+        await trail_service.handle_event(_make_event(
+            DomainEventKind.transcript_updated,
+            payload={
+                "role": "assistant",
+                "content": "I will now refactor the module.",
+            },
+        ))
+
+        # Check that the builder's state was updated
+        builder = trail_service._node_builder
+        state = builder._job_state.get("job-1")
+        assert state is not None
+        assert any("[assistant]" in m for m in state.recent_messages)

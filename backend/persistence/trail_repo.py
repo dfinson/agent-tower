@@ -363,3 +363,80 @@ class TrailNodeRepository:
             )
             await session.execute(stmt)
             await session.commit()
+
+    async def update_tool_metadata(
+        self,
+        job_id: str,
+        turn_id: str,
+        tool_name: str,
+        *,
+        tool_display: str | None = None,
+        tool_intent: str | None = None,
+        tool_success: bool | None = None,
+    ) -> bool:
+        """Update tool_display/tool_intent/tool_success on a write sub-node.
+
+        Matches by job_id + turn_id + tool_name. Returns True if a row was
+        updated, False if no matching node was found.
+        """
+        values: dict[str, object] = {}
+        if tool_display is not None:
+            values["tool_display"] = tool_display
+        if tool_intent is not None:
+            values["tool_intent"] = tool_intent
+        if tool_success is not None:
+            values["tool_success"] = tool_success
+        if not values:
+            return False
+
+        async with self._session_factory() as session:
+            stmt = (
+                update(TrailNodeRow)
+                .where(TrailNodeRow.job_id == job_id)
+                .where(TrailNodeRow.turn_id == turn_id)
+                .where(TrailNodeRow.tool_name == tool_name)
+                .where(TrailNodeRow.kind == "write")
+                .where(TrailNodeRow.tool_display.is_(None))
+                .values(**values)
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return (result.rowcount or 0) > 0
+
+    async def get_snapshot_turns(self, job_id: str) -> list[TrailNodeRow]:
+        """Fetch trail nodes needed for session snapshot reconstruction.
+
+        Returns nodes carrying transcript-relevant data in chronological
+        order:
+        - Step nodes (modify/shell/explore) with agent_message (assistant turns)
+        - Request nodes (operator turns)
+        - Write sub-nodes with tool_display populated (tool_call turns)
+
+        Ordered by (anchor_seq, seq) to maintain correct timeline.
+        """
+        from sqlalchemy import and_, or_
+
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.job_id == job_id)
+                .where(
+                    or_(
+                        # Assistant turns: step nodes with agent_message
+                        and_(
+                            TrailNodeRow.kind.in_(["modify", "shell", "explore"]),
+                            TrailNodeRow.agent_message.isnot(None),
+                        ),
+                        # Operator turns: request nodes
+                        TrailNodeRow.kind == "request",
+                        # Tool call turns: write sub-nodes with tool metadata
+                        and_(
+                            TrailNodeRow.kind == "write",
+                            TrailNodeRow.tool_display.isnot(None),
+                        ),
+                    )
+                )
+                .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())

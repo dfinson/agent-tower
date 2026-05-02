@@ -337,12 +337,19 @@ diff_added, diff_removed = await trail_repo.get_diff_line_counts(job_id)
 
 **Status**: Already migrated. `runtime_handoff.py` uses `TrailNodeRepository.get_all_changed_files()`. No `EventRepository` import exists in this file.
 
-#### 2c. SummarizationService — `save_snapshot_to_disk()` ⏳ DEFERRED
+#### 2c. SummarizationService — `save_snapshot_to_disk()` ✅ COMPLETE
 
 **File**: `backend/services/summarization_service.py`
-**Reason**: The snapshot builder preserves per-turn tool metadata (`tool_name`, `tool_display`, `tool_intent`, `tool_success`) from `transcript_updated` events. The columns exist on `TrailNodeRow` (migration 0029) but are NULL — NodeBuilder does not yet handle `transcript_updated` events with `role='tool_call'` to populate them. Blocked on §13.3.
 
-The method already has a `# TODO(trail-migration)` comment. The `changed_files` path could be migrated independently using `get_all_changed_files()`, but the transcript path remains blocked.
+**Implementation**: `save_snapshot_to_disk()` migrated from EventRepository queries to trail nodes. Transcript turns reconstructed from:
+- Step nodes (modify/shell/explore) with `agent_message` → assistant turns
+- Request nodes with `agent_message` → operator turns
+- Write sub-nodes with `tool_display` populated (§13.3) → tool_call turns
+- Changed files from `TrailNodeRepository.get_all_changed_files()`
+
+New repo method: `get_snapshot_turns(job_id)` returns all transcript-relevant trail nodes in chronological order.
+
+`EventRepository` import removed from `summarization_service.py`. Architecture test allowlist entry removed. The legacy helper functions (`_clean_transcript`, `extract_changed_files`) remain for backward compatibility in existing tests.
 
 #### 2d. StoryService ✅ COMPLETE
 
@@ -375,12 +382,11 @@ ALLOWED_EVENT_REPO_CONSUMERS = {
     "backend/services/trail/node_builder.py",      # rehydration on session_resumed
     "backend/services/runtime_service.py",         # hot-path event translation
     "backend/services/runtime_telemetry.py",       # infrastructure: log_line_emitted
-    "backend/services/summarization_service.py",   # deferred Phase 2c
     "backend/di.py",                               # DI wiring
     "backend/lifespan.py",                         # lifecycle wiring
-    "backend/api/job_artifacts.py",                # deferred Phase 2f
-    "backend/services/job_service.py",             # deferred Phase 2f
-    "backend/services/sse_manager.py",             # deferred Phase 2g
+    "backend/api/job_artifacts.py",                # infrastructure: API plumbing
+    "backend/services/job_service.py",             # infrastructure: API plumbing
+    "backend/services/sse_manager.py",             # infrastructure: SSE replay
 }
 ```
 
@@ -395,11 +401,11 @@ As deferred migrations complete, entries are removed from the allowlist.
 | 1 | Trail projection methods | ✅ Done | `trail_repo.py`, `test_trail_repo_projections.py` |
 | 2a | CostAttribution: raw SQL → repo | ✅ Done | `cost_attribution.py`, `trail_repo.py` |
 | 2b | RuntimeHandoff → trail repo | ✅ Done | `runtime_handoff.py` |
-| 2c | SummarizationService snapshot | ⏳ Deferred | Needs per-tool metadata populated on write sub-nodes |
-| 2d | StoryService | ⏳ Deferred | Write sub-nodes exist; needs consumer migration |
-| 2e | MotivationService | ⏳ Deferred | Write sub-nodes exist; fold into enricher (§13.2) |
-| 2f | JobService / API routes | ⏳ Deferred | Needs per-turn trail data |
-| 2g | SSE Manager replay | ⏳ Deferred | Needs replayable trail cursor |
+| 2c | SummarizationService snapshot | ✅ Done | `summarization_service.py`, `trail_repo.py`, `test_architecture.py` |
+| 2d | StoryService | ✅ Done | `story_service.py`, `trail_repo.py` |
+| 2e | MotivationService | ✅ Done | `enricher.py`, `trail_repo.py` |
+| 2f | JobService / API routes | ℹ️ No migration needed | Infrastructure events per §6.3 |
+| 2g | SSE Manager replay | ℹ️ No migration needed | Infrastructure events per §6.3 |
 | 3 | Import guard test | ✅ Done | `test_architecture.py` |
 
 ```python
@@ -521,11 +527,18 @@ MotivationService runs an independent drain loop on `job_telemetry_spans`, dupli
 
 **Implementation**: Both passes folded into `TrailEnricher`. File-level motivations are enrichment on `write` sub-nodes via `drain_write_summaries()`. Edit-level motivations are enrichment on `write` sub-nodes via `drain_edit_motivations()`. The old MotivationService drain loop runs in parallel for backward compatibility on telemetry spans. New `TrailNodeRepository` methods: `get_unsummarized_write_nodes()`, `get_unenriched_edit_write_nodes()`, `set_write_summary()`, `set_edit_motivations()`.
 
-### 13.3 Per-Tool Metadata on Trail Nodes
+### 13.3 Per-Tool Metadata on Trail Nodes — ✅ IMPLEMENTED
 
 `SummarizationService.save_snapshot_to_disk()` preserves per-turn tool metadata: `tool_display`, `tool_intent`, `tool_success`. Trail nodes carry `tool_names` (JSON array of names) but not the per-call display/intent/success metadata.
 
-**Decision**: Derive from `write` sub-nodes (§13.1). Each `write` node already carries `tool_name` and per-call context. Columns `tool_display`, `tool_intent`, `tool_success` exist on `trail_nodes` (added in migration 0029). Currently NULL — population requires NodeBuilder to handle `transcript_updated` events with `role='tool_call'` to extract tool metadata. SummarizationService migration (Phase 2c) is blocked pending this.
+**Decision**: Derive from `write` sub-nodes (§13.1). Each `write` node already carries `tool_name` and per-call context. Columns `tool_display`, `tool_intent`, `tool_success` exist on `trail_nodes` (added in migration 0029).
+
+**Implementation**: `NodeBuilder._on_transcript_updated()` now dispatches on `role`:
+- `operator/user` → creates `request` nodes (unchanged).
+- `tool_call` → matches by `(job_id, turn_id, tool_name)` to existing write sub-nodes and populates `tool_display`, `tool_intent`, `tool_success` via `TrailNodeRepository.update_tool_metadata()`. Skips `report_intent` (frontend-only).
+- `agent/assistant` → tracks in `recent_messages` buffer for §13.7 activity boundary detection.
+
+New repo method: `update_tool_metadata(job_id, turn_id, tool_name, ...)` — updates the first matching write sub-node with `tool_display IS NULL` (idempotent guard).
 
 ### 13.4 Fire-and-Forget Concurrency — ✅ IMPLEMENTED
 

@@ -578,22 +578,36 @@ class TrailNodeBuilder:
         log.debug("trail_request_node_created", job_id=job_id, node_id=node_id)
 
     async def _on_transcript_updated(self, event: DomainEvent) -> None:
-        """Create a trail node for operator/user transcript messages.
+        """Create or update trail nodes for transcript messages.
 
-        Agent messages are already captured via step_completed (agent_message
-        field). This handler captures operator/user messages that would
-        otherwise be lost to the trail.
+        Handles three transcript roles:
+        - operator/user: Creates request nodes (operator messages).
+        - tool_call: Updates matching write sub-nodes with tool metadata
+          (tool_display, tool_intent, tool_success) per §13.3.
+        - agent/assistant: Updates step node agent_message if not already set.
         """
         job_id = event.job_id
         state = self._job_state.get(job_id)
         if not state:
             return
 
-        role = (event.payload or {}).get("role", "")
-        if role not in ("operator", "user"):
-            return
+        payload = event.payload or {}
+        role = payload.get("role", "")
 
-        content = (event.payload or {}).get("content", "").strip()
+        if role in ("operator", "user"):
+            await self._handle_operator_transcript(event, state)
+        elif role == "tool_call":
+            await self._handle_tool_call_transcript(event, state)
+        elif role in ("agent", "assistant"):
+            await self._handle_assistant_transcript(event, state)
+
+    async def _handle_operator_transcript(
+        self, event: DomainEvent, state: TrailJobState,
+    ) -> None:
+        """Create a request node for an operator/user transcript message."""
+        job_id = event.job_id
+        payload = event.payload or {}
+        content = str(payload.get("content", "")).strip()
         if not content:
             return
 
@@ -623,6 +637,67 @@ class TrailNodeBuilder:
         )
         await self._repo.create(node)
         log.debug("trail_operator_message_created", job_id=job_id, node_id=node_id)
+
+    async def _handle_tool_call_transcript(
+        self, event: DomainEvent, state: TrailJobState,
+    ) -> None:
+        """Update matching write sub-node with tool metadata (§13.3).
+
+        When a tool_call transcript event arrives, find the write sub-node
+        matching (job_id, turn_id, tool_name) and populate tool_display,
+        tool_intent, tool_success. Skips report_intent (frontend-only).
+        """
+        payload = event.payload or {}
+        tool_name = payload.get("tool_name", "")
+        if not tool_name or tool_name == "report_intent":
+            return
+
+        turn_id = payload.get("turn_id")
+        if not turn_id:
+            return
+
+        tool_display = payload.get("tool_display") or None
+        tool_intent = payload.get("tool_intent") or None
+        tool_success = payload.get("tool_success")
+        if tool_success is not None:
+            tool_success = bool(tool_success)
+
+        updated = await self._repo.update_tool_metadata(
+            event.job_id,
+            turn_id,
+            tool_name,
+            tool_display=tool_display,
+            tool_intent=tool_intent,
+            tool_success=tool_success,
+        )
+        if updated:
+            log.debug(
+                "trail_tool_metadata_updated",
+                job_id=event.job_id,
+                turn_id=turn_id,
+                tool_name=tool_name,
+            )
+
+    async def _handle_assistant_transcript(
+        self, event: DomainEvent, state: TrailJobState,
+    ) -> None:
+        """Track assistant message content for activity boundary detection.
+
+        The primary agent_message is set via step_completed. This handler
+        tracks assistant messages for the recent_messages buffer used by
+        §13.7 activity boundary detection.
+        """
+        payload = event.payload or {}
+        content = str(payload.get("content", "")).strip()
+        if not content:
+            return
+
+        # §13.7: Track for activity boundary detection
+        # Truncate long messages to keep the buffer manageable
+        summary = content[:200] if len(content) > 200 else content
+        state.recent_messages.append(f"[assistant] {summary}")
+        if len(state.recent_messages) > 10:
+            state.recent_messages = state.recent_messages[-10:]
 
     async def _on_phase_changed(self, event: DomainEvent) -> None:
         """Create a summarize node for execution phase transitions."""

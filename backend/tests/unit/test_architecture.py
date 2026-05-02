@@ -21,8 +21,6 @@ ALLOWED_EVENT_REPO_CONSUMERS = {
     "backend/services/runtime_service.py",         # hot-path event translation
     # --- Infrastructure telemetry (not provenance — see §6.3) ---
     "backend/services/runtime_telemetry.py",       # log_line_emitted only
-    # --- Deferred migration (Phase 2d: save_snapshot_to_disk) ---
-    "backend/services/summarization_service.py",
     # --- Application wiring (DI, lifecycle, API plumbing) ---
     "backend/di.py",
     "backend/lifespan.py",

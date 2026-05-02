@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 import structlog
 
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEvent
 
 
 class TranscriptTurn(TypedDict):
@@ -203,12 +203,16 @@ class SummarizationService:
 
         LLM-based summarization is deferred to resume_job() and only fires
         when the SDK session is no longer available for native reconnection.
+
+        Builds the transcript from trail nodes (Phase 2c migration):
+        - Assistant turns from step nodes with agent_message
+        - Operator turns from request nodes
+        - Tool call turns from write sub-nodes with tool metadata
+        - Changed files from trail node file manifests
         """
-        # TODO(trail-migration): migrate to TrailNodeRepository once trail nodes
-        # carry per-tool metadata (tool_display, tool_intent, tool_success).
         from backend.persistence.artifact_repo import ArtifactRepository
-        from backend.persistence.event_repo import EventRepository
         from backend.persistence.job_repo import JobRepository
+        from backend.persistence.trail_repo import TrailNodeRepository
         from backend.services.artifact_service import ArtifactService
 
         try:
@@ -220,7 +224,6 @@ class SummarizationService:
                 return
 
             async with self._session_factory() as session:
-                event_repo = EventRepository(session)
                 artifact_svc = ArtifactService(ArtifactRepository(session))
 
                 # Check if this session is already captured in the unified log
@@ -236,56 +239,52 @@ class SummarizationService:
                     except (json.JSONDecodeError, OSError):
                         log.warning("session_log_parse_failed", job_id=job_id, exc_info=True)
 
-                # Build snapshot from events
-                transcript_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.transcript_updated])
-                diff_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.diff_updated])
+                # Build snapshot from trail nodes
+                trail_repo = TrailNodeRepository(self._session_factory)
+                snapshot_nodes = await trail_repo.get_snapshot_turns(job_id)
+                changed_files = await trail_repo.get_all_changed_files(job_id)
 
-                changed_files = extract_changed_files(diff_events)
-
-                # Build cleaned turns — keep assistant content + tool metadata, drop noise
+                # Build cleaned turns from trail nodes
                 turns: list[TranscriptTurn] = []
-                seen: set[str] = set()
-                for ev in transcript_events:
-                    role = ev.payload.get("role", "")
-                    content = str(ev.payload.get("content") or "").strip()
+                seen_assistant: set[str] = set()
+                for node in snapshot_nodes:
+                    ts = node.timestamp.isoformat() if node.timestamp else ""
 
-                    if role == "agent" or role == "assistant":
-                        if not content:
+                    if node.kind in ("modify", "shell", "explore") and node.agent_message:
+                        # Assistant turn — deduplicate by content
+                        content = node.agent_message.strip()
+                        if not content or content in seen_assistant:
                             continue
-                        key = content
-                        if key in seen:
-                            continue
-                        seen.add(key)
+                        seen_assistant.add(content)
                         turns.append(
                             {
                                 "role": "assistant",
                                 "content": content,
-                                "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
+                                "timestamp": ts,
                             }
                         )
-                    elif role in ("operator", "user"):
+                    elif node.kind == "request" and node.agent_message:
+                        # Operator turn
+                        content = node.agent_message.strip()
                         if not content:
                             continue
                         turns.append(
                             {
                                 "role": "operator",
                                 "content": content,
-                                "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
+                                "timestamp": ts,
                             }
                         )
-                    elif role == "tool_call":
-                        tool_name = ev.payload.get("tool_name", "tool")
-                        # Skip internal intent markers — they are frontend-only labels
-                        if tool_name == "report_intent":
-                            continue
+                    elif node.kind == "write" and node.tool_display:
+                        # Tool call turn from write sub-node with metadata
                         turns.append(
                             {
                                 "role": "tool_call",
-                                "tool_name": tool_name,
-                                "tool_display": ev.payload.get("tool_display", ""),
-                                "tool_intent": ev.payload.get("tool_intent", ""),
-                                "tool_success": ev.payload.get("tool_success", True),
-                                "timestamp": ev.payload.get("timestamp") or ev.timestamp.isoformat(),
+                                "tool_name": node.tool_name or "tool",
+                                "tool_display": node.tool_display or "",
+                                "tool_intent": node.tool_intent or "",
+                                "tool_success": node.tool_success if node.tool_success is not None else True,
+                                "timestamp": ts,
                             }
                         )
 
