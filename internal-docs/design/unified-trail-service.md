@@ -42,7 +42,10 @@ async for session_event in agent_session.execute(config, adapter):
     domain_event = _process_agent_event(session_event)   # translate
     trail_service.feed_transcript(role, content, ...)     # provenance
     trail_service.feed_tool_name(tool_name)               # provenance
-    step_tracker.on_transcript_event(domain_event)        # structural
+    step_tracker.on_transcript_event(domain_event)        # structural — also reads
+                                                          # step_tracker.current_step()
+                                                          # to annotate domain_event
+                                                          # with step_number / step_id
 ```
 
 Each raw `SessionEvent` from the agent adapter is:
@@ -56,7 +59,7 @@ StepTracker detects step boundaries from structural signals (new `turn_id`, oper
 
 ### 2.3 Plan Ingestion
 
-When the agent calls plan-management tools (`manage_todo_list`, `TodoWrite`), RuntimeService calls `trail_service.ingest_native_plan()`. TrailService also runs `_infer_plan()` when no native plan exists. Plan data populates `plan_item_*` columns on trail nodes.
+When the agent calls plan-management tools (`manage_todo_list`, `TodoWrite`), RuntimeService calls `trail_service.feed_native_plan()`. TrailService also runs `_infer_plan()` when no native plan exists. Plan data populates `plan_item_*` columns on trail nodes.
 
 ---
 
@@ -89,7 +92,7 @@ Filled by the enrichment drain loop via sister session LLM calls. Initially NULL
 |-------|--------|
 | `intent` | LLM inference: what did this action accomplish? |
 | `rationale` | LLM inference: why did the agent take this action? |
-| `outcome`, `outcome_status` | LLM inference: what was the result? |
+| `outcome` | LLM inference: what was the result? |
 | `title` | LLM-generated human-readable title |
 | `activity_id`, `activity_label` | Activity boundary inference |
 | `plan_item_id`, `plan_item_label`, `plan_item_status` | Plan correlation |
@@ -165,7 +168,7 @@ drain_loop() (every 10s) → drain_enrichment() → SisterSessionManager (gpt-4o
 
 **Sister sessions** are per-job cheap LLM sessions. Each enrichment request is self-contained: the target node plus its preceding context snapshot (8 entries) plus the last 5 decisions. No conversational state across calls — each batch is independently processable.
 
-Nodes flow through states: `pending` → `in_progress` → `done` (or `failed`).
+Nodes flow through states: `pending` → `complete` (or `failed`).
 
 ### 4.3 Enrichment Failure
 
@@ -189,11 +192,17 @@ The `trail_nodes` table is the single persisted artifact. Columns grouped by cat
 
 **Deterministic Facts**: `kind`, `deterministic_kind`, `phase`, `step_id`, `turn_id`, `files`, `start_sha`, `end_sha`, `tool_names`, `tool_count`, `duration_ms`, `preceding_context`, `agent_message`, `span_ids`
 
-**Semantic Enrichment**: `enrichment` (status), `intent`, `rationale`, `outcome`, `outcome_status`, `title`, `plan_item_id`, `plan_item_label`, `plan_item_status`, `activity_id`, `activity_label`, `supersedes`, `tags`
+**Semantic Enrichment**: `enrichment` (status), `intent`, `rationale`, `outcome`, `title`, `plan_item_id`, `plan_item_label`, `plan_item_status`, `activity_id`, `activity_label`, `supersedes`, `tags`
 
 ### 5.2 Column Notes
 
-**`kind` vs. `deterministic_kind`**: `kind` is the raw node type at ingestion (`tool_call`, `tool_result`, `transcript_segment`, `step`). `deterministic_kind` is a nullable collapsed classification for grouping — when multiple raw kinds should be treated identically for presentation (e.g., `tool_call` + `tool_result` → `tool_interaction`). When NULL, equals `kind`. Decouples raw classification (stable for replay) from presentation (may evolve).
+**`kind` vs. `deterministic_kind`**: Both columns carry values from the same taxonomy. `deterministic_kind` is set at creation and never changes — it records what the node builder classified the step as. `kind` starts equal to `deterministic_kind` but may be overwritten by the enricher to a semantic kind when enrichment produces a reclassification (e.g., a `modify` node that the enricher determines was really a `backtrack`).
+
+**Deterministic kinds** (set by NodeBuilder at creation): `goal`, `explore`, `modify`, `shell`, `request`, `summarize`, `delegate`.
+
+**Semantic kinds** (set by Enricher asynchronously): `plan`, `insight`, `decide`, `backtrack`, `verify`.
+
+The `_classify_step()` function in NodeBuilder returns `modify` (files written), `explore` (read-only file access), or `shell` (command execution). `goal` is the initial job node. `request` is an operator approval interaction. `summarize` is a session-end summary node. `delegate` is a sub-agent spawn.
 
 **`seq` vs. `anchor_seq`**: `seq` is monotonic insertion order — never changes. `anchor_seq` is canonical display order — accounts for retroactive insertions (e.g., a synthetic step node created after its child actions). For most nodes: `anchor_seq == seq`.
 
@@ -205,13 +214,14 @@ The trail is the write-side authority. Read-side projections include:
 
 | Projection | Table/Mechanism | Refresh Trigger | Consumers |
 |------------|----------------|-----------------|-----------|
-| Steps | `steps` table via `StepPersistenceSubscriber` | `step_completed` event | StoryService, MotivationService |
+| Steps | `steps` table via `StepPersistenceSubscriber` | `step_completed` event | Frontend (step diff view) |
 | Activities | `activity_id`/`activity_label` on trail nodes | Enrichment drain | Frontend (activity timeline) |
 | Plan items | `plan_item_*` on trail nodes | `agent_plan_updated` event | Frontend (plan overlay) |
 | SSE stream | Event bus → SSE push | All trail domain events | Frontend (live updates) |
 | Trail API | `TrailRepository` queries | On-demand | Frontend (history), debugging |
+| Changed files | `TrailNodeRepository.get_all_changed_files()` | On-demand | RuntimeHandoff, CostAttribution |
 
-All projections are disposable — they can be rebuilt from trail nodes at any time. The `steps` table is a textbook CQRS read-model: `StepPersistenceSubscriber` subscribes to `step_completed` events and writes denormalized step records for StoryService and MotivationService to query.
+All projections are disposable — they can be rebuilt from trail nodes at any time. The `steps` table is a textbook CQRS read-model: `StepPersistenceSubscriber` subscribes to `step_completed` events and writes denormalized step records.
 
 ---
 
@@ -225,24 +235,35 @@ These services correctly read adapted projections:
 
 | Service | What it reads | Access pattern |
 |---------|--------------|----------------|
-| **StoryService** | `telemetry_spans` + `steps` tables | Aggregated timeline for job story view |
-| **MotivationService** | `telemetry_spans` table | Progress metrics and pacing |
+| **RuntimeHandoffService** | `TrailNodeRepository.get_all_changed_files()` | Changed file manifest for session handoff |
 | **Frontend (SSE)** | Domain events from event bus | Real-time stream of typed events |
 | **Frontend (Trail API)** | `TrailNodeRow` via TrailRepository | Paginated node queries for history |
 | **ConsoleDashboard** | Domain events from event bus | Terminal display (side-effect-free) |
 
 ### 6.2 Violating Consumers
 
-These services bypass the trail and query `EventRepository` directly for raw session events:
+These services bypass the trail and access raw data directly:
 
-**SummarizationService** — queries `transcript_updated` events.
-*Migration*: Subscribe to `TurnSummary` domain events or query `trail_nodes` with `kind='transcript_segment'`.
+**CostAttributionService** — executes raw SQL directly on the `trail_nodes` table (`SELECT SUM(diff_additions) ... FROM trail_nodes`) instead of going through `TrailNodeRepository`. This bypasses the repository abstraction.
+*Migration*: Add `TrailNodeRepository.get_diff_line_counts()` and call it instead.
 
-**CostAttributionService** — queries `diff_updated` events.
-*Migration*: Read trail nodes with `files` and `step_id` columns. Cost attributed per-step via Git boundaries.
+**SummarizationService** (`save_snapshot_to_disk`) — queries `EventRepository` for `transcript_updated` and `diff_updated` events to build session snapshots. Needs per-turn tool metadata (`tool_display`, `tool_intent`, `tool_success`) that trail nodes don't carry yet.
+*Migration*: Deferred — requires trail nodes to carry per-tool-call metadata (see §13.3). Already has a `TODO(trail-migration)` comment.
 
-**RuntimeHandoffService** — queries `diff_updated` events during handoff.
-*Migration*: Read latest `step` trail nodes for `end_sha` and file manifest.
+**StoryService** — runs 6 raw SQL queries against `job_telemetry_spans`, `trail_nodes`, `steps`, `jobs`, `job_telemetry_summary`, and `approvals`. Builds narrative from raw span data, extracting snippets from `tool_args_json` and deduplicating file writes by file+step. The most complex violator.
+*Migration*: Deferred — requires the `write` sub-node concept (see §13.1) so trail carries per-file-write granularity.
+
+**MotivationService** — runs an independent drain loop parsing `preceding_context` and `tool_args_json` from `job_telemetry_spans`. Produces `motivation_summary` (file-level) and `edit_motivations` (edit-level). Duplicates work the trail enricher should own.
+*Migration*: Fold into trail enrichment (see §13.2). Requires `write` sub-nodes for edit-level granularity.
+
+**JobService** — wraps `EventRepository` and exposes `list_events_by_job()`, `get_latest_progress_preview()`, and `list_latest_progress_previews()`. Used by API routes (`job_artifacts.py`) to serve transcript, diff, plan step, progress headline, and log events to the frontend.
+*Migration*: Phased. Infrastructure events (`log_line_emitted`) are acceptable per §6.3. Provenance events (`transcript_updated`, `diff_updated`, `plan_step_updated`, `progress_headline`) need trail-backed API endpoints. Requires per-turn transcript data in trail.
+
+**SSE Manager** — queries `EventRepository` for replay on client reconnect (`list_after()`, `list_latest_progress_previews()`). Fills initial state for late-joining clients.
+*Migration*: Deferred — SSE replay is the event bus's read model and currently depends on the raw event store's auto-increment cursor for ordering. Replacing this requires trail to publish replayable event IDs.
+
+**job_artifacts.py** (`search_transcript`) — directly injects `EventRepository` via DI for full-text transcript search. Searches `content`, `tool_name`, `tool_display` fields in `transcript_updated` event payloads.
+*Migration*: Requires a search projection on trail nodes or a dedicated search index.
 
 ### 6.3 Acceptable Exception: RuntimeTelemetry
 
@@ -262,442 +283,129 @@ RuntimeTelemetry queries `EventRepository` for `log_line_emitted` events. This i
 
 ## 7. Implementation Plan
 
-Three phases, executed sequentially. Each phase is independently shippable — the system is correct after every phase, just not fully consolidated until Phase 3.
+Three phases, executed sequentially. Phases 1 and 2b are complete. Each phase is independently shippable — the system is correct after every phase, just not fully consolidated until Phase 3.
 
-### Phase 1: Trail Projection Methods
+### Phase 1: Trail Projection Methods ✅ COMPLETE
 
-**Goal**: Give consumers trail-backed alternatives to EventRepository queries without changing any consumer yet. Zero behavioral change — purely additive.
+**Status**: Shipped. All projection methods exist in `backend/persistence/trail_repo.py` with tests in `backend/tests/unit/test_trail_repo_projections.py`.
 
-#### 1a. `TrailNodeRepository.get_transcript_nodes()`
+Implemented methods:
+- `get_transcript_nodes(job_id, *, limit)` — nodes carrying conversational content
+- `get_file_changes_by_step(job_id)` — step nodes with file manifests (kinds: `modify`, `shell`, `explore`)
+- `get_latest_step_boundary(job_id)` — most recent step node with file info
+- `get_all_changed_files(job_id)` — union of file paths across all steps
+- `get_diff_line_counts(job_id)` — aggregate `diff_additions`/`diff_deletions` sums
 
-**File**: `backend/persistence/trail_repo.py`
-
-**Signature**:
-
-```python
-async def get_transcript_nodes(
-    self,
-    job_id: str,
-    *,
-    roles: list[str] | None = None,
-    limit: int | None = None,
-) -> list[TrailNodeRow]:
-    """Fetch trail nodes that carry transcript content for a job.
-
-    Filters to node kinds that represent agent/operator transcript
-    segments (not tool scaffolding, not step boundaries). Ordered by
-    (anchor_seq, seq) for chronological replay.
-
-    Used by: SummarizationService (replaces EventRepository.list_by_job
-    with kinds=[transcript_updated]).
-    """
-```
-
-**Implementation**:
-
-```python
-async with self._session_factory() as session:
-    stmt = (
-        select(TrailNodeRow)
-        .where(TrailNodeRow.job_id == job_id)
-        .where(TrailNodeRow.kind.in_(["transcript_segment", "agent_message"]))
-    )
-    if roles:
-        # Filter via JSON field extraction if roles specified
-        # TrailNodeRow stores role in the 'phase' or embedded in preceding_context
-        # Actual filter TBD based on how role is stored on transcript nodes
-        pass
-    stmt = stmt.order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
-    if limit is not None:
-        stmt = stmt.limit(limit)
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
-```
-
-**Data contract**: SummarizationService currently extracts `role`, `content`, and `timestamp` from event payloads. Trail nodes carry `agent_message` (content), `timestamp`, and `phase` (can encode role). The node's `kind` already distinguishes agent vs. operator messages. If the current trail node schema doesn't carry role explicitly, add a `role` column to `TrailNodeRow` — this is a schema addition, not a mutation of existing data.
-
-**Open question**: Verify whether `TrailNodeRow` already encodes the transcript role somewhere (in `kind`, `phase`, or `preceding_context`). If not, this is a schema migration item (1b).
-
-#### 1b. Schema Migration (if needed)
-
-If trail nodes don't carry `role` for transcript segments, add a nullable `role` column:
-
-**File**: `alembic/versions/XXXX_add_role_to_trail_nodes.py`
-
-```python
-def upgrade():
-    op.add_column("trail_nodes", sa.Column("role", sa.String(20), nullable=True))
-
-def downgrade():
-    op.drop_column("trail_nodes", "role")
-```
-
-TrailService's node builder must populate `role` on creation. Existing nodes get NULL (acceptable — migration only affects new data; summarization of old jobs uses the `pre_built_transcript` path).
-
-#### 1c. `TrailNodeRepository.get_file_changes_by_step()`
-
-**File**: `backend/persistence/trail_repo.py`
-
-**Signature**:
-
-```python
-async def get_file_changes_by_step(
-    self,
-    job_id: str,
-) -> list[TrailNodeRow]:
-    """Fetch step-boundary trail nodes that carry file manifests.
-
-    Returns nodes with kind='step' ordered chronologically. Each node's
-    `files` JSON array contains the file paths touched in that step.
-    `start_sha` and `end_sha` bracket the Git state change.
-
-    Used by: CostAttributionService (replaces EventRepository.list_by_job
-    with kinds=[diff_updated]).
-    """
-```
-
-**Implementation**:
-
-```python
-async with self._session_factory() as session:
-    stmt = (
-        select(TrailNodeRow)
-        .where(TrailNodeRow.job_id == job_id)
-        .where(TrailNodeRow.kind == "step")
-        .where(TrailNodeRow.files.isnot(None))
-        .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
-    )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
-```
-
-**Data contract**: CostAttributionService currently extracts `additions` and `deletions` per file from `diff_updated` events. Step nodes carry `files` (list of paths) and Git SHAs (`start_sha`, `end_sha`) but NOT per-file line counts. Two options:
-
-- **Option A (recommended)**: CostAttributionService derives line counts from `git diff --stat start_sha..end_sha` using GitService. This is more accurate than the event payload (which may be stale if multiple diffs fired).
-- **Option B**: Embed `additions`/`deletions` per file in the step node's `files` JSON. Requires changing the `files` schema from `["path1", "path2"]` to `[{"path": "path1", "additions": 10, "deletions": 3}, ...]`.
-
-**Decision**: Option A. Keeps trail nodes simpler; cost attribution already runs post-hoc.
-
-#### 1d. `TrailNodeRepository.get_latest_step_boundary()`
-
-**File**: `backend/persistence/trail_repo.py`
-
-**Signature**:
-
-```python
-async def get_latest_step_boundary(
-    self,
-    job_id: str,
-) -> TrailNodeRow | None:
-    """Fetch the most recent step node for a job.
-
-    Returns the step with the highest seq. Carries `end_sha` (latest
-    committed state) and `files` (cumulative file manifest).
-
-    Used by: RuntimeHandoffService (replaces EventRepository.list_by_job
-    with kinds=[diff_updated]).
-    """
-```
-
-**Implementation**:
-
-```python
-async with self._session_factory() as session:
-    stmt = (
-        select(TrailNodeRow)
-        .where(TrailNodeRow.job_id == job_id)
-        .where(TrailNodeRow.kind == "step")
-        .order_by(TrailNodeRow.seq.desc())
-        .limit(1)
-    )
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
-```
-
-**Data contract**: RuntimeHandoffService needs changed file paths. The latest step node's `files` gives paths for that step only. For cumulative changed files across all steps, the handoff must union files from all step nodes — use `get_file_changes_by_step()` and union the `files` arrays.
-
-#### 1e. `TrailNodeRepository.get_all_changed_files()`
-
-**File**: `backend/persistence/trail_repo.py`
-
-Convenience method that unions file paths across all step nodes:
-
-```python
-async def get_all_changed_files(self, job_id: str) -> list[str]:
-    """Return sorted unique file paths changed across all steps in a job."""
-    step_nodes = await self.get_file_changes_by_step(job_id)
-    paths: set[str] = set()
-    for node in step_nodes:
-        if node.files:
-            for path in json.loads(node.files):
-                if isinstance(path, str):
-                    paths.add(path)
-                elif isinstance(path, dict):
-                    p = path.get("path", "")
-                    if p:
-                        paths.add(p)
-    return sorted(paths)
-```
-
-#### 1f. Testing
-
-**File**: `backend/tests/unit/test_trail_repo_projections.py`
-
-For each new method:
-- Insert known trail nodes via `create_many()`
-- Call projection method
-- Assert correct filtering, ordering, and data extraction
-- Test empty-job case (returns `[]` or `None`)
-- Test mixed node kinds (only `step`/`transcript_segment` returned)
+Note: The original design proposed filtering by `kind='step'` and `kind='transcript_segment'`. Those kinds don't exist. Actual step kinds are `modify`, `shell`, `explore`. Transcript content lives on `agent_message` and `intent` fields, not on a separate node kind.
 
 ---
 
 ### Phase 2: Migrate Consumers
 
-**Goal**: Switch each violating service from EventRepository to TrailNodeRepository. Each service is migrated independently — order doesn't matter.
+**Goal**: Switch each violating service from raw access to TrailNodeRepository. Each service is migrated independently.
 
-#### 2a. CostAttributionService
+#### 2a. CostAttributionService ✅ COMPLETE
 
-**File**: `backend/services/cost_attribution.py`  
+**File**: `backend/services/cost_attribution.py`
 **Method**: `_compute_attribution()` (~line 333)
 
-**Current code** (to replace):
+**What changed**: Replaced inline raw SQL (`SELECT SUM(diff_additions) ... FROM trail_nodes`) with `TrailNodeRepository.get_diff_line_counts(job_id)`. The function signature now accepts a `session_factory` parameter to construct the repository.
+
+**Before** (raw SQL):
 
 ```python
-from backend.persistence.event_repo import EventRepository
-event_repo = EventRepository(session)
-diff_events = await event_repo.list_by_job(
-    job_id, kinds=[DomainEventKind.diff_updated], limit=100,
+from sqlalchemy import text as sa_text
+result = await session.execute(
+    sa_text(
+        "SELECT COALESCE(SUM(diff_additions), 0) AS added, "
+        "COALESCE(SUM(diff_deletions), 0) AS removed "
+        "FROM trail_nodes WHERE job_id = :job_id"
+    ),
+    {"job_id": job_id},
 )
-if diff_events:
-    changed_files = diff_events[-1].payload.get("changed_files", [])
-    for f in changed_files:
-        diff_added += f.get("additions", 0)
-        diff_removed += f.get("deletions", 0)
 ```
 
-**New code**:
-
-```python
-from backend.persistence.trail_repo import TrailNodeRepository
-trail_repo = TrailNodeRepository(self._session_factory)
-latest_step = await trail_repo.get_latest_step_boundary(job_id)
-if latest_step and latest_step.end_sha and latest_step.start_sha:
-    # Derive accurate line counts from Git
-    diff_stat = await git_service.diff_stat(
-        worktree_path, latest_step.start_sha, latest_step.end_sha
-    )
-    diff_added = diff_stat.additions
-    diff_removed = diff_stat.deletions
-```
-
-**Fallback**: If GitService is unavailable (worktree already cleaned up), fall back to counting files from step nodes. The cost attribution is best-effort anyway — it stores stats, not billing data.
-
-**Impact**: CostAttributionService currently has a `try/except` around the diff extraction. Same error handling applies.
-
-**Testing**: Existing `test_cost_attribution.py` — update fixtures to provide trail nodes instead of EventRepository mocks. Add test for the fallback path (no step nodes → zero counts).
-
-#### 2b. RuntimeHandoffService
-
-**File**: `backend/services/runtime_handoff.py`  
-**Function**: `load_handoff_context_for_job()` (~line 25)
-
-**Current code** (to replace):
-
-```python
-from backend.persistence.event_repo import EventRepository
-from backend.services.summarization_service import extract_changed_files
-event_repo = EventRepository(session)
-diff_events = await event_repo.list_by_job(job.id, kinds=[DomainEventKind.diff_updated])
-changed_files = extract_changed_files(diff_events)
-```
-
-**New code**:
+**After** (repository):
 
 ```python
 from backend.persistence.trail_repo import TrailNodeRepository
 trail_repo = TrailNodeRepository(session_factory)
-changed_files = await trail_repo.get_all_changed_files(job.id)
+diff_added, diff_removed = await trail_repo.get_diff_line_counts(job_id)
 ```
 
-**Impact**: The function signature stays the same — it returns `tuple[str | None, list[str]]`. Only the internal data source changes.
+#### 2b. RuntimeHandoffService ✅ COMPLETE
 
-**Edge case**: If the job has no trail nodes yet (e.g., crashed before first step completed), `get_all_changed_files()` returns `[]`. This matches the current behavior when no `diff_updated` events exist.
+**Status**: Already migrated. `runtime_handoff.py` uses `TrailNodeRepository.get_all_changed_files()`. No `EventRepository` import exists in this file.
 
-**Testing**: Update `test_runtime_handoff.py` fixtures to provide trail nodes. The handoff function's callers don't change.
+#### 2c. SummarizationService — `save_snapshot_to_disk()` ⏳ DEFERRED
 
-#### 2c. SummarizationService — `summarize_and_store()`
+**File**: `backend/services/summarization_service.py`
+**Reason**: The snapshot builder preserves per-turn tool metadata (`tool_name`, `tool_display`, `tool_intent`, `tool_success`) that trail nodes don't carry. Requires the `write` sub-node concept (§13.1) or a `tool_metadata` JSON column on `TrailNodeRow`.
 
-**File**: `backend/services/summarization_service.py`  
-**Method**: `summarize_and_store()` (~line 155)
+The method already has a `# TODO(trail-migration)` comment. The `changed_files` path could be migrated independently using `get_all_changed_files()`, but the transcript path remains blocked.
 
-This is the most complex migration because the service builds a cleaned transcript from raw event payloads.
+#### 2d. StoryService ⏳ DEFERRED
 
-**Current code** (transcript path):
+**Reason**: StoryService extracts code snippets from `tool_args_json` on telemetry spans and deduplicates file writes by file+step. Trail nodes don't carry per-file-write content. Requires `write` sub-nodes (§13.1).
 
-```python
-transcript_events = await event_repo.list_by_job(
-    job_id, kinds=[DomainEventKind.transcript_updated],
-)
-cleaned_turns = _clean_transcript(transcript_events)
-transcript_text = _format_transcript(cleaned_turns)
-```
+#### 2e. MotivationService ⏳ DEFERRED
 
-**Current code** (changed files path):
+**Reason**: MotivationService independently parses raw telemetry spans for `motivation_summary` and `edit_motivations`. This work should be folded into trail enrichment (§13.2), not simply re-pointed at a different data source.
 
-```python
-diff_events = await event_repo.list_by_job(
-    job_id, kinds=[DomainEventKind.diff_updated],
-)
-changed_files = extract_changed_files(diff_events)
-```
+#### 2f. JobService / API Routes ⏳ DEFERRED
 
-**New code** (changed files — straightforward):
+**Reason**: `JobService.list_events_by_job()` serves raw event payloads to frontend API routes (`/transcript`, `/diff`, `/steps`, `/timeline`). These endpoints return per-turn transcript entries with role, content, tool_name, tool_args, tool_result — data that trail nodes don't carry at per-turn granularity. Migration requires either:
 
-```python
-trail_repo = TrailNodeRepository(self._session_factory)
-changed_files = await trail_repo.get_all_changed_files(job_id)
-```
+1. Trail to emit per-turn data (via `write` sub-nodes or transcript nodes)
+2. A dual-read approach where trail projections replace the provenance queries and the event store remains for infrastructure/real-time data
 
-**New code** (transcript — requires adaptation):
+The `log_line_emitted` path is acceptable as infrastructure per §6.3.
 
-The `_clean_transcript()` function operates on `DomainEvent` payloads with `role`, `content`, `timestamp` fields. Trail nodes carry `agent_message` and `timestamp` but role handling differs.
+#### 2g. SSE Manager ⏳ DEFERRED
 
-Two approaches:
-
-**Approach A (recommended)**: Write a `_clean_transcript_from_trail()` that operates on trail nodes instead of events:
-
-```python
-def _clean_transcript_from_trail(nodes: list[TrailNodeRow]) -> list[TranscriptTurn]:
-    """Build cleaned transcript turns from trail nodes."""
-    seen: set[str] = set()
-    result = []
-    for node in nodes:
-        content = (node.agent_message or "").strip()
-        if not content:
-            continue
-        # Determine role from node kind or embedded metadata
-        role = _role_from_node(node)
-        if role not in ("agent", "operator"):
-            continue
-        key = f"{role}:{content}"
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append({
-            "role": role,
-            "content": content,
-            "timestamp": node.timestamp.isoformat() if node.timestamp else "",
-        })
-    return result
-```
-
-**Approach B**: Query trail nodes and reconstruct `DomainEvent`-like dicts, then pass to existing `_clean_transcript()`. Preserves existing code but is a leaky abstraction.
-
-**Decision**: Approach A. The existing `_clean_transcript()` can remain for backward compatibility (used in the `pre_built_transcript` code path). The new function replaces only the EventRepository-backed path.
-
-**Note**: `summarize_and_store()` already accepts `pre_built_transcript` and `pre_built_changed_files` kwargs. The EventRepository path is the fallback when these aren't provided. After migration, this fallback uses TrailNodeRepository instead.
-
-#### 2d. SummarizationService — `save_snapshot_to_disk()`
-
-**File**: `backend/services/summarization_service.py`  
-**Method**: `save_snapshot_to_disk()` (~line 213)
-
-Same pattern as `summarize_and_store()` — queries `transcript_updated` and `diff_updated` events. The snapshot building logic is more detailed (preserves tool_call metadata, tool_name, tool_display, tool_intent, tool_success).
-
-**Current code**:
-
-```python
-transcript_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.transcript_updated])
-diff_events = await event_repo.list_by_job(job_id, kinds=[DomainEventKind.diff_updated])
-changed_files = extract_changed_files(diff_events)
-```
-
-**New code** (changed files):
-
-```python
-trail_repo = TrailNodeRepository(self._session_factory)
-changed_files = await trail_repo.get_all_changed_files(job_id)
-```
-
-**New code** (transcript snapshot):
-
-The snapshot builder needs richer data than the summarization prompt — it preserves `tool_name`, `tool_display`, `tool_intent`, `tool_success` per turn. Trail nodes carry `tool_names` (JSON array) but not the per-call display/intent/success metadata.
-
-**Options**:
-
-1. **Embed tool metadata in trail nodes**: Add `tool_metadata` JSON column to `TrailNodeRow` that carries per-call details. Requires schema migration + node builder change.
-
-2. **Read from `preceding_context`**: Each trail node's `preceding_context` JSON blob contains the ring buffer snapshot, which includes `tool_name`, `tool_args` per entry. This data is already there — just not in a convenient shape.
-
-3. **Defer this migration**: `save_snapshot_to_disk()` is a cold-path operation (runs once at job end). It can continue reading EventRepository while the hot-path consumers migrate first. Mark it as a follow-up item.
-
-**Decision**: Option 3 for now. Migrate `summarize_and_store()` first. `save_snapshot_to_disk()` is the last consumer and can be migrated when trail nodes carry sufficient tool metadata. Add a `# TODO(trail-migration): migrate to TrailNodeRepository` comment.
-
-#### 2e. Testing Strategy
-
-Each migration needs:
-- **Unit test update**: Replace EventRepository mocks with TrailNodeRepository mocks. Assert same output shape.
-- **Integration test**: End-to-end with SQLite: create job → feed events → let TrailService persist nodes → call migrated service → verify result.
-- **Regression test**: Run the existing test suite after each migration. No test should break if the migration is correct.
+**Reason**: SSE replay depends on `EventRepository.list_after()` which uses the raw event store's auto-increment `db_id` as a cursor. Trail nodes don't have an equivalent replay cursor. Replacing this requires trail to publish events with replayable sequence IDs.
 
 ---
 
-### Phase 3: Enforce Boundary
+### Phase 3: Enforce Boundary ✅ COMPLETE
 
-**Goal**: Make the invariant machine-checkable. Prevent future regressions.
+**Status**: Shipped. Architecture test exists at `backend/tests/unit/test_architecture.py`.
 
-#### 3a. Architectural Import Guard
-
-**File**: `backend/tests/test_architecture.py`
+The test parses ASTs and verifies that only allowlisted modules import `EventRepository`. Test files are excluded. The current allowlist includes all modules that legitimately use `EventRepository` today:
 
 ```python
-import ast
-import pathlib
-
-# Modules that are ALLOWED to import EventRepository
 ALLOWED_EVENT_REPO_CONSUMERS = {
-    "backend/persistence/event_repo.py",          # itself
+    "backend/persistence/event_repo.py",          # self
     "backend/services/trail/service.py",           # rehydration on session_resumed
     "backend/services/trail/node_builder.py",      # rehydration on session_resumed
-    "backend/services/runtime_service.py",         # hot path event processing
+    "backend/services/runtime_service.py",         # hot-path event translation
     "backend/services/runtime_telemetry.py",       # infrastructure: log_line_emitted
-    "backend/api/trail.py",                        # API endpoint (reads via repo)
-    # Temporary exceptions (remove after Phase 2d):
-    "backend/services/summarization_service.py",   # save_snapshot_to_disk only
+    "backend/services/summarization_service.py",   # deferred Phase 2c
+    "backend/di.py",                               # DI wiring
+    "backend/lifespan.py",                         # lifecycle wiring
+    "backend/api/job_artifacts.py",                # deferred Phase 2f
+    "backend/services/job_service.py",             # deferred Phase 2f
+    "backend/services/sse_manager.py",             # deferred Phase 2g
 }
-
-def test_event_repo_import_boundary():
-    """No service outside the allowlist may import EventRepository."""
-    violations = []
-    backend = pathlib.Path("backend")
-    for py_file in backend.rglob("*.py"):
-        rel = str(py_file)
-        if rel in ALLOWED_EVENT_REPO_CONSUMERS:
-            continue
-        source = py_file.read_text()
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                module = getattr(node, "module", "") or ""
-                names = [a.name for a in node.names]
-                if "EventRepository" in names or "event_repo" in module:
-                    violations.append(f"{rel}:{node.lineno}")
-    assert not violations, (
-        f"EventRepository imported outside allowlist:\n" +
-        "\n".join(f"  {v}" for v in violations)
-    )
 ```
 
-**Maintenance**: When `save_snapshot_to_disk()` is migrated (Phase 2d follow-up), remove `summarization_service.py` from `ALLOWED_EVENT_REPO_CONSUMERS`.
+As deferred migrations complete, entries are removed from the allowlist.
 
-#### 3b. CI Integration
+---
 
-Add `test_architecture.py` to the standard pytest run. No special configuration needed — it's a regular test that parses ASTs. Runs in <1 second.
+### Phase Summary
 
-#### 3c. Documentation
-
-Add a one-line comment at the top of `EventRepository`:
+| Phase | Scope | Status | Files changed |
+|-------|-------|--------|---------------|
+| 1 | Trail projection methods | ✅ Done | `trail_repo.py`, `test_trail_repo_projections.py` |
+| 2a | CostAttribution: raw SQL → repo | ✅ Done | `cost_attribution.py`, `trail_repo.py` |
+| 2b | RuntimeHandoff → trail repo | ✅ Done | `runtime_handoff.py` |
+| 2c | SummarizationService snapshot | ⏳ Deferred | Needs per-tool metadata on trail |
+| 2d | StoryService | ⏳ Deferred | Needs `write` sub-nodes (§13.1) |
+| 2e | MotivationService | ⏳ Deferred | Fold into enricher (§13.2) |
+| 2f | JobService / API routes | ⏳ Deferred | Needs per-turn trail data |
+| 2g | SSE Manager replay | ⏳ Deferred | Needs replayable trail cursor |
+| 3 | Import guard test | ✅ Done | `test_architecture.py` |
 
 ```python
 class EventRepository:
@@ -705,19 +413,6 @@ class EventRepository:
     RuntimeTelemetry (log lines). All other services must use
     TrailNodeRepository projections. See internal-docs/design/unified-trail-service.md §6."""
 ```
-
----
-
-### Phase Summary
-
-| Phase | Scope | Files changed | Risk | Shippable alone? |
-|-------|-------|---------------|------|-------------------|
-| 1 | Add projection methods to TrailNodeRepository | `trail_repo.py`, new test file | None — purely additive | Yes |
-| 2a | Migrate CostAttributionService | `cost_attribution.py`, test updates | Low — fallback preserved | Yes |
-| 2b | Migrate RuntimeHandoffService | `runtime_handoff.py`, test updates | Low — same output contract | Yes |
-| 2c | Migrate SummarizationService (summarize) | `summarization_service.py`, new helper | Medium — transcript shape change | Yes |
-| 2d | Migrate SummarizationService (snapshot) | Deferred — needs trail schema work | N/A | Follow-up |
-| 3 | Import guard + CI | `test_architecture.py`, `event_repo.py` | None — test only | Yes |
 
 ---
 
@@ -755,10 +450,12 @@ asyncio.create_task(trail_service.drain_loop())
 
 On crash recovery (`session_resumed`):
 - TrailService reconstructs `_TrailJobState` from persisted trail nodes (event sourcing replay)
-- Nodes with `enrichment='in_progress'` reset to `'pending'` (in-flight request assumed lost)
+- Nodes with `enrichment='failed'` are eligible for retry by the drain loop
 - Drain loop resumes and resubmits pending nodes
 - StepTracker starts fresh (forward-only state)
 - Sister sessions are stateless per-batch — no conversational context to lose
+
+**Lossy recovery**: Reconstruction from trail nodes is incomplete. The following transient state is lost on crash: `recent_messages`, `recent_tool_intents`, `recent_tool_names`, `tool_call_count`, `current_phase`, `last_classified_plan_item`, and `sister_consecutive_failures`. Post-recovery, plan classification and activity boundary detection degrade because these context buffers are empty. This is a known gap (see §13.5).
 
 ---
 
@@ -774,7 +471,7 @@ On crash recovery (`session_resumed`):
 
 5. **No event bus feedback loops**: No subscriber of TrailService-published events may trigger actions that feed back into TrailService's ingestion path.
 
-6. **Single-writer ordering**: Each job has exactly one sequential RuntimeService event loop. `seq` is trivially ordered — no locks, no races. Multi-agent would require Lamport timestamps.
+6. **Single-writer ordering**: Each job has exactly one sequential RuntimeService event loop. `seq` is trivially ordered — no locks, no races. Multi-agent would require Lamport timestamps. **Caveat**: `asyncio.ensure_future()` in `_classify_and_emit()` and `_refine_activity_label()` creates fire-and-forget tasks that mutate `TrailJobState` concurrently (`plan_steps`, `active_idx`, `activities`, `activity_steps`). Two rapid `step_completed` events can trigger overlapping state mutations. This is a known gap (see §13.4).
 
 ---
 
@@ -810,3 +507,55 @@ Events published by the trail subsystem:
 | `TurnSummary` | TrailService (drain) | Turn summarized |
 | `ExecutionPhaseChanged` | RuntimeService | Phase transition |
 | `ProgressHeadline` | TrailService | High-level status |
+
+---
+
+## 13. Known Gaps & Future Work
+
+### 13.1 Write Sub-Nodes (Granularity Bridge)
+
+Trail nodes are per-step — one node per `step_completed` event. Telemetry spans are per-tool-call — one span per `file_write`, `shell_exec`, etc. A single step can have multiple file writes. Trail knows "which files" (the `files` JSON array) but not "what changed in each file."
+
+**Proposal**: A new `write` node kind, created as children of `modify` nodes. One per `file_write` span. Carries: `file` (single path), `tool_name`, `snippet` (extracted from `tool_args_json`), `preceding_context`, `is_retry`, `error_kind`, `write_summary`, `edit_motivations`.
+
+**Blocked consumers**: StoryService (needs per-file snippets), MotivationService (needs per-edit motivations), SummarizationService snapshot (needs per-tool metadata).
+
+### 13.2 MotivationService Absorption
+
+MotivationService runs an independent drain loop on `job_telemetry_spans`, duplicating the trail enricher's cognitive work at a different granularity. Two passes: file-level (`preceding_context` → `motivation_summary`) and edit-level (`tool_args` → `edit_motivations`).
+
+**Plan**: Fold both passes into the trail enricher. File-level motivations become an enrichment field on `modify` nodes. Edit-level motivations become enrichment on `write` sub-nodes (§13.1). The MotivationService drain loop and its separate LLM completer are retired.
+
+**Prerequisite**: `write` sub-nodes must exist first.
+
+### 13.3 Per-Tool Metadata on Trail Nodes
+
+`SummarizationService.save_snapshot_to_disk()` preserves per-turn tool metadata: `tool_display`, `tool_intent`, `tool_success`. Trail nodes carry `tool_names` (JSON array of names) but not the per-call display/intent/success metadata.
+
+**Decision**: Derive from `write` sub-nodes (§13.1). Each `write` node already carries `tool_name` and per-call context. Add `tool_display`, `tool_intent`, `tool_success` as columns on `write` sub-nodes. SummarizationService reads them from there. No separate schema migration or `preceding_context` parsing needed — the data lands where it belongs as part of the `write` sub-node work.
+
+### 13.4 Fire-and-Forget Concurrency
+
+`asyncio.ensure_future()` in `_classify_and_emit()` and `_refine_activity_label()` creates unguarded concurrent mutations on `TrailJobState`. Two rapid `step_completed` events race on `plan_steps`, `active_idx`, `activities`, and `activity_steps`.
+
+**Decision**: Convert fire-and-forget to awaited calls. The hot path is already sequential per job — `handle_event()` is called from RuntimeService's single event loop. Awaiting `_classify_and_emit()` and `_refine_activity_label()` directly eliminates the race with zero architectural change. The LLM calls in those methods are cheap (gpt-4o-mini) and the hot path already tolerates sister session latency in other codepaths.
+
+### 13.5 Split-Brain Recovery
+
+`TrailJobState` is reconstructed from persisted trail nodes on `session_resumed`, but recovery is lossy. The following transient state cannot be recovered: `recent_messages`, `recent_tool_intents`, `recent_tool_names`, `tool_call_count`, `current_phase`, `last_classified_plan_item`, `sister_consecutive_failures`.
+
+Post-recovery, plan classification and activity boundary detection degrade because context buffers are empty.
+
+**Fix**: Periodic snapshot of `TrailJobState` to a dedicated column or table. On recovery, load the snapshot instead of replaying nodes.
+
+### 13.6 Activity Label Persistence
+
+`_refine_activity_label()` updates the in-memory `Activity.label` and emits an SSE event, but the refined label is never written back to the `trail_nodes` rows that belong to that activity. The `activity_label` column on those nodes remains stale.
+
+**Fix**: After refining, issue an `UPDATE trail_nodes SET activity_label = :new WHERE activity_id = :id` via `TrailNodeRepository`.
+
+### 13.7 Shallow Activity Boundaries
+
+Activity boundaries are detected solely by `assigned_plan_step_id` change. This misses: file cluster shifts (agent moves from backend to frontend files), operator redirects (chat message changes focus), and semantic intent shifts. When no plan exists, no boundaries are detected at all.
+
+**Fix**: Multi-signal boundary detection: plan_step_id change OR file cluster divergence OR operator message OR enricher-detected intent shift.

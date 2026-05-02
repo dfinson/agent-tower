@@ -19,12 +19,13 @@ from backend.models.api_schemas import ExecutionPhase
 from backend.services.tool_classifier import classify_tool
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+    from backend.persistence.trail_repo import TrailNodeRepository
 
 log = structlog.get_logger()
 
@@ -135,7 +136,11 @@ def _refine_activity_by_intent(
     return activity
 
 
-async def compute_attribution(session: AsyncSession, job_id: str) -> None:
+async def compute_attribution(
+    session: AsyncSession,
+    job_id: str,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> None:
     """Compute and store cost attribution for a completed job.
 
     Reads all spans for the job, aggregates by dimension, writes
@@ -149,6 +154,12 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
+    trail_repo = None
+    if session_factory is not None:
+        from backend.persistence.trail_repo import TrailNodeRepository
+
+        trail_repo = TrailNodeRepository(session_factory)
+
     await _compute_attribution(
         job_id=job_id,
         spans_repo=TelemetrySpansRepository(session),
@@ -156,6 +167,7 @@ async def compute_attribution(session: AsyncSession, job_id: str) -> None:
         summary_repo=TelemetrySummaryRepository(session),
         file_repo=FileAccessRepository(session),
         session=session,
+        trail_repo=trail_repo,
     )
 
 
@@ -167,6 +179,7 @@ async def _compute_attribution(
     summary_repo: TelemetrySummaryRepository,
     file_repo: FileAccessRepository,
     session: AsyncSession,
+    trail_repo: TrailNodeRepository | None = None,
 ) -> None:
     """Core attribution logic with explicit dependencies."""
 
@@ -332,20 +345,23 @@ async def _compute_attribution(
     diff_added = 0
     diff_removed = 0
     try:
-        from sqlalchemy import text as sa_text
+        if trail_repo is not None:
+            diff_added, diff_removed = await trail_repo.get_diff_line_counts(job_id)
+        else:
+            from sqlalchemy import text as sa_text
 
-        result = await session.execute(
-            sa_text(
-                "SELECT COALESCE(SUM(diff_additions), 0) AS added, "
-                "COALESCE(SUM(diff_deletions), 0) AS removed "
-                "FROM trail_nodes WHERE job_id = :job_id"
-            ),
-            {"job_id": job_id},
-        )
-        row = result.mappings().first()
-        if row:
-            diff_added = row["added"]
-            diff_removed = row["removed"]
+            result = await session.execute(
+                sa_text(
+                    "SELECT COALESCE(SUM(diff_additions), 0) AS added, "
+                    "COALESCE(SUM(diff_deletions), 0) AS removed "
+                    "FROM trail_nodes WHERE job_id = :job_id"
+                ),
+                {"job_id": job_id},
+            )
+            row = result.mappings().first()
+            if row:
+                diff_added = row["added"]
+                diff_removed = row["removed"]
     except (DBAPIError, KeyError):
         log.debug("cost_attribution_diff_stats_failed", job_id=job_id, exc_info=True)
 

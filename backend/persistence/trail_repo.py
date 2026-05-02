@@ -262,3 +262,15 @@ class TrailNodeRepository:
                         if p:
                             paths.add(p)
         return sorted(paths)
+
+    async def get_diff_line_counts(self, job_id: str) -> tuple[int, int]:
+        """Return (additions, deletions) summed across all trail nodes for a job."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(
+                    func.coalesce(func.sum(TrailNodeRow.diff_additions), 0),
+                    func.coalesce(func.sum(TrailNodeRow.diff_deletions), 0),
+                ).where(TrailNodeRow.job_id == job_id)
+            )
+            row = result.one()
+            return int(row[0]), int(row[1])

@@ -44,6 +44,8 @@ def _node(
     agent_message: str | None = None,
     intent: str | None = None,
     files: list[str] | None = None,
+    diff_additions: int | None = None,
+    diff_deletions: int | None = None,
 ) -> TrailNodeRow:
     return TrailNodeRow(
         id=f"node-{seq}",
@@ -58,6 +60,8 @@ def _node(
         agent_message=agent_message,
         intent=intent,
         files=json.dumps(files, ensure_ascii=False) if files else None,
+        diff_additions=diff_additions,
+        diff_deletions=diff_deletions,
     )
 
 
@@ -251,3 +255,42 @@ class TestGetAllChangedFiles:
 
         result = await repo.get_all_changed_files("job-1")
         assert result == ["a.py", "m.py", "z.py"]
+
+
+# ---------------------------------------------------------------------------
+# get_diff_line_counts
+# ---------------------------------------------------------------------------
+
+
+class TestGetDiffLineCounts:
+    @pytest.mark.asyncio
+    async def test_sums_across_nodes(self, repo: TrailNodeRepository) -> None:
+        await repo.create_many([
+            _node(seq=1, kind="modify", diff_additions=10, diff_deletions=3),
+            _node(seq=2, kind="modify", diff_additions=5, diff_deletions=7),
+            _node(seq=3, kind="shell", diff_additions=2, diff_deletions=0),
+        ])
+
+        added, removed = await repo.get_diff_line_counts("job-1")
+
+        assert added == 17
+        assert removed == 10
+
+    @pytest.mark.asyncio
+    async def test_ignores_nulls(self, repo: TrailNodeRepository) -> None:
+        await repo.create_many([
+            _node(seq=1, kind="modify", diff_additions=10, diff_deletions=3),
+            _node(seq=2, kind="explore"),  # no diff data
+        ])
+
+        added, removed = await repo.get_diff_line_counts("job-1")
+
+        assert added == 10
+        assert removed == 3
+
+    @pytest.mark.asyncio
+    async def test_empty_job(self, repo: TrailNodeRepository) -> None:
+        added, removed = await repo.get_diff_line_counts("nonexistent")
+
+        assert added == 0
+        assert removed == 0

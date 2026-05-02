@@ -135,7 +135,7 @@ class RuntimeTelemetry:
                 async with self._session_factory() as session:
                     from backend.services.cost_attribution import compute_attribution
 
-                    await compute_attribution(session, job_id)
+                    await compute_attribution(session, job_id, session_factory=self._session_factory)
                     await session.commit()
 
             # Run statistical analysis (fire-and-forget, non-blocking)
