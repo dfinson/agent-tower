@@ -16,6 +16,7 @@ from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.trail.models import (
     Activity,
     ActivityStep,
+    MESSAGE_SIGNAL_BUFFER_SIZE,
     PlanStep,
     TrailJobState,
     make_node_id,
@@ -613,9 +614,8 @@ class TrailNodeBuilder:
 
         # §13.7: Track operator messages for activity boundary detection
         state.recent_messages.append(f"[operator] {content}")
-        # Keep buffer bounded
-        if len(state.recent_messages) > 10:
-            state.recent_messages = state.recent_messages[-10:]
+        if len(state.recent_messages) > MESSAGE_SIGNAL_BUFFER_SIZE:
+            state.recent_messages = state.recent_messages[-MESSAGE_SIGNAL_BUFFER_SIZE:]
 
         node_id = make_node_id()
         seq = state.next_seq
@@ -696,8 +696,8 @@ class TrailNodeBuilder:
         # Truncate long messages to keep the buffer manageable
         summary = content[:200] if len(content) > 200 else content
         state.recent_messages.append(f"[assistant] {summary}")
-        if len(state.recent_messages) > 10:
-            state.recent_messages = state.recent_messages[-10:]
+        if len(state.recent_messages) > MESSAGE_SIGNAL_BUFFER_SIZE:
+            state.recent_messages = state.recent_messages[-MESSAGE_SIGNAL_BUFFER_SIZE:]
 
     async def _on_phase_changed(self, event: DomainEvent) -> None:
         """Create a summarize node for execution phase transitions."""

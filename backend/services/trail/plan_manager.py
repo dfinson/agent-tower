@@ -10,7 +10,10 @@ import structlog
 
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.trail.models import (
+    CONTEXT_WINDOW_SIZE,
+    MESSAGE_SIGNAL_BUFFER_SIZE,
     SISTER_FAILURE_THRESHOLD,
+    TOOL_NAME_VOCAB_CAP,
     PlanStep,
     TrailJobState,
     make_plan_step_id,
@@ -61,12 +64,16 @@ class PlanManager:
 
         if role == "agent" and content:
             state.recent_messages.append(content)
+            if len(state.recent_messages) > MESSAGE_SIGNAL_BUFFER_SIZE:
+                state.recent_messages = state.recent_messages[-MESSAGE_SIGNAL_BUFFER_SIZE:]
 
             if len(state.recent_messages) == 1 and not state.plan_established:
                 await self._try_early_plan(job_id)
 
         if role == "tool_call" and tool_intent:
             state.recent_tool_intents.append(tool_intent)
+            if len(state.recent_tool_intents) > CONTEXT_WINDOW_SIZE:
+                state.recent_tool_intents = state.recent_tool_intents[-CONTEXT_WINDOW_SIZE:]
 
     async def feed_tool_name(self, job_id: str, tool_name: str) -> None:
         """Track tool usage for summary context and early plan trigger."""
@@ -75,7 +82,8 @@ class PlanManager:
             return
 
         if tool_name not in state.recent_tool_names:
-            state.recent_tool_names.append(tool_name)
+            if len(state.recent_tool_names) < TOOL_NAME_VOCAB_CAP:
+                state.recent_tool_names.append(tool_name)
 
         state.tool_call_count += 1
         if state.tool_call_count == 3 and not state.plan_established:

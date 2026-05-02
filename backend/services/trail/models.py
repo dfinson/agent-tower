@@ -9,6 +9,26 @@ from typing import Any, TypedDict
 
 
 # ---------------------------------------------------------------------------
+# Buffer size constants — see context_window_eval.py for derivation
+# ---------------------------------------------------------------------------
+
+# Eval-backed: context_window_eval.py shows marginal gains < 1-2% beyond 10
+# entries for file coverage and motivation context.  Used by StepTracker and
+# the classify/title prompts that feed tool intents to a sister LLM.
+CONTEXT_WINDOW_SIZE: int = 10
+
+# recent_messages is a signal buffer, not a context window.  Consumers read
+# only [0] (plan inference) and [-1] (operator redirect pop).  We keep a
+# small window so the operator signal isn't immediately evicted by assistant
+# messages; the exact number is not load-bearing.
+MESSAGE_SIGNAL_BUFFER_SIZE: int = CONTEXT_WINDOW_SIZE
+
+# Unique tool names accumulate per job.  Agents typically expose 10-30 tools;
+# cap at 50 is ~2× observed maximum to prevent unbounded growth from a
+# misbehaving agent while never clipping real usage.
+TOOL_NAME_VOCAB_CAP: int = 50
+
+# ---------------------------------------------------------------------------
 # TypedDict response shapes for TrailQueryService
 # ---------------------------------------------------------------------------
 
@@ -150,6 +170,17 @@ class TrailJobState:
     job_prompt: str = ""
 
     # Transcript context buffers
+    #
+    # recent_messages: signal buffer for plan inference ([0]) and operator
+    # redirect detection ([-1]).  Capped to preserve those two positions
+    # while bounding memory; the size itself is not load-bearing.
+    #
+    # recent_tool_intents: ring buffer fed into the sister-LLM classify
+    # prompt.  Uses the eval-backed context_window_eval.py inflection
+    # point (same reasoning as StepTracker._BUFFER_SIZE).
+    #
+    # recent_tool_names: accumulates *unique* names (de-duped on append).
+    # Bounded by the agent's tool vocabulary; safety cap prevents abuse.
     recent_messages: list[str] = field(default_factory=list)
     recent_tool_intents: list[str] = field(default_factory=list)
     recent_tool_names: list[str] = field(default_factory=list)
