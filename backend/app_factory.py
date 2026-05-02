@@ -271,6 +271,10 @@ def _mount_spa_fallback(app: FastAPI) -> None:
     from starlette.responses import FileResponse
 
     _index_html = str(_FRONTEND_DIR / "index.html")
+    _no_cache_headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Pragma": "no-cache",
+    }
 
     @app.exception_handler(404)
     async def _spa_fallback(request: Request, exc: Exception) -> Response:
@@ -285,7 +289,7 @@ def _mount_spa_fallback(app: FastAPI) -> None:
             candidate = _FRONTEND_DIR / path.lstrip("/")
             if candidate.is_file():
                 return FileResponse(str(candidate))
-            return FileResponse(_index_html)
+            return FileResponse(_index_html, headers=_no_cache_headers)
         return JSONResponse({"detail": "Not found"}, status_code=404)
 
     app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="static-assets")
