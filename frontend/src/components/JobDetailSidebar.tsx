@@ -1,8 +1,20 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { ExternalLink, XCircle, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, PanelLeftClose, PanelLeftOpen, Loader2 } from "lucide-react";
+import { ExternalLink, XCircle, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, PanelLeftClose, PanelLeftOpen, Loader2, Radio, TerminalSquare, FolderTree, GitBranch, BarChart3, Package } from "lucide-react";
 import type { JobSummary } from "../store";
 import { ActivityTimeline } from "./ActivityTimeline";
+import { JobActions } from "./JobActions";
+import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
+
+// ── Tab definitions for the sidebar nav ──
+const TAB_ITEMS = [
+  { id: "live", icon: Radio, label: "Live" },
+  { id: "shell", icon: TerminalSquare, label: "Shell" },
+  { id: "files", icon: FolderTree, label: "Files" },
+  { id: "diff", icon: GitBranch, label: "Changes", conditional: true },
+  { id: "metrics", icon: BarChart3, label: "Metrics" },
+  { id: "artifacts", icon: Package, label: "Artifacts", conditional: true },
+] as const;
 
 interface JobDetailSidebarProps {
   job: JobSummary;
@@ -13,6 +25,30 @@ interface JobDetailSidebarProps {
   onStepClick: (turnId: string) => void;
   hasMergeConflict: boolean;
   unresolvedResolutionError: string | null;
+  // Tab navigation
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  hasChanges: boolean;
+  hasArtifacts: boolean;
+  artifactCount: number;
+  // Actions
+  canCancel: boolean;
+  canResume: boolean;
+  needsResolution: boolean;
+  isResolved: boolean;
+  canArchive: boolean;
+  actionLoading: boolean;
+  resolveLoading: string | null;
+  onCancelOpen: () => void;
+  onResume: () => void;
+  onResolve: (action: "merge" | "smart_merge" | "create_pr" | "agent_merge") => void;
+  onDiscardOpen: () => void;
+  onMarkDoneOpen: () => void;
+  onCompleteOpen: () => void;
+  // Terminal
+  hasWorktree: boolean;
+  jobTerminalCount: number;
+  onOpenTerminal: () => void;
 }
 
 export function JobDetailSidebar({
@@ -24,6 +60,27 @@ export function JobDetailSidebar({
   onStepClick,
   hasMergeConflict,
   unresolvedResolutionError,
+  activeTab,
+  onTabChange,
+  hasChanges,
+  hasArtifacts,
+  artifactCount,
+  canCancel,
+  canResume,
+  needsResolution,
+  isResolved,
+  canArchive,
+  actionLoading,
+  resolveLoading,
+  onCancelOpen,
+  onResume,
+  onResolve,
+  onDiscardOpen,
+  onMarkDoneOpen,
+  onCompleteOpen,
+  hasWorktree,
+  jobTerminalCount,
+  onOpenTerminal,
 }: JobDetailSidebarProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(240, Math.min(360, window.innerWidth * 0.18)));
@@ -60,8 +117,62 @@ export function JobDetailSidebar({
 
   const isPreparing = job.state === "preparing";
 
+  // Filter visible tabs based on conditional flags
+  const visibleTabs = TAB_ITEMS.filter((t) => {
+    if (t.id === "diff") return hasChanges;
+    if (t.id === "artifacts") return hasArtifacts;
+    return true;
+  });
+
   return (
     <>
+      {/* ── Icon-only rail at md, full sidebar at lg+ ── */}
+
+      {/* Icon rail (md only, when full sidebar would be hidden) */}
+      <div className="hidden md:flex lg:hidden flex-col items-center gap-1 py-2 px-1 shrink-0 border-r border-border bg-card">
+        {visibleTabs.map(({ id, icon: Icon, label }) => (
+          <Tooltip key={id} content={label}>
+            <button
+              onClick={() => onTabChange(id)}
+              className={cn(
+                "flex items-center justify-center w-9 h-9 rounded-md transition-colors",
+                activeTab === id
+                  ? "bg-accent text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+              )}
+            >
+              <Icon size={18} />
+            </button>
+          </Tooltip>
+        ))}
+        {hasWorktree && (
+          <>
+            <div className="w-5 h-px bg-border my-1" />
+            <Tooltip content={jobTerminalCount > 0 ? `Open new terminal (${jobTerminalCount} open)` : "Open terminal in worktree"}>
+              <button
+                onClick={onOpenTerminal}
+                className="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors relative"
+              >
+                <TerminalSquare size={18} />
+                {jobTerminalCount > 0 && (
+                  <span className="absolute top-1 right-1 text-[9px] font-bold text-primary">{jobTerminalCount}</span>
+                )}
+              </button>
+            </Tooltip>
+          </>
+        )}
+        <div className="flex-1" />
+        <Tooltip content={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+          <button
+            onClick={() => setSidebarCollapsed((c) => !c)}
+            className="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        </Tooltip>
+      </div>
+
+      {/* Full sidebar (lg+) */}
       <div
         className={cn(
           "hidden lg:flex flex-col flex-shrink-0 md:h-full min-h-[22rem] rounded-lg border border-border bg-card overflow-hidden",
@@ -73,22 +184,74 @@ export function JobDetailSidebar({
           <button
             onClick={() => setSidebarCollapsed(false)}
             className="flex items-center justify-center h-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-            title="Expand activity timeline"
+            title="Expand sidebar"
           >
             <PanelLeftOpen size={18} />
           </button>
         ) : (
           <>
+            {/* ── Tab navigation ── */}
+            <nav className="flex flex-col gap-0.5 px-2 pt-2 pb-1 shrink-0">
+              {visibleTabs.map(({ id, icon: Icon, label }) => (
+                <button
+                  key={id}
+                  onClick={() => onTabChange(id)}
+                  className={cn(
+                    "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors",
+                    activeTab === id
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                  )}
+                >
+                  <Icon size={15} className="shrink-0" />
+                  <span className="truncate">{label}</span>
+                  {id === "artifacts" && artifactCount > 0 && (
+                    <span className="ml-auto text-[10px] leading-none bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 font-normal">
+                      {artifactCount}
+                    </span>
+                  )}
+                </button>
+              ))}
+              {hasWorktree && (
+                <button
+                  onClick={onOpenTerminal}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                >
+                  <TerminalSquare size={15} className="shrink-0" />
+                  <span>Terminal</span>
+                  {jobTerminalCount > 0 && (
+                    <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>
+                  )}
+                </button>
+              )}
+            </nav>
+
+            <div className="h-px bg-border mx-2" />
+
+            {/* ── Activity timeline — takes remaining space ── */}
             <button
               onClick={() => setSidebarCollapsed(true)}
-              className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-border hover:bg-accent/50 transition-colors"
-              title="Collapse activity timeline"
+              className="flex items-center gap-2 px-4 py-2 w-full text-left hover:bg-accent/50 transition-colors shrink-0"
+              title="Collapse sidebar"
             >
               <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
-              <span className="text-sm font-semibold text-muted-foreground">Activity</span>
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Activity</span>
             </button>
-            {/* ── Job metadata panel ── */}
-            <div className="px-3 py-2 border-b border-border space-y-1.5 text-xs shrink-0 overflow-y-auto max-h-[40%]">
+            <div className="flex-1 overflow-hidden">
+              <ActivityTimeline
+                jobId={jobId}
+                jobState={job.state}
+                onStepClick={onStepClick}
+                selectedTurnId={selectedTurnId}
+                searchActive={searchActive}
+                visibleStepTurnId={visibleStepTurnId}
+              />
+            </div>
+
+            <div className="h-px bg-border" />
+
+            {/* ── Job metadata ── */}
+            <div className="px-3 py-2 border-t border-border space-y-1.5 text-xs shrink-0 overflow-y-auto max-h-[35%]">
               {(job.description || job.prompt) && (
                 <p className="text-muted-foreground line-clamp-3 text-[12px]">{job.description ?? job.prompt}</p>
               )}
@@ -178,15 +341,26 @@ export function JobDetailSidebar({
                   </p>
                 </div>
               )}
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <ActivityTimeline
-                jobId={jobId}
+              {/* ── Actions ── */}
+              <JobActions
+                canCancel={canCancel}
+                canResume={canResume}
+                needsResolution={needsResolution}
+                hasChanges={hasChanges}
+                hasMergeConflict={hasMergeConflict}
+                isResolved={isResolved}
+                canArchive={canArchive}
                 jobState={job.state}
-                onStepClick={onStepClick}
-                selectedTurnId={selectedTurnId}
-                searchActive={searchActive}
-                visibleStepTurnId={visibleStepTurnId}
+                archivedAt={job.archivedAt}
+                actionLoading={actionLoading}
+                resolveLoading={resolveLoading}
+                onCancelOpen={onCancelOpen}
+                onResume={onResume}
+                onResolve={onResolve}
+                onDiscardOpen={onDiscardOpen}
+                onMarkDoneOpen={onMarkDoneOpen}
+                onCompleteOpen={onCompleteOpen}
+                layout="compact"
               />
             </div>
           </>

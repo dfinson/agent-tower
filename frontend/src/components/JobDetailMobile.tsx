@@ -1,9 +1,10 @@
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, CheckCircle2, GitMerge, GitPullRequest, Trash2, Archive, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, ListTree, Radio, Package, Loader2, BarChart3 } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, ExternalLink, GitMerge, GitPullRequest, Trash2, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, ListTree, Radio, Package, Loader2, BarChart3 } from "lucide-react";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
 import { Button } from "./ui/button";
 import { BottomSheet } from "./ui/bottom-sheet";
+import { JobActions } from "./JobActions";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
 
@@ -192,52 +193,27 @@ export function MobileJobDetailSheet({
           </a>
         )}
         {/* Action buttons in sheet */}
-        <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-          {canCancel && (
-            <Button size="sm" variant="outline" className="text-destructive border-destructive/40" onClick={() => { onClose(); onCancelOpen(); }}>
-              <XCircle size={14} /> Cancel
-            </Button>
-          )}
-          {canResume && (
-            <Button size="sm" variant="outline" loading={actionLoading} onClick={() => { onClose(); onResume(); }}>
-              <RotateCcw size={14} /> Resume
-            </Button>
-          )}
-          {needsResolution && hasChanges && (
-            <>
-              {!hasMergeConflict && (
-                <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "smart_merge"} disabled={resolveLoading !== null} onClick={() => { onClose(); onResolve("smart_merge"); }}>
-                  <GitMerge size={14} /> Merge
-                </Button>
-              )}
-              {hasMergeConflict && (
-                <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "agent_merge"} disabled={resolveLoading !== null} onClick={() => { onClose(); onResolve("agent_merge"); }}>
-                  <GitMerge size={14} /> Resolve with Agent
-                </Button>
-              )}
-              <Button size="sm" variant="outline" className="gap-1" loading={resolveLoading === "create_pr"} disabled={resolveLoading !== null} onClick={() => { onClose(); onResolve("create_pr"); }}>
-                <GitPullRequest size={14} /> Create PR
-              </Button>
-              <Button size="sm" variant="outline" className="gap-1 text-destructive border-destructive/40" onClick={() => { onClose(); onDiscardOpen(); }}>
-                <Trash2 size={14} /> Discard
-              </Button>
-            </>
-          )}
-          {needsResolution && !hasChanges && (
-            <Button size="sm" variant="outline" className="gap-1" onClick={() => { onClose(); onMarkDoneOpen(); }}>
-              <CheckCircle2 size={14} /> Mark Done
-            </Button>
-          )}
-          {isResolved && !job.archivedAt && (
-            <Button size="sm" variant="outline" className="gap-1 text-green-600 border-green-500/40" onClick={() => { onClose(); onCompleteOpen(); }}>
-              <CheckCircle2 size={14} /> Complete & Archive
-            </Button>
-          )}
-          {canArchive && (
-            <Button size="sm" variant="outline" className="gap-1" onClick={() => { onClose(); onCompleteOpen(); }}>
-              <Archive size={14} /> {job.state === "failed" ? "Abandon" : "Archive"}
-            </Button>
-          )}
+        <div className="pt-2 border-t border-border">
+          <JobActions
+            canCancel={canCancel}
+            canResume={canResume}
+            needsResolution={needsResolution}
+            hasChanges={hasChanges}
+            hasMergeConflict={hasMergeConflict}
+            isResolved={isResolved}
+            canArchive={canArchive}
+            jobState={job.state}
+            archivedAt={job.archivedAt}
+            actionLoading={actionLoading}
+            resolveLoading={resolveLoading}
+            onCancelOpen={() => { onClose(); onCancelOpen(); }}
+            onResume={() => { onClose(); onResume(); }}
+            onResolve={(action) => { onClose(); onResolve(action); }}
+            onDiscardOpen={() => { onClose(); onDiscardOpen(); }}
+            onMarkDoneOpen={() => { onClose(); onMarkDoneOpen(); }}
+            onCompleteOpen={() => { onClose(); onCompleteOpen(); }}
+            layout="full"
+          />
         </div>
       </div>
     </BottomSheet>
