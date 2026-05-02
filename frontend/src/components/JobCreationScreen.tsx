@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, PlaneTakeoff, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { createJob, fetchRepos, fetchSettings, fetchRepoDetail, suggestNames, fetchModelComparison, warmUtilitySession, releaseUtilitySession, fetchPolicySettings } from "../api/client";
+import { createJob, fetchRepos, fetchRepoDetail, suggestNames, fetchModelComparison, warmUtilitySession, releaseUtilitySession, fetchPolicySettings } from "../api/client";
 import type { SDKInfo } from "../api/types";
 import { useStore } from "../store";
 import { PromptWithVoice } from "./VoiceButton";

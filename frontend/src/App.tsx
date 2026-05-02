@@ -94,7 +94,7 @@ export function App() {
   useSSE();
   const navigate = useNavigate();
   const location = useLocation();
-  const isJobDetail = /^\/jobs\/[^/]+$/.test(location.pathname);
+  const isJobDetail = /^\/jobs\/[^/]+$/.test(location.pathname) && location.pathname !== "/jobs/new";
   const jobId = isJobDetail ? location.pathname.split("/")[2] : null;
   const jobTitle = useStore((s) => jobId ? s.jobs[jobId]?.title : null);
   const toggleTerminalDrawer = useStore((s) => s.toggleTerminalDrawer);
