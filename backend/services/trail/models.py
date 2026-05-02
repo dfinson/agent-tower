@@ -119,6 +119,7 @@ class PlanStep:
     duration_ms: int = 0
     start_sha: str | None = None
     end_sha: str | None = None
+    native_id: str | None = None  # stable ID from agent's manage_todo_list
 
     def to_event_payload(self) -> dict[str, Any]:
         return {
@@ -224,6 +225,7 @@ class TrailJobState:
                     "duration_ms": s.duration_ms,
                     "start_sha": s.start_sha,
                     "end_sha": s.end_sha,
+                    "native_id": s.native_id,
                 }
                 for s in self.plan_steps
             ],
@@ -275,6 +277,7 @@ class TrailJobState:
                 duration_ms=s.get("duration_ms", 0),
                 start_sha=s.get("start_sha"),
                 end_sha=s.get("end_sha"),
+                native_id=s.get("native_id"),
             )
             for s in data.get("plan_steps", [])
         ]

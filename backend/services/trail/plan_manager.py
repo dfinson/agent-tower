@@ -311,28 +311,48 @@ class PlanManager:
             "blocked": "active",
         }
 
-        new_labels: list[tuple[str, str]] = []
+        parsed: list[tuple[str | None, str, str]] = []  # (native_id, label, status)
         for item in items[:_MAX_PLAN_ITEMS]:
             label = str(item.get("title") or item.get("content") or item.get("label") or "").strip()
             if not label:
                 continue
             raw_status = str(item.get("status", "pending")).strip().lower()
             status = status_map.get(raw_status, "pending")
-            new_labels.append((label, status))
+            # The agent's stable item id (e.g. 1, 2, 3) — survives label rewording
+            raw_id = item.get("id")
+            native_id = str(raw_id) if raw_id is not None else None
+            parsed.append((native_id, label, status))
 
-        if not new_labels:
+        if not parsed:
             return
 
         state.native_plan_active = True
-        existing_by_label = {s.label: s for s in state.plan_steps}
+
+        # Build lookup indexes — native_id is the primary key, label is fallback
+        existing_by_native_id: dict[str, PlanStep] = {}
+        existing_by_label: dict[str, PlanStep] = {}
+        for s in state.plan_steps:
+            if s.native_id is not None:
+                existing_by_native_id[s.native_id] = s
+            existing_by_label[s.label] = s
 
         updated: list[PlanStep] = []
         now = datetime.now(UTC)
 
-        for i, (label, status) in enumerate(new_labels):
-            ps = existing_by_label.get(label)
+        for i, (native_id, label, status) in enumerate(parsed):
+            # Match by native_id first (stable across label rewording),
+            # then fall back to exact label match
+            ps = None
+            if native_id is not None:
+                ps = existing_by_native_id.get(native_id)
+            if ps is None:
+                ps = existing_by_label.get(label)
+
             if ps:
                 ps.order = i
+                ps.label = label  # update label in case agent reworded it
+                if native_id is not None:
+                    ps.native_id = native_id
                 if ps.status != status:
                     ps.status = status
                     if status == "active" and ps.started_at is None:
@@ -348,8 +368,19 @@ class PlanManager:
                     order=i,
                     started_at=now if status == "active" else None,
                     completed_at=now if status == "done" else None,
+                    native_id=native_id,
                 )
                 updated.append(ps)
+
+        # Invalidate last_classified_plan_item if the old ID was evicted
+        surviving_ids = {s.plan_step_id for s in updated}
+        if state.last_classified_plan_item and state.last_classified_plan_item not in surviving_ids:
+            log.warning(
+                "plan_step_id_evicted",
+                job_id=job_id,
+                evicted_id=state.last_classified_plan_item,
+            )
+            state.last_classified_plan_item = ""
 
         state.plan_steps = updated
         state.plan_established = True
