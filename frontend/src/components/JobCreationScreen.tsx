@@ -228,7 +228,7 @@ export function JobCreationScreen() {
   const sdkNotReady = currentSdkInfo && currentSdkInfo.status !== "ready";
 
   return (
-    <div className="max-w-xl mx-auto">
+    <div className="max-w-2xl mx-auto">
       <h3 className="text-lg font-semibold text-foreground mb-4">New Job</h3>
 
       <div className="rounded-lg border border-border bg-card p-5">
