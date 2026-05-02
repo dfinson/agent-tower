@@ -37,15 +37,14 @@
 
 /* Glow + left accent bar for navigated-to feed items — hold visible, then fade */
 @keyframes highlight-pulse {
-  0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0);       border-left-color: transparent;                  background: transparent; }
-  8%   { box-shadow: 0 0 16px 6px hsl(var(--primary) / 0.5); border-left-color: hsl(var(--primary));           background: hsl(var(--primary) / 0.06); }
-  50%  { box-shadow: 0 0 10px 3px hsl(var(--primary) / 0.3); border-left-color: hsl(var(--primary));           background: hsl(var(--primary) / 0.04); }
-  80%  { box-shadow: 0 0 6px 2px hsl(var(--primary) / 0.15); border-left-color: hsl(var(--primary) / 0.5);    background: hsl(var(--primary) / 0.02); }
-  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0);       border-left-color: transparent;                  background: transparent; }
+  0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0);       background: transparent; }
+  8%   { box-shadow: inset 3px 0 0 0 hsl(var(--primary)), 0 0 16px 6px hsl(var(--primary) / 0.5); background: hsl(var(--primary) / 0.06); }
+  50%  { box-shadow: inset 3px 0 0 0 hsl(var(--primary)), 0 0 10px 3px hsl(var(--primary) / 0.3); background: hsl(var(--primary) / 0.04); }
+  80%  { box-shadow: inset 3px 0 0 0 hsl(var(--primary) / 0.5), 0 0 6px 2px hsl(var(--primary) / 0.15); background: hsl(var(--primary) / 0.02); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0);       background: transparent; }
 }
 .animate-glow-flicker {
   animation: highlight-pulse 2.5s ease-out;
-  border-left: 3px solid transparent;
   border-radius: var(--radius);
 }
 

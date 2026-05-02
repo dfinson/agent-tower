@@ -832,6 +832,7 @@ export function CuratedFeed({
                   left: 0,
                   width: "100%",
                   transform: `translateY(${vItem.start}px)`,
+                  ...(isActiveMatch ? { zIndex: 1 } : {}),
                   ...(dimmed ? { opacity: 0.15, pointerEvents: "none" as const } : {}),
                 }}
               >

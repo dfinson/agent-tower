@@ -54,6 +54,11 @@ export function useTerminalSocket({ terminal, sessionId, onExit, onStatusChange 
     wsRef.current = ws;
 
     ws.onopen = () => {
+      // On reconnect, clear the terminal before scrollback replay to avoid
+      // duplicate content being appended.
+      if (attemptRef.current > 0) {
+        terminal.clear();
+      }
       attemptRef.current = 0;
       attachedRef.current = false;
       // Attach to session

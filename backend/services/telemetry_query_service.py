@@ -236,11 +236,11 @@ class TelemetryQueryService:
             ),
             file_access=TelemetryFileAccess(
                 stats=TelemetryFileStats(
-                    total_accesses=int(file_stats.get("total_accesses", 0)),
-                    unique_files=int(file_stats.get("unique_files", 0)),
-                    total_reads=int(file_stats.get("total_reads", 0)),
-                    total_writes=int(file_stats.get("total_writes", 0)),
-                    reread_count=int(file_stats.get("reread_count", 0)),
+                    total_accesses=int(file_stats.get("total_accesses") or 0),
+                    unique_files=int(file_stats.get("unique_files") or 0),
+                    total_reads=int(file_stats.get("total_reads") or 0),
+                    total_writes=int(file_stats.get("total_writes") or 0),
+                    reread_count=int(file_stats.get("reread_count") or 0),
                 ),
                 top_files=[
                     TelemetryFileEntry(

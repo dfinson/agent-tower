@@ -61,6 +61,15 @@ export function AgentTerminal({ jobId, isRunning, className }: AgentTerminalProp
     setStatus(s);
   }, []);
 
+  // When the WebSocket reports the session is gone (exit code -1 from a
+  // pre-attach error), clear the session so the component falls back to the
+  // empty state instead of showing a dead terminal.
+  const handleExit = useCallback((code: number) => {
+    if (code === -1) {
+      setSessionId(null);
+    }
+  }, []);
+
   const handleCtrlC = useCallback(async () => {
     if (interruptPending) return;
     setInterruptPending(true);
@@ -121,6 +130,7 @@ export function AgentTerminal({ jobId, isRunning, className }: AgentTerminalProp
       {/* Terminal */}
       <TerminalPanel
         sessionId={sessionId}
+        onExit={handleExit}
         onStatusChange={handleStatusChange}
         className="h-full"
       />

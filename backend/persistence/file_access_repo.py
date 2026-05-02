@@ -85,8 +85,8 @@ class FileAccessRepository(BaseRepository):
                 SELECT
                     COUNT(*) as total_accesses,
                     COUNT(DISTINCT file_path) as unique_files,
-                    SUM(CASE WHEN access_type = 'read' THEN 1 ELSE 0 END) as total_reads,
-                    SUM(CASE WHEN access_type = 'write' THEN 1 ELSE 0 END) as total_writes
+                    COALESCE(SUM(CASE WHEN access_type = 'read' THEN 1 ELSE 0 END), 0) as total_reads,
+                    COALESCE(SUM(CASE WHEN access_type = 'write' THEN 1 ELSE 0 END), 0) as total_writes
                 FROM job_file_access_log
                 WHERE job_id = :job_id
             """),
