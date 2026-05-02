@@ -184,8 +184,11 @@ def _make_session_mock(
                 result.scalar_one_or_none.return_value = None
             call_count["n"] += 1
             return result
-        if "motivation_summary IS NULL" in sql:
+        if "write_summary IS NULL" in sql:
             result.scalar.return_value = unsummarized_count
+            return result
+        if "enrichment" in sql and "pending" in sql:
+            result.scalar.return_value = 0
             return result
         if "FROM jobs WHERE" in sql:
             row = MagicMock()
@@ -202,22 +205,39 @@ def _make_session_mock(
             row = MagicMock()
             row.mappings.return_value = []
             return row
-        if "job_telemetry_spans" in sql and "file_write" in sql:
-            # Return enough spans for story generation
+        # Trail write sub-nodes via SQLAlchemy select on TrailNodeRow
+        if "trail_nodes" in sql and "write" in sql:
+            node1 = MagicMock()
+            node1.id = "n1"
+            node1.files = '["a.py"]'
+            node1.turn_id = "t1"
+            node1.write_summary = "fix A"
+            node1.snippet = None
+            node1.is_retry = False
+            node1.error_kind = None
+            node1.phase = None
+            node1.edit_motivations = None
+            node1.activity_label = None
+            node2 = MagicMock()
+            node2.id = "n2"
+            node2.files = '["b.py"]'
+            node2.turn_id = "t2"
+            node2.write_summary = "fix B"
+            node2.snippet = None
+            node2.is_retry = False
+            node2.error_kind = None
+            node2.phase = None
+            node2.edit_motivations = None
+            node2.activity_label = None
+            scalars = MagicMock()
+            scalars.all.return_value = [node1, node2]
+            result.scalars.return_value = scalars
+            return result
+        if "FROM steps" in sql:
             row = MagicMock()
             row.mappings.return_value = [
-                {"span_id": "s1", "file": "a.py", "why": "fix A",
-                 "edit_motivations": None, "tool_args_json": None,
-                 "tool_name": "write_file", "turn_id": "t1",
-                 "started_at": "2024-01-01", "is_retry": False,
-                 "error_kind": None, "execution_phase": None,
-                 "step_number": 1, "step_title": "step-1", "step_intent": None},
-                {"span_id": "s2", "file": "b.py", "why": "fix B",
-                 "edit_motivations": None, "tool_args_json": None,
-                 "tool_name": "write_file", "turn_id": "t2",
-                 "started_at": "2024-01-02", "is_retry": False,
-                 "error_kind": None, "execution_phase": None,
-                 "step_number": 2, "step_title": "step-2", "step_intent": None},
+                {"turn_id": "t1", "step_number": 1, "title": "step-1", "intent": None},
+                {"turn_id": "t2", "step_number": 2, "title": "step-2", "intent": None},
             ]
             return row
         # Default — UPDATE etc.

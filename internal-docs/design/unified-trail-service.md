@@ -340,30 +340,25 @@ diff_added, diff_removed = await trail_repo.get_diff_line_counts(job_id)
 #### 2c. SummarizationService — `save_snapshot_to_disk()` ⏳ DEFERRED
 
 **File**: `backend/services/summarization_service.py`
-**Reason**: The snapshot builder preserves per-turn tool metadata (`tool_name`, `tool_display`, `tool_intent`, `tool_success`) that trail nodes don't carry. Requires the `write` sub-node concept (§13.1) or a `tool_metadata` JSON column on `TrailNodeRow`.
+**Reason**: The snapshot builder preserves per-turn tool metadata (`tool_name`, `tool_display`, `tool_intent`, `tool_success`) from `transcript_updated` events. The columns exist on `TrailNodeRow` (migration 0029) but are NULL — NodeBuilder does not yet handle `transcript_updated` events with `role='tool_call'` to populate them. Blocked on §13.3.
 
 The method already has a `# TODO(trail-migration)` comment. The `changed_files` path could be migrated independently using `get_all_changed_files()`, but the transcript path remains blocked.
 
-#### 2d. StoryService ⏳ DEFERRED
+#### 2d. StoryService ✅ COMPLETE
 
-**Reason**: StoryService extracts code snippets from `tool_args_json` on telemetry spans and deduplicates file writes by file+step. Trail nodes don't carry per-file-write content. Requires `write` sub-nodes (§13.1).
+**Implementation**: `_build_references()` migrated from raw SQL on `job_telemetry_spans` to SQLAlchemy queries on `TrailNodeRow` write sub-nodes. `_build_trail_beats()` migrated from raw SQL to SQLAlchemy queries on semantic trail nodes. Staleness guard updated to check `trail_nodes` (write_summary IS NULL) instead of `job_telemetry_spans` (motivation_summary IS NULL). Removed dead `_extract_snippet()` function (now pre-computed on write sub-nodes).
 
-#### 2e. MotivationService ⏳ DEFERRED
+#### 2e. MotivationService ✅ COMPLETE
 
-**Reason**: MotivationService independently parses raw telemetry spans for `motivation_summary` and `edit_motivations`. This work should be folded into trail enrichment (§13.2), not simply re-pointed at a different data source.
+**Implementation**: Both motivation passes folded into `TrailEnricher` (§13.2). The old MotivationService continues running on telemetry spans for backward compatibility. New trail-based drains operate on write sub-nodes.
 
-#### 2f. JobService / API Routes ⏳ DEFERRED
+#### 2f. JobService / API Routes — ℹ️ NO MIGRATION NEEDED
 
-**Reason**: `JobService.list_events_by_job()` serves raw event payloads to frontend API routes (`/transcript`, `/diff`, `/steps`, `/timeline`). These endpoints return per-turn transcript entries with role, content, tool_name, tool_args, tool_result — data that trail nodes don't carry at per-turn granularity. Migration requires either:
+**Analysis**: `JobService.list_events_by_job()` serves raw event payloads to frontend API routes (`/transcript`, `/diff`, `/steps`, `/timeline`). These are infrastructure events (progress_headline, transcript_updated, log_line) not provenance data. Per §6.3, infrastructure events remain in EventRepository. No migration needed.
 
-1. Trail to emit per-turn data (via `write` sub-nodes or transcript nodes)
-2. A dual-read approach where trail projections replace the provenance queries and the event store remains for infrastructure/real-time data
+#### 2g. SSE Manager — ℹ️ NO MIGRATION NEEDED
 
-The `log_line_emitted` path is acceptable as infrastructure per §6.3.
-
-#### 2g. SSE Manager ⏳ DEFERRED
-
-**Reason**: SSE replay depends on `EventRepository.list_after()` which uses the raw event store's auto-increment `db_id` as a cursor. Trail nodes don't have an equivalent replay cursor. Replacing this requires trail to publish events with replayable sequence IDs.
+**Analysis**: SSE replay depends on `EventRepository.list_after()` which uses the raw event store's auto-increment `db_id` as a cursor. These are infrastructure/real-time events (state changes, progress updates, log lines). Per §6.3, infrastructure events remain in EventRepository. No migration needed.
 
 ---
 
@@ -520,42 +515,42 @@ Trail nodes are per-step — one node per `step_completed` event. Telemetry span
 
 **Unblocked consumers**: StoryService (per-file snippets), MotivationService (per-edit motivations), SummarizationService (per-tool metadata columns exist, need population).
 
-### 13.2 MotivationService Absorption
+### 13.2 MotivationService Absorption — ✅ IMPLEMENTED
 
 MotivationService runs an independent drain loop on `job_telemetry_spans`, duplicating the trail enricher's cognitive work at a different granularity. Two passes: file-level (`preceding_context` → `motivation_summary`) and edit-level (`tool_args` → `edit_motivations`).
 
-**Plan**: Fold both passes into the trail enricher. File-level motivations become an enrichment field on `modify` nodes. Edit-level motivations become enrichment on `write` sub-nodes (§13.1 — now implemented). The MotivationService drain loop and its separate LLM completer are retired.
-
-**Prerequisite**: ✅ `write` sub-nodes exist. Ready to implement.
+**Implementation**: Both passes folded into `TrailEnricher`. File-level motivations are enrichment on `write` sub-nodes via `drain_write_summaries()`. Edit-level motivations are enrichment on `write` sub-nodes via `drain_edit_motivations()`. The old MotivationService drain loop runs in parallel for backward compatibility on telemetry spans. New `TrailNodeRepository` methods: `get_unsummarized_write_nodes()`, `get_unenriched_edit_write_nodes()`, `set_write_summary()`, `set_edit_motivations()`.
 
 ### 13.3 Per-Tool Metadata on Trail Nodes
 
 `SummarizationService.save_snapshot_to_disk()` preserves per-turn tool metadata: `tool_display`, `tool_intent`, `tool_success`. Trail nodes carry `tool_names` (JSON array of names) but not the per-call display/intent/success metadata.
 
-**Decision**: Derive from `write` sub-nodes (§13.1). Each `write` node already carries `tool_name` and per-call context. Columns `tool_display`, `tool_intent`, `tool_success` exist on `trail_nodes` (added in migration 0029). Currently NULL — population requires a source (agent adapter event data or `preceding_context` parsing). SummarizationService reads them from write sub-nodes once populated.
+**Decision**: Derive from `write` sub-nodes (§13.1). Each `write` node already carries `tool_name` and per-call context. Columns `tool_display`, `tool_intent`, `tool_success` exist on `trail_nodes` (added in migration 0029). Currently NULL — population requires NodeBuilder to handle `transcript_updated` events with `role='tool_call'` to extract tool metadata. SummarizationService migration (Phase 2c) is blocked pending this.
 
-### 13.4 Fire-and-Forget Concurrency
+### 13.4 Fire-and-Forget Concurrency — ✅ IMPLEMENTED
 
 `asyncio.ensure_future()` in `_classify_and_emit()` and `_refine_activity_label()` creates unguarded concurrent mutations on `TrailJobState`. Two rapid `step_completed` events race on `plan_steps`, `active_idx`, `activities`, and `activity_steps`.
 
-**Decision**: Convert fire-and-forget to awaited calls. The hot path is already sequential per job — `handle_event()` is called from RuntimeService's single event loop. Awaiting `_classify_and_emit()` and `_refine_activity_label()` directly eliminates the race with zero architectural change. The LLM calls in those methods are cheap (gpt-4o-mini) and the hot path already tolerates sister session latency in other codepaths.
+**Implementation**: Converted fire-and-forget to awaited calls in both `node_builder.py` and `activity_tracker.py`. Removed `import asyncio` from both modules.
 
-### 13.5 Split-Brain Recovery
+### 13.5 Split-Brain Recovery — ✅ IMPLEMENTED
 
 `TrailJobState` is reconstructed from persisted trail nodes on `session_resumed`, but recovery is lossy. The following transient state cannot be recovered: `recent_messages`, `recent_tool_intents`, `recent_tool_names`, `tool_call_count`, `current_phase`, `last_classified_plan_item`, `sister_consecutive_failures`.
 
-Post-recovery, plan classification and activity boundary detection degrade because context buffers are empty.
+**Implementation**: Added `trail_state_snapshot` TEXT column to `jobs` table (migration 0030). `TrailJobState.to_snapshot()` / `from_snapshot()` serialize/deserialize all transient state including context buffers. Snapshot saved on every `step_completed` and on terminal events. On `session_resumed`, snapshot is loaded first (lossless) with fallback to lossy reconstruction.
 
-**Fix**: Periodic snapshot of `TrailJobState` to a dedicated column or table. On recovery, load the snapshot instead of replaying nodes.
-
-### 13.6 Activity Label Persistence
+### 13.6 Activity Label Persistence — ✅ IMPLEMENTED
 
 `_refine_activity_label()` updates the in-memory `Activity.label` and emits an SSE event, but the refined label is never written back to the `trail_nodes` rows that belong to that activity. The `activity_label` column on those nodes remains stale.
 
-**Fix**: After refining, issue an `UPDATE trail_nodes SET activity_label = :new WHERE activity_id = :id` via `TrailNodeRepository`.
+**Implementation**: Added `_persist_activity_label()` method to `ActivityTracker`. After SSE publish, issues `UPDATE trail_nodes SET activity_label = :new WHERE job_id = :jid AND activity_id = :aid`.
 
-### 13.7 Shallow Activity Boundaries
+### 13.7 Shallow Activity Boundaries — ✅ IMPLEMENTED
 
 Activity boundaries are detected solely by `assigned_plan_step_id` change. This misses: file cluster shifts (agent moves from backend to frontend files), operator redirects (chat message changes focus), and semantic intent shifts. When no plan exists, no boundaries are detected at all.
 
-**Fix**: Multi-signal boundary detection: plan_step_id change OR file cluster divergence OR operator message OR enricher-detected intent shift.
+**Implementation**: Multi-signal boundary detection in `_resolve_activity_boundary()`:
+1. **Plan step change** (original signal, unchanged)
+2. **Operator redirect** — operator messages tracked in `recent_messages` buffer with `[operator]` prefix; triggers new activity on next step
+3. **File cluster divergence** — compares top-level directories of current vs. previous files; no overlap triggers new activity
+4. NodeBuilder populates `recent_messages` from `transcript_updated` events with operator/user role

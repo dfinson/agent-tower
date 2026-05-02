@@ -306,3 +306,60 @@ class TrailNodeRepository:
             )
             result = await session.execute(stmt)
             return list(result.scalars().all())
+
+    async def get_unsummarized_write_nodes(
+        self,
+        *,
+        limit: int,
+    ) -> list[TrailNodeRow]:
+        """Fetch write sub-nodes with no write_summary yet (§13.2 motivation pass 1)."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.kind == "write")
+                .where(TrailNodeRow.write_summary.is_(None))
+                .order_by(TrailNodeRow.timestamp)
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_unenriched_edit_write_nodes(
+        self,
+        *,
+        limit: int,
+    ) -> list[TrailNodeRow]:
+        """Fetch write sub-nodes that have write_summary but no edit_motivations (§13.2 pass 2)."""
+        async with self._session_factory() as session:
+            stmt = (
+                select(TrailNodeRow)
+                .where(TrailNodeRow.kind == "write")
+                .where(TrailNodeRow.write_summary.isnot(None))
+                .where(TrailNodeRow.edit_motivations.is_(None))
+                .order_by(TrailNodeRow.timestamp)
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def set_write_summary(self, node_id: str, summary: str) -> None:
+        """Set the write_summary on a write sub-node."""
+        async with self._session_factory() as session:
+            stmt = (
+                update(TrailNodeRow)
+                .where(TrailNodeRow.id == node_id)
+                .values(write_summary=summary)
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def set_edit_motivations(self, node_id: str, motivations_json: str) -> None:
+        """Set the edit_motivations JSON on a write sub-node."""
+        async with self._session_factory() as session:
+            stmt = (
+                update(TrailNodeRow)
+                .where(TrailNodeRow.id == node_id)
+                .values(edit_motivations=motivations_json)
+            )
+            await session.execute(stmt)
+            await session.commit()

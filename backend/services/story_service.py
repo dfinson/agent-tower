@@ -1,10 +1,10 @@
 """Story generation service — assembles a structured code-review narrative
-from telemetry data: validated change references interleaved with LLM-
+from trail data: validated change references interleaved with LLM-
 generated connective prose.
 
 The key design principle: *references are never LLM-generated*.  They are
-built directly from ``job_telemetry_spans`` rows (``tool_category='file_write'``),
-ordered chronologically.  The LLM only generates the prose that connects them.
+built from trail ``write`` sub-nodes (§13.1), ordered chronologically.
+The LLM only generates the prose that connects them.
 
 Stories are generated on demand and cached as JSON on the ``jobs.story_text``
 column.
@@ -246,134 +246,84 @@ def _truncate(s: str | None, max_len: int) -> str:
     return s[:max_len] + ("…" if len(s) > max_len else "")
 
 
-def _extract_snippet(tool_args_json: str | None, tool_name: str | None) -> str:
-    """Extract a compact code snippet from tool_args_json for the story prompt.
-
-    Returns the key lines of the change — old→new for replacements, the first
-    meaningful lines for creates/inserts — so the LLM can reference actual code.
-    """
-    if not tool_args_json:
-        return ""
-    try:
-        args = json.loads(tool_args_json) if isinstance(tool_args_json, str) else tool_args_json
-    except (json.JSONDecodeError, TypeError):
-        return ""
-    if not isinstance(args, dict):
-        return ""
-
-    max_lines = 8  # keep snippets compact
-
-    # Replace/edit — show old → new
-    old_str = str(
-        args.get("old_str", "")
-        or args.get("oldString", "")
-        or args.get("old_string", "")
-        or ""
-    )
-    new_str = str(
-        args.get("new_str", "")
-        or args.get("newString", "")
-        or args.get("new_string", "")
-        or ""
-    )
-    if old_str or new_str:
-        old_lines = old_str.strip().splitlines()[:max_lines]
-        new_lines = new_str.strip().splitlines()[:max_lines]
-        parts: list[str] = []
-        for line in old_lines:
-            parts.append(f"- {line}")
-        for line in new_lines:
-            parts.append(f"+ {line}")
-        return "\n".join(parts)
-
-    # Create — show first meaningful lines
-    content = str(args.get("file_text", "") or args.get("content", ""))
-    if content:
-        lines = [l for l in content.strip().splitlines() if l.strip()][:max_lines]
-        return "\n".join(f"+ {l}" for l in lines)
-
-    # Insert
-    new_text = str(args.get("new_text", "") or args.get("newText", "") or "")
-    if new_text:
-        lines = new_text.strip().splitlines()[:max_lines]
-        return "\n".join(f"+ {l}" for l in lines)
-
-    return ""
 
 
 # ---------------------------------------------------------------------------
-# Reference extraction
+# Reference extraction — reads from trail write sub-nodes (§13.1)
 # ---------------------------------------------------------------------------
 
 async def _build_references(
     session: "AsyncSession", job_id: str,
 ) -> list[StoryReference]:
-    """Build validated reference dicts from file_write spans, chronologically."""
-    from sqlalchemy import text
+    """Build validated reference dicts from trail write sub-nodes, chronologically."""
+    from sqlalchemy import select, text
 
-    rows = await session.execute(
+    from backend.models.db import TrailNodeRow
+
+    # Fetch write sub-nodes ordered chronologically
+    stmt = (
+        select(TrailNodeRow)
+        .where(TrailNodeRow.job_id == job_id)
+        .where(TrailNodeRow.kind == "write")
+        .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
+    )
+    result = await session.execute(stmt)
+    write_nodes = list(result.scalars().all())
+    if not write_nodes:
+        return []
+
+    # Fetch step metadata (step_number, title, intent) keyed by turn_id
+    step_rows = await session.execute(
         text("""
-            SELECT s.id AS span_id,
-                   s.tool_target AS file,
-                   s.motivation_summary AS why,
-                   s.edit_motivations,
-                   s.tool_args_json,
-                   s.name AS tool_name,
-                   s.turn_id,
-                   s.started_at,
-                   s.is_retry,
-                   s.error_kind,
-                   s.execution_phase,
-                   st.step_number,
-                   st.title AS step_title,
-                   st.intent AS step_intent
-            FROM job_telemetry_spans s
-            LEFT JOIN steps st
-              ON st.job_id = s.job_id AND st.turn_id = s.turn_id
-            WHERE s.job_id = :jid
-              AND s.tool_category = 'file_write'
-            ORDER BY s.started_at ASC
+            SELECT turn_id, step_number, title, intent
+            FROM steps
+            WHERE job_id = :jid
         """),
         {"jid": job_id},
     )
+    step_map: dict[str, dict] = {}
+    for r in step_rows.mappings():
+        if r["turn_id"]:
+            step_map[r["turn_id"]] = dict(r)
 
-    # Deduplicate by file+step — keep latest per group.
-    # When file or step_number is NULL, fall back to span_id so that
-    # unrelated NULL-keyed spans are never falsely merged.
+    # Deduplicate by file+step — keep latest per group
     seen: dict[str, StoryReference] = {}
-    for r in rows.mappings():
-        file_val = r["file"] or ""
-        step_val = r["step_number"]
-        if not file_val or step_val is None:
-            key = f"__span_{r['span_id']}"
+    for node in write_nodes:
+        file_val = ""
+        if node.files:
+            files_list = json.loads(node.files)
+            file_val = files_list[0] if files_list else ""
+
+        step_info = step_map.get(node.turn_id or "")
+        step_number = step_info["step_number"] if step_info else None
+
+        if not file_val or step_number is None:
+            key = f"__node_{node.id}"
         else:
-            key = f"{file_val}|{step_val}"
+            key = f"{file_val}|{step_number}"
+
         ref: StoryReference = {
-            "spanId": r["span_id"],
-            "file": r["file"] or "",
-            "why": r["why"] or "",
-            "stepNumber": r["step_number"],
-            "stepTitle": _truncate(r["step_title"], 60),
-            "turnId": r["turn_id"] or "",
+            "spanId": node.id,
+            "file": file_val,
+            "why": node.write_summary or "",
+            "stepNumber": step_number,
+            "stepTitle": _truncate(step_info.get("title") if step_info else None, 60),
+            "turnId": node.turn_id or "",
         }
-        # Extract code snippet from tool args
-        snippet = _extract_snippet(r["tool_args_json"], r["tool_name"])
-        if snippet:
-            ref["snippet"] = snippet
-        # Retry and error context
-        if r["is_retry"]:
+        if node.snippet:
+            ref["snippet"] = node.snippet
+        if node.is_retry:
             ref["isRetry"] = True
-        if r["error_kind"]:
-            ref["errorKind"] = r["error_kind"]
-        if r["execution_phase"]:
-            ref["phase"] = r["execution_phase"]
-        if r["step_intent"]:
-            ref["stepIntent"] = r["step_intent"]
+        if node.error_kind:
+            ref["errorKind"] = node.error_kind
+        if node.phase:
+            ref["phase"] = node.phase
+        if step_info and step_info.get("intent"):
+            ref["stepIntent"] = step_info["intent"]
         # Merge per-edit details if available
-        raw_edits = r["edit_motivations"]
-        if raw_edits:
+        if node.edit_motivations:
             try:
-                edits = json.loads(raw_edits) if isinstance(raw_edits, str) else raw_edits
+                edits = json.loads(node.edit_motivations)
                 if isinstance(edits, list) and edits:
                     ref["editCount"] = len(edits)
                     ref["editDetails"] = [
@@ -382,27 +332,15 @@ async def _build_references(
                         if e.get("why")
                     ]
             except (json.JSONDecodeError, TypeError):
-                log.debug("edit_motivations_parse_failed", raw_edits=raw_edits if isinstance(raw_edits, str) else type(raw_edits).__name__)
                 pass
+
+        # Activity label from the node itself
+        if node.activity_label:
+            ref["activityLabel"] = node.activity_label
+
         seen[key] = ref
 
-    # Attach activity labels from trail nodes
-    act_rows = await session.execute(
-        text("""
-            SELECT DISTINCT turn_id, activity_label
-            FROM trail_nodes
-            WHERE job_id = :jid AND activity_label IS NOT NULL
-        """),
-        {"jid": job_id},
-    )
-    activity_map = {r["turn_id"]: r["activity_label"] for r in act_rows.mappings()}
-    result = list(seen.values())
-    for ref in result:
-        label = activity_map.get(ref.get("turnId", ""))
-        if label:
-            ref["activityLabel"] = label
-
-    return result
+    return list(seen.values())
 
 
 # ---------------------------------------------------------------------------
@@ -413,46 +351,45 @@ async def _build_trail_beats(
     session: "AsyncSession", job_id: str,
 ) -> list[TrailBeat]:
     """Fetch enriched semantic trail nodes — decisions, backtracks, insights."""
-    from sqlalchemy import text
+    from sqlalchemy import select
 
-    rows = await session.execute(
-        text("""
-            SELECT kind, intent, rationale, outcome, supersedes, files,
-                   seq, activity_label
-            FROM trail_nodes
-            WHERE job_id = :jid
-              AND enrichment = 'complete'
-              AND kind IN ('decide', 'backtrack', 'insight', 'verify', 'plan')
-            ORDER BY seq ASC
-        """),
-        {"jid": job_id},
+    from backend.models.db import TrailNodeRow
+
+    semantic_kinds = ["decide", "backtrack", "insight", "verify", "plan"]
+    stmt = (
+        select(TrailNodeRow)
+        .where(TrailNodeRow.job_id == job_id)
+        .where(TrailNodeRow.enrichment == "complete")
+        .where(TrailNodeRow.kind.in_(semantic_kinds))
+        .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
     )
+    result = await session.execute(stmt)
+    nodes = list(result.scalars().all())
+
     beats: list[TrailBeat] = []
-    for r in rows.mappings():
-        files_raw = r["files"]
-        if isinstance(files_raw, str):
+    for node in nodes:
+        files_list: list[str] = []
+        if node.files:
             try:
-                files_list = json.loads(files_raw)
+                files_list = json.loads(node.files)
             except (json.JSONDecodeError, TypeError):
                 files_list = []
-        else:
-            files_list = files_raw or []
         beat: TrailBeat = {
-            "kind": r["kind"],
-            "seq": r["seq"],
+            "kind": node.kind,
+            "seq": node.seq,
         }
-        if r["intent"]:
-            beat["intent"] = r["intent"]
-        if r["rationale"]:
-            beat["rationale"] = r["rationale"]
-        if r["outcome"]:
-            beat["outcome"] = r["outcome"]
-        if r["supersedes"]:
-            beat["supersedes"] = r["supersedes"]
+        if node.intent:
+            beat["intent"] = node.intent
+        if node.rationale:
+            beat["rationale"] = node.rationale
+        if node.outcome:
+            beat["outcome"] = node.outcome
+        if node.supersedes:
+            beat["supersedes"] = node.supersedes
         if files_list:
             beat["files"] = files_list
-        if r["activity_label"]:
-            beat["activity_label"] = r["activity_label"]
+        if node.activity_label:
+            beat["activity_label"] = node.activity_label
         beats.append(beat)
     return beats
 
@@ -736,14 +673,14 @@ class StoryService:
         if len(refs) < 2:
             return None  # not enough changes for a meaningful story
 
-        # Guard against motivation staleness — if there are file_write spans
-        # still missing their motivation summary, skip caching so the next
+        # Guard against write-summary staleness — if there are write sub-nodes
+        # still missing their write_summary, skip caching so the next
         # request can pick up the complete data.
         unsummarized = await session.execute(
             text(
-                "SELECT COUNT(*) FROM job_telemetry_spans "
-                "WHERE job_id = :jid AND tool_category = 'file_write' "
-                "AND motivation_summary IS NULL"
+                "SELECT COUNT(*) FROM trail_nodes "
+                "WHERE job_id = :jid AND kind = 'write' "
+                "AND write_summary IS NULL"
             ),
             {"jid": job_id},
         )

@@ -164,6 +164,107 @@ class TrailJobState:
     sister_consecutive_failures: int = 0
     _inferring_plan: bool = False
 
+    def to_snapshot(self) -> dict[str, Any]:
+        """Serialize transient state for persistence (§13.5)."""
+        return {
+            "active_goal_id": self.active_goal_id,
+            "active_step_id": self.active_step_id,
+            "current_phase": self.current_phase,
+            "next_seq": self.next_seq,
+            "plan_established": self.plan_established,
+            "native_plan_active": self.native_plan_active,
+            "job_prompt": self.job_prompt,
+            "active_idx": self.active_idx,
+            "recent_messages": list(self.recent_messages),
+            "recent_tool_intents": list(self.recent_tool_intents),
+            "recent_tool_names": list(self.recent_tool_names),
+            "tool_call_count": self.tool_call_count,
+            "last_classified_plan_item": self.last_classified_plan_item,
+            "sister_consecutive_failures": self.sister_consecutive_failures,
+            "plan_steps": [
+                {
+                    "plan_step_id": s.plan_step_id,
+                    "label": s.label,
+                    "status": s.status,
+                    "order": s.order,
+                    "summary": s.summary,
+                    "tool_count": s.tool_count,
+                    "files_written": s.files_written,
+                    "duration_ms": s.duration_ms,
+                    "start_sha": s.start_sha,
+                    "end_sha": s.end_sha,
+                }
+                for s in self.plan_steps
+            ],
+            "activities": [
+                {
+                    "activity_id": a.activity_id,
+                    "label": a.label,
+                    "status": a.status,
+                }
+                for a in self.activities
+            ],
+            "activity_steps": [
+                {
+                    "turn_id": s.turn_id,
+                    "title": s.title,
+                    "activity_id": s.activity_id,
+                }
+                for s in self.activity_steps
+            ],
+        }
+
+    @classmethod
+    def from_snapshot(cls, data: dict[str, Any]) -> TrailJobState:
+        """Restore transient state from a snapshot (§13.5)."""
+        state = cls()
+        state.active_goal_id = data.get("active_goal_id")
+        state.active_step_id = data.get("active_step_id")
+        state.current_phase = data.get("current_phase")
+        state.next_seq = data.get("next_seq", 1)
+        state.plan_established = data.get("plan_established", False)
+        state.native_plan_active = data.get("native_plan_active", False)
+        state.job_prompt = data.get("job_prompt", "")
+        state.active_idx = data.get("active_idx", -1)
+        state.recent_messages = data.get("recent_messages", [])
+        state.recent_tool_intents = data.get("recent_tool_intents", [])
+        state.recent_tool_names = data.get("recent_tool_names", [])
+        state.tool_call_count = data.get("tool_call_count", 0)
+        state.last_classified_plan_item = data.get("last_classified_plan_item", "")
+        state.sister_consecutive_failures = data.get("sister_consecutive_failures", 0)
+        state.plan_steps = [
+            PlanStep(
+                plan_step_id=s["plan_step_id"],
+                label=s.get("label", ""),
+                status=s.get("status", "pending"),
+                order=s.get("order", 0),
+                summary=s.get("summary"),
+                tool_count=s.get("tool_count", 0),
+                files_written=s.get("files_written", []),
+                duration_ms=s.get("duration_ms", 0),
+                start_sha=s.get("start_sha"),
+                end_sha=s.get("end_sha"),
+            )
+            for s in data.get("plan_steps", [])
+        ]
+        state.activities = [
+            Activity(
+                activity_id=a["activity_id"],
+                label=a.get("label", "Working"),
+                status=a.get("status", "active"),
+            )
+            for a in data.get("activities", [])
+        ]
+        state.activity_steps = [
+            ActivityStep(
+                turn_id=s["turn_id"],
+                title=s.get("title", ""),
+                activity_id=s["activity_id"],
+            )
+            for s in data.get("activity_steps", [])
+        ]
+        return state
+
 
 # ---------------------------------------------------------------------------
 # ID generators

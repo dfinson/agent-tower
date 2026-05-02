@@ -1,4 +1,4 @@
-"""Trail enrichment drain — async batch enrichment + title recovery."""
+"""Trail enrichment drain — async batch enrichment + title recovery + motivation summarization."""
 
 from __future__ import annotations
 
@@ -14,6 +14,14 @@ from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
+from backend.services.motivation_service import (
+    _build_edit_prompt,
+    _build_user_prompt,
+    _compute_edit_key,
+    _EDIT_SYSTEM_PROMPT,
+    _SYSTEM_PROMPT,
+)
+from backend.services.parsing_utils import ensure_dict
 from backend.services.trail.models import (
     ALL_KINDS,
     SEMANTIC_KINDS,
@@ -259,8 +267,163 @@ class TrailEnricher:
 
         return processed
 
+    # ------------------------------------------------------------------
+    # §13.2: Motivation summarization (absorbed from MotivationService)
+    # ------------------------------------------------------------------
+
+    async def drain_write_summaries(self) -> int:
+        """Pass 1: Generate write_summary for write sub-nodes using parent's preceding_context."""
+        if not self._sister_sessions:
+            return 0
+
+        nodes = await self._repo.get_unsummarized_write_nodes(
+            limit=self._config.enrich_batch_size,
+        )
+        if not nodes:
+            return 0
+
+        # Pre-fetch parent modify nodes for preceding_context
+        parent_ids = {n.parent_id for n in nodes if n.parent_id}
+        parents: dict[str, TrailNodeRow] = {}
+        for pid in parent_ids:
+            parent = await self._repo.get(pid)
+            if parent:
+                parents[pid] = parent
+
+        # Pre-fetch job descriptions
+        from backend.persistence.job_repo import JobRepository
+
+        job_ids = {n.job_id for n in nodes}
+        job_descs: dict[str, str | None] = {}
+        async with self._session_factory() as session:
+            job_repo = JobRepository(session)
+            for jid in job_ids:
+                job_row = await job_repo.get(jid)
+                if job_row:
+                    desc = getattr(job_row, "description", None) or getattr(job_row, "prompt", None)
+                    job_descs[jid] = str(desc) if desc else None
+                else:
+                    job_descs[jid] = None
+
+        processed = 0
+        for node in nodes:
+            try:
+                parent = parents.get(node.parent_id) if node.parent_id else None
+                ctx = parent.preceding_context if parent else None
+                if not ctx:
+                    # No context available — mark with empty summary to avoid reprocessing
+                    await self._repo.set_write_summary(node.id, "")
+                    processed += 1
+                    continue
+
+                # Build file path from node.files
+                file_path = ""
+                if node.files:
+                    files_list = json.loads(node.files)
+                    file_path = files_list[0] if files_list else ""
+
+                prompt = _build_user_prompt(
+                    tool_name=node.tool_name or "unknown",
+                    tool_args_json=None,  # snippet is pre-extracted
+                    preceding_context=ctx,
+                    job_description=job_descs.get(node.job_id),
+                )
+                if node.snippet:
+                    prompt += f"\n\nCODE SNIPPET:\n{node.snippet}"
+                if file_path:
+                    prompt += f"\nFILE: {file_path}"
+
+                full_prompt = f"SYSTEM:\n{_SYSTEM_PROMPT}\n\nUSER:\n{prompt}"
+                result = await self._sister_sessions.complete(full_prompt)
+                summary = result if isinstance(result, str) else str(result)
+                summary = summary.strip()
+
+                await self._repo.set_write_summary(node.id, summary)
+                processed += 1
+            except (SQLAlchemyError, OSError, ValueError):
+                log.debug("write_summary_failed", node_id=node.id, exc_info=True)
+
+        return processed
+
+    async def drain_edit_motivations(self) -> int:
+        """Pass 2: Generate per-edit motivations for write sub-nodes."""
+        if not self._sister_sessions:
+            return 0
+
+        nodes = await self._repo.get_unenriched_edit_write_nodes(
+            limit=self._config.enrich_batch_size,
+        )
+        if not nodes:
+            return 0
+
+        # Pre-fetch parent modify nodes for preceding_context
+        parent_ids = {n.parent_id for n in nodes if n.parent_id}
+        parents: dict[str, TrailNodeRow] = {}
+        for pid in parent_ids:
+            parent = await self._repo.get(pid)
+            if parent:
+                parents[pid] = parent
+
+        processed = 0
+        for node in nodes:
+            try:
+                # Reconstruct parsed_args from snippet for edit_key computation
+                tool_name = node.tool_name or "unknown"
+
+                # If no snippet, mark with empty edits
+                if not node.snippet:
+                    await self._repo.set_edit_motivations(node.id, "[]")
+                    processed += 1
+                    continue
+
+                # Build a synthetic parsed_args from the snippet for edit_key
+                # The snippet is pre-formatted as "- old\n+ new" or "+ content"
+                snippet_lines = node.snippet.splitlines()
+                old_lines = [l[2:] for l in snippet_lines if l.startswith("- ")]
+                new_lines = [l[2:] for l in snippet_lines if l.startswith("+ ")]
+                parsed_args: dict[str, str] = {}
+                if old_lines or new_lines:
+                    parsed_args["old_str"] = "\n".join(old_lines)
+                    parsed_args["new_str"] = "\n".join(new_lines)
+                elif new_lines:
+                    parsed_args["file_text"] = "\n".join(new_lines)
+
+                edit_key = _compute_edit_key(tool_name, parsed_args)
+
+                # Build file path from node.files
+                file_path = ""
+                if node.files:
+                    files_list = json.loads(node.files)
+                    file_path = files_list[0] if files_list else ""
+
+                parent = parents.get(node.parent_id) if node.parent_id else None
+                ctx = parent.preceding_context if parent else None
+
+                prompt = _build_edit_prompt(
+                    tool_name=tool_name,
+                    parsed_args=parsed_args,
+                    file_path=file_path,
+                    preceding_context=ctx,
+                    file_level_summary=node.write_summary,
+                )
+                full_prompt = f"SYSTEM:\n{_EDIT_SYSTEM_PROMPT}\n\nUSER:\n{prompt}"
+                result = await self._sister_sessions.complete(full_prompt)
+                summary = result if isinstance(result, str) else str(result)
+                summary = summary.strip()
+
+                edit_entry = {"edit_key": edit_key, "summary": summary or ""}
+                await self._repo.set_edit_motivations(
+                    node.id,
+                    json.dumps([edit_entry], ensure_ascii=False),
+                )
+                processed += 1
+            except (SQLAlchemyError, OSError, ValueError):
+                log.debug("edit_motivation_failed", node_id=node.id, exc_info=True)
+
+        return processed
+
     async def drain_loop(self) -> None:
-        """Run forever, periodically processing enrichment and title recovery."""
+        """Run forever, periodically processing enrichment, titles, and motivations."""
         while True:
             try:
                 count = await self.drain_enrichment()
@@ -269,6 +432,13 @@ class TrailEnricher:
                 title_count = await self.drain_titles()
                 if title_count:
                     log.info("trail_title_recovery_batch_processed", count=title_count)
+                # §13.2: Motivation summarization
+                summary_count = await self.drain_write_summaries()
+                if summary_count:
+                    log.info("write_summary_batch_processed", count=summary_count)
+                edit_count = await self.drain_edit_motivations()
+                if edit_count:
+                    log.info("edit_motivation_batch_processed", count=edit_count)
             except Exception:  # Safety-net: drain loop must not crash
                 log.warning("trail_enrichment_drain_error", exc_info=True)
             await asyncio.sleep(self._config.enrich_interval_seconds)

@@ -53,6 +53,7 @@ class JobRow(Base):
     version: Mapped[int] = Column(Integer, nullable=False, default=1, server_default="1")
     parent_job_id: Mapped[str | None] = Column(String, ForeignKey("jobs.id"), nullable=True)
     story_text: Mapped[str | None] = Column(Text, nullable=True)
+    trail_state_snapshot: Mapped[str | None] = Column(Text, nullable=True)  # JSON
 
 
 class EventRow(Base):

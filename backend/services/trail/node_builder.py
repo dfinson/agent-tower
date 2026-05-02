@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -149,11 +148,33 @@ class TrailNodeBuilder:
             log.warning("trail_event_error", event_kind=event.kind, job_id=event.job_id, exc_info=True)
 
     async def _on_session_resumed(self, event: DomainEvent) -> None:
-        """Rehydrate trail state when a job session resumes."""
+        """Rehydrate trail state when a job session resumes.
+
+        §13.5: Try loading from persisted snapshot first (lossless).
+        Fall back to reconstruction from trail nodes (lossy).
+        """
         job_id = event.job_id
         if job_id in self._job_state:
             return
 
+        # §13.5: Try snapshot-based recovery first
+        state = await self._load_snapshot(job_id)
+        if state is not None:
+            # Ensure seq counter is at least as high as persisted nodes
+            max_seq = await self._repo.max_seq(job_id)
+            if state.next_seq <= max_seq:
+                state.next_seq = max_seq + 1
+            self._job_state[job_id] = state
+            log.info(
+                "trail_state_restored_from_snapshot",
+                job_id=job_id,
+                seq=state.next_seq,
+                plan_steps=len(state.plan_steps),
+                activities=len(state.activities),
+            )
+            return
+
+        # Lossy fallback: reconstruct from trail nodes + events
         state = TrailJobState()
 
         # Restore seq counter from persisted nodes
@@ -377,8 +398,11 @@ class TrailNodeBuilder:
             for pending_event in pending:
                 await self._emit_pending_event(pending_event, state, anchor_seq=seq)
 
-        # --- Plan classification + title + SSE (fire-and-forget) ---
-        asyncio.ensure_future(self._classify_and_emit(job_id, node_id, payload))
+        # --- Plan classification + title + SSE (awaited, §13.4) ---
+        await self._classify_and_emit(job_id, node_id, payload)
+
+        # §13.5: Periodic snapshot (every step_completed is a natural checkpoint)
+        await self._save_snapshot(job_id, state)
 
     async def _create_write_sub_nodes(
         self,
@@ -573,6 +597,12 @@ class TrailNodeBuilder:
         if not content:
             return
 
+        # §13.7: Track operator messages for activity boundary detection
+        state.recent_messages.append(f"[operator] {content}")
+        # Keep buffer bounded
+        if len(state.recent_messages) > 10:
+            state.recent_messages = state.recent_messages[-10:]
+
         node_id = make_node_id()
         seq = state.next_seq
         state.next_seq += 1
@@ -685,5 +715,44 @@ class TrailNodeBuilder:
         )
         await self._repo.create(node)
 
+        # §13.5: Save final snapshot before cleanup
+        await self._save_snapshot(job_id, state)
+
         del self._job_state[job_id]
         log.debug("trail_job_terminal", job_id=job_id, status=status)
+
+    # ------------------------------------------------------------------
+    # §13.5: Snapshot persistence
+    # ------------------------------------------------------------------
+
+    async def _save_snapshot(self, job_id: str, state: TrailJobState) -> None:
+        """Persist TrailJobState snapshot to jobs.trail_state_snapshot."""
+        try:
+            snapshot_json = json.dumps(state.to_snapshot(), ensure_ascii=False)
+            from sqlalchemy import update as sa_update
+            async with self._session_factory() as session:
+                stmt = (
+                    sa_update(JobRow)
+                    .where(JobRow.id == job_id)
+                    .values(trail_state_snapshot=snapshot_json)
+                )
+                await session.execute(stmt)
+                await session.commit()
+        except Exception:
+            log.debug("trail_snapshot_save_failed", job_id=job_id, exc_info=True)
+
+    async def _load_snapshot(self, job_id: str) -> TrailJobState | None:
+        """Load TrailJobState from persisted snapshot, if available."""
+        try:
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    sa_select(JobRow.trail_state_snapshot).where(JobRow.id == job_id)
+                )
+                raw = result.scalar_one_or_none()
+                if not raw:
+                    return None
+                data = json.loads(raw)
+                return TrailJobState.from_snapshot(data)
+        except Exception:
+            log.debug("trail_snapshot_load_failed", job_id=job_id, exc_info=True)
+            return None

@@ -886,3 +886,177 @@ class TestWriteSubNodes:
         seqs = [n.seq for n in nodes]
         assert seqs == sorted(seqs)
         assert len(set(seqs)) == len(seqs)  # all unique
+
+
+# ---------------------------------------------------------------------------
+# §13.5: TrailJobState snapshot roundtrip
+# ---------------------------------------------------------------------------
+
+
+class TestTrailJobStateSnapshot:
+    """Test serialization/deserialization of TrailJobState."""
+
+    def test_roundtrip_empty(self):
+        from backend.services.trail.models import TrailJobState
+        state = TrailJobState()
+        data = state.to_snapshot()
+        restored = TrailJobState.from_snapshot(data)
+        assert restored.next_seq == 1
+        assert restored.plan_steps == []
+        assert restored.activities == []
+
+    def test_roundtrip_with_plan_and_activities(self):
+        from backend.services.trail.models import (
+            Activity,
+            ActivityStep,
+            PlanStep,
+            TrailJobState,
+        )
+        state = TrailJobState()
+        state.next_seq = 42
+        state.active_goal_id = "g1"
+        state.current_phase = "coding"
+        state.job_prompt = "Fix the bug"
+        state.recent_messages = ["[operator] focus on backend"]
+        state.tool_call_count = 7
+        state.plan_established = True
+        state.plan_steps = [
+            PlanStep(plan_step_id="ps-1", label="Investigate", status="completed", order=0),
+            PlanStep(plan_step_id="ps-2", label="Fix", status="active", order=1),
+        ]
+        state.active_idx = 1
+        state.activities = [
+            Activity(activity_id="act-1", label="Investigating", status="done"),
+            Activity(activity_id="act-2", label="Fixing", status="active"),
+        ]
+        state.activity_steps = [
+            ActivityStep(turn_id="t1", title="Read code", activity_id="act-1"),
+            ActivityStep(turn_id="t2", title="Edit file", activity_id="act-2"),
+        ]
+        state.sister_consecutive_failures = 2
+
+        data = state.to_snapshot()
+        restored = TrailJobState.from_snapshot(data)
+
+        assert restored.next_seq == 42
+        assert restored.active_goal_id == "g1"
+        assert restored.current_phase == "coding"
+        assert restored.job_prompt == "Fix the bug"
+        assert restored.recent_messages == ["[operator] focus on backend"]
+        assert restored.tool_call_count == 7
+        assert restored.plan_established is True
+        assert len(restored.plan_steps) == 2
+        assert restored.plan_steps[1].label == "Fix"
+        assert restored.active_idx == 1
+        assert len(restored.activities) == 2
+        assert restored.activities[1].label == "Fixing"
+        assert len(restored.activity_steps) == 2
+        assert restored.sister_consecutive_failures == 2
+
+
+# ---------------------------------------------------------------------------
+# §13.7: Activity boundary signals
+# ---------------------------------------------------------------------------
+
+
+class TestActivityBoundarySignals:
+    """Test multi-signal activity boundary detection."""
+
+    def test_file_cluster_divergence(self):
+        from backend.services.trail.activity_tracker import ActivityTracker
+        assert ActivityTracker._file_clusters_diverged(
+            ["backend/a.py", "backend/b.py"],
+            ["frontend/c.tsx", "frontend/d.tsx"],
+        ) is True
+
+    def test_file_cluster_same(self):
+        from backend.services.trail.activity_tracker import ActivityTracker
+        assert ActivityTracker._file_clusters_diverged(
+            ["backend/a.py", "backend/b.py"],
+            ["backend/c.py", "backend/d.py"],
+        ) is False
+
+    def test_file_cluster_empty(self):
+        from backend.services.trail.activity_tracker import ActivityTracker
+        assert ActivityTracker._file_clusters_diverged([], ["a.py"]) is False
+        assert ActivityTracker._file_clusters_diverged(["a.py"], []) is False
+
+
+# ---------------------------------------------------------------------------
+# §13.2: Trail repo write node queries
+# ---------------------------------------------------------------------------
+
+
+class TestTrailRepoWriteNodeQueries:
+
+    @pytest.mark.asyncio
+    async def test_unsummarized_write_nodes(self, session_factory, trail_repo):
+        """Write nodes with no write_summary are returned."""
+        node = TrailNodeRow(
+            id="w1", job_id="j1", seq=1, anchor_seq=1,
+            kind="write", deterministic_kind="write",
+            timestamp=datetime.now(UTC), enrichment="complete",
+            parent_id="p1",
+        )
+        await trail_repo.create(node)
+        result = await trail_repo.get_unsummarized_write_nodes(limit=10)
+        assert len(result) == 1
+        assert result[0].id == "w1"
+
+    @pytest.mark.asyncio
+    async def test_unsummarized_write_nodes_excludes_summarized(self, session_factory, trail_repo):
+        """Write nodes with write_summary are excluded."""
+        node = TrailNodeRow(
+            id="w2", job_id="j1", seq=1, anchor_seq=1,
+            kind="write", deterministic_kind="write",
+            timestamp=datetime.now(UTC), enrichment="complete",
+            parent_id="p1", write_summary="Fixed bug",
+        )
+        await trail_repo.create(node)
+        result = await trail_repo.get_unsummarized_write_nodes(limit=10)
+        assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_unenriched_edit_write_nodes(self, session_factory, trail_repo):
+        """Write nodes with summary but no edit_motivations are returned."""
+        node = TrailNodeRow(
+            id="w3", job_id="j1", seq=1, anchor_seq=1,
+            kind="write", deterministic_kind="write",
+            timestamp=datetime.now(UTC), enrichment="complete",
+            parent_id="p1", write_summary="Fixed bug",
+        )
+        await trail_repo.create(node)
+        result = await trail_repo.get_unenriched_edit_write_nodes(limit=10)
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_set_write_summary(self, session_factory, trail_repo):
+        """set_write_summary persists correctly."""
+        node = TrailNodeRow(
+            id="w4", job_id="j1", seq=1, anchor_seq=1,
+            kind="write", deterministic_kind="write",
+            timestamp=datetime.now(UTC), enrichment="complete",
+            parent_id="p1",
+        )
+        await trail_repo.create(node)
+        await trail_repo.set_write_summary("w4", "Added feature")
+        updated = await trail_repo.get("w4")
+        assert updated is not None
+        assert updated.write_summary == "Added feature"
+
+    @pytest.mark.asyncio
+    async def test_set_edit_motivations(self, session_factory, trail_repo):
+        """set_edit_motivations persists JSON correctly."""
+        node = TrailNodeRow(
+            id="w5", job_id="j1", seq=1, anchor_seq=1,
+            kind="write", deterministic_kind="write",
+            timestamp=datetime.now(UTC), enrichment="complete",
+            parent_id="p1", write_summary="Fix",
+        )
+        await trail_repo.create(node)
+        await trail_repo.set_edit_motivations("w5", '[{"edit_key":"k1","summary":"why"}]')
+        updated = await trail_repo.get("w5")
+        assert updated is not None
+        edits = json.loads(updated.edit_motivations)
+        assert len(edits) == 1
+        assert edits[0]["edit_key"] == "k1"
