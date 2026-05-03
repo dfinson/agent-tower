@@ -12,7 +12,7 @@ interface MetadataChipStripProps {
 
 function Chip({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-muted text-muted-foreground whitespace-nowrap", className)}>
+    <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground whitespace-nowrap", className)}>
       {children}
     </span>
   );
@@ -51,7 +51,7 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
         ref={chipRef}
         type="button"
         className={cn(
-          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
+          "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap",
           "bg-emerald-500/15 text-emerald-400",
           onCostClick && "cursor-pointer hover:bg-emerald-500/25 transition-colors",
         )}

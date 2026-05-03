@@ -47,18 +47,18 @@ export function JobHeaderCard({
   const isActive = ["running", "agent_running", "queued"].includes(job.state);
 
   return (
-    <div className="shrink-0 border-b border-border bg-card">
+    <div className="shrink-0 border-b-2 border-border/60 bg-card/95">
       {/* ── Always-visible row: identity + collapsed summary ── */}
-      <div className="flex items-center gap-2 h-10 px-3">
+      <div className="flex items-center gap-2.5 h-12 px-4">
         <button onClick={onNavigateHome} className="flex items-center shrink-0 hover:opacity-80 transition-opacity">
           <img src="/mark.png" alt="" className="h-6 w-6 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
         </button>
         <span className="text-muted-foreground/40 text-sm">/</span>
         <button onClick={toggle} className="flex items-center gap-1.5 min-w-0 hover:opacity-80 transition-opacity">
           {expanded
-            ? <ChevronDown size={14} className="text-muted-foreground shrink-0" />
-            : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
-          <h1 className="text-sm font-bold text-foreground truncate">{job.title || job.id}</h1>
+            ? <ChevronDown size={16} className="text-muted-foreground shrink-0" />
+            : <ChevronRight size={16} className="text-muted-foreground shrink-0" />}
+          <h1 className="text-base font-semibold text-foreground truncate">{job.title || job.id}</h1>
         </button>
         <span aria-live="polite"><StateBadge state={job.state} /></span>
         <span className="hidden lg:inline-flex"><SdkBadge sdk={job.sdk} /></span>
@@ -94,10 +94,10 @@ export function JobHeaderCard({
 
       {/* ── Expanded card body ── */}
       {expanded && (
-        <div className="px-3 pb-2.5 space-y-2">
+        <div className="px-4 pb-3.5 space-y-2.5">
           {/* Description / prompt */}
           {(job.description || job.prompt) && (
-            <p className="text-xs text-muted-foreground line-clamp-2">{job.description ?? job.prompt}</p>
+            <p className="text-sm text-foreground/70 line-clamp-2">{job.description ?? job.prompt}</p>
           )}
 
           {/* Metadata chips */}

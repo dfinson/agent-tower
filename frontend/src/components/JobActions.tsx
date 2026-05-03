@@ -48,7 +48,7 @@ export function JobActions({
   const isBar = layout === "bar";
   const btnSize = "sm" as const;
   const iconSize = isCompact ? 13 : 14;
-  const btnClass = isCompact ? "h-7 text-xs" : isBar ? "h-8 text-xs" : "";
+  const btnClass = isCompact ? "h-7 text-xs" : isBar ? "h-9 text-sm" : "";
 
   const hasAny =
     canCancel || canResume || (needsResolution && hasChanges) ||
