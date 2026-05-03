@@ -36,11 +36,14 @@ import {
 
 function SectionGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mt-5 first:mt-0">
-      <h3 className="text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2 px-1">
-        {title}
-      </h3>
-      <div className="rounded-lg border border-border/50 bg-accent/5 p-4 space-y-4">
+    <div className="mt-6 first:mt-0">
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+          {title}
+        </h3>
+        <div className="h-px flex-1 bg-border" />
+      </div>
+      <div className="rounded-lg border border-border bg-card/50 p-4 space-y-4">
         {children}
       </div>
     </div>
@@ -231,6 +234,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
             <p className="text-sm text-muted-foreground text-center py-8">No data available yet</p>
           ) : (
             <>
+              <SectionGroup title="Overview">
               {/* Stat cards — hero numbers first */}
               {(() => {
                 const sdkConf = SDK_COST_CONFIG[data.sdk ?? ""] ?? DEFAULT_COST_CONFIG;
@@ -272,7 +276,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
               {/* Job Context — how this job compares to repo average */}
               {jobContext && (
-                <div className="rounded-md bg-accent/20 border border-border/50 p-3 space-y-2">
+                <div className="rounded-md bg-muted/30 p-3 space-y-2">
                   <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
                     <TrendingUp size={12} /> vs. Repo Average
                   </h4>
@@ -330,34 +334,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                 </div>
               )}
 
-              {/* Review complexity badge — shown next to comparison context */}
-              {(() => {
-                const rc = data.reviewComplexity;
-                if (!rc || rc.tier === "quick") return null;
-                const details = (rc as Record<string, unknown>).signalDetails as Record<string, { value: number; threshold: number }> | undefined;
-                return (
-                  <div className="rounded-md bg-accent/20 border border-border/50 p-3 space-y-1">
-                    <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                      <AlertTriangle size={12} /> Review Complexity
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
-                        rc.tier === "deep" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",
-                      )}>
-                        {rc.tier.toUpperCase()}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/60">
-                        {rc.signals.map((s: string) => {
-                          const d = details?.[s];
-                          const label = s === "many_turns" ? "turns" : s === "large_diff" ? "diff lines" : s === "many_files" ? "files" : s.replace(/_/g, " ");
-                          return d ? `${d.value} ${label} (>${d.threshold})` : s.replace(/_/g, " ");
-                        }).join(" \u00b7 ")}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
+              </SectionGroup>
 
               {/* ─── Tokens & Context ─── */}
               <SectionGroup title="Tokens & Context">
