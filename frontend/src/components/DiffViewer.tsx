@@ -713,7 +713,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
               options={{
                 readOnly: true,
                 domReadOnly: true,
-                minimap: { enabled: false },
+                minimap: { enabled: !isMobile },
                 renderSideBySide: splitView && !isMobile,
                 scrollBeyondLastLine: false,
                 fontSize: isMobile ? 12 : 13,

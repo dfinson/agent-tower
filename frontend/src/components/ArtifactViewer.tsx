@@ -134,8 +134,33 @@ const PREVIEWABLE_MIMES = new Set([
   "application/json",
 ]);
 
+const IMAGE_MIMES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "image/bmp",
+  "image/x-icon",
+  "image/avif",
+]);
+
+const VIDEO_MIMES = new Set([
+  "video/mp4",
+  "video/webm",
+  "video/ogg",
+]);
+
+const PDF_MIME = "application/pdf";
+
+function isMediaPreviewable(a: Artifact): boolean {
+  return IMAGE_MIMES.has(a.mimeType) || VIDEO_MIMES.has(a.mimeType) || a.mimeType === PDF_MIME;
+}
+
 function isPreviewable(a: Artifact): boolean {
-  return PREVIEWABLE_MIMES.has(a.mimeType) && a.sizeBytes < 512 * 1024;
+  if (PREVIEWABLE_MIMES.has(a.mimeType) && a.sizeBytes < 512 * 1024) return true;
+  if (isMediaPreviewable(a)) return true;
+  return false;
 }
 
 function isMarkdownArtifact(a: Artifact): boolean {
@@ -277,17 +302,52 @@ function ArtifactPreview({ artifact }: { artifact: Artifact }) {
 
   const isMd = isMarkdownArtifact(artifact);
   const isJson = isJsonArtifact(artifact);
+  const isMedia = isMediaPreviewable(artifact);
   const showToggle = isMd || isJson;
 
   useEffect(() => {
+    // Media files don't need text content fetching
+    if (isMedia) {
+      setLoading(false);
+      return;
+    }
     setMode("preview");
     fetchArtifactText(artifact.id)
       .then(setContent)
       .catch(() => setContent("(failed to load preview)"))
       .finally(() => setLoading(false));
-  }, [artifact.id]);
+  }, [artifact.id, isMedia]);
 
   if (loading) return <div className="py-4 flex justify-center"><Spinner /></div>;
+
+  // Media preview: images, videos, PDFs
+  if (isMedia) {
+    const url = downloadArtifactUrl(artifact.id);
+    if (IMAGE_MIMES.has(artifact.mimeType)) {
+      return (
+        <div className="max-h-96 overflow-auto bg-background/50 rounded-md border border-border/50 p-4 flex items-center justify-center">
+          <img src={url} alt={artifact.name} className="max-w-full max-h-80 object-contain rounded" />
+        </div>
+      );
+    }
+    if (VIDEO_MIMES.has(artifact.mimeType)) {
+      return (
+        <div className="max-h-96 overflow-auto bg-background/50 rounded-md border border-border/50 p-4 flex items-center justify-center">
+          <video src={url} controls className="max-w-full max-h-80 rounded">
+            Your browser does not support the video element.
+          </video>
+        </div>
+      );
+    }
+    if (artifact.mimeType === PDF_MIME) {
+      return (
+        <div className="bg-background/50 rounded-md border border-border/50 overflow-hidden">
+          <iframe src={url} title={artifact.name} className="w-full h-96 border-0" />
+        </div>
+      );
+    }
+  }
+
   if (content == null) return null;
 
   const toggleBar = showToggle && (

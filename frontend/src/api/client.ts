@@ -477,6 +477,11 @@ export function fetchWorkspaceFile(
   return request(`/jobs/${encodeURIComponent(jobId)}/workspace/file?${qs.toString()}`);
 }
 
+export function workspaceFileRawUrl(jobId: string, path: string): string {
+  const qs = new URLSearchParams({ path });
+  return `${BASE}/jobs/${encodeURIComponent(jobId)}/workspace/file/raw?${qs.toString()}`;
+}
+
 // --- Approvals ---
 
 export function fetchApprovals(jobId: string): Promise<ApprovalRequest[]> {

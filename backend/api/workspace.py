@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from backend.models.api_schemas import WorkspaceEntry, WorkspaceEntryType, WorkspaceFileResponse, WorkspaceListResponse
 from backend.services.job_service import JobService
@@ -94,3 +96,37 @@ async def get_workspace_file(
         raise HTTPException(status_code=403, detail="Cannot read file") from exc
 
     return WorkspaceFileResponse(path=path, content=content)
+
+
+@router.get("/jobs/{job_id}/workspace/file/raw", response_class=FileResponse)
+async def get_workspace_file_raw(
+    job_id: str,
+    svc: FromDishka[JobService],
+    path: str = Query(..., description="Relative path within the worktree"),
+):
+    """Serve a workspace file with its native content type (for images, PDFs, videos, etc.)."""
+    job = await svc.get_job(job_id)
+
+    worktree = Path(job.worktree_path or job.repo).resolve()
+    file_path = (worktree / path).resolve()
+
+    # Path traversal prevention
+    if not file_path.is_relative_to(worktree):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Reject files larger than 50 MB
+    max_file_size = 50 * 1024 * 1024
+    if file_path.stat().st_size > max_file_size:
+        raise HTTPException(status_code=413, detail="File too large to serve")
+
+    mime_type, _ = mimetypes.guess_type(str(file_path))
+    if mime_type is None:
+        mime_type = "application/octet-stream"
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=mime_type,
+        filename=file_path.name,
+    )

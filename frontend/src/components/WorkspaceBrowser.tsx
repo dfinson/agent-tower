@@ -5,7 +5,7 @@ import type { OnMount } from "@monaco-editor/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { fetchWorkspaceFiles, fetchWorkspaceFile } from "../api/client";
+import { fetchWorkspaceFiles, fetchWorkspaceFile, workspaceFileRawUrl } from "../api/client";
 import { useStore, selectJobDiffs } from "../store";
 import type { DiffFileModel } from "../api/types";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -176,6 +176,18 @@ function isMarkdown(path: string): boolean {
   return path.split(".").pop()?.toLowerCase() === "md";
 }
 
+type MediaType = "image" | "video" | "pdf" | null;
+
+function detectMediaType(path: string): MediaType {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  const imageExts = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
+  const videoExts = new Set(["mp4", "webm", "ogg", "mov"]);
+  if (imageExts.has(ext)) return "image";
+  if (videoExts.has(ext)) return "video";
+  if (ext === "pdf") return "pdf";
+  return null;
+}
+
 interface Props {
   jobId: string;
 }
@@ -313,6 +325,14 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   const handleSelect = useCallback(async (path: string) => {
     setSelected(path);
     setMdMode("preview");
+
+    // Media files don't need text content — they render via raw URL
+    if (detectMediaType(path)) {
+      setFileContent(null);
+      setFileLoading(false);
+      return;
+    }
+
     setFileLoading(true);
     try {
       const res = await fetchWorkspaceFile(jobId, path);
@@ -341,6 +361,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
   if (loading) return <div className="flex justify-center py-10"><Spinner /></div>;
 
   const showMdToggle = selected != null && isMarkdown(selected) && fileContent != null && !fileLoading;
+  const mediaType = selected ? detectMediaType(selected) : null;
   const mobileShowFile = isMobile && selected != null;
 
   const treePanel = (
@@ -415,6 +436,32 @@ export default function WorkspaceBrowser({ jobId }: Props) {
 
       {fileLoading ? (
         <div className="flex items-center justify-center flex-1"><Spinner /></div>
+      ) : selected && mediaType ? (
+        <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+          {mediaType === "image" && (
+            <img
+              src={workspaceFileRawUrl(jobId, selected)}
+              alt={selected.split("/").pop() ?? selected}
+              className="max-w-full max-h-full object-contain rounded"
+            />
+          )}
+          {mediaType === "video" && (
+            <video
+              src={workspaceFileRawUrl(jobId, selected)}
+              controls
+              className="max-w-full max-h-full rounded"
+            >
+              Your browser does not support the video element.
+            </video>
+          )}
+          {mediaType === "pdf" && (
+            <iframe
+              src={workspaceFileRawUrl(jobId, selected)}
+              title={selected.split("/").pop() ?? "PDF preview"}
+              className="w-full h-full border-0 rounded"
+            />
+          )}
+        </div>
       ) : selected && fileContent != null ? (
         showMdToggle && mdMode === "preview" ? (
           <div className="flex-1 overflow-y-auto p-5 prose prose-sm prose-invert max-w-none">
@@ -439,7 +486,7 @@ export default function WorkspaceBrowser({ jobId }: Props) {
                 options={{
                   readOnly: true,
                   domReadOnly: true,
-                  minimap: { enabled: false },
+                  minimap: { enabled: !isMobile },
                   scrollBeyondLastLine: false,
                   fontSize: 13,
                   lineNumbersMinChars: 3,
