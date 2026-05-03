@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileCode, MessageSquare, Send, Lock, Filter, X, Lightbulb, AlertTriangle, FolderOpen } from "lucide-react";
+import { FileCode, MessageSquare, Send, Lock, Filter, X, Lightbulb, FolderOpen } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
 import { toast } from "sonner";
 import { useStore, selectJobDiffs } from "../store";
@@ -12,7 +12,7 @@ import { cn } from "../lib/utils";
 import { MicButton } from "./VoiceButton";
 
 import { useDrag } from "../hooks/useDrag";
-import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse, TestCoModification } from "../api/types";
+import type { DiffFileModel, DiffHunkModel, FileMotivation, HunkMotivation, StepDiffResponse } from "../api/types";
 import { StoryBanner } from "./StoryBanner";
 import { BottomSheet } from "./ui/bottom-sheet";
 import { DiffViewerFileList, STATUS_ICON, STATUS_BADGE, STATUS_ICON_CLASS } from "./DiffViewerFileList";
@@ -93,11 +93,8 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   // WS2: Blast radius — context files read but not written
   const [contextFiles, setContextFiles] = useState<{ filePath: string; readCount: number }[]>([]);
 
-  // WS5: Test co-modification warnings
-  const [testCoMods, setTestCoMods] = useState<TestCoModification[]>([]);
-
   // WS6: Review complexity
-  const [reviewComplexity, setReviewComplexity] = useState<{ tier: string; signals: string[] } | null>(null);
+  const [reviewComplexity, setReviewComplexity] = useState<{ tier: string; signals: string[]; signalDetails?: Record<string, { value: number; threshold: number }> } | null>(null);
 
   // WS1: Sort by churn toggle
   const [sortByChurn, setSortByChurn] = useState(false);
@@ -155,13 +152,8 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
               .map((f) => ({ filePath: f.filePath, readCount: f.readCount })),
           );
         }
-        // WS5: Test co-modifications
-        const signals = (telem as Record<string, unknown>).reviewSignals as { testCoModifications?: TestCoModification[] } | undefined;
-        if (signals?.testCoModifications) {
-          setTestCoMods(signals.testCoModifications);
-        }
         // WS6: Review complexity
-        const complexity = (telem as Record<string, unknown>).reviewComplexity as { tier: string; signals: string[] } | undefined;
+        const complexity = (telem as Record<string, unknown>).reviewComplexity as { tier: string; signals: string[]; signalDetails?: Record<string, { value: number; threshold: number }> } | undefined;
         if (complexity) {
           setReviewComplexity(complexity);
         }
@@ -203,16 +195,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
       });
     }
   }, [selectedIdx, diffs.length]);
-
-  // Build set of test file paths for co-mod warnings
-  const testCoModPaths = useMemo(() => {
-    const paths = new Set<string>();
-    for (const m of testCoMods) {
-      for (const f of m.testFiles) paths.add(f);
-      for (const f of m.sourceFiles) paths.add(f);
-    }
-    return paths;
-  }, [testCoMods]);
 
   // Reset selection when filter changes
   useEffect(() => { setSelectedIdx(0); }, [isFiltered, stepFilter]);
@@ -647,17 +629,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
         <StoryBanner jobId={jobId} diffs={diffs} onSelectFile={setSelectedIdx} />
       )}
 
-      {/* WS5: Test co-modification warning */}
-      {testCoMods.length > 0 && !isFiltered && (
-        <div className="flex items-start gap-2 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-3 py-2">
-          <AlertTriangle size={14} className="text-yellow-400 shrink-0 mt-0.5" />
-          <div className="text-xs text-muted-foreground leading-relaxed">
-            <span className="font-medium text-yellow-400">Test co-modification detected</span>
-            <span> — {testCoMods.length} step{testCoMods.length > 1 ? "s" : ""} modified both test and source files together. Review test coverage carefully.</span>
-          </div>
-        </div>
-      )}
-
       {/* WS6: Review complexity badge */}
       {reviewComplexity && reviewComplexity.tier !== "quick" && !isFiltered && (
         <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5">
@@ -668,7 +639,11 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
             {reviewComplexity.tier === "deep" ? "Deep Review" : "Standard Review"}
           </span>
           <span className="text-[10px] text-muted-foreground/60">
-            {reviewComplexity.signals.map((s) => s.replace(/_/g, " ")).join(" · ")}
+            {reviewComplexity.signals.map((s) => {
+              const d = reviewComplexity.signalDetails?.[s];
+              const label = s === "many_turns" ? "turns" : s === "large_diff" ? "diff lines" : s === "many_files" ? "files" : s.replace(/_/g, " ");
+              return d ? `${d.value} ${label} (>${d.threshold})` : s.replace(/_/g, " ");
+            }).join(" · ")}
           </span>
         </div>
       )}
@@ -731,7 +706,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
           hunkMotivations={hunkMotivations}
           fileMotivations={fileMotivations}
           viewedFiles={viewedFiles}
-          testCoModPaths={testCoModPaths}
           contextFiles={contextFiles}
           totalAdditions={totalAdditions}
           totalDeletions={totalDeletions}

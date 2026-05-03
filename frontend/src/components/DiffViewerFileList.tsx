@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useLayoutEffect } from "react";
-import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, Check, Minus, AlertTriangle, Info, Eye, ArrowUpDown, BookOpenCheck, Lightbulb, Columns2 } from "lucide-react";
+import { type LucideIcon, FileCode, FilePlus, FileMinus, FileEdit, Check, Minus, Info, Eye, ArrowUpDown, BookOpenCheck, Lightbulb, Columns2 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Tooltip } from "./ui/tooltip";
 import type { DiffFileModel, FileMotivation, HunkMotivation } from "../api/types";
@@ -84,7 +84,6 @@ interface DiffViewerFileListProps {
   hunkMotivations: Record<string, HunkMotivation>;
   fileMotivations: Record<string, FileMotivation>;
   viewedFiles: Set<number>;
-  testCoModPaths: Set<string>;
   contextFiles: { filePath: string; readCount: number }[];
   totalAdditions: number;
   totalDeletions: number;
@@ -108,7 +107,6 @@ export function DiffViewerFileList({
   hunkMotivations,
   fileMotivations,
   viewedFiles,
-  testCoModPaths,
   contextFiles,
   totalAdditions,
   totalDeletions,
@@ -191,8 +189,6 @@ export function DiffViewerFileList({
           const filePartial = isFilePartiallyChecked(i);
           const fileMot = fileMotivations[file.path];
           const churn = file.writeCount ?? 0;
-          const isTestCoMod = testCoModPaths.has(file.path);
-          const isViewed = viewedFiles.has(i);
           return (
             <div key={i} className="flex flex-col">
               <div
@@ -201,12 +197,6 @@ export function DiffViewerFileList({
                   i === selectedIdx ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
-                {/* WS7: Unviewed indicator */}
-                {!isViewed && i !== selectedIdx ? (
-                  <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400" />
-                ) : (
-                  <span className="shrink-0 w-1.5" />
-                )}
                 {/* File checkbox — tri-state */}
                 {canAsk ? (
                   <Tooltip content="Select to ask about this file's changes">
@@ -233,12 +223,6 @@ export function DiffViewerFileList({
                   className="flex items-center gap-2 flex-1 min-w-0 text-left"
                 >
                   <Icon size={14} className={cn("shrink-0", STATUS_ICON_CLASS[file.status])} />
-                  {/* WS5: Test co-mod warning */}
-                  {isTestCoMod && (
-                    <Tooltip content="Modified alongside test files in the same step">
-                      <AlertTriangle size={11} className="shrink-0 text-yellow-400" />
-                    </Tooltip>
-                  )}
                   {fileMot && (
                     <Tooltip
                       content={
@@ -265,7 +249,7 @@ export function DiffViewerFileList({
                   <TruncatedPath path={file.path} />
                   {/* WS1: Churn badge */}
                   {churn >= 2 && (
-                    <Tooltip content={`${churn} writes${file.retryCount ? `, ${file.retryCount} retries` : ""}`}>
+                    <Tooltip content={`Edited ${churn} times${file.retryCount ? ` (${file.retryCount} retries)` : ""} — high churn may indicate the agent struggled with this file`}>
                       <span className={cn(
                         "text-[9px] font-bold rounded px-1 shrink-0",
                         churn >= 4 ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",

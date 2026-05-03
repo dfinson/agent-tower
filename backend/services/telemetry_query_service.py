@@ -160,6 +160,7 @@ class TelemetryQueryService:
 
         # Review complexity tier
         signals: list[str] = []
+        signal_details: dict[str, dict[str, int | float]] = {}
         diff_lines = int(summary.get("diff_lines_added", 0)) + int(
             summary.get("diff_lines_removed", 0)
         )
@@ -167,12 +168,13 @@ class TelemetryQueryService:
         unique_files = int(file_stats.get("unique_files", 0))
         if diff_lines > _LARGE_DIFF_LINES:
             signals.append("large_diff")
+            signal_details["large_diff"] = {"value": diff_lines, "threshold": _LARGE_DIFF_LINES}
         if total_turns > _MANY_TURNS:
             signals.append("many_turns")
+            signal_details["many_turns"] = {"value": total_turns, "threshold": _MANY_TURNS}
         if unique_files > _MANY_FILES:
             signals.append("many_files")
-        if test_co_mods:
-            signals.append("test_co_modifications")
+            signal_details["many_files"] = {"value": unique_files, "threshold": _MANY_FILES}
         tier = "quick" if not signals else ("deep" if len(signals) >= 3 else "standard")
 
         # Build quota snapshots if present
@@ -224,6 +226,7 @@ class TelemetryQueryService:
             cost_drivers=TelemetryCostDrivers(
                 activity=grouped_dimensions.get("activity", []),
                 phase=grouped_dimensions.get("phase", []),
+                activity_phase=grouped_dimensions.get("activity_phase", []),
                 edit_efficiency=grouped_dimensions.get("edit_efficiency", []),
             ),
             turn_economics=TelemetryTurnEconomics(
@@ -254,5 +257,5 @@ class TelemetryQueryService:
             ),
             quota_snapshots=quota_snapshots,
             review_signals=TelemetryReviewSignals(test_co_modifications=test_co_mods),
-            review_complexity=TelemetryReviewComplexity(tier=tier, signals=signals),
+            review_complexity=TelemetryReviewComplexity(tier=tier, signals=signals, signal_details=signal_details),
         )

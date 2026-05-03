@@ -199,6 +199,7 @@ class TelemetryCostBucket(CamelModel):
 class TelemetryCostDrivers(CamelModel):
     activity: list[TelemetryCostBucket] = []
     phase: list[TelemetryCostBucket] = []
+    activity_phase: list[TelemetryCostBucket] = []
     edit_efficiency: list[TelemetryCostBucket] = []
 
 
@@ -248,6 +249,7 @@ class TelemetryReviewSignals(CamelModel):
 class TelemetryReviewComplexity(CamelModel):
     tier: str = "quick"
     signals: list[str] = []
+    signal_details: dict[str, dict[str, int | float]] = {}
 
 
 class JobTelemetryResponse(CamelModel):

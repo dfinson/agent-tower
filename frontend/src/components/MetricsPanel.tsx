@@ -695,6 +695,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               {(() => {
                 const rc = data.reviewComplexity;
                 if (!rc || rc.tier === "quick") return null;
+                const details = (rc as Record<string, unknown>).signalDetails as Record<string, { value: number; threshold: number }> | undefined;
                 return (
                   <div className="rounded-md bg-accent/20 border border-border/50 p-3 space-y-1">
                     <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
@@ -708,7 +709,11 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                         {rc.tier.toUpperCase()}
                       </span>
                       <span className="text-[10px] text-muted-foreground/60">
-                        {rc.signals.map((s: string) => s.replace(/_/g, " ")).join(" · ")}
+                        {rc.signals.map((s: string) => {
+                          const d = details?.[s];
+                          const label = s === "many_turns" ? "turns" : s === "large_diff" ? "diff lines" : s === "many_files" ? "files" : s.replace(/_/g, " ");
+                          return d ? `${d.value} ${label} (>${d.threshold})` : s.replace(/_/g, " ");
+                        }).join(" \u00b7 ")}
                       </span>
                     </div>
                   </div>

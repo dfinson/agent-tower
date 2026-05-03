@@ -1,7 +1,5 @@
 """Action policy settings API — presets, rules, MCP configs, trust grants, export/import."""
 
-from __future__ import annotations
-
 import re
 from datetime import UTC, datetime
 from typing import Any

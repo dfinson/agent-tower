@@ -729,6 +729,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/batches/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Batch
+         * @description Resolve a pending action policy batch for a job.
+         */
+        post: operations["resolve_batch_api_jobs__job_id__batches_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/artifacts": {
         parameters: {
             query?: never;
@@ -1565,33 +1585,33 @@ export interface paths {
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        get: operations["preview_proxy_api_preview__port___path__get"];
+        get: operations["preview_proxy_api_preview__port___path__patch"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        put: operations["preview_proxy_api_preview__port___path__get"];
+        put: operations["preview_proxy_api_preview__port___path__patch"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        post: operations["preview_proxy_api_preview__port___path__get"];
+        post: operations["preview_proxy_api_preview__port___path__patch"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        delete: operations["preview_proxy_api_preview__port___path__get"];
+        delete: operations["preview_proxy_api_preview__port___path__patch"];
         options?: never;
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        head: operations["preview_proxy_api_preview__port___path__get"];
+        head: operations["preview_proxy_api_preview__port___path__patch"];
         /**
          * Preview Proxy
          * @description Reverse-proxy a request to a local development server.
          */
-        patch: operations["preview_proxy_api_preview__port___path__get"];
+        patch: operations["preview_proxy_api_preview__port___path__patch"];
         trace?: never;
     };
     "/api/jobs/{job_id}/share": {
@@ -1734,10 +1754,296 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Policy */
+        get: operations["get_policy_api_settings_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Preset */
+        put: operations["update_preset_api_settings_policy_preset_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Config */
+        put: operations["update_config_api_settings_policy_config_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/path-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Path Rules */
+        get: operations["list_path_rules_api_settings_policy_path_rules_get"];
+        put?: never;
+        /** Create Path Rule */
+        post: operations["create_path_rule_api_settings_policy_path_rules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/path-rules/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Path Rule */
+        put: operations["update_path_rule_api_settings_policy_path_rules__rule_id__put"];
+        post?: never;
+        /** Delete Path Rule */
+        delete: operations["delete_path_rule_api_settings_policy_path_rules__rule_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/action-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Action Rules */
+        get: operations["list_action_rules_api_settings_policy_action_rules_get"];
+        put?: never;
+        /** Create Action Rule */
+        post: operations["create_action_rule_api_settings_policy_action_rules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/action-rules/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Action Rule */
+        put: operations["update_action_rule_api_settings_policy_action_rules__rule_id__put"];
+        post?: never;
+        /** Delete Action Rule */
+        delete: operations["delete_action_rule_api_settings_policy_action_rules__rule_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/cost-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Cost Rules */
+        get: operations["list_cost_rules_api_settings_policy_cost_rules_get"];
+        put?: never;
+        /** Create Cost Rule */
+        post: operations["create_cost_rule_api_settings_policy_cost_rules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/cost-rules/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Cost Rule */
+        put: operations["update_cost_rule_api_settings_policy_cost_rules__rule_id__put"];
+        post?: never;
+        /** Delete Cost Rule */
+        delete: operations["delete_cost_rule_api_settings_policy_cost_rules__rule_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Mcp Servers */
+        get: operations["list_mcp_servers_api_settings_policy_mcp_servers_get"];
+        put?: never;
+        /** Create Mcp Server */
+        post: operations["create_mcp_server_api_settings_policy_mcp_servers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/mcp-servers/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Mcp Server */
+        put: operations["update_mcp_server_api_settings_policy_mcp_servers__name__put"];
+        post?: never;
+        /** Delete Mcp Server */
+        delete: operations["delete_mcp_server_api_settings_policy_mcp_servers__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/trust-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Trust Grants */
+        get: operations["list_trust_grants_api_settings_policy_trust_grants_get"];
+        put?: never;
+        /** Create Trust Grant */
+        post: operations["create_trust_grant_api_settings_policy_trust_grants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/trust-grants/{grant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Trust Grant */
+        delete: operations["delete_trust_grant_api_settings_policy_trust_grants__grant_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Policy */
+        get: operations["export_policy_api_settings_policy_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/policy/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Policy */
+        post: operations["import_policy_api_settings_policy_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionRuleRequest */
+        ActionRuleRequest: {
+            /** Matchpattern */
+            matchPattern: string;
+            /** Tier */
+            tier: string;
+            /** Reason */
+            reason: string;
+        };
+        /** ActionRuleResponse */
+        ActionRuleResponse: {
+            /** Id */
+            id: string;
+            /** Matchpattern */
+            matchPattern: string;
+            /** Tier */
+            tier: string;
+            /** Reason */
+            reason: string;
+            /** Createdat */
+            createdAt: string;
+        };
         /** AnalyticsJobsResponse */
         AnalyticsJobsResponse: {
             /** Period */
@@ -1907,6 +2213,7 @@ export interface components {
         };
         /**
          * ApprovalResolution
+         * @description Outcome of an operator's approval decision.
          * @enum {string}
          */
         ApprovalResolution: "approved" | "rejected";
@@ -2046,6 +2353,32 @@ export interface components {
             dimensions: {
                 [key: string]: components["schemas"]["CostDriverEntry"][];
             };
+        };
+        /** CostRuleRequest */
+        CostRuleRequest: {
+            /** Condition */
+            condition: string;
+            /** Promoteto */
+            promoteTo: string;
+            /** Reason */
+            reason: string;
+            /** Thresholdvalue */
+            thresholdValue?: number | null;
+        };
+        /** CostRuleResponse */
+        CostRuleResponse: {
+            /** Id */
+            id: string;
+            /** Condition */
+            condition: string;
+            /** Promoteto */
+            promoteTo: string;
+            /** Thresholdvalue */
+            thresholdValue?: number | null;
+            /** Reason */
+            reason: string;
+            /** Createdat */
+            createdAt: string;
         };
         /** CostTrendEntry */
         CostTrendEntry: {
@@ -2309,7 +2642,10 @@ export interface components {
              */
             topFiles: components["schemas"]["FileAccessEntry"][];
         };
-        /** FileAccessStats */
+        /**
+         * FileAccessStats
+         * @description File I/O statistics for a single job.
+         */
         FileAccessStats: {
             /**
              * Totalaccesses
@@ -2336,8 +2672,6 @@ export interface components {
              * @default 0
              */
             rereadCount: number;
-        } & {
-            [key: string]: unknown;
         };
         /**
          * FileMotivation
@@ -2424,6 +2758,20 @@ export interface components {
              * @default []
              */
             topFiles: components["schemas"]["FileAccessEntry"][];
+        };
+        /** FullPolicyResponse */
+        FullPolicyResponse: {
+            config: components["schemas"]["PolicyConfigResponse"];
+            /** Pathrules */
+            pathRules?: components["schemas"]["PathRuleResponse"][];
+            /** Actionrules */
+            actionRules?: components["schemas"]["ActionRuleResponse"][];
+            /** Costrules */
+            costRules?: components["schemas"]["CostRuleResponse"][];
+            /** Mcpservers */
+            mcpServers?: components["schemas"]["MCPServerResponse"][];
+            /** Trustgrants */
+            trustGrants?: components["schemas"]["TrustGrantResponse"][];
         };
         /**
          * GitMergeOutcome
@@ -2819,6 +3167,7 @@ export interface components {
              * @default {
              *       "activity": [],
              *       "phase": [],
+             *       "activityPhase": [],
              *       "editEfficiency": []
              *     }
              */
@@ -2860,7 +3209,8 @@ export interface components {
             /**
              * @default {
              *       "tier": "quick",
-             *       "signals": []
+             *       "signals": [],
+             *       "signalDetails": {}
              *     }
              */
             reviewComplexity: components["schemas"]["TelemetryReviewComplexity"];
@@ -2895,6 +3245,74 @@ export interface components {
         LogListResponse: {
             /** Items */
             items: components["schemas"]["LogLinePayload"][];
+        };
+        /** MCPServerRequest */
+        MCPServerRequest: {
+            /** Command */
+            command: string;
+            /** Args */
+            args?: string[];
+            /** Env */
+            env?: {
+                [key: string]: string;
+            };
+            /**
+             * Contained
+             * @default false
+             */
+            contained: boolean;
+            /**
+             * Reversible
+             * @default false
+             */
+            reversible: boolean;
+            /**
+             * Trusted
+             * @default false
+             */
+            trusted: boolean;
+            /** Tooloverrides */
+            toolOverrides?: {
+                [key: string]: {
+                    [key: string]: boolean;
+                };
+            };
+        };
+        /** MCPServerResponse */
+        MCPServerResponse: {
+            /** Name */
+            name: string;
+            /** Command */
+            command: string;
+            /** Args */
+            args?: string[];
+            /** Env */
+            env?: {
+                [key: string]: string;
+            };
+            /**
+             * Contained
+             * @default false
+             */
+            contained: boolean;
+            /**
+             * Reversible
+             * @default false
+             */
+            reversible: boolean;
+            /**
+             * Trusted
+             * @default false
+             */
+            trusted: boolean;
+            /** Tooloverrides */
+            toolOverrides?: {
+                [key: string]: {
+                    [key: string]: boolean;
+                };
+            };
+            /** Createdat */
+            createdAt: string;
         };
         /** ModelComparisonResponse */
         ModelComparisonResponse: {
@@ -3135,17 +3553,28 @@ export interface components {
              */
             observations: components["schemas"]["ObservationEntry"][];
         };
-        /**
-         * Preset
-         * @description Action policy preset — controls how the policy router classifies agent actions.
-         *
-         *     autonomous  — Contained actions auto-approved. Non-contained actions gated.
-         *     supervised — Reversible + contained auto-approved. Irreversible or
-         *                  non-contained actions gated.
-         *     strict     — Reversible + contained get checkpointed. Everything else gated.
-         * @enum {string}
-         */
-        Preset: "autonomous" | "supervised" | "strict";
+        /** PathRuleRequest */
+        PathRuleRequest: {
+            /** Pathpattern */
+            pathPattern: string;
+            /** Tier */
+            tier: string;
+            /** Reason */
+            reason: string;
+        };
+        /** PathRuleResponse */
+        PathRuleResponse: {
+            /** Id */
+            id: string;
+            /** Pathpattern */
+            pathPattern: string;
+            /** Tier */
+            tier: string;
+            /** Reason */
+            reason: string;
+            /** Createdat */
+            createdAt: string;
+        };
         /**
          * PlanStepPayload
          * @description SSE payload for unified plan-step updates.
@@ -3205,6 +3634,56 @@ export interface components {
             /** Error */
             error?: string | null;
         };
+        /** PolicyConfigResponse */
+        PolicyConfigResponse: {
+            /** Preset */
+            preset: string;
+            /** Batchwindowseconds */
+            batchWindowSeconds: number;
+        };
+        /** PolicyImportRequest */
+        PolicyImportRequest: {
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Pathrules */
+            pathRules?: {
+                [key: string]: unknown;
+            }[];
+            /** Actionrules */
+            actionRules?: {
+                [key: string]: unknown;
+            }[];
+            /** Costrules */
+            costRules?: {
+                [key: string]: unknown;
+            }[];
+            /** Mcpservers */
+            mcpServers?: {
+                [key: string]: unknown;
+            }[];
+            /** Trustgrants */
+            trustGrants?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
+         * Preset
+         * @description Action policy preset — controls how the policy router classifies agent actions.
+         *
+         *     autonomous — Contained actions auto-approved. Non-contained actions gated.
+         *     supervised — Reversible + contained auto-approved. Irreversible or
+         *                  non-contained actions gated.
+         *     strict     — Reversible + contained get checkpointed. Everything else gated.
+         * @enum {string}
+         */
+        Preset: "autonomous" | "supervised" | "strict";
         /** ProgressHeadlinePayload */
         ProgressHeadlinePayload: {
             /** Jobid */
@@ -3333,6 +3812,25 @@ export interface components {
         /** ResolveApprovalRequest */
         ResolveApprovalRequest: {
             resolution: components["schemas"]["ApprovalResolution"];
+        };
+        /**
+         * ResolveBatchRequest
+         * @description Resolve a pending action policy batch.
+         */
+        ResolveBatchRequest: {
+            /** Batchid */
+            batchId: string;
+            /** Resolution */
+            resolution: string;
+            /** Approvedids */
+            approvedIds?: string[] | null;
+            /** Trustgrantid */
+            trustGrantId?: string | null;
+        };
+        /** ResolveBatchResponse */
+        ResolveBatchResponse: {
+            /** Resolved */
+            resolved: boolean;
         };
         /** ResolveJobRequest */
         ResolveJobRequest: {
@@ -3803,6 +4301,11 @@ export interface components {
              */
             phase: components["schemas"]["TelemetryCostBucket"][];
             /**
+             * Activityphase
+             * @default []
+             */
+            activityPhase: components["schemas"]["TelemetryCostBucket"][];
+            /**
              * Editefficiency
              * @default []
              */
@@ -3977,6 +4480,15 @@ export interface components {
              * @default []
              */
             signals: string[];
+            /**
+             * Signaldetails
+             * @default {}
+             */
+            signalDetails: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
         };
         /** TelemetryReviewSignals */
         TelemetryReviewSignals: {
@@ -4076,6 +4588,11 @@ export interface components {
              * @default false
              */
             observer: boolean;
+        };
+        /** TerminalSessionListResponse */
+        TerminalSessionListResponse: {
+            /** Items */
+            items: components["schemas"]["TerminalSessionInfo"][];
         };
         /** TimelineListResponse */
         TimelineListResponse: {
@@ -4204,6 +4721,16 @@ export interface components {
              * @default []
              */
             tags: string[];
+            /** Tier */
+            tier?: string | null;
+            /** Reversible */
+            reversible?: boolean | null;
+            /** Contained */
+            contained?: boolean | null;
+            /** Tierreason */
+            tierReason?: string | null;
+            /** Checkpointref */
+            checkpointRef?: string | null;
             /**
              * Children
              * @default []
@@ -4383,6 +4910,54 @@ export interface components {
             /** Observationswritten */
             observationsWritten: number;
         };
+        /** TrustGrantRequest */
+        TrustGrantRequest: {
+            /** Kinds */
+            kinds: string[];
+            /** Pathpattern */
+            pathPattern?: string | null;
+            /** Excludes */
+            excludes?: string[];
+            /** Commandpattern */
+            commandPattern?: string | null;
+            /** Mcpserver */
+            mcpServer?: string | null;
+            /** Jobid */
+            jobId?: string | null;
+            /** Expiresat */
+            expiresAt?: string | null;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /** TrustGrantResponse */
+        TrustGrantResponse: {
+            /** Id */
+            id: string;
+            /** Jobid */
+            jobId?: string | null;
+            /** Kinds */
+            kinds?: string[];
+            /** Pathpattern */
+            pathPattern?: string | null;
+            /** Excludes */
+            excludes?: string[];
+            /** Commandpattern */
+            commandPattern?: string | null;
+            /** Mcpserver */
+            mcpServer?: string | null;
+            /** Expiresat */
+            expiresAt?: string | null;
+            /** Createdat */
+            createdAt: string;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
         /** TrustJobResponse */
         TrustJobResponse: {
             /** Resolved */
@@ -4455,6 +5030,18 @@ export interface components {
         UnsubscribeRequest: {
             /** Endpoint */
             endpoint: string;
+        };
+        /** UpdateConfigRequest */
+        UpdateConfigRequest: {
+            /** Preset */
+            preset?: string | null;
+            /** Batchwindowseconds */
+            batchWindowSeconds?: number | null;
+        };
+        /** UpdatePresetRequest */
+        UpdatePresetRequest: {
+            /** Preset */
+            preset: string;
         };
         /**
          * UpdateSettingsRequest
@@ -5594,6 +6181,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SendMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_batch_api_jobs__job_id__batches_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolveBatchResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6777,7 +7399,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TerminalSessionInfo"][];
+                    "application/json": components["schemas"]["TerminalSessionListResponse"];
                 };
             };
         };
@@ -6908,7 +7530,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -6938,7 +7560,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -6968,7 +7590,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -6998,7 +7620,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -7028,7 +7650,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -7058,7 +7680,7 @@ export interface operations {
             };
         };
     };
-    preview_proxy_api_preview__port___path__get: {
+    preview_proxy_api_preview__port___path__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -7294,6 +7916,749 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrailSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_policy_api_settings_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullPolicyResponse"];
+                };
+            };
+        };
+    };
+    update_preset_api_settings_policy_preset_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePresetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_config_api_settings_policy_config_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_path_rules_api_settings_policy_path_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    create_path_rule_api_settings_policy_path_rules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PathRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_path_rule_api_settings_policy_path_rules__rule_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PathRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_path_rule_api_settings_policy_path_rules__rule_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_action_rules_api_settings_policy_action_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    create_action_rule_api_settings_policy_action_rules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActionRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_action_rule_api_settings_policy_action_rules__rule_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActionRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_action_rule_api_settings_policy_action_rules__rule_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_cost_rules_api_settings_policy_cost_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    create_cost_rule_api_settings_policy_cost_rules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_cost_rule_api_settings_policy_cost_rules__rule_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_cost_rule_api_settings_policy_cost_rules__rule_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_mcp_servers_api_settings_policy_mcp_servers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    create_mcp_server_api_settings_policy_mcp_servers_post: {
+        parameters: {
+            query?: {
+                name?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_mcp_server_api_settings_policy_mcp_servers__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_mcp_server_api_settings_policy_mcp_servers__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_trust_grants_api_settings_policy_trust_grants_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+    };
+    create_trust_grant_api_settings_policy_trust_grants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrustGrantRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_trust_grant_api_settings_policy_trust_grants__grant_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_policy_api_settings_policy_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    import_policy_api_settings_policy_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
             /** @description Validation Error */
