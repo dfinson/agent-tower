@@ -96,7 +96,7 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
             )}
             {job.totalTokens != null && job.inputTokens != null && job.outputTokens != null && (job.totalTokens - job.inputTokens - job.outputTokens) > 0 && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Cache read</span>
+                <span className="text-muted-foreground" title="Tokens served from prompt cache — reused context billed at a reduced rate">Cache read ⓘ</span>
                 <span>{formatTokens(job.totalTokens - job.inputTokens - job.outputTokens)}</span>
               </div>
             )}

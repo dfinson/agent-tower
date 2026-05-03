@@ -341,10 +341,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                     <p className="text-sm font-bold tabular-nums">{formatTokens(data.inputTokens ?? 0)}</p>
                     <p className="text-muted-foreground">Input</p>
                   </div>
-                  <div>
-                    <p className="text-sm font-bold tabular-nums">{formatTokens(data.cacheReadTokens ?? 0)}</p>
-                    <p className="text-muted-foreground">Cache</p>
-                  </div>
+                  <Tooltip content="Tokens served from prompt cache — reused context the model didn't re-read, billed at a reduced rate">
+                    <div className="cursor-help">
+                      <p className="text-sm font-bold tabular-nums">{formatTokens(data.cacheReadTokens ?? 0)}</p>
+                      <p className="text-muted-foreground">Cache</p>
+                    </div>
+                  </Tooltip>
                   <div>
                     <p className="text-sm font-bold tabular-nums">{formatTokens(data.outputTokens ?? 0)}</p>
                     <p className="text-muted-foreground">Output</p>

@@ -65,6 +65,8 @@ export interface CostDriverBucket {
   inputTokens: number;
   outputTokens: number;
   callCount: number;
+  activity?: string;
+  tools?: string[];
 }
 
 export interface CostDriversData {
