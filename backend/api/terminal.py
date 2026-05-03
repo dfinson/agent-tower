@@ -39,7 +39,7 @@ def _require_svc(svc: TerminalService | None) -> TerminalService:
 
 
 @router.post("/terminal/sessions", response_model=CreateTerminalSessionResponse, status_code=201)
-def create_session(
+async def create_session(
     req: CreateTerminalSessionRequest,
     svc: FromDishka[TerminalService],
 ) -> CreateTerminalSessionResponse:
