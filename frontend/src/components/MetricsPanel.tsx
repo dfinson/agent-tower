@@ -515,7 +515,9 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                     : <ChevronRight size={10} className="shrink-0 text-muted-foreground" />
                                   }
                                   <div>
-                                    <div className="truncate text-foreground">{formatActivityBucket(bucket.bucket)}</div>
+                                    <Tooltip content={ACTIVITY_DESCRIPTIONS[bucket.bucket] ?? bucket.bucket}>
+                                      <div className="truncate text-foreground cursor-help border-b border-dotted border-muted-foreground/30">{formatActivityBucket(bucket.bucket)}</div>
+                                    </Tooltip>
                                     <div className="text-muted-foreground">{bucket.callCount} turn{bucket.callCount !== 1 ? "s" : ""} · {pctLabel} of total</div>
                                   </div>
                                 </div>
@@ -544,6 +546,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                               {/* Expanded detail */}
                               {isExpanded && (
                                 <div className="ml-4 space-y-2 pb-1 border-l border-border/50 pl-3">
+                                  {/* Description */}
+                                  {ACTIVITY_DESCRIPTIONS[bucket.bucket] && (
+                                    <div className="text-[10px] text-muted-foreground/80 italic">
+                                      {ACTIVITY_DESCRIPTIONS[bucket.bucket]}
+                                    </div>
+                                  )}
                                   {/* Per-activity token & cost summary */}
                                   <div className="grid grid-cols-3 gap-1 text-[10px] text-muted-foreground">
                                     <div>
@@ -559,6 +567,44 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                       <div className="tabular-nums">{formatUsd(costPerTurn)}</div>
                                     </div>
                                   </div>
+                                  {/* Actual tools used in this category */}
+                                  {(() => {
+                                    const tools = toolsByActivity[bucket.bucket];
+                                    const examples = ACTIVITY_TOOL_EXAMPLES[bucket.bucket];
+                                    if (tools && tools.length > 0) {
+                                      return (
+                                        <div className="space-y-1">
+                                          <div className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">Tools used</div>
+                                          <div className="flex flex-wrap gap-1">
+                                            {tools.slice(0, 8).map((t) => (
+                                              <span key={t.name} className="inline-flex items-center gap-1 rounded bg-accent/40 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
+                                                {t.name}
+                                                <span className="text-muted-foreground/50">×{t.count}</span>
+                                              </span>
+                                            ))}
+                                            {tools.length > 8 && (
+                                              <span className="text-[10px] text-muted-foreground/50">+{tools.length - 8} more</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    if (examples && examples.length > 0) {
+                                      return (
+                                        <div className="space-y-1">
+                                          <div className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">Typical tools</div>
+                                          <div className="flex flex-wrap gap-1">
+                                            {examples.map((name) => (
+                                              <span key={name} className="inline-flex items-center rounded bg-accent/20 px-1.5 py-0.5 text-[10px] text-muted-foreground/60 font-mono">
+                                                {name}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                   {/* Phase rows */}
                                   {phases.length > 0 && (
                                     <div className="space-y-1.5">
