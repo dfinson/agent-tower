@@ -459,14 +459,14 @@ export default function WorkspaceBrowser({ jobId }: Props) {
 
   if (isMobile) {
     return (
-      <div className="flex flex-col h-[calc(100vh-14rem)] md:h-[60vh] min-h-[300px]">
+      <div className="flex flex-col h-[calc(100dvh-14rem)] min-h-[300px]">
         {mobileShowFile ? filePanel : treePanel}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-row gap-3 h-[calc(100vh-14rem)] md:h-[60vh] min-h-[300px] max-h-[600px]">
+    <div className="flex flex-row gap-3 h-full min-h-0">
       {treePanel}
       {filePanel}
     </div>

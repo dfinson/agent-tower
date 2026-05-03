@@ -560,7 +560,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 md:h-full md:min-h-0">
       {/* Step filter banner */}
       {stepFilter && (
         <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
