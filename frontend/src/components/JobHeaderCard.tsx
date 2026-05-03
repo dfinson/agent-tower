@@ -11,6 +11,18 @@ import { NavMenuSlideout } from "./NavMenuSlideout";
 /** States where the card should default to expanded (user needs context/actions). */
 const EXPAND_STATES = new Set(["review", "failed", "canceled", "completed"]);
 
+/** Top accent color keyed by job state. */
+const ACCENT: Record<string, string> = {
+  preparing: "border-t-violet-500/60",
+  queued: "border-t-yellow-500/60",
+  running: "border-t-blue-500/60",
+  waiting_for_approval: "border-t-orange-500/60",
+  review: "border-t-cyan-500/60",
+  completed: "border-t-green-500/60",
+  failed: "border-t-red-500/60",
+  canceled: "border-t-gray-500/40",
+};
+
 interface JobHeaderCardProps {
   job: JobSummary;
   isPreparing: boolean;
@@ -32,7 +44,6 @@ export function JobHeaderCard({
   const [expanded, setExpanded] = useState(shouldAutoExpand);
   const [userOverride, setUserOverride] = useState(false);
 
-  // Auto-expand/collapse on state change unless user manually toggled
   useEffect(() => {
     if (!userOverride) {
       setExpanded(EXPAND_STATES.has(job.state));
@@ -45,79 +56,73 @@ export function JobHeaderCard({
   };
 
   const isActive = ["running", "agent_running", "queued"].includes(job.state);
+  const accent = ACCENT[job.state] ?? "border-t-gray-500/40";
 
   return (
-    <div className="shrink-0 border-b-2 border-border/60 bg-card/95">
-      {/* ── Always-visible row: identity + collapsed summary ── */}
-      <div className="flex items-center gap-2.5 h-12 px-4">
-        <button onClick={onNavigateHome} className="flex items-center shrink-0 hover:opacity-80 transition-opacity">
-          <img src="/mark.png" alt="" className="h-6 w-6 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
+    <div className={`shrink-0 border-t-2 ${accent} border-b border-border/50 bg-card shadow-sm`}>
+      {/* ── Row 1: identity bar ── */}
+      <div className="flex items-center gap-3 px-4 pt-3 pb-1.5">
+        <button onClick={onNavigateHome} className="shrink-0 hover:opacity-80 transition-opacity" aria-label="Back to dashboard">
+          <img src="/mark.png" alt="" className="h-7 w-7 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
         </button>
-        <span className="text-muted-foreground/40 text-sm">/</span>
-        <button onClick={toggle} className="flex items-center gap-1.5 min-w-0 hover:opacity-80 transition-opacity">
-          {expanded
-            ? <ChevronDown size={16} className="text-muted-foreground shrink-0" />
-            : <ChevronRight size={16} className="text-muted-foreground shrink-0" />}
-          <h1 className="text-base font-semibold text-foreground truncate">{job.title || job.id}</h1>
-        </button>
-        <span aria-live="polite"><StateBadge state={job.state} /></span>
-        <span className="hidden lg:inline-flex"><SdkBadge sdk={job.sdk} /></span>
 
-        {/* Collapsed inline hints — visible only when card body is hidden */}
+        <button onClick={toggle} className="flex items-center gap-2 min-w-0 group">
+          {expanded
+            ? <ChevronDown size={16} className="text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
+            : <ChevronRight size={16} className="text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />}
+          <h1 className="text-base sm:text-lg font-semibold text-foreground truncate">{job.title || job.id}</h1>
+        </button>
+
+        <span aria-live="polite"><StateBadge state={job.state} /></span>
+        <span className="hidden md:inline-flex"><SdkBadge sdk={job.sdk} /></span>
+
+        {/* Collapsed inline context */}
         {!expanded && (
-          <>
-            {job.progressHeadline && isActive && (
-              <span className="text-xs italic text-primary/70 truncate min-w-0">
-                {job.progressHeadline}
-              </span>
-            )}
-            {isPreparing && (
-              <span className="text-xs text-violet-400 animate-pulse inline-flex items-center gap-1 shrink-0">
-                <Loader2 size={12} className="animate-spin" />
-                {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
-              </span>
-            )}
-            {!isActive && !isPreparing && job.branch && (
-              <span className="text-xs text-muted-foreground truncate min-w-0">
-                {job.branch} → {job.baseRef}
-              </span>
-            )}
-          </>
+          <span className="hidden sm:inline text-xs text-muted-foreground/70 truncate min-w-0">
+            {job.progressHeadline && isActive
+              ? job.progressHeadline
+              : isPreparing
+                ? (job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…")
+                : job.branch
+                  ? `${job.branch} → ${job.baseRef}`
+                  : null}
+          </span>
         )}
 
-        <div className="flex-1 min-w-0" />
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex-1" />
+        <div className="flex items-center gap-1.5 shrink-0">
           <ConnectionStatusIndicator />
           <NavMenuSlideout />
         </div>
       </div>
 
-      {/* ── Expanded card body ── */}
+      {/* ── Expanded body ── */}
       {expanded && (
-        <div className="px-4 pb-3.5 space-y-2.5">
-          {/* Description / prompt */}
+        <div className="px-4 pb-3 space-y-2.5">
+          {/* Description */}
           {(job.description || job.prompt) && (
-            <p className="text-sm text-foreground/70 line-clamp-2">{job.description ?? job.prompt}</p>
+            <p className="text-sm text-foreground/60 line-clamp-2 pl-10">{job.description ?? job.prompt}</p>
           )}
 
-          {/* Metadata chips */}
-          <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
-
-          {/* Current step / progress */}
+          {/* Progress indicator */}
           {job.progressHeadline && isActive && (
-            <p className="text-xs italic text-primary/70 truncate">
+            <p className="text-xs italic text-primary/70 truncate pl-10">
               ● {job.progressHeadline}
             </p>
           )}
           {isPreparing && (
-            <p className="text-xs text-violet-400 animate-pulse flex items-center gap-1">
+            <p className="text-xs text-violet-400 animate-pulse flex items-center gap-1 pl-10">
               <Loader2 size={12} className="animate-spin" />
               {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
             </p>
           )}
 
-          {/* Actions — inline with the rest of the card */}
-          <JobActions {...actionProps} layout="bar" />
+          {/* Metadata + Actions on the same row */}
+          <div className="flex flex-wrap items-center gap-2 pl-10">
+            <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
+            <div className="flex-1" />
+            <JobActions {...actionProps} layout="bar" />
+          </div>
         </div>
       )}
     </div>

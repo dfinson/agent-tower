@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { useNavigate } from "react-router-dom";
-import { GitBranch, AlertTriangle, XCircle, ArrowDownCircle, FolderGit2, CheckCircle2 } from "lucide-react";
+import { GitBranch, AlertTriangle, XCircle, ArrowDownCircle, FolderGit2, CheckCircle2, Coins } from "lucide-react";
 import { useStore, selectJobTranscript } from "../store";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
@@ -137,10 +137,27 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
         </div>
       )}
 
-      <div className="text-xs text-muted-foreground">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>{elapsed(job.createdAt)}</span>
+        {job.totalCostUsd != null && job.totalCostUsd > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 font-medium">
+            <Coins size={10} />
+            {formatCostCompact(job.totalCostUsd, job.totalTokens)}
+          </span>
+        )}
       </div>
 
     </button>
   );
 });
+
+function formatCostCompact(costUsd: number, tokens?: number | null): string {
+  const cost = costUsd < 0.01 ? `$${costUsd.toFixed(4)}` : `$${costUsd.toFixed(2)}`;
+  if (tokens == null || tokens === 0) return cost;
+  const tok = tokens >= 1_000_000
+    ? `${(tokens / 1_000_000).toFixed(1)}M`
+    : tokens >= 1_000
+      ? `${(tokens / 1_000).toFixed(0)}k`
+      : `${tokens}`;
+  return `${cost} · ${tok} tok`;
+}
