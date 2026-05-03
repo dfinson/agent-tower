@@ -31,6 +31,21 @@ import {
 } from "./MetricsPanelSections";
 
 // ---------------------------------------------------------------------------
+// Section divider — separates logical groups with a labeled horizontal rule
+// ---------------------------------------------------------------------------
+
+function SectionDivider({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest whitespace-nowrap">
+        {title}
+      </span>
+      <div className="h-px flex-1 bg-border/40" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component — single flat view, no tabs
 // ---------------------------------------------------------------------------
 
@@ -207,7 +222,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
   return (
     <div className="md:h-full overflow-y-auto">
-      <div className="space-y-4 p-4">
+      <div className="space-y-3 p-4">
           {loading ? (
             <div className="flex justify-center py-8"><Spinner size="sm" /></div>
           ) : !data?.available ? (
@@ -313,11 +328,38 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                 </div>
               )}
 
-              {/* Token breakdown */}
-              <div>
-                <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-2">
-                  <Cpu size={12} className="text-violet-400" /> Token Breakdown
-                </h4>
+              {/* Review complexity badge — shown next to comparison context */}
+              {(() => {
+                const rc = data.reviewComplexity;
+                if (!rc || rc.tier === "quick") return null;
+                const details = (rc as Record<string, unknown>).signalDetails as Record<string, { value: number; threshold: number }> | undefined;
+                return (
+                  <div className="rounded-md bg-accent/20 border border-border/50 p-3 space-y-1">
+                    <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <AlertTriangle size={12} /> Review Complexity
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                        rc.tier === "deep" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",
+                      )}>
+                        {rc.tier.toUpperCase()}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        {rc.signals.map((s: string) => {
+                          const d = details?.[s];
+                          const label = s === "many_turns" ? "turns" : s === "large_diff" ? "diff lines" : s === "many_files" ? "files" : s.replace(/_/g, " ");
+                          return d ? `${d.value} ${label} (>${d.threshold})` : s.replace(/_/g, " ");
+                        }).join(" \u00b7 ")}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ─── Tokens & Context ─── */}
+              <SectionDivider title="Tokens & Context" />
+              <div className="rounded-lg border border-border/60 p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-2 text-center text-xs">
                   <div>
                     <p className="text-sm font-bold tabular-nums">{formatTokens(data.inputTokens ?? 0)}</p>
@@ -328,31 +370,31 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                     <p className="text-muted-foreground">Output</p>
                   </div>
                 </div>
+
+                {data.contextWindowSize ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-muted-foreground">Context Window</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {formatTokens(data.currentContextTokens ?? 0)} / {formatTokens(data.contextWindowSize)}
+                      </span>
+                    </div>
+                    <Progress
+                      value={Math.min(100, (data.contextUtilization ?? 0) * 100)}
+                      color={(data.contextUtilization ?? 0) > 0.8 ? "red" : "blue"}
+                    />
+                    {(data.compactions ?? 0) > 0 && (
+                      <p className="text-xs text-yellow-400 mt-1.5 flex items-center gap-1">
+                        <ArrowDownUp size={10} />
+                        {data.compactions} compaction{data.compactions !== 1 ? "s" : ""} ({formatTokens(data.tokensCompacted ?? 0)} removed)
+                      </p>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
-              {/* Context window */}
-              {data.contextWindowSize ? (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-xs font-semibold text-muted-foreground">Context Window</h4>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatTokens(data.currentContextTokens ?? 0)} / {formatTokens(data.contextWindowSize)}
-                    </span>
-                  </div>
-                  <Progress
-                    value={Math.min(100, (data.contextUtilization ?? 0) * 100)}
-                    color={(data.contextUtilization ?? 0) > 0.8 ? "red" : "blue"}
-                  />
-                  {(data.compactions ?? 0) > 0 && (
-                    <p className="text-xs text-yellow-400 mt-1.5 flex items-center gap-1">
-                      <ArrowDownUp size={10} />
-                      {data.compactions} compaction{data.compactions !== 1 ? "s" : ""} ({formatTokens(data.tokensCompacted ?? 0)} removed)
-                    </p>
-                  )}
-                </div>
-              ) : null}
-
-              {/* Cost / quota — shown for copilot and claude sdk jobs */}
+              {/* ─── Cost & Efficiency ─── */}
+              <SectionDivider title="Cost & Efficiency" />
               <CostSection data={data} />
 
               {/* Integrated economics / efficiency */}
@@ -572,11 +614,13 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                 </div>
               ) : null}
 
-              {/* Session summary — only shown when summaries exist */}
+              {/* ─── Summary ─── */}
               {checkpoints.length > 0 && (
               <div>
+                <SectionDivider title="Summary" />
+                <div className="mt-4">
                 <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-3">
-                  <BookOpen size={12} className="text-blue-400" /> Summary
+                  <BookOpen size={12} className="text-blue-400" /> Session Timeline
                 </h4>
                   <div className="relative pl-5">
                     {/* Vertical rail */}
@@ -640,8 +684,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                       })}
                     </div>
                   </div>
+                </div>
               </div>
               )}
+
+              {/* ─── Breakdowns ─── */}
+              <SectionDivider title="Breakdowns" />
 
               {/* Tool breakdown table */}
               {toolAggs.length > 0 && (
@@ -798,35 +846,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               {data.fileAccess && data.fileAccess.stats.totalAccesses > 0 && (
                 <FileAccessSection fileAccess={data.fileAccess} />
               )}
-
-              {/* WS6: Review complexity badge */}
-              {(() => {
-                const rc = data.reviewComplexity;
-                if (!rc || rc.tier === "quick") return null;
-                const details = (rc as Record<string, unknown>).signalDetails as Record<string, { value: number; threshold: number }> | undefined;
-                return (
-                  <div className="rounded-md bg-accent/20 border border-border/50 p-3 space-y-1">
-                    <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                      <AlertTriangle size={12} /> Review Complexity
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
-                        rc.tier === "deep" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",
-                      )}>
-                        {rc.tier.toUpperCase()}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/60">
-                        {rc.signals.map((s: string) => {
-                          const d = details?.[s];
-                          const label = s === "many_turns" ? "turns" : s === "large_diff" ? "diff lines" : s === "many_files" ? "files" : s.replace(/_/g, " ");
-                          return d ? `${d.value} ${label} (>${d.threshold})` : s.replace(/_/g, " ");
-                        }).join(" \u00b7 ")}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
 
               {/* Sister session (utility LLM) metrics for this job */}
               <SisterSessionJobMetrics jobId={jobId} />

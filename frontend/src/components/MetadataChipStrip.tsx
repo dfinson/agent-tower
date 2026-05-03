@@ -46,7 +46,11 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
   const label = formatCostChip(costUsd, job.totalTokens);
 
   return (
-    <span className="relative">
+    <span
+      className="relative"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
       <button
         ref={chipRef}
         type="button"
@@ -55,8 +59,6 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
           "bg-emerald-500/15 text-emerald-400",
           onCostClick && "cursor-pointer hover:bg-emerald-500/25 transition-colors",
         )}
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
         onClick={onCostClick}
         aria-label="View cost breakdown"
       >
