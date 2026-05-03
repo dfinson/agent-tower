@@ -545,6 +545,12 @@ export function JobDetailScreen() {
 
       {/* ── Mobile metadata summary line (< 768px) ── */}
       <div className="flex md:hidden items-center gap-1.5 px-2 py-1 border-b border-border bg-card/80 overflow-x-auto scrollbar-none">
+        {(job.description || job.prompt) && (
+          <span className="text-[11px] text-muted-foreground truncate shrink min-w-0 max-w-[50%]">
+            {job.description ?? job.prompt}
+          </span>
+        )}
+        {(job.description || job.prompt) && <span className="text-muted-foreground/30">·</span>}
         <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => handleTabChange("metrics")} />
       </div>
 
@@ -558,10 +564,10 @@ export function JobDetailScreen() {
         <span aria-live="polite"><StateBadge state={job.state} /></span>
         <span className="hidden lg:inline-flex"><SdkBadge sdk={job.sdk} /></span>
         {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
-          <span className="text-xs italic text-primary/70 truncate hidden xl:inline">{job.progressHeadline}</span>
+          <span className="text-xs italic text-primary/70 truncate min-w-0">{job.progressHeadline}</span>
         )}
         {isPreparing && (
-          <span className="text-xs text-violet-400 animate-pulse hidden lg:inline-flex items-center gap-1">
+          <span className="text-xs text-violet-400 animate-pulse inline-flex items-center gap-1">
             <Loader2 size={12} className="animate-spin" />
             {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
           </span>
@@ -573,9 +579,15 @@ export function JobDetailScreen() {
         </div>
       </div>
 
-      {/* ── Desktop: Row 2 — metadata chips ── */}
-      <div className="hidden md:flex items-center px-3 h-8 border-b border-border bg-card/80 shrink-0">
-        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => handleTabChange("metrics")} />
+      {/* ── Desktop: Row 2 — task summary + metadata chips ── */}
+      <div className="hidden md:flex items-center gap-2 px-3 min-h-[2rem] py-1 border-b border-border bg-card/80 shrink-0 overflow-hidden">
+        {(job.description || job.prompt) && (
+          <span className="text-xs text-muted-foreground truncate shrink min-w-0 max-w-[40%]" title={job.description ?? job.prompt ?? ""}>
+            {job.description ?? job.prompt}
+          </span>
+        )}
+        {(job.description || job.prompt) && <div className="w-px h-3.5 bg-border shrink-0" />}
+        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => handleTabChange("metrics")} className="shrink-0" />
       </div>
 
       {/* ── Desktop: Row 3 — view tabs ── */}
