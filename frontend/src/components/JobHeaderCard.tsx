@@ -132,7 +132,7 @@ export function JobHeaderCard({
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* Desktop (>= md): inline collapsible card                         */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      <div className={`hidden md:block shrink-0 border-t-[3px] ${accent} border-b border-border bg-card/95 backdrop-blur-sm shadow-md`}>
+      <div className={`hidden md:block shrink-0 rounded-t-lg border-t-[3px] ${accent} border-b border-border bg-card/95 backdrop-blur-sm shadow-md`}>
         {/* ── Row 1: identity bar ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-1.5">
           <button onClick={onNavigateHome} className="shrink-0 hover:opacity-80 transition-opacity" aria-label="Back to dashboard">
