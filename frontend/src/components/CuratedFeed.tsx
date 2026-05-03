@@ -844,7 +844,10 @@ export function CuratedFeed({
                   isActiveMatch && "animate-glow-flicker",
                   isNew && !isActiveMatch && "animate-feed-enter",
                 )}
-                onAnimationEnd={isLastInRange ? () => setHighlightRange(null) : undefined}
+                onAnimationEnd={isLastInRange ? () => {
+                  hydratedCountRef.current = Math.max(hydratedCountRef.current, highlightRange.end + 1);
+                  setHighlightRange(null);
+                } : undefined}
                 style={{
                   position: "absolute",
                   top: 0,
