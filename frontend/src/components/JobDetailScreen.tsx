@@ -561,7 +561,7 @@ export function JobDetailScreen() {
         <CompleteJobDialog job={job} open onClose={() => setCompleteOpen(false)} onArchived={() => navigate("/")} />
       )}
 
-      {/* Tab content — sidebar + content panel, sidebar visible for all tabs */}
+      {/* Tab content — activity sidebar is scoped to Live tab only */}
       <div
         className={cn(
           "min-h-0 pb-[52px] md:pb-0 md:flex-1 md:flex md:overflow-hidden md:mt-2 md:mx-3 md:gap-3",
@@ -572,24 +572,22 @@ export function JobDetailScreen() {
         onTouchEnd={onSwipeTouchEnd}
         onAnimationEnd={() => setSlideDir(null)}
       >
-        {/* ── Activity panel — just the timeline ── */}
-        <ActivityPanel
-          jobId={jobId}
-          jobState={job.state}
-          selectedTurnId={selectedTurnId}
-          searchActive={searchActive}
-          visibleStepTurnId={visibleStepTurnId}
-          onStepClick={(turnId) => {
-            setScrollToTurnId(turnId);
-            setSelectedTurnId(turnId);
-            if (tab !== "live") handleTabChange("live");
-          }}
-        />
-
         {/* ── Content panel ── */}
         <div className="flex-1 min-w-0 md:flex md:flex-col md:overflow-hidden">
       {tab === "live" && (
         <div className="flex flex-row relative md:h-full md:min-h-0">
+          {/* ── Activity panel — part of the Live view ── */}
+          <ActivityPanel
+            jobId={jobId}
+            jobState={job.state}
+            selectedTurnId={selectedTurnId}
+            searchActive={searchActive}
+            visibleStepTurnId={visibleStepTurnId}
+            onStepClick={(turnId) => {
+              setScrollToTurnId(turnId);
+              setSelectedTurnId(turnId);
+            }}
+          />
           {/* Activity overlay — slides in from left (mobile only) */}
           {mobileActivityOpen && (
             <div className="md:hidden absolute inset-0 z-30 flex">
