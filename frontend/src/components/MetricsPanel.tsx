@@ -189,14 +189,14 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
   // Build phase breakdown per activity from activity_phase compound buckets
   const phasesByActivity = useMemo(() => {
-    const map: Record<string, { phase: string; costUsd: number; callCount: number }[]> = {};
+    const map: Record<string, { phase: string; costUsd: number; callCount: number; inputTokens: number; outputTokens: number }[]> = {};
     for (const b of activityPhaseBuckets) {
       const sep = b.bucket.lastIndexOf(":");
       if (sep < 0) continue;
       const activity = b.bucket.slice(0, sep);
       const phase = b.bucket.slice(sep + 1);
       if (!map[activity]) map[activity] = [];
-      map[activity].push({ phase, costUsd: b.costUsd, callCount: b.callCount });
+      map[activity].push({ phase, costUsd: b.costUsd, callCount: b.callCount, inputTokens: b.inputTokens, outputTokens: b.outputTokens });
     }
     // Sort phases within each activity by cost descending
     for (const phases of Object.values(map)) {
@@ -452,9 +452,10 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                         .map((bucket) => {
                           const total = activityBuckets.reduce((sum, entry) => sum + entry.costUsd, 0);
                           const widthPct = total > 0 ? (bucket.costUsd / total) * 100 : 0;
+                          const pctLabel = total > 0 ? `${(widthPct).toFixed(0)}%` : "0%";
+                          const costPerTurn = bucket.callCount > 0 ? bucket.costUsd / bucket.callCount : 0;
                           const phases = phasesByActivity[bucket.bucket] ?? [];
                           const isExpanded = expandedActivities.has(bucket.bucket);
-                          const hasPhases = phases.length > 0;
                           const toggleExpand = () => {
                             setExpandedActivities((prev) => {
                               const next = new Set(prev);
@@ -468,19 +469,18 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                               <div
                                 className={cn(
                                   "flex items-center justify-between gap-2 text-xs",
-                                  hasPhases && "cursor-pointer hover:bg-accent/30 rounded -mx-1 px-1",
+                                  "cursor-pointer hover:bg-accent/30 rounded -mx-1 px-1",
                                 )}
-                                onClick={hasPhases ? toggleExpand : undefined}
+                                onClick={toggleExpand}
                               >
                                 <div className="min-w-0 flex items-center gap-1">
-                                  {hasPhases && (
-                                    isExpanded
-                                      ? <ChevronDown size={10} className="shrink-0 text-muted-foreground" />
-                                      : <ChevronRight size={10} className="shrink-0 text-muted-foreground" />
-                                  )}
+                                  {isExpanded
+                                    ? <ChevronDown size={10} className="shrink-0 text-muted-foreground" />
+                                    : <ChevronRight size={10} className="shrink-0 text-muted-foreground" />
+                                  }
                                   <div>
                                     <div className="truncate text-foreground">{formatActivityBucket(bucket.bucket)}</div>
-                                    <div className="text-muted-foreground">{bucket.callCount} turn{bucket.callCount !== 1 ? "s" : ""}</div>
+                                    <div className="text-muted-foreground">{bucket.callCount} turn{bucket.callCount !== 1 ? "s" : ""} · {pctLabel} of total</div>
                                   </div>
                                 </div>
                                 <div className="text-right tabular-nums shrink-0">
@@ -505,18 +505,49 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                   <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
                                 </div>
                               )}
-                              {/* Expanded phase detail */}
-                              {isExpanded && phases.length > 0 && (
-                                <div className="ml-4 space-y-1 pb-1">
-                                  {phases.map((p) => (
-                                    <div key={p.phase} className="flex items-center justify-between text-xs text-muted-foreground">
-                                      <div className="flex items-center gap-1.5">
-                                        <div className={cn("w-2 h-2 rounded-full shrink-0", phaseColor(p.phase))} />
-                                        <span>{phaseShortLabel(p.phase)}</span>
-                                      </div>
-                                      <span className="tabular-nums">{formatUsd(p.costUsd)} · {p.callCount} turn{p.callCount !== 1 ? "s" : ""}</span>
+                              {/* Expanded detail */}
+                              {isExpanded && (
+                                <div className="ml-4 space-y-2 pb-1 border-l border-border/50 pl-3">
+                                  {/* Per-activity token & cost summary */}
+                                  <div className="grid grid-cols-3 gap-1 text-[10px] text-muted-foreground">
+                                    <div>
+                                      <div className="text-muted-foreground/60">Input</div>
+                                      <div className="tabular-nums">{formatTokens(bucket.inputTokens)}</div>
                                     </div>
-                                  ))}
+                                    <div>
+                                      <div className="text-muted-foreground/60">Output</div>
+                                      <div className="tabular-nums">{formatTokens(bucket.outputTokens)}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-muted-foreground/60">Cost/turn</div>
+                                      <div className="tabular-nums">{formatUsd(costPerTurn)}</div>
+                                    </div>
+                                  </div>
+                                  {/* Phase rows */}
+                                  {phases.length > 0 && (
+                                    <div className="space-y-1.5">
+                                      <div className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">By phase</div>
+                                      {phases.map((p) => {
+                                        const phasePct = bucket.costUsd > 0 ? (p.costUsd / bucket.costUsd) * 100 : 0;
+                                        return (
+                                          <div key={p.phase} className="space-y-0.5">
+                                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                              <div className="flex items-center gap-1.5">
+                                                <div className={cn("w-2 h-2 rounded-full shrink-0", phaseColor(p.phase))} />
+                                                <span>{phaseShortLabel(p.phase)}</span>
+                                                <span className="text-muted-foreground/50">{phasePct.toFixed(0)}%</span>
+                                              </div>
+                                              <span className="tabular-nums">{formatUsd(p.costUsd)}</span>
+                                            </div>
+                                            <div className="ml-[14px] flex items-center gap-3 text-[10px] text-muted-foreground/60">
+                                              <span>{p.callCount} turn{p.callCount !== 1 ? "s" : ""}</span>
+                                              <span>in {formatTokens(p.inputTokens)} · out {formatTokens(p.outputTokens)}</span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
