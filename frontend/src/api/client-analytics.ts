@@ -101,14 +101,14 @@ export interface AnalyticsRepos {
   period: number;
   repos: {
     repo: string;
-    job_count: number;
+    jobCount: number;
     succeeded: number;
     failed: number;
-    total_cost_usd: number;
-    total_tokens: number;
-    tool_calls: number;
-    avg_duration_ms: number;
-    premium_requests: number;
+    totalCostUsd: number;
+    totalTokens: number;
+    toolCalls: number;
+    avgDurationMs: number;
+    premiumRequests: number;
   }[];
 }
 

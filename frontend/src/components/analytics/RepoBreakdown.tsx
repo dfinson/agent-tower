@@ -16,8 +16,8 @@ export function RepoBreakdown({ repos }: { repos: AnalyticsRepos["repos"] }) {
 
   const chartData = repos.slice(0, 10).map((r) => ({
     name: r.repo ? r.repo.split("/").pop() || r.repo : "(none)",
-    cost: Number(r.total_cost_usd) || 0,
-    jobs: r.job_count,
+    cost: Number(r.totalCostUsd) || 0,
+    jobs: r.jobCount,
   }));
 
   return (
@@ -52,17 +52,17 @@ export function RepoBreakdown({ repos }: { repos: AnalyticsRepos["repos"] }) {
           </thead>
           <tbody>
             {repos.map((r, i) => {
-              const costPerJob = r.job_count > 0 ? (Number(r.total_cost_usd) || 0) / r.job_count : 0;
+              const costPerJob = r.jobCount > 0 ? (Number(r.totalCostUsd) || 0) / r.jobCount : 0;
               return (
                 <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
                   <td className="py-1.5 px-2 font-mono truncate max-w-[200px]" title={r.repo || "(none)"}>
                     {r.repo || <span className="text-muted-foreground italic">(none)</span>}
                   </td>
-                  <td className="text-right py-1.5 px-2">{r.job_count}</td>
-                  <td className="text-right py-1.5 px-2">{formatUsd(Number(r.total_cost_usd) || 0)}</td>
+                  <td className="text-right py-1.5 px-2">{r.jobCount}</td>
+                  <td className="text-right py-1.5 px-2">{formatUsd(Number(r.totalCostUsd) || 0)}</td>
                   <td className="text-right py-1.5 px-2">{formatUsd(costPerJob)}</td>
-                  <td className="text-right py-1.5 px-2">{formatDuration(Number(r.avg_duration_ms) || 0)}</td>
-                  <td className="text-right py-1.5 px-2">{r.tool_calls}</td>
+                  <td className="text-right py-1.5 px-2">{formatDuration(Number(r.avgDurationMs) || 0)}</td>
+                  <td className="text-right py-1.5 px-2">{r.toolCalls}</td>
                 </tr>
               );
             })}
