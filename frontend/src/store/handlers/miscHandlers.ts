@@ -24,9 +24,13 @@ export function handleSnapshot(_state: AppState, payload: Record<string, unknown
   const approvals = rawApprovals.filter(
     (a) => jobMap[a.jobId]?.state === "waiting_for_approval",
   );
+  // Merge snapshot jobs into existing state rather than replacing.
+  // A job-scoped SSE connection sends snapshots containing only a single job;
+  // replacing state.jobs wholesale would wipe out all other jobs from the store.
+  const mergedJobs = { ..._state.jobs, ...jobMap };
   return {
-    jobs: jobMap,
-    approvals: Object.fromEntries(approvals.map((a) => [a.id, a])),
+    jobs: mergedJobs,
+    approvals: { ..._state.approvals, ...Object.fromEntries(approvals.map((a) => [a.id, a])) },
   };
 }
 
