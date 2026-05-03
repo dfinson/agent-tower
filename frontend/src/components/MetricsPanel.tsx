@@ -31,16 +31,18 @@ import {
 } from "./MetricsPanelSections";
 
 // ---------------------------------------------------------------------------
-// Section divider — separates logical groups with a labeled horizontal rule
+// Section group — wraps children in a visually distinct card with a header
 // ---------------------------------------------------------------------------
 
-function SectionDivider({ title }: { title: string }) {
+function SectionGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 pt-2">
-      <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest whitespace-nowrap">
+    <div className="mt-5 first:mt-0">
+      <h3 className="text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2 px-1">
         {title}
-      </span>
-      <div className="h-px flex-1 bg-border/40" />
+      </h3>
+      <div className="rounded-lg border border-border/50 bg-accent/5 p-4 space-y-4">
+        {children}
+      </div>
     </div>
   );
 }
@@ -358,8 +360,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               })()}
 
               {/* ─── Tokens & Context ─── */}
-              <SectionDivider title="Tokens & Context" />
-              <div className="rounded-lg border border-border/60 p-4 space-y-4">
+              <SectionGroup title="Tokens & Context">
                 <div className="grid grid-cols-2 gap-2 text-center text-xs">
                   <div>
                     <p className="text-sm font-bold tabular-nums">{formatTokens(data.inputTokens ?? 0)}</p>
@@ -391,10 +392,10 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                     )}
                   </div>
                 ) : null}
-              </div>
+              </SectionGroup>
 
               {/* ─── Cost & Efficiency ─── */}
-              <SectionDivider title="Cost & Efficiency" />
+              <SectionGroup title="Cost & Efficiency">
               <CostSection data={data} />
 
               {/* Integrated economics / efficiency */}
@@ -613,12 +614,11 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   </div>}
                 </div>
               ) : null}
+              </SectionGroup>
 
               {/* ─── Summary ─── */}
               {checkpoints.length > 0 && (
-              <div>
-                <SectionDivider title="Summary" />
-                <div className="mt-4">
+              <SectionGroup title="Summary">
                 <h4 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-3">
                   <BookOpen size={12} className="text-blue-400" /> Session Timeline
                 </h4>
@@ -684,12 +684,11 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                       })}
                     </div>
                   </div>
-                </div>
-              </div>
+              </SectionGroup>
               )}
 
               {/* ─── Breakdowns ─── */}
-              <SectionDivider title="Breakdowns" />
+              <SectionGroup title="Breakdowns">
 
               {/* Tool breakdown table */}
               {toolAggs.length > 0 && (
@@ -849,6 +848,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
               {/* Sister session (utility LLM) metrics for this job */}
               <SisterSessionJobMetrics jobId={jobId} />
+              </SectionGroup>
             </>
           )}
         </div>
