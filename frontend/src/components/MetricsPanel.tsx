@@ -332,6 +332,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   })}
                 </div>
               )}
+              </SectionGroup>
 
               {/* ─── Tokens & Context ─── */}
               <SectionGroup title="Tokens & Context">
