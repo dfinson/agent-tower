@@ -258,6 +258,7 @@ export interface SDKListResponse {
 
 export interface SuggestNamesResponse {
   title: string;
+  description: string;
   branchName: string;
   worktreeName: string;
 }

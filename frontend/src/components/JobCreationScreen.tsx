@@ -49,7 +49,7 @@ export function JobCreationScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
   const branchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const suggestedNamesRef = useRef<{ title: string; worktreeName: string } | null>(null);
+  const suggestedNamesRef = useRef<{ title: string; description: string; worktreeName: string } | null>(null);
   const sessionTokenRef = useRef<string | null>(null);
   const jobCreatedRef = useRef(false);
 
@@ -129,7 +129,7 @@ export function JobCreationScreen() {
         .then((names) => {
           if (!cancelled) {
             setBranch(names.branchName);
-            suggestedNamesRef.current = { title: names.title, worktreeName: names.worktreeName };
+            suggestedNamesRef.current = { title: names.title, description: names.description, worktreeName: names.worktreeName };
           }
         })
         .catch(() => {
@@ -209,6 +209,7 @@ export function JobCreationScreen() {
         baseRef: baseRef || undefined,
         branch: branch || undefined,
         title: cached?.title,
+        description: cached?.description,
         worktreeName: cached?.worktreeName,
         preset: preset,
         model: model || undefined,
