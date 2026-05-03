@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, Suspense, Component, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, PanelLeftClose, Loader2 } from "lucide-react";
+import { ArrowLeft, PanelLeftClose } from "lucide-react";
 import { toast } from "sonner";
 import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
@@ -10,8 +10,7 @@ import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, 
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
-import { StateBadge } from "./StateBadge";
-import { SdkBadge } from "./SdkBadge";
+
 import { MetricsPanel } from "./MetricsPanel";
 import { CompleteJobDialog } from "./CompleteJobDialog";
 import { Button } from "./ui/button";
@@ -23,9 +22,8 @@ import type { StepFilter } from "./DiffViewer";
 import { ActivityPanel } from "./ActivityPanel";
 import { MetadataChipStrip } from "./MetadataChipStrip";
 import { ViewTabBar } from "./ViewTabBar";
-import { JobActions } from "./JobActions";
-import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
-import { NavMenuSlideout } from "./NavMenuSlideout";
+
+import { JobHeaderCard } from "./JobHeaderCard";
 import { MobileStatusRail, MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
@@ -554,43 +552,35 @@ export function JobDetailScreen() {
         <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => handleTabChange("metrics")} />
       </div>
 
-      {/* ── Desktop: Row 1 — identity bar ── */}
-      <div className="hidden md:flex md:shrink-0 items-center gap-2 h-10 border-b border-border bg-card px-3">
-        <button onClick={() => navigate("/")} className="flex items-center gap-2 shrink-0 hover:opacity-80 transition-opacity">
-          <img src="/mark.png" alt="" className="h-6 w-6 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
-        </button>
-        <span className="text-muted-foreground/40 text-sm">/</span>
-        <h1 className="text-sm font-bold text-foreground truncate min-w-0">{job.title || job.id}</h1>
-        <span aria-live="polite"><StateBadge state={job.state} /></span>
-        <span className="hidden lg:inline-flex"><SdkBadge sdk={job.sdk} /></span>
-        {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
-          <span className="text-xs italic text-primary/70 truncate min-w-0">{job.progressHeadline}</span>
-        )}
-        {isPreparing && (
-          <span className="text-xs text-violet-400 animate-pulse inline-flex items-center gap-1">
-            <Loader2 size={12} className="animate-spin" />
-            {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
-          </span>
-        )}
-        <div className="flex-1 min-w-0" />
-        <div className="flex items-center gap-1 shrink-0">
-          <ConnectionStatusIndicator />
-          <NavMenuSlideout />
-        </div>
-      </div>
+      {/* ── Desktop: Collapsible job header card ── */}
+      <JobHeaderCard
+        job={job}
+        isPreparing={isPreparing}
+        hasMergeConflict={hasMergeConflict}
+        onNavigateHome={() => navigate("/")}
+        onCostClick={() => handleTabChange("metrics")}
+        actionProps={{
+          canCancel,
+          canResume,
+          needsResolution,
+          hasChanges,
+          hasMergeConflict,
+          isResolved,
+          canArchive,
+          jobState: job.state,
+          archivedAt: job.archivedAt,
+          actionLoading,
+          resolveLoading,
+          onCancelOpen: () => setCancelOpen(true),
+          onResume: handleResume,
+          onResolve: handleResolve,
+          onDiscardOpen: () => setDiscardOpen(true),
+          onMarkDoneOpen: () => setMarkDoneOpen(true),
+          onCompleteOpen: () => setCompleteOpen(true),
+        }}
+      />
 
-      {/* ── Desktop: Row 2 — task summary + metadata chips ── */}
-      <div className="hidden md:flex items-center gap-2 px-3 min-h-[2rem] py-1 border-b border-border bg-card/80 shrink-0 overflow-hidden">
-        {(job.description || job.prompt) && (
-          <span className="text-xs text-muted-foreground truncate shrink min-w-0 max-w-[40%]" title={job.description ?? job.prompt ?? ""}>
-            {job.description ?? job.prompt}
-          </span>
-        )}
-        {(job.description || job.prompt) && <div className="w-px h-3.5 bg-border shrink-0" />}
-        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => handleTabChange("metrics")} className="shrink-0" />
-      </div>
-
-      {/* ── Desktop: Row 3 — view tabs ── */}
+      {/* ── Desktop: View tab bar ── */}
       <ViewTabBar
         activeTab={tab}
         onTabChange={handleTabChange}
@@ -743,34 +733,6 @@ export function JobDetailScreen() {
       )}
       </div>{/* end content panel */}
       </div>{/* end activity + content flex wrapper */}
-
-      {/* ── Desktop bottom action bar — contextual, only when actions available ── */}
-      <div className="hidden md:block shrink-0">
-        <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-card">
-          <div className="flex items-center gap-2">
-            <JobActions
-              canCancel={canCancel}
-              canResume={canResume}
-              needsResolution={needsResolution}
-              hasChanges={hasChanges}
-              hasMergeConflict={hasMergeConflict}
-              isResolved={isResolved}
-              canArchive={canArchive}
-              jobState={job.state}
-              archivedAt={job.archivedAt}
-              actionLoading={actionLoading}
-              resolveLoading={resolveLoading}
-              onCancelOpen={() => setCancelOpen(true)}
-              onResume={handleResume}
-              onResolve={handleResolve}
-              onDiscardOpen={() => setDiscardOpen(true)}
-              onMarkDoneOpen={() => setMarkDoneOpen(true)}
-              onCompleteOpen={() => setCompleteOpen(true)}
-              layout="bar"
-            />
-          </div>
-        </div>
-      </div>
 
       {/* ── Mobile contextual footer — shows review actions above the bottom tab bar ── */}
       <MobileFooterActions
