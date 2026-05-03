@@ -2,7 +2,7 @@ from backend.services.cost_attribution import (
     _classify_turn_intent,
     _infer_execution_phases,
 )
-from backend.services.tool_classifier import classify_tool, classify_shell_command
+from backend.services.tool_classifier import classify_shell_command, classify_tool
 
 
 def test_infer_execution_phases_uses_neighboring_valid_phases() -> None:
@@ -49,7 +49,7 @@ def test_classify_turn_intent_implementation_wins() -> None:
     assert _classify_turn_intent(_ctx(cats=["file_write"])) == "implementation"
     assert _classify_turn_intent(_ctx(cats=["file_read", "file_read", "file_write"])) == "implementation"
     assert _classify_turn_intent(_ctx(cats=["file_read", "file_write", "shell"], cmds=["git diff"])) == "implementation"
-    assert _classify_turn_intent(_ctx(cats=["git_write"])) == "implementation"
+    assert _classify_turn_intent(_ctx(cats=["git_write"])) == "git_ops"
 
 
 def test_classify_turn_intent_verification() -> None:
@@ -75,11 +75,11 @@ def test_classify_turn_intent_investigation() -> None:
     # Pure reading turns
     assert _classify_turn_intent(_ctx(cats=["file_read"])) == "investigation"
     assert _classify_turn_intent(_ctx(cats=["file_read", "file_read", "file_search"])) == "investigation"
-    assert _classify_turn_intent(_ctx(cats=["git_read"])) == "investigation"
+    assert _classify_turn_intent(_ctx(cats=["git_read"])) == "git_ops"
     assert _classify_turn_intent(_ctx(cats=["browser"])) == "investigation"
     # Shell commands that explore
     assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["find . -name '*.py'"])) == "investigation"
-    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["git diff HEAD~1"])) == "investigation"
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["git diff HEAD~1"])) == "git_ops"
 
 
 def test_classify_turn_intent_overhead() -> None:
@@ -105,7 +105,7 @@ def test_classify_shell_command() -> None:
     assert classify_shell_command("pytest tests/") == "verification"
     assert classify_shell_command("git commit -m 'fix'") == "git_ops"
     assert classify_shell_command("uv sync") == "setup"
-    assert classify_shell_command("git diff HEAD") == "investigation"
+    assert classify_shell_command("git diff HEAD") == "git_ops"
     assert classify_shell_command("find . -name '*.py'") == "investigation"
     assert classify_shell_command("echo hello") == "shell_other"
 

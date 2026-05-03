@@ -122,8 +122,8 @@ TOOL_CATEGORIES: dict[str, str] = {
 
 _CATEGORY_TO_ACTIVITY: dict[str, str] = {
     "file_write": "implementation",
-    "git_write": "implementation",
-    "git_read": "investigation",
+    "git_write": "git_ops",
+    "git_read": "git_ops",
     "file_read": "investigation",
     "file_search": "investigation",
     "browser": "investigation",
@@ -178,7 +178,7 @@ def classify_shell_command(cmd: str) -> str:
     if _RE_SHELL_SETUP.search(cmd):
         return "setup"
     if _RE_SHELL_GIT_READ.search(cmd):
-        return "investigation"
+        return "git_ops"
     if _RE_SHELL_INVESTIGATE.search(cmd):
         return "investigation"
     return "shell_other"
@@ -209,11 +209,7 @@ def classify_tool_activity(tool_name: str, tool_args_json: str | None = None) ->
     if category == "shell" and tool_args_json:
         parsed = ensure_dict(tool_args_json)
         if parsed:
-            cmd = str(
-                parsed.get("command", "")
-                or parsed.get("cmd", "")
-                or parsed.get("input", "")
-            )
+            cmd = str(parsed.get("command", "") or parsed.get("cmd", "") or parsed.get("input", ""))
             if cmd:
                 shell_activity = classify_shell_command(cmd)
                 if shell_activity != "shell_other":

@@ -142,12 +142,15 @@ class TelemetryQueryService:
                         edit_motivations = json.loads(span["edit_motivations"])
                 tool_name = span["name"]
                 tool_args = span.get("tool_args_json")
-                # For shell tools, derive a human-readable label from the command
+                # Derive a human-readable display label
                 display_label: str | None = None
                 if tool_name in _SHELL_TOOL_NAMES:
                     derived = _shell_display_name(tool_name, tool_args)
                     if derived != tool_name:
                         display_label = derived
+                elif "_" in tool_name:
+                    # Humanize underscore-separated names: git_diff → "git diff"
+                    display_label = tool_name.replace("_", " ")
                 tool_calls.append(
                     TelemetryToolCall(
                         name=tool_name,
@@ -215,9 +218,7 @@ class TelemetryQueryService:
         # Review complexity tier
         signals: list[str] = []
         signal_details: dict[str, dict[str, int | float]] = {}
-        diff_lines = int(summary.get("diff_lines_added", 0)) + int(
-            summary.get("diff_lines_removed", 0)
-        )
+        diff_lines = int(summary.get("diff_lines_added", 0)) + int(summary.get("diff_lines_removed", 0))
         total_turns = int(summary.get("total_turns", 0))
         unique_files = int(file_stats.get("unique_files", 0))
         if diff_lines > _LARGE_DIFF_LINES:
@@ -318,6 +319,7 @@ class TelemetryQueryService:
     def _enrich_turn_curve(turn_curve: list[TelemetryCostBucket], spans: list[dict]) -> None:
         """Annotate each turn bucket with intent and concrete actions."""
         import json as _json
+
         from backend.services.cost_attribution import _classify_turn_intent
         from backend.services.tool_classifier import classify_tool
 
@@ -339,7 +341,7 @@ class TelemetryQueryService:
             # Find last segment after .codeplane-worktrees/<job>/
             try:
                 idx = next(i for i, seg in enumerate(parts) if seg == ".codeplane-worktrees")
-                parts = parts[idx + 2:]  # skip worktrees/<job-name>
+                parts = parts[idx + 2 :]  # skip worktrees/<job-name>
             except StopIteration:
                 pass
             # Keep at most last 2 segments
@@ -414,7 +416,7 @@ class TelemetryQueryService:
                 if len(files_edited) <= 3:
                     actions.append(f"edited {', '.join(files_edited)}")
                 else:
-                    actions.append(f"edited {', '.join(files_edited[:2])} +{len(files_edited)-2} more")
+                    actions.append(f"edited {', '.join(files_edited[:2])} +{len(files_edited) - 2} more")
             if files_read:
                 if len(files_read) <= 3:
                     actions.append(f"read {', '.join(files_read)}")
@@ -424,7 +426,14 @@ class TelemetryQueryService:
                 actions.append(f"ran {', '.join(commands_run[:3])}")
 
             # Classify activity
-            context = {"tool_categories": categories, "shell_commands": shell_commands, "phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+            context = {
+                "tool_categories": categories,
+                "shell_commands": shell_commands,
+                "phase": None,
+                "cost_usd": 0.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+            }
             bucket.activity = _classify_turn_intent(context)
             bucket.intent = intent
             bucket.actions = actions

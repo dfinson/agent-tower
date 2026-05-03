@@ -15,7 +15,7 @@ import structlog
 from sqlalchemy.exc import DBAPIError
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.tool_classifier import classify_tool, classify_shell_command
+from backend.services.tool_classifier import classify_shell_command, classify_tool
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -76,8 +76,9 @@ def _classify_turn_intent(context: TurnContext) -> str:
     for cmd in shell_cmds:
         shell_intents.add(classify_shell_command(cmd))
 
-    has_writes = bool(cats & _WRITE_TOOL_CATEGORIES)
-    has_reads = bool(cats & {"file_read", "git_read"})
+    has_writes = bool(cats & {"file_write"})
+    has_git = bool(cats & {"git_write", "git_read"})
+    has_reads = bool(cats & {"file_read"})
     has_search = bool(cats & {"file_search", "browser"})
     has_bookkeeping = "bookkeeping" in cats
     has_thinking = "thinking" in cats
@@ -91,8 +92,8 @@ def _classify_turn_intent(context: TurnContext) -> str:
     if "verification" in shell_intents:
         return "verification"
 
-    # Priority 3: Git write operations (commit, push, merge)
-    if "git_ops" in shell_intents:
+    # Priority 3: Git operations (commit, push, diff, status — dedicated tools or shell)
+    if "git_ops" in shell_intents or has_git:
         return "git_ops"
 
     # Priority 4: Setup/install commands
@@ -211,6 +212,7 @@ async def _compute_attribution(
                     if isinstance(tool_args, str):
                         try:
                             import json as _json
+
                             parsed = _json.loads(tool_args)
                             cmd = parsed.get("command", "") or parsed.get("cmd", "")
                         except (ValueError, TypeError):
@@ -268,7 +270,9 @@ async def _compute_attribution(
             compound_key = f"{activity}:{phase}"
             _accumulate(
                 by_activity_phase[compound_key],
-                turn_cost, turn_in, turn_out,
+                turn_cost,
+                turn_in,
+                turn_out,
                 call_count=1,
             )
 
@@ -285,14 +289,16 @@ async def _compute_attribution(
     # One-shot rate rows (dimension="edit_efficiency")
     for activity_bucket, stats in one_shot_by_activity.items():
         if stats["edit_turns"] > 0:
-            rows.append({
-                "dimension": "edit_efficiency",
-                "bucket": activity_bucket,
-                "cost_usd": 0.0,
-                "input_tokens": stats["one_shot_turns"],
-                "output_tokens": stats["retries"],
-                "call_count": stats["edit_turns"],
-            })
+            rows.append(
+                {
+                    "dimension": "edit_efficiency",
+                    "bucket": activity_bucket,
+                    "cost_usd": 0.0,
+                    "input_tokens": stats["one_shot_turns"],
+                    "output_tokens": stats["retries"],
+                    "call_count": stats["edit_turns"],
+                }
+            )
 
     await attr_repo.insert_batch(job_id=job_id, rows=rows)
     log.info(
@@ -371,7 +377,14 @@ def _zero_bucket() -> CostBucket:
 
 
 def _zero_turn_context() -> TurnContext:
-    return {"phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "tool_categories": [], "shell_commands": []}
+    return {
+        "phase": None,
+        "cost_usd": 0.0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "tool_categories": [],
+        "shell_commands": [],
+    }
 
 
 def _infer_execution_phases(spans: list[dict[str, Any]]) -> list[str | None]:
