@@ -797,6 +797,7 @@ class TurnSummaryPayload(CamelModel):
     activity_status: str = "active"  # active | done
     is_new_activity: bool = False
     plan_item_id: str | None = None
+    replaces_turn_id: str | None = None  # set when merge replaces a previous step's turnId
 
 
 class HunkMotivation(CamelModel):

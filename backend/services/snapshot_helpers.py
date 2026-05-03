@@ -194,17 +194,28 @@ def _build_turn_summaries(
 
     When *deduplicate* is True, keep only the last event per turn_id but
     preserve the **first** event's ``is_new_activity`` flag (refinement
-    re-emits always set it to False).
+    re-emits always set it to False).  Events with ``replaces_turn_id`` cause
+    the replaced entry to be removed (the merge updated the scroll target).
     """
     if deduplicate:
         first_new: dict[str, bool] = {}
         latest: dict[str, int] = {}
+        # Track which turn_ids have been replaced by merges, and inherit
+        # is_new_activity from the replaced entry to the replacing one.
+        replaced_turn_ids: set[str] = set()
+        inherited_new: dict[str, bool] = {}  # replacing_turn_id → inherited flag
         for idx, ev in enumerate(turn_summary_events):
             tid = ev.payload.get("turn_id", "")
             if tid:
                 if tid not in first_new:
                     first_new[tid] = bool(ev.payload.get("is_new_activity", False))
                 latest[tid] = idx
+            replaces = ev.payload.get("replaces_turn_id")
+            if replaces:
+                replaced_turn_ids.add(replaces)
+                # The replacing entry inherits the replaced entry's is_new_activity
+                if replaces in first_new:
+                    inherited_new[tid] = first_new[replaces]
         keep_idxs = set(latest.values())
         return [
             TurnSummaryPayload(
@@ -214,10 +225,17 @@ def _build_turn_summaries(
                 activity_id=ev.payload.get("activity_id", ""),
                 activity_label=ev.payload.get("activity_label", ""),
                 activity_status=ev.payload.get("activity_status", "active"),
-                is_new_activity=first_new.get(ev.payload.get("turn_id", ""), False),
+                is_new_activity=inherited_new.get(
+                    ev.payload.get("turn_id", ""),
+                    first_new.get(ev.payload.get("turn_id", ""), False),
+                ),
+                replaces_turn_id=ev.payload.get("replaces_turn_id"),
             )
             for idx, ev in enumerate(turn_summary_events)
-            if idx in keep_idxs and ev.payload.get("turn_id") and ev.payload.get("title")
+            if idx in keep_idxs
+            and ev.payload.get("turn_id")
+            and ev.payload.get("title")
+            and ev.payload.get("turn_id") not in replaced_turn_ids
         ]
     return [
         TurnSummaryPayload(
@@ -228,6 +246,7 @@ def _build_turn_summaries(
             activity_label=ev.payload.get("activity_label", ""),
             activity_status=ev.payload.get("activity_status", "active"),
             is_new_activity=bool(ev.payload.get("is_new_activity", False)),
+            replaces_turn_id=ev.payload.get("replaces_turn_id"),
         )
         for ev in turn_summary_events
         if ev.payload.get("turn_id") and ev.payload.get("title")

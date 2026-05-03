@@ -459,6 +459,7 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "activity_status": ("activity_status", "active"),
             "is_new_activity": ("is_new_activity", False),
             "plan_item_id": ("plan_item_id", None),
+            "replaces_turn_id": ("replaces_turn_id", None),
         },
     ),
 }

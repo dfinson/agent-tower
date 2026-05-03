@@ -84,7 +84,9 @@ class ActivityTracker:
         # 3. Merge with previous step if indicated
         prev_step = state.activity_steps[-1] if state.activity_steps else None
         if merge_prev and prev_step and current_activity is not None and not is_new_activity and not resume_activity:
+            old_turn_id = prev_step.turn_id
             prev_step.title = title
+            prev_step.turn_id = turn_id  # Update scroll target to the current turn
             await self._event_bus.publish(
                 DomainEvent(
                     event_id=DomainEvent.make_event_id(),
@@ -92,13 +94,14 @@ class ActivityTracker:
                     timestamp=datetime.now(UTC),
                     kind=DomainEventKind.turn_summary,
                     payload={
-                        "turn_id": prev_step.turn_id,
+                        "turn_id": turn_id,
                         "title": title,
                         "activity_id": current_activity.activity_id,
                         "activity_label": current_activity.label,
                         "activity_status": current_activity.status,
                         "is_new_activity": False,
                         "plan_item_id": assigned_plan_step_id,
+                        "replaces_turn_id": old_turn_id,
                     },
                 )
             )

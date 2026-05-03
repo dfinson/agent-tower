@@ -148,9 +148,17 @@ function _rebuildActivityTimeline(
 ): ActivityTimelineState {
   const activities: ActivityTimelineActivity[] = [];
   const seenTurnIds = new Set<string>();
+  // Track which old turnIds have been replaced by merges so we can skip them
+  const replacedTurnIds = new Set<string>();
+  for (const s of summaries) {
+    const replaces = s.replacesTurnId as string | null;
+    if (replaces) replacedTurnIds.add(replaces);
+  }
   for (const s of summaries) {
     const turnId = s.turnId ?? "";
     if (seenTurnIds.has(turnId)) continue;
+    // Skip entries whose turnId was replaced by a later merge
+    if (replacedTurnIds.has(turnId)) continue;
     seenTurnIds.add(turnId);
     const planItemId = (s.planItemId as string | null) ?? null;
     const step: ActivityTimelineStep = {

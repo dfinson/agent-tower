@@ -116,12 +116,36 @@ export function handleTurnSummary(state: AppState, payload: Record<string, unkno
   const activityStatus = (payload.activityStatus as "active" | "done") || "active";
   const isNewActivity = payload.isNewActivity as boolean;
   const planItemId = (payload.planItemId as string | null) ?? null;
+  const replacesTurnId = (payload.replacesTurnId as string | null) ?? null;
 
   // Read FRESH state (not the captured `state` from the top of dispatchSSEEvent)
   // because two SSE connections (global + job-scoped) may deliver the same event
   // in back-to-back macrotasks, and the captured `state` would be stale for the
   // second delivery.
   const freshTimeline = getFresh().activityTimelines[jobId] ?? { activities: [] };
+
+  // Handle merge: replacesTurnId means this step supersedes a previous one.
+  // Replace the old step's turnId and title so clicking scrolls to the current turn.
+  if (replacesTurnId) {
+    const hasOld = freshTimeline.activities.some((a) =>
+      a.steps.some((s) => s.turnId === replacesTurnId),
+    );
+    if (hasOld) {
+      const activities = freshTimeline.activities.map((a) => ({
+        ...a,
+        steps: a.steps.map((s) =>
+          s.turnId === replacesTurnId ? { ...s, turnId, title } : s,
+        ),
+      }));
+      return {
+        activityTimelines: {
+          ...state.activityTimelines,
+          [jobId]: { activities },
+        },
+      };
+    }
+    // If old step not found, fall through to normal add logic
+  }
 
   // Dedup: skip if this turnId was already recorded.
   // Exception: if the title changed, this is a merge update — patch in place.
