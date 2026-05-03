@@ -454,6 +454,7 @@ export function CuratedFeed({
   visibleStepTurnId,
   scrollToSeq,
   scrollToTurnId,
+  stepTurnIds,
 }: {
   jobId: string;
   sdk?: string;
@@ -468,6 +469,7 @@ export function CuratedFeed({
   visibleStepTurnId?: string | null;
   scrollToSeq?: number | null;
   scrollToTurnId?: string | null;
+  stepTurnIds?: string[];
 }) {
   const navigate = useNavigate();
   const rawEntries = useStore(selectJobTranscript(jobId));
@@ -521,7 +523,7 @@ export function CuratedFeed({
   }, [feedItems.length, virtualizer]);
 
   // Scroll to a specific feed item when scrollToSeq is set
-  const [highlightIdx, setHighlightIdx] = useState<number | null>(null);
+  const [highlightRange, setHighlightRange] = useState<{ start: number; end: number } | null>(null);
   const handledSeqRef = useRef<number | null>(null);
   useEffect(() => {
     if (scrollToSeq == null) { handledSeqRef.current = null; return; }
@@ -539,7 +541,7 @@ export function CuratedFeed({
     if (idx >= 0) {
       handledSeqRef.current = scrollToSeq;
       virtualizer.scrollToIndex(idx, { align: "start", behavior: "smooth" });
-      setTimeout(() => setHighlightIdx(idx), 300);
+      setTimeout(() => setHighlightRange({ start: idx, end: idx }), 300);
     }
   }, [scrollToSeq, feedItems, virtualizer]);
 
@@ -557,10 +559,26 @@ export function CuratedFeed({
     });
     if (idx >= 0) {
       handledTurnIdRef.current = scrollToTurnId;
+      // Find end of range: next step's first feed item (exclusive), or end of feed
+      let endIdx = idx;
+      if (stepTurnIds && stepTurnIds.length > 0) {
+        const stepPos = stepTurnIds.indexOf(scrollToTurnId);
+        const nextStepTurnId = stepPos >= 0 && stepPos < stepTurnIds.length - 1
+          ? stepTurnIds[stepPos + 1]
+          : null;
+        if (nextStepTurnId) {
+          const nextIdx = feedItems.findIndex((item, i) =>
+            i > idx && (item.type === "turn" || item.type === "condensed") && item.turn.turnId === nextStepTurnId
+          );
+          endIdx = nextIdx > idx ? nextIdx - 1 : feedItems.length - 1;
+        } else {
+          endIdx = feedItems.length - 1;
+        }
+      }
       virtualizer.scrollToIndex(idx, { align: "start", behavior: "smooth" });
-      setTimeout(() => setHighlightIdx(idx), 300);
+      setTimeout(() => setHighlightRange({ start: idx, end: endIdx }), 300);
     }
-  }, [scrollToTurnId, feedItems, virtualizer]);
+  }, [scrollToTurnId, feedItems, virtualizer, stepTurnIds]);
 
   // Phase 4: Track topmost visible turnId for bidirectional sidebar linking
   const onVisibleTurnIdRef = useRef(onVisibleTurnId);
@@ -725,7 +743,7 @@ export function CuratedFeed({
     setCurrentMatchPos(0);
     const first = matchList[0]!;
     virtualizer.scrollToIndex(first, { align: "center" });
-    setHighlightIdx(first);
+    setHighlightRange({ start: first, end: first });
     onSearchHighlightRef.current?.(getTurnIdForIndexRef.current(first));
   }, [debouncedQuery, matchList]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -735,7 +753,7 @@ export function CuratedFeed({
     setCurrentMatchPos(clamped);
     const feedIdx = matchList[clamped]!;
     virtualizer.scrollToIndex(feedIdx, { align: "center" });
-    setHighlightIdx(feedIdx);
+    setHighlightRange({ start: feedIdx, end: feedIdx });
     onSearchHighlightRef.current?.(getTurnIdForIndexRef.current(feedIdx));
   }, [matchList, virtualizer]);
 
@@ -813,7 +831,8 @@ export function CuratedFeed({
             const item = feedItems[vItem.index];
             if (!item) return null;
             const dimmed = matchingIndices !== null && !matchingIndices.has(vItem.index);
-            const isActiveMatch = vItem.index === highlightIdx;
+            const isActiveMatch = highlightRange !== null && vItem.index >= highlightRange.start && vItem.index <= highlightRange.end;
+            const isLastInRange = highlightRange !== null && vItem.index === highlightRange.end;
             const isNew = vItem.index >= hydratedCountRef.current;
 
             return (
@@ -825,7 +844,7 @@ export function CuratedFeed({
                   isActiveMatch && "animate-glow-flicker",
                   isNew && !isActiveMatch && "animate-feed-enter",
                 )}
-                onAnimationEnd={isActiveMatch ? () => setHighlightIdx(null) : undefined}
+                onAnimationEnd={isLastInRange ? () => setHighlightRange(null) : undefined}
                 style={{
                   position: "absolute",
                   top: 0,

@@ -97,10 +97,11 @@ export function JobDetailScreen() {
   // walking backward through the transcript finds the closest preceding step.
   const activityTimeline = useStore((s) => jobId ? s.activityTimelines[jobId] : undefined);
   const transcript = useStore((s) => jobId ? s.transcript[jobId] : undefined);
-  const stepTurnIdSet = useMemo(() => {
-    if (!activityTimeline) return new Set<string>();
-    return new Set(activityTimeline.activities.flatMap((a) => a.steps.map((s) => s.turnId)));
+  const stepTurnIds = useMemo(() => {
+    if (!activityTimeline) return [] as string[];
+    return activityTimeline.activities.flatMap((a) => a.steps.map((s) => s.turnId));
   }, [activityTimeline]);
+  const stepTurnIdSet = useMemo(() => new Set(stepTurnIds), [stepTurnIds]);
 
   const mapToStepTurnId = useCallback((turnId: string | null): string | null => {
     if (!turnId || stepTurnIdSet.size === 0) return turnId;
@@ -635,6 +636,7 @@ export function JobDetailScreen() {
                 visibleStepTurnId={visibleStepTurnId}
                 scrollToSeq={scrollToSeq}
                 scrollToTurnId={scrollToTurnId}
+                stepTurnIds={stepTurnIds}
               />
             </div>
           </div>
