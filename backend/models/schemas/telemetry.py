@@ -170,6 +170,8 @@ class AnalyticsPricingResponse(CamelModel):
 
 class TelemetryToolCall(CamelModel):
     name: str
+    display_label: str | None = None
+    activity: str = "overhead"
     duration_ms: float = 0
     success: bool = True
     offset_sec: float = 0

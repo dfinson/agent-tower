@@ -15,7 +15,7 @@ import type {
   TelemetryData, LLMCall, SortField, SortDir, ToolAggregate,
   SessionCheckpoint, SessionSummaryJson,
 } from "./MetricsPanelTypes";
-import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS, classifyToolToActivity } from "./MetricsPanelTypes";
+import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "./MetricsPanelTypes";
 import {
   useModelPricing,
   CacheEfficiencyBar,
@@ -60,7 +60,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   const [llmMainExpanded, setLlmMainExpanded] = useState(false);
   const [llmSubExpanded, setLlmSubExpanded] = useState(false);
   const [turnsCollapsed, setTurnsCollapsed] = useState(true);
-  const [economicsCollapsed, setEconomicsCollapsed] = useState(true);
   const [expandedActivities, setExpandedActivities] = useState<Set<string>>(new Set());
   const [data, setData] = useState<TelemetryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -193,7 +192,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   const turnCurve = turnEconomics?.turnCurve ?? [];
   const showCacheEfficiency = (data?.inputTokens ?? 0) > 0 || (data?.cacheReadTokens ?? 0) > 0 || (data?.cacheWriteTokens ?? 0) > 0;
   const showTurnEconomics = !isRunning && (turnEconomics?.totalTurns ?? 0) > 0;
-  const showEconomicsSection = showCacheEfficiency || showTurnEconomics || activityBuckets.length > 0;
 
   // Rework stats from edit_efficiency dimension
   const reworkStats = useMemo(() => {
@@ -210,11 +208,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   const toolsByActivity = useMemo(() => {
     const map: Record<string, { name: string; count: number }[]> = {};
     for (const tc of data?.toolCalls ?? []) {
-      const activity = classifyToolToActivity(tc.name);
+      const activity = tc.activity ?? "overhead";
+      const label = tc.displayLabel ?? tc.name;
       if (!map[activity]) map[activity] = [];
-      const existing = map[activity].find((t) => t.name === tc.name);
+      const existing = map[activity].find((t) => t.name === label);
       if (existing) existing.count++;
-      else map[activity].push({ name: tc.name, count: 1 });
+      else map[activity].push({ name: label, count: 1 });
     }
     for (const tools of Object.values(map)) {
       tools.sort((a, b) => b.count - a.count);
@@ -379,20 +378,8 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               <SectionGroup title="Cost & Efficiency">
               <CostSection data={data} />
 
-              {/* Integrated economics / efficiency */}
-              {showEconomicsSection ? (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setEconomicsCollapsed((c) => !c)}
-                    className="flex w-full items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors text-left py-1"
-                  >
-                    {economicsCollapsed ? <ChevronRight size={12} className="shrink-0" /> : <ChevronDown size={12} className="shrink-0" />}
-                    <TrendingUp size={12} className="text-blue-400" /> Economics & Efficiency
-                  </button>
-                  {!economicsCollapsed && <div className="space-y-4 mt-3">
-
-                  {showCacheEfficiency && (
+              {/* Integrated economics / efficiency — peer-level expandables */}
+              {showCacheEfficiency && (
                     <div className="space-y-3 rounded-md border border-border bg-background p-3">
                       <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                         <Cpu size={12} className="text-violet-400" /> Cache Efficiency
@@ -410,9 +397,9 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                         actualCost={data.totalCost}
                       />
                     </div>
-                  )}
+              )}
 
-                  {activityBuckets.length > 0 && (
+              {activityBuckets.length > 0 && (
                     <div className="rounded-md border border-border bg-background p-3 space-y-2">
                       <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                         <BarChart3 size={12} className="text-yellow-400" /> Cost Breakdown
@@ -587,9 +574,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                     </div>
                   )}
 
-                  </div>}
-                </div>
-              ) : null}
               </SectionGroup>
 
               {/* ─── Summary ─── */}

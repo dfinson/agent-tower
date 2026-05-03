@@ -28,6 +28,7 @@ from backend.models.api_schemas import (
     TelemetryToolCall,
     TelemetryTurnEconomics,
 )
+from backend.services.tool_classifier import classify_tool_activity
 
 if TYPE_CHECKING:
     from backend.persistence.cost_attribution_repo import CostAttributionRepository
@@ -37,6 +38,46 @@ if TYPE_CHECKING:
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
 log = structlog.get_logger()
+
+# Shell tool names that should get enriched display names
+_SHELL_TOOL_NAMES = frozenset({"bash", "Bash", "run_in_terminal", "terminal", "exec", "write_bash"})
+
+
+def _shell_display_name(tool_name: str, tool_args_json: str | None) -> str:
+    """Derive a display name like 'pytest' or 'git commit' from shell tool args.
+
+    Falls back to the raw tool name if no command can be extracted.
+    """
+    if not tool_args_json:
+        return tool_name
+    try:
+        parsed = json.loads(tool_args_json) if isinstance(tool_args_json, str) else tool_args_json
+        cmd = (parsed.get("command", "") or parsed.get("cmd", "")).strip()
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return tool_name
+    if not cmd:
+        return tool_name
+    # Strip leading 'cd ... &&' prefix
+    if cmd.startswith("cd ") and "&&" in cmd:
+        cmd = cmd.split("&&", 1)[1].strip()
+    # Get the first meaningful token (skip env vars, sudo, etc.)
+    parts = cmd.split()
+    for part in parts:
+        if "=" in part and not part.startswith("-"):
+            continue  # env var assignment like FOO=bar
+        if part in ("sudo", "env", "nohup", "time"):
+            continue
+        # Use this as the command name
+        # For compound commands like 'git commit', include the subcommand
+        base = part.split("/")[-1]  # strip path prefix
+        idx = parts.index(part)
+        if base in ("git", "npm", "npx", "uv", "cargo", "docker", "kubectl") and idx + 1 < len(parts):
+            sub = parts[idx + 1]
+            if not sub.startswith("-"):
+                return f"{base} {sub}"
+        return base
+    return tool_name
+
 
 # Review complexity thresholds — calibrated against historical job data:
 # >500 diff lines ≈ top-10% by size, >20 turns ≈ extended sessions,
@@ -99,9 +140,18 @@ class TelemetryQueryService:
                 if span.get("edit_motivations"):
                     with contextlib.suppress(json.JSONDecodeError, TypeError):
                         edit_motivations = json.loads(span["edit_motivations"])
+                tool_name = span["name"]
+                # For shell tools, derive a human-readable label from the command
+                display_label: str | None = None
+                if tool_name in _SHELL_TOOL_NAMES:
+                    derived = _shell_display_name(tool_name, span.get("tool_args_json"))
+                    if derived != tool_name:
+                        display_label = derived
                 tool_calls.append(
                     TelemetryToolCall(
-                        name=span["name"],
+                        name=tool_name,
+                        display_label=display_label,
+                        activity=classify_tool_activity(tool_name),
                         duration_ms=float(span.get("duration_ms", 0)),
                         success=attrs.get("success", True),
                         offset_sec=float(span.get("started_at", 0)),

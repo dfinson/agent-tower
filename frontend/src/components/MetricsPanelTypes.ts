@@ -4,6 +4,8 @@
 
 export interface ToolCall {
   name: string;
+  displayLabel?: string;
+  activity?: string;
   durationMs: number;
   success: boolean;
   offsetSec?: number;
@@ -67,6 +69,8 @@ export interface CostDriverBucket {
   callCount: number;
   activity?: string;
   tools?: string[];
+  intent?: string;
+  actions?: string[];
 }
 
 export interface CostDriversData {
@@ -264,65 +268,6 @@ export const ACTIVITY_DESCRIPTIONS: Record<string, string> = {
   testing: "Turns where the agent ran or wrote tests",
   build_deploy: "Turns where the agent ran build or deploy commands",
 };
-
-// ---------------------------------------------------------------------------
-// Tool → activity category mapping (mirrors backend intent-based classification)
-// ---------------------------------------------------------------------------
-
-const TOOL_TO_CATEGORY: Record<string, string> = {
-  read_file: "file_read", view: "file_read", cat: "file_read", Read: "file_read",
-  readFile: "file_read", open_file: "file_read", view_image: "file_read",
-  edit_file: "file_write", edit: "file_write", create_file: "file_write",
-  write_file: "file_write", write: "file_write", Write: "file_write",
-  Edit: "file_write", MultiEdit: "file_write", editFile: "file_write",
-  replace_string_in_file: "file_write", multi_replace_string_in_file: "file_write",
-  str_replace_based_edit_tool: "file_write", str_replace_editor: "file_write",
-  insert_edit_into_file: "file_write", apply_patch: "file_write",
-  delete_file: "file_write", create_directory: "file_write",
-  grep: "file_search", grep_search: "file_search", Grep: "file_search",
-  glob: "file_search", Glob: "file_search", find: "file_search",
-  rg: "file_search", search: "file_search", semantic_search: "file_search",
-  list_dir: "file_search", listDir: "file_search", LS: "file_search",
-  file_search: "file_search", vscode_listCodeUsages: "file_search",
-  bash: "shell", Bash: "shell", terminal: "shell", exec: "shell",
-  run_in_terminal: "shell", get_terminal_output: "shell",
-  read_bash: "shell", write_bash: "shell", stop_bash: "shell",
-  sql: "bookkeeping",
-  git_diff: "git_read", git_status: "git_read", git_log: "git_read",
-  get_changed_files: "git_read",
-  git_commit: "git_write", git_push: "git_write", git_add: "git_write",
-  git_checkout: "git_write", git_merge: "git_write",
-  fetch_url: "browser", web_search: "browser", web_fetch: "browser",
-  WebFetch: "browser", WebSearch: "browser", fetch_webpage: "browser",
-  task: "agent", subagent: "agent", Agent: "agent", runSubagent: "agent",
-  Task: "agent",
-  Think: "thinking", Computer: "thinking",
-  report_intent: "bookkeeping", store_memory: "bookkeeping",
-  manage_todo_list: "bookkeeping", memory: "bookkeeping",
-};
-
-const CATEGORY_TO_ACTIVITY: Record<string, string> = {
-  file_write: "implementation",
-  git_write: "implementation",
-  git_read: "investigation",
-  file_read: "investigation",
-  file_search: "investigation",
-  browser: "investigation",
-  shell: "investigation",  // default for shell — backend refines by command content
-  agent: "delegation",
-  thinking: "reasoning",
-  bookkeeping: "overhead",
-  other: "overhead",
-};
-
-/** Classify a tool name into its activity bucket (for the tools-used display). */
-export function classifyToolToActivity(toolName: string): string {
-  const cat = TOOL_TO_CATEGORY[toolName]
-    ?? (toolName.includes("/") ? TOOL_TO_CATEGORY[toolName.split("/").pop()!] : undefined)
-    ?? "other";
-  return CATEGORY_TO_ACTIVITY[cat] ?? "overhead";
-}
-
 
 
 const _PHASE_COLORS: Record<string, string> = {

@@ -118,6 +118,21 @@ TOOL_CATEGORIES: dict[str, str] = {
 }
 
 
+_CATEGORY_TO_ACTIVITY: dict[str, str] = {
+    "file_write": "implementation",
+    "git_write": "implementation",
+    "git_read": "investigation",
+    "file_read": "investigation",
+    "file_search": "investigation",
+    "browser": "investigation",
+    "shell": "investigation",
+    "agent": "delegation",
+    "thinking": "reasoning",
+    "bookkeeping": "overhead",
+    "other": "overhead",
+}
+
+
 def classify_tool(tool_name: str) -> str:
     """Return the normalized category for a tool name.
 
@@ -130,6 +145,15 @@ def classify_tool(tool_name: str) -> str:
     if "/" in tool_name:
         return TOOL_CATEGORIES.get(tool_name.rsplit("/", 1)[-1], "other")
     return "other"
+
+
+def classify_tool_activity(tool_name: str) -> str:
+    """Return the high-level activity bucket for a tool name.
+
+    Maps tool name → category → activity. Activity values:
+    implementation, investigation, delegation, reasoning, overhead.
+    """
+    return _CATEGORY_TO_ACTIVITY.get(classify_tool(tool_name), "overhead")
 
 
 def extract_tool_target(tool_name: str, tool_args: str | None) -> str:
