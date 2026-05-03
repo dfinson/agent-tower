@@ -98,6 +98,8 @@ export function handleTelemetryUpdated(state: AppState, payload: Record<string, 
         ...existingJob,
         ...(payload.totalCostUsd !== undefined ? { totalCostUsd: payload.totalCostUsd as number } : {}),
         ...(payload.totalTokens !== undefined ? { totalTokens: payload.totalTokens as number } : {}),
+        ...(payload.inputTokens !== undefined ? { inputTokens: payload.inputTokens as number } : {}),
+        ...(payload.outputTokens !== undefined ? { outputTokens: payload.outputTokens as number } : {}),
       },
     };
   }

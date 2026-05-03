@@ -207,6 +207,8 @@ class JobResponse(CamelModel):
     parent_job_id: str | None = None
     total_cost_usd: float | None = None
     total_tokens: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
     @classmethod
     def from_domain(cls, job: Job, **overrides: Any) -> JobResponse:
@@ -607,6 +609,8 @@ class TelemetryUpdatedPayload(CamelModel):
     timestamp: datetime
     total_cost_usd: float = 0.0
     total_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class StepEntriesReassignedPayload(CamelModel):

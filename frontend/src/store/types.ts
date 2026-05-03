@@ -43,6 +43,8 @@ export interface JobSummary {
   setupStep?: string | null;
   totalCostUsd?: number | null;
   totalTokens?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
 }
 
 export interface ApprovalRequest {

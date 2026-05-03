@@ -168,8 +168,10 @@ class TelemetrySummaryRepository(BaseRepository):
             return {
                 "total_cost_usd": float(row["total_cost_usd"]),
                 "total_tokens": total_tokens,
+                "input_tokens": int(row["input_tokens"]),
+                "output_tokens": int(row["output_tokens"]),
             }
-        return {"total_cost_usd": 0.0, "total_tokens": 0}
+        return {"total_cost_usd": 0.0, "total_tokens": 0, "input_tokens": 0, "output_tokens": 0}
 
     async def set_model(self, job_id: str, model: str) -> None:
         """Update the model once confirmed by the SDK."""
@@ -319,5 +321,7 @@ class TelemetrySummaryRepository(BaseRepository):
             out[row["job_id"]] = {
                 "total_cost_usd": float(row["total_cost_usd"]),
                 "total_tokens": total_tokens,
+                "input_tokens": int(row["input_tokens"]),
+                "output_tokens": int(row["output_tokens"]),
             }
         return out

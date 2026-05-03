@@ -545,7 +545,7 @@ export function JobDetailScreen() {
 
       {/* ── Mobile metadata summary line (< 768px) ── */}
       <div className="flex md:hidden items-center gap-1.5 px-2 py-1 border-b border-border bg-card/80 overflow-x-auto scrollbar-none">
-        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} />
+        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => handleTabChange("metrics")} />
       </div>
 
       {/* ── Desktop: Row 1 — identity bar ── */}
@@ -575,7 +575,7 @@ export function JobDetailScreen() {
 
       {/* ── Desktop: Row 2 — metadata chips ── */}
       <div className="hidden md:flex items-center px-3 h-8 border-b border-border bg-card/80 shrink-0">
-        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} />
+        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => handleTabChange("metrics")} />
       </div>
 
       {/* ── Desktop: Row 3 — view tabs ── */}

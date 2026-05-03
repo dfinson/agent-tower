@@ -399,6 +399,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
         if totals:
             payload["total_cost_usd"] = totals.get("total_cost_usd", 0.0)
             payload["total_tokens"] = totals.get("total_tokens", 0)
+            payload["input_tokens"] = totals.get("input_tokens", 0)
+            payload["output_tokens"] = totals.get("output_tokens", 0)
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),

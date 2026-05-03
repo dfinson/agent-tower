@@ -81,6 +81,8 @@ def job_to_response(
     *,
     total_cost_usd: float | int | None = None,
     total_tokens: float | int | None = None,
+    input_tokens: float | int | None = None,
+    output_tokens: float | int | None = None,
 ) -> JobResponse:
     """Map a domain Job to a JobResponse."""
     overrides: dict[str, Any] = {}
@@ -91,6 +93,10 @@ def job_to_response(
         overrides["total_cost_usd"] = float(total_cost_usd)
     if total_tokens is not None:
         overrides["total_tokens"] = int(total_tokens)
+    if input_tokens is not None:
+        overrides["input_tokens"] = int(input_tokens)
+    if output_tokens is not None:
+        overrides["output_tokens"] = int(output_tokens)
     return JobResponse.from_domain(job, **overrides)
 
 
@@ -222,6 +228,8 @@ async def list_jobs(
             progress_by_job.get(j.id),
             total_cost_usd=ct.get("total_cost_usd"),
             total_tokens=ct.get("total_tokens"),
+            input_tokens=ct.get("input_tokens"),
+            output_tokens=ct.get("output_tokens"),
         ))
     return JobListResponse(items=items, cursor=next_cursor, has_more=has_more)
 
@@ -243,6 +251,8 @@ async def get_job(
         job, progress_preview,
         total_cost_usd=ct.get("total_cost_usd"),
         total_tokens=ct.get("total_tokens"),
+        input_tokens=ct.get("input_tokens"),
+        output_tokens=ct.get("output_tokens"),
     )
 
 

@@ -80,7 +80,7 @@ class _FakeCopilotSession:
     def on(self, callback: Any) -> None:
         self._callbacks.append(callback)
 
-    async def send(self, payload: dict[str, Any]) -> None:
+    async def send(self, payload: Any, **kwargs: Any) -> None:
         self._send_calls.append(payload)
 
     async def abort(self) -> None:
@@ -98,12 +98,12 @@ class _FakeCopilotClient:
     def __init__(self) -> None:
         self._sessions: list[_FakeCopilotSession] = []
 
-    async def create_session(self, config: Any) -> _FakeCopilotSession:
+    async def create_session(self, **kwargs: Any) -> _FakeCopilotSession:
         session = _FakeCopilotSession()
         self._sessions.append(session)
         return session
 
-    async def resume_session(self, session_id: str, config: Any) -> _FakeCopilotSession:
+    async def resume_session(self, session_id: str, **kwargs: Any) -> _FakeCopilotSession:
         session = _FakeCopilotSession(session_id=session_id)
         self._sessions.append(session)
         return session
@@ -134,6 +134,8 @@ def _build_fake_copilot_types() -> ModuleType:
 def _build_fake_copilot_session() -> ModuleType:
     mod = ModuleType("copilot.session")
     mod.CopilotSession = _FakeCopilotSession
+    mod.PermissionRequestResult = _FakePermissionRequestResult
+    mod.SystemMessageAppendConfig = dict  # adapter only uses it as a type hint
     return mod
 
 
@@ -176,6 +178,12 @@ _fake_copilot_jsonrpc_mod.JsonRpcError = _FakeJsonRpcError
 _fake_copilot_jsonrpc_mod.ProcessExitedError = _FakeProcessExitedError
 sys.modules.setdefault("copilot.client", _fake_copilot_client_mod)
 sys.modules.setdefault("copilot.jsonrpc", _fake_copilot_jsonrpc_mod)
+
+# SDK 0.3.0 moved error types to copilot._jsonrpc
+_fake_copilot_jsonrpc_internal_mod = ModuleType("copilot._jsonrpc")
+_fake_copilot_jsonrpc_internal_mod.JsonRpcError = _FakeJsonRpcError
+_fake_copilot_jsonrpc_internal_mod.ProcessExitedError = _FakeProcessExitedError
+sys.modules.setdefault("copilot._jsonrpc", _fake_copilot_jsonrpc_internal_mod)
 
 from backend.services.copilot_adapter import CopilotAdapter  # noqa: E402
 
@@ -329,7 +337,7 @@ class TestSendMessage:
         await adapter.send_message("sess-1", "follow up")
 
         assert len(session._send_calls) == 1
-        assert session._send_calls[0]["prompt"] == "follow up"
+        assert session._send_calls[0] == "follow up"
 
     @pytest.mark.asyncio
     async def test_send_to_missing_session(self, adapter: CopilotAdapter) -> None:
@@ -414,7 +422,7 @@ class TestCreateSession:
         config = _make_config(resume_sdk_session_id="stale-session")
 
         class _FailingResumeClient(_FakeCopilotClient):
-            async def resume_session(self, session_id: str, config: Any) -> _FakeCopilotSession:
+            async def resume_session(self, session_id: str, **kwargs: Any) -> _FakeCopilotSession:
                 raise _FakeJsonRpcError("session expired")
 
         fake_client = _FailingResumeClient()
@@ -430,11 +438,11 @@ class TestCreateSession:
         config = _make_config()
 
         class _FailingSendSession(_FakeCopilotSession):
-            async def send(self, payload: dict[str, Any]) -> None:
+            async def send(self, payload: Any, **kwargs: Any) -> None:
                 raise RuntimeError("send failed")
 
         class _FailClient(_FakeCopilotClient):
-            async def create_session(self, cfg: Any) -> _FailingSendSession:
+            async def create_session(self, **kwargs: Any) -> _FailingSendSession:
                 return _FailingSendSession()
 
         with (
@@ -574,7 +582,7 @@ class TestOnEventCallback:
     async def test_session_shutdown_emits_done(self, adapter: CopilotAdapter) -> None:
         sid, queue, session = await self._setup_session(adapter)
 
-        data = _FakeEventData()
+        data = _FakeEventData(total_premium_requests=None)
         session.fire_event(_FakeSdkSessionEvent("session.shutdown", data))
 
         events = self._drain_queue(queue)
@@ -685,6 +693,7 @@ class TestEventTelemetry:
             cache_write_tokens=5,
             cost=0.002,
             duration=1500,
+            quota_snapshots=None,
         )
 
         with (
@@ -725,6 +734,7 @@ class TestEventTelemetry:
             cache_write_tokens=0,
             cost=0.0001,
             duration=100,
+            quota_snapshots=None,
         )
 
         session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
@@ -759,6 +769,7 @@ class TestEventTelemetry:
             cache_write_tokens=0,
             cost=0.001,
             duration=200,
+            quota_snapshots=None,
         )
 
         session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
@@ -896,7 +907,7 @@ class TestEventTelemetry:
         data = _FakeEventData(current_tokens=5000)
 
         with patch("backend.services.telemetry.context_tokens_gauge") as mock_gauge:
-            session.fire_event(_FakeSdkSessionEvent("session.context_changed", data))
+            session.fire_event(_FakeSdkSessionEvent("session.usage_info", data))
 
             mock_gauge.set.assert_called_once_with(5000, {"job_id": "job-tel", "sdk": "copilot"})
 
@@ -1086,6 +1097,7 @@ class TestLogEvents:
             cache_write_tokens=0,
             cost=0.01,
             duration=500,
+            quota_snapshots=None,
         )
 
         session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
@@ -1113,6 +1125,7 @@ class TestLogEvents:
             cache_write_tokens=0,
             cost=0.001,
             duration=100,
+            quota_snapshots=None,
         )
 
         session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
@@ -1190,8 +1203,11 @@ class TestComplete:
         collected_content = "Generated response"
 
         class _FakeCompleteClient:
-            async def create_session(self, config: Any) -> _FakeCopilotSession:
+            async def create_session(self, **kwargs: Any) -> _FakeCopilotSession:
                 return fake_session
+
+            async def stop(self) -> None:
+                pass
 
         # We need to simulate the on_event callback firing with assistant.message
         original_on = fake_session.on
@@ -1214,8 +1230,11 @@ class TestComplete:
     @pytest.mark.asyncio
     async def test_complete_handles_exception(self, adapter: CopilotAdapter) -> None:
         class _FailingClient:
-            async def create_session(self, config: Any) -> None:
+            async def create_session(self, **kwargs: Any) -> None:
                 raise _FakeJsonRpcError("boom")
+
+            async def stop(self) -> None:
+                pass
 
         with patch("copilot.CopilotClient", return_value=_FailingClient()):
             result = await adapter.complete("test")
@@ -1227,8 +1246,11 @@ class TestComplete:
         fake_session = _FakeCopilotSession()
 
         class _TimeoutClient:
-            async def create_session(self, config: Any) -> _FakeCopilotSession:
+            async def create_session(self, **kwargs: Any) -> _FakeCopilotSession:
                 return fake_session
+
+            async def stop(self) -> None:
+                pass
 
         with (
             patch("copilot.CopilotClient", return_value=_TimeoutClient()),
@@ -1336,8 +1358,8 @@ class TestToolStartBuffering:
 class TestToolResultExtraction:
     @pytest.mark.asyncio
     @patch("backend.services.tool_formatters.format_tool_display", return_value="tool: ok")
-    async def test_partial_output_fallback(self, mock_fmt: MagicMock, adapter: CopilotAdapter) -> None:
-        """When result.content is empty, partial_output should be used."""
+    async def test_empty_result_content_fallback(self, mock_fmt: MagicMock, adapter: CopilotAdapter) -> None:
+        """When result.content is empty, tool_result should be empty string."""
         config = _make_config(job_id="job-partial")
         fake_client = _FakeCopilotClient()
 
@@ -1362,7 +1384,6 @@ class TestToolResultExtraction:
             mcp_tool_name=None,
             success=True,
             result=SimpleNamespace(content=None),
-            partial_output="partial result text",
             turn_id=None,
         )
 
@@ -1378,7 +1399,7 @@ class TestToolResultExtraction:
             e for e in events if e.kind == SessionEventKind.transcript and e.payload.get("role") == "tool_call"
         ]
         assert len(transcripts) == 1
-        assert transcripts[0].payload["tool_result"] == "partial result text"
+        assert transcripts[0].payload["tool_result"] == ""
 
     @pytest.mark.asyncio
     @patch("backend.services.tool_formatters.format_tool_display", return_value="tool: ok")
@@ -1466,7 +1487,7 @@ class TestHandlePermissionRequestGitResetHard:
             self._invocation(),
             config,
         )
-        assert result.kind == "approved"
+        assert result.kind == "approve-once"
         approval_service.create_request.assert_called_once()
         call_kwargs = approval_service.create_request.call_args.kwargs
         assert call_kwargs["requires_explicit_approval"] is True
@@ -1489,7 +1510,7 @@ class TestHandlePermissionRequestGitResetHard:
             config,
         )
         # Still routes to approval even though job is trusted
-        assert result.kind == "approved"
+        assert result.kind == "approve-once"
         approval_service.create_request.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1507,7 +1528,7 @@ class TestHandlePermissionRequestGitResetHard:
             self._invocation(),
             config,
         )
-        assert result.kind == "denied-interactively-by-user"
+        assert result.kind == "reject"
 
     @pytest.mark.asyncio
     async def test_git_reset_hard_denied_when_no_infra(self) -> None:
@@ -1519,7 +1540,7 @@ class TestHandlePermissionRequestGitResetHard:
             {"session_id": ""},
             config,
         )
-        assert result.kind == "denied-interactively-by-user"
+        assert result.kind == "reject"
 
     @pytest.mark.asyncio
     async def test_normal_shell_in_auto_mode_not_affected(self) -> None:
@@ -1534,7 +1555,7 @@ class TestHandlePermissionRequestGitResetHard:
             config,
         )
         # In auto mode, non-git-reset-hard commands are approved without hitting approval service
-        assert result.kind == "approved"
+        assert result.kind == "approve-once"
         approval_service.create_request.assert_not_called()
 
 
@@ -1562,7 +1583,7 @@ class TestPauseTools:
                 {"session_id": self._SESSION_ID},
                 config,
             )
-            assert result.kind == "denied-interactively-by-user", f"{kind} should be denied while paused"
+            assert result.kind == "reject", f"{kind} should be denied while paused"
 
     @pytest.mark.asyncio
     async def test_resume_tools_lifts_block(self) -> None:
@@ -1581,7 +1602,7 @@ class TestPauseTools:
             {"session_id": self._SESSION_ID},
             config,
         )
-        assert result.kind == "approved"
+        assert result.kind == "approve-once"
 
     def test_cleanup_clears_paused_state(self) -> None:
         """_cleanup_session removes the session from the paused set."""
