@@ -20,11 +20,10 @@ import { ConfirmDialog } from "./ui/confirm-dialog";
 import { cn } from "../lib/utils";
 import type { StepFilter } from "./DiffViewer";
 import { ActivityPanel } from "./ActivityPanel";
-import { MetadataChipStrip } from "./MetadataChipStrip";
 import { ViewTabBar } from "./ViewTabBar";
 
 import { JobHeaderCard } from "./JobHeaderCard";
-import { MobileStatusRail, MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
+import { MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazyRetry(() => import("./DiffViewer"));
@@ -516,43 +515,7 @@ export function JobDetailScreen() {
 
   return (
     <div className="px-0 md:flex md:flex-col md:h-full md:min-h-0">
-      {/* ── Mobile compact status rail (< 768px) ── */}
-      <MobileStatusRail
-        job={job}
-        onBack={() => navigate("/")}
-        onCancelOpen={() => setCancelOpen(true)}
-        onResume={handleResume}
-        onOpenTerminal={handleOpenJobTerminal}
-        canCancel={canCancel}
-        canResume={canResume}
-        hasWorktree={hasWorktree}
-        jobTerminalCount={jobTerminalCount}
-        isRunning={isRunning}
-        onOpenAgentTerminal={handleOpenAgentTerminal}
-        needsResolution={needsResolution}
-        hasChanges={hasChanges}
-        hasMergeConflict={hasMergeConflict}
-        isResolved={isResolved}
-        canArchive={canArchive}
-        resolveLoading={resolveLoading}
-        onResolve={handleResolve}
-        onDiscardOpen={() => setDiscardOpen(true)}
-        onMarkDoneOpen={() => setMarkDoneOpen(true)}
-        onCompleteOpen={() => setCompleteOpen(true)}
-      />
-
-      {/* ── Mobile metadata summary line (< 768px) ── */}
-      <div className="flex md:hidden items-center gap-1.5 px-2 py-1 border-b border-border bg-card/80 overflow-x-auto scrollbar-none">
-        {(job.description || job.prompt) && (
-          <span className="text-[11px] text-muted-foreground truncate shrink min-w-0 max-w-[50%]">
-            {job.description ?? job.prompt}
-          </span>
-        )}
-        {(job.description || job.prompt) && <span className="text-muted-foreground/30">·</span>}
-        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={() => handleTabChange("metrics")} />
-      </div>
-
-      {/* ── Desktop: Collapsible job header card ── */}
+      {/* ── Collapsible job header card (all viewports) ── */}
       <JobHeaderCard
         job={job}
         isPreparing={isPreparing}

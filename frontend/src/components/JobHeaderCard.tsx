@@ -47,7 +47,7 @@ export function JobHeaderCard({
   const isActive = ["running", "agent_running", "queued"].includes(job.state);
 
   return (
-    <div className="hidden md:block shrink-0 border-b border-border bg-card">
+    <div className="shrink-0 border-b border-border bg-card">
       {/* ── Always-visible row: identity + collapsed summary ── */}
       <div className="flex items-center gap-2 h-10 px-3">
         <button onClick={onNavigateHome} className="flex items-center shrink-0 hover:opacity-80 transition-opacity">
