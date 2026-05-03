@@ -8,7 +8,6 @@ intent-refined activity classification, and edit one-shot rate).
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -16,7 +15,7 @@ import structlog
 from sqlalchemy.exc import DBAPIError
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.tool_classifier import classify_tool
+from backend.services.tool_classifier import classify_tool, classify_shell_command
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -63,47 +62,6 @@ class TurnContext(TypedDict):
 # Categories that represent file-write actions
 _WRITE_TOOL_CATEGORIES = {"file_write", "git_write"}
 
-# Shell command patterns — matched against actual commands, not job prompt
-_RE_SHELL_TEST = re.compile(
-    r"\b(pytest|vitest|jest|mocha|npm\s+test|npx\s+vitest|npx\s+jest|"
-    r"cargo\s+test|go\s+test|rspec|phpunit|unittest|npm\s+run\s+test)\b",
-    re.IGNORECASE,
-)
-_RE_SHELL_GIT_WRITE = re.compile(
-    r"\bgit\s+(add|commit|push|merge|rebase|checkout|cherry-pick|stash|tag|reset)\b",
-    re.IGNORECASE,
-)
-_RE_SHELL_GIT_READ = re.compile(
-    r"\bgit\s+(diff|log|status|show|blame|branch)\b",
-    re.IGNORECASE,
-)
-_RE_SHELL_SETUP = re.compile(
-    r"\b(uv\s+sync|uv\s+add|pip\s+install|npm\s+install|npm\s+ci|"
-    r"yarn\s+install|cargo\s+build|make\s+build|docker|deploy|"
-    r"brew\s+install|apt\s+install|apt-get\s+install)\b",
-    re.IGNORECASE,
-)
-_RE_SHELL_INVESTIGATE = re.compile(
-    r"\b(find|ls|cat|head|tail|wc|tree|du|file|grep|awk|sed|diff|less|more|stat|strings)\b",
-    re.IGNORECASE,
-)
-
-
-def _classify_shell_command(cmd: str) -> str:
-    """Classify a shell command string into a tool-level intent."""
-    if _RE_SHELL_TEST.search(cmd):
-        return "verification"
-    if _RE_SHELL_GIT_WRITE.search(cmd):
-        return "git_ops"
-    if _RE_SHELL_SETUP.search(cmd):
-        return "setup"
-    if _RE_SHELL_GIT_READ.search(cmd):
-        return "investigation"
-    if _RE_SHELL_INVESTIGATE.search(cmd):
-        return "investigation"
-    # Unclassified shell — falls through to turn-level logic
-    return "shell_other"
-
 
 def _classify_turn_intent(context: TurnContext) -> str:
     """Assign a single dominant activity to a turn based on its tools.
@@ -116,7 +74,7 @@ def _classify_turn_intent(context: TurnContext) -> str:
     # Classify each shell command individually
     shell_intents: set[str] = set()
     for cmd in shell_cmds:
-        shell_intents.add(_classify_shell_command(cmd))
+        shell_intents.add(classify_shell_command(cmd))
 
     has_writes = bool(cats & _WRITE_TOOL_CATEGORIES)
     has_reads = bool(cats & {"file_read", "git_read"})

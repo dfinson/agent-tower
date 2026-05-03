@@ -7,6 +7,8 @@ from tool arguments.
 
 from __future__ import annotations
 
+import re
+
 from backend.services.parsing_utils import ensure_dict
 
 TOOL_CATEGORIES: dict[str, str] = {
@@ -132,6 +134,55 @@ _CATEGORY_TO_ACTIVITY: dict[str, str] = {
     "other": "overhead",
 }
 
+# ---------------------------------------------------------------------------
+# Shell command → activity refinement
+#
+# When we know the actual command a shell tool executed, we can assign a
+# more precise activity than the generic "investigation" default.
+# ---------------------------------------------------------------------------
+
+_RE_SHELL_TEST = re.compile(
+    r"\b(pytest|vitest|jest|mocha|npm\s+test|npx\s+vitest|npx\s+jest|"
+    r"cargo\s+test|go\s+test|rspec|phpunit|unittest|npm\s+run\s+test)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_GIT_WRITE = re.compile(
+    r"\bgit\s+(add|commit|push|merge|rebase|checkout|cherry-pick|stash|tag|reset)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_GIT_READ = re.compile(
+    r"\bgit\s+(diff|log|status|show|blame|branch)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_SETUP = re.compile(
+    r"\b(uv\s+sync|uv\s+add|pip\s+install|npm\s+install|npm\s+ci|"
+    r"yarn\s+install|cargo\s+build|make\s+build|docker|deploy|"
+    r"brew\s+install|apt\s+install|apt-get\s+install)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_INVESTIGATE = re.compile(
+    r"\b(find|ls|cat|head|tail|wc|tree|du|file|grep|awk|sed|diff|less|more|stat|strings)\b",
+    re.IGNORECASE,
+)
+
+
+def classify_shell_command(cmd: str) -> str:
+    """Classify a shell command string into an activity.
+
+    Returns one of: verification, git_ops, setup, investigation, shell_other.
+    """
+    if _RE_SHELL_TEST.search(cmd):
+        return "verification"
+    if _RE_SHELL_GIT_WRITE.search(cmd):
+        return "git_ops"
+    if _RE_SHELL_SETUP.search(cmd):
+        return "setup"
+    if _RE_SHELL_GIT_READ.search(cmd):
+        return "investigation"
+    if _RE_SHELL_INVESTIGATE.search(cmd):
+        return "investigation"
+    return "shell_other"
+
 
 def classify_tool(tool_name: str) -> str:
     """Return the normalized category for a tool name.
@@ -147,13 +198,27 @@ def classify_tool(tool_name: str) -> str:
     return "other"
 
 
-def classify_tool_activity(tool_name: str) -> str:
-    """Return the high-level activity bucket for a tool name.
+def classify_tool_activity(tool_name: str, tool_args_json: str | None = None) -> str:
+    """Return the high-level activity bucket for a tool invocation.
 
-    Maps tool name → category → activity. Activity values:
-    implementation, investigation, delegation, reasoning, overhead.
+    For shell tools, inspects the actual command from tool_args_json to
+    assign a precise activity (verification, git_ops, setup, etc.)
+    instead of the generic 'investigation' fallback.
     """
-    return _CATEGORY_TO_ACTIVITY.get(classify_tool(tool_name), "overhead")
+    category = classify_tool(tool_name)
+    if category == "shell" and tool_args_json:
+        parsed = ensure_dict(tool_args_json)
+        if parsed:
+            cmd = str(
+                parsed.get("command", "")
+                or parsed.get("cmd", "")
+                or parsed.get("input", "")
+            )
+            if cmd:
+                shell_activity = classify_shell_command(cmd)
+                if shell_activity != "shell_other":
+                    return shell_activity
+    return _CATEGORY_TO_ACTIVITY.get(category, "overhead")
 
 
 def extract_tool_target(tool_name: str, tool_args: str | None) -> str:

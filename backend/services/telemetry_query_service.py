@@ -141,17 +141,18 @@ class TelemetryQueryService:
                     with contextlib.suppress(json.JSONDecodeError, TypeError):
                         edit_motivations = json.loads(span["edit_motivations"])
                 tool_name = span["name"]
+                tool_args = span.get("tool_args_json")
                 # For shell tools, derive a human-readable label from the command
                 display_label: str | None = None
                 if tool_name in _SHELL_TOOL_NAMES:
-                    derived = _shell_display_name(tool_name, span.get("tool_args_json"))
+                    derived = _shell_display_name(tool_name, tool_args)
                     if derived != tool_name:
                         display_label = derived
                 tool_calls.append(
                     TelemetryToolCall(
                         name=tool_name,
                         display_label=display_label,
-                        activity=classify_tool_activity(tool_name),
+                        activity=classify_tool_activity(tool_name, tool_args),
                         duration_ms=float(span.get("duration_ms", 0)),
                         success=attrs.get("success", True),
                         offset_sec=float(span.get("started_at", 0)),

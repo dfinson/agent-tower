@@ -1,9 +1,8 @@
 from backend.services.cost_attribution import (
     _classify_turn_intent,
-    _classify_shell_command,
     _infer_execution_phases,
 )
-from backend.services.tool_classifier import classify_tool
+from backend.services.tool_classifier import classify_tool, classify_shell_command
 
 
 def test_infer_execution_phases_uses_neighboring_valid_phases() -> None:
@@ -103,12 +102,12 @@ def test_classify_turn_intent_communication_and_reasoning() -> None:
 
 
 def test_classify_shell_command() -> None:
-    assert _classify_shell_command("pytest tests/") == "verification"
-    assert _classify_shell_command("git commit -m 'fix'") == "git_ops"
-    assert _classify_shell_command("uv sync") == "setup"
-    assert _classify_shell_command("git diff HEAD") == "investigation"
-    assert _classify_shell_command("find . -name '*.py'") == "investigation"
-    assert _classify_shell_command("echo hello") == "shell_other"
+    assert classify_shell_command("pytest tests/") == "verification"
+    assert classify_shell_command("git commit -m 'fix'") == "git_ops"
+    assert classify_shell_command("uv sync") == "setup"
+    assert classify_shell_command("git diff HEAD") == "investigation"
+    assert classify_shell_command("find . -name '*.py'") == "investigation"
+    assert classify_shell_command("echo hello") == "shell_other"
 
 
 def test_classify_tool_list_agents() -> None:
