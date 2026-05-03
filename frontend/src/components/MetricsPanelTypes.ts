@@ -323,18 +323,7 @@ export function classifyToolToActivity(toolName: string): string {
   return CATEGORY_TO_ACTIVITY[cat] ?? "overhead";
 }
 
-/** Representative tool examples for each activity, shown when no real data. */
-export const ACTIVITY_TOOL_EXAMPLES: Record<string, string[]> = {
-  implementation: ["edit_file", "write_file", "replace_string_in_file", "create_file"],
-  investigation: ["read_file", "grep_search", "file_search", "git diff", "find"],
-  verification: ["pytest", "vitest", "jest", "npm test"],
-  git_ops: ["git commit", "git push", "git merge", "git add"],
-  setup: ["uv sync", "npm install", "pip install", "cargo build"],
-  delegation: ["runSubagent", "Task"],
-  overhead: ["report_intent", "manage_todo_list", "memory", "sql"],
-  reasoning: ["Think"],
-  communication: [],
-};
+
 
 const _PHASE_COLORS: Record<string, string> = {
   environment_setup: "bg-cyan-500",

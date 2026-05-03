@@ -15,7 +15,7 @@ import type {
   TelemetryData, LLMCall, SortField, SortDir, ToolAggregate,
   SessionCheckpoint, SessionSummaryJson,
 } from "./MetricsPanelTypes";
-import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS, classifyToolToActivity, ACTIVITY_TOOL_EXAMPLES } from "./MetricsPanelTypes";
+import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS, classifyToolToActivity } from "./MetricsPanelTypes";
 import {
   useModelPricing,
   CacheEfficiencyBar,
@@ -412,60 +412,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                     </div>
                   )}
 
-                  {showTurnEconomics && turnEconomics && (
-                    <div className="space-y-3 rounded-md border border-border bg-background p-3">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                        <TrendingUp size={12} className="text-blue-400" /> Turn Economics
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        <CompactStat label="Total Turns" value={String(turnEconomics.totalTurns)} />
-                        <CompactStat label="Avg Cost/Turn" value={formatUsd(turnEconomics.avgTurnCostUsd)} />
-                        <CompactStat label="Peak Turn" value={formatUsd(turnEconomics.peakTurnCostUsd)} />
-                      </div>
-                      {turnCurve.length > 1 && (
-                        <div className="space-y-1">
-                          <button
-                            type="button"
-                            onClick={() => setTurnsCollapsed((current) => !current)}
-                            className="flex w-full items-center justify-between gap-2 rounded-md border border-border/80 px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-accent/30 transition-colors"
-                          >
-                            <span>Turn list</span>
-                            <span>{turnsCollapsed ? `Show ${turnCurve.length} turns` : "Hide turns"}</span>
-                          </button>
-                          {!turnsCollapsed && turnCurve.map((bucket) => {
-                            const maxCost = Math.max(...turnCurve.map((entry) => entry.costUsd), 0);
-                            const widthPct = maxCost > 0 ? (bucket.costUsd / maxCost) * 100 : 0;
-                            const activity = bucket.activity ? formatActivityBucket(bucket.activity) : null;
-                            const tools = bucket.tools ?? [];
-                            return (
-                              <div key={bucket.bucket} className="space-y-1">
-                                <div className="flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-muted-foreground">Turn {bucket.bucket}</span>
-                                    {activity && (
-                                      <span className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded">{activity}</span>
-                                    )}
-                                  </div>
-                                  <span className="tabular-nums">{formatUsd(bucket.costUsd)}</span>
-                                </div>
-                                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
-                                </div>
-                                {tools.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 text-[10px] text-muted-foreground/60">
-                                    {tools.map((t) => (
-                                      <span key={t} className="bg-muted/50 px-1 rounded">{t}</span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   {activityBuckets.length > 0 && (
                     <div className="rounded-md border border-border bg-background p-3 space-y-2">
                       <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
@@ -558,7 +504,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                   {/* Actual tools used in this category */}
                                   {(() => {
                                     const tools = toolsByActivity[bucket.bucket];
-                                    const examples = ACTIVITY_TOOL_EXAMPLES[bucket.bucket];
                                     if (tools && tools.length > 0) {
                                       return (
                                         <div className="space-y-1">
@@ -577,20 +522,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                         </div>
                                       );
                                     }
-                                    if (examples && examples.length > 0) {
-                                      return (
-                                        <div className="space-y-1">
-                                          <div className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">Typical tools</div>
-                                          <div className="flex flex-wrap gap-1">
-                                            {examples.map((name) => (
-                                              <span key={name} className="inline-flex items-center rounded bg-accent/20 px-1.5 py-0.5 text-[10px] text-muted-foreground/60 font-mono">
-                                                {name}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      );
-                                    }
                                     return null;
                                   })()}
                                 </div>
@@ -598,6 +529,61 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                             </div>
                           );
                         })}
+                    </div>
+                  )}
+
+                  {showTurnEconomics && turnEconomics && (
+                    <div className="space-y-3 rounded-md border border-border bg-background p-3">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                        <TrendingUp size={12} className="text-blue-400" /> Turn Economics
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <CompactStat label="Total Turns" value={String(turnEconomics.totalTurns)} />
+                        <CompactStat label="Avg Cost/Turn" value={formatUsd(turnEconomics.avgTurnCostUsd)} />
+                        <CompactStat label="Peak Turn" value={formatUsd(turnEconomics.peakTurnCostUsd)} />
+                      </div>
+                      {turnCurve.length > 1 && (
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => setTurnsCollapsed((current) => !current)}
+                            className="flex w-full items-center justify-between gap-2 rounded-md border border-border/80 px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-accent/30 transition-colors"
+                          >
+                            <span>Turn list</span>
+                            <span>{turnsCollapsed ? `Show ${turnCurve.length} turns` : "Hide turns"}</span>
+                          </button>
+                          {!turnsCollapsed && turnCurve.map((bucket) => {
+                            const maxCost = Math.max(...turnCurve.map((entry) => entry.costUsd), 0);
+                            const widthPct = maxCost > 0 ? (bucket.costUsd / maxCost) * 100 : 0;
+                            const activity = bucket.activity ? formatActivityBucket(bucket.activity) : null;
+                            const actions = bucket.actions ?? [];
+                            return (
+                              <div key={bucket.bucket} className="space-y-0.5 py-1.5 border-b border-border/30 last:border-0">
+                                <div className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground font-mono w-5 text-right">{bucket.bucket}</span>
+                                    {activity && (
+                                      <span className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded">{activity}</span>
+                                    )}
+                                  </div>
+                                  <span className="tabular-nums">{formatUsd(bucket.costUsd)}</span>
+                                </div>
+                                <div className="h-1 rounded-full bg-muted overflow-hidden ml-7">
+                                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(widthPct, 3)}%` }} />
+                                </div>
+                                {(bucket.intent || actions.length > 0) && (
+                                  <div className="ml-7 text-[11px] text-muted-foreground/80 space-y-0.5">
+                                    {bucket.intent && <div className="italic">{bucket.intent}</div>}
+                                    {actions.map((a, i) => (
+                                      <div key={i} className="text-muted-foreground/60">• {a}</div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -199,7 +199,8 @@ class TelemetryCostBucket(CamelModel):
     call_count: int = 0
     # Per-turn enrichment (only populated for dimension="turn")
     activity: str | None = None
-    tools: list[str] | None = None
+    intent: str | None = None
+    actions: list[str] | None = None
 
 
 class TelemetryCostDrivers(CamelModel):

@@ -357,7 +357,8 @@ export function fetchJobTelemetry(jobId: string): Promise<{
       outputTokens: number;
       callCount: number;
       activity?: string;
-      tools?: string[];
+      intent?: string;
+      actions?: string[];
     }>;
   };
   fileAccess?: {

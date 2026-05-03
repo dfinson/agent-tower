@@ -265,7 +265,8 @@ class TelemetryQueryService:
 
     @staticmethod
     def _enrich_turn_curve(turn_curve: list[TelemetryCostBucket], spans: list[dict]) -> None:
-        """Annotate each turn bucket with its dominant activity and tool names."""
+        """Annotate each turn bucket with intent and concrete actions."""
+        import json as _json
         from backend.services.cost_attribution import _classify_turn_intent
         from backend.services.tool_classifier import classify_tool
 
@@ -278,38 +279,101 @@ class TelemetryQueryService:
             if turn:
                 turns.setdefault(turn, []).append(span)
 
+        def _short_path(p: str) -> str:
+            """Strip worktree prefix, keep last 2 path segments."""
+            if not p:
+                return ""
+            # Strip common worktree prefixes
+            parts = p.replace("\\", "/").split("/")
+            # Find last segment after .codeplane-worktrees/<job>/
+            try:
+                idx = next(i for i, seg in enumerate(parts) if seg == ".codeplane-worktrees")
+                parts = parts[idx + 2:]  # skip worktrees/<job-name>
+            except StopIteration:
+                pass
+            # Keep at most last 2 segments
+            if len(parts) > 2:
+                parts = parts[-2:]
+            return "/".join(parts)
+
+        def _short_cmd(cmd: str) -> str:
+            """Extract first meaningful word from a shell command."""
+            # Strip cd prefix
+            c = cmd.strip()
+            if c.startswith("cd ") and "&&" in c:
+                c = c.split("&&", 1)[1].strip()
+            # Get first word
+            word = c.split()[0] if c.split() else c
+            # Strip path from command name
+            return word.split("/")[-1]
+
         for bucket in turn_curve:
             turn_spans = turns.get(bucket.bucket, [])
             if not turn_spans:
                 bucket.activity = "communication"
-                bucket.tools = []
+                bucket.intent = None
+                bucket.actions = []
                 continue
 
-            # Collect tool categories and shell commands
+            # Extract intent from report_intent spans (use last one as most specific)
+            intent = None
             categories: list[str] = []
-            tool_names: list[str] = []
             shell_commands: list[str] = []
+            actions: list[str] = []
+            files_edited: list[str] = []
+            files_read: list[str] = []
+            commands_run: list[str] = []
+
             for span in turn_spans:
                 name = span.get("name", "")
                 cat = classify_tool(name)
                 categories.append(cat)
-                tool_names.append(name)
-                if cat == "shell" and span.get("tool_args_json"):
-                    import json as _json
+                args_raw = span.get("tool_args_json")
+                args: dict = {}
+                if args_raw:
                     with contextlib.suppress(Exception):
-                        args = _json.loads(span["tool_args_json"])
-                        if isinstance(args, dict):
-                            cmd = args.get("command", args.get("cmd", ""))
-                            if cmd:
-                                shell_commands.append(cmd)
+                        args = _json.loads(args_raw)
+                        if not isinstance(args, dict):
+                            args = {}
 
+                if name == "report_intent":
+                    i = args.get("intent", "")
+                    if i:
+                        intent = i
+                elif cat == "file_write":
+                    path = args.get("file_path", args.get("path", span.get("tool_target", "")))
+                    short = _short_path(path)
+                    if short and short not in files_edited:
+                        files_edited.append(short)
+                elif cat in ("file_read", "search"):
+                    path = args.get("file_path", args.get("path", span.get("tool_target", "")))
+                    short = _short_path(path)
+                    if short and short not in files_read and short not in files_edited:
+                        files_read.append(short)
+                elif cat == "shell":
+                    cmd = args.get("command", args.get("cmd", ""))
+                    if cmd:
+                        shell_commands.append(cmd)
+                        short = _short_cmd(cmd)
+                        if short and short not in commands_run:
+                            commands_run.append(short)
+
+            # Build action summaries
+            if files_edited:
+                if len(files_edited) <= 3:
+                    actions.append(f"edited {', '.join(files_edited)}")
+                else:
+                    actions.append(f"edited {', '.join(files_edited[:2])} +{len(files_edited)-2} more")
+            if files_read:
+                if len(files_read) <= 3:
+                    actions.append(f"read {', '.join(files_read)}")
+                else:
+                    actions.append(f"read {len(files_read)} files")
+            if commands_run:
+                actions.append(f"ran {', '.join(commands_run[:3])}")
+
+            # Classify activity
             context = {"tool_categories": categories, "shell_commands": shell_commands, "phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
             bucket.activity = _classify_turn_intent(context)
-            # Deduplicated tool names in order
-            seen: set[str] = set()
-            unique_tools: list[str] = []
-            for t in tool_names:
-                if t not in seen:
-                    seen.add(t)
-                    unique_tools.append(t)
-            bucket.tools = unique_tools
+            bucket.intent = intent
+            bucket.actions = actions
