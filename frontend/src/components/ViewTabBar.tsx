@@ -86,6 +86,7 @@ export function ViewTabBar({
           <button
             onClick={onOpenAgentTerminal}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors whitespace-nowrap"
+            title="Watch the agent's live shell output"
           >
             <Radio size={14} className="shrink-0 text-green-500 animate-pulse" />
             <span>Agent</span>
