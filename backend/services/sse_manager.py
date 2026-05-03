@@ -9,6 +9,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
 import structlog
 
 from backend.models.api_schemas import (
@@ -637,6 +640,7 @@ class SSEManager:
         job_repo: JobRepository,
         last_event_id: int,
         approval_repo: ApprovalRepository | None = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Replay missed events to a reconnecting client.
 
@@ -663,6 +667,7 @@ class SSEManager:
         if needs_snapshot:
             # Build and send snapshot (scoped to conn.job_id if set)
             from backend.models.api_schemas import JobResponse
+            from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
             if conn.job_id is not None:
                 single = await job_repo.get(conn.job_id)
@@ -670,13 +675,18 @@ class SSEManager:
             else:
                 fetched_jobs = await job_repo.list_all(include_archived=False)
 
-            progress_by_job = await event_repo.list_latest_progress_previews([j.id for j in fetched_jobs])
+            job_ids = [j.id for j in fetched_jobs]
+            progress_by_job = await event_repo.list_latest_progress_previews(job_ids)
+            cost_by_job: dict[str, dict[str, float | int]] = {}
+            if session is not None:
+                cost_by_job = await TelemetrySummaryRepository(session).batch_cost_tokens(job_ids)
 
             job_responses = [
                 JobResponse.from_domain(
                     j,
                     progress_headline=progress_by_job.get(j.id, (None, None))[0],
                     progress_summary=progress_by_job.get(j.id, (None, None))[1],
+                    **{k: v for k, v in cost_by_job.get(j.id, {}).items()},
                 )
                 for j in fetched_jobs
             ]
@@ -732,6 +742,7 @@ class SSEManager:
                 job_repo,
                 last_event_id,
                 approval_repo=approval_repo,
+                session=session,
             )
 
     def close_all(self) -> None:

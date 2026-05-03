@@ -381,6 +381,9 @@ async def get_job_snapshot(
     job = await svc.get_job(job_id)
     progress_preview = await svc.get_latest_progress_preview(job_id)
 
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+    ct = (await TelemetrySummaryRepository(session).batch_cost_tokens([job_id])).get(job_id, {})
+
     return await assemble_snapshot(
         job=job,
         progress_preview=progress_preview,
@@ -389,7 +392,13 @@ async def get_job_snapshot(
         approval_repo=approval_repo,
         resolve_display=resolve_tool_display,
         resolve_display_full=resolve_tool_display_full,
-        job_to_response=job_to_response,
+        job_to_response=lambda j, pp: job_to_response(
+            j, pp,
+            total_cost_usd=ct.get("total_cost_usd"),
+            total_tokens=ct.get("total_tokens"),
+            input_tokens=ct.get("input_tokens"),
+            output_tokens=ct.get("output_tokens"),
+        ),
         filter_transcript_deltas=True,
         detect_plan_generations=True,
         exclude_pending_steps=False,
