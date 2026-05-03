@@ -20,8 +20,8 @@ export interface JobActionsProps {
   onDiscardOpen: () => void;
   onMarkDoneOpen: () => void;
   onCompleteOpen: () => void;
-  /** Render compact (sidebar) vs full (mobile sheet) */
-  layout?: "compact" | "full";
+  /** Render compact (sidebar), full (mobile sheet), or bar (desktop bottom bar) */
+  layout?: "compact" | "full" | "bar";
 }
 
 export function JobActions({
@@ -45,9 +45,10 @@ export function JobActions({
   layout = "compact",
 }: JobActionsProps) {
   const isCompact = layout === "compact";
-  const btnSize = isCompact ? ("sm" as const) : ("sm" as const);
+  const isBar = layout === "bar";
+  const btnSize = "sm" as const;
   const iconSize = isCompact ? 13 : 14;
-  const btnClass = isCompact ? "h-7 text-xs" : "";
+  const btnClass = isCompact ? "h-7 text-xs" : isBar ? "h-8 text-xs" : "";
 
   const hasAny =
     canCancel || canResume || (needsResolution && hasChanges) ||
@@ -56,7 +57,7 @@ export function JobActions({
   if (!hasAny) return null;
 
   return (
-    <div className={isCompact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
+    <div className={isBar ? "flex items-center gap-2" : isCompact ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"}>
       {canCancel && (
         <Button size={btnSize} variant="outline" className={`${btnClass} text-destructive border-destructive/40 hover:bg-destructive/10`} onClick={onCancelOpen}>
           <XCircle size={iconSize} /> Cancel
