@@ -143,6 +143,7 @@ class Activity:
     activity_id: str
     label: str
     status: str = "active"  # active | done
+    plan_step_id: str | None = None
 
 
 @dataclass

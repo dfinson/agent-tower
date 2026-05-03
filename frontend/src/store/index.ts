@@ -160,7 +160,18 @@ function _rebuildActivityTimeline(
       planItemId,
     };
     const isNew = s.isNewActivity as boolean;
-    if (isNew || activities.length === 0) {
+    // When a turn references an activityId we already built, append to that
+    // activity rather than creating a duplicate (handles resumed plan steps).
+    const existingById = activities.find((a) => a.activityId === (s.activityId ?? ""));
+    if (existingById && !isNew) {
+      existingById.steps.push(step);
+      existingById.label = s.activityLabel ?? existingById.label;
+      existingById.status = (s.activityStatus as "active" | "done") ?? existingById.status;
+    } else if (existingById && isNew) {
+      // isNewActivity was set but this activityId already exists — resume it
+      existingById.steps.push(step);
+      existingById.status = (s.activityStatus as "active" | "done") ?? existingById.status;
+    } else if (isNew || activities.length === 0) {
       const prev = activities[activities.length - 1];
       if (prev) prev.status = "done";
       activities.push({

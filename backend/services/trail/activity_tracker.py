@@ -59,7 +59,7 @@ class ActivityTracker:
             return
 
         # 1. Resolve activity boundary
-        is_new_activity, activity_label = self._resolve_activity_boundary(
+        is_new_activity, activity_label, resume_activity = self._resolve_activity_boundary(
             job_id, assigned_plan_step_id, files_written,
         )
 
@@ -83,7 +83,7 @@ class ActivityTracker:
 
         # 3. Merge with previous step if indicated
         prev_step = state.activity_steps[-1] if state.activity_steps else None
-        if merge_prev and prev_step and current_activity is not None and not is_new_activity:
+        if merge_prev and prev_step and current_activity is not None and not is_new_activity and not resume_activity:
             prev_step.title = title
             await self._event_bus.publish(
                 DomainEvent(
@@ -114,7 +114,16 @@ class ActivityTracker:
             return
 
         # 4. Handle activity boundary
-        if is_new_activity or current_activity is None:
+        if resume_activity is not None:
+            # Returning to a plan step that already has an activity — resume it
+            if current_activity is not None and current_activity is not resume_activity:
+                current_activity.status = "done"
+                if sister:
+                    await self._refine_activity_label(job_id, sister, current_activity)
+            resume_activity.status = "active"
+            current_activity = resume_activity
+            is_new_activity = False
+        elif is_new_activity or current_activity is None:
             if current_activity is not None:
                 current_activity.status = "done"
                 if sister:
@@ -123,6 +132,7 @@ class ActivityTracker:
                 activity_id=make_activity_id(),
                 label=activity_label,
                 status="active",
+                plan_step_id=assigned_plan_step_id,
             )
             state.activities.append(new_act)
             current_activity = new_act
@@ -169,8 +179,12 @@ class ActivityTracker:
         job_id: str,
         assigned_plan_step_id: str | None,
         files_written: list[str],
-    ) -> tuple[bool, str]:
-        """Determine if a new activity should start. Returns (is_new, label).
+    ) -> tuple[bool, str, Activity | None]:
+        """Determine if a new activity should start. Returns (is_new, label, resume_activity).
+
+        When the agent returns to a plan step that already has an activity,
+        ``resume_activity`` is set so the caller can reuse it instead of
+        creating a duplicate.
 
         §13.7: Multi-signal boundary detection:
         1. Plan step change (original signal)
@@ -180,17 +194,24 @@ class ActivityTracker:
         """
         state = self._job_state.get(job_id)
         if not state:
-            return True, "Starting work"
+            return True, "Starting work", None
 
         prev_plan_id = state.last_classified_plan_item
 
         # Signal 1: Plan step change
         if assigned_plan_step_id and assigned_plan_step_id != prev_plan_id and prev_plan_id:
+            # Check if an activity already exists for this plan step
+            existing = next(
+                (a for a in state.activities if a.plan_step_id == assigned_plan_step_id),
+                None,
+            )
+            if existing is not None:
+                return False, existing.label, existing
             label = next(
                 (s.label for s in state.plan_steps if s.plan_step_id == assigned_plan_step_id),
                 "Working",
             )
-            return True, label
+            return True, label, None
 
         # First activity
         if not state.activities:
@@ -201,7 +222,7 @@ class ActivityTracker:
                 )
             else:
                 label = "Starting work"
-            return True, label
+            return True, label, None
 
         # Signal 2: Operator redirect — a recent operator message signals focus change
         if state.recent_messages:
@@ -209,16 +230,16 @@ class ActivityTracker:
             if latest_msg.startswith("[operator]"):
                 # Clear the signal so it only triggers once
                 state.recent_messages.pop()
-                return True, "Operator redirect"
+                return True, "Operator redirect", None
 
         # Signal 3: File cluster divergence — detect when the agent shifts
         # between distinct parts of the codebase (no plan required)
         if files_written and state.activity_steps:
             prev_files = self._recent_activity_files(state)
             if prev_files and self._file_clusters_diverged(prev_files, files_written):
-                return True, "Switched focus"
+                return True, "Switched focus", None
 
-        return False, state.activities[-1].label
+        return False, state.activities[-1].label, None
 
     @staticmethod
     def _recent_activity_files(state: TrailJobState) -> list[str]:
