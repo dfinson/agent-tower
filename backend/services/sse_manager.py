@@ -432,6 +432,8 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
         TelemetryUpdatedPayload,
         {
             "timestamp": ("timestamp", _TS_EVENT),
+            "total_cost_usd": ("total_cost_usd", 0.0),
+            "total_tokens": ("total_tokens", 0),
         },
     ),
     "step_entries_reassigned": (

@@ -70,6 +70,8 @@ export interface CostDriverBucket {
 export interface CostDriversData {
   activity?: CostDriverBucket[];
   phase?: CostDriverBucket[];
+  activityPhase?: CostDriverBucket[];
+  editEfficiency?: CostDriverBucket[];
 }
 
 export interface TurnEconomicsData {
@@ -208,6 +210,30 @@ export function formatActivityBucket(bucket: string): string {
     default:
       return bucket.replace(/_/g, " ");
   }
+}
+
+const _PHASE_COLORS: Record<string, string> = {
+  environment_setup: "bg-cyan-500",
+  agent_reasoning: "bg-blue-500",
+  verification: "bg-amber-500",
+  finalization: "bg-purple-500",
+  post_completion: "bg-slate-400",
+};
+
+const _PHASE_SHORT_LABELS: Record<string, string> = {
+  environment_setup: "Setup",
+  agent_reasoning: "Reasoning",
+  verification: "Verify",
+  finalization: "Final",
+  post_completion: "Post",
+};
+
+export function phaseColor(phase: string): string {
+  return _PHASE_COLORS[phase] ?? "bg-gray-400";
+}
+
+export function phaseShortLabel(phase: string): string {
+  return _PHASE_SHORT_LABELS[phase] ?? phase.replace(/_/g, " ");
 }
 
 export function estimateCostWithoutCache(

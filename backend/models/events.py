@@ -239,6 +239,8 @@ class ExecutionPhasePayloadDict(TypedDict, total=False):
 
 class TelemetryUpdatedPayloadDict(TypedDict, total=False):
     job_id: str
+    total_cost_usd: float
+    total_tokens: int
 
 
 class StepStartedPayloadDict(TypedDict, total=False):

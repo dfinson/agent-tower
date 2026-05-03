@@ -87,7 +87,23 @@ export function handleTelemetryUpdated(state: AppState, payload: Record<string, 
   // Increment the per-job version counter so MetricsPanel re-fetches.
   const jobId = payload.jobId as string;
   const prev = state.telemetryVersions[jobId] ?? 0;
+
+  // Also patch the job summary with live cost/token totals when present.
+  const existingJob = state.jobs[jobId];
+  let jobs = state.jobs;
+  if (existingJob && (payload.totalCostUsd !== undefined || payload.totalTokens !== undefined)) {
+    jobs = {
+      ...state.jobs,
+      [jobId]: {
+        ...existingJob,
+        ...(payload.totalCostUsd !== undefined ? { totalCostUsd: payload.totalCostUsd as number } : {}),
+        ...(payload.totalTokens !== undefined ? { totalTokens: payload.totalTokens as number } : {}),
+      },
+    };
+  }
+
   return {
+    jobs,
     telemetryVersions: { ...state.telemetryVersions, [jobId]: prev + 1 },
   };
 }

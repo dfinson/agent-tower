@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  Cpu, Clock, Wrench, MessageSquare, Brain,
+  Cpu, Clock, Wrench, MessageSquare, Brain, BarChart3,
   AlertTriangle, ArrowDownUp, ChevronDown, ChevronRight,
   BookOpen, CheckCircle, XCircle, Zap, TrendingUp,
 } from "lucide-react";
@@ -15,7 +15,7 @@ import type {
   TelemetryData, LLMCall, SortField, SortDir, ToolAggregate,
   SessionCheckpoint, SessionSummaryJson,
 } from "./MetricsPanelTypes";
-import { formatDuration, formatTokens, formatUsd, formatActivityBucket } from "./MetricsPanelTypes";
+import { formatDuration, formatTokens, formatUsd, formatActivityBucket, phaseColor, phaseShortLabel } from "./MetricsPanelTypes";
 import {
   useModelPricing,
   CacheEfficiencyBar,
@@ -41,6 +41,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   const [llmSubExpanded, setLlmSubExpanded] = useState(false);
   const [turnsCollapsed, setTurnsCollapsed] = useState(true);
   const [economicsCollapsed, setEconomicsCollapsed] = useState(true);
+  const [expandedActivities, setExpandedActivities] = useState<Set<string>>(new Set());
   const [data, setData] = useState<TelemetryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [toolSort, setToolSort] = useState<{ field: SortField; dir: SortDir }>({ field: "totalMs", dir: "desc" });
@@ -167,12 +168,42 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   // Dynamic model pricing from backend
   const modelPricing = useModelPricing(data?.model ?? data?.mainModel);
   const activityBuckets = data?.costDrivers?.activity ?? [];
-  const phaseBuckets = data?.costDrivers?.phase ?? [];
+  const activityPhaseBuckets = data?.costDrivers?.activityPhase ?? [];
+  const editEfficiencyBuckets = data?.costDrivers?.editEfficiency ?? [];
   const turnEconomics = data?.turnEconomics;
   const turnCurve = turnEconomics?.turnCurve ?? [];
   const showCacheEfficiency = (data?.inputTokens ?? 0) > 0 || (data?.cacheReadTokens ?? 0) > 0 || (data?.cacheWriteTokens ?? 0) > 0;
   const showTurnEconomics = !isRunning && (turnEconomics?.totalTurns ?? 0) > 0;
   const showEconomicsSection = showCacheEfficiency || showTurnEconomics || activityBuckets.length > 0;
+
+  // Rework stats from edit_efficiency dimension
+  const reworkStats = useMemo(() => {
+    const totalRetries = editEfficiencyBuckets.reduce((s, b) => s + b.outputTokens, 0);
+    const totalEditTurns = editEfficiencyBuckets.reduce((s, b) => s + b.callCount, 0);
+    // Approximate rework cost: retries / total-edit-turns * total-activity-cost
+    const totalCost = activityBuckets.reduce((s, b) => s + b.costUsd, 0);
+    const reworkFraction = totalEditTurns > 0 ? totalRetries / totalEditTurns : 0;
+    const reworkCost = totalCost * reworkFraction;
+    return { retries: totalRetries, editTurns: totalEditTurns, cost: reworkCost, totalCost, fraction: reworkFraction };
+  }, [editEfficiencyBuckets, activityBuckets]);
+
+  // Build phase breakdown per activity from activity_phase compound buckets
+  const phasesByActivity = useMemo(() => {
+    const map: Record<string, { phase: string; costUsd: number; callCount: number }[]> = {};
+    for (const b of activityPhaseBuckets) {
+      const sep = b.bucket.lastIndexOf(":");
+      if (sep < 0) continue;
+      const activity = b.bucket.slice(0, sep);
+      const phase = b.bucket.slice(sep + 1);
+      if (!map[activity]) map[activity] = [];
+      map[activity].push({ phase, costUsd: b.costUsd, callCount: b.callCount });
+    }
+    // Sort phases within each activity by cost descending
+    for (const phases of Object.values(map)) {
+      phases.sort((a, b) => b.costUsd - a.costUsd);
+    }
+    return map;
+  }, [activityPhaseBuckets]);
 
   return (
     <div className="md:h-full overflow-y-auto">
@@ -400,63 +431,109 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   {activityBuckets.length > 0 && (
                     <div className="rounded-md border border-border bg-background p-3 space-y-2">
                       <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                        <Wrench size={12} className="text-yellow-400" /> Cost by Activity
+                        <BarChart3 size={12} className="text-yellow-400" /> Cost Breakdown
                       </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        Turn cost is allocated to the activities used within that turn. Mixed turns are split across their activities. Turns with no tool calls that produce output are User Messages; pure thinking stays in Reasoning.
-                      </p>
+
+                      {/* Rework banner */}
+                      {reworkStats.retries > 0 && (
+                        <div className="flex items-center gap-2 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-2 text-xs">
+                          <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+                          <span>
+                            <span className="font-semibold text-amber-400">Rework: {formatUsd(reworkStats.cost)}</span>
+                            <span className="text-muted-foreground"> ({(reworkStats.fraction * 100).toFixed(0)}%) — {reworkStats.retries} retry loop{reworkStats.retries !== 1 ? "s" : ""} across {reworkStats.editTurns} edit turn{reworkStats.editTurns !== 1 ? "s" : ""}</span>
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Activity table with inline phase bars */}
                       {activityBuckets
                         .slice()
                         .sort((a, b) => b.costUsd - a.costUsd)
                         .map((bucket) => {
                           const total = activityBuckets.reduce((sum, entry) => sum + entry.costUsd, 0);
                           const widthPct = total > 0 ? (bucket.costUsd / total) * 100 : 0;
+                          const phases = phasesByActivity[bucket.bucket] ?? [];
+                          const isExpanded = expandedActivities.has(bucket.bucket);
+                          const hasPhases = phases.length > 0;
+                          const toggleExpand = () => {
+                            setExpandedActivities((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(bucket.bucket)) next.delete(bucket.bucket);
+                              else next.add(bucket.bucket);
+                              return next;
+                            });
+                          };
                           return (
                             <div key={bucket.bucket} className="space-y-1">
-                              <div className="flex items-center justify-between gap-2 text-xs">
-                                <div className="min-w-0">
-                                  <div className="truncate text-foreground">{formatActivityBucket(bucket.bucket)}</div>
-                                  <div className="text-muted-foreground">{bucket.callCount} contributing turn{bucket.callCount !== 1 ? "s" : ""}</div>
+                              <div
+                                className={cn(
+                                  "flex items-center justify-between gap-2 text-xs",
+                                  hasPhases && "cursor-pointer hover:bg-accent/30 rounded -mx-1 px-1",
+                                )}
+                                onClick={hasPhases ? toggleExpand : undefined}
+                              >
+                                <div className="min-w-0 flex items-center gap-1">
+                                  {hasPhases && (
+                                    isExpanded
+                                      ? <ChevronDown size={10} className="shrink-0 text-muted-foreground" />
+                                      : <ChevronRight size={10} className="shrink-0 text-muted-foreground" />
+                                  )}
+                                  <div>
+                                    <div className="truncate text-foreground">{formatActivityBucket(bucket.bucket)}</div>
+                                    <div className="text-muted-foreground">{bucket.callCount} turn{bucket.callCount !== 1 ? "s" : ""}</div>
+                                  </div>
                                 </div>
-                                <div className="text-right tabular-nums">
+                                <div className="text-right tabular-nums shrink-0">
                                   <div>{formatUsd(bucket.costUsd)}</div>
                                   <div className="text-muted-foreground">{formatTokens(bucket.inputTokens + bucket.outputTokens)}</div>
                                 </div>
                               </div>
-                              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                                <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
-                              </div>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  )}
-
-                  {phaseBuckets.length > 0 && (
-                    <div className="rounded-md border border-border bg-background p-3 space-y-2">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                        <Wrench size={12} className="text-purple-400" /> Cost by Phase
-                      </div>
-                      {phaseBuckets
-                        .slice()
-                        .sort((a, b) => b.costUsd - a.costUsd)
-                        .map((bucket) => {
-                          const total = phaseBuckets.reduce((sum, entry) => sum + entry.costUsd, 0);
-                          const widthPct = total > 0 ? (bucket.costUsd / total) * 100 : 0;
-                          return (
-                            <div key={bucket.bucket} className="space-y-1">
-                              <div className="flex items-center justify-between gap-2 text-xs">
-                                <div className="truncate text-foreground">{formatActivityBucket(bucket.bucket)}</div>
-                                <div className="text-right tabular-nums">
-                                  <div>{formatUsd(bucket.costUsd)}</div>
+                              {/* Phase proportion bar */}
+                              {phases.length > 0 ? (
+                                <Tooltip content={phases.map((p) => `${phaseShortLabel(p.phase)}: ${formatUsd(p.costUsd)}`).join(" · ")}>
+                                  <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
+                                    {phases.map((p) => {
+                                      const pPct = bucket.costUsd > 0 ? (p.costUsd / bucket.costUsd) * 100 : 0;
+                                      return (
+                                        <div key={p.phase} className={cn("h-full", phaseColor(p.phase))} style={{ width: `${Math.max(pPct, 2)}%` }} />
+                                      );
+                                    })}
+                                  </div>
+                                </Tooltip>
+                              ) : (
+                                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                  <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
                                 </div>
-                              </div>
-                              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                                <div className="h-full rounded-full bg-purple-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
-                              </div>
+                              )}
+                              {/* Expanded phase detail */}
+                              {isExpanded && phases.length > 0 && (
+                                <div className="ml-4 space-y-1 pb-1">
+                                  {phases.map((p) => (
+                                    <div key={p.phase} className="flex items-center justify-between text-xs text-muted-foreground">
+                                      <div className="flex items-center gap-1.5">
+                                        <div className={cn("w-2 h-2 rounded-full shrink-0", phaseColor(p.phase))} />
+                                        <span>{phaseShortLabel(p.phase)}</span>
+                                      </div>
+                                      <span className="tabular-nums">{formatUsd(p.costUsd)} · {p.callCount} turn{p.callCount !== 1 ? "s" : ""}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
+
+                      {/* Phase legend */}
+                      {activityPhaseBuckets.length > 0 && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 border-t border-border/50">
+                          {["environment_setup", "agent_reasoning", "verification", "finalization", "post_completion"].map((phase) => (
+                            <div key={phase} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                              <div className={cn("w-2 h-2 rounded-full", phaseColor(phase))} />
+                              {phaseShortLabel(phase)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

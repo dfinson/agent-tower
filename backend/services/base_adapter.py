@@ -313,14 +313,15 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
     async def _db_write_increment(self, *, job_id: str, **counters: int | float) -> None:
         """Increment telemetry summary counters."""
+        totals: dict[str, float | int] = {}
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-                await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
+                totals = await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
         except (_NoSessionFactory, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="increment", exc_info=True)
             return
-        await self._maybe_broadcast_telemetry(job_id)
+        await self._maybe_broadcast_telemetry(job_id, totals=totals)
 
     async def _db_write_insert_span(self, *, job_id: str, **span_fields: Any) -> None:
         """Insert a telemetry span row."""
@@ -381,7 +382,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         except (_NoSessionFactory, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="record_file_access", exc_info=True)
 
-    async def _maybe_broadcast_telemetry(self, job_id: str) -> None:
+    async def _maybe_broadcast_telemetry(
+        self, job_id: str, *, totals: dict[str, float | int] | None = None,
+    ) -> None:
         """Publish telemetry_updated if debounce interval has elapsed."""
         from backend.models.events import DomainEvent, DomainEventKind
 
@@ -392,13 +395,17 @@ class BaseAgentAdapter(AgentAdapterInterface):
         if now - last < self._TELEMETRY_BROADCAST_INTERVAL:
             return
         self._last_telemetry_broadcast[job_id] = now
+        payload: dict[str, Any] = {"job_id": job_id}
+        if totals:
+            payload["total_cost_usd"] = totals.get("total_cost_usd", 0.0)
+            payload["total_tokens"] = totals.get("total_tokens", 0)
         await self._event_bus.publish(
             DomainEvent(
                 event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
                 timestamp=datetime.now(UTC),
                 kind=DomainEventKind.telemetry_updated,
-                payload={"job_id": job_id},
+                payload=payload,
             )
         )
 

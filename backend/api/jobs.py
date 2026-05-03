@@ -75,13 +75,23 @@ def _resolve_display_field(
     return str(formatter(tool_name, tool_args, tool_result=tool_result, tool_success=tool_success))
 
 
-def job_to_response(job: Job, progress_preview: ProgressPreview | None = None) -> JobResponse:
+def job_to_response(
+    job: Job,
+    progress_preview: ProgressPreview | None = None,
+    *,
+    total_cost_usd: float | int | None = None,
+    total_tokens: float | int | None = None,
+) -> JobResponse:
     """Map a domain Job to a JobResponse."""
-    return JobResponse.from_domain(
-        job,
-        progress_headline=progress_preview.headline if progress_preview is not None else None,
-        progress_summary=progress_preview.summary if progress_preview is not None else None,
-    )
+    overrides: dict[str, Any] = {}
+    if progress_preview is not None:
+        overrides["progress_headline"] = progress_preview.headline
+        overrides["progress_summary"] = progress_preview.summary
+    if total_cost_usd is not None:
+        overrides["total_cost_usd"] = float(total_cost_usd)
+    if total_tokens is not None:
+        overrides["total_tokens"] = int(total_tokens)
+    return JobResponse.from_domain(job, **overrides)
 
 
 def _job_to_create_response(job: Job) -> CreateJobResponse:
@@ -181,6 +191,7 @@ async def create_job(
 @router.get("/jobs", response_model=JobListResponse)
 async def list_jobs(
     svc: FromDishka[JobService],
+    session: FromDishka[AsyncSession],
     state: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query()] = None,
@@ -197,23 +208,42 @@ async def list_jobs(
         cursor=cursor,
         archived=archived,
     )
-    progress_by_job = await svc.list_latest_progress_previews([job.id for job in jobs])
-    return JobListResponse(
-        items=[job_to_response(j, progress_by_job.get(j.id)) for j in jobs],
-        cursor=next_cursor,
-        has_more=has_more,
-    )
+    job_ids = [job.id for job in jobs]
+    progress_by_job = await svc.list_latest_progress_previews(job_ids)
+
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+    cost_by_job = await TelemetrySummaryRepository(session).batch_cost_tokens(job_ids)
+
+    items = []
+    for j in jobs:
+        ct = cost_by_job.get(j.id, {})
+        items.append(job_to_response(
+            j,
+            progress_by_job.get(j.id),
+            total_cost_usd=ct.get("total_cost_usd"),
+            total_tokens=ct.get("total_tokens"),
+        ))
+    return JobListResponse(items=items, cursor=next_cursor, has_more=has_more)
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
     svc: FromDishka[JobService],
+    session: FromDishka[AsyncSession],
 ) -> JobResponse:
     """Get full job detail."""
     job = await svc.get_job(job_id)
     progress_preview = await svc.get_latest_progress_preview(job_id)
-    return job_to_response(job, progress_preview)
+
+    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+    ct = (await TelemetrySummaryRepository(session).batch_cost_tokens([job_id])).get(job_id, {})
+
+    return job_to_response(
+        job, progress_preview,
+        total_cost_usd=ct.get("total_cost_usd"),
+        total_tokens=ct.get("total_tokens"),
+    )
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=JobResponse)

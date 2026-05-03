@@ -41,6 +41,8 @@ export interface JobSummary {
   sdk?: string;
   /** Current setup step for jobs in 'preparing' state (e.g. "creating_workspace"). */
   setupStep?: string | null;
+  totalCostUsd?: number | null;
+  totalTokens?: number | null;
 }
 
 export interface ApprovalRequest {

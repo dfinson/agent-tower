@@ -88,10 +88,14 @@ class TelemetrySummaryRepository(BaseRepository):
         file_write_count: int = 0,
         agent_error_count: int = 0,
         subagent_cost_usd: float = 0.0,
-    ) -> None:
-        """Atomically increment counters for a job.  Idempotent per field."""
+    ) -> dict[str, float | int]:
+        """Atomically increment counters for a job.  Idempotent per field.
+
+        Returns the new running totals for ``total_cost_usd`` and token counts
+        so callers can include them in SSE broadcasts without an extra query.
+        """
         now = datetime.now(UTC).isoformat()
-        await self._session.execute(
+        result = await self._session.execute(
             text("""
                 UPDATE job_telemetry_summary SET
                     input_tokens          = input_tokens + :input_tokens,
@@ -120,6 +124,8 @@ class TelemetrySummaryRepository(BaseRepository):
                     subagent_cost_usd     = subagent_cost_usd + :subagent_cost_usd,
                     updated_at            = :now
                 WHERE job_id = :job_id
+                RETURNING total_cost_usd, input_tokens, output_tokens,
+                          cache_read_tokens, cache_write_tokens
             """),
             {
                 "job_id": job_id,
@@ -150,7 +156,20 @@ class TelemetrySummaryRepository(BaseRepository):
                 "now": now,
             },
         )
+        row = result.mappings().first()
         await self._session.flush()
+        if row:
+            total_tokens = (
+                int(row["input_tokens"])
+                + int(row["output_tokens"])
+                + int(row["cache_read_tokens"])
+                + int(row["cache_write_tokens"])
+            )
+            return {
+                "total_cost_usd": float(row["total_cost_usd"]),
+                "total_tokens": total_tokens,
+            }
+        return {"total_cost_usd": 0.0, "total_tokens": 0}
 
     async def set_model(self, job_id: str, model: str) -> None:
         """Update the model once confirmed by the SDK."""
@@ -270,3 +289,35 @@ class TelemetrySummaryRepository(BaseRepository):
         if row is None:
             return None
         return TelemetrySummaryRow(**row)  # type: ignore[arg-type]
+
+    async def batch_cost_tokens(self, job_ids: list[str]) -> dict[str, dict[str, float | int]]:
+        """Return {job_id: {total_cost_usd, total_tokens}} for a batch of jobs.
+
+        Jobs without telemetry data are omitted from the result.
+        """
+        if not job_ids:
+            return {}
+        # Use IN clause with positional placeholders for SQLite/Postgres compat
+        placeholders = ", ".join(f":id_{i}" for i in range(len(job_ids)))
+        params = {f"id_{i}": jid for i, jid in enumerate(job_ids)}
+        result = await self._session.execute(
+            text(
+                f"SELECT job_id, total_cost_usd, input_tokens, output_tokens, "
+                f"cache_read_tokens, cache_write_tokens "
+                f"FROM job_telemetry_summary WHERE job_id IN ({placeholders})"
+            ),
+            params,
+        )
+        out: dict[str, dict[str, float | int]] = {}
+        for row in result.mappings().all():
+            total_tokens = (
+                int(row["input_tokens"])
+                + int(row["output_tokens"])
+                + int(row["cache_read_tokens"])
+                + int(row["cache_write_tokens"])
+            )
+            out[row["job_id"]] = {
+                "total_cost_usd": float(row["total_cost_usd"]),
+                "total_tokens": total_tokens,
+            }
+        return out

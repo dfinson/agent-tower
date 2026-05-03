@@ -207,6 +207,7 @@ async def _compute_attribution(
     by_activity: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_turn: dict[int, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_phase: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+    by_activity_phase: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     turn_contexts: dict[int, TurnContext] = defaultdict(_zero_turn_context)
     normalized_phases = _infer_execution_phases(spans)
     spans_missing_phase = 0
@@ -295,6 +296,19 @@ async def _compute_attribution(
         if phase:
             _accumulate(by_phase[phase], turn_cost, turn_in, turn_out)
 
+        # Activity×Phase compound dimension — cross-reference for inline phase
+        # bars in the unified cost view.  Bucket format: "activity:phase".
+        if phase:
+            for bucket, allocated in allocations.items():
+                compound_key = f"{bucket}:{phase}"
+                _accumulate(
+                    by_activity_phase[compound_key],
+                    float(allocated["cost_usd"]),
+                    int(allocated["input_tokens"]),
+                    int(allocated["output_tokens"]),
+                    call_count=1,
+                )
+
     # --- Write attribution rows ---
     rows: list[dict[str, Any]] = []
     for bucket, data in by_activity.items():
@@ -303,6 +317,8 @@ async def _compute_attribution(
         rows.append({"dimension": "turn", "bucket": str(turn_num), **data})
     for phase_name, data in by_phase.items():
         rows.append({"dimension": "phase", "bucket": phase_name, **data})
+    for compound_key, data in by_activity_phase.items():
+        rows.append({"dimension": "activity_phase", "bucket": compound_key, **data})
     # One-shot rate rows (dimension="edit_efficiency")
     for activity_bucket, stats in one_shot_by_activity.items():
         if stats["edit_turns"] > 0:
@@ -322,6 +338,7 @@ async def _compute_attribution(
         activity_buckets=len(by_activity),
         turn_buckets=len(by_turn),
         phase_buckets=len(by_phase),
+        activity_phase_buckets=len(by_activity_phase),
         spans_missing_phase=spans_missing_phase,
     )
 

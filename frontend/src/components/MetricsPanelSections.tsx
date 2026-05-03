@@ -186,6 +186,10 @@ function CopilotCostView({ data }: { data: TelemetryData }) {
   const snapshots = data.quotaSnapshots ?? {};
   const snapshotEntries = Object.entries(snapshots);
 
+  // Separate metered (non-unlimited) from unlimited snapshots
+  const meteredEntries = snapshotEntries.filter(([, snap]) => !snap.isUnlimited);
+  const allUnlimited = snapshotEntries.length > 0 && meteredEntries.length === 0;
+
   return (
     <div className="space-y-3">
       {(data.premiumRequests ?? 0) > 0 && (
@@ -197,32 +201,35 @@ function CopilotCostView({ data }: { data: TelemetryData }) {
         </div>
       )}
 
-      {snapshotEntries.map(([key, snap]) => {
+      {/* When all quotas are unlimited, show a single compact line */}
+      {allUnlimited && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Quota</span>
+          <span className="text-green-400">Unlimited</span>
+        </div>
+      )}
+
+      {/* Only render individual rows for metered (non-unlimited) quotas */}
+      {meteredEntries.map(([key, snap]) => {
         const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
         const pct = snap.remainingPercentage;
         const usedPct = Math.min(100, 100 - pct);
-        const exhausted = !snap.isUnlimited && pct <= 0;
-        const nearLimit = !snap.isUnlimited && pct < 20 && pct > 0;
+        const exhausted = pct <= 0;
+        const nearLimit = pct < 20 && pct > 0;
 
         return (
           <div key={key} className="space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">{label}</span>
-              {snap.isUnlimited ? (
-                <span className="text-green-400 text-xs">Unlimited</span>
-              ) : (
-                <span className={cn("tabular-nums text-xs", exhausted ? "text-red-400" : nearLimit ? "text-yellow-400" : "text-muted-foreground")}>
-                  {snap.usedRequests.toFixed(1)} / {snap.entitlementRequests.toFixed(0)} used
-                  {snap.overage > 0 && ` (+${snap.overage.toFixed(1)} overage)`}
-                </span>
-              )}
+              <span className={cn("tabular-nums text-xs", exhausted ? "text-red-400" : nearLimit ? "text-yellow-400" : "text-muted-foreground")}>
+                {snap.usedRequests.toFixed(1)} / {snap.entitlementRequests.toFixed(0)} used
+                {snap.overage > 0 && ` (+${snap.overage.toFixed(1)} overage)`}
+              </span>
             </div>
-            {!snap.isUnlimited && (
-              <Progress
-                value={usedPct}
-                color={exhausted || nearLimit ? "red" : "blue"}
-              />
-            )}
+            <Progress
+              value={usedPct}
+              color={exhausted || nearLimit ? "red" : "blue"}
+            />
             {snap.resetDate && (
               <p className="text-xs text-muted-foreground">
                 Resets {new Date(snap.resetDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
@@ -235,11 +242,6 @@ function CopilotCostView({ data }: { data: TelemetryData }) {
       {(data.premiumRequests ?? 0) === 0 && snapshotEntries.length === 0 && (
         <p className="text-xs text-muted-foreground italic">Premium request data available after session completes.</p>
       )}
-
-      <p className="text-xs text-muted-foreground leading-snug">
-        Premium requests are consumed based on model multipliers (e.g. Claude Sonnet 4.6 = 1×,
-        Claude Opus 4.5 = 3×). Included models (GPT-5 mini, GPT-4.1, GPT-4o) cost 0 on paid plans.
-      </p>
     </div>
   );
 }

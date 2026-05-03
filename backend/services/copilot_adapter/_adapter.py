@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import uuid
 from datetime import UTC
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -28,10 +28,29 @@ from backend.services.permission_policy import PermissionRequest as PolicyReques
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from copilot import CopilotClient, PermissionRequest, PermissionRequestResult
-    from copilot.generated.session_events import Data as SdkEventData
-    from copilot.generated.session_events import SessionEvent as SdkSessionEvent
-    from copilot.session import CopilotSession
+    from copilot import CopilotClient
+    from copilot.generated.session_events import (
+        AssistantMessageData,
+        AssistantMessageDeltaData,
+        AssistantReasoningData,
+        AssistantReasoningDeltaData,
+        AssistantUsageData,
+        Data as SdkEventData,
+        SessionCompactionCompleteData,
+        SessionModelChangeData,
+        SessionShutdownData,
+        SessionTruncationData,
+        SessionUsageInfoData,
+        SessionEvent as SdkSessionEvent,
+        SessionEventData,
+        ToolExecutionCompleteData,
+        ToolExecutionPartialResultData,
+        ToolExecutionStartData,
+        UserMessageData,
+    )
+    from copilot._jsonrpc import ProcessExitedError
+    from copilot.generated.session_events import PermissionRequest
+    from copilot.session import CopilotSession, PermissionRequestResult, SystemMessageAppendConfig
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.approval_service import ApprovalService
@@ -63,13 +82,13 @@ class CopilotAdapter(BaseAgentAdapter):
         # Rotated on assistant.message to mark turn boundaries.
         self._fallback_turn_ids: dict[str, str] = {}  # job_id → current fallback turn_id
 
-    def _get_turn_id(self, job_id: str | None, data: SdkEventData) -> str | None:
+    def _get_turn_id(self, job_id: str | None, data: SessionEventData | None) -> str | None:
         """Return the SDK turn_id or synthesize a fallback for step tracking.
 
         When *job_id* is falsy and no SDK turn_id is available, returns None
         rather than synthesizing a random id (no job to track it against).
         """
-        sdk_turn = str(data.turn_id) if data and getattr(data, "turn_id", None) else ""
+        sdk_turn = str(getattr(data, "turn_id", "")) if data and getattr(data, "turn_id", None) else ""
         if sdk_turn:
             return sdk_turn
         if not job_id:
@@ -99,8 +118,8 @@ class CopilotAdapter(BaseAgentAdapter):
     @staticmethod
     async def _stop_client(client: CopilotClient) -> None:
         """Stop a CopilotClient, terminating its CLI server process."""
-        from copilot.client import ProcessExitedError
-        from copilot.jsonrpc import JsonRpcError
+        from copilot._jsonrpc import ProcessExitedError
+        from copilot._jsonrpc import JsonRpcError
 
         try:
             await asyncio.wait_for(client.stop(), timeout=CLIENT_STOP_TIMEOUT_S)
@@ -124,7 +143,7 @@ class CopilotAdapter(BaseAgentAdapter):
         Wraps the base adapter's ``_evaluate_permission`` to return SDK-
         specific PermissionRequestResult objects.
         """
-        from copilot import PermissionRequestResult as _Result
+        from copilot.session import PermissionRequestResult as _Result
 
         kind_val = request.kind.value if request.kind else "unknown"
         sid = invocation.get("session_id", "")
@@ -160,18 +179,10 @@ class CopilotAdapter(BaseAgentAdapter):
             tool_input=tool_input or None,
         )
         if decision == PermissionDecision.allow:
-            return _Result(kind="approved")
-        return _Result(kind="denied-interactively-by-user")
+            return _Result(kind="approve-once")
+        return _Result(kind="reject")
 
     # --- Dispatch tables for telemetry and SDK→SessionEvent bridging ---
-
-    _TELEMETRY_DISPATCH: dict[str, str] = {
-        "assistant.usage": "_handle_usage_event",
-        "tool.execution_start": "_handle_tool_start",
-        "tool.execution_complete": "_handle_tool_end",
-        "session.context_changed": "_handle_context_changed",
-        "session.compaction_complete": "_handle_compaction",
-    }
 
     _SDK_KIND_MAP: dict[str, SessionEventKind] = {
         "session.task_complete": SessionEventKind.done,
@@ -179,7 +190,7 @@ class CopilotAdapter(BaseAgentAdapter):
         "session.shutdown": SessionEventKind.done,
         "session.error": SessionEventKind.error,
         "assistant.message": SessionEventKind.transcript,
-        "assistant.streaming_delta": SessionEventKind.transcript,
+        "assistant.message_delta": SessionEventKind.transcript,
         "assistant.reasoning": SessionEventKind.transcript,
         "assistant.reasoning_delta": SessionEventKind.transcript,
         "user.message": SessionEventKind.transcript,
@@ -193,7 +204,7 @@ class CopilotAdapter(BaseAgentAdapter):
 
     def _handle_usage_event(
         self,
-        data: SdkEventData,
+        data: AssistantUsageData,
         job_id: str,
         requested_model: str,
         model_verified: list[bool],
@@ -258,23 +269,22 @@ class CopilotAdapter(BaseAgentAdapter):
         )
 
         # Capture Copilot quota snapshots if present
-        raw_snapshots = getattr(data, "quota_snapshots", None)
-        if raw_snapshots:
+        if data.quota_snapshots:
             import json as _json
 
             parsed: dict[str, dict[str, Any]] = {}
-            for key, snap in raw_snapshots.items():
-                used = float(getattr(snap, "used_requests", 0) or 0)
-                entitlement = float(getattr(snap, "entitlement_requests", 0) or 0)
-                remaining = float(getattr(snap, "remaining_percentage", 0) or 0)
+            for key, snap in data.quota_snapshots.items():
+                used = float(snap.used_requests or 0)
+                entitlement = float(snap.entitlement_requests or 0)
+                remaining = float(snap.remaining_percentage or 0)
                 parsed[key] = {
                     "used_requests": used,
                     "entitlement_requests": entitlement,
                     "remaining_percentage": remaining,
-                    "overage": float(getattr(snap, "overage", 0) or 0),
-                    "overage_allowed": bool(getattr(snap, "overage_allowed_with_exhausted_quota", False)),
-                    "is_unlimited": bool(getattr(snap, "is_unlimited_entitlement", False)),
-                    "reset_date": str(getattr(snap, "reset_date", "") or ""),
+                    "overage": float(snap.overage or 0),
+                    "overage_allowed": bool(snap.overage_allowed_with_exhausted_quota),
+                    "is_unlimited": bool(snap.is_unlimited_entitlement),
+                    "reset_date": str(snap.reset_date or ""),
                 }
                 # OTEL gauges
                 tel.quota_used_gauge.set(used, {"job_id": job_id, "sdk": "copilot", "resource": key})
@@ -288,7 +298,7 @@ class CopilotAdapter(BaseAgentAdapter):
                 )
             )
 
-    def _handle_tool_start(self, data: SdkEventData, job_id: str) -> None:
+    def _handle_tool_start(self, data: ToolExecutionStartData, job_id: str) -> None:
         tool_id = data.tool_call_id or ""
         import json as _json
         import time as _time
@@ -316,12 +326,12 @@ class CopilotAdapter(BaseAgentAdapter):
         self._pending_tool_metadata[tool_id] = {
             "tool_name": t_name_display,
             "tool_args": args_str or "",
-            "turn_id": self._get_turn_id(job_id, data),
+            "turn_id": self._get_turn_id(job_id, data) or "",
             "tool_intent": tool_intent or tool_description,
             "tool_title": tool_title,
         }
 
-    def _handle_tool_end(self, data: SdkEventData, job_id: str) -> None:
+    def _handle_tool_end(self, data: ToolExecutionCompleteData, job_id: str) -> None:
         tool_id = data.tool_call_id or ""
         import time as _time
 
@@ -329,14 +339,17 @@ class CopilotAdapter(BaseAgentAdapter):
         dur = (_time.monotonic() - start) * 1000
         # Prefer the display name buffered at tool.execution_start
         buffered = self._pending_tool_metadata.get(tool_id, {})
-        buffered_name = buffered.get("tool_name")
-        resolved_name = buffered_name or data.tool_name or data.mcp_tool_name or "tool"
+        resolved_name = buffered.get("tool_name", "tool")
         success = bool(data.success) if data.success is not None else True
 
         # Result text extraction
         result_text = ""
         if data.result is not None:
-            result_text = str(data.result) if not isinstance(data.result, str) else data.result
+            content = getattr(data.result, "content", None)
+            if content:
+                result_text = self._extract_result_text(content)
+            if not result_text:
+                result_text = str(data.result)
 
         # Correct false failures for file-edit tools
         if not success:
@@ -363,7 +376,7 @@ class CopilotAdapter(BaseAgentAdapter):
             turn_id=buffered.get("turn_id"),
         )
 
-    def _handle_context_changed(self, data: SdkEventData, job_id: str) -> None:
+    def _handle_context_changed(self, data: SessionUsageInfoData, job_id: str) -> None:
         from backend.services import telemetry as tel
 
         current = int(data.current_tokens or 0)
@@ -377,7 +390,7 @@ class CopilotAdapter(BaseAgentAdapter):
             )
         )
 
-    def _handle_compaction(self, data: SdkEventData, job_id: str) -> None:
+    def _handle_compaction(self, data: SessionCompactionCompleteData, job_id: str) -> None:
         from backend.services import telemetry as tel
 
         pre = int(data.pre_compaction_tokens or 0)
@@ -408,7 +421,7 @@ class CopilotAdapter(BaseAgentAdapter):
     def _emit_log_event(
         self,
         kind_str: str,
-        data: SdkEventData,
+        data: SessionEventData | None,
         requested_model: str,
         queue: asyncio.Queue[SessionEvent | None],
         log_seq: list[int],
@@ -417,29 +430,32 @@ class CopilotAdapter(BaseAgentAdapter):
         _log_msg: str | None = None
         _log_level: str = "info"
         if kind_str == "tool.execution_start" and data:
-            t_name = data.tool_name or data.mcp_tool_name or "tool"
-            if data.mcp_server_name and data.mcp_tool_name:
-                t_name = f"{data.mcp_server_name}/{data.mcp_tool_name}"
+            ts = cast("ToolExecutionStartData", data)
+            t_name = ts.tool_name or ts.mcp_tool_name or "tool"
+            if ts.mcp_server_name and ts.mcp_tool_name:
+                t_name = f"{ts.mcp_server_name}/{ts.mcp_tool_name}"
             _log_msg = f"Tool started: {t_name}"
             _log_level = "debug"
         elif kind_str == "tool.execution_complete" and data:
-            buffered_log_name = self._pending_tool_metadata.get((data.tool_call_id or ""), {}).get("tool_name")
-            t_name = buffered_log_name or data.tool_name or data.mcp_tool_name or "tool"
-            ok = bool(data.success) if data.success is not None else True
+            tc = cast("ToolExecutionCompleteData", data)
+            buffered_log_name = self._pending_tool_metadata.get((tc.tool_call_id or ""), {}).get("tool_name")
+            t_name = buffered_log_name or "tool"
+            ok = bool(tc.success) if tc.success is not None else True
             # Correct false failures for file-edit tools in log messages too
             if not ok:
                 result_text = ""
-                if data.result is not None:
-                    result_text = str(data.result) if not isinstance(data.result, str) else data.result
+                if tc.result is not None:
+                    result_text = str(tc.result) if not isinstance(tc.result, str) else tc.result
                 from backend.services.tool_formatters import correct_edit_success
 
                 ok = correct_edit_success(t_name, ok, result_text)
             _log_msg = f"Tool {'completed' if ok else 'failed'}: {t_name}"
             _log_level = "info" if ok else "warn"
         elif kind_str == "assistant.usage" and data:
-            in_tok = int(data.input_tokens or 0)
-            out_tok = int(data.output_tokens or 0)
-            model = data.model or ""
+            au = cast("AssistantUsageData", data)
+            in_tok = int(au.input_tokens or 0)
+            out_tok = int(au.output_tokens or 0)
+            model = au.model or ""
             if model and requested_model and model != requested_model:
                 _log_msg = (
                     f"\u26a0 MODEL MISMATCH: requested {requested_model}"
@@ -450,12 +466,14 @@ class CopilotAdapter(BaseAgentAdapter):
                 _log_msg = f"LLM call: {model} ({in_tok}+{out_tok} tokens)"
                 _log_level = "debug"
         elif kind_str == "session.compaction_complete" and data:
-            pre = int(data.pre_compaction_tokens or 0)
-            post = int(data.post_compaction_tokens or 0)
+            cc = cast("SessionCompactionCompleteData", data)
+            pre = int(cc.pre_compaction_tokens or 0)
+            post = int(cc.post_compaction_tokens or 0)
             _log_msg = f"Context compacted: {pre} \u2192 {post} tokens"
             _log_level = "warn"
         elif kind_str == "session.model_change" and data:
-            _log_msg = f"Model changed to {data.new_model}"
+            mc = cast("SessionModelChangeData", data)
+            _log_msg = f"Model changed to {mc.new_model}"
             _log_level = "info"
 
         if _log_msg is not None:
@@ -479,7 +497,7 @@ class CopilotAdapter(BaseAgentAdapter):
     def _bridge_to_session_queue(
         self,
         kind_str: str,
-        data: SdkEventData,
+        data: SessionEventData | None,
         payload: dict[str, object],
         queue: asyncio.Queue[SessionEvent | None],
         session_id: str,
@@ -493,7 +511,8 @@ class CopilotAdapter(BaseAgentAdapter):
             event_payload: dict[str, object] = {}
             if kind == SessionEventKind.transcript:
                 if kind_str == "assistant.message":
-                    content = (data.content or "") if data else ""
+                    am = cast("AssistantMessageData", data) if data else None
+                    content = (am.content or "") if am else ""
                     # SDK emits empty assistant.message events for tool-dispatch
                     # turns (content is just whitespace). Skip these — the tool
                     # calls themselves are separate transcript events.
@@ -503,15 +522,16 @@ class CopilotAdapter(BaseAgentAdapter):
                     event_payload = {
                         "role": "agent",
                         "content": content,
-                        "title": data.title if data else None,
+                        "title": getattr(am, "title", None),
                         "turn_id": turn_id,
                     }
                     # Rotate the turn_id after an assistant.message — the next
                     # set of events belongs to a new agent turn.
                     if job_id:
                         self._rotate_turn_id(job_id)
-                elif kind_str == "assistant.streaming_delta":
-                    delta = (data.delta_content or "") if data else ""
+                elif kind_str == "assistant.message_delta":
+                    md = cast("AssistantMessageDeltaData", data) if data else None
+                    delta = (md.delta_content or "") if md else ""
                     if not delta:
                         return
                     turn_id = self._get_turn_id(job_id, data)
@@ -521,7 +541,8 @@ class CopilotAdapter(BaseAgentAdapter):
                         "turn_id": turn_id,
                     }
                 elif kind_str == "assistant.reasoning_delta":
-                    delta = (getattr(data, "delta_content", "") or "") if data else ""
+                    rd = cast("AssistantReasoningDeltaData", data) if data else None
+                    delta = (rd.delta_content or "") if rd else ""
                     if not delta:
                         return
                     turn_id = self._get_turn_id(job_id, data)
@@ -531,14 +552,16 @@ class CopilotAdapter(BaseAgentAdapter):
                         "turn_id": turn_id,
                     }
                 elif kind_str == "assistant.reasoning":
-                    content = (data.content or getattr(data, "reasoning_text", "") or "") if data else ""
+                    ar = cast("AssistantReasoningData", data) if data else None
+                    content = (ar.content or "") if ar else ""
                     event_payload = {
                         "role": "reasoning",
                         "content": content,
                         "turn_id": self._get_turn_id(job_id, data),
                     }
                 elif kind_str == "user.message":
-                    content = (data.content or data.message or "") if data else ""
+                    um = cast("UserMessageData", data) if data else None
+                    content = (um.content or "") if um else ""
                     # SDK injects internal system_notification messages (e.g.
                     # agent completion status) — suppress these from the
                     # transcript since they are not real operator messages.
@@ -549,7 +572,8 @@ class CopilotAdapter(BaseAgentAdapter):
                         "content": content,
                     }
                 elif kind_str == "tool.execution_start":
-                    tool_id = (data.tool_call_id or "") if data else ""
+                    ts = cast("ToolExecutionStartData", data) if data else None
+                    tool_id = (ts.tool_call_id or "") if ts else ""
                     buffered = self._pending_tool_metadata.get(tool_id, {})
                     tool_name = buffered.get("tool_name", "tool")
                     # Emit report_intent as a lightweight completed intent-marker so
@@ -573,7 +597,7 @@ class CopilotAdapter(BaseAgentAdapter):
                             "tool_duration_ms": None,
                             "tool_visibility": "hidden",
                         }
-                        queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
+                        queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))  # type: ignore[arg-type]
                         return
                     turn_id = buffered.get("turn_id") or self._get_turn_id(job_id, data)
                     event_payload = self._build_tool_running_payload(
@@ -585,8 +609,9 @@ class CopilotAdapter(BaseAgentAdapter):
                     )
                 elif kind_str == "tool.execution_partial_result":
                     # Streaming stdout/stderr chunk from a running tool (typically Bash).
-                    tool_id = (data.tool_call_id or "") if data else ""
-                    chunk = (data.partial_output or "") if data else ""
+                    pr = cast("ToolExecutionPartialResultData", data) if data else None
+                    tool_id = (pr.tool_call_id or "") if pr else ""
+                    chunk = (pr.partial_output or "") if pr else ""
                     if not chunk:
                         return
                     buffered = self._pending_tool_metadata.get(tool_id, {})
@@ -607,26 +632,22 @@ class CopilotAdapter(BaseAgentAdapter):
                         "turn_id": buffered.get("turn_id"),
                     }
                 elif kind_str == "tool.execution_complete":
-                    tool_id = (data.tool_call_id or "") if data else ""
+                    tc = cast("ToolExecutionCompleteData", data) if data else None
+                    tool_id = (tc.tool_call_id or "") if tc else ""
                     buffered = self._pending_tool_metadata.pop(tool_id, {})
-                    tool_name = buffered.get(
-                        "tool_name",
-                        (data.tool_name or data.mcp_tool_name or "tool") if data else "tool",
-                    )
+                    tool_name = buffered.get("tool_name", "tool")
                     # Drop SDK-internal tools (e.g. report_intent) from transcript
                     if tool_name in ("report_intent",):
                         return
                     result_text = ""
-                    if data:
-                        result_obj = data.result
-                        content = getattr(result_obj, "content", None) if result_obj is not None else None
-                        if content:
-                            result_text = self._extract_result_text(content)
-                        if not result_text and data.partial_output:
-                            result_text = data.partial_output
+                    if tc:
+                        result_obj = tc.result
+                        result_content: object = getattr(result_obj, "content", None) if result_obj is not None else None
+                        if result_content:
+                            result_text = self._extract_result_text(result_content)
 
                     tool_args_str = buffered.get("tool_args")
-                    sdk_success = bool(data.success) if data and data.success is not None else True
+                    sdk_success = bool(tc.success) if tc and tc.success is not None else True
                     # Compute tool execution duration
                     import time as _time
 
@@ -644,7 +665,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     )
             else:
                 event_payload = payload if isinstance(payload, dict) else {}
-            queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))
+            queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))  # type: ignore[arg-type]
         except (asyncio.QueueFull, AttributeError):
             log.warning("copilot_queue_put_failed", session_id=session_id, exc_info=True)
         if kind == SessionEventKind.done or kind == SessionEventKind.error:
@@ -653,10 +674,8 @@ class CopilotAdapter(BaseAgentAdapter):
 
     async def create_session(self, config: SessionConfig) -> str:
         from copilot import CopilotClient
-        from copilot.client import ProcessExitedError
-        from copilot.jsonrpc import JsonRpcError
-        from copilot.types import ResumeSessionConfig
-        from copilot.types import SessionConfig as SdkSessionConfig
+        from copilot._jsonrpc import JsonRpcError
+        from copilot._jsonrpc import ProcessExitedError
 
         client = CopilotClient()
 
@@ -664,51 +683,52 @@ class CopilotAdapter(BaseAgentAdapter):
         async def _on_permission(request: PermissionRequest, invocation: dict[str, str]) -> PermissionRequestResult:
             return await self._handle_permission_request(request, invocation, config)
 
-        # Build session options dict — used for both create and resume
-        session_opts = SdkSessionConfig(
-            working_directory=config.workspace_path,
-            on_permission_request=_on_permission,
-            # CodePlane is a headless orchestrator — there is no interactive terminal.
-            # Appending this instruction prevents the agent from entering plan mode
-            # (which requires Shift+Tab to exit and has no equivalent in a web UI).
-            system_message={
-                "mode": "append",
-                "content": (
-                    CODEPLANE_SYSTEM_PROMPT + "\n\n"
-                    "**REPORT INTENT — REQUIRED BEFORE EVERY TOOL BURST:**\n"
-                    "Call `report_intent` in parallel with your FIRST tool call whenever you start "
-                    "a new group of related tool calls. The intent you declare is shown to the user "
-                    "in real-time so they understand what you are working on and why. Make it "
-                    "descriptive of the HIGH-LEVEL GOAL of the upcoming calls — not the mechanics "
-                    "(e.g., 'Exploring authentication module to understand token refresh flow' rather "
-                    "than 'reading files'). Call `report_intent` again whenever your focus shifts "
-                    "to a new sub-task. Never call it in isolation — always pair it with at least "
-                    "one other tool call in the same turn."
-                ),
-            },
-        )
+        # Common session kwargs shared by create and resume
+        system_message: SystemMessageAppendConfig = {
+            "mode": "append",
+            "content": (
+                CODEPLANE_SYSTEM_PROMPT + "\n\n"
+                "**REPORT INTENT — REQUIRED BEFORE EVERY TOOL BURST:**\n"
+                "Call `report_intent` in parallel with your FIRST tool call whenever you start "
+                "a new group of related tool calls. The intent you declare is shown to the user "
+                "in real-time so they understand what you are working on and why. Make it "
+                "descriptive of the HIGH-LEVEL GOAL of the upcoming calls — not the mechanics "
+                "(e.g., 'Exploring authentication module to understand token refresh flow' rather "
+                "than 'reading files'). Call `report_intent` again whenever your focus shifts "
+                "to a new sub-task. Never call it in isolation — always pair it with at least "
+                "one other tool call in the same turn."
+            ),
+        }
         requested_model = config.model or ""
         if config.model:
-            session_opts["model"] = config.model
             log.info("sdk_session_model_requested", model=config.model)
 
         # Create or resume SDK session; use the SDK-assigned session_id as CodePlane's identifier.
         _resume_id = config.resume_sdk_session_id
         if _resume_id:
-            resume_opts = ResumeSessionConfig(
-                working_directory=config.workspace_path,
-                on_permission_request=_on_permission,
-            )
-            if config.model:
-                resume_opts["model"] = config.model
             try:
-                session = await client.resume_session(_resume_id, resume_opts)
+                session = await client.resume_session(
+                    _resume_id,
+                    on_permission_request=_on_permission,
+                    working_directory=config.workspace_path,
+                    model=config.model or None,
+                )
                 log.info("sdk_session_resumed", sdk_session_id=_resume_id)
             except (JsonRpcError, ProcessExitedError, ConnectionError, TimeoutError):
                 log.warning("sdk_session_resume_failed_creating_new", sdk_session_id=_resume_id, exc_info=True)
-                session = await client.create_session(session_opts)
+                session = await client.create_session(
+                    on_permission_request=_on_permission,
+                    working_directory=config.workspace_path,
+                    system_message=system_message,
+                    model=config.model or None,
+                )
         else:
-            session = await client.create_session(session_opts)
+            session = await client.create_session(
+                on_permission_request=_on_permission,
+                working_directory=config.workspace_path,
+                system_message=system_message,
+                model=config.model or None,
+            )
 
         session_id = session.session_id  # Use SDK-assigned ID as CodePlane's session identifier
         queue: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
@@ -739,22 +759,30 @@ class CopilotAdapter(BaseAgentAdapter):
             if job_id and data:
                 from backend.services import telemetry as tel
 
-                handler_name = self._TELEMETRY_DISPATCH.get(kind_str)
-                if handler_name:
-                    handler = getattr(self, handler_name)
-                    if kind_str == "assistant.usage":
-                        handler(data, job_id, requested_model, _model_verified, queue)
-                    else:
-                        handler(data, job_id)
+                if kind_str == "assistant.usage":
+                    self._handle_usage_event(
+                        cast("AssistantUsageData", data),
+                        job_id, requested_model, _model_verified, queue,
+                    )
+                elif kind_str == "tool.execution_start":
+                    self._handle_tool_start(cast("ToolExecutionStartData", data), job_id)
+                elif kind_str == "tool.execution_complete":
+                    self._handle_tool_end(cast("ToolExecutionCompleteData", data), job_id)
+                elif kind_str == "session.usage_info":
+                    self._handle_context_changed(cast("SessionUsageInfoData", data), job_id)
+                elif kind_str == "session.compaction_complete":
+                    self._handle_compaction(cast("SessionCompactionCompleteData", data), job_id)
                 elif kind_str == "session.truncation":
-                    if data.token_limit:
-                        window = int(data.token_limit)
+                    trunc = cast("SessionTruncationData", data)
+                    if trunc.token_limit:
+                        window = int(trunc.token_limit)
                         tel.context_window_gauge.set(window, {"job_id": job_id, "sdk": "copilot"})
                         self._schedule_db_write(self._db_write_set_context(job_id=job_id, window_size=window))
                 elif kind_str == "session.model_change":
-                    if data.new_model:
-                        self._job_main_models[job_id] = data.new_model
-                        self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=data.new_model))
+                    mc = cast("SessionModelChangeData", data)
+                    if mc.new_model:
+                        self._job_main_models[job_id] = mc.new_model
+                        self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=mc.new_model))
                 elif kind_str == "assistant.message":
                     tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "agent"})
                     self._schedule_db_write(self._db_write_increment(job_id=job_id, agent_messages=1))
@@ -762,11 +790,11 @@ class CopilotAdapter(BaseAgentAdapter):
                     tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "operator"})
                     self._schedule_db_write(self._db_write_increment(job_id=job_id, operator_messages=1))
                 elif kind_str == "session.shutdown":
-                    total_pr = getattr(data, "total_premium_requests", None)
-                    if data and total_pr is not None:
-                        tel.premium_requests_counter.add(float(total_pr), {"job_id": job_id, "sdk": "copilot"})
+                    sd = cast("SessionShutdownData", data)
+                    if sd.total_premium_requests is not None:
+                        tel.premium_requests_counter.add(float(sd.total_premium_requests), {"job_id": job_id, "sdk": "copilot"})
                         self._schedule_db_write(
-                            self._db_write_increment(job_id=job_id, premium_requests=float(total_pr))
+                            self._db_write_increment(job_id=job_id, premium_requests=float(sd.total_premium_requests))
                         )
 
             # --- Emit log events for operational SDK events ---
@@ -778,7 +806,7 @@ class CopilotAdapter(BaseAgentAdapter):
         session.on(_on_event)
         # Send initial prompt — cleanup on any failure.
         try:
-            await session.send({"prompt": config.prompt, "mode": "immediate", "attachments": []})
+            await session.send(config.prompt, mode="immediate")
         except BaseException:
             self._cleanup_session(session_id)
             raise
@@ -809,21 +837,21 @@ class CopilotAdapter(BaseAgentAdapter):
             self._cleanup_session(session_id)
 
     async def send_message(self, session_id: str, message: str) -> None:
-        from copilot.client import ProcessExitedError
-        from copilot.jsonrpc import JsonRpcError
+        from copilot._jsonrpc import JsonRpcError
+        from copilot._jsonrpc import ProcessExitedError
 
         session = self._sessions.get(session_id)
         if session is None:
             log.warning("copilot_send_no_session", session_id=session_id)
             return
         try:
-            await session.send({"prompt": message, "mode": "immediate", "attachments": []})
+            await session.send(message, mode="immediate")
         except (JsonRpcError, ProcessExitedError, ConnectionError):
             log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
 
     async def interrupt_session(self, session_id: str) -> None:
-        from copilot.client import ProcessExitedError
-        from copilot.jsonrpc import JsonRpcError
+        from copilot._jsonrpc import JsonRpcError
+        from copilot._jsonrpc import ProcessExitedError
 
         session = self._sessions.get(session_id)
         if session is None:
@@ -835,8 +863,8 @@ class CopilotAdapter(BaseAgentAdapter):
             log.warning("copilot_interrupt_failed", session_id=session_id, exc_info=True)
 
     async def abort_session(self, session_id: str) -> None:
-        from copilot.client import ProcessExitedError
-        from copilot.jsonrpc import JsonRpcError
+        from copilot._jsonrpc import JsonRpcError
+        from copilot._jsonrpc import ProcessExitedError
 
         session = self._sessions.get(session_id)
         if session is None:
@@ -851,10 +879,9 @@ class CopilotAdapter(BaseAgentAdapter):
     async def complete(self, prompt: str) -> CompletionResult:
         """Create a minimal session for single-turn completion, collect the response."""
         from copilot import CopilotClient
-        from copilot import PermissionRequestResult as _Result
-        from copilot.client import ProcessExitedError
-        from copilot.jsonrpc import JsonRpcError
-        from copilot.types import SessionConfig as SdkSessionConfig
+        from copilot._jsonrpc import JsonRpcError
+        from copilot._jsonrpc import ProcessExitedError
+        from copilot.session import PermissionRequestResult as _Result
 
         from backend.services.agent_adapter import CompletionResult
 
@@ -865,16 +892,14 @@ class CopilotAdapter(BaseAgentAdapter):
         self._clients[tmp_session_id] = client
 
         async def _noop_permission(request: object, invocation: dict[str, str]) -> PermissionRequestResult:
-            return _Result(kind="approved")
+            return _Result(kind="approve-once")
 
         try:
             import tempfile
 
             session = await client.create_session(
-                SdkSessionConfig(
-                    working_directory=tempfile.gettempdir(),
-                    on_permission_request=_noop_permission,
-                )
+                working_directory=tempfile.gettempdir(),
+                on_permission_request=_noop_permission,
             )
             self._sessions[tmp_session_id] = session
 
@@ -893,7 +918,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     done_event.set()
 
             session.on(_on_event)
-            await session.send({"prompt": prompt, "mode": "immediate", "attachments": []})
+            await session.send(prompt, mode="immediate")
             try:
                 await asyncio.wait_for(done_event.wait(), timeout=COMPLETION_TIMEOUT_S)
             except TimeoutError:
