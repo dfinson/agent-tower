@@ -452,9 +452,18 @@ class TestEvaluatePermission:
 
     @pytest.mark.asyncio
     async def test_trusted_job_allowed(self) -> None:
-        mock_approval = MagicMock()
-        mock_approval.is_trusted.return_value = True
-        adapter = _make_adapter(approval_service=mock_approval)
+        """Trusted jobs are allowed when a policy router is set up (trust goes via router)."""
+        adapter = _make_adapter()
+
+        # Set up a policy router that always allows (simulating trust coverage)
+        from unittest.mock import AsyncMock as AM
+        from backend.services.action_policy.classifier import Tier
+        mock_decision = MagicMock(proceed=True, tier=Tier.observe, checkpoint_ref=None, classification=None)
+        mock_router = MagicMock()
+        mock_router.route = AM(return_value=mock_decision)
+        adapter._policy_router["j1"] = mock_router
+        adapter._repo_policies["j1"] = MagicMock(cost_rules=[])
+        adapter._worktree_paths["j1"] = "/tmp"
 
         from backend.services.permission_policy import PermissionRequest
         result = await adapter._evaluate_permission(

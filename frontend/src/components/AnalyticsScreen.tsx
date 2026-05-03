@@ -172,6 +172,18 @@ export function AnalyticsScreen() {
         {scorecardLoading ? <div className="h-[220px] animate-pulse bg-muted rounded" /> : scorecard ? <CostTrendChart data={scorecard.costTrend} /> : null}
       </div>
 
+      {/* Cost Breakdown by Activity — same pattern as per-job view */}
+      {!driversLoading && fleetDrivers?.summary && fleetDrivers.summary.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-4 min-w-0">
+          <h2 className="text-sm font-medium text-foreground mb-1 flex items-center gap-2">
+            <DollarSign size={14} />
+            Cost Breakdown
+          </h2>
+          <p className="text-xs text-muted-foreground mb-3">Aggregate spend by activity across all jobs in this period</p>
+          <FleetCostDriverInsights fleetDrivers={fleetDrivers} />
+        </div>
+      )}
+
       {/* Model Comparison */}
       <div className="rounded-lg border border-border bg-card p-4 min-w-0">
         <h2 className="text-sm font-medium text-foreground mb-1 flex items-center gap-2">
@@ -200,11 +212,6 @@ export function AnalyticsScreen() {
         {toolsLoading ? <div className="h-[100px] animate-pulse bg-muted rounded" /> : tools && <ToolHealth tools={tools.tools} />}
       </CollapsibleSection>
 
-      {!driversLoading && fleetDrivers?.summary && fleetDrivers.summary.length > 0 && (
-        <CollapsibleSection title="Cost Drivers" icon={DollarSign}>
-          <FleetCostDriverInsights fleetDrivers={fleetDrivers} />
-        </CollapsibleSection>
-      )}
     </div>
   );
 }

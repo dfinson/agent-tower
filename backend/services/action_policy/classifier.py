@@ -24,10 +24,13 @@ log = structlog.get_logger()
 _REGEX_TIMEOUT_SECONDS = 1
 
 
-def _safe_regex_search(pattern: str, text: str) -> bool:
+def _safe_regex_search(pattern: str, text: str, *, on_timeout: bool = True) -> bool:
     """Run ``re.search`` with a timeout to prevent ReDoS from user patterns.
 
     Uses a daemon thread so it works on all platforms (no SIGALRM).
+    ``on_timeout`` controls the return value when the regex exceeds the time
+    limit — True (fail-closed, for escalation rules) or False (fail-open, for
+    trust grants).
     """
     result: list[bool] = []
     error: list[BaseException] = []
@@ -43,7 +46,7 @@ def _safe_regex_search(pattern: str, text: str) -> bool:
     t.join(timeout=_REGEX_TIMEOUT_SECONDS)
     if t.is_alive():
         log.warning("regex_match_timed_out", pattern=pattern[:80])
-        return False  # thread abandoned as daemon — will die with process
+        return on_timeout
     if error:
         return False
     return result[0] if result else False
@@ -269,7 +272,8 @@ def _classify_file(action: Action, policy: RepoPolicy) -> tuple[bool, bool, str]
     if action.outside_worktree:
         return True, False, "file outside worktree"
     if action.is_binary:
-        return False, True, "binary file (no meaningful diff)"
+        # Git-tracked binary: reversible via checkout, but no meaningful diff
+        return True, True, "binary file (git-tracked, reversible via checkout)"
     return True, True, "tracked file operation"
 
 
@@ -298,9 +302,10 @@ def _classify_mcp_tool(action: Action, policy: RepoPolicy) -> tuple[bool, bool, 
     server_name = action.mcp_server or ""
     server_config = policy.mcp_configs.get(server_name, {})
 
-    # Server-level defaults
+    # Server-level defaults: unknown MCP tools are assumed contained (local server)
+    # but not reversible (can't undo arbitrary tool calls).
     srv_reversible = server_config.get("reversible", False)
-    srv_contained = server_config.get("contained", False)
+    srv_contained = server_config.get("contained", True)
 
     # Per-tool overrides can only relax (make less restrictive)
     tool_name = action.mcp_tool or ""

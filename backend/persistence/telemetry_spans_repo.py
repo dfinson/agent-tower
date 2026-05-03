@@ -9,18 +9,20 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
-from backend.models.domain import (
-    FileChurnRow,
-    RetryCostSummary,
-    ShellCommandRow,
-    TelemetrySpanRow,
-    ToolStatsRow,
-)
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    from backend.models.domain import (
+        FileChurnRow,
+        RetryCostSummary,
+        ShellCommandRow,
+        TelemetrySpanRow,
+        ToolStatsRow,
+    )
 
 
 class TelemetrySpansRepository(BaseRepository):
@@ -180,7 +182,10 @@ class TelemetrySpansRepository(BaseRepository):
         await self._session.flush()
 
     async def file_write_spans_for_step(
-        self, *, job_id: str, turn_id: str,
+        self,
+        *,
+        job_id: str,
+        turn_id: str,
     ) -> list[TelemetrySpanRow]:
         """Return file_write spans with motivation data for a specific step (by turn_id)."""
         result = await self._session.execute(
@@ -199,7 +204,9 @@ class TelemetrySpansRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def motivated_spans_for_job(
-        self, *, job_id: str,
+        self,
+        *,
+        job_id: str,
     ) -> list[TelemetrySpanRow]:
         """Return all file_write spans with motivation data for a job."""
         result = await self._session.execute(
@@ -321,6 +328,7 @@ class TelemetrySpansRepository(BaseRepository):
             {"jid": job_id},
         )
         import re
+
         test_re = re.compile(
             r"(^|/)tests?/|test_[^/]+\.py$|_test\.py$|\.(?:test|spec)\.(?:ts|tsx|js|jsx)$|__tests__/",
         )
@@ -330,13 +338,15 @@ class TelemetrySpansRepository(BaseRepository):
             test_files = [f for f in files if test_re.search(f)]
             source_files = [f for f in files if not test_re.search(f)]
             if test_files and source_files:
-                hits.append({
-                    "turnId": row["turn_id"],
-                    "stepNumber": row["step_number"],
-                    "stepTitle": row["step_title"],
-                    "testFiles": test_files,
-                    "sourceFiles": source_files,
-                })
+                hits.append(
+                    {
+                        "turnId": row["turn_id"],
+                        "stepNumber": row["step_number"],
+                        "stepTitle": row["step_title"],
+                        "testFiles": test_files,
+                        "sourceFiles": source_files,
+                    }
+                )
         return hits
 
     async def retry_cost_summary(self, *, period_days: int = 30) -> RetryCostSummary:

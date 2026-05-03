@@ -7,8 +7,6 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped
 
-from backend.models.domain import PermissionMode
-
 # All DateTime columns use timezone=True so timestamps are stored
 # and retrieved as timezone-aware UTC values, never naive.
 TZDateTime = DateTime(timezone=True)
@@ -36,7 +34,7 @@ class JobRow(Base):
     title: Mapped[str | None] = Column(String, nullable=True)
     description: Mapped[str | None] = Column(Text, nullable=True)
     worktree_name: Mapped[str | None] = Column(String, nullable=True)
-    permission_mode: Mapped[str] = Column(String, nullable=False, default=PermissionMode.full_auto)
+    permission_mode: Mapped[str] = Column(String, nullable=False, default="full_auto")
     preset: Mapped[str] = Column(String, nullable=False, server_default="supervised")
     session_count: Mapped[int] = Column(Integer, nullable=False, default=1)
     sdk_session_id: Mapped[str | None] = Column(String, nullable=True)

@@ -7,20 +7,9 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, or_, select
 
 from backend.models.db import DiffSnapshotRow, JobRow
-from backend.models.domain import GitMergeOutcome, Job, JobNotFoundError, JobState, PermissionMode, Preset, Resolution
-
-
-# Map preset → legacy permission_mode for the DB column (backward compat only).
-_PRESET_PM_MAP = {
-    Preset.autonomous: PermissionMode.full_auto,
-    Preset.supervised: PermissionMode.review_and_approve,
-    Preset.strict: PermissionMode.review_and_approve,
-}
-
-
-def _preset_to_permission_mode(preset: Preset) -> str:
-    return _PRESET_PM_MAP.get(preset, PermissionMode.review_and_approve)
+from backend.models.domain import GitMergeOutcome, Job, JobNotFoundError, JobState, Preset, Resolution
 from backend.persistence.repository import BaseRepository
+
 
 if TYPE_CHECKING:
     import builtins
@@ -116,7 +105,7 @@ class JobRepository(BaseRepository):
             title=job.title,
             description=job.description,
             worktree_name=job.worktree_name,
-            permission_mode=_preset_to_permission_mode(job.preset),
+            permission_mode=job.preset.value,  # legacy column — just store the preset name
             preset=job.preset,
             session_count=job.session_count,
             sdk_session_id=job.sdk_session_id,
@@ -308,6 +297,7 @@ class JobRepository(BaseRepository):
         """Set the failure reason on a job row."""
         from datetime import UTC
         from datetime import datetime as dt
+
         await self._update_row(job_id, failure_reason=reason, completed_at=dt.now(UTC))
 
     async def update_resolution(self, job_id: str, resolution: Resolution, pr_url: str | None = None) -> None:

@@ -96,12 +96,19 @@ class ApprovalBatcher:
 
         batch = self._get_or_create_batch(job_id)
         batch.actions.append(gate_action)
-        self._reset_timer(batch)
 
         if batch._future is None:
             loop = asyncio.get_running_loop()
             batch._future = loop.create_future()
             self._pending_futures[batch.id] = batch._future
+
+        # Emit immediately for the first action — the agent SDK is blocking
+        # so no additional actions can arrive during the window anyway.
+        # Only use the timer when a batch already has actions (parallel SDKs).
+        if len(batch.actions) == 1:
+            await self._on_window_close(batch)
+        else:
+            self._reset_timer(batch)
 
         return await batch._future
 
@@ -230,7 +237,7 @@ class ApprovalBatcher:
 def _action_description(action: Action) -> str:
     """Human-readable description of an action."""
     if action.command:
-        return action.command[:120]
+        return action.command
     if action.tool_name and action.path:
         return f"{action.tool_name}: {action.path}"
     if action.tool_name:

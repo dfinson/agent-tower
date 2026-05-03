@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useStore, selectJobTranscript, selectApprovals, selectBatchApprovals } from "../store";
 import type { TranscriptEntry, ApprovalRequest, BatchApproval } from "../store";
-import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, resolveBatch, ApiError } from "../api/client";
+import { sendOperatorMessage, continueJob, resumeJob, pauseJob, resolveApproval, resolveBatch, trustJob, ApiError } from "../api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { SdkIcon } from "./SdkBadge";
 import { MicButton } from "./VoiceButton";
@@ -310,6 +310,20 @@ function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
     }
   };
 
+  const handleTrust = async () => {
+    setResolving("trust");
+    try {
+      await resolveBatch(batch.jobId, batch.batchId, "approved");
+      await trustJob(batch.jobId);
+      toast.success("Session trusted — future actions will auto-approve");
+    } catch (err) {
+      toast.error("Failed to trust session");
+      console.error("Failed to trust session:", err);
+    } finally {
+      setResolving(null);
+    }
+  };
+
   const isResolved = !!batch.resolvedAt;
 
   return (
@@ -321,13 +335,15 @@ function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
         <ShieldQuestion size={15} className={cn("shrink-0 mt-0.5", isResolved ? "text-muted-foreground/40" : "text-amber-400")} />
         <div className="flex-1 min-w-0 space-y-2">
           <p className="text-sm font-medium text-foreground/80">
-            Batch — {batch.actions.length} action{batch.actions.length !== 1 ? "s" : ""}
+            {batch.actions.length === 1
+              ? "Approval Required"
+              : `${batch.actions.length} actions require approval`}
           </p>
           <div className="space-y-1">
             {batch.actions.map((action) => (
               <div key={action.id} className="flex items-start gap-1.5 text-xs text-muted-foreground/70">
                 <span className="text-amber-400/80 font-mono shrink-0">{TIER_ICON[action.tier] ?? "●"}</span>
-                <span className="min-w-0">
+                <span className="min-w-0 break-words whitespace-pre-wrap">
                   {action.description}
                   {!action.reversible && <span className="text-red-400/70 ml-1">irreversible</span>}
                 </span>
@@ -344,7 +360,7 @@ function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
               }
             </div>
           ) : (
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 size="sm"
                 variant="outline"
@@ -352,7 +368,16 @@ function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
                 disabled={!!resolving}
                 className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-emerald-700/40 text-emerald-400 hover:bg-emerald-950/30"
               >
-                {resolving === "approved" ? <Spinner className="w-3 h-3" /> : "Approve All"}
+                {resolving === "approved" ? <Spinner className="w-3 h-3" /> : "Approve"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleTrust}
+                disabled={!!resolving}
+                className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-emerald-700/40 text-emerald-300 hover:bg-emerald-950/30"
+              >
+                {resolving === "trust" ? <Spinner className="w-3 h-3" /> : "Trust Session"}
               </Button>
               <Button
                 size="sm"

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 from backend.models.db import Base, JobRow
-from backend.models.domain import JobState, PermissionMode
+from backend.models.domain import JobState
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
@@ -37,7 +37,7 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
                 prompt="Fix the bug",
                 state=JobState.running,
                 base_ref="main",
-                permission_mode=PermissionMode.full_auto,
+                permission_mode="full_auto",
                 sdk="copilot",
                 created_at=now,
                 updated_at=now,
@@ -62,7 +62,7 @@ async def _add_jobs(session: AsyncSession, count: int) -> list[str]:
                 prompt=f"Task {i}",
                 state=JobState.running,
                 base_ref="main",
-                permission_mode=PermissionMode.full_auto,
+                permission_mode="full_auto",
                 sdk="copilot",
                 created_at=now,
                 updated_at=now,

@@ -1,77 +1,47 @@
 import { useMemo, useState } from "react";
 import { Tooltip } from "../ui/tooltip";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import {
-  BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
-  ResponsiveContainer, type TooltipValueType,
-} from "recharts";
 import { type FleetCostDriversResponse } from "../../api/client";
 import { formatUsd } from "./helpers";
-import { formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "../MetricsPanelTypes";
-import { cn } from "../../lib/utils";
+import { formatTokens, formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "../MetricsPanelTypes";
 
 // ---------------------------------------------------------------------------
-// Fleet label / description helpers — delegates to shared maps, with fallback
+// Fleet Cost Breakdown — mirrors per-job expandable card design
 // ---------------------------------------------------------------------------
 
-function getActivityLabel(bucket: string): string {
-  return formatActivityBucket(bucket);
+interface ActivityRow {
+  bucket: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  callCount: number;
+  jobCount: number;
+  avgCostPerJob: number;
 }
-
-function getActivityDescription(bucket: string): string | undefined {
-  return ACTIVITY_DESCRIPTIONS[bucket];
-}
-
-const phaseColors: Record<string, string> = {
-  environment_setup: "bg-cyan-500",
-  agent_reasoning: "bg-blue-500",
-  verification: "bg-amber-500",
-  finalization: "bg-purple-500",
-  post_completion: "bg-slate-400",
-};
-
-const phaseShortLabels: Record<string, string> = {
-  environment_setup: "Setup",
-  agent_reasoning: "Active",
-  verification: "Verify",
-  finalization: "Final",
-  post_completion: "Post",
-};
-
-// ---------------------------------------------------------------------------
-// Fleet cost driver insights — unified view
-// ---------------------------------------------------------------------------
 
 export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriversResponse }) {
-  const summary = useMemo(() => fleetDrivers.summary ?? [], [fleetDrivers.summary]);
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const activityRows = useMemo<ActivityRow[]>(() => {
+    const summary = fleetDrivers.summary ?? [];
+    return summary
+      .filter((row) => row.dimension === "activity")
+      .map((row) => ({
+        bucket: row.bucket,
+        costUsd: Number((row as any).costUsd ?? (row as any).cost_usd ?? 0),
+        inputTokens: Number((row as any).inputTokens ?? (row as any).input_tokens ?? 0),
+        outputTokens: Number((row as any).outputTokens ?? (row as any).output_tokens ?? 0),
+        callCount: Number((row as any).callCount ?? (row as any).call_count ?? 0),
+        jobCount: Number((row as any).jobCount ?? (row as any).job_count ?? 0),
+        avgCostPerJob: Number((row as any).avgCostPerJob ?? (row as any).avg_cost_per_job ?? 0),
+      }))
+      .sort((a, b) => b.costUsd - a.costUsd);
+  }, [fleetDrivers.summary]);
 
-  const activityRows = useMemo(
-    () => summary.filter((row) => row.dimension === "activity").sort((a, b) => b.cost_usd - a.cost_usd).slice(0, 10),
-    [summary],
-  );
+  const totalCost = useMemo(() => activityRows.reduce((s, r) => s + r.costUsd, 0), [activityRows]);
+  const totalTurns = useMemo(() => activityRows.reduce((s, r) => s + r.callCount, 0), [activityRows]);
 
-  // Build phase breakdown per activity from activity_phase compound rows
-  const phasesByActivity = useMemo(() => {
-    const apRows = summary.filter((row) => row.dimension === "activity_phase");
-    const map: Record<string, { phase: string; costUsd: number; jobCount: number }[]> = {};
-    for (const row of apRows) {
-      const sep = row.bucket.lastIndexOf(":");
-      if (sep < 0) continue;
-      const activity = row.bucket.slice(0, sep);
-      const phase = row.bucket.slice(sep + 1);
-      if (!map[activity]) map[activity] = [];
-      map[activity].push({ phase, costUsd: row.cost_usd, jobCount: row.job_count ?? 0 });
-    }
-    for (const phases of Object.values(map)) {
-      phases.sort((a, b) => b.costUsd - a.costUsd);
-    }
-    return map;
-  }, [summary]);
-
-  const toggleRow = (bucket: string) => {
-    setExpandedRows((prev) => {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (bucket: string) => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(bucket)) next.delete(bucket);
       else next.add(bucket);
@@ -79,109 +49,88 @@ export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetC
     });
   };
 
-  return (
-    <div className="space-y-3">
-      {activityRows.length > 0 ? (
-        <>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={activityRows.map((row) => ({ name: getActivityLabel(row.bucket), cost: row.cost_usd }))} margin={{ top: 5, right: 10, left: 0, bottom: 40 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#888" }} interval={0} angle={-20} textAnchor="end" height={55} />
-              <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
-              <RTooltip
-                contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, fontSize: 12 }}
-                formatter={(v: TooltipValueType | undefined) => [formatUsd(Number(v ?? 0)), "Cost"]}
-              />
-              <Bar dataKey="cost" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-muted-foreground border-b border-border">
-                  <th className="text-left py-1.5 px-2 font-medium">Activity</th>
-                  <th className="text-right py-1.5 px-2 font-medium">Cost</th>
-                  <th className="text-right py-1.5 px-2 font-medium">Calls</th>
-                  <th className="text-right py-1.5 px-2 font-medium">Jobs</th>
-                  <th className="text-right py-1.5 px-2 font-medium">Avg/Job</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activityRows.map((row, i) => {
-                  const label = getActivityLabel(row.bucket);
-                  const desc = getActivityDescription(row.bucket);
-                  const phases = phasesByActivity[row.bucket] ?? [];
-                  const hasPhases = phases.length > 0;
-                  const isExpanded = expandedRows.has(row.bucket);
-                  return (
-                  <tr key={i} className="border-b border-border/50 hover:bg-accent/30 group" onClick={hasPhases ? () => toggleRow(row.bucket) : undefined}>
-                    <td className={cn("py-1.5 px-2", hasPhases && "cursor-pointer")}>
-                      <div className="flex items-center gap-1">
-                        {hasPhases && (
-                          isExpanded
-                            ? <ChevronDown size={10} className="shrink-0 text-muted-foreground" />
-                            : <ChevronRight size={10} className="shrink-0 text-muted-foreground" />
-                        )}
-                        {desc ? <Tooltip content={desc}><span className="cursor-help border-b border-dotted border-muted-foreground/50">{label}</span></Tooltip> : label}
-                      </div>
-                      {/* Inline phase proportion bar */}
-                      {phases.length > 0 && (
-                        <Tooltip content={phases.map((p) => `${phaseShortLabels[p.phase] ?? p.phase}: ${formatUsd(p.costUsd)}`).join(" · ")}>
-                          <div className="h-1 rounded-full bg-muted overflow-hidden flex mt-1 max-w-[120px]">
-                            {phases.map((p) => {
-                              const pPct = row.cost_usd > 0 ? (p.costUsd / row.cost_usd) * 100 : 0;
-                              return (
-                                <div key={p.phase} className={cn("h-full", phaseColors[p.phase] ?? "bg-gray-400")} style={{ width: `${Math.max(pPct, 3)}%` }} />
-                              );
-                            })}
-                          </div>
-                        </Tooltip>
-                      )}
-                    </td>
-                    <td className="text-right py-1.5 px-2">{formatUsd(Number(row.cost_usd) || 0)}</td>
-                    <td className="text-right py-1.5 px-2">{row.call_count}</td>
-                    <td className="text-right py-1.5 px-2">{row.job_count ?? "—"}</td>
-                    <td className="text-right py-1.5 px-2">{formatUsd(Number(row.avg_cost_per_job) || 0)}</td>
-                  </tr>
-                  );})}
-                {/* Expanded phase detail rows */}
-                {activityRows.map((row) => {
-                  if (!expandedRows.has(row.bucket)) return null;
-                  const phases = phasesByActivity[row.bucket] ?? [];
-                  return phases.map((p) => (
-                    <tr key={`${row.bucket}:${p.phase}`} className="border-b border-border/30 bg-accent/10">
-                      <td className="py-1 px-2 pl-7 text-muted-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <div className={cn("w-2 h-2 rounded-full shrink-0", phaseColors[p.phase] ?? "bg-gray-400")} />
-                          {phaseShortLabels[p.phase] ?? p.phase.replace(/_/g, " ")}
-                        </div>
-                      </td>
-                      <td className="text-right py-1 px-2 text-muted-foreground">{formatUsd(p.costUsd)}</td>
-                      <td className="text-right py-1 px-2 text-muted-foreground">—</td>
-                      <td className="text-right py-1 px-2 text-muted-foreground">{p.jobCount || "—"}</td>
-                      <td className="text-right py-1 px-2 text-muted-foreground">—</td>
-                    </tr>
-                  ));
-                })}
-              </tbody>
-            </table>
-          </div>
+  if (activityRows.length === 0) {
+    return <p className="text-sm text-muted-foreground">No cost attribution data yet — complete a job to see breakdown.</p>;
+  }
 
-          {/* Phase legend */}
-          {Object.keys(phasesByActivity).length > 0 && (
-            <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1">
-              {Object.entries(phaseShortLabels).map(([phase, label]) => (
-                <div key={phase} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <div className={cn("w-2 h-2 rounded-full", phaseColors[phase] ?? "bg-gray-400")} />
-                  {label}
+  return (
+    <div className="space-y-2">
+      {activityRows.map((row) => {
+        const maxCost = activityRows[0]?.costUsd || 1;
+        const widthPct = (row.costUsd / maxCost) * 100;
+        const pct = totalCost > 0 ? ((row.costUsd / totalCost) * 100).toFixed(0) : "0";
+        const isExpanded = expanded.has(row.bucket);
+        const costPerTurn = row.callCount > 0 ? row.costUsd / row.callCount : 0;
+
+        return (
+          <div key={row.bucket} className="space-y-1">
+            {/* Header row — clickable */}
+            <div
+              className="flex items-center gap-2 cursor-pointer rounded px-1 py-0.5 hover:bg-accent/30 transition-colors"
+              onClick={() => toggle(row.bucket)}
+            >
+              {isExpanded
+                ? <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+                : <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+              }
+              <div className="flex-1 min-w-0">
+                <Tooltip content={ACTIVITY_DESCRIPTIONS[row.bucket] ?? row.bucket}>
+                  <div className="truncate text-foreground text-xs font-medium cursor-help border-b border-dotted border-muted-foreground/30 inline">
+                    {formatActivityBucket(row.bucket)}
+                  </div>
+                </Tooltip>
+                <div className="text-[10px] text-muted-foreground">
+                  {row.callCount} turn{row.callCount !== 1 ? "s" : ""} · {pct}% of total · {row.jobCount} job{row.jobCount !== 1 ? "s" : ""}
                 </div>
-              ))}
+              </div>
+              <div className="text-right tabular-nums shrink-0">
+                <div className="text-xs">{formatUsd(row.costUsd)}</div>
+                <div className="text-[10px] text-muted-foreground">{formatTokens(row.inputTokens + row.outputTokens)}</div>
+              </div>
             </div>
-          )}
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground">No cost-driver data yet.</p>
-      )}
+
+            {/* Cost proportion bar */}
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden ml-5">
+              <div className="h-full rounded-full bg-sky-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
+            </div>
+
+            {/* Expanded detail */}
+            {isExpanded && (
+              <div className="ml-7 space-y-2 pb-1 border-l border-border/50 pl-3">
+                {ACTIVITY_DESCRIPTIONS[row.bucket] && (
+                  <div className="text-[10px] text-muted-foreground/80 italic">
+                    {ACTIVITY_DESCRIPTIONS[row.bucket]}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-[10px] text-muted-foreground">
+                  <div>
+                    <div className="text-muted-foreground/60">Input</div>
+                    <div className="tabular-nums">{formatTokens(row.inputTokens)}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground/60">Output</div>
+                    <div className="tabular-nums">{formatTokens(row.outputTokens)}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground/60">Cost/turn</div>
+                    <div className="tabular-nums">{formatUsd(costPerTurn)}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground/60">Avg/job</div>
+                    <div className="tabular-nums">{formatUsd(row.avgCostPerJob)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Footer summary */}
+      <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-2 border-t border-border/50">
+        <span>{totalTurns} total turns across {activityRows.reduce((s, r) => Math.max(s, r.jobCount), 0)} jobs</span>
+        <span className="tabular-nums font-medium">{formatUsd(totalCost)} total</span>
+      </div>
     </div>
   );
 }

@@ -836,10 +836,6 @@ class BaseAgentAdapter(AgentAdapterInterface):
             )
             return PermissionDecision.allow if resolution == ApprovalResolution.approved else PermissionDecision.deny
 
-        # Trust bypass (legacy — checked before policy router for backwards compat)
-        if self._approval_service is not None and job_id and self._approval_service.is_trusted(job_id):
-            return PermissionDecision.allow
-
         # --- Action policy router ---
         if job_id and job_id in self._policy_router:
             return await self._evaluate_with_policy_router(
@@ -940,7 +936,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 if summary and summary.total_cost_usd is not None:
                     return CostContext(job_spend_usd=summary.total_cost_usd)
         except (_NoSessionFactory, DBAPIError, OSError):
-            log.debug("cost_context_fetch_failed", job_id=job_id, exc_info=True)
+            log.warning("cost_context_fetch_failed", job_id=job_id, exc_info=True)
         return None
 
     async def _hard_block_approval(

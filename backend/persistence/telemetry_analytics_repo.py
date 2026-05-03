@@ -6,7 +6,6 @@ upserts) from read-path (analytics queries, scorecards, comparisons).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -34,7 +33,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
         row = result.mappings().first()
         if row is None:
             return None
-        return TelemetrySummaryRow(**row)  # type: ignore[arg-type]
+        return TelemetrySummaryRow(**dict(row))  # type: ignore[typeddict-item]
 
     async def query(
         self,

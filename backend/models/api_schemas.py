@@ -16,7 +16,6 @@ from backend.models.domain import (  # noqa: TC001 — Pydantic resolves annotat
     ApprovalResolution,
     GitMergeOutcome,
     JobState,
-    PermissionMode,
     Preset,
     Resolution,
 )

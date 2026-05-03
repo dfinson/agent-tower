@@ -83,12 +83,17 @@ class TrustStore:
     def covers(self, action: Action) -> bool:
         """Check if any active trust grant covers this action."""
         now = datetime.now(UTC)
-        for grant in self._grants.values():
+        expired_ids: list[str] = []
+        matched = False
+        for grant_id, grant in self._grants.items():
             if grant.expires_at and grant.expires_at < now:
+                expired_ids.append(grant_id)
                 continue
-            if _grant_matches(grant, action):
-                return True
-        return False
+            if not matched and _grant_matches(grant, action):
+                matched = True
+        for gid in expired_ids:
+            del self._grants[gid]
+        return matched
 
     async def create(
         self,
@@ -189,7 +194,7 @@ def _grant_matches(grant: TrustGrant, action: Action) -> bool:
     if grant.command_pattern:
         from backend.services.action_policy.classifier import _safe_regex_search
 
-        if not action.command or not _safe_regex_search(grant.command_pattern, action.command):
+        if not action.command or not _safe_regex_search(grant.command_pattern, action.command, on_timeout=False):
             return False
 
     # MCP server scope

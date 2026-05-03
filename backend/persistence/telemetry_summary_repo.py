@@ -7,11 +7,14 @@ always up-to-date.  No timers, no flush intervals.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    from backend.models.domain import TelemetrySummaryRow
 
 
 class TelemetrySummaryRepository(BaseRepository):
@@ -278,8 +281,7 @@ class TelemetrySummaryRepository(BaseRepository):
         )
         await self._session.flush()
 
-
-    async def get(self, job_id: str) -> "TelemetrySummaryRow | None":
+    async def get(self, job_id: str) -> TelemetrySummaryRow | None:
         """Load summary row.  Returns None if not found."""
         from backend.models.domain import TelemetrySummaryRow
 

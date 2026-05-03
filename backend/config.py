@@ -560,34 +560,6 @@ def resolve_protected_paths(repo_path: str) -> list[str]:
         return []
 
 
-def resolve_permission_mode(repo_path: str) -> str | None:
-    """Read permission_mode from .codeplane.yml if present (per-repo override).
-
-    .. deprecated::
-        Retained for backward compat with .codeplane.yml files. Preset is now
-        set per-job at creation time. This function is only used for migration
-        or config validation.
-    """
-    from backend.models.domain import PermissionMode
-
-    codeplane_yml = Path(repo_path) / ".codeplane.yml"
-    if not codeplane_yml.exists():
-        return None
-    try:
-        with open(codeplane_yml) as f:
-            data = yaml.safe_load(f) or {}
-        mode = data.get("permission_mode")
-        if mode:
-            try:
-                return str(PermissionMode(str(mode)))
-            except ValueError:
-                log.debug("invalid_permission_mode", mode=mode)
-        return None
-    except (OSError, yaml.YAMLError):
-        log.warning("permission_mode_read_failed", path=str(codeplane_yml), exc_info=True)
-        return None
-
-
 def build_session_config(
     job: Job,
     config: CPLConfig,

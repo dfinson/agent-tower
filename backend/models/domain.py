@@ -178,38 +178,6 @@ def validate_state_transition(from_state: JobState | None, to_state: JobState) -
         raise InvalidStateTransitionError(from_state, to_state)
 
 
-class PermissionMode(StrEnum):
-    """Controls how the agent adapter handles SDK permission requests.
-
-    full_auto          — Everything auto-approved within worktree. No prompts.
-    observe_only       — Allow reads + grep/find. Block all writes/mutations.
-    review_and_approve — Always allow read_file. Require approval for
-                         shell commands (except grep/find), URL fetches,
-                         and any write operations.
-    """
-
-    full_auto = "full_auto"
-    observe_only = "observe_only"
-    review_and_approve = "review_and_approve"
-
-    @classmethod
-    def _missing_(cls, value: object) -> PermissionMode | None:
-        """Accept legacy names so existing configs and DB rows keep working."""
-        import warnings
-
-        legacy = {"auto": cls.full_auto, "read_only": cls.observe_only, "approval_required": cls.review_and_approve}
-        if isinstance(value, str):
-            result = legacy.get(value)
-            if result is not None:
-                warnings.warn(
-                    f"PermissionMode '{value}' is deprecated, use '{result.value}' instead",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-            return result
-        return None
-
-
 class Preset(StrEnum):
     """Action policy preset — controls how the policy router classifies agent actions.
 
