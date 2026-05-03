@@ -84,7 +84,7 @@ _RE_SHELL_SETUP = re.compile(
     re.IGNORECASE,
 )
 _RE_SHELL_INVESTIGATE = re.compile(
-    r"\b(find|ls|cat|head|tail|wc|tree|du|file)\b",
+    r"\b(find|ls|cat|head|tail|wc|tree|du|file|grep|awk|sed|diff|less|more|stat|strings)\b",
     re.IGNORECASE,
 )
 
