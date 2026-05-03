@@ -70,10 +70,15 @@ RULES:
 """
 
 TITLE_PROMPT = """\
-Summarize this completed agent turn for a progress timeline.
+You manage a progress timeline for a coding agent. Decide TWO things:
+1. A short title for this turn
+2. Whether this turn belongs to the current activity or starts a new one
 
 Job task: {job_prompt}
 Active plan item: {active_plan_label} ({done_count}/{total_count} plan items done)
+
+Current activity and its steps so far:
+{recent_step_titles}
 
 This turn:
 - Files read: {files_read}
@@ -82,33 +87,31 @@ This turn:
 - Duration: {duration_s}s
 - Agent message: {agent_msg}
 
-Previous steps in this activity:
-{recent_step_titles}
-
-Agent reasoning context (recent transcript before this turn):
+Context (recent transcript):
 {preceding_context}
 
-Generate a concise title describing WHAT WAS DONE, not observations.
-The title must be an action the agent performed, not a status or finding.
-Bad: "All 9 tests pass"              Good: "Ran test suite — all 9 pass"
-Bad: "Issues catalogued"             Good: "Catalogued 6 code smells across 3 files"
-Bad: "Reading loop.py"               Good: "Found 8 unannotated functions in loop.py"
-Bad: "Editing files"                 Good: "Annotated 3 functions in prompts.py"
-Bad: "Exploring codebase"            Good: "Mapped 22 Python files across 8 modules"
-Bad: "Code looks clean"              Good: "Reviewed 5 modules, found no issues"
+Respond with JSON:
+{{"title": "...", "merge_with_previous": <bool>, "new_activity": <bool>, "activity_label": "..."}}
 
-Include file names and quantities when relevant.
-Use the reasoning context to explain WHY when the turn is driven by a prior
-finding, error, or operator instruction — not just WHAT files changed.
+TITLE rules:
+- 3-8 words, starts with action verb
+- Never repeat previous step titles
+- One thing per title, pick the most significant
 
-merge_with_previous: set to true ONLY when this turn is a trivial retry of the
-exact same operation (e.g. re-running a failed command, fixing a typo in the same
-file). If the agent read new files, wrote to different files, or made meaningful
-progress, this is a NEW step — set merge_with_previous to false.
-When in doubt, set false.
+new_activity: true when the agent's INTENT shifted — it's now working toward a
+different sub-goal than the previous steps. Examples of shifts:
+- Was reading/exploring → now editing/fixing
+- Was working on module A → now working on unrelated module B
+- Was fixing bugs → now writing docs
+- Operator gave a new instruction
 
-Respond with JSON only:
-{{"title": "<concise outcome-focused title>", "merge_with_previous": <true|false>}}
+NOT a shift: continuing the same logical task across multiple turns (even if
+touching different files), retrying, or verifying previous work.
+
+activity_label: short label for the new activity (only used when new_activity=true).
+3-6 words describing the sub-goal, e.g. "Fix inference bugs", "Clean up types".
+
+merge_with_previous: true only for trivial retries of the exact same operation.
 """
 
 REFINE_ACTIVITY_LABEL_PROMPT = """\
@@ -118,11 +121,15 @@ Current label: {current_label}
 Steps completed:
 {step_titles}
 
-Generate a refined 4-10 word label that accurately summarizes ALL the work.
-Include quantities when helpful (e.g. "Annotated 4 files in agent/ module").
+Generate a refined 3-7 word label that captures the theme of the work.
+Be specific but brief. One main verb, one main object.
+
+Good: "Fix inference tracking bugs"
+Good: "Clean up type annotations"
+Bad:  "Audited 22 files across 8 modules, identified 12+ code smells and 3 bugs"
 
 Respond with JSON only:
-{{"label": "<4-10 word refined label>"}}
+{{"label": "<3-7 word refined label>"}}
 """
 
 
@@ -171,9 +178,7 @@ def build_enrichment_prompt(
             kind_note = " (kind=shell means classification was uncertain — reclassify from transcript)"
         elif node.kind == "modify" and not files:
             kind_note = " (SHA divergence detected a write but we don't know which files)"
-        parts.append(
-            f"  - node_id: {node.id}, kind: {node.kind}, files: {files}{kind_note}"
-        )
+        parts.append(f"  - node_id: {node.id}, kind: {node.kind}, files: {files}{kind_note}")
 
     # Build per-node step context (now with transcript data)
     for node in nodes:
@@ -200,12 +205,12 @@ def build_enrichment_prompt(
     parts.append(
         "\nRespond with JSON only. Two arrays:\n"
         '1. "annotations": [{node_id, kind, intent, rationale, outcome, files, tags}]\n'
-        '   - For kind=modify or kind=explore: do NOT change the kind\n'
-        '   - For kind=shell: reclassify to modify, explore, or verify\n'
+        "   - For kind=modify or kind=explore: do NOT change the kind\n"
+        "   - For kind=shell: reclassify to modify, explore, or verify\n"
         '2. "semantic_nodes": [{kind, intent, rationale, outcome, tags, supersedes, anchor_node_id}]\n'
-        '   - kind must be one of: plan, insight, decide, backtrack, verify\n'
-        '   - anchor_node_id = the node_id of the deterministic node this semantic node relates to\n'
-        '   - supersedes = node_id of prior decide node being reversed (for backtrack/decide only)\n'
+        "   - kind must be one of: plan, insight, decide, backtrack, verify\n"
+        "   - anchor_node_id = the node_id of the deterministic node this semantic node relates to\n"
+        "   - supersedes = node_id of prior decide node being reversed (for backtrack/decide only)\n"
     )
     return "\n".join(parts)
 

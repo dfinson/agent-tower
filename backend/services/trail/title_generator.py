@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
@@ -14,6 +15,16 @@ if TYPE_CHECKING:
     from backend.services.sister_session import SisterSession
 
 log = structlog.get_logger()
+
+
+@dataclass(frozen=True, slots=True)
+class TitleResult:
+    """Result of a title generation call."""
+
+    title: str
+    merge_with_previous: bool
+    new_activity: bool
+    activity_label: str | None
 
 
 class TitleGenerator:
@@ -31,13 +42,15 @@ class TitleGenerator:
         duration_ms: int,
         assigned_plan_step_id: str | None,
         preceding_context: str | None = None,
-    ) -> tuple[str, bool]:
-        """Generate an outcome-focused title for a completed turn.
-
-        Returns (title, merge_with_previous).
-        """
+    ) -> TitleResult:
+        """Generate a title and activity boundary decision for a completed turn."""
         if not sister:
-            return self._fallback_title(agent_msg, files_written), False
+            return TitleResult(
+                title=self._fallback_title(agent_msg, files_written),
+                merge_with_previous=False,
+                new_activity=False,
+                activity_label=None,
+            )
 
         steps = state.plan_steps
         active_label = "Unknown"
@@ -72,6 +85,8 @@ class TitleGenerator:
 
         title = "Work in progress"
         merge_prev = False
+        new_activity = False
+        activity_label: str | None = None
 
         try:
             raw = await sister.complete(prompt)
@@ -83,13 +98,24 @@ class TitleGenerator:
             mp = parsed.get("merge_with_previous")
             if isinstance(mp, bool):
                 merge_prev = mp
+            na = parsed.get("new_activity")
+            if isinstance(na, bool):
+                new_activity = na
+            al = parsed.get("activity_label")
+            if isinstance(al, str) and al.strip():
+                activity_label = al.strip()
             state.sister_consecutive_failures = 0
         except (OSError, ValueError, KeyError):
             state.sister_consecutive_failures += 1
             log.warning("turn_title_generation_failed", job_id=job_id, exc_info=True)
             title = self._fallback_title(agent_msg, files_written)
 
-        return title, merge_prev
+        return TitleResult(
+            title=title,
+            merge_with_previous=merge_prev,
+            new_activity=new_activity,
+            activity_label=activity_label,
+        )
 
     @staticmethod
     def _fallback_title(agent_msg: str, files_written: list[str]) -> str:

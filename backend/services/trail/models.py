@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
+if TYPE_CHECKING:
+    from datetime import datetime
 
 # ---------------------------------------------------------------------------
 # Buffer size constants — see context_window_eval.py for derivation
@@ -151,6 +152,7 @@ class ActivityStep:
     turn_id: str
     title: str
     activity_id: str
+    files_written: list[str] = field(default_factory=list)
 
 
 @dataclass
