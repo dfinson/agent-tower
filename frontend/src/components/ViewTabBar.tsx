@@ -42,7 +42,7 @@ export function ViewTabBar({
   });
 
   return (
-    <div className="hidden md:flex items-center gap-0.5 px-3 h-9 border-b border-border bg-card shrink-0 overflow-x-auto scrollbar-none">
+    <div className="hidden md:flex items-center gap-0.5 mx-3 mt-1.5 px-3 h-9 rounded-lg border border-border bg-card shrink-0 overflow-x-auto scrollbar-none">
       {visibleTabs.map(({ id, icon: Icon, label }) => (
         <button
           key={id}

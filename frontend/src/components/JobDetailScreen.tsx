@@ -514,7 +514,7 @@ export function JobDetailScreen() {
   const canArchive = (job.state === "failed" || job.state === "canceled" || (job.state === "completed" && !isResolved)) && !job.archivedAt;
 
   return (
-    <div className="px-0 md:flex md:flex-col md:h-full md:min-h-0">
+    <div className="px-0 md:flex md:flex-col md:h-full md:min-h-0 md:pb-2">
       {/* ── Collapsible job header card (all viewports) ── */}
       <JobHeaderCard
         job={job}
@@ -564,7 +564,7 @@ export function JobDetailScreen() {
       {/* Tab content — sidebar + content panel, sidebar visible for all tabs */}
       <div
         className={cn(
-          "min-h-0 pb-[52px] md:pb-0 md:flex-1 md:flex md:overflow-hidden",
+          "min-h-0 pb-[52px] md:pb-0 md:flex-1 md:flex md:overflow-hidden md:mt-2 md:mx-3 md:gap-3",
           slideDir === "left" && "animate-slide-left",
           slideDir === "right" && "animate-slide-right",
         )}
@@ -587,7 +587,7 @@ export function JobDetailScreen() {
         />
 
         {/* ── Content panel ── */}
-        <div className="flex-1 min-w-0 md:flex md:flex-col md:overflow-hidden md:px-3 lg:px-4">
+        <div className="flex-1 min-w-0 md:flex md:flex-col md:overflow-hidden">
       {tab === "live" && (
         <div className="flex flex-row relative md:h-full md:min-h-0">
           {/* Activity overlay — slides in from left (mobile only) */}

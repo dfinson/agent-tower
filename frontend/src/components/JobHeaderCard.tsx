@@ -14,14 +14,14 @@ const EXPAND_STATES = new Set(["review", "failed", "canceled", "completed"]);
 
 /** Top accent color keyed by job state. */
 const ACCENT: Record<string, string> = {
-  preparing: "border-t-violet-500/60",
-  queued: "border-t-yellow-500/60",
-  running: "border-t-blue-500/60",
-  waiting_for_approval: "border-t-orange-500/60",
-  review: "border-t-cyan-500/60",
-  completed: "border-t-green-500/60",
-  failed: "border-t-red-500/60",
-  canceled: "border-t-gray-500/40",
+  preparing: "border-t-violet-500",
+  queued: "border-t-yellow-500",
+  running: "border-t-blue-500",
+  waiting_for_approval: "border-t-orange-500",
+  review: "border-t-cyan-500",
+  completed: "border-t-green-500",
+  failed: "border-t-red-500",
+  canceled: "border-t-gray-400",
 };
 
 interface JobHeaderCardProps {
@@ -132,7 +132,7 @@ export function JobHeaderCard({
       {/* ────────────────────────────────────────────────────────────────── */}
       {/* Desktop (>= md): inline collapsible card                         */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      <div className={`hidden md:block shrink-0 rounded-t-lg border-t-[3px] ${accent} border-b border-border bg-card/95 backdrop-blur-sm shadow-md`}>
+      <div className={`hidden md:block shrink-0 mx-3 mt-2 rounded-lg border-t-[3px] ${accent} border border-border ring-1 ring-white/[0.04] bg-card shadow-md`}>
         {/* ── Row 1: identity bar ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-1.5">
           <button onClick={onNavigateHome} className="shrink-0 hover:opacity-80 transition-opacity" aria-label="Back to dashboard">
