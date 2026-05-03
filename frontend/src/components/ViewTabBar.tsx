@@ -3,7 +3,6 @@ import { cn } from "../lib/utils";
 
 const TAB_ITEMS = [
   { id: "live", icon: Radio, label: "Live" },
-  { id: "shell", icon: TerminalSquare, label: "Shell" },
   { id: "files", icon: FolderTree, label: "Files" },
   { id: "diff", icon: GitBranch, label: "Changes", conditional: true },
   { id: "metrics", icon: BarChart3, label: "Metrics" },

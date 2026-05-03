@@ -28,7 +28,6 @@ import { MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazyRetry(() => import("./DiffViewer"));
 const ArtifactViewer = lazyRetry(() => import("./ArtifactViewer"));
-const WorktreeTerminal = lazyRetry(() => import("./WorktreeTerminal").then((m) => ({ default: m.WorktreeTerminal })));
 
 const SKELETON_DELAY_MS = 500;
 
@@ -673,15 +672,7 @@ export function JobDetailScreen() {
         <MetricsPanel jobId={jobId} isRunning={isRunning} />
       )}
 
-      {tab === "shell" && (
-        <TabErrorBoundary>
-          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <div className="md:h-full h-[60dvh] rounded-lg overflow-hidden border border-border">
-              <WorktreeTerminal jobId={jobId} worktreePath={job.worktreePath} />
-            </div>
-          </Suspense>
-        </TabErrorBoundary>
-      )}
+
 
 
 

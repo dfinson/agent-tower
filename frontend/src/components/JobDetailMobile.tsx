@@ -269,20 +269,14 @@ export function MobileBottomNav({
           onClick={() => setMobileMoreOpen((o: boolean) => !o)}
           className={cn(
             "flex flex-col items-center justify-center gap-0.5 w-full pt-1.5 pb-1 transition-colors landscape:flex-row landscape:gap-1 landscape:py-0.5",
-            mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab) ? "text-primary" : "text-muted-foreground active:text-foreground",
+            mobileMoreOpen || ["metrics", "artifacts"].includes(tab) ? "text-primary" : "text-muted-foreground active:text-foreground",
           )}
         >
-          <MoreHorizontal size={20} strokeWidth={mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab) ? 2.5 : 1.5} className="landscape:!size-4" />
-          <span className={cn("text-[10px] leading-tight truncate landscape:hidden", (mobileMoreOpen || ["shell", "metrics", "artifacts"].includes(tab)) && "font-semibold")}>More</span>
+          <MoreHorizontal size={20} strokeWidth={mobileMoreOpen || ["metrics", "artifacts"].includes(tab) ? 2.5 : 1.5} className="landscape:!size-4" />
+          <span className={cn("text-[10px] leading-tight truncate landscape:hidden", (mobileMoreOpen || ["metrics", "artifacts"].includes(tab)) && "font-semibold")}>More</span>
         </button>
         {mobileMoreOpen && (
           <div className="absolute bottom-full right-0 mb-2 mr-1 rounded-md border border-border bg-popover shadow-lg py-1 min-w-[140px] animate-in fade-in-0 zoom-in-95">
-            <button
-              onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("shell"); }}
-              className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "shell" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
-            >
-              <TerminalSquare size={15} /> Shell
-            </button>
             <button
               onClick={() => { setMobileMoreOpen(false); setMobileActivityOpen(false); handleTabChange("metrics"); }}
               className={cn("flex w-full items-center gap-2.5 px-3 py-2.5 text-sm transition-colors", tab === "metrics" ? "text-primary bg-accent" : "text-foreground hover:bg-accent")}
