@@ -93,9 +93,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   // WS2: Blast radius — context files read but not written
   const [contextFiles, setContextFiles] = useState<{ filePath: string; readCount: number }[]>([]);
 
-  // WS6: Review complexity
-  const [reviewComplexity, setReviewComplexity] = useState<{ tier: string; signals: string[]; signalDetails?: Record<string, { value: number; threshold: number }> } | null>(null);
-
   // WS1: Sort by churn toggle
   const [sortByChurn, setSortByChurn] = useState(false);
 
@@ -152,11 +149,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
               .map((f) => ({ filePath: f.filePath, readCount: f.readCount })),
           );
         }
-        // WS6: Review complexity
-        const complexity = (telem as Record<string, unknown>).reviewComplexity as { tier: string; signals: string[]; signalDetails?: Record<string, { value: number; threshold: number }> } | undefined;
-        if (complexity) {
-          setReviewComplexity(complexity);
-        }
+
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -627,25 +620,6 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
       {/* Story banner — collapsible code-review narrative */}
       {!isFiltered && diffs.length > 0 && (
         <StoryBanner jobId={jobId} diffs={diffs} onSelectFile={setSelectedIdx} />
-      )}
-
-      {/* WS6: Review complexity badge */}
-      {reviewComplexity && reviewComplexity.tier !== "quick" && !isFiltered && (
-        <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-1.5">
-          <span className={cn(
-            "text-[10px] font-semibold px-1.5 py-0.5 rounded",
-            reviewComplexity.tier === "deep" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400",
-          )}>
-            {reviewComplexity.tier === "deep" ? "Deep Review" : "Standard Review"}
-          </span>
-          <span className="text-[10px] text-muted-foreground/60">
-            {reviewComplexity.signals.map((s) => {
-              const d = reviewComplexity.signalDetails?.[s];
-              const label = s === "many_turns" ? "turns" : s === "large_diff" ? "diff lines" : s === "many_files" ? "files" : s.replace(/_/g, " ");
-              return d ? `${d.value} ${label} (>${d.threshold})` : s.replace(/_/g, " ");
-            }).join(" · ")}
-          </span>
-        </div>
       )}
 
       {stepDiffsLoading && isFiltered && (

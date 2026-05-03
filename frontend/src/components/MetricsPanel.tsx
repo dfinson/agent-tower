@@ -15,7 +15,7 @@ import type {
   TelemetryData, LLMCall, SortField, SortDir, ToolAggregate,
   SessionCheckpoint, SessionSummaryJson,
 } from "./MetricsPanelTypes";
-import { formatDuration, formatTokens, formatUsd, formatActivityBucket, phaseColor, phaseShortLabel } from "./MetricsPanelTypes";
+import { formatDuration, formatTokens, formatUsd, formatActivityBucket, phaseColor, phaseShortLabel, ACTIVITY_DESCRIPTIONS, classifyToolToActivity, ACTIVITY_TOOL_EXAMPLES } from "./MetricsPanelTypes";
 import {
   useModelPricing,
   CacheEfficiencyBar,
@@ -224,6 +224,22 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
     }
     return map;
   }, [activityPhaseBuckets]);
+
+  // Build per-activity tool breakdown from actual tool call data
+  const toolsByActivity = useMemo(() => {
+    const map: Record<string, { name: string; count: number }[]> = {};
+    for (const tc of data?.toolCalls ?? []) {
+      const activity = classifyToolToActivity(tc.name);
+      if (!map[activity]) map[activity] = [];
+      const existing = map[activity].find((t) => t.name === tc.name);
+      if (existing) existing.count++;
+      else map[activity].push({ name: tc.name, count: 1 });
+    }
+    for (const tools of Object.values(map)) {
+      tools.sort((a, b) => b.count - a.count);
+    }
+    return map;
+  }, [data?.toolCalls]);
 
   return (
     <div className="md:h-full overflow-y-auto">
