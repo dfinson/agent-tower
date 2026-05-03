@@ -289,7 +289,7 @@ export function ActivityTimeline({
   return (
     <div className="flex flex-col h-full">
       {/* Plan panel — pinned at top of sidebar */}
-      {planSteps.length > 0 && <PlanPanel jobId={jobId} />}
+      {planSteps.length > 0 && <PlanPanel jobId={jobId} jobState={jobState} />}
       {/* Activity log section header — only when plan is visible to separate them */}
       {planSteps.length > 0 && activities.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border">

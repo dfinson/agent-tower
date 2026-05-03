@@ -66,11 +66,21 @@ function StepList({ steps, onHover }: { steps: PlanStep[]; onHover: (id: string 
   );
 }
 
+/** Terminal job states where the agent is no longer working. */
+const TERMINAL_STATES = new Set([
+  "review", "completed", "failed", "canceled", "archived",
+]);
+
 /** Sidebar-embedded plan panel for the activity timeline. */
-export function PlanPanel({ jobId }: { jobId: string }) {
-  const steps = useStore(selectJobPlan(jobId));
+export function PlanPanel({ jobId, jobState }: { jobId: string; jobState?: string }) {
+  const rawSteps = useStore(selectJobPlan(jobId));
   const setHoveredPlanItemId = useStore((s) => s.setHoveredPlanItemId);
   const [expanded, setExpanded] = useState(true);
+  // Force active→done when the job has reached a terminal state
+  const jobFinished = !!jobState && TERMINAL_STATES.has(jobState);
+  const steps = jobFinished
+    ? rawSteps.map((s) => s.status === "active" ? { ...s, status: "done" as const } : s)
+    : rawSteps;
   const visible = steps.filter((s) => s.status !== "skipped");
 
   if (visible.length === 0) return null;
@@ -117,9 +127,13 @@ export function PlanPanel({ jobId }: { jobId: string }) {
 }
 
 /** Persistent bottom drawer for mobile — shows active step + progress, expandable. */
-export function MobilePlanDrawer({ jobId }: { jobId: string }) {
-  const steps = useStore(selectJobPlan(jobId));
+export function MobilePlanDrawer({ jobId, jobState }: { jobId: string; jobState?: string }) {
+  const rawSteps = useStore(selectJobPlan(jobId));
   const [expanded, setExpanded] = useState(false);
+  const jobFinished = !!jobState && TERMINAL_STATES.has(jobState);
+  const steps = jobFinished
+    ? rawSteps.map((s) => s.status === "active" ? { ...s, status: "done" as const } : s)
+    : rawSteps;
   const visible = steps.filter((s) => s.status !== "skipped");
 
   if (visible.length === 0) return null;

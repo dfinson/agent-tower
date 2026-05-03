@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { ExternalLink, XCircle, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, PanelLeftClose, PanelLeftOpen, Loader2, Radio, TerminalSquare, FolderTree, GitBranch, BarChart3, Package } from "lucide-react";
+import { ExternalLink, XCircle, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, PanelLeftClose, PanelLeftOpen, Loader2, Radio, TerminalSquare, FolderTree, GitBranch, BarChart3, Package, ChevronDown, ChevronRight } from "lucide-react";
 import type { JobSummary } from "../store";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { JobActions } from "./JobActions";
@@ -83,6 +83,9 @@ export function JobDetailSidebar({
   onOpenTerminal,
 }: JobDetailSidebarProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [navExpanded, setNavExpanded] = useState(true);
+  const [metadataExpanded, setMetadataExpanded] = useState(true);
+  const [activityExpanded, setActivityExpanded] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(240, Math.min(360, window.innerWidth * 0.18)));
   const isResizingRef = useRef(false);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
@@ -190,179 +193,210 @@ export function JobDetailSidebar({
           </button>
         ) : (
           <>
-            {/* ── Tab navigation ── */}
-            <nav className="flex flex-col gap-0.5 px-2 pt-2 pb-1 shrink-0">
-              {visibleTabs.map(({ id, icon: Icon, label }) => (
-                <button
-                  key={id}
-                  onClick={() => onTabChange(id)}
-                  className={cn(
-                    "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors",
-                    activeTab === id
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                  )}
-                >
-                  <Icon size={15} className="shrink-0" />
-                  <span className="truncate">{label}</span>
-                  {id === "artifacts" && artifactCount > 0 && (
-                    <span className="ml-auto text-[10px] leading-none bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 font-normal">
-                      {artifactCount}
-                    </span>
-                  )}
-                </button>
-              ))}
-              {hasWorktree && (
-                <button
-                  onClick={onOpenTerminal}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                >
-                  <TerminalSquare size={15} className="shrink-0" />
-                  <span>Terminal</span>
-                  {jobTerminalCount > 0 && (
-                    <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>
-                  )}
-                </button>
-              )}
-            </nav>
-
-            <div className="h-px bg-border mx-2" />
-
-            {/* ── Activity timeline — takes remaining space ── */}
+            {/* ── Collapse sidebar button ── */}
             <button
               onClick={() => setSidebarCollapsed(true)}
-              className="flex items-center gap-2 px-4 py-2 w-full text-left hover:bg-accent/50 transition-colors shrink-0"
+              className="flex items-center gap-2 px-3 py-1.5 w-full text-left hover:bg-accent/50 transition-colors shrink-0 border-b border-border"
               title="Collapse sidebar"
             >
               <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Activity</span>
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Sidebar</span>
             </button>
-            <div className="flex-1 overflow-hidden">
-              <ActivityTimeline
-                jobId={jobId}
-                jobState={job.state}
-                onStepClick={onStepClick}
-                selectedTurnId={selectedTurnId}
-                searchActive={searchActive}
-                visibleStepTurnId={visibleStepTurnId}
-              />
-            </div>
 
-            <div className="h-px bg-border" />
-
-            {/* ── Job metadata ── */}
-            <div className="px-3 py-2 border-t border-border space-y-1.5 text-xs shrink-0 overflow-y-auto max-h-[35%]">
-              {(job.description || job.prompt) && (
-                <p className="text-muted-foreground line-clamp-3 text-[12px]">{job.description ?? job.prompt}</p>
-              )}
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                {[
-                  ["Branch", job.branch ?? "—"],
-                  ["Base", job.baseRef],
-                  ...(job.model ? [["Model", job.model]] : []),
-                  ["Created", new Date(job.createdAt).toLocaleString()],
-                  ...(job.completedAt ? [["Done", new Date(job.completedAt).toLocaleString()]] : []),
-                ].map(([label, value]) => (
-                  <div key={label} className="min-w-0">
-                    <p className="text-[10px] text-muted-foreground/70 uppercase font-semibold tracking-wide">{label}</p>
-                    <p className="text-[12px] text-foreground/80 truncate" title={String(value)}>{value}</p>
+            {/* ── Job metadata — collapsible, on top ── */}
+            <div className="shrink-0">
+              <button
+                onClick={() => setMetadataExpanded((e) => !e)}
+                className="flex items-center gap-1.5 px-3 py-1.5 w-full text-left hover:bg-accent/50 transition-colors"
+              >
+                {metadataExpanded ? <ChevronDown size={12} className="text-muted-foreground shrink-0" /> : <ChevronRight size={12} className="text-muted-foreground shrink-0" />}
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Details</span>
+              </button>
+              {metadataExpanded && (
+                <div className="px-3 pb-2 space-y-1.5 text-xs">
+                  {(job.description || job.prompt) && (
+                    <p className="text-muted-foreground line-clamp-3 text-[12px]">{job.description ?? job.prompt}</p>
+                  )}
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    {[
+                      ["Branch", job.branch ?? "—"],
+                      ["Base", job.baseRef],
+                      ...(job.model ? [["Model", job.model]] : []),
+                      ["Created", new Date(job.createdAt).toLocaleString()],
+                      ...(job.completedAt ? [["Done", new Date(job.completedAt).toLocaleString()]] : []),
+                    ].map(([label, value]) => (
+                      <div key={label} className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground/70 uppercase font-semibold tracking-wide">{label}</p>
+                        <p className="text-[12px] text-foreground/80 truncate" title={String(value)}>{value}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {job.prUrl && (
-                <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-primary hover:underline">
-                  <ExternalLink size={11} /> Pull Request
-                </a>
-              )}
-              {/* Status banners — compact in sidebar */}
-              {job.modelDowngraded && (
-                <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-1.5">
-                  <ArrowDownCircle size={13} className="text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-[11px] font-medium text-amber-500">Model downgraded</p>
-                    <p className="text-[11px] text-amber-400">
-                      {job.requestedModel} → {job.actualModel}
-                    </p>
-                  </div>
-                </div>
-              )}
-              {job.state === "failed" && (
-                <div className="flex items-start gap-1.5 rounded border border-red-500/30 bg-red-500/10 p-1.5">
-                  <XCircle size={13} className="text-red-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-[11px] font-medium text-red-500">Failed</p>
-                    <p className="text-[11px] text-red-400 line-clamp-2">{job.failureReason ?? "No details"}</p>
-                  </div>
-                </div>
-              )}
-              {job.state === "review" && (() => {
-                const isConflict = hasMergeConflict;
-                const isSignOff = job.resolution === "unresolved" || !job.resolution;
-                return (
-                  <div className={`flex items-start gap-1.5 rounded border p-1.5 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
-                    {isConflict ? (
-                      <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
-                    ) : isSignOff ? (
-                      <GitMerge size={13} className="text-blue-500 shrink-0 mt-0.5" />
-                    ) : (
+                  {job.prUrl && (
+                    <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-primary hover:underline">
+                      <ExternalLink size={11} /> Pull Request
+                    </a>
+                  )}
+                  {/* Status banners */}
+                  {job.modelDowngraded && (
+                    <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-1.5">
+                      <ArrowDownCircle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[11px] font-medium text-amber-500">Model downgraded</p>
+                        <p className="text-[11px] text-amber-400">{job.requestedModel} → {job.actualModel}</p>
+                      </div>
+                    </div>
+                  )}
+                  {job.state === "failed" && (
+                    <div className="flex items-start gap-1.5 rounded border border-red-500/30 bg-red-500/10 p-1.5">
+                      <XCircle size={13} className="text-red-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[11px] font-medium text-red-500">Failed</p>
+                        <p className="text-[11px] text-red-400 line-clamp-2">{job.failureReason ?? "No details"}</p>
+                      </div>
+                    </div>
+                  )}
+                  {job.state === "review" && (() => {
+                    const isConflict = hasMergeConflict;
+                    const isSignOff = job.resolution === "unresolved" || !job.resolution;
+                    return (
+                      <div className={`flex items-start gap-1.5 rounded border p-1.5 ${isConflict ? "border-amber-500/30 bg-amber-500/10" : isSignOff ? "border-blue-500/30 bg-blue-500/10" : "border-green-500/30 bg-green-500/10"}`}>
+                        {isConflict ? (
+                          <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                        ) : isSignOff ? (
+                          <GitMerge size={13} className="text-blue-500 shrink-0 mt-0.5" />
+                        ) : (
+                          <CheckCircle2 size={13} className="text-green-500 shrink-0 mt-0.5" />
+                        )}
+                        <p className={`text-[11px] font-medium ${isConflict ? "text-amber-500" : isSignOff ? "text-blue-500" : "text-green-500"}`}>
+                          {isConflict ? "Merge conflict" : isSignOff ? "Review required" : "Ready"}
+                        </p>
+                        {unresolvedResolutionError && (
+                          <p className="text-[11px] text-blue-300/90">Merge failed: {unresolvedResolutionError}</p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  {job.state === "completed" && (
+                    <div className="flex items-start gap-1.5 rounded border border-green-500/30 bg-green-500/10 p-1.5">
                       <CheckCircle2 size={13} className="text-green-500 shrink-0 mt-0.5" />
-                    )}
-                    <p className={`text-[11px] font-medium ${isConflict ? "text-amber-500" : isSignOff ? "text-blue-500" : "text-green-500"}`}>
-                      {isConflict ? "Merge conflict" : isSignOff ? "Review required" : "Ready"}
-                    </p>
-                    {unresolvedResolutionError && (
-                      <p className="text-[11px] text-blue-300/90">Merge failed: {unresolvedResolutionError}</p>
-                    )}
-                  </div>
-                );
-              })()}
-              {job.state === "completed" && (
-                <div className="flex items-start gap-1.5 rounded border border-green-500/30 bg-green-500/10 p-1.5">
-                  <CheckCircle2 size={13} className="text-green-500 shrink-0 mt-0.5" />
-                  <p className="text-[11px] font-medium text-green-500">
-                    {job.resolution === "merged" ? "Merged"
-                      : job.resolution === "pr_created" ? "PR created"
-                      : job.resolution === "discarded" ? "Discarded"
-                      : "Completed"}
-                  </p>
+                      <p className="text-[11px] font-medium text-green-500">
+                        {job.resolution === "merged" ? "Merged"
+                          : job.resolution === "pr_created" ? "PR created"
+                          : job.resolution === "discarded" ? "Discarded"
+                          : "Completed"}
+                      </p>
+                    </div>
+                  )}
+                  {job.state === "canceled" && (
+                    <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-1.5">
+                      <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-[11px] font-medium text-amber-500">Canceled</p>
+                    </div>
+                  )}
+                  {isPreparing && (
+                    <div className="flex items-start gap-1.5 rounded border border-violet-500/30 bg-violet-500/10 p-1.5">
+                      <Loader2 size={13} className="text-violet-400 shrink-0 mt-0.5 animate-spin" />
+                      <p className="text-[11px] font-medium text-violet-400">
+                        {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
+                      </p>
+                    </div>
+                  )}
+                  {/* Actions */}
+                  <JobActions
+                    canCancel={canCancel}
+                    canResume={canResume}
+                    needsResolution={needsResolution}
+                    hasChanges={hasChanges}
+                    hasMergeConflict={hasMergeConflict}
+                    isResolved={isResolved}
+                    canArchive={canArchive}
+                    jobState={job.state}
+                    archivedAt={job.archivedAt}
+                    actionLoading={actionLoading}
+                    resolveLoading={resolveLoading}
+                    onCancelOpen={onCancelOpen}
+                    onResume={onResume}
+                    onResolve={onResolve}
+                    onDiscardOpen={onDiscardOpen}
+                    onMarkDoneOpen={onMarkDoneOpen}
+                    onCompleteOpen={onCompleteOpen}
+                    layout="compact"
+                  />
                 </div>
               )}
-              {job.state === "canceled" && (
-                <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-1.5">
-                  <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
-                  <p className="text-[11px] font-medium text-amber-500">Canceled</p>
-                </div>
-              )}
-              {isPreparing && (
-                <div className="flex items-start gap-1.5 rounded border border-violet-500/30 bg-violet-500/10 p-1.5">
-                  <Loader2 size={13} className="text-violet-400 shrink-0 mt-0.5 animate-spin" />
-                  <p className="text-[11px] font-medium text-violet-400">
-                    {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
-                  </p>
-                </div>
-              )}
-              {/* ── Actions ── */}
-              <JobActions
-                canCancel={canCancel}
-                canResume={canResume}
-                needsResolution={needsResolution}
-                hasChanges={hasChanges}
-                hasMergeConflict={hasMergeConflict}
-                isResolved={isResolved}
-                canArchive={canArchive}
-                jobState={job.state}
-                archivedAt={job.archivedAt}
-                actionLoading={actionLoading}
-                resolveLoading={resolveLoading}
-                onCancelOpen={onCancelOpen}
-                onResume={onResume}
-                onResolve={onResolve}
-                onDiscardOpen={onDiscardOpen}
-                onMarkDoneOpen={onMarkDoneOpen}
-                onCompleteOpen={onCompleteOpen}
-                layout="compact"
-              />
             </div>
+
+            <div className="h-px bg-border mx-2" />
+
+            {/* ── Tab navigation — collapsible ── */}
+            <div className="shrink-0">
+              <button
+                onClick={() => setNavExpanded((e) => !e)}
+                className="flex items-center gap-1.5 px-3 py-1.5 w-full text-left hover:bg-accent/50 transition-colors"
+              >
+                {navExpanded ? <ChevronDown size={12} className="text-muted-foreground shrink-0" /> : <ChevronRight size={12} className="text-muted-foreground shrink-0" />}
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Views</span>
+              </button>
+              {navExpanded && (
+                <nav className="flex flex-col gap-0.5 px-2 pb-1">
+                  {visibleTabs.map(({ id, icon: Icon, label }) => (
+                    <button
+                      key={id}
+                      onClick={() => onTabChange(id)}
+                      className={cn(
+                        "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors",
+                        activeTab === id
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                      )}
+                    >
+                      <Icon size={15} className="shrink-0" />
+                      <span className="truncate">{label}</span>
+                      {id === "artifacts" && artifactCount > 0 && (
+                        <span className="ml-auto text-[10px] leading-none bg-muted text-muted-foreground rounded-full px-1.5 py-0.5 font-normal">
+                          {artifactCount}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                  {hasWorktree && (
+                    <button
+                      onClick={onOpenTerminal}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                    >
+                      <TerminalSquare size={15} className="shrink-0" />
+                      <span>Terminal</span>
+                      {jobTerminalCount > 0 && (
+                        <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>
+                      )}
+                    </button>
+                  )}
+                </nav>
+              )}
+            </div>
+
+            <div className="h-px bg-border mx-2" />
+
+            {/* ── Activity timeline — collapsible, takes remaining space ── */}
+            <button
+              onClick={() => setActivityExpanded((e) => !e)}
+              className="flex items-center gap-1.5 px-3 py-1.5 w-full text-left hover:bg-accent/50 transition-colors shrink-0"
+            >
+              {activityExpanded ? <ChevronDown size={12} className="text-muted-foreground shrink-0" /> : <ChevronRight size={12} className="text-muted-foreground shrink-0" />}
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Activity</span>
+            </button>
+            {activityExpanded && (
+              <div className="flex-1 overflow-hidden">
+                <ActivityTimeline
+                  jobId={jobId}
+                  jobState={job.state}
+                  onStepClick={onStepClick}
+                  selectedTurnId={selectedTurnId}
+                  searchActive={searchActive}
+                  visibleStepTurnId={visibleStepTurnId}
+                />
+              </div>
+            )}
           </>
         )}
       </div>
