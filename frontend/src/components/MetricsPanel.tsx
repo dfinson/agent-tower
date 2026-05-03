@@ -335,10 +335,14 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
               {/* ─── Tokens & Context ─── */}
               <SectionGroup title="Tokens & Context">
-                <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div>
                     <p className="text-sm font-bold tabular-nums">{formatTokens(data.inputTokens ?? 0)}</p>
                     <p className="text-muted-foreground">Input</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold tabular-nums">{formatTokens(data.cacheReadTokens ?? 0)}</p>
+                    <p className="text-muted-foreground">Cache</p>
                   </div>
                   <div>
                     <p className="text-sm font-bold tabular-nums">{formatTokens(data.outputTokens ?? 0)}</p>
@@ -428,15 +432,29 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                           {!turnsCollapsed && turnCurve.map((bucket) => {
                             const maxCost = Math.max(...turnCurve.map((entry) => entry.costUsd), 0);
                             const widthPct = maxCost > 0 ? (bucket.costUsd / maxCost) * 100 : 0;
+                            const activity = bucket.activity ? formatActivityBucket(bucket.activity) : null;
+                            const tools = bucket.tools ?? [];
                             return (
                               <div key={bucket.bucket} className="space-y-1">
                                 <div className="flex items-center justify-between text-xs">
-                                  <span className="text-muted-foreground">Turn {bucket.bucket}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground">Turn {bucket.bucket}</span>
+                                    {activity && (
+                                      <span className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded">{activity}</span>
+                                    )}
+                                  </div>
                                   <span className="tabular-nums">{formatUsd(bucket.costUsd)}</span>
                                 </div>
                                 <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                                   <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
                                 </div>
+                                {tools.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 text-[10px] text-muted-foreground/60">
+                                    {tools.map((t) => (
+                                      <span key={t} className="bg-muted/50 px-1 rounded">{t}</span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}

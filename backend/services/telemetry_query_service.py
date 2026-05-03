@@ -143,6 +143,9 @@ class TelemetryQueryService:
 
         turn_curve.sort(key=lambda item: int(item.bucket) if item.bucket.isdigit() else 0)
 
+        # Enrich turn curve with activity + tools from raw spans
+        self._enrich_turn_curve(turn_curve, spans)
+
         # For running jobs, compute live duration from created_at instead of
         # the stored 0 which is only finalized when the job completes.
         duration_ms = summary.get("duration_ms", 0)
@@ -259,3 +262,54 @@ class TelemetryQueryService:
             review_signals=TelemetryReviewSignals(test_co_modifications=test_co_mods),
             review_complexity=TelemetryReviewComplexity(tier=tier, signals=signals, signal_details=signal_details),
         )
+
+    @staticmethod
+    def _enrich_turn_curve(turn_curve: list[TelemetryCostBucket], spans: list[dict]) -> None:
+        """Annotate each turn bucket with its dominant activity and tool names."""
+        from backend.services.cost_attribution import _classify_turn_intent
+        from backend.services.tool_classifier import classify_tool
+
+        # Group tool spans by turn
+        turns: dict[str, list[dict]] = {}
+        for span in spans:
+            if span.get("span_type") != "tool":
+                continue
+            turn = str(span.get("turn_number", ""))
+            if turn:
+                turns.setdefault(turn, []).append(span)
+
+        for bucket in turn_curve:
+            turn_spans = turns.get(bucket.bucket, [])
+            if not turn_spans:
+                bucket.activity = "communication"
+                bucket.tools = []
+                continue
+
+            # Collect tool categories and shell commands
+            categories: list[str] = []
+            tool_names: list[str] = []
+            shell_commands: list[str] = []
+            for span in turn_spans:
+                name = span.get("name", "")
+                cat = classify_tool(name)
+                categories.append(cat)
+                tool_names.append(name)
+                if cat == "shell" and span.get("tool_args_json"):
+                    import json as _json
+                    with contextlib.suppress(Exception):
+                        args = _json.loads(span["tool_args_json"])
+                        if isinstance(args, dict):
+                            cmd = args.get("command", args.get("cmd", ""))
+                            if cmd:
+                                shell_commands.append(cmd)
+
+            context = {"tool_categories": categories, "shell_commands": shell_commands, "phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0}
+            bucket.activity = _classify_turn_intent(context)
+            # Deduplicated tool names in order
+            seen: set[str] = set()
+            unique_tools: list[str] = []
+            for t in tool_names:
+                if t not in seen:
+                    seen.add(t)
+                    unique_tools.append(t)
+            bucket.tools = unique_tools

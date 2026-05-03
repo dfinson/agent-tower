@@ -94,6 +94,12 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
                 <span>{formatTokens(job.inputTokens)}</span>
               </div>
             )}
+            {job.totalTokens != null && job.inputTokens != null && job.outputTokens != null && (job.totalTokens - job.inputTokens - job.outputTokens) > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Cache read</span>
+                <span>{formatTokens(job.totalTokens - job.inputTokens - job.outputTokens)}</span>
+              </div>
+            )}
             {job.outputTokens != null && job.outputTokens > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Output tokens</span>

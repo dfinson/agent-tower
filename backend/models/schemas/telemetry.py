@@ -24,6 +24,9 @@ class CostAttributionBucket(CamelModel):
     output_tokens: int = 0
     call_count: int = 0
     confidence: str = "exact"
+    # Per-turn enrichment (only populated for dimension="turn")
+    activity: str | None = None
+    tools: list[str] | None = None
 
 
 class TurnEconomics(CamelModel):
@@ -194,6 +197,9 @@ class TelemetryCostBucket(CamelModel):
     input_tokens: int = 0
     output_tokens: int = 0
     call_count: int = 0
+    # Per-turn enrichment (only populated for dimension="turn")
+    activity: str | None = None
+    tools: list[str] | None = None
 
 
 class TelemetryCostDrivers(CamelModel):
