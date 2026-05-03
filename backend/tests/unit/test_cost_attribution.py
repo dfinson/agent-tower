@@ -1,6 +1,6 @@
 from backend.services.cost_attribution import (
-    _allocate_weighted_totals,
-    _derive_activity_weights,
+    _classify_turn_intent,
+    _classify_shell_command,
     _infer_execution_phases,
 )
 from backend.services.tool_classifier import classify_tool
@@ -33,55 +33,87 @@ def test_infer_execution_phases_does_not_invent_unknown_bucket() -> None:
     assert _infer_execution_phases(spans) == [None, None]
 
 
-def test_derive_activity_weights_maps_useful_buckets() -> None:
-    # Verification phase uses actual tool categories (not a catch-all)
-    assert _derive_activity_weights(phase="verification", tool_categories=["file_write"]) == {"code_changes": 1}
-    assert _derive_activity_weights(phase="verification", tool_categories=["shell", "file_read"]) == {
-        "command_execution": 1,
-        "code_reading": 1,
+def _ctx(*, cats: list[str] | None = None, cmds: list[str] | None = None, out_tok: int = 0) -> dict:
+    """Build a minimal TurnContext dict for testing."""
+    return {
+        "phase": None,
+        "cost_usd": 1.0,
+        "input_tokens": 100,
+        "output_tokens": out_tok,
+        "tool_categories": cats or [],
+        "shell_commands": cmds or [],
     }
-    # Verification with no tools → reasoning (same as agent_reasoning)
-    assert _derive_activity_weights(phase="verification", tool_categories=[]) == {"reasoning": 1}
-    # Setup phase also uses actual tool categories
-    assert _derive_activity_weights(phase="environment_setup", tool_categories=["shell"]) == {"command_execution": 1}
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["file_read", "file_write", "shell"]) == {
-        "code_reading": 1,
-        "code_changes": 1,
-        "command_execution": 1,
-    }
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=[]) == {"reasoning": 1}
-    # git_read → code_reading, git_write → code_changes
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["git_read"]) == {"code_reading": 1}
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["git_write"]) == {"code_changes": 1}
-    # "other" category → other_tools (not command_execution)
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["other"]) == {"other_tools": 1}
-    # thinking → reasoning, bookkeeping → bookkeeping (split from old "system")
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["thinking"]) == {"reasoning": 1}
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=["bookkeeping"]) == {"bookkeeping": 1}
 
 
-def test_allocate_weighted_totals_splits_turn_cost_across_activities() -> None:
-    allocations = _allocate_weighted_totals(
-        weights={"code_reading": 1, "code_changes": 2},
-        cost_usd=9.0,
-        input_tokens=90,
-        output_tokens=45,
-    )
+def test_classify_turn_intent_implementation_wins() -> None:
+    # Turns with file writes are always implementation, even if also reading
+    assert _classify_turn_intent(_ctx(cats=["file_write"])) == "implementation"
+    assert _classify_turn_intent(_ctx(cats=["file_read", "file_read", "file_write"])) == "implementation"
+    assert _classify_turn_intent(_ctx(cats=["file_read", "file_write", "shell"], cmds=["git diff"])) == "implementation"
+    assert _classify_turn_intent(_ctx(cats=["git_write"])) == "implementation"
 
-    assert allocations == {
-        "code_reading": {"cost_usd": 3.0, "input_tokens": 30, "output_tokens": 15},
-        "code_changes": {"cost_usd": 6.0, "input_tokens": 60, "output_tokens": 30},
-    }
+
+def test_classify_turn_intent_verification() -> None:
+    # Shell commands running tests → verification
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["pytest tests/"])) == "verification"
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["npm test"])) == "verification"
+    assert _classify_turn_intent(_ctx(cats=["shell", "file_read"], cmds=["vitest run"])) == "verification"
+
+
+def test_classify_turn_intent_git_ops() -> None:
+    # Git write commands (commit, push)
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["git add -A && git commit -m 'fix'"])) == "git_ops"
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["git push origin main"])) == "git_ops"
+
+
+def test_classify_turn_intent_setup() -> None:
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["uv sync"])) == "setup"
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["npm install"])) == "setup"
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["pip install requests"])) == "setup"
+
+
+def test_classify_turn_intent_investigation() -> None:
+    # Pure reading turns
+    assert _classify_turn_intent(_ctx(cats=["file_read"])) == "investigation"
+    assert _classify_turn_intent(_ctx(cats=["file_read", "file_read", "file_search"])) == "investigation"
+    assert _classify_turn_intent(_ctx(cats=["git_read"])) == "investigation"
+    assert _classify_turn_intent(_ctx(cats=["browser"])) == "investigation"
+    # Shell commands that explore
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["find . -name '*.py'"])) == "investigation"
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["git diff HEAD~1"])) == "investigation"
+
+
+def test_classify_turn_intent_overhead() -> None:
+    # Pure bookkeeping (report_intent, sql, memory, todos)
+    assert _classify_turn_intent(_ctx(cats=["bookkeeping"])) == "overhead"
+    assert _classify_turn_intent(_ctx(cats=["bookkeeping", "bookkeeping"])) == "overhead"
+
+
+def test_classify_turn_intent_delegation() -> None:
+    assert _classify_turn_intent(_ctx(cats=["agent"])) == "delegation"
+
+
+def test_classify_turn_intent_communication_and_reasoning() -> None:
+    # No tools, has output → communication
+    assert _classify_turn_intent(_ctx(out_tok=500)) == "communication"
+    # No tools, no output → reasoning
+    assert _classify_turn_intent(_ctx(out_tok=0)) == "reasoning"
+    # Thinking tool → reasoning
+    assert _classify_turn_intent(_ctx(cats=["thinking"])) == "reasoning"
+
+
+def test_classify_shell_command() -> None:
+    assert _classify_shell_command("pytest tests/") == "verification"
+    assert _classify_shell_command("git commit -m 'fix'") == "git_ops"
+    assert _classify_shell_command("uv sync") == "setup"
+    assert _classify_shell_command("git diff HEAD") == "investigation"
+    assert _classify_shell_command("find . -name '*.py'") == "investigation"
+    assert _classify_shell_command("echo hello") == "shell_other"
 
 
 def test_classify_tool_list_agents() -> None:
     assert classify_tool("list_agents") == "agent"
 
 
-def test_user_communication_bucket() -> None:
-    # Turn with no tools but output tokens → user_communication
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=[], output_tokens=500) == {
-        "user_communication": 1
-    }
-    # Turn with no tools and no output tokens → reasoning
-    assert _derive_activity_weights(phase="agent_reasoning", tool_categories=[], output_tokens=0) == {"reasoning": 1}
+def test_sql_classified_as_bookkeeping() -> None:
+    assert classify_tool("sql") == "bookkeeping"

@@ -75,7 +75,7 @@ TOOL_CATEGORIES: dict[str, str] = {
     "read_bash": "shell",
     "write_bash": "shell",
     "stop_bash": "shell",
-    "sql": "shell",
+    "sql": "bookkeeping",
     # git — version control operations (split read vs write)
     "git_diff": "git_read",
     "git_status": "git_read",

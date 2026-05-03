@@ -181,40 +181,49 @@ export function formatUsd(amount: number): string {
 
 export function formatActivityBucket(bucket: string): string {
   switch (bucket) {
-    case "code_changes":
-      return "Code Changes";
-    case "code_reading":
-      return "Code Reading";
-    case "search_discovery":
-      return "Search & Discovery";
-    case "command_execution":
-      return "Command Execution";
+    // New intent-based categories
+    case "implementation":
+      return "Implementation";
+    case "investigation":
+      return "Investigation";
+    case "verification":
+      return "Verification";
+    case "git_ops":
+      return "Git & Commit";
+    case "setup":
+      return "Setup";
     case "delegation":
-      return "Sub-agents";
+      return "Delegation";
+    case "overhead":
+      return "Overhead";
     case "reasoning":
       return "Reasoning";
-    case "user_communication":
-      return "User Messages";
-    case "other_tools":
-      return "Other Tools";
-    case "bookkeeping":
-      return "Bookkeeping";
+    case "communication":
+      return "Communication";
+    // Legacy categories (older jobs before migration)
+    case "code_changes":
     case "debugging":
-      return "Debugging";
     case "refactoring":
-      return "Refactoring";
     case "feature_dev":
-      return "Feature Dev";
+      return "Implementation";
+    case "code_reading":
+    case "search_discovery":
+    case "command_execution":
+      return "Investigation";
     case "testing":
-      return "Testing";
-    case "git_ops":
-      return "Git Ops";
+      return "Verification";
     case "build_deploy":
-      return "Build / Deploy";
+      return "Setup";
+    case "bookkeeping":
+    case "other_tools":
+      return "Overhead";
+    case "user_communication":
+      return "Communication";
+    // Phase labels (used in phase breakdown)
     case "environment_setup":
       return "Setup";
     case "agent_reasoning":
-      return "Reasoning";
+      return "Active";
     case "finalization":
       return "Finalization";
     case "post_completion":
@@ -229,25 +238,33 @@ export function formatActivityBucket(bucket: string): string {
 // ---------------------------------------------------------------------------
 
 export const ACTIVITY_DESCRIPTIONS: Record<string, string> = {
-  command_execution: "Turns where the agent ran shell commands (bash, terminal, sql)",
-  code_reading: "Turns where the agent read files or checked git status/diffs",
-  reasoning: "Turns of explicit thinking (Think tool) with no user-facing output",
-  user_communication: "Turns where the agent composed a message to you (no tool calls)",
-  code_changes: "Turns where the agent edited/created files or committed git changes",
-  delegation: "Turns where the agent delegated to sub-agents",
+  // New intent-based categories
+  implementation: "Turns where the agent edited or created files — the actual coding work",
+  investigation: "Turns where the agent read code, searched, or explored the codebase",
+  verification: "Turns where the agent ran tests to validate changes",
+  git_ops: "Turns where the agent committed, pushed, or managed git state",
+  setup: "Turns where the agent installed dependencies or set up the environment",
+  delegation: "Turns where the agent delegated work to sub-agents",
+  overhead: "Turns spent on internal housekeeping — todos, memory, intent tracking",
+  reasoning: "Turns of explicit thinking with no user-facing output",
+  communication: "Turns where the agent composed a message to you (no tool calls)",
+  // Legacy descriptions for older jobs
+  command_execution: "Turns where the agent ran shell commands",
+  code_reading: "Turns where the agent read files or checked diffs",
+  code_changes: "Turns where the agent edited/created files",
   search_discovery: "Turns where the agent searched code or fetched URLs",
+  user_communication: "Turns where the agent composed a message to you",
+  bookkeeping: "Turns spent on internal housekeeping",
   other_tools: "Turns using unclassified or custom tools",
-  bookkeeping: "Turns where the agent managed todos, memory, or intent tracking",
-  debugging: "Turns where the agent fixed bugs, errors, or failing code",
-  refactoring: "Turns where the agent restructured, renamed, or simplified code",
-  feature_dev: "Turns where the agent built new features or scaffolded components",
+  debugging: "Turns where the agent fixed bugs or errors",
+  refactoring: "Turns where the agent restructured or renamed code",
+  feature_dev: "Turns where the agent built new features",
   testing: "Turns where the agent ran or wrote tests",
-  git_ops: "Turns where the agent ran git commands (push, commit, merge, etc.)",
-  build_deploy: "Turns where the agent ran build, install, or deploy commands",
+  build_deploy: "Turns where the agent ran build or deploy commands",
 };
 
 // ---------------------------------------------------------------------------
-// Tool → activity category mapping (mirrors backend tool_classifier.py)
+// Tool → activity category mapping (mirrors backend intent-based classification)
 // ---------------------------------------------------------------------------
 
 const TOOL_TO_CATEGORY: Record<string, string> = {
@@ -267,7 +284,8 @@ const TOOL_TO_CATEGORY: Record<string, string> = {
   file_search: "file_search", vscode_listCodeUsages: "file_search",
   bash: "shell", Bash: "shell", terminal: "shell", exec: "shell",
   run_in_terminal: "shell", get_terminal_output: "shell",
-  read_bash: "shell", write_bash: "shell", stop_bash: "shell", sql: "shell",
+  read_bash: "shell", write_bash: "shell", stop_bash: "shell",
+  sql: "bookkeeping",
   git_diff: "git_read", git_status: "git_read", git_log: "git_read",
   get_changed_files: "git_read",
   git_commit: "git_write", git_push: "git_write", git_add: "git_write",
@@ -282,44 +300,38 @@ const TOOL_TO_CATEGORY: Record<string, string> = {
 };
 
 const CATEGORY_TO_ACTIVITY: Record<string, string> = {
-  file_write: "code_changes",
-  git_write: "code_changes",
-  git_read: "code_reading",
-  file_read: "code_reading",
-  file_search: "search_discovery",
-  browser: "search_discovery",
-  shell: "command_execution",
+  file_write: "implementation",
+  git_write: "implementation",
+  git_read: "investigation",
+  file_read: "investigation",
+  file_search: "investigation",
+  browser: "investigation",
+  shell: "investigation",  // default for shell — backend refines by command content
   agent: "delegation",
   thinking: "reasoning",
-  bookkeeping: "bookkeeping",
-  other: "other_tools",
+  bookkeeping: "overhead",
+  other: "overhead",
 };
 
-/** Classify a tool name into its activity bucket. */
+/** Classify a tool name into its activity bucket (for the tools-used display). */
 export function classifyToolToActivity(toolName: string): string {
   const cat = TOOL_TO_CATEGORY[toolName]
     ?? (toolName.includes("/") ? TOOL_TO_CATEGORY[toolName.split("/").pop()!] : undefined)
     ?? "other";
-  return CATEGORY_TO_ACTIVITY[cat] ?? "other_tools";
+  return CATEGORY_TO_ACTIVITY[cat] ?? "overhead";
 }
 
 /** Representative tool examples for each activity, shown when no real data. */
 export const ACTIVITY_TOOL_EXAMPLES: Record<string, string[]> = {
-  command_execution: ["bash", "run_in_terminal", "sql"],
-  code_reading: ["read_file", "view", "git_diff", "git_status"],
-  reasoning: ["Think"],
-  user_communication: [],
-  code_changes: ["edit_file", "write_file", "replace_string_in_file", "git_commit"],
+  implementation: ["edit_file", "write_file", "replace_string_in_file", "create_file"],
+  investigation: ["read_file", "grep_search", "file_search", "git diff", "find"],
+  verification: ["pytest", "vitest", "jest", "npm test"],
+  git_ops: ["git commit", "git push", "git merge", "git add"],
+  setup: ["uv sync", "npm install", "pip install", "cargo build"],
   delegation: ["runSubagent", "Task"],
-  search_discovery: ["grep_search", "semantic_search", "file_search", "web_search"],
-  other_tools: [],
-  bookkeeping: ["manage_todo_list", "memory", "report_intent"],
-  debugging: ["edit_file", "bash (fix loops)"],
-  refactoring: ["edit_file", "replace_string_in_file"],
-  feature_dev: ["create_file", "edit_file"],
-  testing: ["bash (pytest/vitest)", "edit_file"],
-  git_ops: ["bash (git push/commit/merge)"],
-  build_deploy: ["bash (npm build, pip install)"],
+  overhead: ["report_intent", "manage_todo_list", "memory", "sql"],
+  reasoning: ["Think"],
+  communication: [],
 };
 
 const _PHASE_COLORS: Record<string, string> = {
@@ -332,7 +344,7 @@ const _PHASE_COLORS: Record<string, string> = {
 
 const _PHASE_SHORT_LABELS: Record<string, string> = {
   environment_setup: "Setup",
-  agent_reasoning: "Reasoning",
+  agent_reasoning: "Active",
   verification: "Verify",
   finalization: "Final",
   post_completion: "Post",

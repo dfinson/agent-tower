@@ -8,47 +8,20 @@ import {
 } from "recharts";
 import { type FleetCostDriversResponse } from "../../api/client";
 import { formatUsd } from "./helpers";
+import { formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "../MetricsPanelTypes";
 import { cn } from "../../lib/utils";
 
 // ---------------------------------------------------------------------------
-// Shared label / description maps
+// Fleet label / description helpers — delegates to shared maps, with fallback
 // ---------------------------------------------------------------------------
 
-const activityLabels: Record<string, string> = {
-  command_execution: "Command Execution",
-  code_reading: "Code Reading",
-  reasoning: "Reasoning",
-  user_communication: "User Messages",
-  code_changes: "Code Changes",
-  delegation: "Delegation",
-  search_discovery: "Search & Discovery",
-  other_tools: "Other Tools",
-  bookkeeping: "Bookkeeping",
-  debugging: "Debugging",
-  refactoring: "Refactoring",
-  feature_dev: "Feature Dev",
-  testing: "Testing",
-  git_ops: "Git Ops",
-  build_deploy: "Build / Deploy",
-};
+function getActivityLabel(bucket: string): string {
+  return formatActivityBucket(bucket);
+}
 
-const activityDescriptions: Record<string, string> = {
-  command_execution: "LLM cost for turns where the agent ran shell commands (bash, terminal, sql)",
-  code_reading: "LLM cost for turns where the agent read files or checked git status/diffs",
-  reasoning: "LLM cost for explicit thinking (Think tool) with no user-facing output",
-  user_communication: "LLM cost for turns where the agent composed a message to you (no tool calls)",
-  code_changes: "LLM cost for turns where the agent edited/created files or committed git changes",
-  delegation: "LLM cost for turns where the agent delegated to sub-agents",
-  search_discovery: "LLM cost for turns where the agent searched code or fetched URLs",
-  other_tools: "LLM cost for turns using unclassified or custom tools",
-  bookkeeping: "LLM cost for turns where the agent managed todos, memory, or intent",
-  debugging: "LLM cost for turns where the agent fixed bugs, errors, or failing code",
-  refactoring: "LLM cost for turns where the agent restructured, renamed, or simplified code",
-  feature_dev: "LLM cost for turns where the agent built new features or scaffolded components",
-  testing: "LLM cost for turns where the agent ran or wrote tests",
-  git_ops: "LLM cost for turns where the agent ran git commands (push, commit, merge, etc.)",
-  build_deploy: "LLM cost for turns where the agent ran build, install, or deploy commands",
-};
+function getActivityDescription(bucket: string): string | undefined {
+  return ACTIVITY_DESCRIPTIONS[bucket];
+}
 
 const phaseColors: Record<string, string> = {
   environment_setup: "bg-cyan-500",
@@ -60,7 +33,7 @@ const phaseColors: Record<string, string> = {
 
 const phaseShortLabels: Record<string, string> = {
   environment_setup: "Setup",
-  agent_reasoning: "Reasoning",
+  agent_reasoning: "Active",
   verification: "Verify",
   finalization: "Final",
   post_completion: "Post",
@@ -111,7 +84,7 @@ export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetC
       {activityRows.length > 0 ? (
         <>
           <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={activityRows.map((row) => ({ name: activityLabels[row.bucket] || row.bucket, cost: row.cost_usd }))} margin={{ top: 5, right: 10, left: 0, bottom: 40 }}>
+            <BarChart data={activityRows.map((row) => ({ name: getActivityLabel(row.bucket), cost: row.cost_usd }))} margin={{ top: 5, right: 10, left: 0, bottom: 40 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#888" }} interval={0} angle={-20} textAnchor="end" height={55} />
               <YAxis tick={{ fontSize: 11, fill: "#888" }} tickFormatter={(v: number) => `$${v.toFixed(2)}`} />
@@ -135,8 +108,8 @@ export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetC
               </thead>
               <tbody>
                 {activityRows.map((row, i) => {
-                  const label = activityLabels[row.bucket] || row.bucket;
-                  const desc = activityDescriptions[row.bucket];
+                  const label = getActivityLabel(row.bucket);
+                  const desc = getActivityDescription(row.bucket);
                   const phases = phasesByActivity[row.bucket] ?? [];
                   const hasPhases = phases.length > 0;
                   const isExpanded = expandedRows.has(row.bucket);

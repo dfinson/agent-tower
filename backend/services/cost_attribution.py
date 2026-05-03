@@ -47,93 +47,125 @@ class TurnContext(TypedDict):
     input_tokens: int
     output_tokens: int
     tool_categories: list[str]
+    shell_commands: list[str]
 
-_TOOL_CATEGORY_TO_ACTIVITY = {
-    "file_write": "code_changes",
-    "git_write": "code_changes",
-    "git_read": "code_reading",
-    "file_read": "code_reading",
-    "file_search": "search_discovery",
-    "browser": "search_discovery",
-    "shell": "command_execution",
-    "agent": "delegation",
-    "thinking": "reasoning",
-    "bookkeeping": "bookkeeping",
-    "other": "other_tools",
-}
 
 # ---------------------------------------------------------------------------
-# Keyword-based intent classification (adapted from CodeBurn, MIT license)
+# Intent-based turn classification
+#
+# Each turn gets ONE activity label based on its highest-priority action.
+# Priority: implementation > verification > git_ops > setup > investigation
+#           > delegation > overhead > reasoning > communication
+#
+# Shell commands are classified by their actual content, not the job prompt.
 # ---------------------------------------------------------------------------
 
-_RE_DEBUG = re.compile(
-    r"\b(fix|bug|error|broken|failing|crash|issue|debug|traceback|exception|"
-    r"stack\s*trace|not\s+working|wrong|unexpected)\b",
-    re.IGNORECASE,
-)
-_RE_FEATURE = re.compile(
-    r"\b(add|create|implement|new|build|feature|introduce|set\s*up|scaffold|generate)\b",
-    re.IGNORECASE,
-)
-_RE_REFACTOR = re.compile(
-    r"\b(refactor|clean\s*up|rename|reorganize|simplify|extract|restructure|move|migrate|split)\b",
-    re.IGNORECASE,
-)
-_RE_TEST = re.compile(
-    r"\b(test|pytest|vitest|jest|mocha|spec|coverage|npm\s+test|npx\s+vitest|npx\s+jest)\b",
-    re.IGNORECASE,
-)
-_RE_GIT = re.compile(
-    r"\bgit\s+(push|pull|commit|merge|rebase|checkout|branch|stash|tag|cherry-pick)\b",
-    re.IGNORECASE,
-)
-_RE_BUILD = re.compile(
-    r"\b(npm\s+run\s+build|npm\s+publish|pip\s+install|docker|deploy|make\s+build|"
-    r"npm\s+run\s+dev|npm\s+start|cargo\s+build|brew\s+install|apt\s+install)\b",
-    re.IGNORECASE,
-)
-
-# Categories that shell commands can refine into
-_SHELL_TOOL_CATEGORIES = {"shell"}
-# Categories that file-write tools can refine into
+# Categories that represent file-write actions
 _WRITE_TOOL_CATEGORIES = {"file_write", "git_write"}
 
+# Shell command patterns — matched against actual commands, not job prompt
+_RE_SHELL_TEST = re.compile(
+    r"\b(pytest|vitest|jest|mocha|npm\s+test|npx\s+vitest|npx\s+jest|"
+    r"cargo\s+test|go\s+test|rspec|phpunit|unittest|npm\s+run\s+test)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_GIT_WRITE = re.compile(
+    r"\bgit\s+(add|commit|push|merge|rebase|checkout|cherry-pick|stash|tag|reset)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_GIT_READ = re.compile(
+    r"\bgit\s+(diff|log|status|show|blame|branch)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_SETUP = re.compile(
+    r"\b(uv\s+sync|uv\s+add|pip\s+install|npm\s+install|npm\s+ci|"
+    r"yarn\s+install|cargo\s+build|make\s+build|docker|deploy|"
+    r"brew\s+install|apt\s+install|apt-get\s+install)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_INVESTIGATE = re.compile(
+    r"\b(find|ls|cat|head|tail|wc|tree|du|file)\b",
+    re.IGNORECASE,
+)
 
-def _refine_activity_by_intent(
-    activity: str,
-    tool_categories: list[str],
-    prompt: str,
-) -> str:
-    """Refine a coarse activity label using keyword matching on the job prompt.
 
-    Only refines ``code_changes`` and ``command_execution`` — the two coarse
-    buckets that benefit most from intent disambiguation.
+def _classify_shell_command(cmd: str) -> str:
+    """Classify a shell command string into a tool-level intent."""
+    if _RE_SHELL_TEST.search(cmd):
+        return "verification"
+    if _RE_SHELL_GIT_WRITE.search(cmd):
+        return "git_ops"
+    if _RE_SHELL_SETUP.search(cmd):
+        return "setup"
+    if _RE_SHELL_GIT_READ.search(cmd):
+        return "investigation"
+    if _RE_SHELL_INVESTIGATE.search(cmd):
+        return "investigation"
+    # Unclassified shell — falls through to turn-level logic
+    return "shell_other"
+
+
+def _classify_turn_intent(context: TurnContext) -> str:
+    """Assign a single dominant activity to a turn based on its tools.
+
+    Uses a priority ladder: the highest-value action wins the whole turn.
     """
-    if not prompt:
-        return activity
+    cats = set(context.get("tool_categories", []))
+    shell_cmds = context.get("shell_commands", [])
 
-    has_writes = any(c in _WRITE_TOOL_CATEGORIES for c in tool_categories)
-    has_shell = any(c in _SHELL_TOOL_CATEGORIES for c in tool_categories)
+    # Classify each shell command individually
+    shell_intents: set[str] = set()
+    for cmd in shell_cmds:
+        shell_intents.add(_classify_shell_command(cmd))
 
-    if activity == "command_execution" and has_shell:
-        if _RE_TEST.search(prompt):
-            return "testing"
-        if _RE_GIT.search(prompt):
-            return "git_ops"
-        if _RE_BUILD.search(prompt):
-            return "build_deploy"
+    has_writes = bool(cats & _WRITE_TOOL_CATEGORIES)
+    has_reads = bool(cats & {"file_read", "git_read"})
+    has_search = bool(cats & {"file_search", "browser"})
+    has_bookkeeping = "bookkeeping" in cats
+    has_thinking = "thinking" in cats
+    has_delegation = "agent" in cats
 
-    if activity == "code_changes" and has_writes:
-        if _RE_DEBUG.search(prompt):
-            return "debugging"
-        if _RE_REFACTOR.search(prompt):
-            return "refactoring"
-        if _RE_FEATURE.search(prompt):
-            return "feature_dev"
-        if _RE_TEST.search(prompt):
-            return "testing"
+    # Priority 1: If the agent edited files, this is an implementation turn
+    if has_writes:
+        return "implementation"
 
-    return activity
+    # Priority 2: If the agent ran tests, this is verification
+    if "verification" in shell_intents:
+        return "verification"
+
+    # Priority 3: Git write operations (commit, push, merge)
+    if "git_ops" in shell_intents:
+        return "git_ops"
+
+    # Priority 4: Setup/install commands
+    if "setup" in shell_intents:
+        return "setup"
+
+    # Priority 5: Delegation to sub-agents
+    if has_delegation:
+        return "delegation"
+
+    # Priority 6: Investigation — reading, searching, browsing, git diff/log
+    if has_reads or has_search or "investigation" in shell_intents:
+        return "investigation"
+
+    # Priority 7: Unclassified shell commands (arbitrary bash)
+    if "shell_other" in shell_intents:
+        return "investigation"  # conservative: unknown bash is probably exploration
+
+    # Priority 8: Pure overhead — only bookkeeping tools, no real work
+    if has_bookkeeping:
+        return "overhead"
+
+    # Priority 9: Reasoning — only Think tool
+    if has_thinking:
+        return "reasoning"
+
+    # No tools at all — user communication or reasoning
+    out_tok = context.get("output_tokens", 0) or 0
+    if out_tok > 0:
+        return "communication"
+    return "reasoning"
 
 
 async def compute_attribution(
@@ -188,21 +220,6 @@ async def _compute_attribution(
         log.info("cost_attribution_skip_no_spans", job_id=job_id)
         return
 
-    # Fetch job prompt for keyword-based intent classification
-    job_prompt = ""
-    try:
-        from sqlalchemy import text as sa_text
-
-        result = await session.execute(
-            sa_text("SELECT prompt FROM jobs WHERE id = :job_id"),
-            {"job_id": job_id},
-        )
-        row = result.mappings().first()
-        if row:
-            job_prompt = row.get("prompt", "") or ""
-    except (DBAPIError, KeyError):
-        log.warning("cost_attribution_prompt_fetch_failed", job_id=job_id, exc_info=True)
-
     # --- Aggregate by dimension ---
     by_activity: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_turn: dict[int, CostBucket] = defaultdict(lambda: _zero_bucket())
@@ -230,6 +247,22 @@ async def _compute_attribution(
             turn = span.get("turn_number")
             if turn is not None:
                 turn_contexts[int(turn)]["tool_categories"].append(cat)
+                # Collect shell command text for intent classification
+                if cat == "shell":
+                    tool_args = span.get("tool_args_json")
+                    if isinstance(tool_args, str):
+                        try:
+                            import json as _json
+                            parsed = _json.loads(tool_args)
+                            cmd = parsed.get("command", "") or parsed.get("cmd", "")
+                        except (ValueError, TypeError):
+                            cmd = ""
+                    elif isinstance(tool_args, dict):
+                        cmd = tool_args.get("command", "") or tool_args.get("cmd", "")
+                    else:
+                        cmd = ""
+                    if cmd:
+                        turn_contexts[int(turn)]["shell_commands"].append(str(cmd))
 
         # Turn dimension (LLM spans carry the cost)
         turn = span.get("turn_number")
@@ -246,50 +279,25 @@ async def _compute_attribution(
     )
 
     for _turn_num, context in turn_contexts.items():
-        weights = _derive_activity_weights(
-            phase=context.get("phase"),
-            tool_categories=context.get("tool_categories", []),
-            output_tokens=context.get("output_tokens", 0),
-        )
-        if not weights:
-            continue
-
-        # Apply keyword-based intent refinement
-        refined_weights: dict[str, int] = {}
-        tool_cats = context.get("tool_categories", [])
-        for raw_bucket, weight in weights.items():
-            refined = _refine_activity_by_intent(raw_bucket, tool_cats, job_prompt)
-            refined_weights[refined] = refined_weights.get(refined, 0) + weight
+        # Single dominant intent per turn — no splitting
+        activity = _classify_turn_intent(context)
 
         turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
         turn_in = int(context.get("input_tokens", 0) or 0)
         turn_out = int(context.get("output_tokens", 0) or 0)
 
-        allocations = _allocate_weighted_totals(
-            weights=refined_weights,
-            cost_usd=turn_cost,
-            input_tokens=turn_in,
-            output_tokens=turn_out,
-        )
-        for bucket, allocated in allocations.items():
-            _accumulate(
-                by_activity[bucket],
-                float(allocated["cost_usd"]),
-                int(allocated["input_tokens"]),
-                int(allocated["output_tokens"]),
-                call_count=1,
-            )
+        # Whole turn attributed to a single activity
+        _accumulate(by_activity[activity], turn_cost, turn_in, turn_out, call_count=1)
 
         # One-shot detection: does this turn have file_write tools?
+        tool_cats = context.get("tool_categories", [])
         has_edits = any(c in _WRITE_TOOL_CATEGORIES for c in tool_cats)
         if has_edits:
-            retries = _count_edit_retries(context.get("tool_categories", []))
-            # Attribute to the dominant refined activity
-            dominant = max(refined_weights, key=lambda k: refined_weights[k])
-            one_shot_by_activity[dominant]["edit_turns"] += 1
-            one_shot_by_activity[dominant]["retries"] += retries
+            retries = _count_edit_retries(tool_cats)
+            one_shot_by_activity[activity]["edit_turns"] += 1
+            one_shot_by_activity[activity]["retries"] += retries
             if retries == 0:
-                one_shot_by_activity[dominant]["one_shot_turns"] += 1
+                one_shot_by_activity[activity]["one_shot_turns"] += 1
 
         # Phase dimension — aggregate by execution phase
         phase = context.get("phase")
@@ -299,15 +307,12 @@ async def _compute_attribution(
         # Activity×Phase compound dimension — cross-reference for inline phase
         # bars in the unified cost view.  Bucket format: "activity:phase".
         if phase:
-            for bucket, allocated in allocations.items():
-                compound_key = f"{bucket}:{phase}"
-                _accumulate(
-                    by_activity_phase[compound_key],
-                    float(allocated["cost_usd"]),
-                    int(allocated["input_tokens"]),
-                    int(allocated["output_tokens"]),
-                    call_count=1,
-                )
+            compound_key = f"{activity}:{phase}"
+            _accumulate(
+                by_activity_phase[compound_key],
+                turn_cost, turn_in, turn_out,
+                call_count=1,
+            )
 
     # --- Write attribution rows ---
     rows: list[dict[str, Any]] = []
@@ -408,7 +413,7 @@ def _zero_bucket() -> CostBucket:
 
 
 def _zero_turn_context() -> TurnContext:
-    return {"phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "tool_categories": []}
+    return {"phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "tool_categories": [], "shell_commands": []}
 
 
 def _infer_execution_phases(spans: list[dict[str, Any]]) -> list[str | None]:
@@ -434,71 +439,6 @@ def _infer_execution_phases(spans: list[dict[str, Any]]) -> list[str | None]:
             inferred[index] = next_known
 
     return inferred
-
-
-def _derive_activity_weights(
-    *,
-    phase: str | None,
-    tool_categories: list[str],
-    output_tokens: int = 0,
-) -> dict[str, int]:
-    # Always derive activity from actual tool usage, regardless of phase.
-    # The phase dimension (verification, setup, wrap_up) is tracked separately
-    # via the phase-dimension attribution rows — collapsing all activity into
-    # a single phase bucket makes the activity breakdown useless for those phases.
-    weights: dict[str, int] = {}
-    for category in tool_categories:
-        activity = _TOOL_CATEGORY_TO_ACTIVITY.get(category, "other_tools")
-        weights[activity] = weights.get(activity, 0) + 1
-
-    if not weights:
-        # Zero tool calls — the agent spent this turn composing a message to
-        # the user (output_tokens > 0) or doing internal reasoning.  Explicit
-        # thinking tool calls (Think, Computer) already land in the "reasoning"
-        # bucket above, so a zero-tool turn with output is user communication.
-        if output_tokens > 0:
-            return {"user_communication": 1}
-        return {"reasoning": 1}
-    return weights
-
-
-def _allocate_weighted_totals(
-    *,
-    weights: dict[str, int],
-    cost_usd: float,
-    input_tokens: int,
-    output_tokens: int,
-) -> dict[str, dict[str, float | int]]:
-    total_weight = sum(weights.values())
-    if total_weight <= 0:
-        return {}
-
-    allocations: dict[str, dict[str, float | int]] = {}
-    remaining_cost = float(cost_usd)
-    remaining_input = int(input_tokens)
-    remaining_output = int(output_tokens)
-    items = list(weights.items())
-    for index, (bucket, weight) in enumerate(items):
-        is_last = index == len(items) - 1
-        if is_last:
-            alloc_cost = remaining_cost
-            alloc_input = remaining_input
-            alloc_output = remaining_output
-        else:
-            share = weight / total_weight
-            alloc_cost = cost_usd * share
-            alloc_input = int(input_tokens * share)
-            alloc_output = int(output_tokens * share)
-            remaining_cost -= alloc_cost
-            remaining_input -= alloc_input
-            remaining_output -= alloc_output
-        allocations[bucket] = {
-            "cost_usd": alloc_cost,
-            "input_tokens": alloc_input,
-            "output_tokens": alloc_output,
-        }
-
-    return allocations
 
 
 def _accumulate(bucket: CostBucket, cost: float, in_tok: int, out_tok: int, *, call_count: int = 1) -> None:

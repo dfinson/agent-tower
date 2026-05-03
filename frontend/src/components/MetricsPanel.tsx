@@ -15,7 +15,7 @@ import type {
   TelemetryData, LLMCall, SortField, SortDir, ToolAggregate,
   SessionCheckpoint, SessionSummaryJson,
 } from "./MetricsPanelTypes";
-import { formatDuration, formatTokens, formatUsd, formatActivityBucket, phaseColor, phaseShortLabel, ACTIVITY_DESCRIPTIONS, classifyToolToActivity, ACTIVITY_TOOL_EXAMPLES } from "./MetricsPanelTypes";
+import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS, classifyToolToActivity, ACTIVITY_TOOL_EXAMPLES } from "./MetricsPanelTypes";
 import {
   useModelPricing,
   CacheEfficiencyBar,
@@ -188,7 +188,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
   // Dynamic model pricing from backend
   const modelPricing = useModelPricing(data?.model ?? data?.mainModel);
   const activityBuckets = data?.costDrivers?.activity ?? [];
-  const activityPhaseBuckets = data?.costDrivers?.activityPhase ?? [];
   const editEfficiencyBuckets = data?.costDrivers?.editEfficiency ?? [];
   const turnEconomics = data?.turnEconomics;
   const turnCurve = turnEconomics?.turnCurve ?? [];
@@ -206,24 +205,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
     const reworkCost = totalCost * reworkFraction;
     return { retries: totalRetries, editTurns: totalEditTurns, cost: reworkCost, totalCost, fraction: reworkFraction };
   }, [editEfficiencyBuckets, activityBuckets]);
-
-  // Build phase breakdown per activity from activity_phase compound buckets
-  const phasesByActivity = useMemo(() => {
-    const map: Record<string, { phase: string; costUsd: number; callCount: number; inputTokens: number; outputTokens: number }[]> = {};
-    for (const b of activityPhaseBuckets) {
-      const sep = b.bucket.lastIndexOf(":");
-      if (sep < 0) continue;
-      const activity = b.bucket.slice(0, sep);
-      const phase = b.bucket.slice(sep + 1);
-      if (!map[activity]) map[activity] = [];
-      map[activity].push({ phase, costUsd: b.costUsd, callCount: b.callCount, inputTokens: b.inputTokens, outputTokens: b.outputTokens });
-    }
-    // Sort phases within each activity by cost descending
-    for (const phases of Object.values(map)) {
-      phases.sort((a, b) => b.costUsd - a.costUsd);
-    }
-    return map;
-  }, [activityPhaseBuckets]);
 
   // Build per-activity tool breakdown from actual tool call data
   const toolsByActivity = useMemo(() => {
@@ -290,8 +271,8 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                 )}
               </div>
 
-              {/* Job Context — how this job compares to repo average */}
-              {jobContext && (
+              {/* Job Context — how this job compares to repo average (only meaningful with enough data) */}
+              {jobContext && jobContext.repoAvg && jobContext.repoAvg.jobCount >= 10 && (
                 <div className="rounded-md bg-muted/30 p-3 space-y-2">
                   <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
                     <TrendingUp size={12} /> vs. Repo Average
@@ -321,36 +302,36 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                     </div>
                     )}
                   </div>
-                  {jobContext.flags.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {jobContext.flags.map((f, i) => {
-                        const isWarning = f.type === "turn_escalation" || f.type === "high_rereads" || f.type === "tool_failures";
-                        const label = f.type === "high_rereads" ? "High Re-reads"
-                          : f.type === "turn_escalation" ? "Cost Escalation"
-                          : f.type === "tool_failures" ? "Tool Failures"
-                          : f.type;
-                        return (
-                          <Tooltip key={i} content={f.message}>
-                            <span>
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] cursor-help ${
-                                  isWarning ? "border-yellow-500/40 text-yellow-400" :
-                                  "border-blue-500/40 text-blue-400"
-                                }`}
-                              >
-                                {label}
-                              </Badge>
-                            </span>
-                          </Tooltip>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               )}
 
-              </SectionGroup>
+              {/* Job flags — per-job observations (useful regardless of N) */}
+              {jobContext && jobContext.flags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {jobContext.flags.map((f, i) => {
+                    const isWarning = f.type === "turn_escalation" || f.type === "high_rereads" || f.type === "tool_failures";
+                    const label = f.type === "high_rereads" ? "High Re-reads"
+                      : f.type === "turn_escalation" ? "Cost Escalation"
+                      : f.type === "tool_failures" ? "Tool Failures"
+                      : f.type;
+                    return (
+                      <Tooltip key={i} content={f.message}>
+                        <span>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] cursor-help ${
+                              isWarning ? "border-yellow-500/40 text-yellow-400" :
+                              "border-blue-500/40 text-blue-400"
+                            }`}
+                          >
+                            {label}
+                          </Badge>
+                        </span>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* ─── Tokens & Context ─── */}
               <SectionGroup title="Tokens & Context">
@@ -481,7 +462,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                         </div>
                       )}
 
-                      {/* Activity table with inline phase bars */}
+                      {/* Activity breakdown rows */}
                       {activityBuckets
                         .slice()
                         .sort((a, b) => b.costUsd - a.costUsd)
@@ -490,7 +471,6 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                           const widthPct = total > 0 ? (bucket.costUsd / total) * 100 : 0;
                           const pctLabel = total > 0 ? `${(widthPct).toFixed(0)}%` : "0%";
                           const costPerTurn = bucket.callCount > 0 ? bucket.costUsd / bucket.callCount : 0;
-                          const phases = phasesByActivity[bucket.bucket] ?? [];
                           const isExpanded = expandedActivities.has(bucket.bucket);
                           const toggleExpand = () => {
                             setExpandedActivities((prev) => {
@@ -526,23 +506,10 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                   <div className="text-muted-foreground">{formatTokens(bucket.inputTokens + bucket.outputTokens)}</div>
                                 </div>
                               </div>
-                              {/* Phase proportion bar */}
-                              {phases.length > 0 ? (
-                                <Tooltip content={phases.map((p) => `${phaseShortLabel(p.phase)}: ${formatUsd(p.costUsd)}`).join(" · ")}>
-                                  <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
-                                    {phases.map((p) => {
-                                      const pPct = bucket.costUsd > 0 ? (p.costUsd / bucket.costUsd) * 100 : 0;
-                                      return (
-                                        <div key={p.phase} className={cn("h-full", phaseColor(p.phase))} style={{ width: `${Math.max(pPct, 2)}%` }} />
-                                      );
-                                    })}
-                                  </div>
-                                </Tooltip>
-                              ) : (
-                                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                                  <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
-                                </div>
-                              )}
+                              {/* Cost proportion bar */}
+                              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(widthPct, 4)}%` }} />
+                              </div>
                               {/* Expanded detail */}
                               {isExpanded && (
                                 <div className="ml-4 space-y-2 pb-1 border-l border-border/50 pl-3">
@@ -605,48 +572,11 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                     }
                                     return null;
                                   })()}
-                                  {/* Phase rows */}
-                                  {phases.length > 0 && (
-                                    <div className="space-y-1.5">
-                                      <div className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">By phase</div>
-                                      {phases.map((p) => {
-                                        const phasePct = bucket.costUsd > 0 ? (p.costUsd / bucket.costUsd) * 100 : 0;
-                                        return (
-                                          <div key={p.phase} className="space-y-0.5">
-                                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                              <div className="flex items-center gap-1.5">
-                                                <div className={cn("w-2 h-2 rounded-full shrink-0", phaseColor(p.phase))} />
-                                                <span>{phaseShortLabel(p.phase)}</span>
-                                                <span className="text-muted-foreground/50">{phasePct.toFixed(0)}%</span>
-                                              </div>
-                                              <span className="tabular-nums">{formatUsd(p.costUsd)}</span>
-                                            </div>
-                                            <div className="ml-[14px] flex items-center gap-3 text-[10px] text-muted-foreground/60">
-                                              <span>{p.callCount} turn{p.callCount !== 1 ? "s" : ""}</span>
-                                              <span>in {formatTokens(p.inputTokens)} · out {formatTokens(p.outputTokens)}</span>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
                                 </div>
                               )}
                             </div>
                           );
                         })}
-
-                      {/* Phase legend */}
-                      {activityPhaseBuckets.length > 0 && (
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 border-t border-border/50">
-                          {["environment_setup", "agent_reasoning", "verification", "finalization", "post_completion"].map((phase) => (
-                            <div key={phase} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                              <div className={cn("w-2 h-2 rounded-full", phaseColor(phase))} />
-                              {phaseShortLabel(phase)}
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
 
