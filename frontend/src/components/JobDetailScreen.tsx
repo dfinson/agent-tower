@@ -6,7 +6,7 @@ import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot, fetchObserverTerminal } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
@@ -20,15 +20,18 @@ import { JobDetailSkeleton } from "./JobDetailSkeleton";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import { cn } from "../lib/utils";
 import type { StepFilter } from "./DiffViewer";
-import { JobDetailSidebar } from "./JobDetailSidebar";
+import { ActivityPanel } from "./ActivityPanel";
+import { MetadataChipStrip } from "./MetadataChipStrip";
+import { ViewTabBar } from "./ViewTabBar";
+import { JobActions } from "./JobActions";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { NavMenuSlideout } from "./NavMenuSlideout";
-import { MobileStatusRail, MobileJobDetailSheet, MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
+import { MobileStatusRail, MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazyRetry(() => import("./DiffViewer"));
 const ArtifactViewer = lazyRetry(() => import("./ArtifactViewer"));
-const AgentTerminal = lazyRetry(() => import("./AgentTerminal").then((m) => ({ default: m.AgentTerminal })));
+const WorktreeTerminal = lazyRetry(() => import("./WorktreeTerminal").then((m) => ({ default: m.WorktreeTerminal })));
 
 const SKELETON_DELAY_MS = 500;
 
@@ -85,7 +88,6 @@ export function JobDetailScreen() {
     }
     return () => { document.title = "CodePlane"; };
   }, [job?.title, jobId]);
-  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const diffs = useStore(selectJobDiffs(jobId ?? ""));
@@ -244,6 +246,25 @@ export function JobDetailScreen() {
     const label = formatJobTerminalLabel(job, jobId);
     createTerminalSession({ cwd: job.worktreePath, label, jobId });
   }, [job, jobId, createTerminalSession]);
+
+  // Open the agent's observer terminal in the TerminalDrawer.
+  const addTerminalSession = useStore((s) => s.addTerminalSession);
+  const handleOpenAgentTerminal = useCallback(async () => {
+    if (!jobId) return;
+    const info = await fetchObserverTerminal(jobId);
+    if (!info) {
+      toast.error("No agent terminal session found");
+      return;
+    }
+    // Avoid duplicating if already in the drawer.
+    const existing = useStore.getState().terminalSessions[info.id];
+    if (existing) {
+      useStore.setState({ activeTerminalTab: info.id, terminalDrawerOpen: true });
+      return;
+    }
+    const label = `Agent: ${formatJobTerminalLabel(job!, jobId)}`;
+    addTerminalSession({ id: info.id, label, jobId });
+  }, [jobId, job, addTerminalSession]);
 
   // Open a job-scoped SSE connection for full event streaming (no suppression
   // even when >20 active jobs). Closed automatically when navigating away.
@@ -485,10 +506,6 @@ export function JobDetailScreen() {
     (job.resolution === "conflict" ||
     job.mergeStatus === "conflict" ||
     ((job.conflictFiles?.length ?? 0) > 0));
-  const unresolvedResolutionError =
-    !hasMergeConflict && (job.resolution === "unresolved" || !job.resolution)
-      ? (job.resolutionError ?? null)
-      : null;
   const needsResolution =
     job.state === "review" &&
     (job.resolution === "unresolved" || job.resolution === "conflict" || !job.resolution);
@@ -505,7 +522,6 @@ export function JobDetailScreen() {
       <MobileStatusRail
         job={job}
         onBack={() => navigate("/")}
-        onOpenDetail={() => setMobileDetailOpen(true)}
         onCancelOpen={() => setCancelOpen(true)}
         onResume={handleResume}
         onOpenTerminal={handleOpenJobTerminal}
@@ -513,32 +529,26 @@ export function JobDetailScreen() {
         canResume={canResume}
         hasWorktree={hasWorktree}
         jobTerminalCount={jobTerminalCount}
-      />
-
-      {/* ── Mobile job detail bottom sheet ── */}
-      <MobileJobDetailSheet
-        job={job}
-        open={mobileDetailOpen}
-        onClose={() => setMobileDetailOpen(false)}
-        isPreparing={isPreparing}
-        canCancel={canCancel}
-        canResume={canResume}
+        isRunning={isRunning}
+        onOpenAgentTerminal={handleOpenAgentTerminal}
         needsResolution={needsResolution}
         hasChanges={hasChanges}
         hasMergeConflict={hasMergeConflict}
         isResolved={isResolved}
         canArchive={canArchive}
-        actionLoading={actionLoading}
         resolveLoading={resolveLoading}
-        onCancelOpen={() => setCancelOpen(true)}
-        onResume={handleResume}
         onResolve={handleResolve}
         onDiscardOpen={() => setDiscardOpen(true)}
         onMarkDoneOpen={() => setMarkDoneOpen(true)}
         onCompleteOpen={() => setCompleteOpen(true)}
       />
 
-      {/* ── Desktop identity bar — minimal, sidebar-first layout ── */}
+      {/* ── Mobile metadata summary line (< 768px) ── */}
+      <div className="flex md:hidden items-center gap-1.5 px-2 py-1 border-b border-border bg-card/80 overflow-x-auto scrollbar-none">
+        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} />
+      </div>
+
+      {/* ── Desktop: Row 1 — identity bar ── */}
       <div className="hidden md:flex md:shrink-0 items-center gap-2 h-10 border-b border-border bg-card px-3">
         <button onClick={() => navigate("/")} className="flex items-center gap-2 shrink-0 hover:opacity-80 transition-opacity">
           <img src="/mark.png" alt="" className="h-6 w-6 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
@@ -563,6 +573,25 @@ export function JobDetailScreen() {
         </div>
       </div>
 
+      {/* ── Desktop: Row 2 — metadata chips ── */}
+      <div className="hidden md:flex items-center px-3 h-8 border-b border-border bg-card/80 shrink-0">
+        <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} />
+      </div>
+
+      {/* ── Desktop: Row 3 — view tabs ── */}
+      <ViewTabBar
+        activeTab={tab}
+        onTabChange={handleTabChange}
+        hasChanges={hasChanges}
+        hasArtifacts={hasArtifacts}
+        artifactCount={artifactCount}
+        hasWorktree={hasWorktree}
+        jobTerminalCount={jobTerminalCount}
+        onOpenTerminal={handleOpenJobTerminal}
+        isRunning={isRunning}
+        onOpenAgentTerminal={handleOpenAgentTerminal}
+      />
+
       {completeOpen && job && (
         <CompleteJobDialog job={job} open onClose={() => setCompleteOpen(false)} onArchived={() => navigate("/")} />
       )}
@@ -578,10 +607,10 @@ export function JobDetailScreen() {
         onTouchEnd={onSwipeTouchEnd}
         onAnimationEnd={() => setSlideDir(null)}
       >
-        {/* ── Sidebar — icon rail at md, full panel at lg+ ── */}
-        <JobDetailSidebar
-          job={job}
+        {/* ── Activity panel — just the timeline ── */}
+        <ActivityPanel
           jobId={jobId}
+          jobState={job.state}
           selectedTurnId={selectedTurnId}
           searchActive={searchActive}
           visibleStepTurnId={visibleStepTurnId}
@@ -590,29 +619,6 @@ export function JobDetailScreen() {
             setSelectedTurnId(turnId);
             if (tab !== "live") handleTabChange("live");
           }}
-          hasMergeConflict={hasMergeConflict}
-          unresolvedResolutionError={unresolvedResolutionError}
-          activeTab={tab}
-          onTabChange={handleTabChange}
-          hasChanges={hasChanges}
-          hasArtifacts={hasArtifacts}
-          artifactCount={artifactCount}
-          canCancel={canCancel}
-          canResume={canResume}
-          needsResolution={needsResolution}
-          isResolved={isResolved}
-          canArchive={canArchive}
-          actionLoading={actionLoading}
-          resolveLoading={resolveLoading}
-          onCancelOpen={() => setCancelOpen(true)}
-          onResume={handleResume}
-          onResolve={handleResolve}
-          onDiscardOpen={() => setDiscardOpen(true)}
-          onMarkDoneOpen={() => setMarkDoneOpen(true)}
-          onCompleteOpen={() => setCompleteOpen(true)}
-          hasWorktree={hasWorktree}
-          jobTerminalCount={jobTerminalCount}
-          onOpenTerminal={handleOpenJobTerminal}
         />
 
         {/* ── Content panel ── */}
@@ -708,7 +714,7 @@ export function JobDetailScreen() {
         <TabErrorBoundary>
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
             <div className="md:h-full h-[60dvh] rounded-lg overflow-hidden border border-border">
-              <AgentTerminal jobId={jobId} isRunning={isRunning} />
+              <WorktreeTerminal jobId={jobId} worktreePath={job.worktreePath} />
             </div>
           </Suspense>
         </TabErrorBoundary>
@@ -724,7 +730,35 @@ export function JobDetailScreen() {
         </TabErrorBoundary>
       )}
       </div>{/* end content panel */}
-      </div>{/* end sidebar + content flex wrapper */}
+      </div>{/* end activity + content flex wrapper */}
+
+      {/* ── Desktop bottom action bar — contextual, only when actions available ── */}
+      <div className="hidden md:block shrink-0">
+        <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-card">
+          <div className="flex items-center gap-2">
+            <JobActions
+              canCancel={canCancel}
+              canResume={canResume}
+              needsResolution={needsResolution}
+              hasChanges={hasChanges}
+              hasMergeConflict={hasMergeConflict}
+              isResolved={isResolved}
+              canArchive={canArchive}
+              jobState={job.state}
+              archivedAt={job.archivedAt}
+              actionLoading={actionLoading}
+              resolveLoading={resolveLoading}
+              onCancelOpen={() => setCancelOpen(true)}
+              onResume={handleResume}
+              onResolve={handleResolve}
+              onDiscardOpen={() => setDiscardOpen(true)}
+              onMarkDoneOpen={() => setMarkDoneOpen(true)}
+              onCompleteOpen={() => setCompleteOpen(true)}
+              layout="bar"
+            />
+          </div>
+        </div>
+      </div>
 
       {/* ── Mobile contextual footer — shows review actions above the bottom tab bar ── */}
       <MobileFooterActions

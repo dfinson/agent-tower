@@ -1,10 +1,7 @@
-import { ArrowLeft, RotateCcw, XCircle, ExternalLink, GitMerge, GitPullRequest, Trash2, FolderTree, FolderGit2, GitBranch, TerminalSquare, MoreHorizontal, ListTree, Radio, Package, Loader2, BarChart3 } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, GitMerge, GitPullRequest, Trash2, FolderTree, GitBranch, TerminalSquare, MoreHorizontal, ListTree, Radio, Package, BarChart3, CheckCircle2, Archive } from "lucide-react";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
-import { SdkBadge } from "./SdkBadge";
 import { Button } from "./ui/button";
-import { BottomSheet } from "./ui/bottom-sheet";
-import { JobActions } from "./JobActions";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
 
@@ -15,7 +12,6 @@ import { cn } from "../lib/utils";
 interface MobileStatusRailProps {
   job: JobSummary;
   onBack: () => void;
-  onOpenDetail: () => void;
   onCancelOpen: () => void;
   onResume: () => void;
   onOpenTerminal: () => void;
@@ -23,12 +19,25 @@ interface MobileStatusRailProps {
   canResume: boolean;
   hasWorktree: boolean;
   jobTerminalCount: number;
+  // Agent terminal
+  isRunning: boolean;
+  onOpenAgentTerminal: () => void;
+  // Action props (for overflow menu)
+  needsResolution: boolean;
+  hasChanges: boolean;
+  hasMergeConflict: boolean;
+  isResolved: boolean;
+  canArchive: boolean;
+  resolveLoading: string | null;
+  onResolve: (action: "merge" | "smart_merge" | "create_pr" | "agent_merge") => void;
+  onDiscardOpen: () => void;
+  onMarkDoneOpen: () => void;
+  onCompleteOpen: () => void;
 }
 
 export function MobileStatusRail({
   job,
   onBack,
-  onOpenDetail,
   onCancelOpen,
   onResume,
   onOpenTerminal,
@@ -36,20 +45,27 @@ export function MobileStatusRail({
   canResume,
   hasWorktree,
   jobTerminalCount,
+  isRunning,
+  onOpenAgentTerminal,
+  needsResolution,
+  hasChanges,
+  hasMergeConflict,
+  isResolved,
+  canArchive,
+  resolveLoading,
+  onResolve,
+  onDiscardOpen,
+  onMarkDoneOpen,
+  onCompleteOpen,
 }: MobileStatusRailProps) {
   return (
     <div className="flex md:hidden items-center gap-2 h-10 px-2 border-b border-border bg-card shrink-0">
       <button onClick={onBack} className="p-1.5 -ml-1 text-muted-foreground hover:text-foreground transition-colors" aria-label="Back to dashboard">
         <ArrowLeft size={16} />
       </button>
-      <button
-        onClick={onOpenDetail}
-        className="flex-1 min-w-0 flex items-center gap-2 text-left"
-      >
-        <span className="text-sm font-semibold text-foreground truncate">
-          {job.title || job.id}
-        </span>
-      </button>
+      <span className="flex-1 min-w-0 text-sm font-semibold text-foreground truncate">
+        {job.title || job.id}
+      </span>
       <span aria-live="polite"><StateBadge state={job.state} /></span>
       <PopoverPrimitive.Root>
         <PopoverPrimitive.Trigger asChild>
@@ -62,161 +78,129 @@ export function MobileStatusRail({
             side="bottom"
             align="end"
             sideOffset={4}
-            className="z-50 min-w-[160px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
+            className="z-50 min-w-[180px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in-0 zoom-in-95"
           >
             {canCancel && (
-              <button
-                onClick={onCancelOpen}
-                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive transition-colors hover:bg-accent"
-              >
-                <XCircle size={13} /> Cancel Job
-              </button>
+              <PopoverPrimitive.Close asChild>
+                <button
+                  onClick={onCancelOpen}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive transition-colors hover:bg-accent"
+                >
+                  <XCircle size={13} /> Cancel Job
+                </button>
+              </PopoverPrimitive.Close>
             )}
             {canResume && (
-              <button
-                onClick={onResume}
-                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <RotateCcw size={13} /> Resume
-              </button>
+              <PopoverPrimitive.Close asChild>
+                <button
+                  onClick={onResume}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <RotateCcw size={13} /> Resume
+                </button>
+              </PopoverPrimitive.Close>
+            )}
+            {needsResolution && hasChanges && !hasMergeConflict && (
+              <PopoverPrimitive.Close asChild>
+                <button
+                  onClick={() => onResolve("smart_merge")}
+                  disabled={resolveLoading !== null}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                >
+                  <GitMerge size={13} /> Merge
+                </button>
+              </PopoverPrimitive.Close>
+            )}
+            {needsResolution && hasChanges && hasMergeConflict && (
+              <PopoverPrimitive.Close asChild>
+                <button
+                  onClick={() => onResolve("agent_merge")}
+                  disabled={resolveLoading !== null}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                >
+                  <GitMerge size={13} /> Resolve Conflict
+                </button>
+              </PopoverPrimitive.Close>
+            )}
+            {needsResolution && hasChanges && (
+              <>
+                <PopoverPrimitive.Close asChild>
+                  <button
+                    onClick={() => onResolve("create_pr")}
+                    disabled={resolveLoading !== null}
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                  >
+                    <GitPullRequest size={13} /> Create PR
+                  </button>
+                </PopoverPrimitive.Close>
+                <PopoverPrimitive.Close asChild>
+                  <button
+                    onClick={onDiscardOpen}
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-destructive transition-colors hover:bg-accent"
+                  >
+                    <Trash2 size={13} /> Discard
+                  </button>
+                </PopoverPrimitive.Close>
+              </>
+            )}
+            {needsResolution && !hasChanges && (
+              <PopoverPrimitive.Close asChild>
+                <button
+                  onClick={onMarkDoneOpen}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <CheckCircle2 size={13} /> Mark Done
+                </button>
+              </PopoverPrimitive.Close>
+            )}
+            {isResolved && !job.archivedAt && (
+              <PopoverPrimitive.Close asChild>
+                <button
+                  onClick={onCompleteOpen}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-green-500 transition-colors hover:bg-accent"
+                >
+                  <CheckCircle2 size={13} /> Complete
+                </button>
+              </PopoverPrimitive.Close>
+            )}
+            {canArchive && (
+              <PopoverPrimitive.Close asChild>
+                <button
+                  onClick={onCompleteOpen}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Archive size={13} /> {job.state === "failed" ? "Abandon" : "Archive"}
+                </button>
+              </PopoverPrimitive.Close>
             )}
             {hasWorktree && (
-              <button
-                onClick={onOpenTerminal}
-                className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <TerminalSquare size={13} /> Terminal
-                {jobTerminalCount > 0 && <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>}
-              </button>
+              <>
+                <div className="h-px bg-border my-1" />
+                <PopoverPrimitive.Close asChild>
+                  <button
+                    onClick={onOpenTerminal}
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <TerminalSquare size={13} /> Terminal
+                    {jobTerminalCount > 0 && <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>}
+                  </button>
+                </PopoverPrimitive.Close>
+              </>
             )}
-            <button
-              onClick={onOpenDetail}
-              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <FolderGit2 size={13} /> Job Details
-            </button>
+            {isRunning && (
+              <PopoverPrimitive.Close asChild>
+                <button
+                  onClick={onOpenAgentTerminal}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Radio size={13} className="text-green-500 animate-pulse" /> Agent Terminal
+                </button>
+              </PopoverPrimitive.Close>
+            )}
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       </PopoverPrimitive.Root>
     </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// MobileJobDetailSheet — bottom sheet with full job metadata + action buttons
-// ────────────────────────────────────────────────────────────────────────────
-
-interface MobileJobDetailSheetProps {
-  job: JobSummary;
-  open: boolean;
-  onClose: () => void;
-  isPreparing: boolean;
-  canCancel: boolean;
-  canResume: boolean;
-  needsResolution: boolean;
-  hasChanges: boolean;
-  hasMergeConflict: boolean;
-  isResolved: boolean;
-  canArchive: boolean;
-  actionLoading: boolean;
-  resolveLoading: string | null;
-  onCancelOpen: () => void;
-  onResume: () => void;
-  onResolve: (action: "merge" | "smart_merge" | "create_pr" | "agent_merge") => void;
-  onDiscardOpen: () => void;
-  onMarkDoneOpen: () => void;
-  onCompleteOpen: () => void;
-}
-
-export function MobileJobDetailSheet({
-  job,
-  open,
-  onClose,
-  isPreparing,
-  canCancel,
-  canResume,
-  needsResolution,
-  hasChanges,
-  hasMergeConflict,
-  isResolved,
-  canArchive,
-  actionLoading,
-  resolveLoading,
-  onCancelOpen,
-  onResume,
-  onResolve,
-  onDiscardOpen,
-  onMarkDoneOpen,
-  onCompleteOpen,
-}: MobileJobDetailSheetProps) {
-  return (
-    <BottomSheet open={open} onClose={onClose} title="Job Details">
-      <div className="space-y-3">
-        <div>
-          <h2 className="text-base font-bold text-foreground break-words">{job.title || job.id}</h2>
-          {job.title && <p className="text-xs text-muted-foreground font-mono mt-0.5">{job.id}</p>}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <StateBadge state={job.state} />
-          <SdkBadge sdk={job.sdk} />
-        </div>
-        {(job.description || job.prompt) && (
-          <p className="text-sm text-muted-foreground">{job.description ?? job.prompt}</p>
-        )}
-        {job.progressHeadline && ["running", "agent_running", "queued"].includes(job.state) && (
-          <p className="text-sm italic text-primary/70">{job.progressHeadline}</p>
-        )}
-        {isPreparing && (
-          <div className="flex items-center gap-2 text-sm text-violet-400 animate-pulse">
-            <Loader2 size={14} className="animate-spin" />
-            {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up workspace…"}
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          {[
-            ["Branch", job.branch ?? "—"],
-            ["Base", job.baseRef],
-            ["Repo", job.repo.split("/").pop() ?? job.repo],
-            ...(job.model ? [["Model", job.model]] : []),
-            ["Created", new Date(job.createdAt).toLocaleString()],
-            ...(job.completedAt ? [["Completed", new Date(job.completedAt).toLocaleString()]] : []),
-          ].map(([label, value]) => (
-            <div key={label}>
-              <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wide">{label}</p>
-              <p className="text-sm break-all">{value}</p>
-            </div>
-          ))}
-        </div>
-        {job.prUrl && (
-          <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
-            <ExternalLink size={14} /> View Pull Request
-          </a>
-        )}
-        {/* Action buttons in sheet */}
-        <div className="pt-2 border-t border-border">
-          <JobActions
-            canCancel={canCancel}
-            canResume={canResume}
-            needsResolution={needsResolution}
-            hasChanges={hasChanges}
-            hasMergeConflict={hasMergeConflict}
-            isResolved={isResolved}
-            canArchive={canArchive}
-            jobState={job.state}
-            archivedAt={job.archivedAt}
-            actionLoading={actionLoading}
-            resolveLoading={resolveLoading}
-            onCancelOpen={() => { onClose(); onCancelOpen(); }}
-            onResume={() => { onClose(); onResume(); }}
-            onResolve={(action) => { onClose(); onResolve(action); }}
-            onDiscardOpen={() => { onClose(); onDiscardOpen(); }}
-            onMarkDoneOpen={() => { onClose(); onMarkDoneOpen(); }}
-            onCompleteOpen={() => { onClose(); onCompleteOpen(); }}
-            layout="full"
-          />
-        </div>
-      </div>
-    </BottomSheet>
   );
 }
 
