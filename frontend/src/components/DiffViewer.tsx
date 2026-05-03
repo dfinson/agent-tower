@@ -247,6 +247,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const monacoRef = useRef<any>(null);
   const decorationIdsRef = useRef<string[]>([]);
+  const [editorReady, setEditorReady] = useState(false);
   const [hunkLineRanges, setHunkLineRanges] = useState<{ startLine: number; endLine: number }[]>([]);
 
   // Refs so the glyph-margin click handler always reads current state
@@ -382,7 +383,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
     applyDecorations();
     const timer = setTimeout(applyDecorations, 100);
     return () => clearTimeout(timer);
-  }, [selectedIdx, checkedHunks, hunkLineRanges, canAsk, modified]);
+  }, [selectedIdx, checkedHunks, hunkLineRanges, canAsk, modified, editorReady]);
 
   // Inject viewZones for hunk-level motivation banners in the modified editor
   const viewZoneIdsRef = useRef<string[]>([]);
@@ -454,6 +455,7 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
     diffEditorRef.current = editor;
     monacoRef.current = monaco;
+    setEditorReady(true);
     const modifiedEditor = editor.getModifiedEditor();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     modifiedEditor.onMouseDown((e: any) => {
