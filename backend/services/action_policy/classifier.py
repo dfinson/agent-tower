@@ -128,18 +128,71 @@ class CostContext:
 # ---------------------------------------------------------------------------
 
 _SDK_TOOLS: dict[str, tuple[bool, bool]] = {
-    "create_file":    (True,  True),
-    "edit_file":      (True,  True),
-    "delete_file":    (True,  True),
-    "read_file":      (True,  True),
-    "list_dir":       (True,  True),
-    "search_files":   (True,  True),
-    "grep_search":    (True,  True),
-    "run_terminal":   (False, True),  # delegates to shell classifier
+    # File write (reversible via git)
+    "create_file": (True, True),
+    "create": (True, True),
+    "edit_file": (True, True),
+    "edit": (True, True),
+    "Edit": (True, True),
+    "MultiEdit": (True, True),
+    "write": (True, True),
+    "Write": (True, True),
+    "write_file": (True, True),
+    "replace_string_in_file": (True, True),
+    "multi_replace_string_in_file": (True, True),
+    "str_replace_based_edit_tool": (True, True),
+    "str_replace_editor": (True, True),
+    "insert_edit_into_file": (True, True),
+    "apply_patch": (True, True),
+    "delete_file": (True, True),
+    # File read (always safe)
+    "read_file": (True, True),
+    "read": (True, True),
+    "Read": (True, True),
+    "view": (True, True),
+    "view_image": (True, True),
+    "cat": (True, True),
+    "readFile": (True, True),
+    "open_file": (True, True),
+    "get_file_contents": (True, True),
+    # File search (always safe)
+    "list_dir": (True, True),
+    "listDir": (True, True),
+    "LS": (True, True),
+    "search_files": (True, True),
+    "file_search": (True, True),
+    "grep_search": (True, True),
+    "grep": (True, True),
+    "Grep": (True, True),
+    "semantic_search": (True, True),
+    "codeSearch": (True, True),
+    "vscode_listCodeUsages": (True, True),
+    # Shell (delegates to shell classifier)
+    "run_terminal": (False, True),
+    "run_in_terminal": (False, True),
+    "bash": (False, True),
+    "Bash": (False, True),
+    # Browser
     "browser_action": (False, False),
-    "ask_user":       (True,  True),
-    "report_intent":  (True,  True),
+    "fetch_url": (False, False),
+    "web_search": (False, False),
+    "WebFetch": (False, False),
+    "WebSearch": (False, False),
+    "fetch_webpage": (False, False),
+    # Agent
+    "ask_user": (True, True),
+    "report_intent": (True, True),
+    "manage_todo_list": (True, True),
+    "memory": (True, True),
+    "store_memory": (True, True),
+    "Think": (True, True),
+    "task": (True, True),
+    "subagent": (True, True),
+    "runSubagent": (True, True),
 }
+
+# Categories from tool_classifier that are inherently read-only / safe
+_SAFE_TOOL_CATEGORIES = frozenset({"file_read", "file_search", "thinking", "bookkeeping"})
 
 
 def classify_properties(action: Action, policy: RepoPolicy) -> tuple[bool, bool, str]:
@@ -211,6 +264,7 @@ def classify(action: Action, policy: RepoPolicy, cost: CostContext | None = None
 # Channel classifiers
 # ---------------------------------------------------------------------------
 
+
 def _classify_file(action: Action, policy: RepoPolicy) -> tuple[bool, bool, str]:
     if action.outside_worktree:
         return True, False, "file outside worktree"
@@ -221,14 +275,22 @@ def _classify_file(action: Action, policy: RepoPolicy) -> tuple[bool, bool, str]
 
 def _classify_sdk_tool(action: Action, policy: RepoPolicy) -> tuple[bool, bool, str]:
     tool = action.tool_name or ""
-    # run_terminal delegates to shell classifier
-    if tool == "run_terminal" and action.command:
+    # Shell tools delegate to shell classifier
+    if tool in ("run_terminal", "run_in_terminal", "bash", "Bash") and action.command:
         rev, cont = classify_shell(action.command)
-        return rev, cont, f"shell via run_terminal: {action.command[:60]}"
+        return rev, cont, f"shell via {tool}: {action.command[:60]}"
 
     props = _SDK_TOOLS.get(tool)
     if props:
         return props[0], props[1], f"SDK tool: {tool}"
+
+    # Fallback: check tool_classifier categories to avoid marking
+    # read-only tools as irreversible just because they're not in the table
+    from backend.services.tool_classifier import classify_tool
+
+    category = classify_tool(tool)
+    if category in _SAFE_TOOL_CATEGORIES:
+        return True, True, f"SDK tool (auto-classified safe): {tool}"
     return False, True, f"unknown SDK tool: {tool}"
 
 
@@ -265,6 +327,7 @@ def _classify_shell_action(action: Action, policy: RepoPolicy) -> tuple[bool, bo
 # ---------------------------------------------------------------------------
 # Explicit rule matching
 # ---------------------------------------------------------------------------
+
 
 def _match_explicit_rule(action: Action, policy: RepoPolicy) -> Tier | None:
     """Check if any explicit rule matches this action. Returns tier or None."""

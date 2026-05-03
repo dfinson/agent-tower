@@ -7,13 +7,12 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.services.action_policy.classifier import Action, Classification
-
 if TYPE_CHECKING:
+    from backend.services.action_policy.classifier import Action, Classification
     from backend.services.event_bus import EventBus
 
 log = structlog.get_logger()
@@ -232,6 +231,8 @@ def _action_description(action: Action) -> str:
     """Human-readable description of an action."""
     if action.command:
         return action.command[:120]
+    if action.tool_name and action.path:
+        return f"{action.tool_name}: {action.path}"
     if action.tool_name:
         return f"Tool: {action.tool_name}"
     if action.mcp_tool:
