@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { ExternalLink, AlertTriangle, ArrowDownCircle, Loader2, Coins } from "lucide-react";
 import type { JobSummary } from "../store";
 import { cn } from "../lib/utils";
@@ -22,8 +23,16 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
   const [showTooltip, setShowTooltip] = useState(false);
   const chipRef = useRef<HTMLButtonElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
 
   const close = useCallback(() => setShowTooltip(false), []);
+
+  // Position tooltip below chip when shown
+  useEffect(() => {
+    if (!showTooltip || !chipRef.current) return;
+    const rect = chipRef.current.getBoundingClientRect();
+    setPos({ top: rect.bottom + 4, left: rect.left });
+  }, [showTooltip]);
 
   useEffect(() => {
     if (!showTooltip) return;
@@ -47,7 +56,7 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
 
   return (
     <span
-      className="relative"
+      className="inline-flex"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
@@ -65,11 +74,14 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
         <Coins size={10} />
         {label}
       </button>
-      {showTooltip && (
+      {showTooltip && createPortal(
         <div
           ref={tooltipRef}
           role="tooltip"
-          className="absolute z-50 top-full mt-1 left-0 w-52 rounded-lg border border-border bg-popover p-2.5 shadow-lg text-[11px] text-popover-foreground"
+          style={{ position: "fixed", top: pos.top, left: pos.left }}
+          className="z-50 w-52 rounded-lg border border-border bg-popover p-2.5 shadow-lg text-[11px] text-popover-foreground"
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
         >
           <div className="space-y-1">
             <div className="flex justify-between">
@@ -101,7 +113,8 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
           {onCostClick && (
             <p className="mt-1 text-[10px] text-primary/70">Click for full breakdown →</p>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </span>
   );
