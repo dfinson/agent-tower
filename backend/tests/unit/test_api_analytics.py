@@ -238,7 +238,7 @@ async def test_fleet_cost_drivers_confidence_annotation():
 
 @pytest.mark.asyncio
 async def test_analytics_tools_includes_tool_mix():
-    """analytics_tools returns tool stats + tool_mix category breakdown."""
+    """analytics_tools returns tool stats + tool_mix activity breakdown."""
     mock_stats = [
         {"name": "read_file", "count": 10, "avg_duration_ms": 50.0,
          "total_duration_ms": 500.0, "failure_count": 0,
@@ -246,8 +246,8 @@ async def test_analytics_tools_includes_tool_mix():
     ]
     mock_mix = {
         "entries": [
-            {"category": "file_read", "count": 10, "pct": 62.5, "total_duration_ms": 500.0},
-            {"category": "shell", "count": 6, "pct": 37.5, "total_duration_ms": 1200.0},
+            {"activity": "investigation", "count": 10, "pct": 62.5, "total_duration_ms": 500.0},
+            {"activity": "implementation", "count": 6, "pct": 37.5, "total_duration_ms": 1200.0},
         ],
         "total_jobs": 4,
     }
@@ -261,8 +261,8 @@ async def test_analytics_tools_includes_tool_mix():
     assert len(result.tools) == 1
     assert result.tools[0].name == "read_file"
     assert len(result.tool_mix) == 2
-    assert result.tool_mix[0].category == "file_read"
+    assert result.tool_mix[0].activity == "investigation"
     assert result.tool_mix[0].pct == pytest.approx(62.5)
-    assert result.tool_mix[1].category == "shell"
+    assert result.tool_mix[1].activity == "implementation"
     assert result.tool_mix[1].count == 6
     assert result.tool_mix_job_count == 4
