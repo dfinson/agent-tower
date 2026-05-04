@@ -130,15 +130,25 @@ export function JobHeaderCard({
       </BottomSheet>
 
       {/* ────────────────────────────────────────────────────────────────── */}
-      {/* Desktop (>= md): inline collapsible card                         */}
+      {/* Desktop (>= md): top navigation bar                              */}
       {/* ────────────────────────────────────────────────────────────────── */}
-      <div className={`hidden md:block shrink-0 mx-3 mt-2 rounded-lg border-t-[3px] ${accent} border border-border ring-1 ring-white/[0.04] bg-card shadow-md`}>
+      <div className="hidden md:flex items-center gap-3 shrink-0 mx-3 mt-2 px-4 h-10">
+        <button onClick={onNavigateHome} className="shrink-0 hover:opacity-80 transition-opacity" aria-label="Back to dashboard">
+          <img src="/mark.png" alt="" className="h-7 w-7 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
+        </button>
+        <div className="flex-1" />
+        <div className="flex items-center gap-1.5 shrink-0">
+          <ConnectionStatusIndicator />
+          <NavMenuSlideout />
+        </div>
+      </div>
+
+      {/* ────────────────────────────────────────────────────────────────── */}
+      {/* Desktop (>= md): collapsible job overview card                   */}
+      {/* ────────────────────────────────────────────────────────────────── */}
+      <div className={`hidden md:block shrink-0 mx-3 mt-1.5 rounded-lg border-t-[3px] ${accent} border border-border ring-1 ring-white/[0.04] bg-card shadow-md`}>
         {/* ── Row 1: identity bar ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-1.5">
-          <button onClick={onNavigateHome} className="shrink-0 hover:opacity-80 transition-opacity" aria-label="Back to dashboard">
-            <img src="/mark.png" alt="" className="h-7 w-7 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
-          </button>
-
           <button onClick={toggleDesktop} className="flex items-center gap-2 min-w-0 group">
             {expanded
               ? <ChevronDown size={16} className="text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
@@ -163,36 +173,29 @@ export function JobHeaderCard({
           )}
 
           <div className="flex-1" />
-          <div className="flex items-center gap-1.5 shrink-0">
-            <ConnectionStatusIndicator />
-            <NavMenuSlideout />
-          </div>
+          <JobActions {...actionProps} layout="bar" />
         </div>
 
         {/* ── Expanded body ── */}
         {expanded && (
           <div className="px-4 pb-3 space-y-2.5">
             {(job.description || job.prompt) && (
-              <p className="text-sm text-foreground/60 line-clamp-2 pl-10">{job.description ?? job.prompt}</p>
+              <p className="text-sm text-foreground/60 line-clamp-2">{job.description ?? job.prompt}</p>
             )}
 
             {job.progressHeadline && isActive && (
-              <p className="text-xs italic text-primary/70 truncate pl-10">
+              <p className="text-xs italic text-primary/70 truncate">
                 ● {job.progressHeadline}
               </p>
             )}
             {isPreparing && (
-              <p className="text-xs text-violet-400 animate-pulse flex items-center gap-1 pl-10">
+              <p className="text-xs text-violet-400 animate-pulse flex items-center gap-1">
                 <Loader2 size={12} className="animate-spin" />
                 {job.setupStep === "creating_workspace" ? "Creating workspace…" : "Setting up…"}
               </p>
             )}
 
-            <div className="flex flex-wrap items-center gap-2 pl-10">
-              <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
-              <div className="flex-1" />
-              <JobActions {...actionProps} layout="bar" />
-            </div>
+            <MetadataChipStrip job={job} hasMergeConflict={hasMergeConflict} onCostClick={onCostClick} />
           </div>
         )}
       </div>
