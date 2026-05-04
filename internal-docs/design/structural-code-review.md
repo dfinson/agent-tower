@@ -175,14 +175,21 @@ and inherently secured to the parent process.
 
 ### 3.3 NDJSON Protocol
 
-Each line on stdio is a complete JSON object with a `type` field:
+Each line on stdio is a complete JSON object. Message type is inferred from
+field presence — there is no explicit `type` field:
 
 ```json
-{"type": "request", "id": "uuid", "method": "semantic_diff", "params": {...}}
-{"type": "response", "id": "uuid", "result": {...}}
-{"type": "event", "topic": "index_progress", "data": {"repo": "...", "phase": "tree_sitter", "pct": 45}}
-{"type": "error", "id": "uuid", "code": "NOT_INDEXED", "message": "..."}
+{"id": "r1", "method": "semantic_diff", "params": {...}, "session_id": "sess_abc123"}
+{"id": "r1", "result": {...}}
+{"id": "r1", "error": {"code": "NOT_INDEXED", "message": "..."}}
+{"event": "index_progress", "ts": 1714835000.0, "data": {"repo": "...", "phase": "tier1_structural", "pct": 45}}
 ```
+
+**Identification rules:**
+
+* Request: has `id` + `method`
+* Response: has `id` + `result` (success) or `id` + `error` (failure)
+* Event: has `event` field, no `id`
 
 Events are unsolicited — the daemon pushes index progress, file watcher
 notifications, and health signals without a preceding request.
@@ -199,24 +206,34 @@ class CodeReconService:
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
 
-    # Repo management
-    async def add_repo(self, path: str, name: str) -> RepoHandle: ...
-    async def remove_repo(self, name: str) -> None: ...
-    async def get_repo(self, name: str) -> RepoHandle | None: ...
-    async def list_repos(self) -> list[RepoStatus]: ...
+    # Repo management (maps to SDK: register/unregister/catalog)
+    async def register_repo(self, path: str) -> RegisterResult: ...
+    async def unregister_repo(self, path: str) -> bool: ...
+    async def catalog(self) -> list[CatalogEntry]: ...
+    async def reindex(self, repo: str) -> None: ...
 
     # Structural queries (delegated to repo handles)
-    async def semantic_diff(self, repo: str, base: str, head: str) -> SemanticDiff: ...
-    async def scaffold(self, repo: str, path: str) -> Scaffold: ...
-    async def graph_communities(self, repo: str) -> list[Community]: ...
-    async def graph_cycles(self, repo: str) -> list[Cycle]: ...
-    async def recon(self, repo: str, query: str, **kwargs) -> list[ReconResult]: ...
-    async def checkpoint(self, repo: str, label: str) -> Checkpoint: ...
+    async def semantic_diff(self, repo: str, base: str, target: str | None = None) -> DiffResult: ...
+    async def scaffold(self, repo: str, path: str) -> dict: ...  # wraps _build_scaffold via new dispatch entry
+    async def graph_communities(self, repo: str) -> CommunitiesResult: ...
+    async def graph_cycles(self, repo: str) -> CyclesResult: ...
+    async def recon(self, repo: str, task: str, **kwargs) -> ReconResult: ...
+    async def recon_impact(self, repo: str, target: str, justification: str) -> ImpactResult: ...
+    async def recon_understand(self, repo: str) -> UnderstandResult: ...
+
+    # Verification (checkpoint = lint + test + commit pipeline)
+    async def checkpoint(self, repo: str, changed_files: list[str], **kwargs) -> CheckpointResult: ...
 
     # Health
-    async def repo_health(self, repo: str) -> RepoHealth: ...
+    async def status(self, repo: str | None = None) -> StatusResult: ...
     async def daemon_health(self) -> DaemonHealth: ...
 ```
+
+> **Note:** `scaffold` does not currently exist as a standalone tool in the
+> daemon dispatch table. It requires a ~20-line addition exposing the existing
+> `_build_scaffold` internal function via the dispatch table. Until then,
+> `recon` returns signature-level output for lower-ranked hits that serves
+> the same purpose.
 
 ### 3.5 Lifespan Integration
 
@@ -239,10 +256,10 @@ async def lifespan(app: FastAPI):
 
 ### 4.1 Startup Sequence
 
-1. `CodeReconService.start()` spawns the daemon via SDK
-2. SDK sends `{"type": "request", "method": "health"}` — waits for response
-3. On response, daemon is alive. Load persisted repo catalog.
-4. For each known repo, send `{"method": "repo_activate", "params": {"name": "...", "path": "..."}}`
+1. `CodeReconService.start()` spawns the daemon via SDK (`CodeRecon.start()`)
+2. SDK waits for `{"event": "daemon.ready", "data": {"repos": [...]}}` on stdout
+3. On ready event, daemon is alive. Known repos are already in daemon catalog.
+4. For new repos not yet registered, call `register(path)` to add them.
 5. Daemon begins background re-indexing for stale repos (file watcher catches up)
 
 ### 4.2 Shutdown
@@ -389,9 +406,9 @@ context about the target area:
 # In RuntimeService, before agent session begins:
 if coderecon.is_available(repo):
     context = await coderecon.recon(repo, task_description)
-    scaffolds = [await coderecon.scaffold(repo, f) for f in context.top_files]
     communities = await coderecon.graph_communities(repo)
-    # Inject into agent system prompt or initial context
+    # Tools are injected natively via SDK framework adapters (§8)
+    # Agent gets recon, recon_map, semantic_diff, etc. as callable tools
 ```
 
 This gives the agent awareness of module boundaries, existing patterns, and
@@ -406,7 +423,7 @@ structural checks:
 |-------|---------|--------|
 | Cycle detection | Step boundary with new file writes | Warn operator if new cycles introduced |
 | Community drift | Step boundary | Warn if agent is touching 3+ unrelated communities |
-| Scaffold checkpoint | Every N steps | Snapshot structural state for later diff |
+| Structural diff | Every N steps | Run `semantic_diff` against baseline for progressive delta |
 
 These are operator-facing warnings, not agent-blocking. The agent continues
 working; the operator sees structural signals in real time.
@@ -443,30 +460,47 @@ After merge, persist the structural delta for historical analysis:
 
 ## 8. Agent Tool Provisioning
 
-### 8.1 Pre-Bound Tools
+### 8.1 SDK-Only, Natively Injected
 
-When an agent job starts against an indexed repo, CodeReconService provisions
-tools that the agent can invoke during execution:
+CodePlane uses the CodeRecon SDK directly. There is no MCP bridge for agent
+tool access. Tools are injected as natively available callables in the agent's
+execution environment via the SDK's `as_openai_tools()` / `as_langchain_tools()`
+framework adapters, with `repo` pre-bound.
+
+```python
+# At job start, RuntimeService provisions tools:
+handle = coderecon_service.sdk.repo(repo_name, worktree=worktree)
+tools = handle.as_openai_tools()  # or as_langchain_tools() depending on adapter
+# Tools are passed to the agent session as native tool definitions
+```
+
+### 8.2 Available Tools
 
 | Tool | SDK Method | Agent Use Case |
 |------|-----------|----------------|
-| `recon` | `sdk.repo(name).recon(query)` | Find relevant code for a task |
-| `scaffold` | `sdk.repo(name).scaffold(path)` | Get compact structural overview of a file |
-| `graph_communities` | `sdk.repo(name).graph_communities()` | Understand module boundaries |
-| `graph_cycles` | `sdk.repo(name).graph_cycles()` | Check for circular dependencies |
-| `checkpoint` | `sdk.repo(name).checkpoint(label)` | Save structural snapshot for later comparison |
-| `semantic_diff` | `sdk.repo(name).semantic_diff(a, b)` | Compare structural state between two points |
+| `recon` | `handle.recon(task)` | Task-aware context retrieval — ranked code spans |
+| `recon_map` | `handle.recon_map()` | Repository structure map with PageRank |
+| `recon_impact` | `handle.recon_impact(target, justification)` | Reference/caller analysis for a symbol |
+| `recon_understand` | `handle.recon_understand()` | Full codebase narrative briefing |
+| `semantic_diff` | `handle.semantic_diff(base, target)` | Structural change summary between states |
+| `graph_communities` | `handle.graph_communities()` | Module boundary detection |
+| `graph_cycles` | `handle.graph_cycles()` | Circular dependency detection |
+| `checkpoint` | `handle.checkpoint(changed_files, ...)` | Lint + test + commit verification pipeline |
+| `refactor_rename` | `handle.refactor_rename(symbol, new_name, justification)` | Rename with impact preview |
+| `refactor_move` | `handle.refactor_move(from_path, to_path, justification)` | Move file updating imports |
+| `refactor_commit` | `handle.refactor_commit(refactor_id)` | Apply a previewed refactoring |
+| `refactor_cancel` | `handle.refactor_cancel(refactor_id)` | Discard a refactoring preview |
 
-### 8.2 Tool Selection
+### 8.3 Tool Selection
 
 Not all agents need all tools. Tool provisioning is configurable per-job or
 per-repo:
 
-* **Minimal**: `recon` + `scaffold` (read-only context gathering)
-* **Standard**: Minimal + `checkpoint` + `semantic_diff` (structural awareness)
-* **Full**: All tools including `graph_*` (architectural work)
+* **Minimal**: `recon` + `recon_map` (read-only context gathering)
+* **Standard**: Minimal + `checkpoint` + `semantic_diff` + `recon_impact` (structural awareness)
+* **Full**: All tools including `graph_*` and `refactor_*` (architectural work)
 
-### 8.3 Usage Tracking
+### 8.4 Usage Tracking
 
 Tool invocations are recorded as trail nodes (`kind: tool_call`,
 `tool_names: ["recon"]`). This enables:
@@ -1868,6 +1902,11 @@ SSE Handler (pushes to frontend)
 
 ### 12.2 Event Mapping
 
+> **Implementation status:** The daemon's `EventBus` and `wire_event_hooks`
+> infrastructure exists but currently only emits `daemon.ready`. The events
+> below require building the index progress hooks in the daemon as part of
+> Phase 1. The wiring mechanism (`EventBus.emit()`) is already in place.
+
 | Daemon Event | Domain Event | SSE Event Type | Payload |
 |-------------|--------------|----------------|---------|
 | `index_progress` | `RepoIndexProgress` | `repo_index_progress` | repo, phase, pct |
@@ -1877,6 +1916,9 @@ SSE Handler (pushes to frontend)
 | `daemon_health` | `CodeReconHealthUpdate` | `coderecon_health` | status, uptime |
 | `cycle_detected` | `StructuralCycleDetected` | `structural_warning` | job_id, cycle |
 | `community_drift` | `CommunityDriftWarning` | `structural_warning` | job_id, communities |
+
+Daemon events use the format `{"event": "<name>", "ts": <float>, "data": {...}}`
+with no `id` field (distinguishing them from responses).
 
 ### 12.3 Job-Scoped Events
 
@@ -1895,7 +1937,7 @@ Operator                Frontend              Backend                  Daemon
    │                       │                     │                       │
    ├──"Add repo"──────────►│                     │                       │
    │                       ├──POST /repos────────►│                       │
-   │                       │                     ├──add_repo(path)───────►│
+   │                       │                     ├──register(path)───────►│
    │                       │                     │                       ├── index begins
    │                       │◄─── SSE: progress ──┤◄── index_progress ────┤
    │                       │◄─── SSE: progress ──┤◄── index_progress ────┤
@@ -2218,10 +2260,10 @@ integration yet.
 
 ### Phase 4: Agent Tools
 
-* Tool provisioning at job start
-* `recon`, `scaffold`, `checkpoint`, `semantic_diff` available to agents
+* SDK framework adapters (`as_openai_tools()` / `as_langchain_tools()`) inject tools natively
+* `recon`, `recon_map`, `recon_impact`, `checkpoint`, `semantic_diff`, `refactor_*` available
 * Tool usage tracking in trail nodes
-* Configurable tool sets per repo
+* Configurable tool sets per repo (minimal / standard / full)
 
 **Deliverable**: Agents can query structural context during execution.
 
@@ -2258,6 +2300,8 @@ job history.
 | Daemon lifecycle | Child process of CodePlane | Dies with parent. Clean boundaries. |
 | Index scope | Per-repo, worktree-partitioned | SDK design. One daemon serves all. |
 | Review default view | Structural dashboard | Primary value proposition. Full diff is fallback. |
+| Agent tool delivery | SDK only, natively injected | No MCP bridge. `as_openai_tools()` / `as_langchain_tools()` with repo pre-bound. |
+| Checkpoint semantics | Verification pipeline (lint + test + commit) | Not a structural snapshot. Use `semantic_diff(base="epoch:N")` for structural comparisons. |
 
 ### Open
 
@@ -2267,7 +2311,8 @@ job history.
 | Auto-merge at HIGH confidence? | Opt-in per repo. Conservative default. | Operator trust erosion if false positive. |
 | Cycle check frequency | Every step boundary | Performance cost on large graphs. May need sampling. |
 | Community detection algorithm | Louvain (SDK default) | May not match operator's mental model of modules. |
-| Scaffold depth | 2 levels (classes + methods) | Too shallow misses nested structure. Too deep loses compactness. |
+| Scaffold as standalone tool | Add ~20-line dispatch entry to daemon | Without it, per-file structural outlines require `recon` or file reads. |
 | Index storage location | Same machine as CodePlane | Can't share index across distributed deployments. |
 | Staleness threshold tuning | 30s/5m defaults, configurable | Too aggressive = noise. Too lax = stale reviews. |
 | Story enrichment model | Same model as existing story generation | May need different prompt structure for structural facts. |
+| Indexing progress events | Build hooks in daemon `wire_event_hooks` | Without them, onboarding UX must poll `status` instead of streaming progress. |
