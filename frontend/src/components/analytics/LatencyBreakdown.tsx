@@ -31,7 +31,6 @@ const ACTIVITY_COLORS: Record<string, string> = {
   overhead: "bg-slate-400",
   reasoning: "bg-indigo-400",
   communication: "bg-orange-400",
-  other: "bg-slate-500",
   idle: "bg-slate-600",
 };
 
@@ -45,7 +44,6 @@ const ACTIVITY_LABELS: Record<string, string> = {
   overhead: "Overhead",
   reasoning: "Reasoning",
   communication: "Communication",
-  other: "Other",
   idle: "Idle / Overhead",
 };
 

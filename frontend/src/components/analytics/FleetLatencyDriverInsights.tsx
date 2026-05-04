@@ -13,7 +13,6 @@ const LATENCY_LABELS: Record<string, string> = {
   overhead: "Overhead",
   reasoning: "Reasoning",
   communication: "Communication",
-  other: "Other",
 };
 
 const LATENCY_DESCRIPTIONS: Record<string, string> = {
@@ -26,7 +25,6 @@ const LATENCY_DESCRIPTIONS: Record<string, string> = {
   overhead: "Time on internal housekeeping — todos, memory, intent tracking",
   reasoning: "Time on explicit thinking with no user-facing output",
   communication: "Time composing messages to the user",
-  other: "Uncategorized latency",
 };
 
 function formatLatencyBucket(bucket: string): string {
