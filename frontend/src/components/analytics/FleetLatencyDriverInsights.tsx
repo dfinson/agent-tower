@@ -1,8 +1,27 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { type FleetLatencyDriversResponse } from "../../api/client";
-import { formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "../MetricsPanelTypes";
 import { Tooltip } from "../ui/tooltip";
+
+const LATENCY_LABELS: Record<string, string> = {
+  llm: "LLM",
+  tool: "Tool Execution",
+  approval_wait: "Approval Wait",
+  idle: "Idle",
+  other: "Other",
+};
+
+const LATENCY_DESCRIPTIONS: Record<string, string> = {
+  llm: "Time waiting for LLM inference responses",
+  tool: "Time spent executing tool calls (shell, file I/O, etc.)",
+  approval_wait: "Time blocked waiting for user approval",
+  idle: "Time between spans with no active work",
+  other: "Uncategorized latency",
+};
+
+function formatLatencyBucket(bucket: string): string {
+  return LATENCY_LABELS[bucket] ?? bucket.replace(/_/g, " ");
+}
 
 // ---------------------------------------------------------------------------
 // Fleet Latency Breakdown — mirrors FleetCostDriverInsights layout
@@ -107,11 +126,11 @@ export function FleetLatencyDriverInsights({
               <div className="flex-1 min-w-0">
                 <Tooltip
                   content={
-                    ACTIVITY_DESCRIPTIONS[row.bucket] ?? row.bucket
+                    LATENCY_DESCRIPTIONS[row.bucket] ?? row.bucket
                   }
                 >
                   <div className="truncate text-foreground text-xs font-medium cursor-help border-b border-dotted border-muted-foreground/30 inline">
-                    {formatActivityBucket(row.bucket)}
+                    {formatLatencyBucket(row.bucket)}
                   </div>
                 </Tooltip>
                 <div className="text-[10px] text-muted-foreground">

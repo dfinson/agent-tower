@@ -82,7 +82,7 @@ class LatencyAttributionRepository(BaseRepository):
     ) -> list[FleetLatencyRow]:
         """Fleet-wide latency breakdown aggregated across jobs."""
         dim_filter = "AND dimension = :dimension" if dimension else ""
-        params: dict[str, Any] = {"limit": 100}
+        params: dict[str, Any] = {"limit": 100, "period_days": f"-{int(period_days)} days"}
         if dimension:
             params["dimension"] = dimension
         result = await self._session.execute(
@@ -96,7 +96,7 @@ class LatencyAttributionRepository(BaseRepository):
                     COUNT(DISTINCT job_id) as job_count,
                     AVG(pct_of_total) as avg_pct_of_total
                 FROM job_latency_attribution
-                WHERE created_at >= datetime('now', '-{int(period_days)} days')
+                WHERE created_at >= datetime('now', :period_days)
                     {dim_filter}
                 GROUP BY dimension, bucket
                 ORDER BY avg_wall_clock_ms DESC
@@ -107,38 +107,60 @@ class LatencyAttributionRepository(BaseRepository):
         return cast("list[FleetLatencyRow]", [dict(r) for r in result.mappings().all()])
 
     async def job_duration_percentiles(self, *, period_days: int = 30) -> dict[str, Any]:
-        """Compute avg/p50/p95 job durations from telemetry summaries."""
+        """Compute avg/p50/p95 job durations from telemetry summaries.
+
+        Uses LIMIT 1 OFFSET to fetch individual percentile values without
+        loading all rows into memory.
+        """
+        period_param = f"-{int(period_days)} days"
         result = await self._session.execute(
-            text(f"""
+            text("""
                 SELECT
                     AVG(duration_ms) as avg_ms,
                     COUNT(*) as job_count
                 FROM job_telemetry_summary
-                WHERE created_at >= datetime('now', '-{int(period_days)} days')
+                WHERE created_at >= datetime('now', :period_days)
                     AND duration_ms > 0
             """),
+            {"period_days": period_param},
         )
         row = result.mappings().first()
         if not row or not row["job_count"]:
             return {"avg_ms": 0, "p50_ms": 0, "p95_ms": 0}
 
-        # SQLite doesn't have native percentile functions — fetch sorted durations
-        dur_result = await self._session.execute(
-            text(f"""
+        n = int(row["job_count"])
+        p50_offset = n // 2
+        p95_offset = int(n * 0.95)
+
+        # SQLite: fetch the single value at each percentile offset
+        p50_result = await self._session.execute(
+            text("""
                 SELECT duration_ms
                 FROM job_telemetry_summary
-                WHERE created_at >= datetime('now', '-{int(period_days)} days')
+                WHERE created_at >= datetime('now', :period_days)
                     AND duration_ms > 0
                 ORDER BY duration_ms
+                LIMIT 1 OFFSET :offset
             """),
+            {"period_days": period_param, "offset": p50_offset},
         )
-        durations = [r["duration_ms"] for r in dur_result.mappings().all()]
-        n = len(durations)
-        p50 = durations[n // 2] if n else 0
-        p95 = durations[int(n * 0.95)] if n else 0
+        p50_row = p50_result.mappings().first()
+
+        p95_result = await self._session.execute(
+            text("""
+                SELECT duration_ms
+                FROM job_telemetry_summary
+                WHERE created_at >= datetime('now', :period_days)
+                    AND duration_ms > 0
+                ORDER BY duration_ms
+                LIMIT 1 OFFSET :offset
+            """),
+            {"period_days": period_param, "offset": p95_offset},
+        )
+        p95_row = p95_result.mappings().first()
 
         return {
             "avg_ms": float(row["avg_ms"] or 0),
-            "p50_ms": int(p50),
-            "p95_ms": int(p95),
+            "p50_ms": int(p50_row["duration_ms"]) if p50_row else 0,
+            "p95_ms": int(p95_row["duration_ms"]) if p95_row else 0,
         }

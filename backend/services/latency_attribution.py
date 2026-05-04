@@ -148,9 +148,11 @@ async def _compute_latency(
             tool_cat = classify_tool(tool_name) or "other"
             by_tool_type[tool_cat].append(duration_ms)
 
-        # Activity dimension — use tool_category from span if available
-        activity = span.get("tool_category") or category
-        by_activity[activity].append(duration_ms)
+        # Activity dimension — only for tool spans with a meaningful
+        # tool_category to avoid redundancy with the category dimension.
+        tool_category = span.get("tool_category")
+        if tool_category and tool_category != category:
+            by_activity[tool_category].append(duration_ms)
 
     # Compute attribution rows
     rows: list[dict[str, Any]] = []
