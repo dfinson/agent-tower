@@ -270,6 +270,27 @@ class TelemetrySpansRepository(BaseRepository):
 
         return cast("list[ToolStatsRow]", rows)
 
+    async def tool_mix(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+        """Aggregate tool calls by category for percentage breakdown."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    COALESCE(tool_category, 'other') as category,
+                    COUNT(*) as count,
+                    COALESCE(SUM(duration_ms), 0) as total_duration_ms
+                FROM job_telemetry_spans
+                WHERE span_type = 'tool'
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY category
+                ORDER BY count DESC
+            """),
+        )
+        rows = [dict(r) for r in result.mappings().all()]
+        total = sum(r["count"] for r in rows)
+        for row in rows:
+            row["pct"] = round(row["count"] / total * 100, 1) if total > 0 else 0.0
+        return rows
+
     async def shell_command_breakdown(self, *, period_days: int = 30, limit: int = 30) -> list[ShellCommandRow]:
         """Aggregate shell commands by tool_target (first word of command).
 

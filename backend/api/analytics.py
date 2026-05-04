@@ -26,6 +26,8 @@ from backend.models.api_schemas import (
     FileAccessJobResponse,
     FleetCostDriversResponse,
     FleetFileAccessResponse,
+    FleetLatencyDriversResponse,
+    FleetLatencyEntry,
     JobContextResponse,
     ModelComparisonResponse,
     ModelPricingEntry,
@@ -132,9 +134,10 @@ async def analytics_tools(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> AnalyticsToolsResponse:
-    """Tool performance stats (call counts, failure rates, latency)."""
+    """Tool performance stats (call counts, failure rates, latency) + category mix."""
     stats = await svc.tool_stats(period_days=period)
-    return AnalyticsToolsResponse(period=period, tools=stats)
+    mix = await svc.tool_mix(period_days=period)
+    return AnalyticsToolsResponse(period=period, tools=stats, tool_mix=mix)
 
 
 @router.get("/analytics/repos", response_model=AnalyticsReposResponse)
@@ -236,6 +239,25 @@ async def fleet_cost_drivers(
     for row in enriched:
         row["confidence"] = "approximate" if row.get("dimension") == "activity" else "exact"
     return FleetCostDriversResponse(period=period, summary=enriched)
+
+
+@router.get("/analytics/latency-drivers", response_model=FleetLatencyDriversResponse)
+async def fleet_latency_drivers(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+    dimension: str | None = None,
+) -> FleetLatencyDriversResponse:
+    """Fleet-wide latency attribution: time breakdown across all jobs."""
+    summary = await svc.fleet_latency_summary(period_days=period, dimension=dimension)
+    percentiles = await svc.job_duration_percentiles(period_days=period)
+    return FleetLatencyDriversResponse(
+        period=period,
+        dimension=dimension,
+        summary=[FleetLatencyEntry(**row) for row in summary],
+        avg_job_duration_ms=percentiles.get("avg_ms", 0),
+        p50_job_duration_ms=percentiles.get("p50_ms", 0),
+        p95_job_duration_ms=percentiles.get("p95_ms", 0),
+    )
 
 
 @router.get("/analytics/file-access/{job_id}", response_model=FileAccessJobResponse)

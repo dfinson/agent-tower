@@ -229,3 +229,41 @@ async def test_spans_tool_stats(session: AsyncSession) -> None:
     assert float(stats[0]["p50_duration_ms"]) == pytest.approx(120.0)
     assert float(stats[0]["p95_duration_ms"]) == pytest.approx(140.0)
     assert float(stats[0]["p99_duration_ms"]) == pytest.approx(140.0)
+
+
+@pytest.mark.asyncio
+async def test_spans_tool_mix(session: AsyncSession) -> None:
+    """tool_mix aggregates by tool_category and computes percentages."""
+    repo = TelemetrySpansRepository(session)
+    # Insert spans with different categories
+    for _ in range(6):
+        await repo.insert(
+            job_id="job-1", span_type="tool", name="read_file",
+            started_at=0.0, duration_ms=50.0, tool_category="file_read",
+        )
+    for _ in range(3):
+        await repo.insert(
+            job_id="job-1", span_type="tool", name="bash",
+            started_at=1.0, duration_ms=200.0, tool_category="shell",
+        )
+    await repo.insert(
+        job_id="job-1", span_type="tool", name="edit",
+        started_at=2.0, duration_ms=80.0, tool_category="file_write",
+    )
+    await session.commit()
+
+    mix = await repo.tool_mix(period_days=30)
+
+    assert len(mix) == 3
+    # Sorted by count desc
+    assert mix[0]["category"] == "file_read"
+    assert mix[0]["count"] == 6
+    assert mix[0]["pct"] == pytest.approx(60.0)
+    assert mix[1]["category"] == "shell"
+    assert mix[1]["count"] == 3
+    assert mix[1]["pct"] == pytest.approx(30.0)
+    assert mix[2]["category"] == "file_write"
+    assert mix[2]["count"] == 1
+    assert mix[2]["pct"] == pytest.approx(10.0)
+    # Duration is summed
+    assert float(mix[1]["total_duration_ms"]) == pytest.approx(600.0)

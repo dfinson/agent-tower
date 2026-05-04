@@ -6,6 +6,7 @@ export interface ToolCall {
   name: string;
   displayLabel?: string;
   activity?: string;
+  toolCategory?: string;
   durationMs: number;
   success: boolean;
   offsetSec?: number;
@@ -55,6 +56,10 @@ export interface TelemetryData {
   quotaSnapshots?: Record<string, QuotaSnapshotData>;
   costDrivers?: CostDriversData;
   turnEconomics?: TurnEconomicsData;
+  latencyDrivers?: LatencyDriversData;
+  turnLatency?: TurnLatencyData;
+  parallelismRatio?: number;
+  idleMs?: number;
   fileAccess?: FileAccessData;
   reviewComplexity?: { tier: string; signals: string[] };
   reviewSignals?: { testCoModifications: unknown[] };
@@ -87,6 +92,34 @@ export interface TurnEconomicsData {
   costFirstHalfUsd: number;
   costSecondHalfUsd: number;
   turnCurve: CostDriverBucket[];
+}
+
+export interface LatencyBucket {
+  dimension: string;
+  bucket: string;
+  wallClockMs: number;
+  sumDurationMs: number;
+  spanCount: number;
+  p50Ms: number;
+  p95Ms: number;
+  maxMs: number;
+  pctOfTotal: number;
+}
+
+export interface LatencyDriversData {
+  category?: LatencyBucket[];
+  activity?: LatencyBucket[];
+  phase?: LatencyBucket[];
+  toolType?: LatencyBucket[];
+}
+
+export interface TurnLatencyData {
+  totalTurns: number;
+  peakTurnMs: number;
+  avgTurnMs: number;
+  firstHalfMs: number;
+  secondHalfMs: number;
+  turnCurve: LatencyBucket[];
 }
 
 export interface FileAccessData {
@@ -302,3 +335,35 @@ export function estimateCostWithoutCache(
 ): number {
   return ((inputTokens + cacheReadTokens) * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
+
+// ---------------------------------------------------------------------------
+// Tool category display helpers
+// ---------------------------------------------------------------------------
+
+export const TOOL_CATEGORY_LABELS: Record<string, string> = {
+  file_read: "File Read",
+  file_write: "File Write",
+  file_search: "Search",
+  shell: "Shell",
+  git_read: "Git (read)",
+  git_write: "Git (write)",
+  browser: "Browser",
+  agent: "Agent",
+  thinking: "Thinking",
+  bookkeeping: "Bookkeeping",
+  other: "Other",
+};
+
+export const TOOL_CATEGORY_COLORS: Record<string, string> = {
+  file_read: "bg-blue-500",
+  file_write: "bg-emerald-500",
+  file_search: "bg-violet-500",
+  shell: "bg-amber-500",
+  git_read: "bg-orange-400",
+  git_write: "bg-orange-500",
+  browser: "bg-cyan-500",
+  agent: "bg-pink-500",
+  thinking: "bg-slate-400",
+  bookkeeping: "bg-gray-400",
+  other: "bg-gray-300",
+};

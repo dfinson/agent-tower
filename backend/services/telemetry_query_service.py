@@ -21,20 +21,24 @@ from backend.models.api_schemas import (
     TelemetryFileAccess,
     TelemetryFileEntry,
     TelemetryFileStats,
+    TelemetryLatencyBucket,
+    TelemetryLatencyDrivers,
     TelemetryLlmCall,
     TelemetryQuotaSnapshot,
     TelemetryReviewComplexity,
     TelemetryReviewSignals,
     TelemetryToolCall,
     TelemetryTurnEconomics,
+    TelemetryTurnLatency,
 )
-from backend.services.tool_classifier import classify_tool_activity
+from backend.services.tool_classifier import classify_tool, classify_tool_activity
 
 if TYPE_CHECKING:
     from backend.models.domain import TelemetrySpanRow
     from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.job_repo import JobRepository
+    from backend.persistence.latency_attribution_repo import LatencyAttributionRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
@@ -96,12 +100,14 @@ class TelemetryQueryService:
         cost_repo: CostAttributionRepository,
         file_repo: FileAccessRepository,
         job_repo: JobRepository,
+        latency_repo: LatencyAttributionRepository,
         spans_repo: TelemetrySpansRepository,
         summary_repo: TelemetrySummaryRepository,
     ) -> None:
         self._cost_repo = cost_repo
         self._file_repo = file_repo
         self._job_repo = job_repo
+        self._latency_repo = latency_repo
         self._spans_repo = spans_repo
         self._summary_repo = summary_repo
 
@@ -130,6 +136,7 @@ class TelemetryQueryService:
         # Load span detail for tool/LLM call breakdowns
         spans = await self._spans_repo.list_for_job(job_id)
         attribution_rows = await self._cost_repo.for_job(job_id)
+        latency_rows = await self._latency_repo.for_job(job_id)
         file_stats = await self._file_repo.reread_stats(job_id)
         top_files = await self._file_repo.most_accessed_files(job_id=job_id)
         tool_calls: list[TelemetryToolCall] = []
@@ -157,6 +164,7 @@ class TelemetryQueryService:
                         name=tool_name,
                         display_label=display_label,
                         activity=classify_tool_activity(tool_name, tool_args),
+                        tool_category=classify_tool(tool_name),
                         duration_ms=float(span.get("duration_ms", 0)),
                         success=attrs.get("success", True),
                         offset_sec=float(span.get("started_at", 0)),
@@ -200,6 +208,27 @@ class TelemetryQueryService:
 
         # Enrich turn curve with activity + tools from raw spans
         self._enrich_turn_curve(turn_curve, spans)
+
+        # Build latency drivers from latency attribution rows
+        latency_grouped: dict[str, list[TelemetryLatencyBucket]] = {}
+        latency_turn_curve: list[TelemetryLatencyBucket] = []
+        for row in latency_rows:
+            lb = TelemetryLatencyBucket(
+                dimension=row.get("dimension", "unknown"),
+                bucket=row.get("bucket", "unknown"),
+                wall_clock_ms=int(row.get("wall_clock_ms", 0)),
+                sum_duration_ms=int(row.get("sum_duration_ms", 0)),
+                span_count=int(row.get("span_count", 0)),
+                p50_ms=int(row.get("p50_ms", 0)),
+                p95_ms=int(row.get("p95_ms", 0)),
+                max_ms=int(row.get("max_ms", 0)),
+                pct_of_total=float(row.get("pct_of_total", 0)),
+            )
+            dim = str(row.get("dimension", "unknown"))
+            latency_grouped.setdefault(dim, []).append(lb)
+            if dim == "turn":
+                latency_turn_curve.append(lb)
+        latency_turn_curve.sort(key=lambda item: int(item.bucket) if item.bucket.isdigit() else 0)
 
         # For running jobs, compute live duration from created_at instead of
         # the stored 0 which is only finalized when the job completes.
@@ -293,6 +322,29 @@ class TelemetryQueryService:
                 cost_second_half_usd=float(summary.get("cost_second_half_usd", 0)),
                 turn_curve=turn_curve,
             ),
+            latency_drivers=TelemetryLatencyDrivers(
+                category=latency_grouped.get("category", []),
+                activity=latency_grouped.get("activity", []),
+                phase=latency_grouped.get("phase", []),
+                tool_type=latency_grouped.get("tool_type", []),
+            ),
+            turn_latency=TelemetryTurnLatency(
+                total_turns=int(summary.get("total_turns", 0)),
+                peak_turn_ms=max((b.wall_clock_ms for b in latency_turn_curve), default=0),
+                avg_turn_ms=(
+                    int(sum(b.wall_clock_ms for b in latency_turn_curve) / len(latency_turn_curve))
+                    if latency_turn_curve else 0
+                ),
+                first_half_ms=sum(
+                    b.wall_clock_ms for b in latency_turn_curve[: len(latency_turn_curve) // 2]
+                ),
+                second_half_ms=sum(
+                    b.wall_clock_ms for b in latency_turn_curve[len(latency_turn_curve) // 2:]
+                ),
+                turn_curve=latency_turn_curve,
+            ),
+            parallelism_ratio=float(summary.get("parallelism_ratio", 0)),
+            idle_ms=int(summary.get("idle_ms", 0)),
             file_access=TelemetryFileAccess(
                 stats=TelemetryFileStats(
                     total_accesses=int(file_stats.get("total_accesses") or 0),

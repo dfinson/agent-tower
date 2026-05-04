@@ -73,6 +73,12 @@ export interface AnalyticsTools {
     p95_duration_ms: number;
     p99_duration_ms: number;
   }[];
+  toolMix?: {
+    category: string;
+    count: number;
+    pct: number;
+    totalDurationMs: number;
+  }[];
 }
 
 export interface AnalyticsJobs {
@@ -198,6 +204,41 @@ export interface FleetCostDriversResponse {
   }>;
 }
 
+// ---------------------------------------------------------------------------
+// Latency attribution
+// ---------------------------------------------------------------------------
+
+export interface LatencyBucket {
+  dimension: string;
+  bucket: string;
+  wallClockMs: number;
+  sumDurationMs: number;
+  spanCount: number;
+  p50Ms: number;
+  p95Ms: number;
+  maxMs: number;
+  pctOfTotal: number;
+}
+
+export interface FleetLatencyEntry {
+  dimension: string;
+  bucket: string;
+  avgWallClockMs: number;
+  avgSumDurationMs: number;
+  totalSpanCount: number;
+  jobCount: number;
+  avgPctOfTotal: number;
+}
+
+export interface FleetLatencyDriversResponse {
+  period: number;
+  dimension?: string;
+  summary: FleetLatencyEntry[];
+  avgJobDurationMs: number;
+  p50JobDurationMs: number;
+  p95JobDurationMs: number;
+}
+
 export interface FileAccessResponse {
   jobId: string;
   stats: {
@@ -237,6 +278,15 @@ export function fetchFleetCostDrivers(
   const params = new URLSearchParams({ period: String(period) });
   if (dimension) params.set("dimension", dimension);
   return request(`/analytics/cost-drivers?${params}`);
+}
+
+export function fetchFleetLatencyDrivers(
+  period = 30,
+  dimension?: string,
+): Promise<FleetLatencyDriversResponse> {
+  const params = new URLSearchParams({ period: String(period) });
+  if (dimension) params.set("dimension", dimension);
+  return request(`/analytics/latency-drivers?${params}`);
 }
 
 export function fetchFileAccess(jobId: string): Promise<FileAccessResponse> {

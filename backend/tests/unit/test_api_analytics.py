@@ -229,3 +229,36 @@ async def test_fleet_cost_drivers_confidence_annotation():
     assert summary[2].confidence == "approximate"
     # Non-activity rows get "exact"
     assert summary[1].confidence == "exact"
+
+
+# ---------------------------------------------------------------------------
+# Test analytics_tools endpoint with tool_mix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_analytics_tools_includes_tool_mix():
+    """analytics_tools returns tool stats + tool_mix category breakdown."""
+    mock_stats = [
+        {"name": "read_file", "count": 10, "avg_duration_ms": 50.0,
+         "total_duration_ms": 500.0, "failure_count": 0,
+         "p50_duration_ms": 45.0, "p95_duration_ms": 80.0, "p99_duration_ms": 95.0},
+    ]
+    mock_mix = [
+        {"category": "file_read", "count": 10, "pct": 62.5, "total_duration_ms": 500.0},
+        {"category": "shell", "count": 6, "pct": 37.5, "total_duration_ms": 1200.0},
+    ]
+    svc = _mock_analytics_svc(tool_stats=mock_stats, tool_mix=mock_mix)
+
+    from backend.api.analytics import analytics_tools
+
+    result = await analytics_tools(svc=svc, period=30)
+
+    assert result.period == 30
+    assert len(result.tools) == 1
+    assert result.tools[0].name == "read_file"
+    assert len(result.tool_mix) == 2
+    assert result.tool_mix[0].category == "file_read"
+    assert result.tool_mix[0].pct == pytest.approx(62.5)
+    assert result.tool_mix[1].category == "shell"
+    assert result.tool_mix[1].count == 6

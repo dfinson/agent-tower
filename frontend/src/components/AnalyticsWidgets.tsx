@@ -10,6 +10,9 @@ export { ModelComparison } from "./analytics/ModelComparison";
 export { ObservationsPanel } from "./analytics/ObservationsPanel";
 export { RepoBreakdown } from "./analytics/RepoBreakdown";
 export { ToolHealth, toolDescriptions } from "./analytics/ToolHealth";
+export { ToolMix } from "./analytics/ToolMix";
 export { FleetCostDriverInsights } from "./analytics/FleetCostDriverInsights";
+export { FleetLatencyDriverInsights } from "./analytics/FleetLatencyDriverInsights";
+export { LatencyBreakdown } from "./analytics/LatencyBreakdown";
 export { JobsTable, SortHeader } from "./analytics/JobsTable";
 

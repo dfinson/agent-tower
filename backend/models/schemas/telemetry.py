@@ -172,6 +172,7 @@ class TelemetryToolCall(CamelModel):
     name: str
     display_label: str | None = None
     activity: str = "overhead"
+    tool_category: str = "other"
     duration_ms: float = 0
     success: bool = True
     offset_sec: float = 0
@@ -210,6 +211,45 @@ class TelemetryCostDrivers(CamelModel):
     phase: list[TelemetryCostBucket] = []
     activity_phase: list[TelemetryCostBucket] = []
     edit_efficiency: list[TelemetryCostBucket] = []
+
+
+# ---------------------------------------------------------------------------
+# Latency attribution
+# ---------------------------------------------------------------------------
+
+
+class TelemetryLatencyBucket(CamelModel):
+    """A single bucket within a latency attribution dimension."""
+
+    dimension: str = "unknown"
+    bucket: str = "unknown"
+    wall_clock_ms: int = 0
+    sum_duration_ms: int = 0
+    span_count: int = 0
+    p50_ms: int = 0
+    p95_ms: int = 0
+    max_ms: int = 0
+    pct_of_total: float = 0.0
+
+
+class TelemetryLatencyDrivers(CamelModel):
+    """Latency breakdown by multiple dimensions."""
+
+    category: list[TelemetryLatencyBucket] = []
+    activity: list[TelemetryLatencyBucket] = []
+    phase: list[TelemetryLatencyBucket] = []
+    tool_type: list[TelemetryLatencyBucket] = []
+
+
+class TelemetryTurnLatency(CamelModel):
+    """Turn latency summary for a single job."""
+
+    total_turns: int = 0
+    peak_turn_ms: int = 0
+    avg_turn_ms: int = 0
+    first_half_ms: int = 0
+    second_half_ms: int = 0
+    turn_curve: list[TelemetryLatencyBucket] = []
 
 
 class TelemetryTurnEconomics(CamelModel):
@@ -292,6 +332,10 @@ class JobTelemetryResponse(CamelModel):
     premium_requests: float = 0
     cost_drivers: TelemetryCostDrivers = TelemetryCostDrivers()
     turn_economics: TelemetryTurnEconomics = TelemetryTurnEconomics()
+    latency_drivers: TelemetryLatencyDrivers = TelemetryLatencyDrivers()
+    turn_latency: TelemetryTurnLatency = TelemetryTurnLatency()
+    parallelism_ratio: float = 0.0
+    idle_ms: int = 0
     file_access: TelemetryFileAccess = TelemetryFileAccess()
     quota_snapshots: dict[str, TelemetryQuotaSnapshot] | None = None
     review_signals: TelemetryReviewSignals = TelemetryReviewSignals()
@@ -323,6 +367,13 @@ class RepoStatsEntry(CamelModel, extra="allow"):
     tool_calls: int = 0
     avg_duration_ms: float = 0.0
     premium_requests: float = 0.0
+
+
+class ToolMixEntry(CamelModel):
+    category: str = ""
+    count: int = 0
+    pct: float = 0.0
+    total_duration_ms: float = 0.0
 
 
 class ToolStatsEntry(CamelModel, extra="allow"):
@@ -414,6 +465,7 @@ class AnalyticsModelsResponse(CamelModel):
 class AnalyticsToolsResponse(CamelModel):
     period: int
     tools: list[ToolStatsEntry] = []
+    tool_mix: list[ToolMixEntry] = []
 
 
 class AnalyticsReposResponse(CamelModel):
@@ -436,6 +488,29 @@ class FleetCostDriversResponse(CamelModel):
     dimension: str | None = None
     buckets: list[CostDriverEntry] | None = None
     summary: list[FleetCostEntry] | None = None
+
+
+class FleetLatencyEntry(CamelModel):
+    """A single row in fleet latency breakdown."""
+
+    dimension: str = ""
+    bucket: str = ""
+    avg_wall_clock_ms: float = 0.0
+    avg_sum_duration_ms: float = 0.0
+    total_span_count: int = 0
+    job_count: int = 0
+    avg_pct_of_total: float = 0.0
+
+
+class FleetLatencyDriversResponse(CamelModel):
+    """Fleet-wide latency attribution response."""
+
+    period: int
+    dimension: str | None = None
+    summary: list[FleetLatencyEntry] = []
+    avg_job_duration_ms: float = 0.0
+    p50_job_duration_ms: int = 0
+    p95_job_duration_ms: int = 0
 
 
 class FileAccessJobResponse(CamelModel):

@@ -124,6 +124,11 @@ class AnalyticsService:
 
         return await TelemetrySpansRepository(self._session).tool_stats(period_days=period_days)
 
+    async def tool_mix(self, *, period_days: int) -> list[dict]:
+        from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+
+        return await TelemetrySpansRepository(self._session).tool_mix(period_days=period_days)
+
     async def shell_command_breakdown(self, *, period_days: int) -> list[ShellCommandRow]:
         from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
@@ -158,6 +163,25 @@ class AnalyticsService:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
         return await CostAttributionRepository(self._session).fleet_summary(
+            period_days=period_days,
+        )
+
+    # -- Latency attribution -------------------------------------------------
+
+    async def fleet_latency_summary(
+        self, *, period_days: int, dimension: str | None = None
+    ) -> list[dict[str, Any]]:
+        from backend.persistence.latency_attribution_repo import LatencyAttributionRepository
+
+        rows = await LatencyAttributionRepository(self._session).fleet_summary(
+            period_days=period_days, dimension=dimension,
+        )
+        return [dict(r) for r in rows]
+
+    async def job_duration_percentiles(self, *, period_days: int) -> dict[str, Any]:
+        from backend.persistence.latency_attribution_repo import LatencyAttributionRepository
+
+        return await LatencyAttributionRepository(self._session).job_duration_percentiles(
             period_days=period_days,
         )
 

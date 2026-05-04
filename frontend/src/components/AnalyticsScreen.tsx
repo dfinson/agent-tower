@@ -8,6 +8,7 @@ import {
   fetchAnalyticsTools,
   fetchAnalyticsRepos,
   fetchFleetCostDrivers,
+  fetchFleetLatencyDrivers,
   fetchObservations,
   dismissObservation,
   type ScorecardResponse,
@@ -15,6 +16,7 @@ import {
   type AnalyticsTools,
   type AnalyticsRepos,
   type FleetCostDriversResponse,
+  type FleetLatencyDriversResponse,
   type Observation,
 } from "../api/client";
 import {
@@ -28,7 +30,9 @@ import {
   ObservationsPanel,
   RepoBreakdown,
   ToolHealth,
+  ToolMix,
   FleetCostDriverInsights,
+  FleetLatencyDriverInsights,
   JobsTable,
 } from "./AnalyticsWidgets";
 
@@ -40,6 +44,7 @@ export function AnalyticsScreen() {
   const [tools, setTools] = useState<AnalyticsTools | null>(null);
   const [repos, setRepos] = useState<AnalyticsRepos | null>(null);
   const [fleetDrivers, setFleetDrivers] = useState<FleetCostDriversResponse | null>(null);
+  const [fleetLatency, setFleetLatency] = useState<FleetLatencyDriversResponse | null>(null);
   const [observations, setObservations] = useState<Observation[]>([]);
 
   // Per-section loading states
@@ -48,6 +53,7 @@ export function AnalyticsScreen() {
   const [toolsLoading, setToolsLoading] = useState(true);
   const [reposLoading, setReposLoading] = useState(true);
   const [driversLoading, setDriversLoading] = useState(true);
+  const [latencyLoading, setLatencyLoading] = useState(true);
   const [obsLoading, setObsLoading] = useState(true);
 
   const [scorecardError, setScorecardError] = useState<string | null>(null);
@@ -64,6 +70,7 @@ export function AnalyticsScreen() {
     setToolsLoading(true);
     setReposLoading(true);
     setDriversLoading(true);
+    setLatencyLoading(true);
     setObsLoading(true);
     setScorecardError(null);
 
@@ -92,6 +99,11 @@ export function AnalyticsScreen() {
       .then(setFleetDrivers)
       .catch(() => setFleetDrivers(null))
       .finally(() => setDriversLoading(false));
+
+    fetchFleetLatencyDrivers(Math.max(period, 30))
+      .then(setFleetLatency)
+      .catch(() => setFleetLatency(null))
+      .finally(() => setLatencyLoading(false));
 
     fetchObservations()
       .then((obs) => setObservations(obs?.observations ?? []))
@@ -181,6 +193,30 @@ export function AnalyticsScreen() {
           </h2>
           <p className="text-xs text-muted-foreground mb-3">Aggregate spend by activity across all jobs in this period</p>
           <FleetCostDriverInsights fleetDrivers={fleetDrivers} />
+        </div>
+      )}
+
+      {/* Latency Breakdown — parallel to cost breakdown */}
+      {!latencyLoading && fleetLatency?.summary && fleetLatency.summary.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-4 min-w-0">
+          <h2 className="text-sm font-medium text-foreground mb-1 flex items-center gap-2">
+            <Clock size={14} />
+            Latency Breakdown
+          </h2>
+          <p className="text-xs text-muted-foreground mb-3">Where wall-clock time goes — LLM wait, tool execution, idle overhead</p>
+          <FleetLatencyDriverInsights fleetLatency={fleetLatency} />
+        </div>
+      )}
+
+      {/* Tool Mix — percentage breakdown by category */}
+      {!toolsLoading && tools?.toolMix && tools.toolMix.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-4 min-w-0">
+          <h2 className="text-sm font-medium text-foreground mb-1 flex items-center gap-2">
+            <Wrench size={14} />
+            Tool Mix
+          </h2>
+          <p className="text-xs text-muted-foreground mb-3">Percentage breakdown of tool usage by category</p>
+          <ToolMix mix={tools.toolMix} />
         </div>
       )}
 
