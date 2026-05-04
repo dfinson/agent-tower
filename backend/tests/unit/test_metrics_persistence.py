@@ -233,7 +233,7 @@ async def test_spans_tool_stats(session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_spans_tool_mix(session: AsyncSession) -> None:
-    """tool_mix aggregates by tool_category and computes percentages."""
+    """tool_mix aggregates by activity (mapped from tool_category) and computes percentages."""
     repo = TelemetrySpansRepository(session)
     # Insert spans with different categories
     for _ in range(6):
@@ -256,16 +256,14 @@ async def test_spans_tool_mix(session: AsyncSession) -> None:
 
     entries = mix["entries"]
     assert mix["total_jobs"] == 1
-    assert len(entries) == 3
-    # Sorted by count desc
-    assert entries[0]["category"] == "file_read"
-    assert entries[0]["count"] == 6
-    assert entries[0]["pct"] == pytest.approx(60.0)
-    assert entries[1]["category"] == "shell"
-    assert entries[1]["count"] == 3
-    assert entries[1]["pct"] == pytest.approx(30.0)
-    assert entries[2]["category"] == "file_write"
-    assert entries[2]["count"] == 1
-    assert entries[2]["pct"] == pytest.approx(10.0)
-    # Duration is summed
-    assert float(entries[1]["total_duration_ms"]) == pytest.approx(600.0)
+    # file_read + shell both map to investigation; file_write maps to implementation
+    assert len(entries) == 2
+    # Sorted by count desc: investigation (6+3=9), implementation (1)
+    assert entries[0]["activity"] == "investigation"
+    assert entries[0]["count"] == 9
+    assert entries[0]["pct"] == pytest.approx(90.0)
+    assert entries[1]["activity"] == "implementation"
+    assert entries[1]["count"] == 1
+    assert entries[1]["pct"] == pytest.approx(10.0)
+    # Duration is summed: investigation = 6*50 + 3*200 = 900
+    assert float(entries[0]["total_duration_ms"]) == pytest.approx(900.0)

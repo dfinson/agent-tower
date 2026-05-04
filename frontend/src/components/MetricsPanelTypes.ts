@@ -337,33 +337,17 @@ export function estimateCostWithoutCache(
 }
 
 // ---------------------------------------------------------------------------
-// Tool category display helpers
+// Activity colors — used by tool mix and cost breakdown visualisations
 // ---------------------------------------------------------------------------
 
-export const TOOL_CATEGORY_LABELS: Record<string, string> = {
-  file_read: "File Read",
-  file_write: "File Write",
-  file_search: "Search",
-  shell: "Shell",
-  git_read: "Git (read)",
-  git_write: "Git (write)",
-  browser: "Browser",
-  agent: "Agent",
-  thinking: "Thinking",
-  bookkeeping: "Bookkeeping",
-  other: "Other",
-};
-
-export const TOOL_CATEGORY_COLORS: Record<string, string> = {
-  file_read: "bg-blue-500",
-  file_write: "bg-emerald-500",
-  file_search: "bg-violet-500",
-  shell: "bg-amber-500",
-  git_read: "bg-orange-400",
-  git_write: "bg-orange-500",
-  browser: "bg-cyan-500",
-  agent: "bg-pink-500",
-  thinking: "bg-indigo-400",
-  bookkeeping: "bg-rose-300",
-  other: "bg-gray-400",
+export const ACTIVITY_COLORS: Record<string, string> = {
+  implementation: "bg-emerald-500",
+  investigation: "bg-blue-500",
+  verification: "bg-amber-500",
+  git_ops: "bg-orange-500",
+  setup: "bg-cyan-500",
+  delegation: "bg-pink-500",
+  reasoning: "bg-indigo-400",
+  overhead: "bg-gray-400",
+  communication: "bg-violet-500",
 };

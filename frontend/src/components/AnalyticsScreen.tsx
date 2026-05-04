@@ -216,7 +216,7 @@ export function AnalyticsScreen() {
             Tool Mix
           </h2>
           <p className="text-xs text-muted-foreground mb-3">
-            Tool usage by category across {tools.toolMixJobCount?.toLocaleString() ?? "all"} jobs
+            Tool usage by activity across {tools.toolMixJobCount?.toLocaleString() ?? "all"} jobs
           </p>
           <ToolMix mix={tools.toolMix} />
         </div>

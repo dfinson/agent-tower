@@ -15,7 +15,7 @@ import type {
   TelemetryData, LLMCall, SortField, SortDir, ToolAggregate,
   SessionCheckpoint, SessionSummaryJson,
 } from "./MetricsPanelTypes";
-import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS, TOOL_CATEGORY_LABELS, TOOL_CATEGORY_COLORS } from "./MetricsPanelTypes";
+import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "./MetricsPanelTypes";
 import {
   useModelPricing,
   CacheEfficiencyBar,
@@ -205,16 +205,16 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
     return { retries: totalRetries, editTurns: totalEditTurns, cost: reworkCost, totalCost, fraction: reworkFraction };
   }, [editEfficiencyBuckets, activityBuckets]);
 
-  // Build per-activity tool category breakdown from actual tool call data
+  // Build per-activity tool breakdown from actual tool call data
   const toolsByActivity = useMemo(() => {
-    const map: Record<string, { category: string; count: number }[]> = {};
+    const map: Record<string, { name: string; count: number }[]> = {};
     for (const tc of data?.toolCalls ?? []) {
       const activity = tc.activity ?? "overhead";
-      const category = tc.toolCategory ?? "other";
+      const label = tc.displayLabel ?? tc.name;
       if (!map[activity]) map[activity] = [];
-      const existing = map[activity].find((t) => t.category === category);
+      const existing = map[activity].find((t) => t.name === label);
       if (existing) existing.count++;
-      else map[activity].push({ category, count: 1 });
+      else map[activity].push({ name: label, count: 1 });
     }
     for (const tools of Object.values(map)) {
       tools.sort((a, b) => b.count - a.count);
@@ -489,40 +489,22 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                       <div className="tabular-nums">{formatUsd(costPerTurn)}</div>
                                     </div>
                                   </div>
-                                  {/* Tool category breakdown for this activity */}
+                                  {/* Tool breakdown for this activity */}
                                   {(() => {
                                     const tools = toolsByActivity[bucket.bucket];
                                     if (tools && tools.length > 0) {
-                                      const total = tools.reduce((s, t) => s + t.count, 0);
                                       return (
-                                        <div className="space-y-1.5">
-                                          <div className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">Tool mix</div>
-                                          {/* Stacked bar */}
-                                          <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted/40">
-                                            {tools.map((t) => {
-                                              const pct = (t.count / total) * 100;
-                                              return (
-                                                <Tooltip key={t.category} content={`${TOOL_CATEGORY_LABELS[t.category] ?? t.category}: ${t.count} calls (${pct.toFixed(0)}%)`}>
-                                                  <div
-                                                    className={cn("h-full", TOOL_CATEGORY_COLORS[t.category] ?? "bg-gray-400")}
-                                                    style={{ width: `${pct}%` }}
-                                                  />
-                                                </Tooltip>
-                                              );
-                                            })}
-                                          </div>
-                                          {/* Legend */}
+                                        <div className="space-y-1">
+                                          <div className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">Tools</div>
                                           <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                                            {tools.map((t) => {
-                                              const pct = (t.count / total) * 100;
-                                              return (
-                                                <span key={t.category} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                                                  <span className={cn("inline-block h-2 w-2 rounded-full", TOOL_CATEGORY_COLORS[t.category] ?? "bg-gray-400")} />
-                                                  {TOOL_CATEGORY_LABELS[t.category] ?? t.category}
-                                                  <span className="text-muted-foreground/50">{pct.toFixed(0)}%</span>
-                                                </span>
-                                              );
-                                            })}
+                                            {tools.slice(0, 8).map((t) => (
+                                              <span key={t.name} className="text-[10px] text-muted-foreground">
+                                                {t.name} <span className="text-muted-foreground/50">×{t.count}</span>
+                                              </span>
+                                            ))}
+                                            {tools.length > 8 && (
+                                              <span className="text-[10px] text-muted-foreground/50">+{tools.length - 8} more</span>
+                                            )}
                                           </div>
                                         </div>
                                       );

@@ -370,7 +370,7 @@ class RepoStatsEntry(CamelModel, extra="allow"):
 
 
 class ToolMixEntry(CamelModel):
-    category: str = ""
+    activity: str = ""
     count: int = 0
     pct: float = 0.0
     total_duration_ms: float = 0.0

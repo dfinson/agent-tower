@@ -74,7 +74,7 @@ export interface AnalyticsTools {
     p99_duration_ms: number;
   }[];
   toolMix?: {
-    category: string;
+    activity: string;
     count: number;
     pct: number;
     totalDurationMs: number;

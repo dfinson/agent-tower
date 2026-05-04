@@ -271,17 +271,33 @@ class TelemetrySpansRepository(BaseRepository):
         return cast("list[ToolStatsRow]", rows)
 
     async def tool_mix(self, *, period_days: int = 30) -> dict[str, Any]:
-        """Aggregate tool calls by category for percentage breakdown."""
+        """Aggregate tool calls by activity for percentage breakdown.
+
+        Maps tool_category → activity using the same classification as cost
+        breakdown, so the two views use consistent labels.
+        """
         result = await self._session.execute(
             text(f"""
                 SELECT
-                    COALESCE(tool_category, 'other') as category,
+                    CASE COALESCE(tool_category, 'other')
+                        WHEN 'file_write' THEN 'implementation'
+                        WHEN 'git_write' THEN 'git_ops'
+                        WHEN 'git_read' THEN 'git_ops'
+                        WHEN 'file_read' THEN 'investigation'
+                        WHEN 'file_search' THEN 'investigation'
+                        WHEN 'browser' THEN 'investigation'
+                        WHEN 'shell' THEN 'investigation'
+                        WHEN 'agent' THEN 'delegation'
+                        WHEN 'thinking' THEN 'reasoning'
+                        WHEN 'bookkeeping' THEN 'overhead'
+                        ELSE 'overhead'
+                    END as activity,
                     COUNT(*) as count,
                     COALESCE(SUM(duration_ms), 0) as total_duration_ms
                 FROM job_telemetry_spans
                 WHERE span_type = 'tool'
                     AND created_at >= datetime('now', '-{int(period_days)} days')
-                GROUP BY category
+                GROUP BY activity
                 ORDER BY count DESC
             """),
         )
