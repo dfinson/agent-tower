@@ -179,7 +179,7 @@ class AnalyticsService:
         repo = FileAccessRepository(self._session)
         if job_id is not None:
             return await repo.most_accessed_files(job_id=job_id)
-        return await repo.most_accessed_files(period_days=period_days)
+        return await repo.most_accessed_files(period_days=period_days or 30)
 
     # -- Observations --------------------------------------------------------
 

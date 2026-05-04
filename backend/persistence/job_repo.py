@@ -138,7 +138,7 @@ class JobRepository(BaseRepository):
         limit: int = 50,
         cursor: str | None = None,
         include_archived: bool | None = None,
-    ) -> list[Job]:
+    ) -> builtins.list[Job]:
         """List jobs, optionally filtered by state, with cursor-based pagination.
 
         Args:
@@ -169,7 +169,7 @@ class JobRepository(BaseRepository):
         self,
         state: str | None = None,
         include_archived: bool | None = None,
-    ) -> list[Job]:
+    ) -> builtins.list[Job]:
         """List all jobs matching filters, without an upper bound.
 
         Use only in internal recovery/snapshot paths — not for API responses.

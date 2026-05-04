@@ -103,7 +103,7 @@ async def get_workspace_file_raw(
     job_id: str,
     svc: FromDishka[JobService],
     path: str = Query(..., description="Relative path within the worktree"),
-):
+) -> FileResponse:
     """Serve a workspace file with its native content type (for images, PDFs, videos, etc.)."""
     job = await svc.get_job(job_id)
 

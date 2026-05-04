@@ -20,6 +20,7 @@ from backend.services.tool_classifier import classify_shell_command, classify_to
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.models.domain import TelemetrySpanRow
     from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
@@ -387,7 +388,7 @@ def _zero_turn_context() -> TurnContext:
     }
 
 
-def _infer_execution_phases(spans: list[dict[str, Any]]) -> list[str | None]:
+def _infer_execution_phases(spans: list[dict[str, Any]] | list[TelemetrySpanRow]) -> list[str | None]:
     valid_phases = {phase.value for phase in ExecutionPhase}
     inferred: list[str | None] = []
 

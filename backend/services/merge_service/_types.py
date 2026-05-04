@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+__all__ = [
+    "_REF_PATTERN",
+    "_MergeOutcome",
+    "MergeResult",
+    "MergeStatus",
+    "_CHERRY_PICK_ALREADY_APPLIED_PATTERNS",
+    "_NOT_MERGED",
+    "_PR_TITLE_MAX_PROMPT_LEN",
+    "_classify_cherry_pick_failure",
+]
+
 from dataclasses import dataclass
 from enum import StrEnum
 

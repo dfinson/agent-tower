@@ -42,7 +42,7 @@ async def list_artifacts(
 async def download_artifact(
     artifact_id: str,
     svc: FromDishka[ArtifactService],
-):
+) -> FileResponse:
     """Download an artifact file."""
     artifact = await svc.get(artifact_id)
 

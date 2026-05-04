@@ -42,7 +42,7 @@ _BLOCKED_RESPONSE_HEADERS = frozenset(
 )
 
 @router.api_route("/preview/{port:int}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"], response_class=Response)
-async def preview_proxy(port: int, path: str, request: Request, client: FromDishka[PreviewHttpClient]):
+async def preview_proxy(port: int, path: str, request: Request, client: FromDishka[PreviewHttpClient]) -> Response:
     """Reverse-proxy a request to a local development server."""
     if port < 1024 or port > 65535:
         return JSONResponse({"detail": f"Port {port} not allowed (must be 1024-65535)"}, status_code=400)

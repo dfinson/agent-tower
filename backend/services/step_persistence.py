@@ -46,8 +46,10 @@ class StepPersistenceSubscriber:
 
     async def _on_step_completed(self, event: DomainEvent) -> None:
         p = cast(StepCompletedPayloadDict, event.payload)
+        step_id = p["step_id"]
+        assert step_id is not None
         await self._step_repo.complete(
-            step_id=p["step_id"],
+            step_id=step_id,
             status=p["status"],
             tool_count=p.get("tool_count", 0),
             duration_ms=p.get("duration_ms"),

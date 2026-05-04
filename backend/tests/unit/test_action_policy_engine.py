@@ -186,8 +186,7 @@ class TestGetCostContext:
         from backend.services.base_adapter import BaseAgentAdapter
 
         adapter = _make_adapter_with_db_session()
-        summary = MagicMock()
-        summary.total_cost_usd = 12.5
+        summary = {"total_cost_usd": 12.5}
 
         with patch(
             "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository.get",
@@ -203,8 +202,7 @@ class TestGetCostContext:
         from backend.services.base_adapter import BaseAgentAdapter
 
         adapter = _make_adapter_with_db_session()
-        summary = MagicMock()
-        summary.total_cost_usd = 0.0
+        summary = {"total_cost_usd": 0.0}
 
         with patch(
             "backend.persistence.telemetry_summary_repo.TelemetrySummaryRepository.get",

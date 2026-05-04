@@ -29,6 +29,8 @@ from backend.services.setup_dependencies import (  # noqa: F401 — re-exported
     HOST_PLATFORM,
 )
 
+__all__ = ["HOST_PLATFORM", "DEPENDENCIES", "Dependency"]
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------

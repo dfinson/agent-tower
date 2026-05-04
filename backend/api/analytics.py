@@ -216,7 +216,7 @@ async def cost_drivers_for_job(
     by_dimension: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         dim = row.get("dimension", "unknown")
-        by_dimension.setdefault(dim, []).append(row)
+        by_dimension.setdefault(dim, []).append(dict(row))
     return CostDriversJobResponse(job_id=job_id, dimensions=by_dimension)
 
 
@@ -232,9 +232,10 @@ async def fleet_cost_drivers(
         return FleetCostDriversResponse(period=period, dimension=dimension, buckets=rows)
     summary = await svc.fleet_cost_summary(period_days=period)
     # Activity-dimension costs use an equal-weight heuristic per turn, flag them.
-    for row in summary:
+    enriched: list[dict[str, Any]] = [dict(r) for r in summary]
+    for row in enriched:
         row["confidence"] = "approximate" if row.get("dimension") == "activity" else "exact"
-    return FleetCostDriversResponse(period=period, summary=summary)
+    return FleetCostDriversResponse(period=period, summary=enriched)
 
 
 @router.get("/analytics/file-access/{job_id}", response_model=FileAccessJobResponse)

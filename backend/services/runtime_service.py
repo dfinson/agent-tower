@@ -868,7 +868,8 @@ class RuntimeService:
         )
 
         # Create router components
-        assert self._git_service is not None
+        if self._git_service is None:
+            return
         checkpoint_svc = CheckpointService(self._git_service)
         trust_store = TrustStore(self._session_factory)
         await trust_store.load()

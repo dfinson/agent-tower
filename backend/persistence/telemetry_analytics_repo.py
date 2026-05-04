@@ -78,7 +78,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
             ),
             params,
         )
-        return [TelemetrySummaryRow(**cast("dict[str, Any]", r)) for r in result.mappings().all()]
+        return [cast("TelemetrySummaryRow", dict(r)) for r in result.mappings().all()]
 
     async def aggregate(self, *, period_days: int = 7) -> AggregateStats:
         """Return aggregate stats for the analytics overview."""
@@ -112,7 +112,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
         # COUNT/SUM without GROUP BY always returns a row, but guard defensively
         if not row:
             return AggregateStats()
-        return cast("AggregateStats", AggregateStats(**row))
+        return cast("AggregateStats", dict(row))
 
     async def cost_by_day(self, *, period_days: int = 7) -> list[CostByDayRow]:
         """Return daily cost breakdown."""

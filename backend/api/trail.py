@@ -15,11 +15,12 @@ from backend.models.api_schemas import (
     TrailSummaryResponse,
 )
 from backend.services.trail import TrailService
+from backend.services.trail.models import TrailNodeDict
 
 router = APIRouter(tags=["trail"], route_class=DishkaRoute)
 
 
-def _dict_to_node_response(d: dict) -> TrailNodeResponse:
+def _dict_to_node_response(d: TrailNodeDict) -> TrailNodeResponse:
     """Convert a service-layer dict to a Pydantic response model."""
     children = [_dict_to_node_response(c) for c in d.get("children", [])]
     return TrailNodeResponse(

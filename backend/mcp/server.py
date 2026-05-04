@@ -26,7 +26,7 @@ from backend.config import (
     register_repo,
     unregister_repo,
 )
-from backend.models.api_schemas import (
+from backend.models.api_schemas import (  # type: ignore[attr-defined]
     ApprovalResolution,
     ApprovalResponse,
     ArtifactResponse,

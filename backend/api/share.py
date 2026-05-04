@@ -90,7 +90,7 @@ async def stream_shared_events(
     share_service: FromDishka[ShareService],
     sse_manager: FromDishka[SSEManager],
     session_factory: FromDishka[async_sessionmaker],  # type: ignore[type-arg]  # dishka DI resolves the full parameterized type at runtime
-):
+) -> StreamingResponse:
     """SSE stream scoped to a shared job (read-only)."""
     job_id = share_service.validate(token)
 
