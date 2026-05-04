@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { LatencyBucket } from "../MetricsPanelTypes";
+import { formatActivityBucket } from "../MetricsPanelTypes";
 
 // ---------------------------------------------------------------------------
 // Per-Job Latency Breakdown — mirrors cost breakdown with activity categories
@@ -32,19 +33,6 @@ const ACTIVITY_COLORS: Record<string, string> = {
   reasoning: "bg-indigo-400",
   communication: "bg-orange-400",
   idle: "bg-slate-600",
-};
-
-const ACTIVITY_LABELS: Record<string, string> = {
-  implementation: "Implementation",
-  investigation: "Investigation",
-  verification: "Verification",
-  git_ops: "Git Ops",
-  setup: "Setup",
-  delegation: "Delegation",
-  overhead: "Overhead",
-  reasoning: "Reasoning",
-  communication: "Communication",
-  idle: "Idle / Overhead",
 };
 
 export function LatencyBreakdown({
@@ -102,7 +90,7 @@ export function LatencyBreakdown({
               key={seg.bucket}
               className={`h-full ${ACTIVITY_COLORS[seg.bucket] ?? "bg-slate-400"} first:rounded-l-full last:rounded-r-full`}
               style={{ width: `${pct}%` }}
-              title={`${ACTIVITY_LABELS[seg.bucket] ?? seg.bucket}: ${formatDuration(seg.wallClockMs)} (${pct.toFixed(0)}%)`}
+              title={`${formatActivityBucket(seg.bucket)}: ${formatDuration(seg.wallClockMs)} (${pct.toFixed(0)}%)`}
             />
           );
         })}
@@ -124,7 +112,7 @@ export function LatencyBreakdown({
                 className={`w-2 h-2 rounded-sm ${ACTIVITY_COLORS[seg.bucket] ?? "bg-slate-400"}`}
               />
               <span className="text-muted-foreground">
-                {ACTIVITY_LABELS[seg.bucket] ?? seg.bucket}
+                {formatActivityBucket(seg.bucket)}
               </span>
               <span className="text-foreground ml-auto tabular-nums">
                 {formatDuration(seg.wallClockMs)}
@@ -144,7 +132,7 @@ export function LatencyBreakdown({
           <span className="text-foreground">
             {parallelismRatio.toFixed(2)}x
           </span>{" "}
-          — spans overlapped in time
+          — operations overlapped in time
         </div>
       )}
 
@@ -158,7 +146,7 @@ export function LatencyBreakdown({
               key={seg.bucket}
               className="flex items-center gap-1 text-[10px] text-muted-foreground"
             >
-              <span>{ACTIVITY_LABELS[seg.bucket] ?? seg.bucket} p95:</span>
+              <span>{formatActivityBucket(seg.bucket)} p95:</span>
               <span className="text-foreground tabular-nums">
                 {formatDuration(seg.p95Ms)}
               </span>

@@ -203,7 +203,7 @@ export function AnalyticsScreen() {
             <Clock size={14} />
             Latency Breakdown
           </h2>
-          <p className="text-xs text-muted-foreground mb-3">Where wall-clock time goes — LLM wait, tool execution, idle overhead</p>
+          <p className="text-xs text-muted-foreground mb-3">Where wall-clock time goes — by activity, with LLM vs tool split</p>
           <FleetLatencyDriverInsights fleetLatency={fleetLatency} />
         </div>
       )}

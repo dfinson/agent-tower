@@ -2,34 +2,32 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { type FleetLatencyDriversResponse } from "../../api/client";
 import { Tooltip } from "../ui/tooltip";
+import { formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "../MetricsPanelTypes";
 
-const LATENCY_LABELS: Record<string, string> = {
-  implementation: "Implementation",
-  investigation: "Investigation",
-  verification: "Verification",
-  git_ops: "Git Operations",
-  setup: "Setup",
-  delegation: "Delegation",
-  overhead: "Overhead",
-  reasoning: "Reasoning",
-  communication: "Communication",
+const CATEGORY_LABELS: Record<string, string> = {
+  llm: "LLM wait",
+  tool: "Tool execution",
+  approval_wait: "Approval wait",
 };
 
-const LATENCY_DESCRIPTIONS: Record<string, string> = {
-  implementation: "Time spent on turns where the agent edited or created files",
-  investigation: "Time spent reading code, searching, or exploring the codebase",
-  verification: "Time spent running tests to validate changes",
-  git_ops: "Time on git operations — commit, push, diff, status",
-  setup: "Time installing dependencies or setting up the environment",
-  delegation: "Time delegating work to sub-agents",
-  overhead: "Time on internal housekeeping — todos, memory, intent tracking",
-  reasoning: "Time on explicit thinking with no user-facing output",
-  communication: "Time composing messages to the user",
+const CATEGORY_COLORS: Record<string, string> = {
+  llm: "bg-indigo-500",
+  tool: "bg-emerald-500",
+  approval_wait: "bg-amber-500",
 };
 
-function formatLatencyBucket(bucket: string): string {
-  return LATENCY_LABELS[bucket] ?? bucket.replace(/_/g, " ");
-}
+const TOOL_TYPE_LABELS: Record<string, string> = {
+  shell: "Shell",
+  agent: "Sub-agents",
+  browser: "Browser",
+  file_write: "File writes",
+  file_read: "File reads",
+  file_search: "Search",
+  git_write: "Git",
+  git_read: "Git (read)",
+  bookkeeping: "Bookkeeping",
+  thinking: "Thinking",
+};
 
 // ---------------------------------------------------------------------------
 // Fleet Latency Breakdown — mirrors FleetCostDriverInsights layout
@@ -59,6 +57,38 @@ export function FleetLatencyDriverInsights({
     const summary = fleetLatency.summary ?? [];
     return summary
       .filter((row) => row.dimension === "activity")
+      .map((row) => ({
+        bucket: row.bucket,
+        avgWallClockMs: Number(row.avgWallClockMs ?? 0),
+        avgSumDurationMs: Number(row.avgSumDurationMs ?? 0),
+        totalSpanCount: Number(row.totalSpanCount ?? 0),
+        jobCount: Number(row.jobCount ?? 0),
+        avgPctOfTotal: Number(row.avgPctOfTotal ?? 0),
+      }))
+      .sort((a, b) => b.avgWallClockMs - a.avgWallClockMs);
+  }, [fleetLatency.summary]);
+
+  // Tool type breakdown (shell, agent, browser, etc.) for expanded detail
+  const toolTypeRows = useMemo<LatencyRow[]>(() => {
+    const summary = fleetLatency.summary ?? [];
+    return summary
+      .filter((row) => row.dimension === "tool_type")
+      .map((row) => ({
+        bucket: row.bucket,
+        avgWallClockMs: Number(row.avgWallClockMs ?? 0),
+        avgSumDurationMs: Number(row.avgSumDurationMs ?? 0),
+        totalSpanCount: Number(row.totalSpanCount ?? 0),
+        jobCount: Number(row.jobCount ?? 0),
+        avgPctOfTotal: Number(row.avgPctOfTotal ?? 0),
+      }))
+      .sort((a, b) => b.avgWallClockMs - a.avgWallClockMs);
+  }, [fleetLatency.summary]);
+
+  // Category breakdown (llm/tool) for the LLM vs Tool time split
+  const categoryRows = useMemo<LatencyRow[]>(() => {
+    const summary = fleetLatency.summary ?? [];
+    return summary
+      .filter((row) => row.dimension === "category")
       .map((row) => ({
         bucket: row.bucket,
         avgWallClockMs: Number(row.avgWallClockMs ?? 0),
@@ -134,17 +164,16 @@ export function FleetLatencyDriverInsights({
               <div className="flex-1 min-w-0">
                 <Tooltip
                   content={
-                    LATENCY_DESCRIPTIONS[row.bucket] ?? row.bucket
+                    ACTIVITY_DESCRIPTIONS[row.bucket] ?? row.bucket
                   }
                 >
                   <div className="truncate text-foreground text-xs font-medium cursor-help border-b border-dotted border-muted-foreground/30 inline">
-                    {formatLatencyBucket(row.bucket)}
+                    {formatActivityBucket(row.bucket)}
                   </div>
                 </Tooltip>
                 <div className="text-[10px] text-muted-foreground">
-                  {row.totalSpanCount} span
-                  {row.totalSpanCount !== 1 ? "s" : ""} · {pct}% of time ·{" "}
-                  {row.jobCount} job{row.jobCount !== 1 ? "s" : ""}
+                  {row.totalSpanCount.toLocaleString()} calls · {pct}% of time · {row.jobCount} job
+                  {row.jobCount !== 1 ? "s" : ""}  
                 </div>
               </div>
               <div className="text-right tabular-nums shrink-0">
@@ -167,18 +196,23 @@ export function FleetLatencyDriverInsights({
 
             {/* Expanded detail */}
             {isExpanded && (
-              <div className="ml-7 space-y-1 pb-1 border-l border-border/50 pl-3">
+              <div className="ml-7 space-y-2 pb-1 border-l border-border/50 pl-3">
+                {ACTIVITY_DESCRIPTIONS[row.bucket] && (
+                  <div className="text-[10px] text-muted-foreground/80 italic">
+                    {ACTIVITY_DESCRIPTIONS[row.bucket]}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                  <div>
+                    Wall clock:{" "}
+                    <span className="text-foreground">
+                      {formatDurationCompact(row.avgWallClockMs)}
+                    </span>
+                  </div>
                   <div>
                     Sum duration:{" "}
                     <span className="text-foreground">
                       {formatDurationCompact(row.avgSumDurationMs)}
-                    </span>
-                  </div>
-                  <div>
-                    Spans:{" "}
-                    <span className="text-foreground">
-                      {row.totalSpanCount}
                     </span>
                   </div>
                   <div>
@@ -197,6 +231,57 @@ export function FleetLatencyDriverInsights({
           </div>
         );
       })}
+
+      {/* LLM vs Tool time split */}
+      {categoryRows.length > 0 && (
+        <div className="pt-3 mt-2 border-t border-border/50">
+          <div className="text-[10px] font-medium text-muted-foreground mb-1.5">Time by type</div>
+          <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted/40 mb-1.5">
+            {categoryRows.map((c) => {
+              const catTotal = categoryRows.reduce((s, r) => s + r.avgWallClockMs, 0);
+              const w = catTotal > 0 ? (c.avgWallClockMs / catTotal) * 100 : 0;
+              return (
+                <Tooltip key={c.bucket} content={`${CATEGORY_LABELS[c.bucket] ?? c.bucket}: ${formatDurationCompact(c.avgWallClockMs)} avg/job`}>
+                  <div
+                    className={`h-full ${CATEGORY_COLORS[c.bucket] ?? "bg-gray-400"}`}
+                    style={{ width: `${w}%` }}
+                  />
+                </Tooltip>
+              );
+            })}
+          </div>
+          <div className="flex gap-3 text-[10px] text-muted-foreground">
+            {categoryRows.map((c) => (
+              <span key={c.bucket} className="flex items-center gap-1">
+                <span className={`inline-block h-2 w-2 rounded-sm ${CATEGORY_COLORS[c.bucket] ?? "bg-gray-400"}`} />
+                {CATEGORY_LABELS[c.bucket] ?? c.bucket}: {formatDurationCompact(c.avgWallClockMs)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tool type breakdown */}
+      {toolTypeRows.length > 0 && (
+        <div className="pt-3 mt-1 border-t border-border/50">
+          <div className="text-[10px] font-medium text-muted-foreground mb-1.5">Tool execution breakdown</div>
+          <div className="space-y-0.5">
+            {toolTypeRows.map((t) => {
+              const maxToolMs = toolTypeRows[0]?.avgWallClockMs || 1;
+              const barW = (t.avgWallClockMs / maxToolMs) * 100;
+              return (
+                <div key={t.bucket} className="flex items-center gap-2 text-[10px]">
+                  <span className="w-16 truncate text-muted-foreground">{TOOL_TYPE_LABELS[t.bucket] ?? t.bucket}</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${barW}%` }} />
+                  </div>
+                  <span className="w-12 text-right tabular-nums text-muted-foreground">{formatDurationCompact(t.avgWallClockMs)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
