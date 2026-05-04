@@ -433,9 +433,9 @@ async def list_mcp_servers(
 @router.post("/mcp-servers")
 async def create_mcp_server(
     body: MCPServerRequest,
+    sf: FromDishka[async_sessionmaker[AsyncSession]],
+    event_bus: FromDishka[EventBus],
     name: str | None = None,
-    sf: FromDishka[async_sessionmaker[AsyncSession]] = None,
-    event_bus: FromDishka[EventBus] = None,
 ) -> dict[str, Any]:
     # name comes from query param for POST
     if not name:
