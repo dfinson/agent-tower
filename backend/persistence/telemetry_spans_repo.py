@@ -274,20 +274,30 @@ class TelemetrySpansRepository(BaseRepository):
         """Aggregate tool calls by activity for percentage breakdown.
 
         Maps tool_category → activity using the same classification as cost
-        breakdown, so the two views use consistent labels.
+        breakdown, so the two views use consistent labels.  Name-level
+        overrides handle tools that were historically mis-categorised.
         """
         activity_case = """
-            CASE COALESCE(tool_category, 'other')
-                WHEN 'file_write' THEN 'implementation'
-                WHEN 'git_write' THEN 'git_ops'
-                WHEN 'git_read' THEN 'git_ops'
-                WHEN 'file_read' THEN 'investigation'
-                WHEN 'file_search' THEN 'investigation'
-                WHEN 'browser' THEN 'investigation'
-                WHEN 'shell' THEN 'investigation'
-                WHEN 'agent' THEN 'delegation'
-                WHEN 'thinking' THEN 'reasoning'
-                WHEN 'bookkeeping' THEN 'overhead'
+            CASE
+                -- Name-level overrides for historically mis-categorised tools
+                WHEN name IN ('sql', 'report_intent', 'store_memory', 'stop_bash') THEN 'overhead'
+                WHEN name IN ('bash', 'Bash', 'read_bash', 'write_bash') THEN 'investigation'
+                WHEN name IN ('view', 'Read', 'read_file', 'cat') THEN 'investigation'
+                WHEN name IN ('grep', 'Grep', 'glob', 'Glob', 'rg', 'find') THEN 'investigation'
+                WHEN name IN ('web_fetch') THEN 'investigation'
+                WHEN name IN ('edit', 'Edit', 'Write', 'create', 'apply_patch') THEN 'implementation'
+                WHEN name IN ('task', 'skill', 'read_agent', 'Agent', 'list_agents') THEN 'delegation'
+                -- Category-level mapping (for correctly-categorised spans)
+                WHEN COALESCE(tool_category, 'other') = 'file_write' THEN 'implementation'
+                WHEN COALESCE(tool_category, 'other') = 'git_write' THEN 'git_ops'
+                WHEN COALESCE(tool_category, 'other') = 'git_read' THEN 'git_ops'
+                WHEN COALESCE(tool_category, 'other') = 'file_read' THEN 'investigation'
+                WHEN COALESCE(tool_category, 'other') = 'file_search' THEN 'investigation'
+                WHEN COALESCE(tool_category, 'other') = 'browser' THEN 'investigation'
+                WHEN COALESCE(tool_category, 'other') = 'shell' THEN 'investigation'
+                WHEN COALESCE(tool_category, 'other') = 'agent' THEN 'delegation'
+                WHEN COALESCE(tool_category, 'other') = 'thinking' THEN 'reasoning'
+                WHEN COALESCE(tool_category, 'other') IN ('bookkeeping', 'system') THEN 'overhead'
                 ELSE 'overhead'
             END
         """

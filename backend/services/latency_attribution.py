@@ -31,6 +31,42 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+# Maps tool_category (from classify_tool) to an activity — same priority ladder
+# as _classify_turn_intent but applied to individual spans without turn context.
+_TOOL_CATEGORY_TO_ACTIVITY: dict[str, str] = {
+    "file_write": "implementation",
+    "shell": "investigation",  # no command text available; conservative default
+    "git_write": "git_ops",
+    "git_read": "git_ops",
+    "file_read": "investigation",
+    "file_search": "investigation",
+    "browser": "investigation",
+    "agent": "delegation",
+    "bookkeeping": "overhead",
+    "thinking": "reasoning",
+}
+
+
+def _classify_turnless_span(span: dict[str, Any]) -> str:
+    """Classify a span that has no turn_number into an activity.
+
+    Uses the span's type and tool name to determine the activity,
+    mirroring the priority ladder from _classify_turn_intent.
+    """
+    span_type = span.get("span_type", "")
+    if span_type == "llm":
+        return "reasoning"
+    if span_type == "approval":
+        return "overhead"
+    if span_type == "tool":
+        tool_name = span.get("name") or ""
+        cat = classify_tool(tool_name)
+        if cat:
+            return _TOOL_CATEGORY_TO_ACTIVITY.get(cat, "investigation")
+        return "investigation"
+    # Unknown span type — attribute to overhead rather than hiding
+    return "overhead"
+
 
 def _percentile(sorted_values: list[int], pct: float) -> int:
     """Compute percentile from a pre-sorted list."""
@@ -202,17 +238,18 @@ async def _compute_latency(
         by_activity[activity].extend(turn_durations.get(turn_num, []))
         activity_intervals[activity].extend(turn_span_intervals.get(turn_num, []))
 
-    # Also attribute spans with no turn to "other"
+    # Classify turnless spans individually by their own properties
     for span in spans:
         duration_ms = int(float(span.get("duration_ms", 0) or 0))
         if duration_ms <= 0:
             continue
         turn = span.get("turn_number")
         if turn is None:
-            by_activity["other"].append(duration_ms)
+            activity = _classify_turnless_span(span)
+            by_activity[activity].append(duration_ms)
             offset_sec = float(span.get("started_at", 0) or 0)
             start_ms = offset_sec * 1000
-            activity_intervals["other"].append((start_ms, start_ms + duration_ms))
+            activity_intervals[activity].append((start_ms, start_ms + duration_ms))
 
     # Compute attribution rows
     rows: list[dict[str, Any]] = []
