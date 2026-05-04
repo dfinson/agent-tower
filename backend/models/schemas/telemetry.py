@@ -466,6 +466,7 @@ class AnalyticsToolsResponse(CamelModel):
     period: int
     tools: list[ToolStatsEntry] = []
     tool_mix: list[ToolMixEntry] = []
+    tool_mix_job_count: int = 0
 
 
 class AnalyticsReposResponse(CamelModel):

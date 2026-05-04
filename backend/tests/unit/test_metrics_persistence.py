@@ -254,16 +254,18 @@ async def test_spans_tool_mix(session: AsyncSession) -> None:
 
     mix = await repo.tool_mix(period_days=30)
 
-    assert len(mix) == 3
+    entries = mix["entries"]
+    assert mix["total_jobs"] == 1
+    assert len(entries) == 3
     # Sorted by count desc
-    assert mix[0]["category"] == "file_read"
-    assert mix[0]["count"] == 6
-    assert mix[0]["pct"] == pytest.approx(60.0)
-    assert mix[1]["category"] == "shell"
-    assert mix[1]["count"] == 3
-    assert mix[1]["pct"] == pytest.approx(30.0)
-    assert mix[2]["category"] == "file_write"
-    assert mix[2]["count"] == 1
-    assert mix[2]["pct"] == pytest.approx(10.0)
+    assert entries[0]["category"] == "file_read"
+    assert entries[0]["count"] == 6
+    assert entries[0]["pct"] == pytest.approx(60.0)
+    assert entries[1]["category"] == "shell"
+    assert entries[1]["count"] == 3
+    assert entries[1]["pct"] == pytest.approx(30.0)
+    assert entries[2]["category"] == "file_write"
+    assert entries[2]["count"] == 1
+    assert entries[2]["pct"] == pytest.approx(10.0)
     # Duration is summed
-    assert float(mix[1]["total_duration_ms"]) == pytest.approx(600.0)
+    assert float(entries[1]["total_duration_ms"]) == pytest.approx(600.0)

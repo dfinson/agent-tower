@@ -79,6 +79,7 @@ export interface AnalyticsTools {
     pct: number;
     totalDurationMs: number;
   }[];
+  toolMixJobCount?: number;
 }
 
 export interface AnalyticsJobs {

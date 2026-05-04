@@ -270,7 +270,7 @@ class TelemetrySpansRepository(BaseRepository):
 
         return cast("list[ToolStatsRow]", rows)
 
-    async def tool_mix(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+    async def tool_mix(self, *, period_days: int = 30) -> dict[str, Any]:
         """Aggregate tool calls by category for percentage breakdown."""
         result = await self._session.execute(
             text(f"""
@@ -289,7 +289,19 @@ class TelemetrySpansRepository(BaseRepository):
         total = sum(r["count"] for r in rows)
         for row in rows:
             row["pct"] = round(row["count"] / total * 100, 1) if total > 0 else 0.0
-        return rows
+
+        # Count distinct jobs contributing to this mix
+        job_count_result = await self._session.execute(
+            text(f"""
+                SELECT COUNT(DISTINCT job_id) as job_count
+                FROM job_telemetry_spans
+                WHERE span_type = 'tool'
+                    AND created_at >= datetime('now', '-{int(period_days)} days')
+            """),
+        )
+        job_count = job_count_result.scalar() or 0
+
+        return {"entries": rows, "total_jobs": job_count}
 
     async def shell_command_breakdown(self, *, period_days: int = 30, limit: int = 30) -> list[ShellCommandRow]:
         """Aggregate shell commands by tool_target (first word of command).

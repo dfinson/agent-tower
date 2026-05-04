@@ -215,7 +215,9 @@ export function AnalyticsScreen() {
             <Wrench size={14} />
             Tool Mix
           </h2>
-          <p className="text-xs text-muted-foreground mb-3">Percentage breakdown of tool usage by category</p>
+          <p className="text-xs text-muted-foreground mb-3">
+            Tool usage by category across {tools.toolMixJobCount?.toLocaleString() ?? "all"} jobs
+          </p>
           <ToolMix mix={tools.toolMix} />
         </div>
       )}

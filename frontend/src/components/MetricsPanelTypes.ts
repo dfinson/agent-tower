@@ -363,7 +363,7 @@ export const TOOL_CATEGORY_COLORS: Record<string, string> = {
   git_write: "bg-orange-500",
   browser: "bg-cyan-500",
   agent: "bg-pink-500",
-  thinking: "bg-slate-400",
-  bookkeeping: "bg-gray-400",
-  other: "bg-gray-300",
+  thinking: "bg-indigo-400",
+  bookkeeping: "bg-rose-300",
+  other: "bg-gray-400",
 };

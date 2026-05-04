@@ -244,10 +244,13 @@ async def test_analytics_tools_includes_tool_mix():
          "total_duration_ms": 500.0, "failure_count": 0,
          "p50_duration_ms": 45.0, "p95_duration_ms": 80.0, "p99_duration_ms": 95.0},
     ]
-    mock_mix = [
-        {"category": "file_read", "count": 10, "pct": 62.5, "total_duration_ms": 500.0},
-        {"category": "shell", "count": 6, "pct": 37.5, "total_duration_ms": 1200.0},
-    ]
+    mock_mix = {
+        "entries": [
+            {"category": "file_read", "count": 10, "pct": 62.5, "total_duration_ms": 500.0},
+            {"category": "shell", "count": 6, "pct": 37.5, "total_duration_ms": 1200.0},
+        ],
+        "total_jobs": 4,
+    }
     svc = _mock_analytics_svc(tool_stats=mock_stats, tool_mix=mock_mix)
 
     from backend.api.analytics import analytics_tools
@@ -262,3 +265,4 @@ async def test_analytics_tools_includes_tool_mix():
     assert result.tool_mix[0].pct == pytest.approx(62.5)
     assert result.tool_mix[1].category == "shell"
     assert result.tool_mix[1].count == 6
+    assert result.tool_mix_job_count == 4

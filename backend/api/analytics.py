@@ -136,8 +136,13 @@ async def analytics_tools(
 ) -> AnalyticsToolsResponse:
     """Tool performance stats (call counts, failure rates, latency) + category mix."""
     stats = await svc.tool_stats(period_days=period)
-    mix = await svc.tool_mix(period_days=period)
-    return AnalyticsToolsResponse(period=period, tools=stats, tool_mix=mix)
+    mix_data = await svc.tool_mix(period_days=period)
+    return AnalyticsToolsResponse(
+        period=period,
+        tools=stats,
+        tool_mix=mix_data["entries"],
+        tool_mix_job_count=mix_data["total_jobs"],
+    )
 
 
 @router.get("/analytics/repos", response_model=AnalyticsReposResponse)

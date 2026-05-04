@@ -124,7 +124,7 @@ class AnalyticsService:
 
         return await TelemetrySpansRepository(self._session).tool_stats(period_days=period_days)
 
-    async def tool_mix(self, *, period_days: int) -> list[dict]:
+    async def tool_mix(self, *, period_days: int) -> dict:
         from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
         return await TelemetrySpansRepository(self._session).tool_mix(period_days=period_days)
