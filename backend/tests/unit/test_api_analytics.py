@@ -246,8 +246,8 @@ async def test_analytics_tools_includes_tool_mix():
     ]
     mock_mix = {
         "entries": [
-            {"activity": "investigation", "count": 10, "pct": 62.5, "total_duration_ms": 500.0},
-            {"activity": "implementation", "count": 6, "pct": 37.5, "total_duration_ms": 1200.0},
+            {"activity": "investigation", "count": 10, "pct": 62.5, "total_duration_ms": 500.0, "tools": [{"name": "read_file", "count": 10, "pct": 100.0}]},
+            {"activity": "implementation", "count": 6, "pct": 37.5, "total_duration_ms": 1200.0, "tools": [{"name": "edit_file", "count": 6, "pct": 100.0}]},
         ],
         "total_jobs": 4,
     }

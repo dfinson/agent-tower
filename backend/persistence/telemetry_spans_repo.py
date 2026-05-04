@@ -276,27 +276,32 @@ class TelemetrySpansRepository(BaseRepository):
         Maps tool_category → activity using the same classification as cost
         breakdown, so the two views use consistent labels.
         """
+        activity_case = """
+            CASE COALESCE(tool_category, 'other')
+                WHEN 'file_write' THEN 'implementation'
+                WHEN 'git_write' THEN 'git_ops'
+                WHEN 'git_read' THEN 'git_ops'
+                WHEN 'file_read' THEN 'investigation'
+                WHEN 'file_search' THEN 'investigation'
+                WHEN 'browser' THEN 'investigation'
+                WHEN 'shell' THEN 'investigation'
+                WHEN 'agent' THEN 'delegation'
+                WHEN 'thinking' THEN 'reasoning'
+                WHEN 'bookkeeping' THEN 'overhead'
+                ELSE 'overhead'
+            END
+        """
+        period_int = int(period_days)
+
         result = await self._session.execute(
             text(f"""
                 SELECT
-                    CASE COALESCE(tool_category, 'other')
-                        WHEN 'file_write' THEN 'implementation'
-                        WHEN 'git_write' THEN 'git_ops'
-                        WHEN 'git_read' THEN 'git_ops'
-                        WHEN 'file_read' THEN 'investigation'
-                        WHEN 'file_search' THEN 'investigation'
-                        WHEN 'browser' THEN 'investigation'
-                        WHEN 'shell' THEN 'investigation'
-                        WHEN 'agent' THEN 'delegation'
-                        WHEN 'thinking' THEN 'reasoning'
-                        WHEN 'bookkeeping' THEN 'overhead'
-                        ELSE 'overhead'
-                    END as activity,
+                    {activity_case} as activity,
                     COUNT(*) as count,
                     COALESCE(SUM(duration_ms), 0) as total_duration_ms
                 FROM job_telemetry_spans
                 WHERE span_type = 'tool'
-                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                    AND created_at >= datetime('now', '-{period_int} days')
                 GROUP BY activity
                 ORDER BY count DESC
             """),
@@ -306,13 +311,43 @@ class TelemetrySpansRepository(BaseRepository):
         for row in rows:
             row["pct"] = round(row["count"] / total * 100, 1) if total > 0 else 0.0
 
+        # Per-tool breakdown within each activity
+        detail_result = await self._session.execute(
+            text(f"""
+                SELECT
+                    {activity_case} as activity,
+                    name,
+                    COUNT(*) as count
+                FROM job_telemetry_spans
+                WHERE span_type = 'tool'
+                    AND created_at >= datetime('now', '-{period_int} days')
+                GROUP BY activity, name
+                ORDER BY activity, count DESC
+            """),
+        )
+        detail_rows = detail_result.mappings().all()
+        tools_by_activity: dict[str, list[dict[str, Any]]] = {}
+        for dr in detail_rows:
+            act = dr["activity"]
+            if act not in tools_by_activity:
+                tools_by_activity[act] = []
+            tools_by_activity[act].append({"name": dr["name"], "count": dr["count"]})
+
+        for row in rows:
+            act_tools = tools_by_activity.get(row["activity"], [])
+            act_total = row["count"]
+            row["tools"] = [
+                {"name": t["name"], "count": t["count"], "pct": round(t["count"] / act_total * 100, 1) if act_total > 0 else 0.0}
+                for t in act_tools
+            ]
+
         # Count distinct jobs contributing to this mix
         job_count_result = await self._session.execute(
             text(f"""
                 SELECT COUNT(DISTINCT job_id) as job_count
                 FROM job_telemetry_spans
                 WHERE span_type = 'tool'
-                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                    AND created_at >= datetime('now', '-{period_int} days')
             """),
         )
         job_count = job_count_result.scalar() or 0

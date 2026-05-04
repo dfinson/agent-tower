@@ -267,3 +267,13 @@ async def test_spans_tool_mix(session: AsyncSession) -> None:
     assert entries[1]["pct"] == pytest.approx(10.0)
     # Duration is summed: investigation = 6*50 + 3*200 = 900
     assert float(entries[0]["total_duration_ms"]) == pytest.approx(900.0)
+    # Per-tool breakdown within each activity
+    inv_tools = entries[0]["tools"]
+    assert len(inv_tools) == 2
+    assert inv_tools[0]["name"] == "read_file"
+    assert inv_tools[0]["count"] == 6
+    assert inv_tools[1]["name"] == "bash"
+    assert inv_tools[1]["count"] == 3
+    impl_tools = entries[1]["tools"]
+    assert len(impl_tools) == 1
+    assert impl_tools[0]["name"] == "edit"

@@ -369,11 +369,18 @@ class RepoStatsEntry(CamelModel, extra="allow"):
     premium_requests: float = 0.0
 
 
+class ToolMixToolDetail(CamelModel):
+    name: str = ""
+    count: int = 0
+    pct: float = 0.0
+
+
 class ToolMixEntry(CamelModel):
     activity: str = ""
     count: int = 0
     pct: float = 0.0
     total_duration_ms: float = 0.0
+    tools: list[ToolMixToolDetail] = []
 
 
 class ToolStatsEntry(CamelModel, extra="allow"):

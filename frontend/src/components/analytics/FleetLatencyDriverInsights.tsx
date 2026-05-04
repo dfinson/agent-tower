@@ -4,18 +4,28 @@ import { type FleetLatencyDriversResponse } from "../../api/client";
 import { Tooltip } from "../ui/tooltip";
 
 const LATENCY_LABELS: Record<string, string> = {
-  llm: "LLM",
-  tool: "Tool Execution",
-  approval_wait: "Approval Wait",
-  idle: "Idle",
+  implementation: "Implementation",
+  investigation: "Investigation",
+  verification: "Verification",
+  git_ops: "Git Operations",
+  setup: "Setup",
+  delegation: "Delegation",
+  overhead: "Overhead",
+  reasoning: "Reasoning",
+  communication: "Communication",
   other: "Other",
 };
 
 const LATENCY_DESCRIPTIONS: Record<string, string> = {
-  llm: "Time waiting for LLM inference responses",
-  tool: "Time spent executing tool calls (shell, file I/O, etc.)",
-  approval_wait: "Time blocked waiting for user approval",
-  idle: "Time between spans with no active work",
+  implementation: "Time spent on turns where the agent edited or created files",
+  investigation: "Time spent reading code, searching, or exploring the codebase",
+  verification: "Time spent running tests to validate changes",
+  git_ops: "Time on git operations — commit, push, diff, status",
+  setup: "Time installing dependencies or setting up the environment",
+  delegation: "Time delegating work to sub-agents",
+  overhead: "Time on internal housekeeping — todos, memory, intent tracking",
+  reasoning: "Time on explicit thinking with no user-facing output",
+  communication: "Time composing messages to the user",
   other: "Uncategorized latency",
 };
 
@@ -50,7 +60,7 @@ export function FleetLatencyDriverInsights({
   const activityRows = useMemo<LatencyRow[]>(() => {
     const summary = fleetLatency.summary ?? [];
     return summary
-      .filter((row) => row.dimension === "category")
+      .filter((row) => row.dimension === "activity")
       .map((row) => ({
         bucket: row.bucket,
         avgWallClockMs: Number(row.avgWallClockMs ?? 0),

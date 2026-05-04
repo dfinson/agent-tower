@@ -2,12 +2,13 @@ import { useMemo } from "react";
 import type { LatencyBucket } from "../MetricsPanelTypes";
 
 // ---------------------------------------------------------------------------
-// Per-Job Latency Breakdown — stacked waterfall by category
+// Per-Job Latency Breakdown — mirrors cost breakdown with activity categories
 // ---------------------------------------------------------------------------
 
 export type LatencyBucketData = LatencyBucket;
 
 interface Props {
+  activityBuckets: LatencyBucketData[];
   categoryBuckets: LatencyBucketData[];
   totalDurationMs: number;
   idleMs: number;
@@ -20,30 +21,45 @@ function formatDuration(ms: number): string {
   return `${(ms / 60_000).toFixed(1)}m`;
 }
 
-const CATEGORY_COLORS: Record<string, string> = {
-  llm: "bg-violet-500",
-  tool: "bg-amber-500",
-  approval_wait: "bg-red-400",
-  other: "bg-slate-400",
+const ACTIVITY_COLORS: Record<string, string> = {
+  implementation: "bg-blue-500",
+  investigation: "bg-emerald-500",
+  verification: "bg-amber-500",
+  git_ops: "bg-purple-500",
+  setup: "bg-cyan-500",
+  delegation: "bg-pink-500",
+  overhead: "bg-slate-400",
+  reasoning: "bg-indigo-400",
+  communication: "bg-orange-400",
+  other: "bg-slate-500",
   idle: "bg-slate-600",
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  llm: "LLM Wait",
-  tool: "Tool Execution",
-  approval_wait: "Approval Wait",
+const ACTIVITY_LABELS: Record<string, string> = {
+  implementation: "Implementation",
+  investigation: "Investigation",
+  verification: "Verification",
+  git_ops: "Git Ops",
+  setup: "Setup",
+  delegation: "Delegation",
+  overhead: "Overhead",
+  reasoning: "Reasoning",
+  communication: "Communication",
   other: "Other",
   idle: "Idle / Overhead",
 };
 
 export function LatencyBreakdown({
+  activityBuckets,
   categoryBuckets,
   totalDurationMs,
   idleMs,
   parallelismRatio,
 }: Props) {
+  // Primary view: activity buckets (like cost breakdown)
   const segments = useMemo(() => {
-    const sorted = [...categoryBuckets].sort(
+    const buckets = activityBuckets.length > 0 ? activityBuckets : categoryBuckets;
+    const sorted = [...buckets].sort(
       (a, b) => b.wallClockMs - a.wallClockMs,
     );
     // Add idle as a synthetic segment
@@ -86,9 +102,9 @@ export function LatencyBreakdown({
           return (
             <div
               key={seg.bucket}
-              className={`h-full ${CATEGORY_COLORS[seg.bucket] ?? "bg-slate-400"} first:rounded-l-full last:rounded-r-full`}
+              className={`h-full ${ACTIVITY_COLORS[seg.bucket] ?? "bg-slate-400"} first:rounded-l-full last:rounded-r-full`}
               style={{ width: `${pct}%` }}
-              title={`${CATEGORY_LABELS[seg.bucket] ?? seg.bucket}: ${formatDuration(seg.wallClockMs)} (${pct.toFixed(0)}%)`}
+              title={`${ACTIVITY_LABELS[seg.bucket] ?? seg.bucket}: ${formatDuration(seg.wallClockMs)} (${pct.toFixed(0)}%)`}
             />
           );
         })}
@@ -107,10 +123,10 @@ export function LatencyBreakdown({
               className="flex items-center gap-1.5 text-[10px]"
             >
               <div
-                className={`w-2 h-2 rounded-sm ${CATEGORY_COLORS[seg.bucket] ?? "bg-slate-400"}`}
+                className={`w-2 h-2 rounded-sm ${ACTIVITY_COLORS[seg.bucket] ?? "bg-slate-400"}`}
               />
               <span className="text-muted-foreground">
-                {CATEGORY_LABELS[seg.bucket] ?? seg.bucket}
+                {ACTIVITY_LABELS[seg.bucket] ?? seg.bucket}
               </span>
               <span className="text-foreground ml-auto tabular-nums">
                 {formatDuration(seg.wallClockMs)}
@@ -134,9 +150,9 @@ export function LatencyBreakdown({
         </div>
       )}
 
-      {/* P95 stats for non-idle categories */}
+      {/* P95 stats for top activities */}
       <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-        {categoryBuckets
+        {(activityBuckets.length > 0 ? activityBuckets : categoryBuckets)
           .filter((b) => b.spanCount > 0)
           .sort((a, b) => b.p95Ms - a.p95Ms)
           .map((seg) => (
@@ -144,7 +160,7 @@ export function LatencyBreakdown({
               key={seg.bucket}
               className="flex items-center gap-1 text-[10px] text-muted-foreground"
             >
-              <span>{CATEGORY_LABELS[seg.bucket] ?? seg.bucket} p95:</span>
+              <span>{ACTIVITY_LABELS[seg.bucket] ?? seg.bucket} p95:</span>
               <span className="text-foreground tabular-nums">
                 {formatDuration(seg.p95Ms)}
               </span>

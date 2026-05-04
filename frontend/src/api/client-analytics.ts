@@ -78,6 +78,7 @@ export interface AnalyticsTools {
     count: number;
     pct: number;
     totalDurationMs: number;
+    tools: { name: string; count: number; pct: number }[];
   }[];
   toolMixJobCount?: number;
 }
