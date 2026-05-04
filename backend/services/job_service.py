@@ -7,7 +7,7 @@ import glob
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 
@@ -174,6 +174,7 @@ class JobService:
 
         Retries if the generated worktree_name collides with an existing job.
         """
+        assert self._git is not None
         existing_worktrees = self._git.list_worktree_names(resolved_repo)
         existing_branches, existing_job_ids = await asyncio.gather(
             self._git.list_branches(resolved_repo),
@@ -237,6 +238,7 @@ class JobService:
 
         if pre_named:
             # Still verify the pre-computed worktree_name doesn't collide
+            assert worktree_name is not None
             existing_job_ids = await self._job_repo.list_ids()
             if worktree_name in existing_job_ids or (
                 await self._job_repo.get(worktree_name) is not None
@@ -337,6 +339,7 @@ class JobService:
             log.error("job_naming_failed", job_id=job_id, error=str(exc))
             return job
 
+        assert worktree_name is not None
         job_id = worktree_name
 
         # Final collision guard (covers both naming paths).
@@ -685,7 +688,7 @@ class JobService:
         )
         conflict_files: list[str] = []
         if conflict_events:
-            conflict_files = conflict_events[-1].payload.get("conflict_files", [])
+            conflict_files = cast(list[str], conflict_events[-1].payload.get("conflict_files", []))
 
         job = await self.get_job(job_id)
         files_detail = (

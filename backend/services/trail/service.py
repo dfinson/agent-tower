@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -11,7 +11,7 @@ from backend.models.events import DomainEvent
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.trail.activity_tracker import ActivityTracker
 from backend.services.trail.enricher import TrailEnricher
-from backend.services.trail.models import TrailJobState
+from backend.services.trail.models import TrailJobState, TrailResponse, TrailSummary
 from backend.services.trail.node_builder import TrailNodeBuilder
 from backend.services.trail.plan_manager import PlanManager
 from backend.services.trail.query_service import TrailQueryService
@@ -169,10 +169,10 @@ class TrailService:
         kinds: list[str] | None = None,
         flat: bool = False,
         after_seq: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> TrailResponse:
         return await self._query.get_trail(
             job_id, kinds=kinds, flat=flat, after_seq=after_seq,
         )
 
-    async def get_summary(self, job_id: str) -> dict[str, Any]:
+    async def get_summary(self, job_id: str) -> TrailSummary:
         return await self._query.get_summary(job_id)

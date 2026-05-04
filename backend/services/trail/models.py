@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, TypedDict
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from backend.models.events import DomainEvent
+
 # ---------------------------------------------------------------------------
 # Buffer size constants — see context_window_eval.py for derivation
 # ---------------------------------------------------------------------------
@@ -67,6 +69,11 @@ class TrailNodeDict(TypedDict):
     plan_item_status: str | None
     activity_id: str | None
     activity_label: str | None
+    tier: str | None
+    reversible: bool | None
+    contained: bool | None
+    tier_reason: str | None
+    checkpoint_ref: str | None
     children: list[TrailNodeDict]
 
 
@@ -164,7 +171,7 @@ class TrailJobState:
     active_step_id: str | None = None
     current_phase: str | None = None
     next_seq: int = 1
-    pending_events: list = field(default_factory=list)
+    pending_events: list[DomainEvent] = field(default_factory=list)
 
     # Plan management
     plan_steps: list[PlanStep] = field(default_factory=list)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -215,7 +215,7 @@ def build_enrichment_prompt(
     return "\n".join(parts)
 
 
-def parse_enrichment_response(text: str) -> dict | None:
+def parse_enrichment_response(text: str) -> dict[str, Any] | None:
     """Parse LLM enrichment response."""
     import json
 

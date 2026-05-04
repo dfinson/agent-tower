@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import text
 
@@ -130,7 +130,7 @@ class TelemetrySpansRepository(BaseRepository):
             if row.get("is_retry") is not None:
                 row["is_retry"] = bool(row["is_retry"])
             rows.append(row)
-        return rows
+        return cast("list[TelemetrySpanRow]", rows)
 
     async def set_motivation_summary(self, span_id: int, summary: str) -> None:
         """Update the motivation_summary for a span that has been summarized."""
@@ -201,7 +201,7 @@ class TelemetrySpansRepository(BaseRepository):
             """),
             {"job_id": job_id, "turn_id": turn_id},
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[TelemetrySpanRow]", [dict(r) for r in result.mappings().all()])
 
     async def motivated_spans_for_job(
         self,
@@ -221,7 +221,7 @@ class TelemetrySpansRepository(BaseRepository):
             """),
             {"job_id": job_id},
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[TelemetrySpanRow]", [dict(r) for r in result.mappings().all()])
 
     async def tool_stats(self, *, period_days: int = 30) -> list[ToolStatsRow]:
         """Aggregate tool performance stats for analytics."""
@@ -268,7 +268,7 @@ class TelemetrySpansRepository(BaseRepository):
                 row["p95_duration_ms"] = 0
                 row["p99_duration_ms"] = 0
 
-        return rows
+        return cast("list[ToolStatsRow]", rows)
 
     async def shell_command_breakdown(self, *, period_days: int = 30, limit: int = 30) -> list[ShellCommandRow]:
         """Aggregate shell commands by tool_target (first word of command).
@@ -296,7 +296,7 @@ class TelemetrySpansRepository(BaseRepository):
             """),
             {"limit": limit},
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[ShellCommandRow]", [dict(r) for r in result.mappings().all()])
 
     async def file_write_churn(self, job_id: str) -> list[FileChurnRow]:
         """Per-file write count and retry count for a job."""
@@ -311,7 +311,7 @@ class TelemetrySpansRepository(BaseRepository):
             """),
             {"jid": job_id},
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[FileChurnRow]", [dict(r) for r in result.mappings().all()])
 
     async def test_co_modifications(self, job_id: str) -> list[dict[str, Any]]:
         """Find steps where both test and source files were written."""
@@ -364,7 +364,7 @@ class TelemetrySpansRepository(BaseRepository):
             """),
         )
         row = result.mappings().first()
-        return dict(row) if row else {"retry_cost_usd": 0, "retry_count": 0, "total_spans": 0, "total_cost_usd": 0}
+        return cast("RetryCostSummary", dict(row)) if row else {"retry_cost_usd": 0, "retry_count": 0, "total_spans": 0, "total_cost_usd": 0}
 
     async def tool_failure_hotspots(self, *, period_days: int = 30) -> list[dict[str, Any]]:
         """Find tools with high failure rates (for statistical analysis)."""

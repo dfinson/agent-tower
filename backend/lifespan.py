@@ -471,14 +471,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             desc = event.payload.get("description", "Action requires your approval")
             await push_service.notify(
                 title="Approval needed",
-                body=desc,
+                body=str(desc),
                 tag=f"approval-{event.payload.get('approval_id', event.job_id)}",
                 url=f"/jobs/{event.job_id}",
             )
         elif event.kind == DomainEventKind.job_completed:
             await push_service.notify(
                 title="Job completed",
-                body=event.payload.get("resolution", "done"),
+                body=str(event.payload.get("resolution", "done")),
                 tag=f"job-{event.job_id}",
                 url=f"/jobs/{event.job_id}",
             )
@@ -486,7 +486,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             reason = event.payload.get("reason", "unknown error")
             await push_service.notify(
                 title="Job failed",
-                body=reason,
+                body=str(reason),
                 tag=f"job-{event.job_id}",
                 url=f"/jobs/{event.job_id}",
             )

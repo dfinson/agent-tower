@@ -94,9 +94,9 @@ class StepDiffService:
                 start = ev.payload.get("start_sha")
                 end = ev.payload.get("end_sha")
                 if start:
-                    start_sha = start
+                    start_sha = str(start)
                 if end:
-                    end_sha = end
+                    end_sha = str(end)
 
         # Fallback: try StepRow table (internal step IDs like step-XXXX)
         if not start_sha or not end_sha:

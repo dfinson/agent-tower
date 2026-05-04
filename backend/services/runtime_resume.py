@@ -17,6 +17,7 @@ import structlog
 
 from backend.models.domain import (
     TERMINAL_STATES,
+    GitMergeOutcome,
     Job,
     JobNotFoundError,
     JobSpec,
@@ -96,7 +97,7 @@ async def rollback_recovery(host: RuntimeService, job_id: str, snapshot: Recover
             resolution=snapshot.resolution,
             failure_reason=snapshot.failure_reason,
             archived_at=snapshot.archived_at,
-            merge_status=snapshot.merge_status,
+            merge_status=GitMergeOutcome(snapshot.merge_status) if snapshot.merge_status else None,
             pr_url=snapshot.pr_url,
         )
         await session.commit()
@@ -333,8 +334,8 @@ async def resume_job(host: RuntimeService, job_id: str, instruction: str | None 
         previous_merge_status = job.merge_status
         previous_pr_url = job.pr_url
         resume_merge_status = (
-            Resolution.conflict
-            if previous_merge_status == Resolution.conflict or previous_resolution == Resolution.conflict
+            GitMergeOutcome.conflict
+            if previous_merge_status == GitMergeOutcome.conflict or previous_resolution == Resolution.conflict
             else None
         )
 

@@ -27,6 +27,7 @@ from backend.models.domain import (
     TERMINAL_STATES,
     ApprovalResolution,
     CodePlaneError,
+    GitMergeOutcome,
     Job,
     JobNotFoundError,
     JobState,
@@ -546,7 +547,7 @@ class RuntimeService:
             if job is not None:
                 worktree_path = job.worktree_path or job.repo
                 base_ref = job.base_ref
-                post_conflict_merge_requested = job.merge_status == Resolution.conflict
+                post_conflict_merge_requested = job.merge_status == GitMergeOutcome.conflict
         except DBAPIError:
             log.warning("diff_job_lookup_failed", job_id=job_id, exc_info=True)
 
@@ -727,7 +728,7 @@ class RuntimeService:
                     action="merge",
                     merge_service=self._merge_service,
                 )
-                final_resolution = cast("Resolution", resolved)
+                final_resolution = resolved
                 resolution_event = svc.build_job_resolved_event(
                     job_id,
                     resolved,
@@ -867,6 +868,7 @@ class RuntimeService:
         )
 
         # Create router components
+        assert self._git_service is not None
         checkpoint_svc = CheckpointService(self._git_service)
         trust_store = TrustStore(self._session_factory)
         await trust_store.load()
@@ -883,7 +885,7 @@ class RuntimeService:
 
         # Wire into adapter
         adapter = self._resolve_adapter(config.sdk)
-        adapter.set_policy_router(router, policy, job_id, worktree_path or "")
+        adapter.set_policy_router(router, policy, job_id, worktree_path or "")  # type: ignore[attr-defined]
         self._policy_routers[job_id] = router
         self._policy_batchers[job_id] = batcher
 
@@ -1069,7 +1071,7 @@ class RuntimeService:
 
         await self._event_bus.publish(domain_event)
 
-        approval_id = domain_event.payload.get("approval_id", "")
+        approval_id = str(domain_event.payload.get("approval_id", ""))
         resolution = await self._approval_service.wait_for_resolution(approval_id)
 
         await self._event_bus.publish(
@@ -1185,6 +1187,7 @@ class RuntimeService:
 
         # Diff recalculation on file changes
         if _diff_eligible and session_event.kind == SessionEventKind.file_changed:
+            assert self._diff_service is not None and worktree_path and base_ref
             await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
             return EventAction.skip, None, None
 
@@ -1195,6 +1198,7 @@ class RuntimeService:
             and session_event.payload.get("role") == "tool_call"
             and session_event.payload.get("tool_name") != "report_intent"
         ):
+            assert self._diff_service is not None and worktree_path and base_ref
             await self._diff_service.on_worktree_file_modified(job_id, worktree_path, base_ref)
 
         domain_event = self._translate_event(job_id, session_event)
@@ -1203,11 +1207,11 @@ class RuntimeService:
 
         error_reason: str | None = None
         if domain_event.kind == DomainEventKind.job_failed:
-            error_reason = domain_event.payload.get("message", "Agent error")
+            error_reason = str(domain_event.payload.get("message", "Agent error"))
 
         # Suppress SDK echoes
         if domain_event.kind == DomainEventKind.transcript_updated and job_id in self._echo_suppress:
-            content = domain_event.payload.get("content", "")
+            content = str(domain_event.payload.get("content", ""))
             if content in self._echo_suppress[job_id]:
                 self._echo_suppress[job_id].discard(content)
                 return EventAction.skip, None, None
@@ -1275,8 +1279,8 @@ class RuntimeService:
 
             # Model downgrade: publish event, abort session, signal caller
             if domain_event.kind == DomainEventKind.model_downgraded:
-                requested = domain_event.payload.get("requested_model", "")
-                actual = domain_event.payload.get("actual_model", "")
+                requested = str(domain_event.payload.get("requested_model", ""))
+                actual = str(domain_event.payload.get("actual_model", ""))
                 log.warning(
                     "model_downgrade_detected",
                     job_id=job_id,
@@ -1293,25 +1297,26 @@ class RuntimeService:
 
             # Trail service feed (main loop only) — skip ephemeral delta chunks
             if domain_event.kind == DomainEventKind.transcript_updated and self._trail_service is not None:
-                role = domain_event.payload.get("role", "")
+                _p = cast("dict[str, Any]", domain_event.payload)
+                role = str(_p.get("role", ""))
                 if role != "agent_delta":
-                    content = domain_event.payload.get("content", "")
-                    tool_intent = str(domain_event.payload.get("tool_intent") or "")
+                    content = str(_p.get("content", ""))
+                    tool_intent = str(_p.get("tool_intent") or "")
                     await self._trail_service.feed_transcript(job_id, role, content, tool_intent)
 
                 # Feed tool names to trail service for summary context
                 if role == "tool_call":
-                    tool_name = domain_event.payload.get("tool_name", "")
+                    tool_name = str(_p.get("tool_name", ""))
                     if tool_name:
                         await self._trail_service.feed_tool_name(job_id, tool_name)
                     # Native plan capture: extract structured plan data from the
                     # agent's own todo/plan tool.
                     if tool_name in ("manage_todo_list", "TodoWrite"):
-                        await self._ingest_native_plan(job_id, domain_event.payload)
+                        await self._ingest_native_plan(job_id, _p)
 
             # Step tracking — annotate transcript events with step_id
             if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
-                role = domain_event.payload.get("role", "")
+                role = str(domain_event.payload.get("role", ""))
                 if role != "agent_delta":
                     await self._step_tracker.on_transcript_event(job_id, domain_event)
                     current = self._step_tracker.current_step(job_id)
@@ -1495,7 +1500,7 @@ class RuntimeService:
 
         elif role == "tool_output_delta" and is_shell:
             # Streaming stdout/stderr — write chunks as they arrive.
-            chunk = payload.get("content", "")
+            chunk = str(payload.get("content", ""))
             if chunk:
                 self._terminal_service.write_observer_output(terminal_id, chunk)
 
@@ -1590,7 +1595,7 @@ class RuntimeService:
                 )
             )
 
-        return resolved
+        return bool(resolved)
 
     async def _resume_orphaned(self, job_id: str, message: str) -> bool:
         """Auto-resume a job that has no live agent session."""
@@ -1845,7 +1850,7 @@ class RuntimeService:
             job_id=job_id,
             timestamp=datetime.now(UTC),
             kind=kind,
-            payload=event.payload,
+            payload=cast("dict[str, Any]", event.payload),
         )
 
     async def recover_on_startup(self) -> None:

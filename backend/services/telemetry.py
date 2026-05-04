@@ -38,15 +38,15 @@ except ImportError:  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 if _HAS_OTEL:
-    _memory_reader: InMemoryMetricReader | None = None  # type: ignore[type-arg]
-    _span_exporter: InMemorySpanExporter | None = None  # type: ignore[type-arg]
+    _memory_reader: InMemoryMetricReader | None = None
+    _span_exporter: InMemorySpanExporter | None = None
 else:  # pragma: no cover
-    _memory_reader = None  # type: ignore[assignment]
-    _span_exporter = None  # type: ignore[assignment]
+    _memory_reader = None
+    _span_exporter = None
 
 _initialised = False
-meter_provider: MeterProvider | None = None  # type: ignore[type-arg]
-tracer_provider: TracerProvider | None = None  # type: ignore[type-arg]
+meter_provider: MeterProvider | None = None
+tracer_provider: TracerProvider | None = None
 
 
 def init_telemetry() -> None:
@@ -146,7 +146,7 @@ quota_remaining_gauge = meter.create_gauge("cp.quota.remaining_pct", unit="%", d
 # Per-job span tracking — root span per job for waterfall views
 # ---------------------------------------------------------------------------
 
-_job_spans: dict[str, "trace.Span"] = {}  # type: ignore[type-arg]
+_job_spans: dict[str, "trace.Span"] = {}
 
 # Safety cap — prevent unbounded growth if end_job_span is never called
 _JOB_SPANS_MAX = 200
@@ -190,11 +190,11 @@ def end_job_span(job_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def get_memory_reader() -> InMemoryMetricReader | None:  # type: ignore[type-arg]
+def get_memory_reader() -> InMemoryMetricReader | None:
     """Return the in-memory metric reader for live API queries."""
     return _memory_reader
 
 
-def get_span_exporter() -> InMemorySpanExporter | None:  # type: ignore[type-arg]
+def get_span_exporter() -> InMemorySpanExporter | None:
     """Return the in-memory span exporter for live trace queries."""
     return _span_exporter

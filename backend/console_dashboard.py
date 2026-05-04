@@ -243,7 +243,7 @@ class ConsoleLog:
             self._jobs.pop(event.job_id, None)
 
         elif kind == DomainEventKind.job_title_updated:
-            updated_title: str | None = event.payload.get("title")
+            updated_title: str | None = str(event.payload.get("title")) if event.payload.get("title") else None
             if updated_title and event.job_id in self._jobs:
                 self._jobs[event.job_id].title = updated_title
 

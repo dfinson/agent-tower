@@ -7,7 +7,7 @@ or other dimension — enabling cross-job analysis of what drives cost.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
 
@@ -103,7 +103,7 @@ class CostAttributionRepository(BaseRepository):
             """),
             {"job_id": job_id},
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[CostAttributionRow]", [dict(r) for r in result.mappings().all()])
 
     async def by_dimension(
         self,
@@ -131,7 +131,7 @@ class CostAttributionRepository(BaseRepository):
             """),
             {"dimension": dimension, "limit": limit},
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[CostDimensionRow]", [dict(r) for r in result.mappings().all()])
 
     async def fleet_summary(self, *, period_days: int = 30) -> list[FleetCostRow]:
         """Cross-job summary: top cost buckets across all dimensions."""
@@ -153,4 +153,4 @@ class CostAttributionRepository(BaseRepository):
                 LIMIT 100
             """),
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[FleetCostRow]", [dict(r) for r in result.mappings().all()])

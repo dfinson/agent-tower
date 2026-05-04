@@ -43,7 +43,7 @@ class JobRepository(BaseRepository):
             raise JobNotFoundError(f"Job {job_id!r} not found — cannot update a deleted or non-existent row")
         for field, value in updates.items():
             setattr(row, field, value)
-        row.version = (row.version if row.version is not None else 0) + 1  # type: ignore[assignment]  # version column accepts int; mapped type is Optional
+        row.version = (row.version if row.version is not None else 0) + 1
         await self._session.flush()
 
     async def list_ids(self) -> set[str]:

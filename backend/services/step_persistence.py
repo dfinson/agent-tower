@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from backend.models.db import StepRow
-from backend.models.events import DomainEvent, DomainEventKind
+from backend.models.events import DomainEvent, DomainEventKind, StepCompletedPayloadDict, StepStartedPayloadDict
 
 if TYPE_CHECKING:
     from backend.persistence.step_repo import StepRepository
@@ -32,7 +32,7 @@ class StepPersistenceSubscriber:
         # All other event kinds: early return (no-op)
 
     async def _on_step_started(self, event: DomainEvent) -> None:
-        p = event.payload
+        p = cast(StepStartedPayloadDict, event.payload)
         row = StepRow(
             id=p["step_id"],
             job_id=event.job_id,
@@ -45,7 +45,7 @@ class StepPersistenceSubscriber:
         await self._step_repo.create(row)
 
     async def _on_step_completed(self, event: DomainEvent) -> None:
-        p = event.payload
+        p = cast(StepCompletedPayloadDict, event.payload)
         await self._step_repo.complete(
             step_id=p["step_id"],
             status=p["status"],

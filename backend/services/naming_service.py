@@ -26,7 +26,7 @@ class NamingError(CodePlaneError):
 class Completable(Protocol):
     """Anything with an async complete(prompt) → str method."""
 
-    async def complete(self, prompt: str, *, timeout: float | None = None) -> str: ...
+    async def complete(self, prompt: str, timeout: float = ...) -> str: ...
 
 
 _NAMING_PROMPT = """\

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
+from typing import Any, cast
 
 from backend.models.api_schemas import (
     ApprovalResponse,
@@ -160,7 +160,7 @@ async def _build_diff(
             job.id, [DomainEventKind.diff_updated]
         )
         if diff_events:
-            raw_files = diff_events[-1].payload.get("changed_files", [])
+            raw_files = cast(list[Any], diff_events[-1].payload.get("changed_files", []))
             diff = [DiffFileModel.model_validate(f) for f in raw_files]
     return diff
 

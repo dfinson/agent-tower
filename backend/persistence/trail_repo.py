@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, func, select, update
 
 from backend.models.db import TrailNodeRow
 
@@ -399,7 +399,7 @@ class TrailNodeRepository:
                 .where(TrailNodeRow.tool_display.is_(None))
                 .values(**values)
             )
-            result = await session.execute(stmt)
+            result = cast(CursorResult[Any], await session.execute(stmt))
             await session.commit()
             return (result.rowcount or 0) > 0
 

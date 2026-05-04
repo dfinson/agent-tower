@@ -6,7 +6,7 @@ upserts) from read-path (analytics queries, scorecards, comparisons).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
 
@@ -78,7 +78,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
             ),
             params,
         )
-        return [TelemetrySummaryRow(**r) for r in result.mappings().all()]  # type: ignore[arg-type]
+        return [TelemetrySummaryRow(**cast("dict[str, Any]", r)) for r in result.mappings().all()]
 
     async def aggregate(self, *, period_days: int = 7) -> AggregateStats:
         """Return aggregate stats for the analytics overview."""
@@ -112,7 +112,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
         # COUNT/SUM without GROUP BY always returns a row, but guard defensively
         if not row:
             return AggregateStats()
-        return AggregateStats(**row)
+        return cast("AggregateStats", AggregateStats(**row))
 
     async def cost_by_day(self, *, period_days: int = 7) -> list[CostByDayRow]:
         """Return daily cost breakdown."""
@@ -128,7 +128,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 ORDER BY date(created_at)
             """),
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[CostByDayRow]", [dict(r) for r in result.mappings().all()])
 
     async def cost_by_repo(self, *, period_days: int = 7) -> list[CostByRepoRow]:
         """Return per-repo cost / job count / token breakdown."""
@@ -150,7 +150,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 ORDER BY total_cost_usd DESC
             """),
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[CostByRepoRow]", [dict(r) for r in result.mappings().all()])
 
     async def cost_by_model(self, *, period_days: int = 7) -> list[CostByModelRow]:
         """Return per-model cost / job count / token breakdown with normalized metrics."""
@@ -199,7 +199,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 ORDER BY total_cost_usd DESC
             """),
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[CostByModelRow]", [dict(r) for r in result.mappings().all()])
 
     # ------------------------------------------------------------------
     # Scorecard / resolution-joined queries
@@ -316,7 +316,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
             """),
             params,
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[ModelComparisonRow]", [dict(r) for r in result.mappings().all()])
 
     async def job_context(self, job_id: str) -> dict[str, Any] | None:
         """Job telemetry plus comparison against repo averages."""

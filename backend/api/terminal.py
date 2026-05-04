@@ -220,10 +220,10 @@ async def terminal_ws(ws: WebSocket) -> None:
                 if attached_session_id:
                     data = msg.get("data", "")
                     if isinstance(data, str):
-                        raw = data.encode("utf-8")
-                        handled = await svc.handle_observer_input(attached_session_id, raw)
+                        input_bytes = data.encode("utf-8")
+                        handled = await svc.handle_observer_input(attached_session_id, input_bytes)
                         if not handled:
-                            svc.write(attached_session_id, raw)
+                            svc.write(attached_session_id, input_bytes)
 
             elif msg_type == "resize":
                 if attached_session_id:

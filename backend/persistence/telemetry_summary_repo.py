@@ -7,7 +7,7 @@ always up-to-date.  No timers, no flush intervals.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import text
 
@@ -292,7 +292,7 @@ class TelemetrySummaryRepository(BaseRepository):
         row = result.mappings().first()
         if row is None:
             return None
-        return TelemetrySummaryRow(**row)  # type: ignore[arg-type]
+        return cast("TelemetrySummaryRow", dict(row))
 
     async def batch_cost_tokens(self, job_ids: list[str]) -> dict[str, dict[str, float | int]]:
         """Return {job_id: {total_cost_usd, total_tokens}} for a batch of jobs.

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import structlog
 
@@ -245,7 +245,7 @@ class SummarizationService:
                 changed_files = await trail_repo.get_all_changed_files(job_id)
 
                 # Build cleaned turns from trail nodes
-                turns: list[TranscriptTurn] = []
+                turns: list[dict[str, Any]] = []
                 seen_assistant: set[str] = set()
                 for node in snapshot_nodes:
                     ts = node.timestamp.isoformat() if node.timestamp else ""
@@ -323,13 +323,13 @@ class SummarizationService:
 def _clean_transcript(events: list[DomainEvent]) -> list[TranscriptTurn]:
     """Filter and deduplicate transcript events, keeping only agent+operator turns."""
     seen: set[str] = set()
-    result = []
+    result: list[TranscriptTurn] = []
     prev_role = None
     prev_content = None
 
     for ev in events:
-        role = ev.payload.get("role", "")
-        content = (ev.payload.get("content") or "").strip()
+        role = str(ev.payload.get("role", ""))
+        content = (str(ev.payload.get("content") or "")).strip()
 
         # Skip empty, skip tool scaffolding noise (role not agent/operator/user)
         if not content:
@@ -352,12 +352,12 @@ def _clean_transcript(events: list[DomainEvent]) -> list[TranscriptTurn]:
         seen.add(key)
         prev_role = role
         prev_content = content
-        result.append({"role": role, "content": content, "timestamp": ev.payload.get("timestamp", "")})
+        result.append({"role": role, "content": content, "timestamp": str(ev.payload.get("timestamp", ""))})
 
     return result
 
 
-def _clean_transcript_from_trail(nodes: list) -> list[TranscriptTurn]:
+def _clean_transcript_from_trail(nodes: list[Any]) -> list[TranscriptTurn]:
     """Build cleaned transcript turns from trail nodes.
 
     Step nodes (modify/shell/explore) carry agent content in agent_message.
@@ -403,7 +403,7 @@ def extract_changed_files(diff_events: list[DomainEvent]) -> list[str]:
     """Extract unique changed file paths from diff_updated events."""
     paths: set[str] = set()
     for ev in diff_events:
-        for f in ev.payload.get("changed_files", []):
+        for f in cast(list[dict[str, Any]], ev.payload.get("changed_files", [])):
             path = f.get("path") or f.get("new_path") or ""
             if path:
                 paths.add(path)

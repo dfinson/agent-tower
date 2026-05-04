@@ -69,26 +69,34 @@ class DomainEventKind(StrEnum):
 # ---------------------------------------------------------------------------
 
 
-class JobSetupProgressPayloadDict(TypedDict, total=False):
+class _BasePayload(TypedDict, total=False):
+    """Fields injected at runtime by RuntimeService (step tracking, session tagging)."""
+
+    step_id: str | None
+    step_number: int | None
+    session_number: int
+
+
+class JobSetupProgressPayloadDict(_BasePayload, total=False):
     step: str
 
 
-class JobCanceledPayloadDict(TypedDict, total=False):
+class JobCanceledPayloadDict(_BasePayload, total=False):
     reason: str
 
 
-class StepEntriesReassignedPayloadDict(TypedDict, total=False):
+class StepEntriesReassignedPayloadDict(_BasePayload, total=False):
     turn_id: str
     old_step_id: str
     new_step_id: str
 
 
-class EmptyPayloadDict(TypedDict):
+class EmptyPayloadDict(_BasePayload):
     """Payload for events that carry no data (e.g. job_archived)."""
 
 
 
-class LogLinePayloadDict(TypedDict, total=False):
+class LogLinePayloadDict(_BasePayload, total=False):
     seq: int
     timestamp: str
     level: str
@@ -96,7 +104,7 @@ class LogLinePayloadDict(TypedDict, total=False):
     context: dict[str, Any] | None
 
 
-class TranscriptPayloadDict(TypedDict, total=False):
+class TranscriptPayloadDict(_BasePayload, total=False):
     seq: int
     timestamp: str
     role: str
@@ -112,8 +120,6 @@ class TranscriptPayloadDict(TypedDict, total=False):
     tool_title: str | None
     tool_display: str | None
     tool_duration_ms: int | None
-    step_id: str | None
-    step_number: int | None
 
 
 class DiffFilePayloadDict(TypedDict, total=False):
@@ -126,30 +132,30 @@ class DiffFilePayloadDict(TypedDict, total=False):
     retry_count: int | None
 
 
-class DiffPayloadDict(TypedDict, total=False):
+class DiffPayloadDict(_BasePayload, total=False):
     changed_files: list[DiffFilePayloadDict]
 
 
-class ApprovalRequestedPayloadDict(TypedDict, total=False):
+class ApprovalRequestedPayloadDict(_BasePayload, total=False):
     approval_id: str
     description: str
     proposed_action: str | None
     timestamp: str
 
 
-class ApprovalResolvedPayloadDict(TypedDict, total=False):
+class ApprovalResolvedPayloadDict(_BasePayload, total=False):
     approval_id: str
     resolution: ApprovalResolution
     timestamp: str
 
 
-class JobStatePayloadDict(TypedDict, total=False):
+class JobStatePayloadDict(_BasePayload, total=False):
     state: JobState
     new_state: JobState
     previous_state: JobState | None
 
 
-class JobReviewPayloadDict(TypedDict, total=False):
+class JobReviewPayloadDict(_BasePayload, total=False):
     pr_url: str | None
     merge_status: GitMergeOutcome | None
     resolution: Resolution | None
@@ -158,29 +164,29 @@ class JobReviewPayloadDict(TypedDict, total=False):
     actual_model: str | None
 
 
-class JobCompletedPayloadDict(TypedDict, total=False):
+class JobCompletedPayloadDict(_BasePayload, total=False):
     resolution: Resolution | None
     merge_status: GitMergeOutcome | None
     pr_url: str | None
 
 
-class JobFailedPayloadDict(TypedDict, total=False):
+class JobFailedPayloadDict(_BasePayload, total=False):
     reason: str
 
 
-class SessionHeartbeatPayloadDict(TypedDict, total=False):
+class SessionHeartbeatPayloadDict(_BasePayload, total=False):
     session_id: str
     timestamp: str
 
 
-class MergeCompletedPayloadDict(TypedDict, total=False):
+class MergeCompletedPayloadDict(_BasePayload, total=False):
     branch: str
     base_ref: str
     strategy: str
     timestamp: str
 
 
-class MergeConflictPayloadDict(TypedDict, total=False):
+class MergeConflictPayloadDict(_BasePayload, total=False):
     branch: str
     base_ref: str
     conflict_files: list[str]
@@ -189,37 +195,36 @@ class MergeConflictPayloadDict(TypedDict, total=False):
     timestamp: str
 
 
-class SessionResumedPayloadDict(TypedDict, total=False):
-    session_number: int
+class SessionResumedPayloadDict(_BasePayload, total=False):
     timestamp: str
 
 
-class JobResolvedPayloadDict(TypedDict, total=False):
+class JobResolvedPayloadDict(_BasePayload, total=False):
     resolution: Resolution
     pr_url: str | None
     conflict_files: list[str] | None
     error: str | None
 
 
-class JobTitleUpdatedPayloadDict(TypedDict, total=False):
+class JobTitleUpdatedPayloadDict(_BasePayload, total=False):
     title: str | None
     branch: str | None
     description: str | None
 
 
-class ProgressHeadlinePayloadDict(TypedDict, total=False):
+class ProgressHeadlinePayloadDict(_BasePayload, total=False):
     headline: str
     headline_past: str
     summary: str
     replaces_count: int
 
 
-class ModelDowngradedPayloadDict(TypedDict, total=False):
+class ModelDowngradedPayloadDict(_BasePayload, total=False):
     requested_model: str
     actual_model: str
 
 
-class ToolGroupSummaryPayloadDict(TypedDict, total=False):
+class ToolGroupSummaryPayloadDict(_BasePayload, total=False):
     turn_id: str
     summary: str
 
@@ -229,15 +234,15 @@ class AgentPlanStepDict(TypedDict, total=False):
     status: str
 
 
-class AgentPlanUpdatedPayloadDict(TypedDict, total=False):
+class AgentPlanUpdatedPayloadDict(_BasePayload, total=False):
     steps: list[AgentPlanStepDict]
 
 
-class ExecutionPhasePayloadDict(TypedDict, total=False):
+class ExecutionPhasePayloadDict(_BasePayload, total=False):
     phase: ExecutionPhase
 
 
-class TelemetryUpdatedPayloadDict(TypedDict, total=False):
+class TelemetryUpdatedPayloadDict(_BasePayload, total=False):
     job_id: str
     total_cost_usd: float
     total_tokens: int
@@ -245,16 +250,13 @@ class TelemetryUpdatedPayloadDict(TypedDict, total=False):
     output_tokens: int
 
 
-class StepStartedPayloadDict(TypedDict, total=False):
-    step_id: str
-    step_number: int
+class StepStartedPayloadDict(_BasePayload, total=False):
     turn_id: str | None
     intent: str
     trigger: str
 
 
-class StepCompletedPayloadDict(TypedDict, total=False):
-    step_id: str
+class StepCompletedPayloadDict(_BasePayload, total=False):
     status: str
     tool_count: int
     duration_ms: int
@@ -268,12 +270,11 @@ class StepCompletedPayloadDict(TypedDict, total=False):
     preceding_context: str | None
 
 
-class StepTitlePayloadDict(TypedDict, total=False):
-    step_id: str
+class StepTitlePayloadDict(_BasePayload, total=False):
     title: str
 
 
-class PlanStepUpdatedPayloadDict(TypedDict, total=False):
+class PlanStepUpdatedPayloadDict(_BasePayload, total=False):
     plan_step_id: str
     label: str
     summary: str | None
@@ -287,7 +288,7 @@ class PlanStepUpdatedPayloadDict(TypedDict, total=False):
     end_sha: str | None
 
 
-class TurnSummaryPayloadDict(TypedDict, total=False):
+class TurnSummaryPayloadDict(_BasePayload, total=False):
     turn_id: str
     title: str
     activity_id: str
@@ -330,6 +331,7 @@ EventPayload = (
     | TurnSummaryPayloadDict
     | StepEntriesReassignedPayloadDict
     | EmptyPayloadDict
+    | dict[str, Any]
 )
 
 

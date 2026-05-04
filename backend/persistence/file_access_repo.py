@@ -6,7 +6,7 @@ Records every file read/write by tool calls for redundant I/O analysis.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import text
 
@@ -102,7 +102,7 @@ class FileAccessRepository(BaseRepository):
                 "reread_count": 0,
             }
 
-        stats = dict(row)
+        stats: FileAccessStatsRow = cast("FileAccessStatsRow", dict(row))
 
         # Count rereads: files read more than once
         reread_result = await self._session.execute(
@@ -145,7 +145,7 @@ class FileAccessRepository(BaseRepository):
             """),
             {**params, "limit": limit},
         )
-        return [dict(r) for r in result.mappings().all()]
+        return cast("list[FileAccessRow]", [dict(r) for r in result.mappings().all()])
 
     async def reread_hotspots(self, *, period_days: int = 30) -> list[dict[str, Any]]:
         """Find files read excessively across jobs (for statistical analysis)."""

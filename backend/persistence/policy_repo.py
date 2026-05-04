@@ -6,9 +6,9 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import CursorResult, delete, select, update
 
 from backend.models.db import (
     ActionRuleRow,
@@ -89,8 +89,9 @@ class PolicyRepository(BaseRepository):
                 "reason": row.reason, "created_at": row.created_at}
 
     async def delete_path_rule(self, rule_id: str) -> bool:
-        result = await self._session.execute(
-            delete(PathRuleRow).where(PathRuleRow.id == rule_id)
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(delete(PathRuleRow).where(PathRuleRow.id == rule_id)),
         )
         return result.rowcount > 0
 
@@ -134,8 +135,9 @@ class PolicyRepository(BaseRepository):
                 "reason": row.reason, "created_at": row.created_at}
 
     async def delete_action_rule(self, rule_id: str) -> bool:
-        result = await self._session.execute(
-            delete(ActionRuleRow).where(ActionRuleRow.id == rule_id)
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(delete(ActionRuleRow).where(ActionRuleRow.id == rule_id)),
         )
         return result.rowcount > 0
 
@@ -182,8 +184,9 @@ class PolicyRepository(BaseRepository):
                 "created_at": row.created_at}
 
     async def delete_cost_rule(self, rule_id: str) -> bool:
-        result = await self._session.execute(
-            delete(CostRuleRow).where(CostRuleRow.id == rule_id)
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(delete(CostRuleRow).where(CostRuleRow.id == rule_id)),
         )
         return result.rowcount > 0
 
@@ -233,8 +236,9 @@ class PolicyRepository(BaseRepository):
         return _mcp_row_to_dict(row)
 
     async def delete_mcp_config(self, name: str) -> bool:
-        result = await self._session.execute(
-            delete(MCPServerConfigRow).where(MCPServerConfigRow.name == name)
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(delete(MCPServerConfigRow).where(MCPServerConfigRow.name == name)),
         )
         return result.rowcount > 0
 
@@ -267,8 +271,9 @@ class PolicyRepository(BaseRepository):
         return _grant_row_to_dict(row)
 
     async def delete_trust_grant(self, grant_id: str) -> bool:
-        result = await self._session.execute(
-            delete(TrustGrantRow).where(TrustGrantRow.id == grant_id)
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(delete(TrustGrantRow).where(TrustGrantRow.id == grant_id)),
         )
         return result.rowcount > 0
 

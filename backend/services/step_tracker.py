@@ -17,7 +17,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence, cast
 
 import structlog
 
@@ -103,7 +103,7 @@ class StepTracker:
 
     async def on_transcript_event(self, job_id: str, event: DomainEvent) -> None:
         """Process a TranscriptUpdated event."""
-        payload = event.payload
+        payload = cast("dict[str, Any]", event.payload)
         role = payload.get("role", "")
         content = payload.get("content", "")
         turn_id = payload.get("turn_id") or ""
@@ -370,7 +370,8 @@ def _detect_latest_generation(step_events: Sequence[DomainEvent]) -> set[str]:
     current_gen_start: float = 0.0
 
     for ev in step_events:
-        sid = ev.payload.get("plan_step_id", "")
+        payload = cast("dict[str, Any]", ev.payload)
+        sid = payload.get("plan_step_id", "")
         if not sid:
             continue
         ts = ev.timestamp.timestamp() if hasattr(ev.timestamp, "timestamp") else 0.0
@@ -417,12 +418,13 @@ def hydrate_plan_steps(
     step_latest: dict[str, dict[str, Any]] = {}
     step_order: list[str] = []
     for ev in step_events:
-        sid = ev.payload.get("plan_step_id", "")
+        payload = cast("dict[str, Any]", ev.payload)
+        sid = payload.get("plan_step_id", "")
         if not sid:
             continue
         if allowed_ids is not None and sid not in allowed_ids:
             continue
-        step_latest[sid] = ev.payload
+        step_latest[sid] = payload
         if sid not in step_order:
             step_order.append(sid)
 

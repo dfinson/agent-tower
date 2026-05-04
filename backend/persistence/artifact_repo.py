@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import delete, select
 
 from backend.models.api_schemas import ArtifactType, ExecutionPhase
@@ -63,7 +65,7 @@ class ArtifactRepository(BaseRepository):
         result = await self._session.execute(select(ArtifactRow).where(ArtifactRow.id == artifact_id))
         row = result.scalar_one_or_none()
         if row is not None:
-            row.size_bytes = size_bytes  # type: ignore[assignment]  # Column[int] vs int
+            row.size_bytes = size_bytes
             await self._session.flush()
 
     async def delete_expired(self, cutoff: datetime) -> list[Artifact]:

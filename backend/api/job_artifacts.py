@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
@@ -84,7 +84,7 @@ async def get_job_logs(
     events = await svc.list_events_by_job(job_id, [DomainEventKind.log_line_emitted], limit=limit)
     lines = []
     for event in events:
-        payload = event.payload
+        payload = cast("dict[str, Any]", event.payload)
         event_level = payload.get("level", "info")
         if _level_order.get(event_level, 1) < min_priority:
             continue
@@ -142,7 +142,7 @@ async def get_job_diff(
         events = await svc.list_events_by_job(job_id, [DomainEventKind.diff_updated])
         if not events:
             return DiffListResponse(items=[])
-        raw_files = events[-1].payload.get("changed_files", [])
+        raw_files = cast("list[dict[str, Any]]", events[-1].payload.get("changed_files", []))
         files = [DiffFileModel.model_validate(f) for f in raw_files]
 
     # Enrich with per-file write/retry churn data
@@ -179,23 +179,23 @@ async def get_job_transcript(
     return TranscriptListResponse(items=[
         TranscriptPayload(
             job_id=event.job_id,
-            seq=event.payload.get("seq", 0),
-            timestamp=event.payload.get("timestamp", event.timestamp),
-            role=event.payload.get("role", "agent"),
-            content=event.payload.get("content", ""),
-            title=event.payload.get("title"),
-            turn_id=event.payload.get("turn_id"),
-            tool_name=event.payload.get("tool_name"),
-            tool_args=event.payload.get("tool_args"),
-            tool_result=event.payload.get("tool_result"),
-            tool_success=event.payload.get("tool_success"),
-            tool_issue=event.payload.get("tool_issue"),
-            tool_intent=event.payload.get("tool_intent"),
-            tool_title=event.payload.get("tool_title"),
-            tool_display=resolve_tool_display(event.payload),
-            tool_display_full=resolve_tool_display_full(event.payload),
-            tool_duration_ms=event.payload.get("tool_duration_ms"),
-            tool_group_summary=group_summary_by_turn.get(event.payload.get("turn_id") or ""),
+            seq=(p := cast("dict[str, Any]", event.payload)).get("seq", 0),
+            timestamp=p.get("timestamp", event.timestamp),
+            role=p.get("role", "agent"),
+            content=p.get("content", ""),
+            title=p.get("title"),
+            turn_id=p.get("turn_id"),
+            tool_name=p.get("tool_name"),
+            tool_args=p.get("tool_args"),
+            tool_result=p.get("tool_result"),
+            tool_success=p.get("tool_success"),
+            tool_issue=p.get("tool_issue"),
+            tool_intent=p.get("tool_intent"),
+            tool_title=p.get("tool_title"),
+            tool_display=resolve_tool_display(p),
+            tool_display_full=resolve_tool_display_full(p),
+            tool_duration_ms=p.get("tool_duration_ms"),
+            tool_group_summary=group_summary_by_turn.get(p.get("turn_id") or ""),
         )
         for event in events
     ])
@@ -216,14 +216,16 @@ async def get_job_steps(
     # De-duplicate: keep the latest event per plan_step_id (events are ordered chronologically)
     latest_by_id: dict[str, dict[str, Any]] = {}
     for ev in events:
-        step_id = ev.payload.get("plan_step_id", "")
+        p = cast("dict[str, Any]", ev.payload)
+        step_id = p.get("plan_step_id", "")
         if step_id:
-            latest_by_id[step_id] = ev.payload
+            latest_by_id[step_id] = p
 
     # Build response preserving insertion order (first-seen order = plan order)
     seen_order: list[str] = []
     for ev in events:
-        sid = ev.payload.get("plan_step_id", "")
+        p = cast("dict[str, Any]", ev.payload)
+        sid = p.get("plan_step_id", "")
         if sid and sid not in seen_order:
             seen_order.append(sid)
 
@@ -287,7 +289,7 @@ async def search_transcript(
     events = await event_repo.search_transcript(job_id, q, roles=roles, step_id=step_id, limit=limit)
     results = []
     for evt in events:
-        payload = evt.payload
+        payload = cast("dict[str, Any]", evt.payload)
         results.append(
             TranscriptSearchResult(
                 seq=int(payload.get("seq", 0)),
@@ -347,15 +349,16 @@ async def get_job_timeline(
     # Replay events to reconstruct the collapsed milestone list
     milestones: list[ProgressHeadlinePayload] = []
     for event in events:
-        replaces = event.payload.get("replaces_count", 0)
+        ep = cast("dict[str, Any]", event.payload)
+        replaces = int(ep.get("replaces_count", 0) or 0)
         if replaces > 0:
             milestones = milestones[:-replaces] if replaces < len(milestones) else []
         milestones.append(
             ProgressHeadlinePayload(
                 job_id=event.job_id,
-                headline=event.payload.get("headline", ""),
-                headline_past=event.payload.get("headline_past", ""),
-                summary=event.payload.get("summary", ""),
+                headline=ep.get("headline", ""),
+                headline_past=ep.get("headline_past", ""),
+                summary=ep.get("summary", ""),
                 timestamp=event.timestamp,
             )
         )

@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator, Coroutine
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import structlog
 
@@ -37,6 +37,7 @@ from backend.services.permission_policy import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.services.action_policy.classifier import CostContext
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
     from backend.services.retry_tracker import RetryTracker
@@ -127,7 +128,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             q.put_nowait(event)
         # Buffer transcript events for motivation context capture
         if event.kind == SessionEventKind.transcript:
-            self._buffer_transcript(session_id, event.payload)
+            self._buffer_transcript(session_id, cast(dict[str, Any], event.payload))
 
     # ------------------------------------------------------------------
     # Transcript ring buffer for motivation context
@@ -311,7 +312,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             yield session
             await session.commit()
 
-    async def _db_write_increment(self, *, job_id: str, **counters: int | float) -> None:
+    async def _db_write_increment(self, *, job_id: str, **counters: Any) -> None:
         """Increment telemetry summary counters."""
         totals: dict[str, float | int] = {}
         try:
@@ -933,8 +934,8 @@ class BaseAgentAdapter(AgentAdapterInterface):
             async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
                 summary = await TelemetrySummaryRepository(session).get(job_id)
-                if summary and summary.total_cost_usd is not None:
-                    return CostContext(job_spend_usd=summary.total_cost_usd)
+                if summary and summary["total_cost_usd"] is not None:
+                    return CostContext(job_spend_usd=summary["total_cost_usd"])
         except (_NoSessionFactory, DBAPIError, OSError):
             log.warning("cost_context_fetch_failed", job_id=job_id, exc_info=True)
         return None

@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import httpx
 import structlog
@@ -91,6 +91,13 @@ class StoryBlock(TypedDict, total=False):
     stepTitle: str
     turnId: str
     editCount: int
+    snippet: str
+    editDetails: list[dict[str, str]]
+    isRetry: bool
+    errorKind: str
+    phase: str
+    stepIntent: str
+    activityLabel: str
 
 
 class TrailBeat(TypedDict, total=False):
@@ -281,7 +288,7 @@ async def _build_references(
         """),
         {"jid": job_id},
     )
-    step_map: dict[str, dict] = {}
+    step_map: dict[str, dict[str, Any]] = {}
     for r in step_rows.mappings():
         if r["turn_id"]:
             step_map[r["turn_id"]] = dict(r)
@@ -413,7 +420,7 @@ async def _collect_context(session: "AsyncSession", job_id: str) -> StoryContext
     job = row.mappings().first()
     if not job:
         return {}
-    ctx["job"] = dict(job)
+    ctx["job"] = cast("_JobContext", dict(job))
 
     # Telemetry summary
     row = await session.execute(
@@ -426,7 +433,7 @@ async def _collect_context(session: "AsyncSession", job_id: str) -> StoryContext
     )
     summary = row.mappings().first()
     if summary:
-        ctx["telemetry"] = dict(summary)
+        ctx["telemetry"] = cast("_TelemetryContext", dict(summary))
 
     # Approvals
     rows = await session.execute(
@@ -439,7 +446,7 @@ async def _collect_context(session: "AsyncSession", job_id: str) -> StoryContext
     )
     approvals = [dict(r) for r in rows.mappings()]
     if approvals:
-        ctx["approvals"] = approvals
+        ctx["approvals"] = cast("list[_ApprovalContext]", approvals)
 
     # Trail beats — semantic turning points from enriched trail nodes
     beats = await _build_trail_beats(session, job_id)
@@ -576,7 +583,7 @@ def _parse_blocks(
             blocks.append({"type": "narrative", "text": text_before})
         # Reference block (only if valid index)
         if 0 <= idx < len(refs):
-            blocks.append({"type": "reference", **refs[idx]})
+            blocks.append(cast("StoryBlock", {"type": "reference", **refs[idx]}))
             referenced.add(idx)
         else:
             log.warning(
@@ -594,7 +601,7 @@ def _parse_blocks(
     # Append any unreferenced changes at the end
     for i, ref in enumerate(refs):
         if i not in referenced:
-            blocks.append({"type": "reference", **ref})
+            blocks.append(cast("StoryBlock", {"type": "reference", **ref}))
 
     return blocks
 
@@ -626,7 +633,7 @@ class StoryService:
         cached = row.scalar_one_or_none()
         if cached:
             try:
-                return json.loads(cached)
+                return cast("dict[str, Any]", json.loads(cached))
             except (json.JSONDecodeError, TypeError):
                 log.debug("story_cache_decode_failed", job_id=job_id)  # stale plain-text → regenerate
 
@@ -641,7 +648,7 @@ class StoryService:
             cached = row.scalar_one_or_none()
             if cached:
                 try:
-                    return json.loads(cached)
+                    return cast("dict[str, Any]", json.loads(cached))
                 except (json.JSONDecodeError, TypeError):
                     log.debug("story_cache_parse_failed", job_id=job_id)
                     pass

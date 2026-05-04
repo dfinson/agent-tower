@@ -636,7 +636,7 @@ def _format_tool_display_impl(
     tool_args: str | None,
     tool_result: str | None,
     tool_success: bool,
-    formatters: dict,
+    formatters: dict[str, Any],
     desc_max_len: int | None = None,
 ) -> str:
     """Shared implementation for format_tool_display and format_tool_display_full."""

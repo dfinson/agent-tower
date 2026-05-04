@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from sqlalchemy import select as sa_select
@@ -86,7 +86,7 @@ def _extract_snippet(tool_args_json: str | None, tool_name: str | None) -> str:
     return ""
 
 
-def classify_step(payload: dict) -> str:
+def classify_step(payload: dict[str, Any]) -> str:
     """Assign node kind from structured step/event data. No LLM."""
     files_written = payload.get("files_written") or []
     files_read = payload.get("files_read") or []
@@ -201,12 +201,13 @@ class TrailNodeBuilder:
         if plan_events:
             latest_by_id: dict[str, DomainEvent] = {}
             for ev in plan_events:
-                ps_id = ev.payload.get("plan_step_id")
+                p = cast("dict[str, Any]", ev.payload)
+                ps_id = p.get("plan_step_id")
                 if ps_id:
                     latest_by_id[ps_id] = ev
             steps: list[PlanStep] = []
             for ps_id, ev in latest_by_id.items():
-                p = ev.payload
+                p = cast("dict[str, Any]", ev.payload)
                 ps = PlanStep(
                     plan_step_id=ps_id,
                     label=str(p.get("label", "")),
@@ -324,7 +325,7 @@ class TrailNodeBuilder:
         if not state:
             return
 
-        payload = event.payload
+        payload = cast("dict[str, Any]", event.payload)
         if payload.get("status") == "canceled":
             return
 
@@ -647,7 +648,7 @@ class TrailNodeBuilder:
         matching (job_id, turn_id, tool_name) and populate tool_display,
         tool_intent, tool_success. Skips report_intent (frontend-only).
         """
-        payload = event.payload or {}
+        payload = cast("dict[str, Any]", event.payload or {})
         tool_name = payload.get("tool_name", "")
         if not tool_name or tool_name == "report_intent":
             return
@@ -706,7 +707,7 @@ class TrailNodeBuilder:
         if not state:
             return
 
-        phase = event.payload.get("phase", "unknown")
+        phase = str(event.payload.get("phase", "unknown"))
         state.current_phase = phase
 
         node_id = make_node_id()

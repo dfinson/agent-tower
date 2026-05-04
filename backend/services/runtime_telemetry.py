@@ -9,7 +9,7 @@ This module handles:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 import structlog
 from sqlalchemy.exc import DBAPIError
@@ -36,14 +36,14 @@ class RuntimeTelemetry:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         event_bus: EventBus,
-        make_job_service: object,  # callable(session) -> JobService
-        resolve_adapter: object,  # callable(sdk) -> AgentAdapterInterface
+        make_job_service: Callable[[AsyncSession], JobService],
+        resolve_adapter: Callable[[str], AgentAdapterInterface],
         trail_service: TrailService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
-        self._make_job_service = make_job_service  # type: ignore[assignment]
-        self._resolve_adapter = resolve_adapter  # type: ignore[assignment]
+        self._make_job_service = make_job_service
+        self._resolve_adapter = resolve_adapter
         self._trail_service = trail_service
 
     def set_trail_service(self, svc: TrailService) -> None:
@@ -190,7 +190,7 @@ class RuntimeTelemetry:
                     if summary is not None:
                         await artifact_svc.store_telemetry_report(
                             job_id,
-                            summary,
+                            dict(summary),
                             slug=slug,
                         )
 
@@ -234,7 +234,7 @@ class RuntimeTelemetry:
                     if log_events:
                         await artifact_svc.store_log_artifact(
                             job_id,
-                            [e.payload for e in log_events],
+                            [dict(e.payload) for e in log_events],
                             slug=slug,
                         )
 

@@ -28,19 +28,19 @@ from backend.services.base_adapter import BaseAgentAdapter, PermissionDecision
 class _ConcreteAdapter(BaseAgentAdapter):
     """Minimal concrete subclass for testing shared BaseAgentAdapter logic."""
 
-    async def create_session(self, *a, **kw):  # type: ignore[override]
+    async def create_session(self, *a, **kw):
         raise NotImplementedError
 
-    async def send_message(self, *a, **kw):  # type: ignore[override]
+    async def send_message(self, *a, **kw):
         raise NotImplementedError
 
-    async def abort_session(self, *a, **kw):  # type: ignore[override]
+    async def abort_session(self, *a, **kw):
         raise NotImplementedError
 
-    async def complete(self, *a, **kw):  # type: ignore[override]
+    async def complete(self, *a, **kw):
         raise NotImplementedError
 
-    async def stream_events(self, *a, **kw):  # type: ignore[override]
+    async def stream_events(self, *a, **kw):
         raise NotImplementedError
 
 

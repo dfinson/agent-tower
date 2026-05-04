@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -17,6 +17,8 @@ from backend.services.trail.models import (
 from backend.services.trail.title_generator import TitleGenerator
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from backend.services.event_bus import EventBus
     from backend.services.sister_session import SisterSession
 
@@ -31,12 +33,12 @@ class ActivityTracker:
         event_bus: EventBus,
         job_state: dict[str, TrailJobState],
         title_generator: TitleGenerator,
-        session_factory: object = None,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self._event_bus = event_bus
         self._job_state = job_state
         self._title_gen = title_generator
-        self._session_factory = session_factory
+        self._session_factory: async_sessionmaker[AsyncSession] | None = session_factory
 
     async def emit_activity_step(
         self,
@@ -178,6 +180,9 @@ class ActivityTracker:
         activity_label: str,
     ) -> None:
         """Update a trail node with title and plan/activity data."""
+        if self._session_factory is None:
+            return
+
         from sqlalchemy import update
 
         from backend.models.db import TrailNodeRow

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from dishka.integrations.fastapi import (
-    ContainerMiddleware,  # type: ignore[attr-defined]  # dishka fastapi integration lacks type stubs
+    ContainerMiddleware,
 )
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

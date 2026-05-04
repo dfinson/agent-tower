@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -31,6 +31,7 @@ from backend.models.api_schemas import (
 from backend.services.tool_classifier import classify_tool_activity
 
 if TYPE_CHECKING:
+    from backend.models.domain import TelemetrySpanRow
     from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.job_repo import JobRepository
@@ -75,8 +76,8 @@ def _shell_display_name(tool_name: str, tool_args_json: str | None) -> str:
             sub = parts[idx + 1]
             if not sub.startswith("-"):
                 return f"{base} {sub}"
-        return base
-    return tool_name
+        return str(base)
+    return str(tool_name)
 
 
 # Review complexity thresholds — calibrated against historical job data:
@@ -117,7 +118,7 @@ class TelemetryQueryService:
         quota_snapshots_raw = None
         if summary.get("quota_json"):
             with contextlib.suppress(json.JSONDecodeError, TypeError):
-                quota_snapshots_raw = json.loads(summary["quota_json"])
+                quota_snapshots_raw = json.loads(summary["quota_json"] or "{}")
 
         # Compute derived fields
         input_tok = summary.get("input_tokens", 0)
@@ -139,7 +140,7 @@ class TelemetryQueryService:
                 edit_motivations = None
                 if span.get("edit_motivations"):
                     with contextlib.suppress(json.JSONDecodeError, TypeError):
-                        edit_motivations = json.loads(span["edit_motivations"])
+                        edit_motivations = json.loads(span["edit_motivations"] or "[]")
                 tool_name = span["name"]
                 tool_args = span.get("tool_args_json")
                 # Derive a human-readable display label
@@ -316,15 +317,15 @@ class TelemetryQueryService:
         )
 
     @staticmethod
-    def _enrich_turn_curve(turn_curve: list[TelemetryCostBucket], spans: list[dict]) -> None:
+    def _enrich_turn_curve(turn_curve: list[TelemetryCostBucket], spans: list[TelemetrySpanRow]) -> None:
         """Annotate each turn bucket with intent and concrete actions."""
         import json as _json
 
-        from backend.services.cost_attribution import _classify_turn_intent
+        from backend.services.cost_attribution import TurnContext, _classify_turn_intent
         from backend.services.tool_classifier import classify_tool
 
         # Group tool spans by turn
-        turns: dict[str, list[dict]] = {}
+        turns: dict[str, list[TelemetrySpanRow]] = {}
         for span in spans:
             if span.get("span_type") != "tool":
                 continue
@@ -382,7 +383,7 @@ class TelemetryQueryService:
                 cat = classify_tool(name)
                 categories.append(cat)
                 args_raw = span.get("tool_args_json")
-                args: dict = {}
+                args: dict[str, Any] = {}
                 if args_raw:
                     with contextlib.suppress(Exception):
                         args = _json.loads(args_raw)
@@ -394,12 +395,12 @@ class TelemetryQueryService:
                     if i:
                         intent = i
                 elif cat == "file_write":
-                    path = args.get("file_path", args.get("path", span.get("tool_target", "")))
+                    path = str(args.get("file_path", args.get("path", span.get("tool_target", ""))) or "")
                     short = _short_path(path)
                     if short and short not in files_edited:
                         files_edited.append(short)
                 elif cat in ("file_read", "search"):
-                    path = args.get("file_path", args.get("path", span.get("tool_target", "")))
+                    path = str(args.get("file_path", args.get("path", span.get("tool_target", ""))) or "")
                     short = _short_path(path)
                     if short and short not in files_read and short not in files_edited:
                         files_read.append(short)
@@ -434,6 +435,6 @@ class TelemetryQueryService:
                 "input_tokens": 0,
                 "output_tokens": 0,
             }
-            bucket.activity = _classify_turn_intent(context)
+            bucket.activity = _classify_turn_intent(cast("TurnContext", context))
             bucket.intent = intent
             bucket.actions = actions

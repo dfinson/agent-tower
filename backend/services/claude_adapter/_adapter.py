@@ -9,7 +9,7 @@ import os
 import tempfile
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -18,6 +18,7 @@ from backend.models.domain import (
     SessionConfig,
     SessionEvent,
     SessionEventKind,
+    SessionEventPayload,
 )
 from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
 from backend.services.base_adapter import (
@@ -421,7 +422,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 session_id,
                 SessionEvent(
                     kind=SessionEventKind.transcript,
-                    payload=self._build_tool_running_payload(tool_name, args_str, turn_id),
+                    payload=cast(SessionEventPayload, self._build_tool_running_payload(tool_name, args_str, turn_id)),
                 ),
             )
             self._enqueue_log(session_id, f"Tool started: {tool_name}", "debug", seq)
@@ -460,7 +461,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         if tool_name not in _HIDDEN_TOOLS:
             self._enqueue(
                 session_id,
-                SessionEvent(kind=SessionEventKind.transcript, payload=payload),
+                SessionEvent(kind=SessionEventKind.transcript, payload=cast(SessionEventPayload, payload)),
             )
             self._enqueue_log(
                 session_id,
@@ -629,7 +630,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                     "content": chunk,
                     "tool_name": tool_name,
                     "tool_call_id": parent_id,
-                    "turn_id": buffered.get("turn_id"),
+                    "turn_id": buffered.get("turn_id") or "",
                 },
             ),
         )
