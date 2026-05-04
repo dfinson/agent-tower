@@ -280,6 +280,30 @@ class CostAttributionRow(Base):
     )
 
 
+class LatencyAttributionRow(Base):
+    """Per-job latency breakdown by dimension (category, activity, phase, turn)."""
+
+    __tablename__ = "job_latency_attribution"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String, ForeignKey("jobs.id"), nullable=False)
+    dimension: Mapped[str] = mapped_column(String, nullable=False)
+    bucket: Mapped[str] = mapped_column(String, nullable=False)
+    wall_clock_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    sum_duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    span_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    p50_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    p95_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    max_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    pct_of_total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0.0")
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_latency_attr_job", "job_id"),
+        Index("idx_latency_attr_dimension", "dimension", "bucket"),
+    )
+
+
 class CostObservationRow(Base):
     """Cross-job cost observation or anomaly."""
 

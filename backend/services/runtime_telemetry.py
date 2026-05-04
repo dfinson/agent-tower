@@ -138,6 +138,14 @@ class RuntimeTelemetry:
                     await compute_attribution(session, job_id, session_factory=self._session_factory)
                     await session.commit()
 
+            # Run post-job latency attribution pipeline
+            async with best_effort(log, "latency_attribution", level="warning", job_id=job_id):
+                async with self._session_factory() as session:
+                    from backend.services.latency_attribution import compute_latency_attribution
+
+                    await compute_latency_attribution(session, job_id)
+                    await session.commit()
+
             # Run statistical analysis (fire-and-forget, non-blocking)
             async with best_effort(log, "statistical_analysis", job_id=job_id):
                 async with self._session_factory() as session:

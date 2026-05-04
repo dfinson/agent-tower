@@ -514,6 +514,32 @@ class FleetCostRow(TypedDict):
     avg_cost_per_job: float
 
 
+class LatencyAttributionRow(TypedDict, total=False):
+    """Shape of a row returned by LatencyAttributionRepository.for_job()."""
+
+    dimension: str
+    bucket: str
+    wall_clock_ms: int
+    sum_duration_ms: int
+    span_count: int
+    p50_ms: int
+    p95_ms: int
+    max_ms: int
+    pct_of_total: float
+
+
+class FleetLatencyRow(TypedDict):
+    """Shape returned by LatencyAttributionRepository.fleet_summary()."""
+
+    dimension: str
+    bucket: str
+    avg_wall_clock_ms: float
+    avg_sum_duration_ms: float
+    total_span_count: int
+    job_count: int
+    avg_pct_of_total: float
+
+
 class FileAccessRow(TypedDict):
     """Shape returned by FileAccessRepository.most_accessed_files()."""
 

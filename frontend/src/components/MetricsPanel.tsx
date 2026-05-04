@@ -598,7 +598,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               {(data.latencyDrivers?.category?.length ?? 0) > 0 && (
                 <SectionGroup title="Latency">
                   <LatencyBreakdown
-                    categoryBuckets={data.latencyDrivers!.category}
+                    categoryBuckets={data.latencyDrivers!.category ?? []}
                     totalDurationMs={data.durationMs ?? 0}
                     idleMs={data.idleMs ?? 0}
                     parallelismRatio={data.parallelismRatio ?? 0}

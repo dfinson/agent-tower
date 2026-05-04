@@ -20,6 +20,7 @@ from backend.persistence.cost_attribution_repo import CostAttributionRepository
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.file_access_repo import FileAccessRepository
 from backend.persistence.job_repo import JobRepository
+from backend.persistence.latency_attribution_repo import LatencyAttributionRepository
 from backend.persistence.step_repo import StepRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
@@ -154,6 +155,10 @@ class RequestProvider(Provider):
         return CostAttributionRepository(session)
 
     @provide
+    def latency_attribution_repo(self, session: AsyncSession) -> LatencyAttributionRepository:
+        return LatencyAttributionRepository(session)
+
+    @provide
     def event_repo(self, session: AsyncSession) -> EventRepository:
         return EventRepository(session)
 
@@ -179,10 +184,11 @@ class RequestProvider(Provider):
         cost_repo: CostAttributionRepository,
         file_repo: FileAccessRepository,
         job_repo: JobRepository,
+        latency_repo: LatencyAttributionRepository,
         spans_repo: TelemetrySpansRepository,
         summary_repo: TelemetrySummaryRepository,
     ) -> TelemetryQueryService:
-        return TelemetryQueryService(cost_repo, file_repo, job_repo, spans_repo, summary_repo)
+        return TelemetryQueryService(cost_repo, file_repo, job_repo, latency_repo, spans_repo, summary_repo)
 
     @provide
     def step_diff_service(
