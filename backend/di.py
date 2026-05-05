@@ -27,6 +27,7 @@ from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepositor
 from backend.services.analytics_service import AnalyticsService
 from backend.services.approval_service import ApprovalService
 from backend.services.artifact_service import ArtifactService
+from backend.services.coderecon_service import CodeReconService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
@@ -75,6 +76,7 @@ class AppProvider(Provider):
     share_service = from_context(provides=ShareService)
     trail_service = from_context(provides=TrailService)
     terminal_service = from_context(provides=TerminalService)
+    coderecon_service = from_context(provides=CodeReconService)
 
     @provide
     def git_service(self, config: CPLConfig) -> GitService:

@@ -32,8 +32,8 @@ know *what those changes mean structurally* — reference counts, breaking vs.
 additive classification, dependency graph impact, test coverage correlation,
 or cross-module coupling.
 
-CodeRecon knows all of these things. It maintains a tiered structural index
-per repository that answers questions about symbol references, call graphs,
+CodeRecon knows all of these things. It maintains a structural index per
+repository that answers questions about symbol references, call graphs,
 module communities, and semantic diffs.
 
 ### 1.3 Circles of Impact
@@ -52,21 +52,24 @@ The integration touches every stage of a job's lifecycle:
 
 ## 2. CodeRecon Technical Foundation
 
-### 2.1 Tiered Index Architecture
+### 2.1 Index Architecture
 
-CodeRecon maintains a multi-tier index per repository, each tier adding semantic
-depth:
+CodeRecon maintains a single unified index per repository. One indexing pass
+produces all data layers:
 
-| Tier | Name | Technology | Coverage | What It Knows |
-|------|------|-----------|----------|---------------|
-| 0 | Lexical | Tantivy | 90+ languages | Full-text token search, file paths, content hashes |
-| 1 | Structural | Tree-sitter + SQLite | 90+ languages | Functions, classes, signatures, imports, call sites |
-| 2 | Type-aware | Language-specific | Subset | Resolved types, generic instantiations, trait impls |
-| 3 | Behavioral | LLM-assisted | On-demand | Intent, contracts, invariants |
+| Layer | Technology | What It Knows |
+|-------|-----------|---------------|
+| Lexical | Tantivy | Full-text token search, file paths, content hashes |
+| Structural | Tree-sitter + SQLite | Functions, classes, signatures, imports, call sites, scopes |
+| Resolution | Cross-file analysis | Resolved references with tier classification (see §2.2) |
+| Graph | Dependency analysis | Module communities, circular dependencies, PageRank |
 
-For CodePlane's review use case, Tier 1 (structural) provides the critical
-foundation. Every function, class, method, and module boundary is known, with
-reference relationships classified by certainty.
+There is no staged indexing — all layers are built in a single parallel pass.
+A repo is either fully indexed or not indexed at all.
+
+For CodePlane's review use case, the structural + resolution layers provide
+the critical foundation. Every function, class, method, and module boundary
+is known, with reference relationships classified by certainty.
 
 ### 2.2 Reference Tiers
 
@@ -74,10 +77,11 @@ References between symbols are classified by confidence:
 
 | Ref Tier | Meaning | Source |
 |----------|---------|--------|
-| PROVEN | Confirmed by type system or import resolution | Tier 2+ analysis |
-| STRONG | Structural match (same name + compatible signature) | Tier 1 cross-file |
-| ANCHORED | Lexical match with structural context | Tier 0 + Tier 1 heuristic |
-| UNKNOWN | Name match only, no structural confirmation | Tier 0 fallback |
+| PROVEN | Same-file lexical bind with certainty=CERTAIN | LocalBindFact |
+| STRONG | Cross-file with explicit import + export surface trace | ImportFact + ExportSurface |
+| ANCHORED | Ambiguous but grouped in AnchorGroup | Anchor grouping |
+| SEMANTIC | Resolved via SPLADE+CE semantic matching | Semantic similarity |
+| UNKNOWN | Cannot classify | Fallback |
 
 The distribution of reference tiers for a change directly indicates review risk.
 A function modification where all callers are PROVEN is safe. A modification
@@ -87,9 +91,10 @@ The UI never exposes raw tier names. User-facing labels:
 
 | Internal Tier | UI Label | Rationale |
 |---|---|---|
-| PROVEN | Verified | Confirmed via type system or imports — the strongest guarantee |
-| STRONG | Inferred | Structural match without full type confirmation |
-| ANCHORED | Inferred | Grouped with STRONG — distinction is not meaningful to reviewers |
+| PROVEN | Verified | Same-file bind — the strongest guarantee |
+| STRONG | Inferred | Cross-file import trace — high confidence |
+| ANCHORED | Inferred | Grouped with STRONG — distinction not meaningful to reviewers |
+| SEMANTIC | Inferred | Semantic match — less certain but still resolved |
 | UNKNOWN | Unverified | Needs manual check — cannot be confirmed automatically |
 
 ### 2.3 Worktree Column Key
@@ -168,7 +173,7 @@ and inherently secured to the parent process.
 │          │                     │                            │
 │          │              ┌──────┴──────┐                     │
 │          │              │ Repo Index  │                     │
-│          │              │ (Tier 0-3)  │                     │
+│          │              │ (unified)   │                     │
 │          │              └─────────────┘                     │
 └──────────┴──────────────────────────────────────────────────┘
 ```
@@ -182,7 +187,7 @@ field presence — there is no explicit `type` field:
 {"id": "r1", "method": "semantic_diff", "params": {...}, "session_id": "sess_abc123"}
 {"id": "r1", "result": {...}}
 {"id": "r1", "error": {"code": "NOT_INDEXED", "message": "..."}}
-{"event": "index_progress", "ts": 1714835000.0, "data": {"repo": "...", "phase": "tier1_structural", "pct": 45}}
+{"event": "index_progress", "ts": 1714835000.0, "data": {"repo": "...", "phase": "structural", "pct": 45}}
 ```
 
 **Identification rules:**
@@ -317,9 +322,7 @@ User clicks "Add Repository"
     │
     ├── Phase: Cloning (if URL)         ░░░░░░░░░░ 0%
     ├── Phase: File discovery            ██░░░░░░░░ 15%
-    ├── Phase: Tier 0 (lexical index)    ████░░░░░░ 40%
-    ├── Phase: Tier 1 (structural parse) ██████░░░░ 65%
-    ├── Phase: Graph construction        ████████░░ 85%
+    ├── Phase: Indexing                  ██████░░░░ 65%  (files indexed / total)
     └── Phase: Ready                     ██████████ 100%
     │
     ▼
@@ -331,32 +334,34 @@ User clicks "Add Repository"
 The daemon emits progress events that the event bridge translates to SSE:
 
 ```json
-{"type": "event", "topic": "index_progress", "data": {"repo": "codeplane", "phase": "tier0_lexical", "files_done": 342, "files_total": 891, "pct": 38}}
-{"type": "event", "topic": "index_progress", "data": {"repo": "codeplane", "phase": "tier1_structural", "files_done": 100, "files_total": 891, "pct": 11}}
-{"type": "event", "topic": "index_complete", "data": {"repo": "codeplane", "duration_ms": 14200, "files": 891, "symbols": 12450}}
+{"event": "index.progress", "ts": 1714835000.0, "data": {"repo": "codeplane", "indexed": 342, "total": 891, "phase": "indexing"}}
+{"event": "index.progress", "ts": 1714835001.2, "data": {"repo": "codeplane", "indexed": 891, "total": 891, "phase": "indexing"}}
 ```
 
 ### 5.4 Pipeline Phases
 
-| Phase | What Happens | Duration (1k files) | Resumable |
-|-------|-------------|---------------------|-----------|
-| File discovery | Walk tree, apply ignores | <1s | N/A |
-| Tier 0 (lexical) | Tantivy tokenization + indexing | 2–5s | Yes |
-| Tier 1 (structural) | Tree-sitter parse, symbol extraction | 5–15s | Yes |
-| Graph construction | Build dependency graph, run community detection | 1–3s | No (fast enough) |
+Indexing is a single unified pass — each file is tree-sitter parsed and
+tantivy-indexed together in batches (parallel via ProcessPoolExecutor):
 
-Total for a 1k-file repo: 10–25 seconds. For a 10k-file monorepo: 2–5 minutes.
+| Phase | What Happens | Duration (1k files) |
+|-------|-------------|---------------------|
+| File discovery | Walk tree, apply ignores, match to contexts | <1s |
+| Indexing | Tree-sitter extraction + Tantivy staging (batched, parallel) | 5–20s |
+| Resolution | Cross-file reference resolution, ref tier assignment | 1–5s |
+| Graph | Community detection, cycle analysis (post-index) | 1–3s |
+
+Total for a 1k-file repo: ~10–25 seconds. For a 10k-file monorepo: 2–5 minutes.
+
+Progress events report `indexed` / `total` file counts with phase `"indexing"`.
 
 ### 5.5 Large Repo Handling
 
-Repos over 5k files trigger a staged activation:
+The indexer processes files in batches. Progress events stream continuously
+during indexing. The repo becomes fully queryable once indexing completes —
+there is no partial-readiness state where some queries work and others don't.
 
-1. Tier 0 completes first — repo becomes queryable for lexical search
-2. Tier 1 indexes in background — structural queries progressively available
-3. Graph builds after Tier 1 completes — community/cycle analysis last
-
-The UI reflects partial readiness: "Lexical search ready. Structural analysis
-indexing (65%)..."
+The UI shows a progress bar during indexing and transitions to "Ready" when
+complete.
 
 ### 5.6 Re-Indexing
 
@@ -386,7 +391,7 @@ Each repo's index tracks staleness:
 
 Per-repo card showing:
 
-* Index tier coverage (which tiers are complete)
+* Index status (pending / indexing / ready / error)
 * Symbol count, file count
 * Last indexed commit SHA
 * Staleness indicator
@@ -1881,6 +1886,107 @@ change visible, every trade-off documented.
 
 ![Narrative I — Detailed verbosity with expanded diffs and alternatives](mockups/narrative-i-detailed.png)
 
+### 11.14 Structural Enrichment of Stories
+
+The existing StoryService generates narratives from trail data — chronological
+references interleaved with LLM-generated connective prose. The review story
+(§11.3) is a separate artifact built from CodeRecon's structural diff. When
+both are available, the review story should be enriched with structural
+facts from CodeRecon. This section specifies how.
+
+#### 11.14.1 What Enrichment Adds
+
+The current story prompt (`_STORY_SYSTEM`) knows about trail beats, retry
+arcs, activity labels, and code snippets. It does not know about:
+
+* **Reference counts and tiers** — how many callers a changed symbol has,
+  and whether those references are proven, strong, anchored, or unknown
+* **Community membership** — which module boundary a change lives in, and
+  whether the agent crossed community boundaries during the job
+* **Cycle participation** — whether a change introduced or participated in
+  a circular dependency
+* **Structural change classification** — whether a change is
+  `signature_changed`, `body_changed`, `added`, `removed`, or `renamed`
+  (from CodeRecon's `StructuralChange` model)
+* **Behavior change risk** — CodeRecon's per-symbol risk assessment
+
+These facts transform the story from "what the agent did" to "what the agent
+did and what it means structurally."
+
+#### 11.14.2 Enrichment Data Shape
+
+When CodeRecon is available for a job's repo, the story generation pipeline
+(§11.7) adds a `structural_context` block to the LLM prompt alongside the
+existing trail references:
+
+```json
+{
+  "structural_context": {
+    "summary": {
+      "total_structural_changes": 12,
+      "breaking_changes": 1,
+      "communities_touched": 2,
+      "new_cycles": 0
+    },
+    "changes": [
+      {
+        "symbol": "AuthMiddleware.validate",
+        "change_type": "signature_changed",
+        "ref_count": 7,
+        "ref_tiers": {"proven": 6, "unknown": 1},
+        "behavior_risk": "high",
+        "community": "auth"
+      }
+    ],
+    "warnings": [
+      "1 UNKNOWN reference to validate() in legacy_handler.py"
+    ]
+  }
+}
+```
+
+This comes from calling `semantic_diff(base=<job_base_ref>, target=<job_head_ref>)`
+at story generation time.
+
+#### 11.14.3 Prompt Extension
+
+A new suffix appended to `_STORY_SYSTEM` when structural context is present:
+
+```
+STRUCTURAL CONTEXT: You receive a structural_context block with facts from
+static analysis. Use these to enrich the narrative:
+- When a changed symbol has callers, state how many and whether they are
+  verified ("7 callers, all verified" or "7 callers, 1 unverified in
+  legacy_handler.py")
+- When a change is classified as signature_changed, name the old and new
+  signatures if available
+- When the agent touched multiple communities, note the boundary crossing
+  ("moved from the auth module into the job-runner module")
+- When behavior_risk is high, say so plainly — do not soften it
+- Structural facts are ground truth. Do not contradict them or invent
+  alternative interpretations
+- If a warning exists, it must appear in the narrative
+```
+
+#### 11.14.4 When Enrichment Is Unavailable
+
+If CodeRecon is not running, not indexed for this repo, or the structural
+diff call fails, the story generates exactly as it does today — trail-only.
+No degradation message is needed in the story itself; the dashboard already
+shows CodeRecon availability status.
+
+#### 11.14.5 Implementation
+
+1. In `StoryService._generate()`, after collecting trail context, call
+   `CodeReconService.semantic_diff(repo, base_ref, head_ref)` if available
+2. Transform the diff result into the `structural_context` shape above
+3. Append the structural prompt suffix to `_STORY_SYSTEM`
+4. Add `structural_context` as a JSON block in the user prompt after the
+   numbered references
+
+This is additive — no changes to existing trail-based story generation. The
+LLM gets more context and produces richer output when structural data exists.
+
 ---
 
 ## 12. Event Bridge
@@ -1925,6 +2031,69 @@ with no `id` field (distinguishing them from responses).
 During active jobs, structural events are scoped to the job that triggered them.
 The frontend can subscribe to job-specific SSE channels and receive only
 relevant structural signals.
+
+### 12.4 Indexing Progress UX
+
+When a repo is first registered or re-indexed, the operator sees real-time
+progress. This is especially important during onboarding — the first index
+of a large repo can take seconds to minutes, and the operator needs to know
+the system is working.
+
+#### 12.4.1 Progress Display
+
+The repo card in the workspace view shows an inline progress indicator:
+
+```text
+┌─────────────────────────────────────────────┐
+│  codeplane                                  │
+│  ████████████░░░░░░░░░  127/284 files       │
+│  structural indexing...                     │
+└─────────────────────────────────────────────┘
+```
+
+States:
+
+| State | Display | Source |
+|-------|---------|--------|
+| Indexing | Progress bar + file count + phase label | `index.progress` events |
+| Ready | Green dot + "Indexed" | `index_complete` event or `status` response |
+| Error | Red dot + error message | `index_error` event |
+| Not indexed | Gray dot + "Awaiting index" | No events received yet |
+
+#### 12.4.2 SSE Event Shape
+
+The backend translates daemon `index.progress` events to SSE:
+
+```text
+event: repo_index_progress
+data: {"repo": "codeplane", "indexed": 127, "total": 284, "phase": "structural"}
+```
+
+The frontend Zustand store updates the repo card on each event. The progress
+bar is a simple `indexed / total` ratio. The phase label is shown as-is
+from the daemon.
+
+#### 12.4.3 Completion and Transition
+
+When indexing completes, the repo card transitions to the ready state. If the
+operator navigates to a job while indexing is still in progress, the review
+dashboard shows a banner:
+
+```text
+⏳ Structural index building (72%)  — review will use partial data
+```
+
+The dashboard still renders with whatever data is available. Structural
+queries against a partially-indexed repo return partial results (CodeRecon
+handles this gracefully). Once indexing completes, the dashboard auto-refreshes
+if the operator is still on the page.
+
+#### 12.4.4 Re-Index Events
+
+File watcher changes trigger background re-indexing. These are typically
+fast (single-file updates in seconds) and do not show a progress bar. Only
+full re-indexes (triggered by `reindex` command or stale detection) show
+the progress indicator.
 
 ---
 
@@ -1994,7 +2163,7 @@ Backend: CodeReconService.recon(repo, symbol_query, depth=2)
 Daemon: multi-hop reference traversal from index
    │
    ▼
-Response: graph nodes with tier annotations
+Response: graph nodes with ref tier annotations
    │
    ▼
 Frontend: renders interactive impact graph
@@ -2013,7 +2182,7 @@ Frontend: renders interactive impact graph
 | GET | `/api/repos/{name}` | Single repo detail + index status |
 | DELETE | `/api/repos/{name}` | Remove repo + delete index |
 | POST | `/api/repos/{name}/reindex` | Trigger full re-index |
-| GET | `/api/repos/{name}/health` | Detailed health (staleness, tier coverage, stats) |
+| GET | `/api/repos/{name}/health` | Detailed health (staleness, index status, stats) |
 | GET | `/api/repos/{name}/communities` | Module community listing |
 | GET | `/api/repos/{name}/cycles` | Dependency cycle listing |
 
@@ -2173,12 +2342,10 @@ appear on file headers for multi-session files.
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `index_tiers` | `[0, 1]` | Which tiers to build (Tier 2+ is expensive) |
 | `auto_reindex` | `true` | Whether file watchers trigger incremental re-index |
 | `agent_tools` | `"standard"` | Tool set provisioned to agents (`minimal` / `standard` / `full`) |
 | `cycle_check_on_step` | `true` | Run cycle detection at step boundaries |
 | `community_drift_threshold` | `3` | Community count that triggers drift warning |
-| `merge_confidence_auto` | `false` | Whether HIGH confidence allows auto-merge |
 
 ### 16.2 Global Settings
 
@@ -2201,8 +2368,7 @@ class RepoRow(Base):
     added_at: Mapped[datetime]
 
     # CodeRecon state
-    index_status: Mapped[str]       # pending, indexing, ready, error, degraded
-    index_tiers: Mapped[str]        # JSON array of completed tiers
+    index_status: Mapped[str]       # pending, indexing, ready, error
     last_indexed_sha: Mapped[str | None]
     last_indexed_at: Mapped[datetime | None]
     symbol_count: Mapped[int]
@@ -2279,7 +2445,7 @@ at review time.
 
 ### Phase 6: Repo Health and Analytics
 
-* Repo health dashboard (staleness, tier coverage, stats)
+* Repo health dashboard (staleness, index status, stats)
 * Community visualization
 * Cycle visualization
 * Historical structural analytics (coupling trends, test correlation)
@@ -2302,17 +2468,21 @@ job history.
 | Review default view | Structural dashboard | Primary value proposition. Full diff is fallback. |
 | Agent tool delivery | SDK only, natively injected | No MCP bridge. `as_openai_tools()` / `as_langchain_tools()` with repo pre-bound. |
 | Checkpoint semantics | Verification pipeline (lint + test + commit) | Not a structural snapshot. Use `semantic_diff(base="epoch:N")` for structural comparisons. |
+| Auto-merge | No | Never auto-merge. Operator always makes the merge decision. |
+| Index storage | Same machine as CodePlane | CodePlane is not a distributed system. Non-issue. |
+| Staleness | Handled by CodeRecon | File watcher detects changes and re-indexes in seconds. CodePlane reads fresh state on each query. No staleness tuning needed on our side. |
+
+### Needs Eval
+
+| Question | What's Needed | Notes |
+|----------|---------------|-------|
+| Cycle check frequency | Eval: cost vs benefit at step boundaries | Graph queries on large repos may be expensive. Need real perf data before committing to frequency. |
+| Community detection algorithm | Eval: Louvain vs alternatives | SDK defaults to Louvain. May not match operator mental models. Need user testing data. |
 
 ### Open
 
 | Question | Recommendation | Risk if Wrong |
 |----------|---------------|---------------|
-| Tier 2 by default? | No — opt-in per repo. Expensive for large repos. | Slow onboarding for new repos. |
-| Auto-merge at HIGH confidence? | Opt-in per repo. Conservative default. | Operator trust erosion if false positive. |
-| Cycle check frequency | Every step boundary | Performance cost on large graphs. May need sampling. |
-| Community detection algorithm | Louvain (SDK default) | May not match operator's mental model of modules. |
-| Scaffold as standalone tool | Add ~20-line dispatch entry to daemon | Without it, per-file structural outlines require `recon` or file reads. |
-| Index storage location | Same machine as CodePlane | Can't share index across distributed deployments. |
-| Staleness threshold tuning | 30s/5m defaults, configurable | Too aggressive = noise. Too lax = stale reviews. |
-| Story enrichment model | Same model as existing story generation | May need different prompt structure for structural facts. |
-| Indexing progress events | Build hooks in daemon `wire_event_hooks` | Without them, onboarding UX must poll `status` instead of streaming progress. |
+| Scaffold as standalone tool | Add dispatch entry to daemon (see prompt below) | Without it, per-file structural outlines require `recon` or file reads. |
+| Story enrichment model | See §11.6 below | May need different prompt structure for structural facts. |
+| Indexing progress events | Wire `on_index_progress` callback through EventBus (see prompt below) | Without them, onboarding UX must poll `status` instead of streaming progress. |

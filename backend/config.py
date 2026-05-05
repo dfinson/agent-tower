@@ -243,6 +243,15 @@ class TrailConfig:
 
 
 @dataclass
+class CodeReconConfig:
+    """CodeRecon structural analysis integration."""
+
+    enabled: bool = False
+    binary: str | None = None
+    home: str | None = None
+
+
+@dataclass
 class CPLConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -254,6 +263,7 @@ class CPLConfig:
     verification: VerificationConfig = field(default_factory=VerificationConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     trail: TrailConfig = field(default_factory=TrailConfig)
+    coderecon: CodeReconConfig = field(default_factory=CodeReconConfig)
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
     repos: list[str] = field(default_factory=list)
 
@@ -301,6 +311,7 @@ def load_config(path: Path | None = None) -> CPLConfig:
         verification=_parse_section(raw, VerificationConfig, "verification"),
         telemetry=_parse_section(raw, TelemetryConfig, "telemetry"),
         trail=_parse_section(raw, TrailConfig, "trail"),
+        coderecon=_parse_section(raw, CodeReconConfig, "coderecon"),
         platforms=platforms,
         repos=[str(r) for r in raw.get("repos", []) if r is not None] if isinstance(raw.get("repos", []), list) else [],
     )

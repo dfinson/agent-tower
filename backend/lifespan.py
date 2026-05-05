@@ -45,6 +45,8 @@ from backend.services.voice_service import VoiceService
 
 from backend.services.terminal_service import TerminalService
 
+from backend.services.coderecon_service import CodeReconService
+
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
@@ -519,6 +521,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         trail_service.drain_loop(), name="trail-enrichment-drain"
     )
 
+    # --- CodeRecon structural analysis service ---
+    coderecon_service = CodeReconService(
+        binary=config.coderecon.binary,
+        home=config.coderecon.home,
+    )
+    if config.coderecon.enabled:
+        await coderecon_service.start()
+
     # --- Share service ---
     share_service = ShareService()
 
@@ -543,6 +553,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             ShareService: share_service,
             TrailService: trail_service,
             TerminalService: optional.terminal_service,
+            CodeReconService: coderecon_service,
         },
     )
     app.state.dishka_container = container
@@ -580,6 +591,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     dead_letter_task.cancel()
     if optional.terminal_service is not None:
         await optional.terminal_service.shutdown()
+    await coderecon_service.stop()
     await services.sister_sessions.shutdown()
     await services.runtime_service.shutdown()
     sse_manager.close_all()

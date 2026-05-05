@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A control plane for running and supervising coding agents"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     # Web framework
     "fastapi>=0.115,<1",
@@ -19,7 +19,7 @@ dependencies = [
     # Structured logging
     "structlog>=24.0,<26",
     # Terminal UI
-    "rich>=13.0,<14",
+    "rich>=13.0,<15",
     # Config
     "pyyaml>=6.0,<7",
     # Pydantic (used by FastAPI)
@@ -36,6 +36,8 @@ dependencies = [
     "dishka[fastapi]>=1.9.1,<2",
     "pyjwt[crypto]>=2.12.0,<3",
     "cryptography>=46.0,<47",
+    # Structural analysis
+    "coderecon",
 ]
 
 [project.optional-dependencies]
@@ -67,7 +69,7 @@ path = "tools/hatch_build.py"
 packages = ["backend"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]
@@ -95,14 +97,14 @@ runtime-evaluated-decorators = ["dishka.integrations.fastapi.FromDishka"]
 "backend/di.py" = ["TC001", "TC002", "TC003"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["faster_whisper.*", "copilot.*", "mcp.*", "qrcode.*", "questionary.*", "winpty.*"]
+module = ["faster_whisper.*", "copilot.*", "mcp.*", "qrcode.*", "questionary.*", "winpty.*", "coderecon.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -151,3 +153,6 @@ dev = [
     "pre-commit>=4.0,<5",
     "pip-audit>=2.10.0",
 ]
+
+[tool.uv.sources]
+coderecon = { path = "vendor/coderecon-1.0.1.dev67+g979ffb7aa-py3-none-any.whl" }
