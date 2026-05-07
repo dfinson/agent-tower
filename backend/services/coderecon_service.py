@@ -66,6 +66,7 @@ class CodeReconService:
         self._crash_timestamps: list[float] = []
         self._restart_task: asyncio.Task[None] | None = None
         self._shutting_down = False
+        self._index_locks: dict[str, asyncio.Lock] = {}
 
     @property
     def state(self) -> DaemonState:
@@ -198,18 +199,24 @@ class CodeReconService:
 
         This is the primary hook for the repo-add flow. Onboarded repos
         are always indexed — this is not optional.
+
+        Uses per-path locking to prevent concurrent duplicate registrations.
         """
-        sdk = await self._ensure_available()
-        # Check if already registered
-        entries = await sdk.catalog()
         resolved = str(Path(path).resolve())
-        for entry in entries:
-            if Path(entry.git_dir).resolve() == Path(resolved) / ".git" or Path(entry.git_dir).resolve() == Path(resolved):
-                return entry.name
-        # Not registered — register now (triggers indexing)
-        result = await sdk.register(resolved)
-        log.info("coderecon.repo_registered", repo=result.repo, path=resolved)
-        return result.repo
+        # Per-path lock prevents two concurrent callers from both registering
+        if resolved not in self._index_locks:
+            self._index_locks[resolved] = asyncio.Lock()
+        async with self._index_locks[resolved]:
+            sdk = await self._ensure_available()
+            # Check if already registered
+            entries = await sdk.catalog()
+            for entry in entries:
+                if Path(entry.git_dir).resolve() == Path(resolved) / ".git" or Path(entry.git_dir).resolve() == Path(resolved):
+                    return entry.name
+            # Not registered — register now (triggers indexing)
+            result = await sdk.register(resolved)
+            log.info("coderecon.repo_registered", repo=result.repo, path=resolved)
+            return result.repo
 
     async def register_worktree(self, repo: str, worktree_path: str | Path) -> None:
         """Register a worktree with the daemon to activate live reindexing.

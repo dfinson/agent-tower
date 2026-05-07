@@ -7,6 +7,12 @@
 
 import type { DiffFileModel, StoryResponse } from "../api/types";
 import type {
+  StructuralDiffResponse,
+  MultiSessionResponse,
+  CommunitiesResponse,
+  ReviewStoryResponse as StructuralReviewStoryResponse,
+} from "../api/client";
+import type {
   AppState,
   JobSummary,
   LogLine,
@@ -41,6 +47,16 @@ export const selectJobDiffs = (jobId: string) => (state: AppState) =>
 const EMPTY_STORY: StoryResponse | null = null;
 export const selectJobStory = (jobId: string) => (state: AppState) =>
   state.stories[jobId] ?? EMPTY_STORY;
+
+// Structural analysis selectors
+export const selectStructuralDiff = (jobId: string) => (state: AppState): StructuralDiffResponse | null =>
+  state.structuralDiffs[jobId] ?? null;
+export const selectMultiSession = (jobId: string) => (state: AppState): MultiSessionResponse | null =>
+  state.multiSessions[jobId] ?? null;
+export const selectCommunities = (jobId: string) => (state: AppState): CommunitiesResponse | null =>
+  state.communities[jobId] ?? null;
+export const selectReviewStory = (jobId: string) => (state: AppState): StructuralReviewStoryResponse | null =>
+  state.reviewStories[jobId] ?? null;
 
 /** Select accumulated streaming tool output for a job, keyed by toolCallId. */
 export const selectStreamingToolOutput = (jobId: string) => (state: AppState) => {

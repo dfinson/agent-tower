@@ -805,19 +805,104 @@ export function fetchStructuralDiff(jobId: string): Promise<StructuralDiffRespon
   return request(`/jobs/${encodeURIComponent(jobId)}/structural-diff`);
 }
 
-export function fetchMultiSession(jobId: string): Promise<unknown> {
+// Multi-Session
+// ---------------------------------------------------------------------------
+
+export interface SessionSegment {
+  sessionNumber: number;
+  startSha: string | null;
+  endSha: string | null;
+  changes: StructuralChange[];
+  risk: number;
+  warnings: Array<Record<string, unknown>>;
+}
+
+export interface MultiSessionResponse {
+  jobId: string;
+  available: boolean;
+  sessions: SessionSegment[];
+  directionChanges: Array<Record<string, unknown>>;
+}
+
+export function fetchMultiSession(jobId: string): Promise<MultiSessionResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/multi-session`);
 }
 
-export function fetchImpactGraph(jobId: string, symbol: string): Promise<unknown> {
+// Impact Graph
+// ---------------------------------------------------------------------------
+
+export interface ImpactReference {
+  symbol: string;
+  file: string;
+  line: number | null;
+  tier: string;  // verified | inferred | unverified
+  isTest: boolean;
+  rawTier: string;
+}
+
+export interface ImpactGraphResponse {
+  jobId: string;
+  target: string;
+  available: boolean;
+  totalReferences: number;
+  filesAffected: number;
+  summary: string;
+  references: ImpactReference[];
+}
+
+export function fetchImpactGraph(jobId: string, symbol: string): Promise<ImpactGraphResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/impact-graph/${encodeURIComponent(symbol)}`);
 }
 
-export function fetchCommunities(jobId: string): Promise<unknown> {
+// Communities
+// ---------------------------------------------------------------------------
+
+export interface CommunityGroup {
+  name: string;
+  changes: Array<Record<string, unknown>>;
+  totalRisk: number;
+}
+
+export interface CommunitiesResponse {
+  jobId: string;
+  available: boolean;
+  communities: CommunityGroup[];
+  unclustered: Array<Record<string, unknown>>;
+}
+
+export function fetchCommunities(jobId: string): Promise<CommunitiesResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/communities`);
 }
 
-export function fetchReviewStory(jobId: string): Promise<unknown> {
+// Review Story
+// ---------------------------------------------------------------------------
+
+export interface ReviewStoryHeader {
+  title: string;
+  fileCount: number;
+  breakingCount: number;
+  mergeConfidence: string | null;
+}
+
+export interface ReviewStoryVerdict {
+  confidence: string;
+  blockers: string[];
+  summary: string;
+}
+
+export interface ReviewStoryResponse {
+  jobId: string;
+  available: boolean;
+  header: ReviewStoryHeader | null;
+  attentionRequired: Array<Record<string, unknown>>;
+  structuralConcerns: Array<Record<string, unknown>>;
+  whatChanged: Array<Record<string, unknown>>;
+  whatAdded: Array<Record<string, unknown>>;
+  nonStructuralCount: number;
+  verdict: ReviewStoryVerdict | null;
+}
+
+export function fetchReviewStory(jobId: string): Promise<ReviewStoryResponse> {
   return request(`/jobs/${encodeURIComponent(jobId)}/review-story`);
 }
 

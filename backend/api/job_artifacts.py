@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from typing import Annotated, Any, cast
 
 import structlog
@@ -72,6 +73,44 @@ router = APIRouter(tags=["jobs"], route_class=DishkaRoute)
 _EVENT_QUERY_DEFAULT = 2000
 _EVENT_QUERY_CEILING = 5000
 _HEADLINE_QUERY_LIMIT = 200
+
+# ── Structural analysis response cache ──
+# Keyed on (job_id, endpoint_name, latest_end_sha). Entries are invalidated
+# when the worktree advances (new SHA = cache miss, old entry evicted).
+_STRUCTURAL_CACHE: OrderedDict[tuple[str, str, str], Any] = OrderedDict()
+_STRUCTURAL_CACHE_MAX_ENTRIES = 64
+
+
+def _cache_get(job_id: str, endpoint: str, sha: str | None) -> Any | None:
+    """Return cached response or None. Evicts stale entries for the same job+endpoint."""
+    if sha is None:
+        return None
+    key = (job_id, endpoint, sha)
+    if key in _STRUCTURAL_CACHE:
+        _STRUCTURAL_CACHE.move_to_end(key)
+        return _STRUCTURAL_CACHE[key]
+    return None
+
+
+def _cache_put(job_id: str, endpoint: str, sha: str | None, value: Any) -> None:
+    """Store a response. Evicts oldest entry if cache is full."""
+    if sha is None:
+        return
+    key = (job_id, endpoint, sha)
+    _STRUCTURAL_CACHE[key] = value
+    _STRUCTURAL_CACHE.move_to_end(key)
+    while len(_STRUCTURAL_CACHE) > _STRUCTURAL_CACHE_MAX_ENTRIES:
+        _STRUCTURAL_CACHE.popitem(last=False)
+
+
+async def _latest_end_sha(step_repo: StepRepository, job_id: str) -> str | None:
+    """Get the latest end_sha from the job's steps — serves as cache version key."""
+    all_steps = await step_repo.get_by_job(job_id)
+    for step in reversed(all_steps):
+        if step.end_sha:
+            return step.end_sha
+    return None
+
 
 @router.get("/jobs/{job_id}/logs", response_model=LogListResponse)
 async def get_job_logs(
@@ -519,6 +558,7 @@ async def get_job_structural_diff(
     job_id: str,
     svc: FromDishka[JobService],
     coderecon: FromDishka[CodeReconService],
+    step_repo: FromDishka[StepRepository],
 ) -> StructuralDiffResponse:
     """Return structural diff analysis for a job's changes.
 
@@ -532,6 +572,12 @@ async def get_job_structural_diff(
 
     if not coderecon.available or not job.repo or not job.worktree_path:
         return StructuralDiffResponse(job_id=job_id, available=False)
+
+    # Cache check — keyed on latest commit SHA in worktree
+    sha = await _latest_end_sha(step_repo, job_id)
+    cached = _cache_get(job_id, "structural-diff", sha)
+    if cached is not None:
+        return cached
 
     try:
         repo_name = await coderecon.ensure_repo_indexed(job.repo)
@@ -563,13 +609,15 @@ async def get_job_structural_diff(
     triage = _compute_triage(changes)
     confidence = _compute_merge_confidence(changes, has_new_cycles=has_new_cycles)
 
-    return StructuralDiffResponse(
+    result = StructuralDiffResponse(
         job_id=job_id,
         summary=diff_result.summary,
         changes=changes,
         merge_confidence=confidence,
         triage=triage,
     )
+    _cache_put(job_id, "structural-diff", sha, result)
+    return result
 
 
 # -- Structural diff helpers --------------------------------------------------
@@ -857,6 +905,7 @@ async def get_impact_graph(
     symbol: str,
     svc: FromDishka[JobService],
     coderecon: FromDishka[CodeReconService],
+    step_repo: FromDishka[StepRepository],
 ) -> ImpactGraphResponse:
     """Return reference/caller graph for a symbol in the job's worktree.
 
@@ -867,7 +916,13 @@ async def get_impact_graph(
         raise HTTPException(status_code=404, detail="Job not found")
 
     if not coderecon.available or not job.repo or not job.worktree_path:
-        raise HTTPException(status_code=503, detail="CodeRecon unavailable")
+        return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
+
+    # Cache check — key includes symbol since this is per-symbol
+    sha = await _latest_end_sha(step_repo, job_id)
+    cached = _cache_get(job_id, f"impact-graph:{symbol}", sha)
+    if cached is not None:
+        return cached
 
     try:
         repo_name = await coderecon.ensure_repo_indexed(job.repo)
@@ -879,7 +934,7 @@ async def get_impact_graph(
         )
     except Exception:
         log.warning("impact_graph_failed", job_id=job_id, symbol=symbol, exc_info=True)
-        raise HTTPException(status_code=503, detail="Impact analysis failed")
+        return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
 
     # Enrich references with tier labels
     enriched_refs = []
@@ -894,7 +949,7 @@ async def get_impact_graph(
             raw_tier=tier_raw,
         ))
 
-    return ImpactGraphResponse(
+    result = ImpactGraphResponse(
         job_id=job_id,
         target=symbol,
         total_references=impact.total_references,
@@ -902,6 +957,8 @@ async def get_impact_graph(
         summary=impact.summary,
         references=enriched_refs,
     )
+    _cache_put(job_id, f"impact-graph:{symbol}", sha, result)
+    return result
 
 
 # -- Community clustering view (§9.7) -----------------------------------------
@@ -912,6 +969,7 @@ async def get_job_communities(
     job_id: str,
     svc: FromDishka[JobService],
     coderecon: FromDishka[CodeReconService],
+    step_repo: FromDishka[StepRepository],
 ) -> CommunitiesResponse:
     """Return community-grouped structural changes for a job.
 
@@ -923,7 +981,13 @@ async def get_job_communities(
         raise HTTPException(status_code=404, detail="Job not found")
 
     if not coderecon.available or not job.repo or not job.worktree_path:
-        raise HTTPException(status_code=503, detail="CodeRecon unavailable")
+        return CommunitiesResponse(job_id=job_id, available=False)
+
+    # Cache check
+    sha = await _latest_end_sha(step_repo, job_id)
+    cached = _cache_get(job_id, "communities", sha)
+    if cached is not None:
+        return cached
 
     try:
         repo_name = await coderecon.ensure_repo_indexed(job.repo)
@@ -935,7 +999,7 @@ async def get_job_communities(
         communities = await coderecon.graph_communities(repo_name, worktree=job.worktree_path)
     except Exception:
         log.warning("communities_failed", job_id=job_id, exc_info=True)
-        raise HTTPException(status_code=503, detail="Community analysis failed")
+        return CommunitiesResponse(job_id=job_id, available=False)
 
     changes = _build_structural_changes(diff_result.structural_changes)
 
@@ -957,7 +1021,7 @@ async def get_job_communities(
         else:
             unclustered.append(change_dict)
 
-    return CommunitiesResponse(
+    result = CommunitiesResponse(
         job_id=job_id,
         communities=[
             CommunityGroup(
@@ -969,6 +1033,8 @@ async def get_job_communities(
         ],
         unclustered=unclustered,
     )
+    _cache_put(job_id, "communities", sha, result)
+    return result
 
 
 # -- Review story artifact (§11) ----------------------------------------------

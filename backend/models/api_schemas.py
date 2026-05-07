@@ -619,6 +619,23 @@ class StepEntriesReassignedPayload(CamelModel):
     new_step_id: str
 
 
+class RepoIndexProgressPayload(CamelModel):
+    repo: str
+    indexed: int = 0
+    total: int = 0
+    phase: str = "indexing"
+
+
+class RepoIndexCompletePayload(CamelModel):
+    repo: str
+
+
+class StructuralWarningPayload(CamelModel):
+    repo: str = ""
+    warning_type: str = ""
+    detail: str = ""
+
+
 class SnapshotPayload(CamelModel):
     jobs: list[JobResponse]
     pending_approvals: list[ApprovalResponse]
@@ -935,6 +952,7 @@ class ImpactGraphResponse(CamelModel):
 
     job_id: str
     target: str
+    available: bool = True
     total_references: int = 0
     files_affected: int = 0
     summary: str = ""
@@ -953,6 +971,7 @@ class CommunitiesResponse(CamelModel):
     """Community-grouped structural changes for a job."""
 
     job_id: str
+    available: bool = True
     communities: list[CommunityGroup] = Field(default_factory=list)
     unclustered: list[dict[str, Any]] = Field(default_factory=list)
 

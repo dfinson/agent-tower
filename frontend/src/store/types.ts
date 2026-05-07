@@ -6,6 +6,12 @@
  */
 
 import type { DiffFileModel, SDKInfo, StoryResponse } from "../api/types";
+import type {
+  StructuralDiffResponse,
+  MultiSessionResponse,
+  CommunitiesResponse,
+  ReviewStoryResponse as StructuralReviewStoryResponse,
+} from "../api/client";
 
 /** Connection status exposed to UI components. */
 export type ConnectionStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
@@ -201,6 +207,12 @@ export interface AppState {
 
   // Repo index progress (keyed by repo name)
   repoIndexState: Record<string, RepoIndexProgress>;
+
+  // Structural analysis (keyed by jobId) — populated by Review tab
+  structuralDiffs: Record<string, StructuralDiffResponse | null>;
+  multiSessions: Record<string, MultiSessionResponse | null>;
+  communities: Record<string, CommunitiesResponse | null>;
+  reviewStories: Record<string, StructuralReviewStoryResponse | null>;
 
   // Terminal state
   terminalDrawerOpen: boolean;

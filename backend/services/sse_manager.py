@@ -31,10 +31,13 @@ from backend.models.api_schemas import (
     MergeConflictPayload,
     ModelDowngradedPayload,
     PlanStepPayload,
+    RepoIndexCompletePayload,
+    RepoIndexProgressPayload,
     SessionHeartbeatPayload,
     SessionResumedPayload,
     SnapshotPayload,
     StepEntriesReassignedPayload,
+    StructuralWarningPayload,
     TelemetryUpdatedPayload,
     ToolGroupSummaryPayload,
     TranscriptPayload,
@@ -463,6 +466,29 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "is_new_activity": ("is_new_activity", False),
             "plan_item_id": ("plan_item_id", None),
             "replaces_turn_id": ("replaces_turn_id", None),
+        },
+    ),
+    "repo_index_progress": (
+        RepoIndexProgressPayload,
+        {
+            "repo": ("repo", ""),
+            "indexed": ("indexed", 0),
+            "total": ("total", 0),
+            "phase": ("phase", "indexing"),
+        },
+    ),
+    "repo_index_complete": (
+        RepoIndexCompletePayload,
+        {
+            "repo": ("repo", ""),
+        },
+    ),
+    "structural_warning": (
+        StructuralWarningPayload,
+        {
+            "repo": ("repo", ""),
+            "warning_type": ("warning_type", ""),
+            "detail": ("detail", ""),
         },
     ),
 }

@@ -33,9 +33,16 @@ from backend.models.api_schemas import (
 )
 from backend.models.domain import Job, JobState
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.api.job_artifacts import _STRUCTURAL_CACHE
 
 
 # -- Fixtures ------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _clear_cache() -> None:
+    """Clear the structural cache between tests."""
+    _STRUCTURAL_CACHE.clear()
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -252,7 +259,8 @@ async def test_structural_diff_unavailable() -> None:
     job = _make_job()
     svc = _make_svc(job)
     coderecon = _make_coderecon(available=False)
-    result = await get_job_structural_diff("job-1", svc, coderecon)
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+    result = await get_job_structural_diff("job-1", svc, coderecon, step_repo)
     assert isinstance(result, StructuralDiffResponse)
     assert result.available is False
 
@@ -263,7 +271,8 @@ async def test_structural_diff_no_worktree() -> None:
     job = _make_job(worktree_path=None)
     svc = _make_svc(job)
     coderecon = _make_coderecon()
-    result = await get_job_structural_diff("job-1", svc, coderecon)
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+    result = await get_job_structural_diff("job-1", svc, coderecon, step_repo)
     assert result.available is False
 
 
@@ -273,6 +282,7 @@ async def test_structural_diff_success() -> None:
     job = _make_job()
     svc = _make_svc(job)
     coderecon = _make_coderecon()
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
     coderecon.semantic_diff.return_value = FakeDiffResult(
         summary="3 changes",
         structural_changes=[
@@ -281,7 +291,7 @@ async def test_structural_diff_success() -> None:
              "ref_tiers": {"PROVEN": 2}, "signature_changed": False},
         ],
     )
-    result = await get_job_structural_diff("job-1", svc, coderecon)
+    result = await get_job_structural_diff("job-1", svc, coderecon, step_repo)
     assert result.available is True
     assert len(result.changes) == 2
     assert result.merge_confidence == "HIGH"
@@ -295,6 +305,7 @@ async def test_structural_diff_with_new_cycles_lowers_confidence() -> None:
     job = _make_job()
     svc = _make_svc(job)
     coderecon = _make_coderecon()
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
     coderecon.semantic_diff.return_value = FakeDiffResult(
         structural_changes=[{"kind": "added", "symbol": "x", "file": "a.py"}],
     )
@@ -302,7 +313,7 @@ async def test_structural_diff_with_new_cycles_lowers_confidence() -> None:
         FakeCyclesResult(cycles=[{"members": ["a.py", "b.py"]}]),  # worktree
         FakeCyclesResult(cycles=[]),  # base (no cycles)
     ]
-    result = await get_job_structural_diff("job-1", svc, coderecon)
+    result = await get_job_structural_diff("job-1", svc, coderecon, step_repo)
     assert result.merge_confidence == "LOW"
 
 
@@ -312,6 +323,7 @@ async def test_impact_graph_success() -> None:
     job = _make_job()
     svc = _make_svc(job)
     coderecon = _make_coderecon()
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
     coderecon.recon_impact.return_value = FakeImpactResult(
         references=[
             {"symbol": "caller_a", "file": "src/a.py", "line": 42, "tier": "PROVEN", "is_test": False},
@@ -321,7 +333,7 @@ async def test_impact_graph_success() -> None:
         files_affected=2,
         summary="2 callers found",
     )
-    result = await get_impact_graph("job-1", "target_fn", svc, coderecon)
+    result = await get_impact_graph("job-1", "target_fn", svc, coderecon, step_repo)
     assert isinstance(result, ImpactGraphResponse)
     assert result.total_references == 2
     assert result.references[0].tier == "verified"
@@ -330,14 +342,16 @@ async def test_impact_graph_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_impact_graph_unavailable_raises_503() -> None:
-    """Raises 503 when CodeRecon is unavailable."""
+async def test_impact_graph_unavailable_returns_not_available() -> None:
+    """Returns available=False when CodeRecon is unavailable."""
     job = _make_job()
     svc = _make_svc(job)
     coderecon = _make_coderecon(available=False)
-    with pytest.raises(Exception) as exc_info:
-        await get_impact_graph("job-1", "target_fn", svc, coderecon)
-    assert "503" in str(exc_info.value.status_code)
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+    result = await get_impact_graph("job-1", "target_fn", svc, coderecon, step_repo)
+    assert isinstance(result, ImpactGraphResponse)
+    assert result.available is False
+    assert result.references == []
 
 
 @pytest.mark.asyncio
@@ -346,6 +360,7 @@ async def test_communities_success() -> None:
     job = _make_job()
     svc = _make_svc(job)
     coderecon = _make_coderecon()
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
     coderecon.semantic_diff.return_value = FakeDiffResult(
         structural_changes=[
             {"kind": "modified", "symbol": "fn_a", "file": "src/auth/login.py", "ref_count": 0},
@@ -359,7 +374,7 @@ async def test_communities_success() -> None:
             {"name": "database", "members": ["src/db/query.py", "src/db/models.py"]},
         ]
     )
-    result = await get_job_communities("job-1", svc, coderecon)
+    result = await get_job_communities("job-1", svc, coderecon, step_repo)
     assert isinstance(result, CommunitiesResponse)
     assert len(result.communities) == 2
     names = {c.name for c in result.communities}
@@ -374,6 +389,7 @@ async def test_communities_unclustered() -> None:
     job = _make_job()
     svc = _make_svc(job)
     coderecon = _make_coderecon()
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
     coderecon.semantic_diff.return_value = FakeDiffResult(
         structural_changes=[
             {"kind": "added", "symbol": "orphan", "file": "misc/util.py", "ref_count": 0},
@@ -382,7 +398,7 @@ async def test_communities_unclustered() -> None:
     coderecon.graph_communities.return_value = FakeCommunitiesResult(
         communities=[{"name": "core", "members": ["src/core.py"]}]
     )
-    result = await get_job_communities("job-1", svc, coderecon)
+    result = await get_job_communities("job-1", svc, coderecon, step_repo)
     assert len(result.communities) == 0
     assert len(result.unclustered) == 1
 
