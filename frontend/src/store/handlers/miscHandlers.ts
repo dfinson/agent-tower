@@ -152,4 +152,5 @@ export const miscHandlers: Record<string, SSEHandler> = {
   policy_settings_changed: handlePolicySettingsChanged,
   repo_index_progress: handleRepoIndexProgress,
   repo_index_complete: handleRepoIndexComplete,
+  structural_warning: () => ({}), // Consumed via event queries, no store state needed
 };

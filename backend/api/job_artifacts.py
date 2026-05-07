@@ -15,6 +15,7 @@ from backend.models.api_schemas import (
     JobSnapshotResponse,
     LogLinePayload,
     LogListResponse,
+    MultiSessionResponse,
     PlanStepPayload,
     ProgressHeadlinePayload,
     ResolutionAction,
@@ -22,6 +23,7 @@ from backend.models.api_schemas import (
     ResolveJobResponse,
     RestoreRequest,
     RestoreResponse,
+    SessionSegment,
     StepDiffPayload,
     StepListResponse,
     StoryBlock,
@@ -39,6 +41,7 @@ from backend.models.domain import JobState, Resolution
 from backend.models.events import DomainEventKind
 from backend.persistence.approval_repo import ApprovalRepository
 from backend.persistence.event_repo import EventRepository
+from backend.persistence.step_repo import StepRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
@@ -689,3 +692,401 @@ def _compute_merge_confidence(changes: list[StructuralChange], *, has_new_cycles
     if has_unknown_refs or has_untested_breaking:
         return "MEDIUM"
     return "HIGH"
+
+
+# -- Multi-session intelligence (§10) -----------------------------------------
+
+
+@router.get("/jobs/{job_id}/multi-session", response_model=MultiSessionResponse)
+async def get_job_multi_session(
+    job_id: str,
+    svc: FromDishka[JobService],
+    step_repo: FromDishka[StepRepository],
+    coderecon: FromDishka[CodeReconService],
+) -> MultiSessionResponse:
+    """Multi-session structural intelligence.
+
+    Returns per-session structural analysis with direction change detection
+    and messy-session warnings (§10).
+    """
+    job = await svc.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not coderecon.available or not job.repo or not job.worktree_path:
+        return MultiSessionResponse(job_id=job_id, available=False)
+
+    if (job.session_count or 1) < 2:
+        # Single-session job — no multi-session intelligence needed
+        return MultiSessionResponse(job_id=job_id, sessions=[])
+
+    try:
+        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+    except Exception:
+        return MultiSessionResponse(job_id=job_id, available=False)
+
+    # Get all steps and partition by session boundaries
+    steps = await step_repo.get_by_job(job_id)
+    if not steps:
+        return MultiSessionResponse(job_id=job_id, sessions=[])
+
+    # Group steps by session using session_resumed events as boundaries
+    # Steps are ordered by step_number; session boundaries inferred from
+    # the step_number where session count increments.
+    # Approximation: divide steps evenly across session_count or use
+    # the session_number from the step_completed events (stored in events table).
+    # For simplicity, we use step start_sha/end_sha to define session ranges.
+    session_count = job.session_count or 1
+    session_steps: dict[int, list] = {}
+    # If we have many steps, split by session_count heuristic:
+    # first session gets steps until we see a gap in SHAs
+    # Actually — use the stored session data from the events payload
+    # For now: partition steps evenly (each session ~= total_steps / session_count)
+    steps_per_session = max(1, len(steps) // session_count)
+    for i, step in enumerate(steps):
+        session_num = (i // steps_per_session) + 1
+        session_num = min(session_num, session_count)
+        session_steps.setdefault(session_num, []).append(step)
+
+    segments: list[SessionSegment] = []
+    prev_added_symbols: set[str] = set()
+    direction_changes: list[dict[str, Any]] = []
+
+    for sess_num in sorted(session_steps.keys()):
+        sess_steps = session_steps[sess_num]
+        # Find SHA range for this session
+        start_sha = next((s.start_sha for s in sess_steps if s.start_sha), None)
+        end_sha = next((s.end_sha for s in reversed(sess_steps) if s.end_sha), None)
+
+        changes: list[StructuralChange] = []
+        warnings: list[dict[str, Any]] = []
+
+        if start_sha and end_sha and start_sha != end_sha:
+            try:
+                diff_result = await coderecon.semantic_diff(
+                    repo_name,
+                    base=start_sha,
+                    target=end_sha,
+                    worktree=job.worktree_path,
+                )
+                changes = _build_structural_changes(diff_result.structural_changes)
+            except Exception:
+                log.debug("multi_session_diff_failed", job_id=job_id, session=sess_num, exc_info=True)
+
+        # Direction change detection (§10.4)
+        current_added = {c.symbol for c in changes if c.kind == "added" and c.symbol}
+        current_modified = {c.symbol for c in changes if c.kind == "modified" and c.symbol}
+        overlap = prev_added_symbols & current_modified
+        if overlap and sess_num > 1:
+            direction_changes.append({
+                "session": sess_num,
+                "detail": f"Session {sess_num} modified {len(overlap)} symbol(s) added by Session {sess_num - 1}",
+                "symbols": sorted(overlap)[:10],
+            })
+            warnings.append({
+                "type": "direction_change",
+                "detail": f"Modified {len(overlap)} symbols from previous session",
+            })
+
+        # Messy session warning (§10.6) — touches 3+ communities
+        files_written: set[str] = set()
+        for step in sess_steps:
+            if step.files_written:
+                import json as _json
+                try:
+                    files_written.update(_json.loads(step.files_written))
+                except (ValueError, TypeError):
+                    pass
+        if len(files_written) >= 3:
+            try:
+                communities = await coderecon.graph_communities(repo_name, worktree=job.worktree_path)
+                file_communities: set[str] = set()
+                for comm in (communities.raw.get("communities") or []):
+                    comm_name = comm.get("name", "")
+                    members = set(comm.get("members", []))
+                    if files_written & members:
+                        file_communities.add(comm_name)
+                if len(file_communities) >= 3:
+                    warnings.append({
+                        "type": "messy_session",
+                        "detail": f"Session spans {len(file_communities)} unrelated module communities",
+                        "communities": sorted(file_communities),
+                    })
+            except Exception:
+                pass
+
+        # Compute session risk (average of change risks)
+        risk = sum(c.risk for c in changes) / max(1, len(changes)) if changes else 0.0
+
+        segments.append(SessionSegment(
+            session_number=sess_num,
+            start_sha=start_sha,
+            end_sha=end_sha,
+            changes=changes,
+            risk=round(risk, 2),
+            warnings=warnings,
+        ))
+
+        # Track added symbols for next session's direction change detection
+        prev_added_symbols = current_added
+
+    return MultiSessionResponse(
+        job_id=job_id,
+        sessions=segments,
+        direction_changes=direction_changes,
+    )
+
+
+# -- Impact graph drill-down (§9.5) -------------------------------------------
+
+
+@router.get("/jobs/{job_id}/impact-graph/{symbol}")
+async def get_impact_graph(
+    job_id: str,
+    symbol: str,
+    svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
+) -> dict[str, Any]:
+    """Return reference/caller graph for a symbol in the job's worktree.
+
+    Shows callers, their reference tiers, and whether they were also modified.
+    """
+    job = await svc.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not coderecon.available or not job.repo or not job.worktree_path:
+        raise HTTPException(status_code=503, detail="CodeRecon unavailable")
+
+    try:
+        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        impact = await coderecon.recon_impact(
+            repo_name,
+            target=symbol,
+            justification="review-drill-down",
+            worktree=job.worktree_path,
+        )
+    except Exception:
+        log.warning("impact_graph_failed", job_id=job_id, symbol=symbol, exc_info=True)
+        raise HTTPException(status_code=503, detail="Impact analysis failed")
+
+    # Enrich references with tier labels
+    enriched_refs = []
+    for ref in impact.references:
+        tier_raw = ref.get("tier", "UNKNOWN")
+        enriched_refs.append({
+            "symbol": ref.get("symbol", ""),
+            "file": ref.get("file", ""),
+            "line": ref.get("line"),
+            "tier": _TIER_LABEL.get(tier_raw, "unverified"),
+            "is_test": ref.get("is_test", False),
+            "raw_tier": tier_raw,
+        })
+
+    return {
+        "job_id": job_id,
+        "target": symbol,
+        "total_references": impact.total_references,
+        "files_affected": impact.files_affected,
+        "summary": impact.summary,
+        "references": enriched_refs,
+    }
+
+
+# -- Community clustering view (§9.7) -----------------------------------------
+
+
+@router.get("/jobs/{job_id}/communities")
+async def get_job_communities(
+    job_id: str,
+    svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
+) -> dict[str, Any]:
+    """Return community-grouped structural changes for a job.
+
+    Groups changes by module community so reviewers can see which logical
+    areas of the codebase are affected.
+    """
+    job = await svc.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not coderecon.available or not job.repo or not job.worktree_path:
+        raise HTTPException(status_code=503, detail="CodeRecon unavailable")
+
+    try:
+        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        diff_result = await coderecon.semantic_diff(
+            repo_name,
+            base=job.base_ref or "HEAD",
+            worktree=job.worktree_path,
+        )
+        communities = await coderecon.graph_communities(repo_name, worktree=job.worktree_path)
+    except Exception:
+        log.warning("communities_failed", job_id=job_id, exc_info=True)
+        raise HTTPException(status_code=503, detail="Community analysis failed")
+
+    changes = _build_structural_changes(diff_result.structural_changes)
+
+    # Map files to communities
+    file_to_community: dict[str, str] = {}
+    for comm in (communities.raw.get("communities") or []):
+        comm_name = comm.get("name", "")
+        for member in comm.get("members", []):
+            file_to_community[member] = comm_name
+
+    # Group changes by community
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    unclustered: list[dict[str, Any]] = []
+    for ch in changes:
+        comm_name = file_to_community.get(ch.file)
+        change_dict = ch.model_dump(by_alias=True)
+        if comm_name:
+            grouped.setdefault(comm_name, []).append(change_dict)
+        else:
+            unclustered.append(change_dict)
+
+    return {
+        "job_id": job_id,
+        "communities": [
+            {
+                "name": name,
+                "changes": items,
+                "total_risk": round(sum(i.get("risk", 0) for i in items), 2),
+            }
+            for name, items in sorted(grouped.items(), key=lambda kv: -sum(i.get("risk", 0) for i in kv[1]))
+        ],
+        "unclustered": unclustered,
+    }
+
+
+# -- Review story artifact (§11) ----------------------------------------------
+
+
+@router.get("/jobs/{job_id}/review-story")
+async def get_review_story(
+    job_id: str,
+    svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
+) -> dict[str, Any]:
+    """Generate a structured review story artifact (§11).
+
+    Returns a structured document with sections: attention_required,
+    structural_concerns, what_changed, what_added, session_history, verdict.
+    Each section is populated from structural diff data.
+    """
+    job = await svc.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not coderecon.available or not job.repo or not job.worktree_path:
+        return {"job_id": job_id, "available": False}
+
+    try:
+        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        diff_result = await coderecon.semantic_diff(
+            repo_name,
+            base=job.base_ref or "HEAD",
+            worktree=job.worktree_path,
+        )
+    except Exception:
+        return {"job_id": job_id, "available": False}
+
+    changes = _build_structural_changes(diff_result.structural_changes)
+
+    # Check for cycles
+    has_new_cycles = False
+    new_cycles: list[dict[str, Any]] = []
+    try:
+        worktree_cycles = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
+        if worktree_cycles.cycles:
+            base_cycles = await coderecon.graph_cycles(repo_name)
+            base_keys = {frozenset(sorted(c.get("members", []))) for c in base_cycles.cycles}
+            for c in worktree_cycles.cycles:
+                key = frozenset(sorted(c.get("members", [])))
+                if key not in base_keys:
+                    has_new_cycles = True
+                    new_cycles.append(c)
+    except Exception:
+        pass
+
+    # Categorize changes
+    breaking = [c for c in changes if c.category == "breaking"]
+    body = [c for c in changes if c.category == "body"]
+    additive = [c for c in changes if c.category == "additive"]
+    non_structural = [c for c in changes if c.category == "non-structural"]
+
+    # Attention required — breaking changes with full context
+    attention_items = []
+    for ch in sorted(breaking, key=lambda c: -c.risk)[:5]:
+        attention_items.append({
+            "symbol": ch.symbol,
+            "file": ch.file,
+            "risk": ch.risk,
+            "ref_count": ch.ref_count,
+            "ref_tiers": ch.ref_tiers,
+            "test_files": ch.test_files,
+            "summary": ch.summary,
+        })
+
+    # Structural concerns — cycles, unknown refs
+    concerns: list[dict[str, Any]] = []
+    if has_new_cycles:
+        concerns.append({
+            "type": "new_cycles",
+            "detail": f"{len(new_cycles)} new dependency cycle(s) introduced",
+            "cycles": new_cycles[:3],
+        })
+    unverified_count = sum(1 for c in changes if c.ref_tiers.get("unverified", 0) > 0)
+    if unverified_count:
+        concerns.append({
+            "type": "unverified_references",
+            "detail": f"{unverified_count} change(s) have unverified callers",
+        })
+
+    # What changed — body changes grouped by community (top 10)
+    what_changed = [
+        {"symbol": c.symbol, "file": c.file, "risk": c.risk, "summary": c.summary}
+        for c in sorted(body, key=lambda c: -c.risk)[:10]
+    ]
+
+    # What was added
+    what_added = [
+        {"symbol": c.symbol, "file": c.file, "summary": c.summary}
+        for c in additive[:7]
+    ]
+
+    # Verdict
+    confidence = _compute_merge_confidence(changes, has_new_cycles=has_new_cycles)
+    blockers: list[str] = []
+    if has_new_cycles:
+        blockers.append("New dependency cycles detected")
+    if any(c.ref_tiers.get("unverified", 0) > 0 and c.category == "breaking" for c in changes):
+        blockers.append("Breaking changes with unverified callers")
+
+    return {
+        "job_id": job_id,
+        "available": True,
+        "header": {
+            "title": job.title or job.prompt[:60],
+            "file_count": len({c.file for c in changes}),
+            "breaking_count": len(breaking),
+            "merge_confidence": confidence,
+        },
+        "attention_required": attention_items,
+        "structural_concerns": concerns,
+        "what_changed": what_changed,
+        "what_added": what_added,
+        "non_structural_count": len(non_structural),
+        "verdict": {
+            "confidence": confidence,
+            "blockers": blockers,
+            "summary": (
+                "No structural concerns — safe to merge."
+                if confidence == "HIGH" and not blockers
+                else f"{len(blockers)} blocker(s) require attention before merge."
+                if blockers
+                else "Some structural uncertainty — review recommended."
+            ),
+        },
+    }

@@ -805,6 +805,22 @@ export function fetchStructuralDiff(jobId: string): Promise<StructuralDiffRespon
   return request(`/jobs/${encodeURIComponent(jobId)}/structural-diff`);
 }
 
+export function fetchMultiSession(jobId: string): Promise<unknown> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/multi-session`);
+}
+
+export function fetchImpactGraph(jobId: string, symbol: string): Promise<unknown> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/impact-graph/${encodeURIComponent(symbol)}`);
+}
+
+export function fetchCommunities(jobId: string): Promise<unknown> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/communities`);
+}
+
+export function fetchReviewStory(jobId: string): Promise<unknown> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/review-story`);
+}
+
 export { ApiError };
 
 // Re-export analytics module for backward compatibility

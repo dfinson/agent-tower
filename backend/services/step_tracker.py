@@ -338,6 +338,7 @@ class StepTracker:
                     "preceding_context": preceding_context,
                     "diff_additions": diff_additions,
                     "diff_deletions": diff_deletions,
+                    "worktree_path": self._worktree_paths.get(job_id),
                 },
             )
         )

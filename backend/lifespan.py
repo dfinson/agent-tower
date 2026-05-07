@@ -10,6 +10,7 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -530,6 +531,47 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     coderecon_service.set_event_bus(event_bus)
     if config.coderecon.enabled:
         await coderecon_service.start()
+
+    # Structural health subscriber — emits warnings at step boundaries (§7.2)
+    async def _structural_health_on_step(event: DomainEvent) -> None:
+        if event.kind != DomainEventKind.step_completed:
+            return
+        if not coderecon_service.available:
+            return
+        worktree_path = event.payload.get("worktree_path")
+        if not worktree_path:
+            return
+        job_id = event.job_id
+        try:
+            # Resolve repo name from catalog
+            catalog = await coderecon_service.catalog()
+            repo_name: str | None = None
+            for entry in catalog:
+                for wt in entry.worktrees:
+                    if Path(wt.get("path", "")).resolve() == Path(worktree_path).resolve():
+                        repo_name = entry.name
+                        break
+                if repo_name:
+                    break
+            if not repo_name:
+                return
+            warnings = await coderecon_service.check_step_structural_health(
+                repo_name, worktree=worktree_path
+            )
+            for w in warnings:
+                await event_bus.publish(
+                    DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job_id,
+                        timestamp=datetime.now(UTC),
+                        kind=DomainEventKind.structural_warning,
+                        payload=w,
+                    )
+                )
+        except Exception:
+            log.debug("structural_health_check_failed", job_id=job_id, exc_info=True)
+
+    event_bus.subscribe(_structural_health_on_step)
 
     # --- Share service ---
     share_service = ShareService()

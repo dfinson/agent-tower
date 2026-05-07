@@ -8,6 +8,7 @@ dashboard and agent tool provisioning.
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -31,6 +32,11 @@ if TYPE_CHECKING:
     from backend.services.event_bus import EventBus
 
 log = structlog.get_logger(__name__)
+
+# Crash recovery constants (§4.3)
+_MAX_RESTART_BACKOFF_S = 30.0
+_DEGRADED_THRESHOLD = 3  # crashes within window → degraded
+_DEGRADED_WINDOW_S = 60.0
 
 
 class DaemonState(Enum):
@@ -58,6 +64,9 @@ class CodeReconService:
         self._restart_lock = asyncio.Lock()
         self._event_bus: EventBus | None = None
         self._event_bridge_task: asyncio.Task[None] | None = None
+        self._crash_timestamps: list[float] = []
+        self._restart_task: asyncio.Task[None] | None = None
+        self._shutting_down = False
 
     @property
     def state(self) -> DaemonState:
@@ -77,6 +86,7 @@ class CodeReconService:
         """Spawn the daemon. Blocks until ready."""
         from coderecon.sdk.client import CodeRecon
 
+        self._shutting_down = False
         self._state = DaemonState.STARTING
         try:
             self._sdk = CodeRecon(binary=self._binary, home=self._home)
@@ -93,6 +103,10 @@ class CodeReconService:
 
     async def stop(self) -> None:
         """Graceful shutdown of the daemon."""
+        self._shutting_down = True
+        if self._restart_task is not None:
+            self._restart_task.cancel()
+            self._restart_task = None
         if self._event_bridge_task is not None:
             self._event_bridge_task.cancel()
             self._event_bridge_task = None
@@ -104,6 +118,52 @@ class CodeReconService:
             self._sdk = None
         self._state = DaemonState.STOPPED
         log.info("coderecon.daemon_stopped")
+
+    async def _handle_crash(self) -> None:
+        """Handle a daemon crash — schedule restart with backoff (§4.3).
+
+        If 3+ crashes within 60s, enter degraded mode permanently (until
+        manual restart via stop/start).
+        """
+        now = time.monotonic()
+        self._crash_timestamps.append(now)
+        # Prune timestamps outside the window
+        self._crash_timestamps = [
+            t for t in self._crash_timestamps if now - t < _DEGRADED_WINDOW_S
+        ]
+
+        if len(self._crash_timestamps) >= _DEGRADED_THRESHOLD:
+            self._state = DaemonState.DEGRADED
+            log.error(
+                "coderecon.degraded_mode",
+                crashes_in_window=len(self._crash_timestamps),
+            )
+            return
+
+        self._restart_count += 1
+        backoff = min(2 ** (self._restart_count - 1), _MAX_RESTART_BACKOFF_S)
+        log.warning(
+            "coderecon.scheduling_restart",
+            restart_count=self._restart_count,
+            backoff_s=backoff,
+        )
+        self._state = DaemonState.STARTING
+        self._restart_task = asyncio.create_task(
+            self._restart_after(backoff), name="coderecon-restart"
+        )
+
+    async def _restart_after(self, delay: float) -> None:
+        """Wait then restart the daemon."""
+        try:
+            await asyncio.sleep(delay)
+            if self._shutting_down:
+                return
+            await self.start()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            self._state = DaemonState.DEGRADED
+            log.error("coderecon.restart_failed", exc_info=True)
 
     async def _ensure_available(self) -> CodeRecon:
         """Return the SDK handle or raise if unavailable."""
@@ -251,6 +311,65 @@ class CodeReconService:
         sdk = await self._ensure_available()
         return await sdk.scaffold(repo, path=path, worktree=worktree)
 
+    # ── Structural Feedback (§7.2) ──
+
+    async def check_step_structural_health(
+        self,
+        repo: str,
+        *,
+        worktree: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run lightweight structural checks at step boundary.
+
+        Returns a list of warnings (may be empty). Each warning has:
+        - type: "new_cycles" | "community_drift"
+        - detail: human-readable description
+        - data: machine-readable payload
+        """
+        warnings: list[dict[str, Any]] = []
+
+        # Check for new cycles
+        try:
+            worktree_cycles = await self.graph_cycles(repo, worktree=worktree)
+            base_cycles = await self.graph_cycles(repo)
+            base_keys = {frozenset(sorted(c.get("members", []))) for c in base_cycles.cycles}
+            new_cycles = [
+                c for c in worktree_cycles.cycles
+                if frozenset(sorted(c.get("members", []))) not in base_keys
+            ]
+            if new_cycles:
+                warnings.append({
+                    "type": "new_cycles",
+                    "detail": f"{len(new_cycles)} new dependency cycle(s) introduced",
+                    "data": {"cycles": new_cycles},
+                })
+        except Exception:
+            pass  # non-critical
+
+        # Check community drift — if worktree touches 3+ unrelated communities
+        try:
+            diff = await self.semantic_diff(repo, worktree=worktree)
+            touched_files = {c.get("file", "") for c in (diff.structural_changes or [])}
+            if len(touched_files) >= 3:
+                communities = await self.graph_communities(repo, worktree=worktree)
+                # Map files to communities
+                file_communities: set[str] = set()
+                for comm in (communities.raw.get("communities") or []):
+                    comm_name = comm.get("name", "")
+                    members = set(comm.get("members", []))
+                    if touched_files & members:
+                        file_communities.add(comm_name)
+                if len(file_communities) >= 3:
+                    warnings.append({
+                        "type": "community_drift",
+                        "detail": f"Changes span {len(file_communities)} unrelated module communities",
+                        "data": {"communities": sorted(file_communities)},
+                    })
+        except Exception:
+            pass  # non-critical
+
+        return warnings
+
     # ── Session Lifecycle ──
 
     async def close_session(self, repo: str, worktree: str | None = None) -> None:
@@ -363,7 +482,11 @@ class CodeReconService:
         except asyncio.CancelledError:
             pass
         except Exception:
-            log.debug("coderecon.event_bridge_error", exc_info=True)
+            log.warning("coderecon.event_bridge_crashed", exc_info=True)
+            if not self._shutting_down:
+                # Daemon likely crashed — trigger recovery
+                self._sdk = None
+                await self._handle_crash()
 
 
 class CodeReconUnavailableError(Exception):

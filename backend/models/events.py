@@ -59,6 +59,7 @@ class DomainEventKind(StrEnum):
     policy_settings_changed = "PolicySettingsChanged"
     repo_index_progress = "RepoIndexProgress"
     repo_index_complete = "RepoIndexComplete"
+    structural_warning = "StructuralWarning"
 
 
 # ---------------------------------------------------------------------------

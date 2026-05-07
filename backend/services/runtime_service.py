@@ -558,6 +558,14 @@ class RuntimeService:
         if worktree_path and self._step_tracker is not None:
             self._step_tracker.register_worktree(job_id, worktree_path)
 
+        # Register worktree with CodeRecon for live structural reindexing (§5.7)
+        if worktree_path and self._coderecon_service is not None and self._coderecon_service.available:
+            try:
+                repo_name = await self._coderecon_service.ensure_repo_indexed(job.repo)
+                await self._coderecon_service.register_worktree(repo_name, worktree_path)
+            except Exception:
+                log.debug("coderecon.worktree_register_failed", job_id=job_id, exc_info=True)
+
         session_id: str | None = None
         error_reason: str | None = None
         final_state = JobState.review

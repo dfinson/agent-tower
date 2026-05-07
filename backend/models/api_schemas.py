@@ -899,6 +899,26 @@ class StructuralDiffResponse(CamelModel):
     triage: dict[str, int] = Field(default_factory=dict)  # category → count
 
 
+class SessionSegment(CamelModel):
+    """Structural analysis of a single agent session."""
+
+    session_number: int
+    start_sha: str | None = None
+    end_sha: str | None = None
+    changes: list[StructuralChange] = []
+    risk: float = 0.0
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MultiSessionResponse(CamelModel):
+    """Multi-session structural intelligence for a job (§10)."""
+
+    job_id: str
+    available: bool = True
+    sessions: list[SessionSegment] = []
+    direction_changes: list[dict[str, Any]] = Field(default_factory=list)
+
+
 # TestCoModification, ReviewSignals, ReviewComplexity, and JobTelemetryReport
 # are now canonical in backend.models.schemas.telemetry (star-imported above).
 
