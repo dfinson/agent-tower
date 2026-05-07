@@ -919,6 +919,75 @@ class MultiSessionResponse(CamelModel):
     direction_changes: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ImpactReference(CamelModel):
+    """A single reference/caller in an impact graph."""
+
+    symbol: str = ""
+    file: str = ""
+    line: int | None = None
+    tier: str = "unverified"  # verified | inferred | unverified
+    is_test: bool = False
+    raw_tier: str = "UNKNOWN"
+
+
+class ImpactGraphResponse(CamelModel):
+    """Impact graph for a symbol — callers with tier classification."""
+
+    job_id: str
+    target: str
+    total_references: int = 0
+    files_affected: int = 0
+    summary: str = ""
+    references: list[ImpactReference] = Field(default_factory=list)
+
+
+class CommunityGroup(CamelModel):
+    """A module community with its grouped changes."""
+
+    name: str
+    changes: list[dict[str, Any]] = Field(default_factory=list)
+    total_risk: float = 0.0
+
+
+class CommunitiesResponse(CamelModel):
+    """Community-grouped structural changes for a job."""
+
+    job_id: str
+    communities: list[CommunityGroup] = Field(default_factory=list)
+    unclustered: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ReviewStoryHeader(CamelModel):
+    """Header block for the review story."""
+
+    title: str = ""
+    file_count: int = 0
+    breaking_count: int = 0
+    merge_confidence: str | None = None
+
+
+class ReviewStoryVerdict(CamelModel):
+    """Verdict section of the review story."""
+
+    confidence: str = "MEDIUM"
+    blockers: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class ReviewStoryResponse(CamelModel):
+    """Structured review story artifact (§11)."""
+
+    job_id: str
+    available: bool = True
+    header: ReviewStoryHeader | None = None
+    attention_required: list[dict[str, Any]] = Field(default_factory=list)
+    structural_concerns: list[dict[str, Any]] = Field(default_factory=list)
+    what_changed: list[dict[str, Any]] = Field(default_factory=list)
+    what_added: list[dict[str, Any]] = Field(default_factory=list)
+    non_structural_count: int = 0
+    verdict: ReviewStoryVerdict | None = None
+
+
 # TestCoModification, ReviewSignals, ReviewComplexity, and JobTelemetryReport
 # are now canonical in backend.models.schemas.telemetry (star-imported above).
 

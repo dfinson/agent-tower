@@ -11,8 +11,12 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.api_schemas import (
+    CommunitiesResponse,
+    CommunityGroup,
     DiffFileModel,
     DiffListResponse,
+    ImpactGraphResponse,
+    ImpactReference,
     JobSnapshotResponse,
     LogLinePayload,
     LogListResponse,
@@ -24,6 +28,9 @@ from backend.models.api_schemas import (
     ResolveJobResponse,
     RestoreRequest,
     RestoreResponse,
+    ReviewStoryHeader,
+    ReviewStoryResponse,
+    ReviewStoryVerdict,
     SessionSegment,
     StepDiffPayload,
     StepListResponse,
@@ -703,6 +710,7 @@ async def get_job_multi_session(
     job_id: str,
     svc: FromDishka[JobService],
     step_repo: FromDishka[StepRepository],
+    event_repo: FromDishka[EventRepository],
     coderecon: FromDishka[CodeReconService],
 ) -> MultiSessionResponse:
     """Multi-session structural intelligence.
@@ -731,23 +739,26 @@ async def get_job_multi_session(
     if not steps:
         return MultiSessionResponse(job_id=job_id, sessions=[])
 
-    # Group steps by session using session_resumed events as boundaries
-    # Steps are ordered by step_number; session boundaries inferred from
-    # the step_number where session count increments.
-    # Approximation: divide steps evenly across session_count or use
-    # the session_number from the step_completed events (stored in events table).
-    # For simplicity, we use step start_sha/end_sha to define session ranges.
-    session_count = job.session_count or 1
+    # Get session_resumed events to determine real session boundaries.
+    # Session 1 starts at job creation; session N starts at the (N-1)th
+    # session_resumed event timestamp.
+    resumed_events = await event_repo.list_by_job(
+        job_id, [DomainEventKind.session_resumed], limit=100,
+    )
+    # Build boundary timestamps: session N starts at resumed_events[N-2].timestamp
+    # (session 1 has no preceding event — it starts at epoch)
+    session_boundaries: list[datetime] = []
+    for ev in resumed_events:
+        session_boundaries.append(ev.timestamp)
+
+    # Assign each step to a session based on its started_at vs boundaries
     session_steps: dict[int, list] = {}
-    # If we have many steps, split by session_count heuristic:
-    # first session gets steps until we see a gap in SHAs
-    # Actually — use the stored session data from the events payload
-    # For now: partition steps evenly (each session ~= total_steps / session_count)
-    steps_per_session = max(1, len(steps) // session_count)
-    for i, step in enumerate(steps):
-        session_num = (i // steps_per_session) + 1
-        session_num = min(session_num, session_count)
-        session_steps.setdefault(session_num, []).append(step)
+    for step in steps:
+        sess_num = 1
+        for i, boundary in enumerate(session_boundaries):
+            if step.started_at >= boundary:
+                sess_num = i + 2  # boundary[0] starts session 2
+        session_steps.setdefault(sess_num, []).append(step)
 
     segments: list[SessionSegment] = []
     prev_added_symbols: set[str] = set()
@@ -840,13 +851,13 @@ async def get_job_multi_session(
 # -- Impact graph drill-down (§9.5) -------------------------------------------
 
 
-@router.get("/jobs/{job_id}/impact-graph/{symbol}")
+@router.get("/jobs/{job_id}/impact-graph/{symbol}", response_model=ImpactGraphResponse)
 async def get_impact_graph(
     job_id: str,
     symbol: str,
     svc: FromDishka[JobService],
     coderecon: FromDishka[CodeReconService],
-) -> dict[str, Any]:
+) -> ImpactGraphResponse:
     """Return reference/caller graph for a symbol in the job's worktree.
 
     Shows callers, their reference tiers, and whether they were also modified.
@@ -874,34 +885,34 @@ async def get_impact_graph(
     enriched_refs = []
     for ref in impact.references:
         tier_raw = ref.get("tier", "UNKNOWN")
-        enriched_refs.append({
-            "symbol": ref.get("symbol", ""),
-            "file": ref.get("file", ""),
-            "line": ref.get("line"),
-            "tier": _TIER_LABEL.get(tier_raw, "unverified"),
-            "isTest": ref.get("is_test", False),
-            "rawTier": tier_raw,
-        })
+        enriched_refs.append(ImpactReference(
+            symbol=ref.get("symbol", ""),
+            file=ref.get("file", ""),
+            line=ref.get("line"),
+            tier=_TIER_LABEL.get(tier_raw, "unverified"),
+            is_test=ref.get("is_test", False),
+            raw_tier=tier_raw,
+        ))
 
-    return {
-        "jobId": job_id,
-        "target": symbol,
-        "totalReferences": impact.total_references,
-        "filesAffected": impact.files_affected,
-        "summary": impact.summary,
-        "references": enriched_refs,
-    }
+    return ImpactGraphResponse(
+        job_id=job_id,
+        target=symbol,
+        total_references=impact.total_references,
+        files_affected=impact.files_affected,
+        summary=impact.summary,
+        references=enriched_refs,
+    )
 
 
 # -- Community clustering view (§9.7) -----------------------------------------
 
 
-@router.get("/jobs/{job_id}/communities")
+@router.get("/jobs/{job_id}/communities", response_model=CommunitiesResponse)
 async def get_job_communities(
     job_id: str,
     svc: FromDishka[JobService],
     coderecon: FromDishka[CodeReconService],
-) -> dict[str, Any]:
+) -> CommunitiesResponse:
     """Return community-grouped structural changes for a job.
 
     Groups changes by module community so reviewers can see which logical
@@ -946,29 +957,29 @@ async def get_job_communities(
         else:
             unclustered.append(change_dict)
 
-    return {
-        "jobId": job_id,
-        "communities": [
-            {
-                "name": name,
-                "changes": items,
-                "totalRisk": round(sum(i.get("risk", 0) for i in items), 2),
-            }
+    return CommunitiesResponse(
+        job_id=job_id,
+        communities=[
+            CommunityGroup(
+                name=name,
+                changes=items,
+                total_risk=round(sum(i.get("risk", 0) for i in items), 2),
+            )
             for name, items in sorted(grouped.items(), key=lambda kv: -sum(i.get("risk", 0) for i in kv[1]))
         ],
-        "unclustered": unclustered,
-    }
+        unclustered=unclustered,
+    )
 
 
 # -- Review story artifact (§11) ----------------------------------------------
 
 
-@router.get("/jobs/{job_id}/review-story")
+@router.get("/jobs/{job_id}/review-story", response_model=ReviewStoryResponse)
 async def get_review_story(
     job_id: str,
     svc: FromDishka[JobService],
     coderecon: FromDishka[CodeReconService],
-) -> dict[str, Any]:
+) -> ReviewStoryResponse:
     """Generate a structured review story artifact (§11).
 
     Returns a structured document with sections: attention_required,
@@ -980,7 +991,7 @@ async def get_review_story(
         raise HTTPException(status_code=404, detail="Job not found")
 
     if not coderecon.available or not job.repo or not job.worktree_path:
-        return {"jobId": job_id, "available": False}
+        return ReviewStoryResponse(job_id=job_id, available=False)
 
     try:
         repo_name = await coderecon.ensure_repo_indexed(job.repo)
@@ -990,7 +1001,7 @@ async def get_review_story(
             worktree=job.worktree_path,
         )
     except Exception:
-        return {"jobId": job_id, "available": False}
+        return ReviewStoryResponse(job_id=job_id, available=False)
 
     changes = _build_structural_changes(diff_result.structural_changes)
 
@@ -1064,29 +1075,29 @@ async def get_review_story(
     if any(c.ref_tiers.get("unverified", 0) > 0 and c.category == "breaking" for c in changes):
         blockers.append("Breaking changes with unverified callers")
 
-    return {
-        "jobId": job_id,
-        "available": True,
-        "header": {
-            "title": job.title or job.prompt[:60],
-            "fileCount": len({c.file for c in changes}),
-            "breakingCount": len(breaking),
-            "mergeConfidence": confidence,
-        },
-        "attentionRequired": attention_items,
-        "structuralConcerns": concerns,
-        "whatChanged": what_changed,
-        "whatAdded": what_added,
-        "nonStructuralCount": len(non_structural),
-        "verdict": {
-            "confidence": confidence,
-            "blockers": blockers,
-            "summary": (
+    return ReviewStoryResponse(
+        job_id=job_id,
+        available=True,
+        header=ReviewStoryHeader(
+            title=job.title or job.prompt[:60],
+            file_count=len({c.file for c in changes}),
+            breaking_count=len(breaking),
+            merge_confidence=confidence,
+        ),
+        attention_required=attention_items,
+        structural_concerns=concerns,
+        what_changed=what_changed,
+        what_added=what_added,
+        non_structural_count=len(non_structural),
+        verdict=ReviewStoryVerdict(
+            confidence=confidence,
+            blockers=blockers,
+            summary=(
                 "No structural concerns — safe to merge."
                 if confidence == "HIGH" and not blockers
                 else f"{len(blockers)} blocker(s) require attention before merge."
                 if blockers
                 else "Some structural uncertainty — review recommended."
             ),
-        },
-    }
+        ),
+    )
