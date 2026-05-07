@@ -539,9 +539,9 @@ async def get_job_structural_diff(
         worktree_cycles = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
         if worktree_cycles.cycles:
             base_cycles = await coderecon.graph_cycles(repo_name)
-            base_keys = {frozenset(tuple(sorted(c.get("members", []))) for c in base_cycles.cycles)}
+            base_keys = {frozenset(sorted(c.get("members", []))) for c in base_cycles.cycles}
             for c in worktree_cycles.cycles:
-                key = frozenset(tuple(sorted(c.get("members", []))))
+                key = frozenset(sorted(c.get("members", [])))
                 if key not in base_keys:
                     has_new_cycles = True
                     break

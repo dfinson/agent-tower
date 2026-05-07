@@ -982,9 +982,12 @@ class RuntimeService:
                     job = await svc.get_job(job_id)
                 if job is not None and job.worktree_path and job.repo:
                     # Look up repo name without triggering registration/indexing
+                    from pathlib import Path as _Path
                     catalog = await self._coderecon_service.catalog()
+                    resolved = _Path(job.repo).resolve()
                     repo_name = next(
-                        (e["name"] for e in catalog if job.repo in e.get("git_dir", "")),
+                        (e["name"] for e in catalog
+                         if _Path(e.get("git_dir", "")).resolve() in (resolved / ".git", resolved)),
                         None,
                     )
                     if repo_name:

@@ -696,10 +696,12 @@ class StoryService:
 
         try:
             # Look up repo name without triggering registration/indexing
+            from pathlib import Path as _Path
             catalog = await self._coderecon.catalog()
-            repo_path = job_row["repo"]
+            resolved = _Path(job_row["repo"]).resolve()
             repo_name = next(
-                (e["name"] for e in catalog if repo_path in e.get("git_dir", "")),
+                (e["name"] for e in catalog
+                 if _Path(e.get("git_dir", "")).resolve() in (resolved / ".git", resolved)),
                 None,
             )
             if not repo_name:
