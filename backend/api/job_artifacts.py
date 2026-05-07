@@ -879,15 +879,15 @@ async def get_impact_graph(
             "file": ref.get("file", ""),
             "line": ref.get("line"),
             "tier": _TIER_LABEL.get(tier_raw, "unverified"),
-            "is_test": ref.get("is_test", False),
-            "raw_tier": tier_raw,
+            "isTest": ref.get("is_test", False),
+            "rawTier": tier_raw,
         })
 
     return {
-        "job_id": job_id,
+        "jobId": job_id,
         "target": symbol,
-        "total_references": impact.total_references,
-        "files_affected": impact.files_affected,
+        "totalReferences": impact.total_references,
+        "filesAffected": impact.files_affected,
         "summary": impact.summary,
         "references": enriched_refs,
     }
@@ -947,12 +947,12 @@ async def get_job_communities(
             unclustered.append(change_dict)
 
     return {
-        "job_id": job_id,
+        "jobId": job_id,
         "communities": [
             {
                 "name": name,
                 "changes": items,
-                "total_risk": round(sum(i.get("risk", 0) for i in items), 2),
+                "totalRisk": round(sum(i.get("risk", 0) for i in items), 2),
             }
             for name, items in sorted(grouped.items(), key=lambda kv: -sum(i.get("risk", 0) for i in kv[1]))
         ],
@@ -980,7 +980,7 @@ async def get_review_story(
         raise HTTPException(status_code=404, detail="Job not found")
 
     if not coderecon.available or not job.repo or not job.worktree_path:
-        return {"job_id": job_id, "available": False}
+        return {"jobId": job_id, "available": False}
 
     try:
         repo_name = await coderecon.ensure_repo_indexed(job.repo)
@@ -990,7 +990,7 @@ async def get_review_story(
             worktree=job.worktree_path,
         )
     except Exception:
-        return {"job_id": job_id, "available": False}
+        return {"jobId": job_id, "available": False}
 
     changes = _build_structural_changes(diff_result.structural_changes)
 
@@ -1023,9 +1023,9 @@ async def get_review_story(
             "symbol": ch.symbol,
             "file": ch.file,
             "risk": ch.risk,
-            "ref_count": ch.ref_count,
-            "ref_tiers": ch.ref_tiers,
-            "test_files": ch.test_files,
+            "refCount": ch.ref_count,
+            "refTiers": ch.ref_tiers,
+            "testFiles": ch.test_files,
             "summary": ch.summary,
         })
 
@@ -1065,19 +1065,19 @@ async def get_review_story(
         blockers.append("Breaking changes with unverified callers")
 
     return {
-        "job_id": job_id,
+        "jobId": job_id,
         "available": True,
         "header": {
             "title": job.title or job.prompt[:60],
-            "file_count": len({c.file for c in changes}),
-            "breaking_count": len(breaking),
-            "merge_confidence": confidence,
+            "fileCount": len({c.file for c in changes}),
+            "breakingCount": len(breaking),
+            "mergeConfidence": confidence,
         },
-        "attention_required": attention_items,
-        "structural_concerns": concerns,
-        "what_changed": what_changed,
-        "what_added": what_added,
-        "non_structural_count": len(non_structural),
+        "attentionRequired": attention_items,
+        "structuralConcerns": concerns,
+        "whatChanged": what_changed,
+        "whatAdded": what_added,
+        "nonStructuralCount": len(non_structural),
         "verdict": {
             "confidence": confidence,
             "blockers": blockers,

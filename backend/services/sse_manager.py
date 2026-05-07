@@ -95,6 +95,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.policy_settings_changed: "policy_settings_changed",
     DomainEventKind.repo_index_progress: "repo_index_progress",
     DomainEventKind.repo_index_complete: "repo_index_complete",
+    DomainEventKind.structural_warning: "structural_warning",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)

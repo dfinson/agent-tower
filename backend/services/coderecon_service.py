@@ -61,7 +61,6 @@ class CodeReconService:
         self._sdk: CodeRecon | None = None
         self._state = DaemonState.STOPPED
         self._restart_count = 0
-        self._restart_lock = asyncio.Lock()
         self._event_bus: EventBus | None = None
         self._event_bridge_task: asyncio.Task[None] | None = None
         self._crash_timestamps: list[float] = []
@@ -87,6 +86,14 @@ class CodeReconService:
         from coderecon.sdk.client import CodeRecon
 
         self._shutting_down = False
+        # Cancel any pending restart to prevent double-initialization
+        if self._restart_task is not None:
+            self._restart_task.cancel()
+            self._restart_task = None
+        # Cancel stale event bridge from a prior session
+        if self._event_bridge_task is not None:
+            self._event_bridge_task.cancel()
+            self._event_bridge_task = None
         self._state = DaemonState.STARTING
         try:
             self._sdk = CodeRecon(binary=self._binary, home=self._home)
