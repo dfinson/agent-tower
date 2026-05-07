@@ -28,62 +28,68 @@ Click the microphone button to dictate your prompt. Audio is transcribed locally
 
 ## Monitoring Execution
 
-Once a job starts, the detail view shows five tabs:
+Once a job starts, the detail view shows real-time progress with a collapsible header card and tabbed content.
+
+### Job Header
+
+The header card shows the job title, state badge, SDK, and a live progress headline. On desktop it's a collapsible card with a colored accent border (keyed to job state); on mobile it's a compact rail with a swipe-up bottom sheet for details. The header auto-expands when a job completes, fails, or enters review.
+
+### Activity Panel
+
+The left sidebar (desktop) or slide-in overlay (mobile) shows a hierarchical activity timeline:
+
+- **Activities** — semantic groups of related turns (e.g., "Implement validation", "Run tests")
+- **Steps** — individual turns within each activity, showing title and tier badge (○ observe / ◐ checkpoint / ● gate)
+
+Activity boundaries are determined by an LLM that observes what the agent is doing and decides when it transitions to a new task. Click any step to scroll the transcript to that turn. Use `Cmd+F` / `Ctrl+F` to search transcript content with keyboard navigation through matches.
 
 ### Transcript
 
 The primary monitoring view. Shows the agent's reasoning, tool calls (grouped with expandable details), operator messages you've sent, and AI-generated summaries of tool call groups.
 
-Send messages to the agent at any time using the input box at the bottom. The agent receives your message as an operator instruction.
+Each turn shows its classified **intent** (implementation, investigation, verification, etc.) and the specific actions taken. Send messages to the agent at any time using the input box at the bottom.
 
 ### Plan
 
 The agent's planned steps with real-time status indicators for done, active, pending, and skipped steps.
 
-### Logs
-
-Structured log output with level filtering (debug, info, warning, error).
-
-### Timeline
-
-Visual timeline of execution phases — which are active, completed, or upcoming.
-
 ### Metrics
 
-Token usage, estimated cost, LLM and tool call counts, cache hit rate, and context utilization.
+Token usage with input/output/cache breakdown, estimated cost with live cost badge, LLM and tool call counts, cache hit rate, and context utilization. Cost attribution is broken down by activity dimension (implementation, verification, investigation, etc.).
 
 ### When to Intervene
 
 - If the transcript shows repetitive actions, the agent may be stuck — send a message or cancel.
 - If the plan isn't progressing, check logs for errors.
-- If costs are climbing fast, check metrics to see if the agent is thrashing.
+- If costs are climbing fast, check the cost badge on the header or open the metrics panel to see which activity is consuming budget.
 
 ---
 
-## Approvals
+## Action Policy
 
-When an agent attempts a risky action, CodePlane can pause execution and ask for your approval.
+When an agent attempts an action, CodePlane classifies it and decides whether to observe, checkpoint, or gate it for your approval.
 
-### Permission Modes
+### Presets
 
-| Mode | Behavior |
-|------|----------|
-| `full_auto` | Auto-approve all operations — reads, writes, shell commands, MCP tools, and URL fetches. No prompts. (default) |
-| `review_and_approve` | Reads and read-only shell commands (grep, find, ls, cat) are auto-approved. Writes, mutating shell commands, URL fetches, and mutating MCP tools pause for your approval. |
-| `observe_only` | Allow reads within the worktree and read-only shell commands. Block all writes, URL fetches, and mutations. |
+Every job runs under a **preset** that controls how aggressively actions are gated:
 
-Set the mode per-job in the creation form, per-repo in `.codeplane.yml`:
+| Preset | Behavior |
+|--------|----------|
+| **`autonomous`** | Only non-contained actions (external calls, operations outside the worktree) require approval. Everything else proceeds immediately. |
+| **`supervised`** | Default. Contained and reversible actions proceed; anything non-contained or irreversible requires approval. |
+| **`strict`** | Even contained, reversible actions create a git checkpoint before proceeding. Non-contained or irreversible actions require approval. |
 
-```yaml
-permission_mode: review_and_approve
-```
+Set the preset globally via **Settings → Policy**, per-job in the creation form, or via the API (`PUT /settings/policy/preset`).
 
-Or globally in `~/.codeplane/config.yaml`:
+### Decision Tiers
 
-```yaml
-runtime:
-  permission_mode: review_and_approve
-```
+Each action is classified into one of three tiers:
+
+| Tier | Symbol | Behavior |
+|------|--------|----------|
+| **observe** | ○ | Action proceeds immediately — no interruption |
+| **checkpoint** | ◐ | Creates a git savepoint, then proceeds (rollback available) |
+| **gate** | ● | Blocks execution until you approve or reject |
 
 ### Approval Actions
 
@@ -93,9 +99,20 @@ runtime:
 | **Reject** | Block it — the agent may try an alternative |
 | **Trust Session** | Auto-approve all remaining actions for this job |
 
+### Rules & Overrides
+
+Beyond presets, you can define fine-grained rules in **Settings → Policy**:
+
+- **Path rules** — map file patterns (e.g., `infra/**`, `.github/workflows/**`) to a specific tier, regardless of preset
+- **Action rules** — regex patterns on command/tool names to override the tier
+- **Cost rules** — promote tier upward when job spend exceeds a threshold (e.g., escalate to `gate` if spend > $5)
+- **MCP server configs** — per-server and per-tool reversibility/containment overrides
+
+Rules are evaluated at runtime and can be changed mid-job — running jobs reload policy automatically.
+
 ### Hard-Gated Commands
 
-Some commands **always** require approval regardless of mode: `git merge`, `git pull`, `git rebase`, `git cherry-pick`, and `git reset --hard`.
+Some commands **always** require approval regardless of preset: `git merge`, `git pull`, `git rebase`, `git cherry-pick`, and `git reset --hard`.
 
 ---
 
@@ -104,6 +121,29 @@ Some commands **always** require approval regardless of mode: `git merge`, `git 
 The **Diff** tab shows all files modified by the agent with syntax-highlighted, side-by-side diffs. Diffs update in real time as the agent works.
 
 The **Workspace** view lets you browse the full file tree — not just changed files. This is useful for checking context or verifying overall structure.
+
+### Structural Review (CodeRecon)
+
+When CodeRecon is enabled, CodePlane provides an intelligent **structural code review** that goes beyond text diffs:
+
+- **Semantic diff** — changes classified as added, removed, modified, or moved symbols (not just lines)
+- **Risk scoring** — each change gets a composite risk score based on category severity, unverified caller ratio, and test coverage gaps
+- **Merge confidence** — HIGH / MEDIUM / LOW verdict based on overall change risk and dependency cycles
+- **Reference tiers** — callers of modified symbols are classified by confidence:
+    - *Proven* — direct static references
+    - *Strong / Anchored / Semantic* — inferred via type or semantic analysis
+    - *Unknown* — found but not verified
+- **Communities** — related changes grouped by module/feature for holistic review
+- **Review story** — structured narrative with attention-required items, structural concerns, what changed, and a verdict
+
+The structural review dashboard appears in the job detail view when changes are ready. Use the triage bar to filter changes by risk category and focus on what matters.
+
+Enable CodeRecon in `~/.codeplane/config.yaml`:
+
+```yaml
+coderecon:
+  enabled: true
+```
 
 ---
 
@@ -206,7 +246,10 @@ For example, a Vite dev server on port 5173 would be accessible at `/api/preview
 
 ### Terminal
 
-Press `` Ctrl+` `` to open the integrated terminal. Supports multiple tabs — global terminals or job-specific terminals rooted in the worktree.
+Press `` Ctrl+` `` to open the integrated terminal. Two types are available:
+
+- **Worktree terminal** — rooted in the job's worktree directory for manual inspection
+- **Agent terminal** — read-only view of the agent's active terminal session
 
 ### Command Palette
 

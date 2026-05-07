@@ -56,7 +56,7 @@ Path validation enforces relative paths within the worktree — no `.git` access
 | `get` | Retrieve all settings |
 | `update` | Update any combination of settings (see below) |
 
-Updatable settings: `max_concurrent_jobs`, `permission_mode`, `auto_push`, `cleanup_worktree`, `delete_branch_after_merge`, `artifact_retention_days`, `max_artifact_size_mb`, `auto_archive_days`, `verify`, `self_review`, `max_turns`, `verify_prompt`, `self_review_prompt`.
+Updatable settings: `max_concurrent_jobs`, `auto_push`, `cleanup_worktree`, `delete_branch_after_merge`, `artifact_retention_days`, `max_artifact_size_mb`, `auto_archive_days`, `verify`, `self_review`, `max_turns`, `verify_prompt`, `self_review_prompt`.
 
 ### `codeplane_health` — Health & Maintenance
 

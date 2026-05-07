@@ -52,7 +52,7 @@ Out of the box, CodePlane is configured conservatively:
 |------|-------------|---------------------|
 | `--host 0.0.0.0` | Binds to all network interfaces | Trusted home network with password enabled |
 | `--no-password` | Disables password authentication | Localhost-only on a single-user machine |
-| `full_auto` permission mode | Agent runs without approval prompts | Repos you fully trust with no CI/CD write access |
+| `autonomous` preset | Agent runs with minimal approval prompts | Repos you fully trust with no CI/CD write access |
 
 !!! warning
     Never use `--host 0.0.0.0` without a password on a shared or public network.
@@ -69,20 +69,32 @@ Out of the box, CodePlane is configured conservatively:
 - **Localhost bypass**: requests from `127.0.0.1` / `::1` are trusted without a cookie (same-machine access)
 - **Rate limiting**: 5 failed login attempts per minute per IP (sliding window)
 
-### Permission Modes
+### Action Policy & Tiers
 
-CodePlane supports three permission modes per job, controlling what the agent can do without approval:
+CodePlane uses a **tiered action policy** system that classifies every agent action and decides whether to allow, checkpoint, or gate it:
 
-| Mode | Agent can | Approval for |
-|------|-----------|-------------|
-| `full_auto` | Read + write freely within worktree | Hard-gated commands only |
-| `review_and_approve` | Read freely | All writes and mutations |
-| `observe_only` | Read-only tools (grep, ls, cat) | Everything else |
+| Preset | Agent can | Approval required for |
+|--------|-----------|----------------------|
+| `autonomous` | All contained actions within worktree | Non-contained actions (external calls, outside worktree) |
+| `supervised` | Contained, reversible actions | Non-contained or irreversible actions |
+| `strict` | Nothing without checkpoint | Contained actions get git savepoint; all others gated |
 
-**Hard-gated commands** always require approval regardless of mode:
-`git merge`, `git pull`, `git rebase`, `git cherry-pick`, `git reset --hard`
+**Decision tiers:**
 
-**Protected paths**: per-repo `.codeplane.yml` can define paths (e.g., `infra/`, `.github/workflows/`) where writes always trigger an approval request, even in `full_auto`.
+| Tier | Symbol | Behavior |
+|------|--------|----------|
+| observe | ○ | Action proceeds immediately |
+| checkpoint | ◐ | Git savepoint created, then proceeds |
+| gate | ● | Blocks until operator approves |
+
+**Hard-gated commands** always require approval regardless of preset:
+`git merge`, `git pull`, `git rebase`, `git cherry-pick`, and `git reset --hard`
+
+**Path rules**: define file patterns (e.g., `infra/`, `.github/workflows/`) where writes always escalate to `gate`, regardless of preset.
+
+**Cost rules**: automatically promote the tier when job spend exceeds a threshold — e.g., escalate all actions to `gate` when spend exceeds $5.
+
+Policy rules are managed in **Settings → Policy** and take effect immediately on running jobs.
 
 ### Authorization Model
 
@@ -188,13 +200,14 @@ Share tokens provide **read-only** access to a single job:
 ## Best Practices
 
 1. **Keep password enabled** for any non-localhost access
-2. **Use `review_and_approve`** for repositories you don't fully trust
-3. **Define protected paths** in `.codeplane.yml` for infrastructure and CI/CD files
-4. **Don't leave CodePlane running unattended** with active agents
-5. **Review approval requests carefully** — agents can be persuasive
-6. **Use defaults on shared networks** — avoid `--host 0.0.0.0` on Wi-Fi you don't control
-7. **Close when done** — CodePlane is a development tool, not a persistent service
-8. **Treat share links as sensitive** — they bypass the CodePlane password for read-only access; tokens expire after 24 hours but can't be revoked individually. The viewer must still pass the tunnel identity gate (if any)
+2. **Use `supervised` or `strict` preset** for repositories you don't fully trust
+3. **Define path rules** in Settings → Policy for infrastructure and CI/CD files
+4. **Set cost rules** to escalate oversight when spend exceeds your comfort level
+5. **Don't leave CodePlane running unattended** with active agents
+6. **Review approval requests carefully** — agents can be persuasive
+7. **Use defaults on shared networks** — avoid `--host 0.0.0.0` on Wi-Fi you don't control
+8. **Close when done** — CodePlane is a development tool, not a persistent service
+9. **Treat share links as sensitive** — they bypass the CodePlane password for read-only access; tokens expire after 24 hours but can't be revoked individually. The viewer must still pass the tunnel identity gate (if any)
 
 ## Reporting Vulnerabilities
 

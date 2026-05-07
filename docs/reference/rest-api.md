@@ -160,3 +160,28 @@ Share endpoints bypass CodePlane's password but not tunnel-level identity gates.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/preview/{port}/{path}` | Reverse-proxy to `127.0.0.1:{port}` (ports 1024–65535 only) |
+
+## Action Policy
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/settings/policy` | Get current policy config (preset, rules) |
+| `PUT` | `/api/settings/policy/preset` | Update the active preset (`autonomous`, `supervised`, `strict`) |
+| `GET` | `/api/settings/policy/rules` | List all path, action, and cost rules |
+| `POST` | `/api/settings/policy/rules` | Create a new rule |
+| `DELETE` | `/api/settings/policy/rules/{rule_id}` | Delete a rule |
+
+## Trail (Audit Log)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/jobs/{job_id}/trail` | Query trail nodes (query: `kinds`, `flat`) |
+| `GET` | `/api/jobs/{job_id}/trail/summary` | Lightweight trail summary (goals, decisions, file counts) |
+
+## Structural Review (CodeRecon)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/jobs/{job_id}/structural-diff` | Structural diff analysis |
+| `GET` | `/api/jobs/{job_id}/review-story` | Review story artifact |
+| `GET` | `/api/jobs/{job_id}/impact-graph/{symbol}` | Caller analysis for a symbol |

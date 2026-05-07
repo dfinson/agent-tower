@@ -55,7 +55,31 @@ Each agent CLI/SDK is wrapped behind a common adapter interface. CodePlane manag
 
 ### Permission Callbacks
 
-When an agent tries to perform a risky action (file write, shell command), the agent fires a permission callback. CodePlane intercepts this and either auto-approves or surfaces it to you for a decision. The job pauses until you respond.
+When an agent tries to perform an action, the agent fires a permission callback. CodePlane's **action policy engine** classifies the action (by kind, containment, reversibility, path rules, and cost thresholds) and assigns a tier: observe (proceed), checkpoint (savepoint + proceed), or gate (block until operator approves). The job pauses only for gated actions.
+
+## Agent Audit Trail
+
+Every agent action is recorded as a **trail node** — a structured entry in an intent graph that captures what the agent did, why, and how:
+
+- **Node kinds**: goal, turn, reasoning, decision, modify, write, verify, investigate, backtrack
+- **Intent enrichment**: an async LLM pipeline annotates nodes with intent, rationale, and outcome
+- **Activity grouping**: related turns are grouped into semantic activities (implementation, verification, investigation, etc.) with LLM-driven boundary detection
+- **Policy context**: each node records its tier classification, reversibility, and checkpoint reference
+
+The trail provides a complete audit record for post-hoc analysis, cost attribution, and debugging agent behavior.
+
+## Structural Analysis (CodeRecon)
+
+When enabled, CodePlane runs a CodeRecon daemon alongside the agent. After changes are made, CodeRecon performs semantic analysis:
+
+- Classifies changes as symbol additions, removals, modifications, or moves
+- Traces callers/references of modified symbols and assigns confidence tiers
+- Scores each change by risk (severity × unknown ratio × test gap)
+- Detects dependency cycles introduced by the change
+- Groups related changes into communities for holistic review
+- Produces a merge confidence verdict (HIGH / MEDIUM / LOW)
+
+This provides reviewers with structural understanding beyond line-level diffs.
 
 ## Data Storage
 

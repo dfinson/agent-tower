@@ -112,6 +112,31 @@ Identify which jobs, models, and repos contribute the most to your spend.
 ![Cost Drivers — Mobile](images/screenshots/mobile/analytics-cost-drivers.png)
 </div>
 
+### Activity Breakdown
+
+Cost attribution is classified by **activity dimension** — what the agent was doing when it spent tokens:
+
+| Activity | Description |
+|----------|-------------|
+| **Implementation** | File edits and code generation |
+| **Verification** | Test execution and validation |
+| **Investigation** | Reading, searching, browsing code |
+| **Git ops** | Commits, pushes, diffs |
+| **Setup** | Package installs, environment configuration |
+| **Delegation** | Sub-agent calls |
+| **Reasoning** | Pure thinking without tool use |
+| **Communication** | User-facing responses |
+
+Each turn is classified by an LLM that observes the agent's intent, providing accurate cost allocation even when a single turn mixes multiple tools.
+
+### Latency Breakdown
+
+Parallel to the cost breakdown, the latency view shows wall-clock time attribution by activity dimension — where time is actually spent during job execution. Includes percentile metrics (p50, p95) per dimension.
+
+### Tool Mix
+
+A percentage breakdown showing which tools the agent uses most (by call count and cost contribution), grouped by activity category.
+
 ---
 
 ## Token & Cache Metrics

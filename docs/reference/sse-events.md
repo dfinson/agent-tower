@@ -86,6 +86,14 @@ The server replays up to 500 recent events (within 5 minutes) on reconnection us
 | `session_resumed` | `jobId` | Session restarted after pause |
 | `model_downgraded` | `jobId`, `requested`, `actual` | Model fallback occurred |
 
+### Activity & Trail Events
+
+| Event Type | Payload Fields | Description |
+|------------|---------------|-------------|
+| `turn_summary` | `jobId`, `turnId`, `title`, `activityId`, `activityLabel`, `activityStatus`, `isNewActivity` | Turn classified with activity context |
+| `policy_settings_changed` | — | Action policy rules were modified (running jobs reload) |
+| `structural_warning` | `jobId`, `message` | CodeRecon detected a structural concern |
+
 ## Event Format
 
 Each SSE frame follows the standard format:

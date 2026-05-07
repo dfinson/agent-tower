@@ -78,10 +78,10 @@ The agent starts working in an isolated Git worktree. Your working directory is 
 
 The job detail view shows live updates:
 
-- **Transcript** — the agent's reasoning and tool calls
+- **Activity panel** — hierarchical view of what the agent is doing, grouped by task
+- **Transcript** — the agent's reasoning and tool calls with per-turn intent
 - **Plan** — the agent's planned steps and progress
-- **Logs** — structured output with level filtering
-- **Metrics** — token usage and estimated cost
+- **Metrics** — token usage, live cost badge, and activity-based cost breakdown
 
 <div class="screenshot-desktop" markdown>
 ![Running Job](images/screenshots/desktop/transcript-streaming.gif)
@@ -93,15 +93,15 @@ The job detail view shows live updates:
 
 ## Handle Approvals
 
-Whether the agent pauses for approval depends on the **permission mode**:
+Whether the agent pauses for approval depends on the **action policy preset**:
 
-| Mode | Behavior |
-|------|----------|
-| `full_auto` | Everything is auto-approved — no prompts (default) |
-| `review_and_approve` | Reads are auto-approved; file writes, shell commands, and network access pause for your approval |
-| `observe_only` | Reads only — all writes and mutations are blocked |
+| Preset | Behavior |
+|--------|----------|
+| `autonomous` | Most actions proceed — only non-contained operations require approval |
+| `supervised` | Contained, reversible actions proceed; writes and mutations require approval (default) |
+| `strict` | All actions checkpoint or gate — maximum oversight |
 
-You can set the mode per-job, per-repo (`.codeplane.yml`), or globally — see [Configuration](configuration.md).
+You can set the preset per-job, globally in Settings → Policy, or via the API — see [Configuration](configuration.md).
 
 When an approval prompt appears, choose:
 

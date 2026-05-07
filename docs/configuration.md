@@ -27,14 +27,21 @@ Location: `~/.codeplane/config.yaml` (created on first run or via `cpl setup`).
 agent:
   default_sdk: copilot              # agent CLI to use: copilot | claude
   default_model: ~                  # model name, or ~ for agent default
-  permission_mode: full_auto        # full_auto | observe_only | review_and_approve
 ```
 
-| Permission Mode | Behavior |
-|-----------------|---------|
-| `full_auto` | All agent actions within the worktree are auto-approved — no prompts (default) |
-| `observe_only` | Agent can read files and run safe commands (grep, ls, find); all writes and mutations are blocked |
-| `review_and_approve` | Reads always allowed; file writes, shell commands (except grep/find), and network access pause for your approval |
+### Action Policy
+
+The action policy system controls what an agent can do without your approval. Configure the default preset:
+
+| Preset | Behavior |
+|--------|---------|
+| `autonomous` | Only non-contained actions (outside worktree, external calls) require approval |
+| `supervised` | Contained and reversible actions proceed; all others require approval (default) |
+| `strict` | Even safe actions create a git checkpoint first; non-contained/irreversible actions require approval |
+
+The preset and all policy rules are managed in **Settings → Policy** in the UI, or via the REST API (`/settings/policy/`). The config file no longer controls permission modes — they are stored in the database and can be changed at runtime (running jobs reload automatically).
+
+See [Usage Guide > Action Policy](guide.md#action-policy) for full details on tiers, rules, and overrides.
 
 ### Server
 
@@ -60,7 +67,6 @@ Place a `.codeplane.yml` file in any repository root to override global settings
 agent:
   default_sdk: claude
   default_model: claude-sonnet-4-5
-  permission_mode: review_and_approve
 ```
 
 ## Remote Access
@@ -212,3 +218,23 @@ Shared links bypass CodePlane's password for read-only access to job status and 
 ### Port Preview Proxy
 
 A reverse proxy at `/api/preview/{port}/` forwards to `127.0.0.1:{port}`. This is useful when combined with `--remote` to access development servers from another device. Only ports 1024–65535 are allowed.
+
+## CodeRecon (Structural Analysis)
+
+CodePlane integrates with [CodeRecon](https://github.com/peteromallet/coderecon) for structural code review — semantic diffs, risk scoring, merge confidence, and dependency analysis.
+
+```yaml
+coderecon:
+  enabled: true                     # enable structural analysis (default: false)
+  binary: /path/to/coderecon        # path to CodeRecon binary (auto-detected if on PATH)
+  home: ~/.coderecon                # daemon state directory (default)
+  tool_tier: standard               # minimal | standard | full
+```
+
+| Tool Tier | Description |
+|-----------|-------------|
+| `minimal` | Basic structural diff only |
+| `standard` | Diff + risk scoring + reference analysis (default) |
+| `full` | All features including community detection and story generation |
+
+When enabled, a structural review dashboard appears on job completion with change risk analysis and merge confidence verdicts. See [Usage Guide > Structural Review](guide.md#structural-review-coderecon) for details.
