@@ -695,7 +695,15 @@ class StoryService:
             return None
 
         try:
-            repo_name = await self._coderecon.ensure_repo_indexed(job_row["repo"])
+            # Look up repo name without triggering registration/indexing
+            catalog = await self._coderecon.catalog()
+            repo_path = job_row["repo"]
+            repo_name = next(
+                (e["name"] for e in catalog if repo_path in e.get("git_dir", "")),
+                None,
+            )
+            if not repo_name:
+                return None
             diff_result = await self._coderecon.semantic_diff(
                 repo_name,
                 base=job_row["base_ref"] or "HEAD",

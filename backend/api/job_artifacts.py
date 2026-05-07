@@ -519,7 +519,7 @@ async def get_job_structural_diff(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    if not coderecon.available:
+    if not coderecon.available or not job.repo or not job.worktree_path:
         return StructuralDiffResponse(job_id=job_id, available=False)
 
     try:
@@ -533,11 +533,18 @@ async def get_job_structural_diff(
         log.warning("structural_diff_failed", job_id=job_id, exc_info=True)
         return StructuralDiffResponse(job_id=job_id, available=False)
 
-    # Check for new dependency cycles (§7.4)
+    # Check for NEW dependency cycles (§7.4) — compare worktree vs base
     has_new_cycles = False
     try:
-        cycles_result = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
-        has_new_cycles = len(cycles_result.cycles) > 0
+        worktree_cycles = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
+        if worktree_cycles.cycles:
+            base_cycles = await coderecon.graph_cycles(repo_name)
+            base_keys = {frozenset(tuple(sorted(c.get("members", []))) for c in base_cycles.cycles)}
+            for c in worktree_cycles.cycles:
+                key = frozenset(tuple(sorted(c.get("members", []))))
+                if key not in base_keys:
+                    has_new_cycles = True
+                    break
     except Exception:
         log.debug("structural_diff_cycles_check_failed", job_id=job_id, exc_info=True)
 
