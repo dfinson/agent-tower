@@ -629,6 +629,13 @@ def _build_structural_changes(raw_changes: list[dict]) -> list[StructuralChange]
         raw_tiers = c.get("ref_tiers", {})
         ref_tiers = _translate_ref_tiers(raw_tiers)
         test_files = c.get("test_files", [])
+        ref_count = c.get("ref_count", 0)
+
+        # If daemon reports callers but no tier breakdown, treat gap as unverified
+        classified = sum(ref_tiers.values())
+        if ref_count > classified:
+            ref_tiers["unverified"] = ref_tiers.get("unverified", 0) + (ref_count - classified)
+
         risk = _compute_risk(category, ref_tiers, test_files)
 
         changes.append(StructuralChange(
@@ -637,7 +644,7 @@ def _build_structural_changes(raw_changes: list[dict]) -> list[StructuralChange]
             file=c.get("file", ""),
             summary=c.get("summary"),
             category=category,
-            ref_count=c.get("ref_count", 0),
+            ref_count=ref_count,
             ref_tiers=ref_tiers,
             test_files=test_files,
             risk=risk,
