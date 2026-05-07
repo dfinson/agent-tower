@@ -266,4 +266,12 @@ export interface AppState {
   createTerminalSession: (opts?: { cwd?: string; jobId?: string; label?: string }) => void;
   setHoveredPlanItemId: (id: string | null) => void;
   setStory: (jobId: string, story: StoryResponse) => void;
+
+  // Structural review cache actions
+  setStructuralDiff: (jobId: string, data: StructuralDiffResponse) => void;
+  setMultiSession: (jobId: string, data: MultiSessionResponse) => void;
+  setCommunities: (jobId: string, data: CommunitiesResponse) => void;
+  setReviewStory: (jobId: string, data: StructuralReviewStoryResponse) => void;
+  /** Prefetch structural review data for a job (called on job_review SSE). */
+  prefetchReviewData: (jobId: string) => void;
 }

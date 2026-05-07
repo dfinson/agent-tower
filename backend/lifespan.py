@@ -594,6 +594,59 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus.subscribe(_structural_health_on_step)
 
+    # Review story prefetch subscriber — pre-generates and caches review story
+    # when a job enters review state so the frontend load is instant.
+    async def _prefetch_review_story(event: DomainEvent) -> None:
+        if event.kind != DomainEventKind.job_review:
+            return
+        if not coderecon_service.available:
+            return
+        job_id = event.job_id
+
+        async def _run_prefetch() -> None:
+            try:
+                from backend.api.job_artifacts import _generate_review_story, _cache_put
+
+                async with session_factory() as session:
+                    from sqlalchemy import text
+
+                    row = await session.execute(
+                        text("SELECT repo, worktree_path, base_ref, title, prompt FROM jobs WHERE id = :jid"),
+                        {"jid": job_id},
+                    )
+                    job_row = row.one_or_none()
+                if not job_row:
+                    return
+
+                # Build a lightweight object matching the fields _generate_review_story expects
+                class _JobLike:
+                    def __init__(self, r):
+                        self.repo = r[0]
+                        self.worktree_path = r[1]
+                        self.base_ref = r[2]
+                        self.title = r[3]
+                        self.prompt = r[4]
+
+                job_like = _JobLike(job_row)
+                result = await _generate_review_story(job_id, job_like, coderecon_service)
+
+                # Cache the result using latest end_sha
+                step_repo_local = StepRepository(session_factory)
+                all_steps = await step_repo_local.get_by_job(job_id)
+                sha = None
+                for step in reversed(all_steps):
+                    if step.end_sha:
+                        sha = step.end_sha
+                        break
+                _cache_put(job_id, "review-story", sha, result)
+                log.debug("review_story_prefetched", job_id=job_id)
+            except Exception:
+                log.debug("review_story_prefetch_failed", job_id=job_id, exc_info=True)
+
+        asyncio.create_task(_run_prefetch(), name=f"review-story-prefetch-{job_id[:8]}")
+
+    event_bus.subscribe(_prefetch_review_story)
+
     # --- Share service ---
     share_service = ShareService()
 

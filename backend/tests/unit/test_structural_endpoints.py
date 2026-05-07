@@ -409,7 +409,8 @@ async def test_review_story_unavailable() -> None:
     job = _make_job()
     svc = _make_svc(job)
     coderecon = _make_coderecon(available=False)
-    result = await get_review_story("job-1", svc, coderecon)
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+    result = await get_review_story("job-1", svc, coderecon, step_repo)
     assert isinstance(result, ReviewStoryResponse)
     assert result.available is False
     assert result.header is None
@@ -428,7 +429,8 @@ async def test_review_story_success() -> None:
             {"kind": "added", "symbol": "new_helper", "file": "src/util.py", "ref_count": 0},
         ],
     )
-    result = await get_review_story("job-1", svc, coderecon)
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+    result = await get_review_story("job-1", svc, coderecon, step_repo)
     assert result.available is True
     assert result.header is not None
     assert result.header.breaking_count == 1

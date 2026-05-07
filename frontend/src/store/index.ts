@@ -54,6 +54,10 @@ export {
   selectJobPlan,
   selectActivityTimeline,
   selectHoveredPlanItemId,
+  selectStructuralDiff,
+  selectMultiSession,
+  selectCommunities,
+  selectReviewStory,
 } from "./selectors";
 
 import type {
@@ -407,6 +411,11 @@ export const useStore = create<AppState>((set, get) => ({
     if (update !== null) {
       set(update);
     }
+    // Side-effect: prefetch structural review data when job enters review state
+    if (eventType === "job_review") {
+      const jobId = (payload as { jobId?: string }).jobId;
+      if (jobId) get().prefetchReviewData(jobId);
+    }
   },
   // ------------------------------------------------------------------
   // Terminal actions
@@ -493,6 +502,49 @@ export const useStore = create<AppState>((set, get) => ({
   setStory: (jobId, story) => set((state) => ({
     stories: { ...state.stories, [jobId]: story },
   })),
+
+  // Structural review cache actions
+  setStructuralDiff: (jobId, data) => {
+    const evictIds = touchJob(jobId);
+    set((state) => ({
+      ...evictStaleJobs(state, evictIds),
+      structuralDiffs: { ...state.structuralDiffs, [jobId]: data },
+    }));
+  },
+
+  setMultiSession: (jobId, data) => {
+    const evictIds = touchJob(jobId);
+    set((state) => ({
+      ...evictStaleJobs(state, evictIds),
+      multiSessions: { ...state.multiSessions, [jobId]: data },
+    }));
+  },
+
+  setCommunities: (jobId, data) => {
+    const evictIds = touchJob(jobId);
+    set((state) => ({
+      ...evictStaleJobs(state, evictIds),
+      communities: { ...state.communities, [jobId]: data },
+    }));
+  },
+
+  setReviewStory: (jobId, data) => {
+    const evictIds = touchJob(jobId);
+    set((state) => ({
+      ...evictStaleJobs(state, evictIds),
+      reviewStories: { ...state.reviewStories, [jobId]: data },
+    }));
+  },
+
+  prefetchReviewData: (jobId) => {
+    // Fire-and-forget — fetch structural data into cache
+    import("../api/client").then(({ fetchStructuralDiff, fetchMultiSession, fetchReviewStory, fetchCommunities }) => {
+      fetchStructuralDiff(jobId).then((d) => get().setStructuralDiff(jobId, d)).catch(() => {});
+      fetchMultiSession(jobId).then((d) => get().setMultiSession(jobId, d)).catch(() => {});
+      fetchReviewStory(jobId).then((d) => get().setReviewStory(jobId, d)).catch(() => {});
+      fetchCommunities(jobId).then((d) => get().setCommunities(jobId, d)).catch(() => {});
+    });
+  },
 }));
 
 // Expose the store on window so Playwright capture scripts can inject

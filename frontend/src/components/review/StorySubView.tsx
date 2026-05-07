@@ -6,6 +6,8 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle } from "lucide-react";
 import { fetchReviewStory, type ReviewStoryResponse } from "../../api/client";
+import { useStore } from "../../store";
+import { selectReviewStory } from "../../store/selectors";
 import { Spinner } from "../ui/spinner";
 
 interface StorySubViewProps {
@@ -45,22 +47,36 @@ function StorySection({ title, items }: { title: string; items: Array<Record<str
 }
 
 export function StorySubView({ jobId }: StorySubViewProps) {
-  const [data, setData] = useState<ReviewStoryResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = useStore(selectReviewStory(jobId));
+  const setReviewStory = useStore((s) => s.setReviewStory);
+
+  const [data, setData] = useState<ReviewStoryResponse | null>(cached);
+  const [loading, setLoading] = useState(cached == null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (cached != null) {
+      setData(cached);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(null);
 
     fetchReviewStory(jobId)
-      .then((res) => { if (!cancelled) setData(res); })
+      .then((res) => {
+        if (!cancelled) {
+          setData(res);
+          setReviewStory(jobId, res);
+        }
+      })
       .catch((err) => { if (!cancelled) setError(err?.message ?? "Failed to load review story"); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [jobId]);
+  }, [jobId, cached, setReviewStory]);
 
   if (loading) {
     return (

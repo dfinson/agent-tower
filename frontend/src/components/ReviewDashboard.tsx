@@ -12,10 +12,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ArrowRightLeft, Plus, Minus, Pencil, ShieldCheck, ShieldAlert, Shield, Info } from "lucide-react";
 import { fetchStructuralDiff, fetchMultiSession, type StructuralChange, type StructuralDiffResponse } from "../api/client";
+import { useStore } from "../store";
+import { selectStructuralDiff, selectMultiSession } from "../store/selectors";
 import { Spinner } from "./ui/spinner";
 import { ReviewSubTabs, type ReviewSubView } from "./review/ReviewSubTabs";
 import { TimelineSubView } from "./review/TimelineSubView";
 import { StorySubView } from "./review/StorySubView";
+import { CommunitiesSubView } from "./review/CommunitiesSubView";
 import { ImpactGraphModal } from "./review/ImpactGraphModal";
 
 // -- Category styling --
@@ -232,18 +235,36 @@ function DegradedDashboard() {
 // -- Main Component --
 
 export function ReviewDashboard({ jobId }: { jobId: string }) {
-  const [structData, setStructData] = useState<StructuralDiffResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Read from store (may already be prefetched via SSE side-effect)
+  const cachedDiff = useStore(selectStructuralDiff(jobId));
+  const cachedMulti = useStore(selectMultiSession(jobId));
+  const setStructuralDiff = useStore((s) => s.setStructuralDiff);
+  const setMultiSession = useStore((s) => s.setMultiSession);
+
+  const [structData, setStructData] = useState<StructuralDiffResponse | null>(cachedDiff);
+  const [loading, setLoading] = useState(cachedDiff == null);
   const [error, setError] = useState<string | null>(null);
-  const [hasMultiSession, setHasMultiSession] = useState(false);
+  const [hasMultiSession, setHasMultiSession] = useState(
+    cachedMulti != null && cachedMulti.available && cachedMulti.sessions.length > 1
+  );
 
   // Sub-view state — default depends on availability
-  const [subView, setSubView] = useState<ReviewSubView>("dashboard");
+  const [subView, setSubView] = useState<ReviewSubView>(
+    cachedDiff && !cachedDiff.available ? "story" : "dashboard"
+  );
 
   // Impact graph modal state
   const [impactSymbol, setImpactSymbol] = useState<string | null>(null);
 
   useEffect(() => {
+    // If we already have cached data, skip fetch
+    if (cachedDiff != null) {
+      setStructData(cachedDiff);
+      setLoading(false);
+      if (!cachedDiff.available) setSubView("story");
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -255,6 +276,8 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
     ]).then(([diff, multi]) => {
       if (cancelled) return;
       setStructData(diff);
+      setStructuralDiff(jobId, diff);
+      if (multi) setMultiSession(jobId, multi);
       setHasMultiSession(multi != null && multi.available && multi.sessions.length > 1);
 
       // If structural analysis unavailable, default to story view
@@ -268,7 +291,7 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
     });
 
     return () => { cancelled = true; };
-  }, [jobId]);
+  }, [jobId, cachedDiff, setStructuralDiff, setMultiSession]);
 
   const handleSymbolClick = useCallback((symbol: string) => {
     setImpactSymbol(symbol);
@@ -292,8 +315,9 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
   }
 
   const available = structData?.available ?? false;
-  // In degraded mode: hide timeline, dashboard shows info banner
+  // In degraded mode: hide timeline/communities, dashboard shows info banner
   const showTimeline = available && hasMultiSession;
+  const showCommunities = available;
 
   return (
     <div className="flex flex-col h-full">
@@ -302,6 +326,7 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
         active={subView}
         onChange={setSubView}
         showTimeline={showTimeline}
+        showCommunities={showCommunities}
       />
 
       {/* Sub-view content */}
@@ -313,6 +338,9 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
         )}
         {subView === "timeline" && showTimeline && (
           <TimelineSubView jobId={jobId} />
+        )}
+        {subView === "communities" && showCommunities && (
+          <CommunitiesSubView jobId={jobId} />
         )}
         {subView === "story" && (
           <StorySubView jobId={jobId} />

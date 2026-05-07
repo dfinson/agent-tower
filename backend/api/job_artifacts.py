@@ -1045,6 +1045,7 @@ async def get_review_story(
     job_id: str,
     svc: FromDishka[JobService],
     coderecon: FromDishka[CodeReconService],
+    step_repo: FromDishka[StepRepository],
 ) -> ReviewStoryResponse:
     """Generate a structured review story artifact (§11).
 
@@ -1056,6 +1057,25 @@ async def get_review_story(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    if not coderecon.available or not job.repo or not job.worktree_path:
+        return ReviewStoryResponse(job_id=job_id, available=False)
+
+    sha = await _latest_end_sha(step_repo, job_id)
+    cached = _cache_get(job_id, "review-story", sha)
+    if cached is not None:
+        return cached
+
+    result = await _generate_review_story(job_id, job, coderecon)
+    _cache_put(job_id, "review-story", sha, result)
+    return result
+
+
+async def _generate_review_story(
+    job_id: str,
+    job: Any,
+    coderecon: "CodeReconService",
+) -> "ReviewStoryResponse":
+    """Core review story generation — reusable from endpoint and subscriber."""
     if not coderecon.available or not job.repo or not job.worktree_path:
         return ReviewStoryResponse(job_id=job_id, available=False)
 

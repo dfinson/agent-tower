@@ -4,6 +4,8 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, TrendingUp } from "lucide-react";
 import { fetchMultiSession, type MultiSessionResponse, type StructuralChange } from "../../api/client";
+import { useStore } from "../../store";
+import { selectMultiSession } from "../../store/selectors";
 import { Spinner } from "../ui/spinner";
 
 interface TimelineSubViewProps {
@@ -91,22 +93,36 @@ function SessionCard({ session }: { session: { sessionNumber: number; changes: S
 }
 
 export function TimelineSubView({ jobId }: TimelineSubViewProps) {
-  const [data, setData] = useState<MultiSessionResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = useStore(selectMultiSession(jobId));
+  const setMultiSession = useStore((s) => s.setMultiSession);
+
+  const [data, setData] = useState<MultiSessionResponse | null>(cached);
+  const [loading, setLoading] = useState(cached == null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (cached != null) {
+      setData(cached);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(null);
 
     fetchMultiSession(jobId)
-      .then((res) => { if (!cancelled) setData(res); })
+      .then((res) => {
+        if (!cancelled) {
+          setData(res);
+          setMultiSession(jobId, res);
+        }
+      })
       .catch((err) => { if (!cancelled) setError(err?.message ?? "Failed to load session timeline"); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [jobId]);
+  }, [jobId, cached, setMultiSession]);
 
   if (loading) {
     return (
