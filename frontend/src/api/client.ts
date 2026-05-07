@@ -776,6 +776,27 @@ export function fetchJobStory(
   return request(`/jobs/${encodeURIComponent(jobId)}/story${qs}`);
 }
 
+// Structural Diff
+// ---------------------------------------------------------------------------
+
+export interface StructuralChange {
+  kind: string;
+  symbol: string | null;
+  file: string;
+  summary: string | null;
+}
+
+export interface StructuralDiffResponse {
+  jobId: string;
+  summary: string;
+  changes: StructuralChange[];
+  available: boolean;
+}
+
+export function fetchStructuralDiff(jobId: string): Promise<StructuralDiffResponse> {
+  return request(`/jobs/${encodeURIComponent(jobId)}/structural-diff`);
+}
+
 export { ApiError };
 
 // Re-export analytics module for backward compatibility

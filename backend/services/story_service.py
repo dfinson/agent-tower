@@ -23,6 +23,7 @@ import structlog
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from backend.services.coderecon_service import CodeReconService
     from backend.services.naming_service import Completable
 
 log = structlog.get_logger()
@@ -615,8 +616,13 @@ class StoryService:
 
     _gen_locks: dict[str, asyncio.Lock] = {}
 
-    def __init__(self, completer: "Completable") -> None:
+    def __init__(
+        self,
+        completer: "Completable",
+        coderecon: "CodeReconService | None" = None,
+    ) -> None:
         self._completer = completer
+        self._coderecon = coderecon
 
     async def get_or_generate(
         self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
@@ -671,6 +677,52 @@ class StoryService:
         await session.commit()
         return await self._generate(session, job_id, verbosity=verbosity)
 
+    async def _fetch_structural_section(
+        self, session: "AsyncSession", job_id: str,
+    ) -> str | None:
+        """Fetch structural diff from CodeRecon and format as prompt section."""
+        if not self._coderecon or not self._coderecon.available:
+            return None
+
+        from sqlalchemy import text
+
+        row = await session.execute(
+            text("SELECT repo, worktree_path, base_ref FROM jobs WHERE id = :jid"),
+            {"jid": job_id},
+        )
+        job_row = row.mappings().first()
+        if not job_row or not job_row["repo"]:
+            return None
+
+        try:
+            await self._coderecon.ensure_repo_indexed(job_row["repo"])
+            diff_result = await self._coderecon.semantic_diff(
+                job_row["repo"],
+                base=job_row["base_ref"] or "HEAD",
+                worktree=job_row["worktree_path"],
+            )
+        except (OSError, RuntimeError):
+            log.debug("story_structural_diff_failed", job_id=job_id, exc_info=True)
+            return None
+
+        changes = getattr(diff_result, "structural_changes", None) or []
+        if not changes:
+            return None
+
+        lines = ["## STRUCTURAL ANALYSIS (semantic diff)"]
+        for ch in changes:
+            kind = getattr(ch, "kind", "unknown")
+            symbol = getattr(ch, "symbol", None)
+            file = getattr(ch, "file", "")
+            summary = getattr(ch, "summary", "")
+            entry = f"  [{kind.upper()}] {file}"
+            if symbol:
+                entry += f" :: {symbol}"
+            if summary:
+                entry += f" — {summary}"
+            lines.append(entry)
+        return "\n".join(lines)
+
     async def _generate(
         self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
     ) -> dict[str, Any] | None:
@@ -709,6 +761,12 @@ class StoryService:
             return None
 
         user_prompt = _build_prompt(refs, ctx)
+
+        # Structural analysis enrichment from CodeRecon
+        structural_section = await self._fetch_structural_section(session, job_id)
+        if structural_section:
+            user_prompt += "\n\n" + structural_section
+
         system = _STORY_SYSTEM + _STORY_VERBOSITY_SUFFIX.get(verbosity, "")
         full_prompt = f"SYSTEM:\n{system}\n\nUSER:\n{user_prompt}"
 

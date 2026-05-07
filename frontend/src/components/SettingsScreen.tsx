@@ -9,6 +9,7 @@ import {
 import type { Settings } from "../api/types";
 import { AddRepoModal } from "./AddRepoModal";
 import { PolicySettingsPanel } from "./PolicySettingsPanel";
+import { RepoIndexIndicator } from "./RepoIndexIndicator";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -231,7 +232,10 @@ export function SettingsScreen() {
                 key={r}
                 className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-accent group"
               >
-                <span className="text-sm font-mono text-muted-foreground truncate flex-1" title={r}>{r}</span>
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="text-sm font-mono text-muted-foreground truncate" title={r}>{r}</span>
+                <RepoIndexIndicator repo={r} />
+              </div>
                 <button
                   type="button"
                   onClick={() => setRemoveRepoTarget(r)}

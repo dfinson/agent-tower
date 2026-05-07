@@ -126,8 +126,10 @@ natural language query.
 imports + hierarchical symbol list without implementation bodies. 10–50x more
 compact than full source.
 
-**Checkpoints** (`checkpoint`): Snapshot structural state at a point in time.
-Enables before/after comparison across agent actions.
+**Checkpoints** (`checkpoint`): Verification pipeline — lint, autofix, test
+(scoped to affected files), and optionally commit+push. Returns pass/fail
+with structural hints. Internally runs semantic_diff to detect broken
+references after the agent's changes.
 
 **Refactoring** (`refactor`): Plan/execute/commit workflow for structural
 changes with impact preview.
@@ -187,7 +189,7 @@ field presence — there is no explicit `type` field:
 {"id": "r1", "method": "semantic_diff", "params": {...}, "session_id": "sess_abc123"}
 {"id": "r1", "result": {...}}
 {"id": "r1", "error": {"code": "NOT_INDEXED", "message": "..."}}
-{"event": "index_progress", "ts": 1714835000.0, "data": {"repo": "...", "phase": "structural", "pct": 45}}
+{"event": "index.progress", "ts": 1714835000.0, "data": {"repo": "...", "phase": "indexing", "indexed": 342, "total": 891}}
 ```
 
 **Identification rules:**
@@ -211,36 +213,70 @@ class CodeReconService:
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
 
-    # Repo management (maps to SDK: register/unregister/catalog)
+    # Repo management
     async def register_repo(self, path: str) -> RegisterResult: ...
+    async def ensure_repo_indexed(self, path: str) -> str: ...  # idempotent: register-if-needed, returns repo name
     async def unregister_repo(self, path: str) -> bool: ...
     async def catalog(self) -> list[CatalogEntry]: ...
-    async def reindex(self, repo: str) -> None: ...
+    async def register_worktree(self, repo: str, worktree_path: str) -> None: ...
 
-    # Structural queries (delegated to repo handles)
-    async def semantic_diff(self, repo: str, base: str, target: str | None = None) -> DiffResult: ...
-    async def scaffold(self, repo: str, path: str) -> dict: ...  # wraps _build_scaffold via new dispatch entry
-    async def graph_communities(self, repo: str) -> CommunitiesResult: ...
-    async def graph_cycles(self, repo: str) -> CyclesResult: ...
-    async def recon(self, repo: str, task: str, **kwargs) -> ReconResult: ...
-    async def recon_impact(self, repo: str, target: str, justification: str) -> ImpactResult: ...
-    async def recon_understand(self, repo: str) -> UnderstandResult: ...
+    # Structural queries
+    async def semantic_diff(self, repo: str, *, base: str = "HEAD", target: str | None = None, paths: list[str] | None = None, worktree: str | None = None) -> DiffResult: ...
+    async def scaffold(self, repo: str, *, path: str, worktree: str | None = None) -> dict: ...
+    async def graph_communities(self, repo: str, *, worktree: str | None = None) -> CommunitiesResult: ...
+    async def graph_cycles(self, repo: str, *, worktree: str | None = None) -> CyclesResult: ...
+    async def recon(self, repo: str, task: str, *, seeds: list[str] | None = None, pins: list[str] | None = None, worktree: str | None = None) -> ReconResult: ...
+    async def recon_impact(self, repo: str, target: str, justification: str, *, worktree: str | None = None) -> ImpactResult: ...
+    async def recon_map(self, repo: str, *, worktree: str | None = None) -> MapResult: ...
 
-    # Verification (checkpoint = lint + test + commit pipeline)
+    # Verification (checkpoint = lint + test + semantic_diff + commit pipeline)
     async def checkpoint(self, repo: str, changed_files: list[str], **kwargs) -> CheckpointResult: ...
 
+    # Agent tool provisioning
+    def get_agent_tools(self, repo: str, *, worktree: str | None = None, framework: str = "openai") -> list[dict]: ...
+
     # Health
-    async def status(self, repo: str | None = None) -> StatusResult: ...
-    async def daemon_health(self) -> DaemonHealth: ...
+    async def repo_status(self, repo: str) -> StatusResult: ...
+    async def daemon_health(self) -> dict: ...
 ```
 
-> **Note:** `scaffold` does not currently exist as a standalone tool in the
-> daemon dispatch table. It requires a ~20-line addition exposing the existing
-> `_build_scaffold` internal function via the dispatch table. Until then,
-> `recon` returns signature-level output for lower-ranked hits that serves
-> the same purpose.
+The following SDK methods are NOT exposed through `CodeReconService` because
+they serve no CodePlane use case:
 
-### 3.5 Lifespan Integration
+* `describe(action)` — introspection helper for generating tool documentation
+* `graph_export(repo, output_path)` — writes a dependency graph file to disk
+* `recon_understand(repo)` — full codebase briefing (agents call this directly via provisioned tools when in Full tier)
+
+### 3.5 Session Model
+
+The SDK maintains implicit sessions per (repo, worktree) pair. Each session
+accumulates context across tool calls — `recon` results inform subsequent
+`recon_impact` lookups within the same session.
+
+CodePlane uses one session per job (mapped to the job's worktree). When a job
+completes, `close_session(repo, worktree)` releases the session state in the
+daemon.
+
+For multi-agent scenarios (parent/child jobs, subagents), the SDK offers
+explicit named sessions via `sdk.session("name")` returning a `SessionHandle`.
+CodePlane does not use explicit sessions in the initial implementation — the
+auto-session per worktree is sufficient because each job gets its own worktree.
+
+### 3.6 RepoHandle Pattern
+
+The SDK provides `RepoHandle` — a proxy with `repo` (and optionally `worktree`)
+pre-bound on every call. Agent tool provisioning uses this:
+
+```python
+handle = sdk.repo(repo_name, worktree=worktree_path)
+tools = handle.as_openai_tools()  # returns tool defs with _execute bound
+```
+
+CodePlane does NOT expose `RepoHandle` outside `CodeReconService`. The service
+uses it internally for tool provisioning; all other calls go through the service
+methods which accept `repo` and `worktree` as explicit params.
+
+### 3.7 Lifespan Integration
 
 The daemon starts with CodePlane and stops with CodePlane:
 
@@ -517,41 +553,52 @@ execution environment via the SDK's `as_openai_tools()` / `as_langchain_tools()`
 framework adapters, with `repo` pre-bound.
 
 ```python
-# At job start, RuntimeService provisions tools:
-handle = coderecon_service.sdk.repo(repo_name, worktree=worktree)
-tools = handle.as_openai_tools()  # or as_langchain_tools() depending on adapter
+# At job start, RuntimeService provisions tools via CodeReconService:
+tools = coderecon_service.get_agent_tools(repo_name, worktree=worktree_path)
 # Tools are passed to the agent session as native tool definitions
+# Internally this uses sdk.repo(name, worktree).as_openai_tools()
 ```
 
 ### 8.2 Available Tools
 
-| Tool | SDK Method | Agent Use Case |
-|------|-----------|----------------|
-| `recon` | `handle.recon(task)` | Task-aware context retrieval — ranked code spans |
-| `recon_map` | `handle.recon_map()` | Repository structure map with PageRank |
-| `recon_impact` | `handle.recon_impact(target, justification)` | Reference/caller analysis for a symbol |
-| `recon_understand` | `handle.recon_understand()` | Full codebase narrative briefing |
-| `graph_communities` | `handle.graph_communities()` | Module boundary detection |
-| `graph_cycles` | `handle.graph_cycles()` | Circular dependency detection |
-| `checkpoint` | `handle.checkpoint(changed_files, ...)` | Lint + test + semantic_diff + commit pipeline |
-| `refactor_rename` | `handle.refactor_rename(symbol, new_name, justification)` | Rename with impact preview |
-| `refactor_move` | `handle.refactor_move(from_path, to_path, justification)` | Move file updating imports |
-| `refactor_commit` | `handle.refactor_commit(refactor_id)` | Apply a previewed refactoring |
-| `refactor_cancel` | `handle.refactor_cancel(refactor_id)` | Discard a refactoring preview |
+The SDK exposes 13 tool definitions via `_TOOL_DEFS`. CodePlane provisions a
+subset to agents depending on tier (§8.3). The full inventory:
 
-`semantic_diff` is not exposed as an agent tool. It runs internally as part
-of `checkpoint` — after tests pass, checkpoint runs a structural diff against
-the last checkpoint state and includes broken-reference warnings in its output.
-The agent sees the results without needing to call it explicitly.
+| Tool | Agent Use Case |
+|------|----------------|
+| `recon` | Task-aware context retrieval — ranked code spans |
+| `recon_map` | Repository structure map with entry points |
+| `recon_impact` | Reference/caller analysis for a symbol |
+| `recon_understand` | Full codebase narrative briefing (structure, PageRank, communities) |
+| `scaffold` | File structural overview — imports + symbols without bodies |
+| `graph_communities` | Module boundary detection (Louvain) |
+| `graph_cycles` | Circular dependency detection (Tarjan) |
+| `checkpoint` | Lint + test + semantic_diff + commit pipeline |
+| `semantic_diff` | Structural change summary between two states |
+| `refactor_rename` | Rename a symbol across the codebase with impact preview |
+| `refactor_move` | Move a file/module, updating all imports |
+| `refactor_commit` | Apply or inspect a previewed refactoring |
+| `refactor_cancel` | Discard a refactoring preview |
+
+**`semantic_diff` as an agent tool:** Exposed in the SDK tool defs but
+CodePlane gates it behind the Full tier. In the Standard tier, agents get
+structural diff feedback through `checkpoint` output — checkpoint runs
+semantic_diff internally and includes broken-reference warnings. Direct access
+is only needed when an agent wants to compare arbitrary refs without
+committing.
+
+**`scaffold`:** Now a first-class daemon dispatch entry. Returns imports +
+hierarchical symbol list for a file — much cheaper than reading full source
+when the agent just needs structural orientation.
 
 ### 8.3 Tool Selection
 
 Not all agents need all tools. Tool provisioning is configurable per-job or
 per-repo:
 
-* **Minimal**: `recon` + `recon_map` (read-only context gathering)
-* **Standard**: Minimal + `checkpoint` + `recon_impact` (structural awareness)
-* **Full**: All tools including `graph_*` and `refactor_*` (architectural work)
+* **Minimal**: `recon` + `recon_map` + `scaffold` (read-only context gathering)
+* **Standard**: Minimal + `checkpoint` + `recon_impact` (structural awareness with verification)
+* **Full**: All 13 tools including `semantic_diff`, `graph_*`, `recon_understand`, and `refactor_*` (architectural work)
 
 ### 8.4 Usage Tracking
 
@@ -592,6 +639,9 @@ You have structural analysis tools for this repository. Use them.
   - Call recon again with more precise input when your understanding shifts IF and ONLY if more context is critically needed.
 - **recon_map** — When you need to understand the overall structure or find
   where something lives. Replaces manual directory traversal.
+- **scaffold** — When you need to see a file's structure without reading
+  the full source. Returns imports + symbol hierarchy. Use this instead of
+  reading a file when you only need to know what's defined there.
 - **recon_impact** — Before modifying a function/class. Shows all callers
   and dependents. Call this before any signature change.
 - **checkpoint** — After completing a logical unit of work. This runs

@@ -249,6 +249,7 @@ class CodeReconConfig:
     enabled: bool = False
     binary: str | None = None
     home: str | None = None
+    tool_tier: str = "standard"  # minimal | standard | full
 
 
 @dataclass

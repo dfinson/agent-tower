@@ -87,8 +87,10 @@ class AppProvider(Provider):
         return DiffService(git_service=git_service, event_bus=event_bus)
 
     @provide
-    def story_service(self, sister_sessions: SisterSessionManager) -> StoryService:
-        return StoryService(completer=sister_sessions)
+    def story_service(
+        self, sister_sessions: SisterSessionManager, coderecon: CodeReconService,
+    ) -> StoryService:
+        return StoryService(completer=sister_sessions, coderecon=coderecon)
 
     @provide
     def step_repo(self, sf: async_sessionmaker[AsyncSession]) -> StepRepository:

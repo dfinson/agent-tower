@@ -868,6 +868,29 @@ class StoryResponse(CamelModel):
     verbosity: str = "standard"  # summary | standard | detailed
 
 
+# ---------------------------------------------------------------------------
+# Structural Review (CodeRecon integration)
+# ---------------------------------------------------------------------------
+
+
+class StructuralChange(CamelModel):
+    """A single structural change detected by semantic diff."""
+
+    kind: str  # added | removed | modified | moved
+    symbol: str | None = None
+    file: str
+    summary: str | None = None
+
+
+class StructuralDiffResponse(CamelModel):
+    """Structural diff result for a job's changes."""
+
+    job_id: str
+    summary: str = ""
+    changes: list[StructuralChange] = []
+    available: bool = True
+
+
 # TestCoModification, ReviewSignals, ReviewComplexity, and JobTelemetryReport
 # are now canonical in backend.models.schemas.telemetry (star-imported above).
 

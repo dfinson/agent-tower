@@ -1,10 +1,11 @@
-import { Radio, TerminalSquare, FolderTree, GitBranch, BarChart3, Package } from "lucide-react";
+import { Radio, TerminalSquare, FolderTree, GitBranch, BarChart3, Package, ScanSearch } from "lucide-react";
 import { cn } from "../lib/utils";
 
 const TAB_ITEMS = [
   { id: "live", icon: Radio, label: "Live" },
   { id: "files", icon: FolderTree, label: "Files" },
   { id: "diff", icon: GitBranch, label: "Changes", conditional: true },
+  { id: "review", icon: ScanSearch, label: "Review", conditional: true },
   { id: "metrics", icon: BarChart3, label: "Metrics" },
   { id: "artifacts", icon: Package, label: "Artifacts", conditional: true },
 ] as const;
@@ -36,6 +37,7 @@ export function ViewTabBar({
 }: ViewTabBarProps) {
   const visibleTabs = TAB_ITEMS.filter((t) => {
     if (t.id === "diff") return hasChanges;
+    if (t.id === "review") return hasChanges;
     if (t.id === "artifacts") return hasArtifacts;
     return true;
   });

@@ -28,6 +28,7 @@ import { MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
 const DiffViewer = lazyRetry(() => import("./DiffViewer"));
 const ArtifactViewer = lazyRetry(() => import("./ArtifactViewer"));
+const ReviewDashboard = lazyRetry(() => import("./ReviewDashboard"));
 
 const SKELETON_DELAY_MS = 500;
 
@@ -674,9 +675,13 @@ export function JobDetailScreen() {
         <MetricsPanel jobId={jobId} isRunning={isRunning} />
       )}
 
-
-
-
+      {tab === "review" && (
+        <TabErrorBoundary>
+          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+            <ReviewDashboard jobId={jobId} />
+          </Suspense>
+        </TabErrorBoundary>
+      )}
 
       {tab === "artifacts" && (
         <TabErrorBoundary>

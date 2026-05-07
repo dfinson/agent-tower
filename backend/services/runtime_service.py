@@ -974,6 +974,18 @@ class RuntimeService:
         # handlers have run, force it to failed so it doesn't stay stuck.
         await self._ensure_terminal_state(job_id)
 
+        # Close CodeRecon session for this job's worktree
+        if self._coderecon_service is not None and self._coderecon_service.available:
+            try:
+                async with self._session_factory() as session:
+                    svc = self._make_job_service(session)
+                    job = await svc.get_job(job_id)
+                if job is not None and job.worktree_path:
+                    repo_name = await self._coderecon_service.ensure_repo_indexed(job.repo)
+                    await self._coderecon_service.close_session(repo_name, worktree=job.worktree_path)
+            except Exception:
+                log.debug("coderecon.session_close_failed", job_id=job_id, exc_info=True)
+
         if self._trail_service is not None:
             self._trail_service.cleanup(job_id)
         if self._step_tracker is not None:

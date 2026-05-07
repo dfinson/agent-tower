@@ -26,6 +26,8 @@ from backend.models.api_schemas import (
     StepListResponse,
     StoryBlock,
     StoryResponse,
+    StructuralChange,
+    StructuralDiffResponse,
     TimelineListResponse,
     TranscriptListResponse,
     TranscriptPayload,
@@ -47,6 +49,7 @@ from backend.services.runtime_service import RuntimeService
 from backend.services.step_diff_service import StepDiffService
 from backend.services.step_tracker import hydrate_plan_steps
 from backend.services.story_service import StoryService
+from backend.services.coderecon_service import CodeReconService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
 
@@ -498,3 +501,49 @@ async def get_job_story(
     blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
     cached = not regenerate and bool(blocks)
     return StoryResponse(job_id=job_id, blocks=blocks, cached=cached, verbosity=verbosity)
+
+
+@router.get("/jobs/{job_id}/structural-diff", response_model=StructuralDiffResponse)
+async def get_job_structural_diff(
+    job_id: str,
+    svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
+) -> StructuralDiffResponse:
+    """Return structural diff analysis for a job's changes.
+
+    Uses CodeRecon's semantic_diff to classify changes by structural impact
+    (added/removed/modified/moved symbols) rather than raw text diff.
+    """
+    job = await svc.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not coderecon.available:
+        return StructuralDiffResponse(job_id=job_id, available=False)
+
+    try:
+        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        diff_result = await coderecon.semantic_diff(
+            repo_name,
+            base=job.base_ref or "HEAD",
+            worktree=job.worktree_path,
+        )
+    except Exception:
+        log.warning("structural_diff_failed", job_id=job_id, exc_info=True)
+        return StructuralDiffResponse(job_id=job_id, available=False)
+
+    changes = [
+        StructuralChange(
+            kind=c.get("kind", "modified"),
+            symbol=c.get("symbol"),
+            file=c.get("file", ""),
+            summary=c.get("summary"),
+        )
+        for c in diff_result.structural_changes
+    ]
+
+    return StructuralDiffResponse(
+        job_id=job_id,
+        summary=diff_result.summary,
+        changes=changes,
+    )

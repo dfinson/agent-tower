@@ -240,27 +240,70 @@ class CodeReconService:
         sdk = await self._ensure_available()
         return await sdk.graph_cycles(repo, worktree=worktree)
 
+    async def scaffold(
+        self,
+        repo: str,
+        *,
+        path: str,
+        worktree: str | None = None,
+    ) -> dict[str, Any]:
+        """File structural overview — imports + symbols without bodies."""
+        sdk = await self._ensure_available()
+        return await sdk.scaffold(repo, path=path, worktree=worktree)
+
+    # ── Session Lifecycle ──
+
+    async def close_session(self, repo: str, worktree: str | None = None) -> None:
+        """Close the daemon session for a (repo, worktree) pair.
+
+        Called when a job completes to release session state in the daemon.
+        """
+        sdk = await self._ensure_available()
+        await sdk.close_session(repo, worktree=worktree)
+        log.info("coderecon.session_closed", repo=repo, worktree=worktree)
+
     # ── Agent Tool Provisioning ──
+
+    # Tool tier definitions — which tools are included at each level.
+    _TIER_MINIMAL = frozenset({"recon", "recon_map", "scaffold"})
+    _TIER_STANDARD = _TIER_MINIMAL | frozenset({"checkpoint", "recon_impact"})
+    _TIER_FULL: frozenset[str] | None = None  # None = all tools, no filtering
 
     def get_agent_tools(
         self,
         repo: str,
         *,
         worktree: str | None = None,
+        tier: str = "standard",
         framework: str = "openai",
     ) -> list[dict[str, Any]]:
-        """Return tool definitions for agent integration.
+        """Return tool definitions for agent integration, filtered by tier.
 
-        Args:
-            repo: Repository name.
-            worktree: Optional worktree scope.
-            framework: 'openai' or 'langchain'.
+        Tiers:
+            minimal: recon + recon_map + scaffold (read-only context)
+            standard: minimal + checkpoint + recon_impact (structural awareness)
+            full: all 13 SDK tools (architectural work)
         """
         if self._sdk is None or self._state != DaemonState.READY:
             return []
         if framework == "langchain":
-            return self._sdk.as_langchain_tools(repo, worktree=worktree)
-        return self._sdk.as_openai_tools(repo, worktree=worktree)
+            tools = self._sdk.as_langchain_tools(repo, worktree=worktree)
+        else:
+            tools = self._sdk.as_openai_tools(repo, worktree=worktree)
+
+        allowed = self._resolve_tier(tier)
+        if allowed is None:
+            return tools
+        return [t for t in tools if t.get("function", {}).get("name") in allowed]
+
+    @classmethod
+    def _resolve_tier(cls, tier: str) -> frozenset[str] | None:
+        """Return allowed tool names for a tier, or None for full (no filter)."""
+        if tier == "minimal":
+            return cls._TIER_MINIMAL
+        if tier == "standard":
+            return cls._TIER_STANDARD
+        return cls._TIER_FULL  # "full" or unknown → all tools
 
     # ── Health ──
 
