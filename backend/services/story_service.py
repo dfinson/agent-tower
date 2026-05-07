@@ -695,26 +695,26 @@ class StoryService:
             return None
 
         try:
-            await self._coderecon.ensure_repo_indexed(job_row["repo"])
+            repo_name = await self._coderecon.ensure_repo_indexed(job_row["repo"])
             diff_result = await self._coderecon.semantic_diff(
-                job_row["repo"],
+                repo_name,
                 base=job_row["base_ref"] or "HEAD",
                 worktree=job_row["worktree_path"],
             )
-        except (OSError, RuntimeError):
+        except Exception:
             log.debug("story_structural_diff_failed", job_id=job_id, exc_info=True)
             return None
 
-        changes = getattr(diff_result, "structural_changes", None) or []
+        changes = diff_result.structural_changes or []
         if not changes:
             return None
 
         lines = ["## STRUCTURAL ANALYSIS (semantic diff)"]
         for ch in changes:
-            kind = getattr(ch, "kind", "unknown")
-            symbol = getattr(ch, "symbol", None)
-            file = getattr(ch, "file", "")
-            summary = getattr(ch, "summary", "")
+            kind = ch.get("kind", "unknown")
+            symbol = ch.get("symbol")
+            file = ch.get("file", "")
+            summary = ch.get("summary", "")
             entry = f"  [{kind.upper()}] {file}"
             if symbol:
                 entry += f" :: {symbol}"

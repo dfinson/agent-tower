@@ -294,7 +294,14 @@ class CodeReconService:
         allowed = self._resolve_tier(tier)
         if allowed is None:
             return tools
-        return [t for t in tools if t.get("function", {}).get("name") in allowed]
+        return [t for t in tools if self._tool_name(t, framework) in allowed]
+
+    @staticmethod
+    def _tool_name(tool: Any, framework: str) -> str | None:
+        """Extract the tool name regardless of framework format."""
+        if framework == "langchain":
+            return getattr(tool, "name", None)
+        return tool.get("function", {}).get("name")
 
     @classmethod
     def _resolve_tier(cls, tier: str) -> frozenset[str] | None:
