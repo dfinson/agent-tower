@@ -880,6 +880,12 @@ class StructuralChange(CamelModel):
     symbol: str | None = None
     file: str
     summary: str | None = None
+    category: str = "non-structural"  # breaking | body | additive | non-structural
+    ref_count: int = 0
+    ref_tiers: dict[str, int] = Field(default_factory=dict)  # e.g. {"verified": 3, "inferred": 2, "unverified": 1}
+    test_files: list[str] = Field(default_factory=list)
+    risk: float = 0.0
+    line_range: list[int] | None = None  # [start, end]
 
 
 class StructuralDiffResponse(CamelModel):
@@ -889,6 +895,8 @@ class StructuralDiffResponse(CamelModel):
     summary: str = ""
     changes: list[StructuralChange] = []
     available: bool = True
+    merge_confidence: str | None = None  # HIGH | MEDIUM | LOW
+    triage: dict[str, int] = Field(default_factory=dict)  # category → count
 
 
 # TestCoModification, ReviewSignals, ReviewComplexity, and JobTelemetryReport

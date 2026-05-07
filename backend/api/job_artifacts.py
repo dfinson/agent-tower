@@ -513,6 +513,7 @@ async def get_job_structural_diff(
 
     Uses CodeRecon's semantic_diff to classify changes by structural impact
     (added/removed/modified/moved symbols) rather than raw text diff.
+    Computes risk scores and merge confidence per design §9.4 and §7.4.
     """
     job = await svc.get_job(job_id)
     if job is None:
@@ -532,18 +533,130 @@ async def get_job_structural_diff(
         log.warning("structural_diff_failed", job_id=job_id, exc_info=True)
         return StructuralDiffResponse(job_id=job_id, available=False)
 
-    changes = [
-        StructuralChange(
-            kind=c.get("kind", "modified"),
-            symbol=c.get("symbol"),
-            file=c.get("file", ""),
-            summary=c.get("summary"),
-        )
-        for c in diff_result.structural_changes
-    ]
+    changes = _build_structural_changes(diff_result.structural_changes)
+    triage = _compute_triage(changes)
+    confidence = _compute_merge_confidence(changes)
 
     return StructuralDiffResponse(
         job_id=job_id,
         summary=diff_result.summary,
         changes=changes,
+        merge_confidence=confidence,
+        triage=triage,
     )
+
+
+# -- Structural diff helpers --------------------------------------------------
+
+# Ref tier mapping: daemon internal names → user-facing labels (§2.2)
+_TIER_LABEL = {
+    "PROVEN": "verified",
+    "STRONG": "inferred",
+    "ANCHORED": "inferred",
+    "SEMANTIC": "inferred",
+    "UNKNOWN": "unverified",
+}
+
+# Category severity for risk scoring (§9.4)
+_CATEGORY_SEVERITY = {
+    "breaking": 1.0,
+    "body": 0.5,
+    "additive": 0.1,
+    "non-structural": 0.0,
+}
+
+
+def _classify_category(c: dict) -> str:
+    """Classify a structural change into review categories (§9.2)."""
+    kind = c.get("kind", "")
+    # Breaking: signature change or removal with callers
+    if kind == "removed":
+        return "breaking" if c.get("ref_count", 0) > 0 else "non-structural"
+    if kind == "modified":
+        # If signature changed (breaking), else body change
+        if c.get("signature_changed", False):
+            return "breaking"
+        return "body"
+    if kind == "added":
+        return "additive"
+    if kind == "moved":
+        return "body"
+    return "non-structural"
+
+
+def _translate_ref_tiers(raw_tiers: dict) -> dict[str, int]:
+    """Collapse daemon ref tiers into user-facing labels (§2.2)."""
+    result: dict[str, int] = {}
+    for tier, count in raw_tiers.items():
+        label = _TIER_LABEL.get(tier, "unverified")
+        result[label] = result.get(label, 0) + count
+    return result
+
+
+def _compute_risk(category: str, ref_tiers: dict[str, int], test_files: list) -> float:
+    """Composite risk score per §9.4."""
+    severity = _CATEGORY_SEVERITY.get(category, 0.0)
+
+    total_refs = sum(ref_tiers.values())
+    unknown_ratio = ref_tiers.get("unverified", 0) / total_refs if total_refs > 0 else 0.0
+
+    test_gap = 1.0 if not test_files else 0.0
+
+    risk = (0.4 * severity) + (0.35 * unknown_ratio) + (0.25 * test_gap)
+    return round(risk, 2)
+
+
+def _build_structural_changes(raw_changes: list[dict]) -> list[StructuralChange]:
+    """Transform raw daemon data into enriched StructuralChange models."""
+    changes = []
+    for c in raw_changes:
+        category = _classify_category(c)
+        raw_tiers = c.get("ref_tiers", {})
+        ref_tiers = _translate_ref_tiers(raw_tiers)
+        test_files = c.get("test_files", [])
+        risk = _compute_risk(category, ref_tiers, test_files)
+
+        changes.append(StructuralChange(
+            kind=c.get("kind", "modified"),
+            symbol=c.get("symbol"),
+            file=c.get("file", ""),
+            summary=c.get("summary"),
+            category=category,
+            ref_count=c.get("ref_count", 0),
+            ref_tiers=ref_tiers,
+            test_files=test_files,
+            risk=risk,
+            line_range=c.get("line_range"),
+        ))
+    return changes
+
+
+def _compute_triage(changes: list[StructuralChange]) -> dict[str, int]:
+    """Count changes per category for triage bar."""
+    triage: dict[str, int] = {}
+    for ch in changes:
+        triage[ch.category] = triage.get(ch.category, 0) + 1
+    return triage
+
+
+def _compute_merge_confidence(changes: list[StructuralChange]) -> str:
+    """Merge confidence per §7.4.
+
+    HIGH: All refs verified/inferred, no breaking with unverified, no new cycles.
+    LOW: Unverified refs on breaking changes.
+    MEDIUM: Everything else.
+    """
+    has_unverified_breaking = False
+    has_unknown_refs = False
+
+    for ch in changes:
+        if ch.ref_tiers.get("unverified", 0) > 0:
+            has_unknown_refs = True
+            if ch.category == "breaking":
+                has_unverified_breaking = True
+
+    if has_unverified_breaking:
+        return "LOW"
+    if has_unknown_refs:
+        return "MEDIUM"
+    return "HIGH"

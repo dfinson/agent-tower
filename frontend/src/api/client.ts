@@ -784,6 +784,12 @@ export interface StructuralChange {
   symbol: string | null;
   file: string;
   summary: string | null;
+  category: string;  // breaking | body | additive | non-structural
+  refCount: number;
+  refTiers: Record<string, number>;  // verified | inferred | unverified → count
+  testFiles: string[];
+  risk: number;
+  lineRange: number[] | null;
 }
 
 export interface StructuralDiffResponse {
@@ -791,6 +797,8 @@ export interface StructuralDiffResponse {
   summary: string;
   changes: StructuralChange[];
   available: boolean;
+  mergeConfidence: string | null;  // HIGH | MEDIUM | LOW
+  triage: Record<string, number>;  // category → count
 }
 
 export function fetchStructuralDiff(jobId: string): Promise<StructuralDiffResponse> {
