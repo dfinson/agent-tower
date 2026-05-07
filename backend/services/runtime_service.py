@@ -980,9 +980,17 @@ class RuntimeService:
                 async with self._session_factory() as session:
                     svc = self._make_job_service(session)
                     job = await svc.get_job(job_id)
-                if job is not None and job.worktree_path:
-                    repo_name = await self._coderecon_service.ensure_repo_indexed(job.repo)
-                    await self._coderecon_service.close_session(repo_name, worktree=job.worktree_path)
+                if job is not None and job.worktree_path and job.repo:
+                    # Look up repo name without triggering registration/indexing
+                    catalog = await self._coderecon_service.catalog()
+                    repo_name = next(
+                        (e["name"] for e in catalog if job.repo in e.get("git_dir", "")),
+                        None,
+                    )
+                    if repo_name:
+                        await self._coderecon_service.close_session(
+                            repo_name, worktree=job.worktree_path,
+                        )
             except Exception:
                 log.debug("coderecon.session_close_failed", job_id=job_id, exc_info=True)
 

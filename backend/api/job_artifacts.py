@@ -533,9 +533,17 @@ async def get_job_structural_diff(
         log.warning("structural_diff_failed", job_id=job_id, exc_info=True)
         return StructuralDiffResponse(job_id=job_id, available=False)
 
+    # Check for new dependency cycles (§7.4)
+    has_new_cycles = False
+    try:
+        cycles_result = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
+        has_new_cycles = len(cycles_result.cycles) > 0
+    except Exception:
+        log.debug("structural_diff_cycles_check_failed", job_id=job_id, exc_info=True)
+
     changes = _build_structural_changes(diff_result.structural_changes)
     triage = _compute_triage(changes)
-    confidence = _compute_merge_confidence(changes)
+    confidence = _compute_merge_confidence(changes, has_new_cycles=has_new_cycles)
 
     return StructuralDiffResponse(
         job_id=job_id,
@@ -639,13 +647,16 @@ def _compute_triage(changes: list[StructuralChange]) -> dict[str, int]:
     return triage
 
 
-def _compute_merge_confidence(changes: list[StructuralChange]) -> str:
+def _compute_merge_confidence(changes: list[StructuralChange], *, has_new_cycles: bool = False) -> str:
     """Merge confidence per §7.4.
 
     HIGH: All refs verified/inferred, no breaking with unverified, no new cycles.
-    LOW: Unverified refs on breaking changes.
+    LOW: Unverified refs on breaking changes, or new dependency cycles.
     MEDIUM: Everything else.
     """
+    if has_new_cycles:
+        return "LOW"
+
     has_unverified_breaking = False
     has_unknown_refs = False
 

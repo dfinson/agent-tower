@@ -715,9 +715,29 @@ class StoryService:
             symbol = ch.get("symbol")
             file = ch.get("file", "")
             summary = ch.get("summary", "")
-            entry = f"  [{kind.upper()}] {file}"
+            ref_count = ch.get("ref_count", 0)
+            ref_tiers = ch.get("ref_tiers", {})
+            sig_changed = ch.get("signature_changed", False)
+
+            # Determine category inline (mirrors endpoint logic)
+            if kind == "removed":
+                category = "BREAKING" if ref_count > 0 else "non-structural"
+            elif kind == "modified":
+                category = "BREAKING" if sig_changed else "body"
+            elif kind == "added":
+                category = "additive"
+            else:
+                category = "body" if kind == "moved" else "non-structural"
+
+            entry = f"  [{category.upper()}] {file}"
             if symbol:
                 entry += f" :: {symbol}"
+            if ref_count > 0:
+                entry += f" ({ref_count} callers"
+                unknown = ref_tiers.get("UNKNOWN", 0)
+                if unknown:
+                    entry += f", {unknown} UNVERIFIED"
+                entry += ")"
             if summary:
                 entry += f" — {summary}"
             lines.append(entry)
