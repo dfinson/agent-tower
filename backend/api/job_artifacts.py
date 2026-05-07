@@ -657,7 +657,8 @@ def _compute_triage(changes: list[StructuralChange]) -> dict[str, int]:
 def _compute_merge_confidence(changes: list[StructuralChange], *, has_new_cycles: bool = False) -> str:
     """Merge confidence per §7.4.
 
-    HIGH: All refs verified/inferred, no breaking with unverified, no new cycles.
+    HIGH: All refs verified/inferred, no breaking with unverified, no new cycles,
+          breaking changes have test coverage.
     LOW: Unverified refs on breaking changes, or new dependency cycles.
     MEDIUM: Everything else.
     """
@@ -666,15 +667,18 @@ def _compute_merge_confidence(changes: list[StructuralChange], *, has_new_cycles
 
     has_unverified_breaking = False
     has_unknown_refs = False
+    has_untested_breaking = False
 
     for ch in changes:
         if ch.ref_tiers.get("unverified", 0) > 0:
             has_unknown_refs = True
             if ch.category == "breaking":
                 has_unverified_breaking = True
+        if ch.category == "breaking" and not ch.test_files:
+            has_untested_breaking = True
 
     if has_unverified_breaking:
         return "LOW"
-    if has_unknown_refs:
+    if has_unknown_refs or has_untested_breaking:
         return "MEDIUM"
     return "HIGH"
