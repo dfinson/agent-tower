@@ -93,6 +93,7 @@ class CodeReconService:
             await self._sdk.start()
             self._state = DaemonState.READY
             self._restart_count = 0
+            self._crash_timestamps.clear()
             self._event_bridge_task = asyncio.create_task(
                 self._bridge_events(), name="coderecon-event-bridge"
             )
@@ -354,7 +355,7 @@ class CodeReconService:
                 communities = await self.graph_communities(repo, worktree=worktree)
                 # Map files to communities
                 file_communities: set[str] = set()
-                for comm in (communities.raw.get("communities") or []):
+                for comm in communities.communities:
                     comm_name = comm.get("name", "")
                     members = set(comm.get("members", []))
                     if touched_files & members:
@@ -486,6 +487,7 @@ class CodeReconService:
             if not self._shutting_down:
                 # Daemon likely crashed — trigger recovery
                 self._sdk = None
+                self._state = DaemonState.STARTING
                 await self._handle_crash()
 
 

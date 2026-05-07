@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, cast
 
 import structlog
@@ -792,16 +793,15 @@ async def get_job_multi_session(
         files_written: set[str] = set()
         for step in sess_steps:
             if step.files_written:
-                import json as _json
                 try:
-                    files_written.update(_json.loads(step.files_written))
+                    files_written.update(json.loads(step.files_written))
                 except (ValueError, TypeError):
                     pass
         if len(files_written) >= 3:
             try:
                 communities = await coderecon.graph_communities(repo_name, worktree=job.worktree_path)
                 file_communities: set[str] = set()
-                for comm in (communities.raw.get("communities") or []):
+                for comm in communities.communities:
                     comm_name = comm.get("name", "")
                     members = set(comm.get("members", []))
                     if files_written & members:
@@ -930,7 +930,7 @@ async def get_job_communities(
 
     # Map files to communities
     file_to_community: dict[str, str] = {}
-    for comm in (communities.raw.get("communities") or []):
+    for comm in communities.communities:
         comm_name = comm.get("name", "")
         for member in comm.get("members", []):
             file_to_community[member] = comm_name

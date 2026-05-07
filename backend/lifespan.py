@@ -542,34 +542,49 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if not worktree_path:
             return
         job_id = event.job_id
-        try:
-            # Resolve repo name from catalog
-            catalog = await coderecon_service.catalog()
-            repo_name: str | None = None
-            for entry in catalog:
-                for wt in entry.worktrees:
-                    if Path(wt.get("path", "")).resolve() == Path(worktree_path).resolve():
-                        repo_name = entry.name
-                        break
-                if repo_name:
-                    break
-            if not repo_name:
-                return
-            warnings = await coderecon_service.check_step_structural_health(
-                repo_name, worktree=worktree_path
-            )
-            for w in warnings:
-                await event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=job_id,
-                        timestamp=datetime.now(UTC),
-                        kind=DomainEventKind.structural_warning,
-                        payload=w,
+
+        async def _run_check() -> None:
+            try:
+                # Look up repo path from the job record
+                from sqlalchemy import text
+
+                async with session_factory() as session:
+                    row = await session.execute(
+                        text("SELECT repo FROM jobs WHERE id = :jid"),
+                        {"jid": job_id},
                     )
+                    repo_path = row.scalar_one_or_none()
+                if not repo_path:
+                    return
+
+                # Resolve repo name via git_dir (same pattern as _cleanup_job_state)
+                catalog = await coderecon_service.catalog()
+                resolved = Path(repo_path).resolve()
+                repo_name = next(
+                    (e["name"] for e in catalog
+                     if Path(e.get("git_dir", "")).resolve() in (resolved / ".git", resolved)),
+                    None,
                 )
-        except Exception:
-            log.debug("structural_health_check_failed", job_id=job_id, exc_info=True)
+                if not repo_name:
+                    return
+                warnings = await coderecon_service.check_step_structural_health(
+                    repo_name, worktree=worktree_path
+                )
+                for w in warnings:
+                    await event_bus.publish(
+                        DomainEvent(
+                            event_id=DomainEvent.make_event_id(),
+                            job_id=job_id,
+                            timestamp=datetime.now(UTC),
+                            kind=DomainEventKind.structural_warning,
+                            payload=w,
+                        )
+                    )
+            except Exception:
+                log.debug("structural_health_check_failed", job_id=job_id, exc_info=True)
+
+        # Fire-and-forget — don't block the event pipeline
+        asyncio.create_task(_run_check(), name=f"structural-health-{job_id[:8]}")
 
     event_bus.subscribe(_structural_health_on_step)
 
