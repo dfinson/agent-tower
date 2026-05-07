@@ -341,7 +341,7 @@ EventPayload = (
 @dataclass
 class DomainEvent:
     event_id: str
-    job_id: str
+    job_id: str | None
     timestamp: datetime
     kind: DomainEventKind
     payload: EventPayload

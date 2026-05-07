@@ -589,7 +589,7 @@ class SSEManager:
         if derived is not None:
             self._broadcast_frame(derived, event.job_id)
 
-    def _broadcast_frame(self, frame: str, job_id: str) -> None:
+    def _broadcast_frame(self, frame: str, job_id: str | None) -> None:
         """Send a pre-formatted frame to all relevant connections."""
         for conn in list(self._connections):
             if conn.closed:

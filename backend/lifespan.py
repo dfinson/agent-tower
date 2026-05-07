@@ -133,6 +133,12 @@ def _init_event_infrastructure(
             await sse_manager.broadcast_domain_event(event)
             return
 
+        # System-level events (no job association) cannot be persisted to the
+        # events table (job_id FK constraint). Broadcast only.
+        if event.job_id is None:
+            await sse_manager.broadcast_domain_event(event)
+            return
+
         try:
             await _persist_event_with_retry(
                 event=event,
