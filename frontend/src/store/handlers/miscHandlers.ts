@@ -120,6 +120,29 @@ export function handlePolicySettingsChanged(_state: AppState): Partial<AppState>
   };
 }
 
+export function handleRepoIndexProgress(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const repo = payload.repo as string;
+  return {
+    repoIndexState: {
+      ...state.repoIndexState,
+      [repo]: {
+        repo,
+        indexed: payload.indexed as number,
+        total: payload.total as number,
+        phase: payload.phase as string,
+      },
+    },
+  };
+}
+
+export function handleRepoIndexComplete(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  // Remove from active indexing state — the repo is now ready.
+  const repo = payload.repo as string;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { [repo]: _done, ...rest } = state.repoIndexState;
+  return { repoIndexState: rest };
+}
+
 export const miscHandlers: Record<string, SSEHandler> = {
   snapshot: handleSnapshot,
   session_heartbeat: handleSessionHeartbeat,
@@ -127,4 +150,6 @@ export const miscHandlers: Record<string, SSEHandler> = {
   session_resumed: handleSessionResumed,
   telemetry_updated: handleTelemetryUpdated,
   policy_settings_changed: handlePolicySettingsChanged,
+  repo_index_progress: handleRepoIndexProgress,
+  repo_index_complete: handleRepoIndexComplete,
 };

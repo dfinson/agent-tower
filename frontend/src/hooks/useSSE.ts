@@ -121,6 +121,9 @@ export function useSSE(jobId?: string): { reconnect: () => void } {
         "job_setup_progress",
         // Policy settings changed (triggers settings panel refresh)
         "policy_settings_changed",
+        // Repository structural index progress
+        "repo_index_progress",
+        "repo_index_complete",
       ];
 
       for (const eventType of eventTypes) {

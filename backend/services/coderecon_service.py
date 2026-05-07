@@ -8,6 +8,7 @@ dashboard and agent tool provisioning.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,11 +21,14 @@ if TYPE_CHECKING:
         CommunitiesResult,
         CyclesResult,
         DiffResult,
+        Event,
         ImpactResult,
         MapResult,
         ReconResult,
         StatusResult,
     )
+
+    from backend.services.event_bus import EventBus
 
 log = structlog.get_logger(__name__)
 
@@ -52,6 +56,8 @@ class CodeReconService:
         self._state = DaemonState.STOPPED
         self._restart_count = 0
         self._restart_lock = asyncio.Lock()
+        self._event_bus: EventBus | None = None
+        self._event_bridge_task: asyncio.Task[None] | None = None
 
     @property
     def state(self) -> DaemonState:
@@ -60,6 +66,10 @@ class CodeReconService:
     @property
     def available(self) -> bool:
         return self._state == DaemonState.READY
+
+    def set_event_bus(self, event_bus: EventBus) -> None:
+        """Connect the event bus for forwarding index progress to SSE."""
+        self._event_bus = event_bus
 
     # ── Lifecycle ──
 
@@ -73,6 +83,9 @@ class CodeReconService:
             await self._sdk.start()
             self._state = DaemonState.READY
             self._restart_count = 0
+            self._event_bridge_task = asyncio.create_task(
+                self._bridge_events(), name="coderecon-event-bridge"
+            )
             log.info("coderecon.daemon_started")
         except Exception:
             self._state = DaemonState.DEGRADED
@@ -80,6 +93,9 @@ class CodeReconService:
 
     async def stop(self) -> None:
         """Graceful shutdown of the daemon."""
+        if self._event_bridge_task is not None:
+            self._event_bridge_task.cancel()
+            self._event_bridge_task = None
         if self._sdk is not None:
             try:
                 await self._sdk.stop()
@@ -98,11 +114,48 @@ class CodeReconService:
     # ── Repository Management ──
 
     async def register_repo(self, path: str | Path) -> dict[str, Any]:
-        """Register a repository for structural indexing."""
+        """Register a repository for structural indexing.
+
+        Triggers a full index build. Progress events are forwarded to the
+        event bus as repo_index_progress SSE events so the frontend can
+        show progress UI during onboarding.
+        """
         sdk = await self._ensure_available()
         result = await sdk.register(str(path))
         log.info("coderecon.repo_registered", repo=result.repo)
         return {"repo": result.repo}
+
+    async def ensure_repo_indexed(self, path: str | Path) -> str:
+        """Register a repo if not already known. Returns repo name.
+
+        This is the primary hook for the repo-add flow. Onboarded repos
+        are always indexed — this is not optional.
+        """
+        sdk = await self._ensure_available()
+        # Check if already registered
+        entries = await sdk.catalog()
+        resolved = str(Path(path).resolve())
+        for entry in entries:
+            if Path(entry.git_dir).resolve() == Path(resolved) / ".git" or Path(entry.git_dir).resolve() == Path(resolved):
+                return entry.name
+        # Not registered — register now (triggers indexing)
+        result = await sdk.register(resolved)
+        log.info("coderecon.repo_registered", repo=result.repo, path=resolved)
+        return result.repo
+
+    async def register_worktree(self, repo: str, worktree_path: str | Path) -> None:
+        """Register a worktree with the daemon to activate live reindexing.
+
+        Called during job setup after the worktree is created. This tells
+        the daemon to watch the worktree for file changes and maintain a
+        live structural index as the agent writes code.
+
+        Uses `reindex(repo, worktree=path)` which activates the worktree
+        column key and triggers an initial index pass for the worktree state.
+        """
+        sdk = await self._ensure_available()
+        await sdk.reindex(repo, worktree=str(worktree_path))
+        log.info("coderecon.worktree_registered", repo=repo, worktree=str(worktree_path))
 
     async def repo_status(self, repo: str) -> StatusResult:
         """Get index status for a repo."""
@@ -217,6 +270,50 @@ class CodeReconService:
             "state": self._state.value,
             "restart_count": self._restart_count,
         }
+
+    # ── Event Bridge ──
+
+    async def _bridge_events(self) -> None:
+        """Forward daemon index.progress events to CodePlane's event bus as SSE."""
+        from backend.models.events import DomainEvent, DomainEventKind
+
+        if self._sdk is None:
+            return
+        try:
+            async for event in self._sdk.events("index.*"):
+                if self._event_bus is None:
+                    continue
+                if event.type == "index.progress":
+                    await self._event_bus.publish(
+                        DomainEvent(
+                            event_id=DomainEvent.make_event_id(),
+                            job_id=None,
+                            timestamp=datetime.now(UTC),
+                            kind=DomainEventKind.repo_index_progress,
+                            payload={
+                                "repo": event.data.get("repo", ""),
+                                "indexed": event.data.get("indexed", 0),
+                                "total": event.data.get("total", 0),
+                                "phase": event.data.get("phase", "indexing"),
+                            },
+                        )
+                    )
+                elif event.type == "index.complete":
+                    await self._event_bus.publish(
+                        DomainEvent(
+                            event_id=DomainEvent.make_event_id(),
+                            job_id=None,
+                            timestamp=datetime.now(UTC),
+                            kind=DomainEventKind.repo_index_complete,
+                            payload={
+                                "repo": event.data.get("repo", ""),
+                            },
+                        )
+                    )
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.debug("coderecon.event_bridge_error", exc_info=True)
 
 
 class CodeReconUnavailableError(Exception):

@@ -65,6 +65,7 @@ from backend.validators import REF_PATTERN
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from backend.services.coderecon_service import CodeReconService
     from backend.services.step_tracker import StepTracker
     from backend.services.terminal_service import TerminalService
     from backend.services.trail import TrailService
@@ -203,6 +204,7 @@ class RuntimeService:
         sister_sessions: SisterSessionManager | None = None,
         step_tracker: StepTracker | None = None,
         trail_service: TrailService | None = None,
+        coderecon_service: CodeReconService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
@@ -216,6 +218,7 @@ class RuntimeService:
         self._platform_registry = platform_registry
         self._sister_sessions = sister_sessions
         self._step_tracker = step_tracker
+        self._coderecon_service = coderecon_service
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._agent_sessions: dict[str, AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
@@ -273,6 +276,7 @@ class RuntimeService:
             git_service=self._git_service,
             config=self._config,
             event_bus=self._event_bus,
+            coderecon=self._coderecon_service,
         )
 
     async def _finalize_diff_safe(self, job_id: str, worktree_path: str | None, base_ref: str | None) -> None:

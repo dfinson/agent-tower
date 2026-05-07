@@ -57,6 +57,8 @@ class DomainEventKind(StrEnum):
     turn_summary = "TurnSummary"
     action_classified = "ActionClassified"
     policy_settings_changed = "PolicySettingsChanged"
+    repo_index_progress = "RepoIndexProgress"
+    repo_index_complete = "RepoIndexComplete"
 
 
 # ---------------------------------------------------------------------------

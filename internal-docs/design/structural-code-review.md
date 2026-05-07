@@ -372,6 +372,50 @@ is triggered by:
 * Git force-push detected (ref rewrite)
 * Index corruption detected (checksum mismatch)
 
+### 5.7 Job Creation and Worktrees
+
+Job creation creates a worktree and **registers it with the daemon**. This
+activates live reindexing for that worktree — the daemon watches for file
+changes in the worktree and keeps its structural index up to date as the
+agent writes code.
+
+The worktree shares the parent repo's base index via column key partitioning
+(§2.3), so the initial structural context is available instantly. The live
+reindexing layer tracks divergence from the base as the agent makes changes.
+
+Onboarded repos are indexed. Period. There is no "not indexed" state for a
+repo that has been added through the UI — the `ensure_repo_indexed` call in
+the repo-add endpoint guarantees this. If CodeRecon is enabled, every repo
+in the allowlist has a structural index.
+
+### 5.8 UX: Index State Visibility
+
+The repo card in Settings shows real-time index state:
+
+```text
+┌─────────────────────────────────────────┐
+│  codeplane                    ● Ready   │
+│  /home/user/repos/codeplane             │
+│  891 files · 12 communities · 0 cycles  │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│  my-project              ◐ Indexing 65% │
+│  /home/user/repos/my-project            │
+│  ████████░░░░  342 / 891 files          │
+└─────────────────────────────────────────┘
+```
+
+During job creation, the job detail page shows worktree registration:
+
+```text
+Setting up workspace...
+  ✓ Branch created
+  ✓ Worktree created
+  ✓ Worktree registered with structural index
+  ○ Agent starting...
+```
+
 ---
 
 ## 6. Index Health and Freshness
@@ -487,14 +531,18 @@ tools = handle.as_openai_tools()  # or as_langchain_tools() depending on adapter
 | `recon_map` | `handle.recon_map()` | Repository structure map with PageRank |
 | `recon_impact` | `handle.recon_impact(target, justification)` | Reference/caller analysis for a symbol |
 | `recon_understand` | `handle.recon_understand()` | Full codebase narrative briefing |
-| `semantic_diff` | `handle.semantic_diff(base, target)` | Structural change summary between states |
 | `graph_communities` | `handle.graph_communities()` | Module boundary detection |
 | `graph_cycles` | `handle.graph_cycles()` | Circular dependency detection |
-| `checkpoint` | `handle.checkpoint(changed_files, ...)` | Lint + test + commit verification pipeline |
+| `checkpoint` | `handle.checkpoint(changed_files, ...)` | Lint + test + semantic_diff + commit pipeline |
 | `refactor_rename` | `handle.refactor_rename(symbol, new_name, justification)` | Rename with impact preview |
 | `refactor_move` | `handle.refactor_move(from_path, to_path, justification)` | Move file updating imports |
 | `refactor_commit` | `handle.refactor_commit(refactor_id)` | Apply a previewed refactoring |
 | `refactor_cancel` | `handle.refactor_cancel(refactor_id)` | Discard a refactoring preview |
+
+`semantic_diff` is not exposed as an agent tool. It runs internally as part
+of `checkpoint` — after tests pass, checkpoint runs a structural diff against
+the last checkpoint state and includes broken-reference warnings in its output.
+The agent sees the results without needing to call it explicitly.
 
 ### 8.3 Tool Selection
 
@@ -502,7 +550,7 @@ Not all agents need all tools. Tool provisioning is configurable per-job or
 per-repo:
 
 * **Minimal**: `recon` + `recon_map` (read-only context gathering)
-* **Standard**: Minimal + `checkpoint` + `semantic_diff` + `recon_impact` (structural awareness)
+* **Standard**: Minimal + `checkpoint` + `recon_impact` (structural awareness)
 * **Full**: All tools including `graph_*` and `refactor_*` (architectural work)
 
 ### 8.4 Usage Tracking
@@ -513,6 +561,73 @@ Tool invocations are recorded as trail nodes (`kind: tool_call`,
 * Measuring which structural tools agents actually use
 * Correlating tool usage with job success rate
 * Identifying agents that would benefit from more/fewer structural tools
+
+### 8.5 Agent System Prompt: Tool Usage Guidance
+
+The agent's system prompt includes a concise block explaining what structural
+tools are available and — critically — what operations the agent must NOT do
+directly because a tool owns them.
+
+This prompt fragment is injected by RuntimeService when CodeRecon tools are
+provisioned. It is terse and imperative — agents respond better to short rules
+than verbose explanations.
+
+```text
+## Structural Tools
+
+You have structural analysis tools for this repository. Use them.
+
+### When to use what
+
+- **recon** — Before writing code. Get ranked context for your task.
+  Always call this first instead of grep/find/read-guessing your way
+  through the codebase.
+  - `task`: Describe what you're about to do, not what you're looking
+    for. "Add retry logic to the HTTP client" not "find HTTP client".
+  - `seeds`: Pass file paths you already know are relevant. If the task
+    mentions a file, or you touched a file in a previous step, seed it.
+    Seeds anchor the ranking — results cluster around them structurally.
+  - `pins`: Pass symbol names or file paths that MUST appear in results.
+    Use when you know the entry point but need surrounding context.
+  - Call recon again with more precise input when your understanding shifts IF and ONLY if more context is critically needed.
+- **recon_map** — When you need to understand the overall structure or find
+  where something lives. Replaces manual directory traversal.
+- **recon_impact** — Before modifying a function/class. Shows all callers
+  and dependents. Call this before any signature change.
+- **checkpoint** — After completing a logical unit of work. This runs
+  lint + tests + structural diff + commits. You MUST use checkpoint to
+  commit. You MUST use checkpoint to run tests. Checkpoint will tell you
+  if you broke references or introduced structural problems — read its
+  output carefully.
+- **graph_communities** — When working across modules. Shows which files
+  cluster together. Helps you avoid touching unrelated communities.
+- **graph_cycles** — After adding new imports. Detects circular deps you
+  may have introduced.
+- **refactor_rename / refactor_move** — For renames and file moves. These
+  update all references automatically. Never do manual find-and-replace
+  for symbol renames.
+
+### Rules
+
+1. Never run tests directly (pytest, jest, cargo test, etc.) — checkpoint
+   owns test execution. It runs the right test subset and reports results.
+2. Never run git commands directly (git add, git commit, git push) —
+   checkpoint owns commits. It stages, commits with a structured message,
+   and handles the worktree state.
+3. Never run linters directly — checkpoint runs them as part of its
+   pipeline.
+4. Always call recon_impact before changing a function signature.
+5. If checkpoint fails, read its output. Fix the issue. Call checkpoint
+   again. Do not try to manually run the failing test.
+```
+
+The exact wording may be tuned per-SDK (some agents respond better to
+numbered lists, others to prose). The invariants are:
+
+* **checkpoint owns testing, linting, structural diff, and commits** —
+  the agent never shells out for these
+* **recon_impact before signature changes** — non-negotiable
+* **recon first, not grep** — agents that skip this waste tokens exploring
 
 ---
 
@@ -1424,7 +1539,7 @@ omit the headers.
 
 **Read context.** Compact `◀ file.py:12–47` citations showing the
 exact lines the agent examined before writing. Rendered from
-`file_read` telemetry spans (see §11A.11.1).
+`file_read` telemetry spans (see §11A.10.1).
 
 **Trail beat asides.** Color-coded left-border blocks for
 `decide`, `backtrack`, `insight`, and `retry` nodes from trail
@@ -1551,14 +1666,7 @@ The tab bar becomes: Dashboard | Timeline | **Narrative** | **Review** | Full Di
 analysis. A reviewer can read either independently, or cross-reference
 between them. For simple jobs, both may collapse to single paragraphs.
 
-### 11A.8 Superseded
-
-This section's visual reference has been replaced by the full scenario
-gallery in §11A.12, which covers all narrative states including trail
-beats, symbol hovers, selection-activated conversation, and activity
-grouping.
-
-### 11A.9 Anti-Patterns
+### 11A.8 Anti-Patterns
 
 | Anti-pattern | Risk | Mitigation |
 |---|---|---|
@@ -1569,15 +1677,24 @@ grouping.
 | **Fabricated reasoning** | The LLM invents rationale the agent never had | Narrative prose is constrained to trail node `intent`/`rationale`/`outcome` fields — these come from enrichment of actual transcript context, not from imagination |
 | **Redundancy with Review tab** | Reviewer reads the same information twice | Narrative covers *process*; Review covers *output*. Cross-link rather than duplicate. |
 
-### 11A.10 Open Questions
+### 11A.9 Design Decisions and Open Questions
 
-#### Decided
+#### Settled
 
-| Question | Decision | Rationale |
-|----------|----------|-----------|
-| Where does the existing StoryService output go? | Merged into the Narrative tab as the detailed-verbosity edit walkthrough | The Narrative already uses StoryService's diff blocks, symbol references, and motivation data. A separate "Story" tab would duplicate content. The tab bar is now `Dashboard \| Timeline \| Narrative \| Review \| Full Diff`. |
-| How should multi-session narratives handle session boundaries? | Session breaks are timestamp markers and activity group boundaries, not discrete phase labels | If Session 2 redoes work from Session 1, the backtrack aside appears once at the point the agent changed course. Sessions fold into a single chronological flow. |
-| Should the narrative use discrete labeled phases? | No — chronological prose with trail beat asides | The original arc model (`Goal → Explore → Plan → Execute → ...`) implied a phase-labeled document. The implemented design uses free-flowing chronological prose where trail beats surface as inline asides. This reads more naturally and handles jobs that don't follow a clean phase sequence. See §11A.4 and mockups A, D, G, H. |
+- **StoryService output lives in the Narrative tab** as the detailed-verbosity
+  edit walkthrough. The Narrative already uses StoryService's diff blocks,
+  symbol references, and motivation data. A separate "Story" tab would
+  duplicate content. Tab bar: `Dashboard | Timeline | Narrative | Review | Full Diff`.
+
+- **Multi-session narratives use chronological flow.** Session breaks are
+  timestamp markers and activity group boundaries, not discrete phase labels.
+  If Session 2 redoes work from Session 1, the backtrack aside appears once
+  at the point the agent changed course.
+
+- **No labeled phases.** The narrative uses free-flowing chronological prose
+  with trail beat asides rather than a phase-labeled structure
+  (`Goal → Explore → Plan → Execute → …`). This reads naturally and handles
+  jobs that don't follow a clean phase sequence. See §11A.4 and mockups A, D, G, H.
 
 #### Open
 
@@ -1591,14 +1708,14 @@ grouping.
    record for future jobs. This intersects with the approval artifact
    (§11.11) and would need its own persistence model.
 
-### 11A.11 Interactive Narrative Architecture
+### 11A.10 Interactive Narrative Architecture
 
 The narrative is not a static document. It is a living surface where every
 code reference is interactive and the reviewer can converse with the agent
 about any passage. Three layers build on top of the base narrative
 generation (§11A.6) to create this experience.
 
-#### 11A.11.1 Layer 1 — Read-Write Causality
+#### 11A.10.1 Layer 1 — Read-Write Causality
 
 **Problem.** The narrative says "I read auth.py" when the telemetry data
 records exactly which lines were examined. Both agent SDKs (Copilot and
@@ -1639,7 +1756,7 @@ INLINE CODE section:
 granularity. The story service adds a query against `file_read` spans
 grouped by `turn_id`.
 
-#### 11A.11.2 Layer 2 — Symbol Index
+#### 11A.10.2 Layer 2 — Symbol Index
 
 **Problem.** The narrative references symbols like `` `validate_token()` ``
 and `` `TokenConfig` `` using backtick-wrapped inline code. In the current
@@ -1705,7 +1822,7 @@ index is present.
 > Only include symbols from the provided code context — never invent
 > locations.
 
-#### 11A.11.3 Layer 3 — Selection-Activated Conversation
+#### 11A.10.3 Layer 3 — Selection-Activated Conversation
 
 **Problem.** The narrative is write-only. The reviewer can read it but
 cannot ask "why did you choose JWT over sessions?" or "what else uses
@@ -1785,7 +1902,7 @@ in the answer are resolved against the story's symbol index. The
 conversation surface has the same interactive code references as the
 narrative itself.
 
-#### 11A.11.4 Build Dependencies
+#### 11A.10.4 Build Dependencies
 
 Each layer is independently shippable and valuable:
 
@@ -1795,7 +1912,7 @@ Each layer is independently shippable and valuable:
 | L2: Symbol index | Backend + Frontend | L1 (richer data produces better index) | Every code reference becomes hoverable |
 | L3: Conversation | Backend + Frontend | L2 (symbol rendering in responses) | The narrative becomes a dialogue surface |
 
-### 11A.12 Visual Reference: Full Scenario Gallery
+### 11A.11 Visual Reference: Full Scenario Gallery
 
 The mockups below show nine scenarios covering the full range of narrative
 states — from clean jobs through complex multi-session arcs, retry chains,
@@ -1806,7 +1923,7 @@ Standard, Detailed).
 Source HTML:
 [mockups/agent-narrative-mockups-v3.html](mockups/agent-narrative-mockups-v3.html)
 
-#### 11A.12.1 Full Narrative — Multi-Session with Backtrack (Standard)
+#### 11A.11.1 Full Narrative — Multi-Session with Backtrack (Standard)
 
 Two sessions, 48 minutes. The agent added permission modes to the approval
 service, then changed course mid-job. Demonstrates trail beats (DECIDE,
@@ -1816,14 +1933,14 @@ interactive symbol references.
 
 ![Narrative A — Full cognitive journey with backtrack and session boundary](mockups/narrative-a-full-story.png)
 
-#### 11A.12.2 Brief Verbosity — Same Job, Compressed
+#### 11A.11.2 Brief Verbosity — Same Job, Compressed
 
 Same job as A at Brief verbosity. Trail beats surface as compact aside
 blocks. Symbols remain hoverable. Activity groups collapse into the lede.
 
 ![Narrative B — Brief verbosity with trail beat asides](mockups/narrative-b-brief.png)
 
-#### 11A.12.3 Small Clean Job — Narrative Collapses
+#### 11A.11.3 Small Clean Job — Narrative Collapses
 
 Three files, 12 minutes, zero decisions, zero backtracks. No trail beats
 to narrate. Read context shows the agent examined specific regions before
@@ -1831,7 +1948,7 @@ writing. Symbols are still interactive.
 
 ![Narrative C — Clean job with read-write causality](mockups/narrative-c-clean-collapse.png)
 
-#### 11A.12.4 Error, Retry, and Recovery Arc
+#### 11A.11.4 Error, Retry, and Recovery Arc
 
 Single session. Agent hit a test failure, diagnosed it, fixed it, and
 re-verified. Retry chain shown explicitly: first attempt failed with
@@ -1840,7 +1957,7 @@ the root cause.
 
 ![Narrative D — Error-recovery arc with retry chain](mockups/narrative-d-error-recovery.png)
 
-#### 11A.12.5 Symbol Hover — Interactive Code Reference
+#### 11A.11.5 Symbol Hover — Interactive Code Reference
 
 Demonstrates the Layer 2 symbol index interaction. Hovering
 `` `validate_token()` `` shows: function signature, file:line location,
@@ -1849,7 +1966,7 @@ the same dark card chrome as the rest of the UI.
 
 ![Narrative E — Symbol hover popover on code reference](mockups/narrative-e-symbol-hover.png)
 
-#### 11A.12.6 Selection-Activated Conversation
+#### 11A.11.6 Selection-Activated Conversation
 
 Demonstrates the Layer 3 interaction. The reviewer selects a passage about
 a design decision, clicks "Ask about this," and asks a follow-up question.
@@ -1858,7 +1975,7 @@ the same hoverable symbols.
 
 ![Narrative F — Selection-activated conversation with grounded response](mockups/narrative-f-conversation.png)
 
-#### 11A.12.7 Activity-Grouped Narrative
+#### 11A.11.7 Activity-Grouped Narrative
 
 A job with two distinct work phases: "Implement cost tracking" (service,
 repo, model) and "Fix test infrastructure" (fixtures, DI wiring). Changes
@@ -1867,7 +1984,7 @@ boundaries showing the transition.
 
 ![Narrative G — Activity-grouped changes with phase transitions](mockups/narrative-g-activity-groups.png)
 
-#### 11A.12.8 Multi-Decision Trail
+#### 11A.11.8 Multi-Decision Trail
 
 A complex job with three sequential decisions, each building on the last.
 The narrative weaves trail beats into the chronological flow rather than
@@ -1875,7 +1992,7 @@ listing them separately. Demonstrates DECIDE → INSIGHT → DECIDE chains.
 
 ![Narrative H — Multiple sequential decisions woven into prose](mockups/narrative-h-multi-decision.png)
 
-#### 11A.12.9 Detailed Verbosity — Same Job as A & B, Fully Expanded
+#### 11A.11.9 Detailed Verbosity — Same Job as A & B, Fully Expanded
 
 Same approval-flow job at Detailed verbosity. All diffs are expanded inline
 (not collapsed). Exploration reads are shown with full context. Each decision

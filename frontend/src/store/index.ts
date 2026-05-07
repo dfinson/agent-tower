@@ -229,6 +229,7 @@ export const useStore = create<AppState>((set, get) => ({
   streamingToolOutput: {},
   streamingReasoning: {},
   telemetryVersions: {},
+  repoIndexState: {},
   connectionStatus: "reconnecting",
   reconnectAttempt: 0,
   hoveredPlanItemId: null,

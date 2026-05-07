@@ -37,6 +37,7 @@ from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
 from backend.services.merge_service import MergeService
 from backend.services.platform_adapter import PlatformRegistry
+from backend.services.coderecon_service import CodeReconService
 from backend.services.runtime_service import RuntimeService
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
@@ -151,6 +152,14 @@ def mock_terminal_service() -> Mock:
 
 
 @pytest.fixture
+def mock_coderecon_service() -> AsyncMock:
+    svc = AsyncMock(spec=CodeReconService)
+    svc.available = False
+    svc.ensure_repo_indexed.return_value = None
+    return svc
+
+
+@pytest.fixture
 def voice_max_bytes_value() -> int:
     """Default voice max bytes — override in specific test classes for smaller limits."""
     return 10 * 1024 * 1024
@@ -183,6 +192,7 @@ async def app(
     mock_platform_registry: Mock,
     mock_utility_session: AsyncMock,
     mock_terminal_service: Mock,
+    mock_coderecon_service: AsyncMock,
     voice_max_bytes_value: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncGenerator[FastAPI, None]:
@@ -236,6 +246,7 @@ async def app(
             CachedModelsBySdk: CachedModelsBySdk({}),
             VoiceMaxBytes: VoiceMaxBytes(voice_max_bytes_value),
             TerminalService: mock_terminal_service,
+            CodeReconService: mock_coderecon_service,
         },
     )
     setup_dishka(container, application)

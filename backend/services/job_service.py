@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from backend.models.events import DomainEvent, DomainEventKind
     from backend.persistence.event_repo import EventRepository
     from backend.persistence.job_repo import JobRepository
+    from backend.services.coderecon_service import CodeReconService
     from backend.services.event_bus import EventBus
     from backend.services.git_service import GitService
     from backend.services.merge_service import MergeService
@@ -68,6 +69,7 @@ class JobService:
         naming_service: NamingService | None = None,
         event_repo: EventRepository | None = None,
         event_bus: EventBus | None = None,
+        coderecon: CodeReconService | None = None,
     ) -> None:
         self._job_repo = job_repo
         self._git = git_service
@@ -75,6 +77,7 @@ class JobService:
         self._naming = naming_service
         self._event_repo = event_repo
         self._event_bus = event_bus
+        self._coderecon = coderecon
 
     @classmethod
     def from_session(
@@ -445,6 +448,15 @@ class JobService:
             if job is None:
                 raise JobNotFoundError(f"Job {job_id} disappeared after state update")
             return job
+
+        # Register worktree with CodeRecon for live reindexing
+        if self._coderecon is not None and self._coderecon.available:
+            try:
+                repo_name = await self._coderecon.ensure_repo_indexed(job.repo)
+                await self._coderecon.register_worktree(repo_name, worktree_path)
+                await _emit_progress("worktree_indexed")
+            except Exception:
+                log.warning("job_coderecon_worktree_failed", job_id=job_id, exc_info=True)
 
         # Update the job with worktree info and transition to queued
         now = datetime.now(UTC)

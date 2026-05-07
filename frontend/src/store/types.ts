@@ -163,6 +163,14 @@ export interface TerminalSession {
   jobId?: string | null;
 }
 
+/** Real-time index progress for a repo being onboarded. */
+export interface RepoIndexProgress {
+  repo: string;
+  indexed: number;
+  total: number;
+  phase: string;
+}
+
 export interface AppState {
   // Data slices
   jobs: Record<string, JobSummary>;
@@ -190,6 +198,9 @@ export interface AppState {
   /** Monotonically-increasing counter per job, bumped on each telemetry_updated
    * SSE event. Components watching this trigger a telemetry re-fetch. */
   telemetryVersions: Record<string, number>; // keyed by jobId
+
+  // Repo index progress (keyed by repo name)
+  repoIndexState: Record<string, RepoIndexProgress>;
 
   // Terminal state
   terminalDrawerOpen: boolean;

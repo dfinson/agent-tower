@@ -294,6 +294,7 @@ async def _wire_core_services(
             event_bus=event_bus,
             git_service=git_service,
         ),
+        coderecon_service=coderecon_service,
     )
 
     # Recover orphaned jobs from a previous crash
@@ -526,6 +527,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         binary=config.coderecon.binary,
         home=config.coderecon.home,
     )
+    coderecon_service.set_event_bus(event_bus)
     if config.coderecon.enabled:
         await coderecon_service.start()
 
