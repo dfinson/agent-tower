@@ -691,7 +691,7 @@ class StoryService:
             {"jid": job_id},
         )
         job_row = row.mappings().first()
-        if not job_row or not job_row["repo"]:
+        if not job_row or not job_row["repo"] or not job_row["worktree_path"]:
             return None
 
         try:
