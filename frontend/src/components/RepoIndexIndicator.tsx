@@ -15,6 +15,10 @@ interface RepoHealth {
   stale: boolean;
 }
 
+/** Module-level cache so remounts reuse recent data. */
+const healthCache = new Map<string, { data: RepoHealth; ts: number }>();
+const STALE_MS = 60_000; // refetch after 60 s
+
 /**
  * Shows indexing progress and structural health for a specific repository.
  * Renders nothing when the repo is not actively being indexed and no health data.
@@ -26,12 +30,22 @@ interface RepoHealth {
 export function RepoIndexIndicator({ repo }: { repo: string }) {
   const basename = repo.split("/").filter(Boolean).pop() ?? repo;
   const progress = useStore((s) => s.repoIndexState[repo] ?? s.repoIndexState[basename]);
-  const [health, setHealth] = useState<RepoHealth | null>(null);
+  const [health, setHealth] = useState<RepoHealth | null>(() => healthCache.get(repo)?.data ?? null);
 
   useEffect(() => {
+    const cached = healthCache.get(repo);
+    if (cached && Date.now() - cached.ts < STALE_MS) {
+      setHealth(cached.data);
+      return;
+    }
     let cancelled = false;
     request<RepoHealth>(`/settings/repos/${encodeURIComponent(repo)}/health`)
-      .then((h) => { if (!cancelled) setHealth(h); })
+      .then((h) => {
+        if (!cancelled) {
+          setHealth(h);
+          healthCache.set(repo, { data: h, ts: Date.now() });
+        }
+      })
       .catch(() => { /* non-critical */ });
     return () => { cancelled = true; };
   }, [repo]);

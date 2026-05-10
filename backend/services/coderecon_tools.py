@@ -317,7 +317,7 @@ def build_coderecon_tools(
                 return _serialize_result(result)
 
             # Tools that need the raw SDK (not wrapped in CodeReconService yet)
-            sdk = await service._ensure_available()
+            sdk = await service.get_sdk()
             if tool_name == "checkpoint":
                 result = await sdk.checkpoint(repo, message=args.get("message"), worktree=worktree)
                 return _serialize_result(result)

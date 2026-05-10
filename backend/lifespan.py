@@ -48,6 +48,32 @@ from backend.services.terminal_service import TerminalService
 
 from backend.services.coderecon_service import CodeReconService
 
+
+class _JobLike:
+    """Lightweight adapter matching the fields _generate_review_story expects."""
+
+    __slots__ = ("repo", "worktree_path", "base_ref", "title", "prompt")
+
+    def __init__(self, row: tuple) -> None:
+        self.repo = row[0]
+        self.worktree_path = row[1]
+        self.base_ref = row[2]
+        self.title = row[3] if len(row) > 3 else None
+        self.prompt = row[4] if len(row) > 4 else None
+
+
+# Tracks fire-and-forget background tasks so they can be awaited on shutdown.
+_ephemeral_tasks: set[asyncio.Task] = set()  # noqa: WPS407
+
+
+def _fire_and_forget(coro, *, name: str) -> asyncio.Task:
+    """Schedule a coroutine as a tracked background task."""
+    task = asyncio.create_task(coro, name=name)
+    _ephemeral_tasks.add(task)
+    task.add_done_callback(_ephemeral_tasks.discard)
+    return task
+
+
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
@@ -594,7 +620,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 log.debug("structural_health_check_failed", job_id=job_id, exc_info=True)
 
         # Fire-and-forget — don't block the event pipeline
-        asyncio.create_task(_run_check(), name=f"structural-health-{job_id[:8]}")
+        _fire_and_forget(_run_check(), name=f"structural-health-{job_id[:8]}")
 
     event_bus.subscribe(_structural_health_on_step)
 
@@ -622,15 +648,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 if not job_row:
                     return
 
-                # Build a lightweight object matching the fields _generate_review_story expects
-                class _JobLike:
-                    def __init__(self, r):
-                        self.repo = r[0]
-                        self.worktree_path = r[1]
-                        self.base_ref = r[2]
-                        self.title = r[3]
-                        self.prompt = r[4]
-
                 job_like = _JobLike(job_row)
                 result = await _generate_review_story(job_id, job_like, coderecon_service)
 
@@ -647,7 +664,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             except Exception:
                 log.debug("review_story_prefetch_failed", job_id=job_id, exc_info=True)
 
-        asyncio.create_task(_run_prefetch(), name=f"review-story-prefetch-{job_id[:8]}")
+        _fire_and_forget(_run_prefetch(), name=f"review-story-prefetch-{job_id[:8]}")
 
     event_bus.subscribe(_prefetch_review_story)
 
@@ -665,7 +682,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async def _run_persist() -> None:
             try:
                 import hashlib
-                import json as _json
 
                 from backend.api.job_artifacts import _generate_review_story
 
@@ -679,14 +695,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     job_row = row.one_or_none()
                 if not job_row:
                     return
-
-                class _JobLike:
-                    def __init__(self, r: Any) -> None:
-                        self.repo = r[0]
-                        self.worktree_path = r[1]
-                        self.base_ref = r[2]
-                        self.title = r[3]
-                        self.prompt = r[4]
 
                 job_like = _JobLike(job_row)
                 result = await _generate_review_story(job_id, job_like, coderecon_service)
@@ -707,7 +715,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             except Exception:
                 log.debug("review_story_persist_failed", job_id=job_id, exc_info=True)
 
-        asyncio.create_task(_run_persist(), name=f"review-story-persist-{job_id[:8]}")
+        _fire_and_forget(_run_persist(), name=f"review-story-persist-{job_id[:8]}")
 
     event_bus.subscribe(_persist_review_story_on_resolve)
 
@@ -748,8 +756,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 change_count = len(diff_result.structural_changes)
                 merge_confidence = getattr(diff_result, "merge_confidence", None)
 
-                # Test coverage: did any changes touch test files?
-                test_coverage = any(
+                # Did any structural changes touch test files?
+                changes_touch_tests = any(
                     c.get("file", "").startswith("test") or "/test" in c.get("file", "")
                     for c in diff_result.structural_changes
                 )
@@ -784,7 +792,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                             "UPDATE jobs SET "
                             "structural_change_count = :cc, "
                             "structural_cycle_count = :cyc, "
-                            "structural_test_coverage = :tc, "
+                            "structural_changes_touch_tests = :tc, "
                             "structural_coupling_delta = :cd, "
                             "structural_merge_confidence = :mc "
                             "WHERE id = :jid"
@@ -792,7 +800,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         {
                             "cc": change_count,
                             "cyc": cycle_count,
-                            "tc": test_coverage,
+                            "tc": changes_touch_tests,
                             "cd": coupling_delta,
                             "mc": merge_confidence,
                             "jid": job_id,
@@ -803,7 +811,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             except Exception:
                 log.debug("structural_analytics_failed", job_id=job_id, exc_info=True)
 
-        asyncio.create_task(_run_analytics(), name=f"struct-analytics-{job_id[:8]}")
+        _fire_and_forget(_run_analytics(), name=f"struct-analytics-{job_id[:8]}")
 
     event_bus.subscribe(_persist_structural_analytics)
 
@@ -869,6 +877,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     dead_letter_task.cancel()
     if optional.terminal_service is not None:
         await optional.terminal_service.shutdown()
+    # Drain any in-flight ephemeral background tasks before tearing down services.
+    if _ephemeral_tasks:
+        await asyncio.gather(*_ephemeral_tasks, return_exceptions=True)
     await coderecon_service.stop()
     await services.sister_sessions.shutdown()
     await services.runtime_service.shutdown()

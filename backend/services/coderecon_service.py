@@ -180,6 +180,10 @@ class CodeReconService:
             raise CodeReconUnavailableError
         return self._sdk
 
+    async def get_sdk(self) -> CodeRecon:
+        """Public accessor for the raw SDK handle. Raises if unavailable."""
+        return await self._ensure_available()
+
     # ── Repository Management ──
 
     async def register_repo(self, path: str | Path) -> dict[str, Any]:

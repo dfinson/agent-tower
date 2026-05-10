@@ -56,7 +56,7 @@ class JobRow(Base):
     review_story_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     structural_coupling_delta: Mapped[float | None] = mapped_column(Float, nullable=True)
     structural_cycle_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    structural_test_coverage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    structural_changes_touch_tests: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     structural_change_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     structural_merge_confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)
     trail_state_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
