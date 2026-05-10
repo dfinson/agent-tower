@@ -152,18 +152,40 @@ class Job:
     external_session_id: str | None = None  # CLI's own session/task ID
 ```
 
-**State machine** — imported jobs enter at `running` directly (no
-`preparing` → `queued` transitions since CodePlane doesn't set up a
-worktree):
+**State machine** — imported jobs use the same states as managed jobs.
+`IngestService` populates `repo`, `branch`, `base_ref`, and
+`worktree_path` (set to the CLI's `cwd`) at session start, so the
+existing review and resolution machinery works unmodified.
 
-```python
-_VALID_TRANSITIONS: dict[JobState | None, set[JobState]] = {
-    None: {JobState.preparing, JobState.running, JobState.queued},
-    ...
-}
+```
+None → running → review → completed   (normal clean exit)
+                        → running      (operator sends follow-up)
+              → failed                 (session errored)
+              → canceled               (user aborted)
 ```
 
-No change needed — `None → running` is already valid.
+`None → running` is already valid in `_VALID_TRANSITIONS`. No state
+machine changes needed.
+
+**How fields are populated**:
+
+| Field | Managed session | Imported session |
+|-------|----------------|------------------|
+| `repo` | User selects in UI | Detected from `cwd` (`git rev-parse --show-toplevel`) |
+| `branch` | CodePlane creates | Detected from `cwd` (`git rev-parse --abbrev-ref HEAD`) |
+| `base_ref` | User selects in UI | Detected (`git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`) |
+| `worktree_path` | CodePlane creates worktree | CLI's `cwd` (from hook `SessionStart.cwd` or OTEL span attributes) |
+| `prompt` | User enters in UI | First user message from session (hook `UserPromptSubmit` or OTEL content capture) |
+
+Because `repo`, `branch`, `base_ref`, and `worktree_path` are all
+populated, `MergeService`, `DiffService`, and PR creation work
+identically to managed sessions.
+
+**Cleanup difference**: On discard, CodePlane does NOT delete the
+working directory or the branch for imported sessions (it didn't create
+them). It marks the job as discarded and leaves the filesystem as-is.
+This is controlled by checking `source != "managed"` in the cleanup
+path only.
 
 ### 4.2 `backend/models/db.py` — `JobRow`
 
@@ -197,10 +219,9 @@ class JobResponse(CamelModel):
     ...
     source: str = "managed"
     external_session_id: str | None = None
-    read_only: bool = False   # computed, not stored
 ```
 
-**`JobResponse.from_domain()`** — wire new fields, set `read_only = source != "managed"`.
+**`JobResponse.from_domain()`** — wire the two new fields.
 
 ### 4.5 `backend/models/events.py`
 
@@ -225,12 +246,33 @@ Wire `source` and `external_session_id` in `_to_domain()` and `create()`.
 
 Central coordinator for imported sessions. Responsibilities:
 
-- Create the `Job` record on first event (state = `running`, source = `copilot_cli` or `claude_cli`)
+- On first event, detect git metadata from the CLI's working directory
+  (`repo`, `branch`, `base_ref` via `GitService`)
+- Auto-register the repo in CodePlane's allowlist if not already present
+  (imported sessions bypass the manual "add repo" flow)
+- Kick off CodeRecon indexing **in the background** — indexing can take
+  minutes for large repos so the job must not block on it. The sequence:
+  1. Create the job and start ingesting events immediately (no CodeRecon
+     dependency — transcript, telemetry, merge all work without it)
+  2. Fire an `asyncio.create_task` that calls `ensure_repo_indexed(repo)`
+  3. Once indexing completes, call `register_worktree(repo_name, cwd)`
+  4. Structural features (semantic diff, cycle detection, community
+     analysis, step-boundary structural warnings) become available
+     progressively — they were always optional and gated behind
+     `coderecon_service.available` checks
+  5. If the session ends before indexing finishes, structural analysis
+     is skipped for that session (same as when CodeRecon is disabled)
+  This mirrors `RuntimeService` where every CodeRecon call is wrapped
+  in `try/except` — it's never on the critical path
+- Create the `Job` record (state = `running`, source = `copilot_cli` or
+  `claude_cli`, `worktree_path` = CLI's `cwd`)
 - Route incoming data to the appropriate mapper
 - Publish `DomainEvent`s to the existing `EventBus`
 - Track per-session state (seq counters, turn IDs, telemetry accumulators)
 - Store pending operator messages for Claude hook response injection
 - Forward steering commands to the Copilot steer API
+- On session end, transition to `review` and trigger `MergeService` (same
+  post-session flow as managed sessions)
 
 ```python
 class IngestService:
@@ -239,8 +281,12 @@ class IngestService:
         event_bus: EventBus,
         session_factory: async_sessionmaker[AsyncSession],
         config: CPLConfig,
+        git_service: GitService | None = None,
         diff_service: DiffService | None = None,
+        merge_service: MergeService | None = None,
         trail_service: TrailService | None = None,
+        job_service: JobService | None = None,
+        coderecon_service: CodeReconService | None = None,
     ) -> None: ...
 
     async def ingest_otel_span(self, span: dict) -> None:
@@ -254,6 +300,22 @@ class IngestService:
 
     async def abort_session(self, job_id: str) -> None:
         """Abort the external session (steer API for Copilot, hook block for Claude)."""
+
+    async def _create_job_from_session(self, cwd: str, source: str, session_id: str) -> Job:
+        """Detect git state from cwd, create Job record with full metadata.
+
+        1. git rev-parse --show-toplevel → repo path
+        2. Auto-register repo in allowlist if missing
+        3. Detect branch, base_ref
+        4. Create and persist Job record (returns immediately)
+        5. Fire background task: CodeRecon ensure_repo_indexed(repo)
+           → on completion: register_worktree(repo_name, cwd)
+           Structural features light up when indexing finishes.
+           If it never finishes, the job works fine without it.
+        """
+
+    async def _finalize_session(self, job_id: str) -> None:
+        """Transition to review, run post-session merge flow via MergeService."""
 ```
 
 ### 5.2 `backend/services/otel_file_watcher.py` (new file)
@@ -371,8 +433,12 @@ IngestService(
     event_bus=event_bus,
     session_factory=session_factory,
     config=config,
+    git_service=git_service,
     diff_service=diff_service,
+    merge_service=merge_service,
     trail_service=trail_service,
+    job_service=job_service,
+    coderecon_service=coderecon_service,
 )
 
 # OtelFileWatcher (only if COPILOT_OTEL_FILE_EXPORTER_PATH is set)
@@ -427,13 +493,12 @@ app.include_router(ingest_router, prefix="/api")
 
 ### 8.1 `frontend/src/store/types.ts` — `JobSummary`
 
-Add fields:
+Add field:
 
 ```typescript
 export interface JobSummary {
   ...
   source?: string;            // "managed" | "copilot_cli" | "claude_cli"
-  readOnly?: boolean;         // true for imported sessions
 }
 ```
 
@@ -449,27 +514,23 @@ after backend changes.
 
 ### 8.4 `frontend/src/components/JobDetailScreen.tsx`
 
-Guard all write actions behind `!job.readOnly`:
+**Full parity — no conditional hiding of actions.** All buttons work:
 
-```typescript
-// Hide these when readOnly:
-// - Merge / PR / Discard buttons (resolve actions)
-// - Complete & Archive (resolution flow)
-// - "Continue" button
-// Show these (still functional for imported sessions):
-// - Cancel/Abort → delegates to IngestService
-// - Send message → delegates to IngestService
-// - All read tabs (live, diff, files, metrics, artifacts)
-```
+- Merge / Smart Merge — `MergeService` operates on `worktree_path` (= CLI's `cwd`)
+- Create PR — works (repo + branch are known)
+- Discard — marks job as discarded; skips worktree/branch deletion
+  (the only behavioral difference, handled in the backend cleanup path)
+- Continue / Send message — routes through `IngestService` for steering
+- Cancel/Abort — routes through `IngestService`
 
-The operator message input (in `CuratedFeed` / `TranscriptPanel`) should
-remain visible — it calls the existing `/jobs/{job_id}/message` endpoint
-which will route to `IngestService` for imported jobs.
+The operator message input in `CuratedFeed` / `TranscriptPanel` works
+unchanged — the existing `/jobs/{job_id}/message` endpoint delegates to
+`IngestService` when `source != "managed"`.
 
 ### 8.5 `frontend/src/components/JobListScreen.tsx` (or `JobCard`)
 
 - Show a "CLI" indicator on imported job cards
-- Filter/sort: imported jobs should appear in the normal job list
+- Filter/sort: imported jobs appear in the normal job list
 
 ### 8.6 No SSE changes
 
@@ -488,7 +549,7 @@ managed sessions.
 | `execute_tool` | `transcript_updated` | `tool_name` = span name suffix, `tool_args` = `gen_ai.tool.call.arguments`, `tool_result` = `gen_ai.tool.call.result`, `role` = `tool`, `turn_id` = `github.copilot.turn_id` |
 | `chat <model>` | `transcript_updated` | `content` = captured message content, `role` = `assistant`, `turn_id` = `github.copilot.turn_id` |
 | `chat <model>` | `telemetry_updated` | `input_tokens` = `gen_ai.usage.input_tokens`, `output_tokens` = `gen_ai.usage.output_tokens`, `total_cost_usd` = `github.copilot.cost`, `model` = `gen_ai.response.model` |
-| `invoke_agent` (end) | `job_state_changed` (→ review) | Session ended cleanly |
+| `invoke_agent` (end) | `job_review` + `job_state_changed` (→ review) | Session ended cleanly — triggers post-session merge flow |
 | Error on any span | `job_failed` | `reason` from span status |
 
 ### 9.2 Claude Hooks → DomainEvents
@@ -499,7 +560,7 @@ managed sessions.
 | `UserPromptSubmit` | `transcript_updated` | `role` = `user`, `content` = input |
 | `PostToolUse` | `transcript_updated` | `role` = `tool`, `tool_name`, `tool_args` = `tool_input`, `tool_result` = `tool_response`, `duration_ms` |
 | `Stop` | (turn boundary) | Emit pending `step_completed`, check for pending operator messages |
-| `SessionEnd` | `job_state_changed` (→ review) | Session over |
+| `SessionEnd` | `job_review` + `job_state_changed` (→ review) | Session over — triggers post-session merge flow |
 | `SubagentStart` | `step_started` | Subagent as a new activity section |
 | `TaskCreated` | `agent_plan_updated` | Map to plan steps |
 
@@ -517,10 +578,11 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `TrailService` | Consumes `DomainEvent`s — source-agnostic |
 | `StepTracker` | Driven by `DomainEvent`s — source-agnostic |
 | `SisterSessionManager` | Not applicable (no managed sister sessions) |
-| `DiffService` | Works if repo path is known — git watch on cwd |
-| `MergeService` | Not invoked for read-only jobs |
+| `DiffService` | Works — `worktree_path` points to CLI's `cwd` |
+| `MergeService` | Works — `repo`, `branch`, `base_ref` are all populated |
+| `CodeReconService` | Works — `IngestService` fires background indexing task at session start. Structural features become available when indexing completes. If the repo was already indexed (e.g. previously added via settings), structural features are immediate |
 | Frontend SSE handlers | All existing handlers work unchanged |
-| Frontend store shape | Only additive fields (`source`, `readOnly`) |
+| Frontend store shape | Only additive field (`source`) |
 
 ---
 
@@ -538,8 +600,10 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | Tool blocking | Yes | No | Yes (PreToolUse deny) |
 | Cancel/abort | Yes | Yes (steer abort) | Yes (hook block) |
 | Streaming text | Yes | No (complete messages) | No (complete messages) |
-| Merge/resolve | Yes | No (read-only) | No (read-only) |
-| Approval flow | Yes | No | No |
+| Merge/resolve | Yes | Yes | Yes |
+| PR creation | Yes | Yes | Yes |
+| Approval flow | Yes | No | Yes (PreToolUse hook) |
+| Worktree cleanup on discard | Yes (delete) | No (user's directory) | No (user's directory) |
 
 ---
 
@@ -562,16 +626,16 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 |------|--------|
 | `backend/models/domain.py` | Add `JobSource` enum, `source` + `external_session_id` fields to `Job` |
 | `backend/models/db.py` | Add `source` + `external_session_id` columns to `JobRow` |
-| `backend/models/api_schemas.py` | Add `source`, `external_session_id`, `read_only` to `JobResponse` |
+| `backend/models/api_schemas.py` | Add `source`, `external_session_id` to `JobResponse` |
 | `backend/persistence/job_repo.py` | Wire new fields in `_to_domain()` and `create()` |
 | `backend/config.py` | Add `copilot_otel_path` config field |
 | `backend/di.py` | Register `IngestService`, `OtelFileWatcher`, `CopilotSteerClient` |
 | `backend/lifespan.py` | Start/stop `OtelFileWatcher` |
 | `backend/app_factory.py` | Mount hooks + ingest routers |
-| `backend/api/jobs.py` | Route operator message/cancel to `IngestService` for imported jobs |
-| `frontend/src/store/types.ts` | Add `source`, `readOnly` to `JobSummary` |
+| `backend/api/jobs.py` | Route operator message/cancel to `IngestService` for imported jobs. Skip worktree/branch deletion on discard when `source != "managed"` |
+| `frontend/src/store/types.ts` | Add `source` to `JobSummary` |
 | `frontend/src/components/JobHeaderCard.tsx` | CLI import badge |
-| `frontend/src/components/JobDetailScreen.tsx` | Guard write actions behind `!readOnly` |
+| `frontend/src/components/JobDetailScreen.tsx` | No functional changes (full parity) — all action buttons work for imported sessions |
 
 ### Unchanged files (confirmed)
 
@@ -592,23 +656,26 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 
 ## 13. Open Questions
 
-1. **Git watch for imported sessions**: `DiffService` needs the repo path
-   to watch for changes. The Claude hook `SessionStart` payload includes
-   `cwd`. The Copilot OTEL `invoke_agent` span may include working
-   directory. If unavailable, diff view is disabled for that session.
-
-2. **Multiple concurrent CLI sessions**: The OTEL file watcher sees all
+1. **Multiple concurrent CLI sessions**: The OTEL file watcher sees all
    sessions interleaved in one JSONL file. The `conversation_id` /
    `session_id` span attribute distinguishes them. Each unique session ID
    maps to a separate CodePlane job.
 
-3. **Session recovery after CodePlane restart**: On startup, the file
+2. **Session recovery after CodePlane restart**: On startup, the file
    watcher should seek to the end of the OTEL file (or to a persisted
    offset) to avoid replaying historical spans. For Claude hooks, sessions
    in progress will re-fire `SessionStart` on the next hook event — the
    `IngestService` should handle idempotent job creation.
 
-4. **GitHub token for steer API**: CodePlane needs the user's Copilot
+3. **GitHub token for steer API**: CodePlane needs the user's Copilot
    token to call the steer endpoint. This could be sourced from `gh auth
    token` or configured explicitly. Steering is optional — observation
    works without it.
+
+4. **User working on main**: If the CLI session is on the default branch
+   directly (no feature branch), merge is a no-op — the changes are
+   already where they belong. `IngestService` should detect this at
+   session start and set `base_ref == branch` so that `MergeService`
+   recognizes there's nothing to merge. The review screen would show
+   "already on target branch" and offer PR or mark-complete as the
+   primary actions.
