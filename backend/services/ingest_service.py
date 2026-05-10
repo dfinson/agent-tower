@@ -497,9 +497,16 @@ class IngestService:
             branch = "unknown"
 
         try:
-            base_ref = await self._git.get_default_branch(repo_path)
+            default_branch = await self._git.get_default_branch(repo_path)
         except Exception:
-            base_ref = "main"
+            default_branch = "main"
+
+        # Resolve base_ref to a SHA so diff remains stable even when the agent
+        # commits directly to the branch during the session.
+        try:
+            base_ref = await self._git.rev_parse("HEAD", cwd=cwd)
+        except Exception:
+            base_ref = default_branch
 
         # Generate a deterministic job ID
         hex_suffix = hashlib.sha256(session_id.encode()).hexdigest()[:6]
