@@ -184,6 +184,9 @@ class CostAttributionRepository(BaseRepository):
                     CASE WHEN SUM(a.call_count) > 0
                         THEN SUM(a.input_tokens) * 1.0 / SUM(a.call_count)
                         ELSE 0 END AS one_shot_rate,
+                    CASE WHEN SUM(a.call_count) > 0
+                        THEN SUM(a.output_tokens) * 1.0 / SUM(a.call_count)
+                        ELSE 0 END AS retry_rate,
                     COUNT(DISTINCT a.job_id) AS job_count
                 FROM job_cost_attribution a
                 JOIN jobs j ON j.id = a.job_id
@@ -259,6 +262,8 @@ class CostAttributionRepository(BaseRepository):
                     SUM(a.cost_usd) AS cost_usd,
                     SUM(a.input_tokens) AS input_tokens,
                     SUM(a.output_tokens) AS output_tokens,
+                    COALESCE(SUM(a.cache_read_tokens), 0) AS cache_read_tokens,
+                    COALESCE(SUM(a.cache_write_tokens), 0) AS cache_write_tokens,
                     SUM(a.call_count) AS call_count,
                     COUNT(DISTINCT a.job_id) AS job_count
                 FROM job_cost_attribution a

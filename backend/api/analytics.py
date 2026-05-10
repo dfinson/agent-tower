@@ -365,11 +365,11 @@ async def analytics_scorecard(
         monthly["month_spend_usd"] / monthly_budget if monthly_budget > 0 else 0.0
     )
 
-    # Cost-per-diff-line (Item 9): compute from activity data
-    activity = scorecard.get("activity", {})
-    total_cost = activity.get("total_cost_usd", 0.0) if isinstance(activity, dict) else 0.0
-    total_lines = activity.get("total_diff_lines", 0) if isinstance(activity, dict) else 0
-    scorecard["cost_per_diff_line"] = total_cost / total_lines if total_lines > 0 else 0.0
+    # Cost-per-diff-line (Item 9): compute from budget + telemetry summary
+    budget_rows = scorecard.get("budget", [])
+    period_total_cost = sum(b.get("total_cost_usd", 0) or 0 for b in budget_rows) if isinstance(budget_rows, list) else 0.0
+    total_lines = await svc.total_diff_lines(period_days=period)
+    scorecard["cost_per_diff_line"] = period_total_cost / total_lines if total_lines > 0 else 0.0
     scorecard["total_diff_lines"] = total_lines
 
     return ScorecardResponse(**scorecard)
@@ -579,7 +579,7 @@ async def analytics_cache_efficiency(
 async def analytics_export(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
-    fmt: str = "csv",
+    fmt: Annotated[str, Query(pattern="^(csv|json)$")] = "csv",
 ) -> Response:
     """Export cost-driver data as CSV or JSON for external analysis."""
     import csv

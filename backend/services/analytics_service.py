@@ -271,3 +271,17 @@ class AnalyticsService:
         from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
         return await TelemetryAnalyticsRepository(self._session).monthly_burn()
+
+    async def total_diff_lines(self, *, period_days: int) -> int:
+        """Total diff lines (added + removed) across all jobs in the period."""
+        from sqlalchemy import text as sa_text
+
+        result = await self._session.execute(
+            sa_text(
+                "SELECT COALESCE(SUM(diff_lines_added + diff_lines_removed), 0) AS total_lines "
+                "FROM job_telemetry_summary "
+                f"WHERE created_at >= datetime('now', '-{int(period_days)} days')"
+            ),
+        )
+        row = result.mappings().first()
+        return int((row or {}).get("total_lines", 0))

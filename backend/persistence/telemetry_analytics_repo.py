@@ -530,8 +530,16 @@ class TelemetryAnalyticsRepository(BaseRepository):
             """),
         )
         row = result.mappings().first()
-        month_spend = float(row["month_spend"])
-        days_elapsed = max(float(row["days_elapsed"]), 1)
+        if not row:
+            return {
+                "month_spend_usd": 0.0,
+                "days_elapsed": 1,
+                "days_in_month": 30,
+                "daily_avg_usd": 0.0,
+                "projected_month_end_usd": 0.0,
+            }
+        month_spend = float(row["month_spend"] or 0)
+        days_elapsed = max(float(row["days_elapsed"] or 1), 1)
 
         days_in_month_result = await self._session.execute(
             text("""
