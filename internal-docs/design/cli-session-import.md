@@ -49,7 +49,7 @@ Launch sessions with `copilot --remote` to enable steering.
 
 | Channel | Mode | Data |
 |---------|------|------|
-| HTTP Hooks | Real-time synchronous POST | 28 event types: `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart/Stop`, `TaskCreated/Completed`, `WorktreeCreate/Remove`, etc. Payloads include `session_id`, `cwd`, `tool_name`, `tool_input`, `tool_response`, `duration_ms` |
+| HTTP Hooks | Real-time synchronous POST | 28 event types including `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart/Stop`, `TaskCreated/Completed`, `WorktreeCreate/Remove`, etc. Payloads include `session_id`, `cwd`, `tool_name`, `tool_input`, `tool_response`, `duration_ms`. **Note:** `SessionStart` and `Setup` only support `command` and `mcp_tool` hooks — NOT `http` (Claude Code restriction). |
 | Hook Responses | Synchronous return | `Stop` → `{"decision":"block","reason":"..."}` injects operator messages. `PreToolUse` → `{"permissionDecision":"deny"}` blocks tools. `PostToolUse` → `{"additionalContext":"..."}` injects context |
 | OTEL OTLP | Standard OTLP protocol (gRPC or HTTP) | Metrics: `claude_code.cost.usage` (USD), `claude_code.token.usage` (tokens), `claude_code.lines_of_code.count`. Events via logs protocol: `claude_code.user_prompt`, `claude_code.tool_result`, `claude_code.api_request`. Standard attributes include `session.id`. Requires an OTLP receiver endpoint — see §13.8 |
 
@@ -62,7 +62,7 @@ Launch sessions with `copilot --remote` to enable steering.
     "PostToolUse":       [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
     "UserPromptSubmit":  [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
     "Stop":              [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
-    "SessionStart":      [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
+    "SessionStart":      [{"type": "command", "command": "cpl hook"}],
     "SessionEnd":        [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
     "PreToolUse":        [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
     "SubagentStart":     [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
@@ -660,6 +660,7 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `backend/di.py` | Register `IngestService`, `OtelFileWatcher`, `CopilotSteerClient` |
 | `backend/lifespan.py` | Start/stop `OtelFileWatcher` |
 | `backend/app_factory.py` | Mount hooks + ingest routers |
+| `backend/cli.py` | Add `cpl hook` subcommand — reads hook JSON from stdin, POSTs to `/api/hooks/claude`. Required because `SessionStart` only supports `command` hooks, not `http` |
 | `backend/api/jobs.py` | Route operator message/cancel to `IngestService` for imported jobs. Skip worktree/branch deletion on discard when `source != "managed"` |
 | `backend/services/merge_service/_service.py` | Add `_resolve_imported()` path: push + remote merge (no local checkout/stash). Guard `_post_merge_cleanup` and `_discard` against imported sessions |
 | `frontend/src/store/types.ts` | Add `source` to `JobSummary` |
