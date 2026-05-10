@@ -154,13 +154,14 @@ _STORY_SYSTEM = (
     "changes chronologically. Close with the outcome and any remaining risks.\n\n"
     #
     # Length — these are REAL narratives, not summaries
-    "LENGTH: Write enough to actually tell the story. Target 400-600 words "
-    "for ≤5 changes, 600-1000 for 6+. If a change involves a design "
-    "decision, explain the alternatives you considered and why you chose "
-    "this path. If there was a surprise or discovery during the work, "
-    "describe what you found and what it meant. Do NOT compress the "
-    "narrative into terse bullet-point-like sentences. Each paragraph "
-    "should flow into the next.\n\n"
+    "LENGTH: Write enough to actually tell the story. Scale length to "
+    "the number and complexity of changes — a session with two small "
+    "fixes needs far less prose than one with a multi-file refactor. "
+    "If a change involves a design decision, explain the alternatives "
+    "you considered and why you chose this path. If there was a surprise "
+    "or discovery during the work, describe what you found and what it "
+    "meant. Do NOT compress the narrative into terse bullet-point-like "
+    "sentences. Each paragraph should flow into the next.\n\n"
     #
     # Inline code — backticks for symbols and expressions
     "INLINE CODE: Each change includes a code snippet showing what was added "
@@ -227,10 +228,10 @@ _STORY_SYSTEM = (
 
 _STORY_VERBOSITY_SUFFIX = {
     "summary": (
-        "\n\nVERBOSITY=summary: Write a 3-5 sentence executive summary that "
-        "still names the key symbols and decisions. Reference each change by "
-        "[[N]]. Target 100-150 words. Even in summary mode, set minimal "
-        "context — what system was involved, what changed, what risk remains."
+        "\n\nVERBOSITY=summary: Write a short executive summary — a few "
+        "sentences that name the key symbols and decisions. Reference each "
+        "change by [[N]]. Even in summary mode, set minimal context — what "
+        "system was involved, what changed, what risk remains."
     ),
     "standard": "",
     "detailed": (
@@ -239,11 +240,11 @@ _STORY_VERBOSITY_SUFFIX = {
         "explain what the existing code looked like before, what problem that "
         "created, what the new code does (quote key lines from the snippets), "
         "what alternatives you considered, and what tradeoffs you made. "
-        "Target 800-1500 words. The reader should understand not just what "
-        "changed but the full technical context — the shape of the codebase "
-        "before the change, the constraint that made the change necessary, "
-        "and exactly what the new code looks like. This is a technical "
-        "document for reviewers, not a summary for managers."
+        "The reader should understand not just what changed but the full "
+        "technical context — the shape of the codebase before the change, "
+        "the constraint that made the change necessary, and exactly what "
+        "the new code looks like. This is a technical document for "
+        "reviewers, not a summary for managers."
     ),
 }
 
