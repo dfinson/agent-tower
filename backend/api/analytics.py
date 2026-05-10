@@ -613,7 +613,7 @@ async def analytics_export(
 
     if "yield" in requested:
         ys = await svc.yield_summary(period_days=period)
-        combined["yield"] = ys
+        combined["yield"] = [ys]
 
     if "observations" in requested:
         obs = await svc.list_observations()

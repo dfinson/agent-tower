@@ -36,8 +36,11 @@ export function ModelComparison({
   const exportModelsCsv = () => {
     downloadCsv(
       "codeplane-models.csv",
-      ["Model", "SDK", "Jobs", "Avg Cost", "Avg Duration (ms)", "Total Cost", "Merged", "PR Created", "Discarded", "Failed", "Cache Hit %"],
-      models.map((m) => [m.model, m.sdk, m.jobCount, m.avgCost, m.avgDurationMs, m.totalCostUsd, m.merged, m.prCreated, m.discarded, m.failed, m.cacheHitRate != null ? (m.cacheHitRate * 100).toFixed(1) : "0"]),
+      ["Model", "SDK", "Jobs", "Avg Cost", "Avg Duration (ms)", "Total Cost", "Merged", "PR Created", "Discarded", "Failed", "Cache Hit %", "1-shot %", "Retry %", "Edit Turns", "$/Line"],
+      models.map((m) => {
+        const eff = efficiencyByModel.get(m.model);
+        return [m.model, m.sdk, m.jobCount, m.avgCost, m.avgDurationMs, m.totalCostUsd, m.merged, m.prCreated, m.discarded, m.failed, m.cacheHitRate != null ? (m.cacheHitRate * 100).toFixed(1) : "0", eff ? (eff.oneShotRate * 100).toFixed(1) : "", eff ? (eff.retryRate * 100).toFixed(1) : "", eff ? eff.editTurns.toFixed(1) : "", m.costPerDiffLine > 0 ? m.costPerDiffLine.toFixed(4) : ""];
+      }),
     );
   };
 

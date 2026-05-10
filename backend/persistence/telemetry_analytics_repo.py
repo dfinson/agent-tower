@@ -477,7 +477,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                         WHEN j.resolution = 'discarded' THEN 'abandoned'
                         WHEN j.state = 'failed' THEN 'failed'
                         ELSE 'cancelled'
-                    END AS yield_category,
+                    END AS category,
                     COUNT(*) AS job_count,
                     COALESCE(SUM(t.total_cost_usd), 0) AS total_cost_usd,
                     COALESCE(AVG(t.total_cost_usd), 0) AS avg_cost_usd
@@ -502,7 +502,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
             categories.append(r)
 
         # Cost per merge
-        productive = next((r for r in rows if r["yield_category"] == "productive"), None)
+        productive = next((r for r in rows if r["category"] == "productive"), None)
         merged_cost = productive["total_cost_usd"] if productive else 0.0
         merged_count = productive["job_count"] if productive else 0
         cost_per_merge = merged_cost / merged_count if merged_count > 0 else 0.0

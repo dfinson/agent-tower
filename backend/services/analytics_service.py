@@ -280,8 +280,9 @@ class AnalyticsService:
             sa_text(
                 "SELECT COALESCE(SUM(diff_lines_added + diff_lines_removed), 0) AS total_lines "
                 "FROM job_telemetry_summary "
-                f"WHERE created_at >= datetime('now', '-{int(period_days)} days')"
+                "WHERE created_at >= datetime('now', '-' || :days || ' days')"
             ),
+            {"days": int(period_days)},
         )
         row = result.mappings().first()
         return int((row or {}).get("total_lines", 0))
