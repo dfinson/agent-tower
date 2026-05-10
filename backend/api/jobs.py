@@ -22,6 +22,7 @@ from backend.models.api_schemas import (
     SuggestNamesRequest,
     SuggestNamesResponse,
 )
+from backend.services.ingest_service import IngestService
 from backend.services.job_service import JobService, ProgressPreview
 from backend.services.naming_service import NamingService
 from backend.services.runtime_service import RuntimeService
@@ -261,12 +262,17 @@ async def cancel_job(
     job_id: str,
     svc: FromDishka[JobService],
     runtime_service: FromDishka[RuntimeService],
+    ingest: FromDishka[IngestService],
 ) -> JobResponse:
     """Cancel a running or queued job."""
     job = await svc.cancel_job(job_id)
 
-    # Also cancel the runtime task if running
-    await runtime_service.cancel(job_id)
+    # Delegate abort to IngestService for imported sessions
+    if job.source != "managed":
+        await ingest.abort_session(job_id)
+    else:
+        # Also cancel the runtime task if running
+        await runtime_service.cancel(job_id)
 
     return job_to_response(job)
 

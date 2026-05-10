@@ -84,6 +84,8 @@ class JobRepository(BaseRepository):
             self_review_prompt=row.self_review_prompt,
             version=row.version or 1,
             parent_job_id=row.parent_job_id,
+            source=row.source or "managed",
+            external_session_id=row.external_session_id,
         )
 
     async def create(self, job: Job) -> Job:
@@ -119,6 +121,8 @@ class JobRepository(BaseRepository):
             verify_prompt=job.verify_prompt,
             self_review_prompt=job.self_review_prompt,
             parent_job_id=job.parent_job_id,
+            source=job.source,
+            external_session_id=job.external_session_id,
         )
         self._session.add(row)
         await self._session.flush()

@@ -31,6 +31,7 @@ from backend.services.coderecon_service import CodeReconService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
+from backend.services.ingest_service import IngestService
 from backend.services.job_service import JobService
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
@@ -78,6 +79,7 @@ class AppProvider(Provider):
     trail_service = from_context(provides=TrailService)
     terminal_service = from_context(provides=TerminalService)
     coderecon_service = from_context(provides=CodeReconService)
+    ingest_service = from_context(provides=IngestService)
 
     @provide
     def git_service(self, config: CPLConfig) -> GitService:

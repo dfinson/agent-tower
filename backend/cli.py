@@ -759,3 +759,50 @@ def restart(
     import os
 
     os.execv(sys.executable, args)
+
+
+# ---------------------------------------------------------------------------
+# ``cpl hook`` — Claude CLI hook bridge (stdin → HTTP POST)
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.option("--port", default=None, type=int, help="CodePlane port (default: from config or 8080)")
+def hook(port: int | None) -> None:
+    """Read a Claude hook JSON payload from stdin and POST it to CodePlane.
+
+    Required because Claude Code's SessionStart event only supports
+    ``command`` hooks, not ``http``.  This command bridges the gap:
+    Claude pipes the hook JSON to stdin, this command POSTs it to
+    the local server, and prints the response JSON to stdout (which
+    Claude reads as additionalContext for SessionStart).
+    """
+    import json
+    import sys
+    import urllib.error
+    import urllib.request
+
+    config = load_config()
+    target_port = port or config.server.port
+
+    raw = sys.stdin.read()
+    if not raw.strip():
+        sys.exit(0)
+
+    url = f"http://127.0.0.1:{target_port}/api/hooks/claude"
+    req = urllib.request.Request(
+        url,
+        data=raw.encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            body = resp.read().decode("utf-8")
+            # Print response to stdout — Claude reads this as hook output
+            sys.stdout.write(body)
+    except urllib.error.URLError:
+        # Server not running — silently exit so the hook doesn't block Claude
+        pass
+    except Exception:
+        pass

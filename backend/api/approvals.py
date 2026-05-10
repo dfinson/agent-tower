@@ -18,6 +18,8 @@ from backend.models.api_schemas import (
     TrustJobResponse,
 )
 from backend.services.approval_service import ApprovalService
+from backend.services.ingest_service import IngestService
+from backend.services.job_service import JobService
 from backend.services.runtime_service import RuntimeService
 
 if TYPE_CHECKING:
@@ -75,9 +77,17 @@ async def send_message(
     job_id: str,
     body: SendMessageRequest,
     runtime_service: FromDishka[RuntimeService],
+    ingest: FromDishka[IngestService],
+    job_service: FromDishka[JobService],
 ) -> SendMessageResponse:
     """Inject an operator message into a running job's agent session."""
     from datetime import UTC, datetime
+
+    # Delegate to IngestService for imported sessions
+    job = await job_service.get_job(job_id)
+    if job and job.source != "managed":
+        await ingest.send_operator_message(job_id, body.content)
+        return SendMessageResponse(seq=0, timestamp=datetime.now(UTC))
 
     sent = await runtime_service.send_message(job_id, body.content)
     if not sent:

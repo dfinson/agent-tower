@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -815,6 +816,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus.subscribe(_persist_structural_analytics)
 
+    # --- IngestService (CLI session import) ---
+    from backend.services.ingest_service import IngestService
+
+    git_service = GitService(config)
+    diff_service = DiffService(git_service=git_service, event_bus=event_bus)
+
+    steer_client = None
+    copilot_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if copilot_token:
+        from backend.services.copilot_steer import CopilotSteerClient
+        steer_client = CopilotSteerClient(copilot_token)
+
+    ingest_service = IngestService(
+        event_bus=event_bus,
+        session_factory=session_factory,
+        config=config,
+        git_service=git_service,
+        diff_service=diff_service,
+        merge_service=services.merge_service,
+        trail_service=trail_service,
+        coderecon_service=coderecon_service,
+        steer_client=steer_client,
+    )
+
+    # --- OtelFileWatcher (Copilot OTEL file tail) ---
+    otel_watcher = None
+    if config.copilot_otel_path:
+        from backend.services.otel_file_watcher import OtelFileWatcher
+        otel_watcher = OtelFileWatcher(config.copilot_otel_path, ingest_service)
+        await otel_watcher.start()
+
     # --- Share service ---
     share_service = ShareService()
 
@@ -840,6 +872,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             TrailService: trail_service,
             TerminalService: optional.terminal_service,
             CodeReconService: coderecon_service,
+            IngestService: ingest_service,
         },
     )
     app.state.dishka_container = container
@@ -877,6 +910,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     dead_letter_task.cancel()
     if optional.terminal_service is not None:
         await optional.terminal_service.shutdown()
+    # Stop OtelFileWatcher and steer client
+    if otel_watcher is not None:
+        await otel_watcher.stop()
+    if steer_client is not None:
+        await steer_client.close()
     # Drain any in-flight ephemeral background tasks before tearing down services.
     if _ephemeral_tasks:
         await asyncio.gather(*_ephemeral_tasks, return_exceptions=True)

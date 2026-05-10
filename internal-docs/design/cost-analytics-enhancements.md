@@ -1,6 +1,6 @@
 ---
 title: "Cost Analytics Enhancements — Design Document"
-description: "End-to-end design for 11 cost analytics improvements derived from competitive audit of CodeBurn, toktrack, aider-cost, and other OSS token-spend analysis tools."
+description: "End-to-end design for 17 cost analytics improvements derived from competitive audit of CodeBurn, toktrack, aider-cost, and other OSS token-spend analysis tools."
 author: CodePlane Team
 ms.date: 2026-07-24
 ms.topic: concept
@@ -14,11 +14,17 @@ estimated_reading_time: 30
 
 ## Overview
 
-This document specifies 11 enhancements to CodePlane's cost analytics subsystem.
+This document specifies 17 enhancements to CodePlane's cost analytics subsystem.
 Each item is traced from competitive research (primarily CodeBurn, toktrack,
 aider-cost) through every layer: DB schema, Alembic migration, backend services,
 API endpoints, Pydantic response models, frontend API client, and React UI
 components.
+
+Items 1–12 are derived from competitive analysis (CodeBurn, toktrack, aider-cost).
+Items 13–18 are original CodePlane differentiators designed from a data-uniqueness
+audit — breakdowns that no competitor can replicate because they require
+CodePlane's unique telemetry (trail nodes, file access logs, execution phases,
+resolution outcomes, per-span motivations).
 
 ### Source audit summary
 
@@ -1558,6 +1564,951 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
 
 ---
 
+## Item 13 — Hierarchical activity taxonomy (2-level treemap)
+
+### Problem
+
+The analytics dashboard shows 9+ flat activity buckets
+(implementation/investigation/verification/git_ops/setup/delegation/overhead/
+reasoning/communication plus sub-classifications feature_dev/debugging/
+refactoring). Users scan a long list without understanding the high-level
+picture: how much was *productive work* vs *preparatory work* vs *pure
+overhead*?
+
+No competitor surfaces a hierarchical breakdown. CodeBurn, toktrack, and
+aider-cost all show flat lists. A two-level tree is immediately
+comprehensible and unique to CodePlane.
+
+### Design
+
+#### Taxonomy
+
+```
+├── Productive Work
+│   ├── Implementation
+│   │   ├── Feature Development
+│   │   ├── Debugging
+│   │   └── Refactoring
+│   ├── Verification
+│   └── Git & Commit
+├── Preparatory Work
+│   ├── Investigation
+│   ├── Setup
+│   └── Reasoning
+└── Overhead
+    ├── Communication
+    ├── Delegation (coordination cost only — sub-agent direct work is separate)
+    ├── Compaction (context window management overhead)
+    └── Bookkeeping
+```
+
+The top level collapses to three pillars. Each pillar expands to show
+its constituent activity buckets with costs and percentages. Compaction
+is surfaced from `job_telemetry_summary.tokens_compacted` — this overhead
+is currently invisible in the activity breakdown.
+
+#### Classification mapping
+
+```python
+_ACTIVITY_TO_PILLAR: dict[str, str] = {
+    "implementation": "productive",
+    "feature_dev": "productive",
+    "debugging": "productive",
+    "refactoring": "productive",
+    "verification": "productive",
+    "git_ops": "productive",
+    "investigation": "preparatory",
+    "setup": "preparatory",
+    "reasoning": "preparatory",
+    "communication": "overhead",
+    "delegation": "overhead",
+    "overhead": "overhead",
+}
+```
+
+#### DB — no schema change
+
+The hierarchy is a frontend-only grouping over the existing `activity`
+dimension. No new attribution rows are written.
+
+#### Backend — no change
+
+The existing `GET /analytics/cost-drivers` and `GET /analytics/latency-drivers`
+endpoints return ungrouped `activity` rows. The hierarchy is applied
+client-side.
+
+However, a **compaction cost estimate** is added to the scorecard. The
+`analytics_service.py` method `scorecard()` is extended to include:
+
+```python
+# Compaction overhead: estimate re-ingestion cost from tokens_compacted
+compaction_tokens = await summary_repo.sum_compacted_tokens(period_days)
+compaction_cost_estimate = compaction_tokens * avg_input_cost_per_token
+```
+
+This provides a `compactionCostUsd` field the frontend uses for the
+"Compaction" leaf in the overhead pillar.
+
+##### Backend — `telemetry_analytics_repo.py`
+
+New method:
+
+```python
+async def sum_compacted_tokens(self, period_days: int) -> int:
+    """Total tokens compacted (re-ingested) across all jobs in the period."""
+    result = await self._session.execute(
+        text("""
+            SELECT COALESCE(SUM(t.tokens_compacted), 0) AS total
+            FROM job_telemetry_summary t
+            JOIN jobs j ON j.id = t.job_id
+            WHERE j.created_at >= datetime('now', :offset)
+        """),
+        {"offset": f"-{int(period_days)} days"},
+    )
+    return int(result.scalar() or 0)
+```
+
+#### API — extend `/analytics/scorecard`
+
+Add `compaction_cost_usd: float` to `ScorecardResponse`.
+
+#### Frontend — new `HierarchicalBreakdown.tsx`
+
+A collapsible tree view or treemap visualization. Three top-level rows
+(Productive / Preparatory / Overhead), each expandable to show child
+buckets. Each row shows:
+
+* Absolute cost (USD)
+* Percentage of total
+* Bar proportional to share
+
+The component consumes the existing `activity` rows from `CostDriversData`
+and groups them client-side using the mapping above.
+
+Treemap mode (toggle): renders the same data as a nested rectangle chart
+where area = cost. Productive work dominates visually when things are
+healthy; overhead grows visually when there's waste.
+
+---
+
+## Item 14 — File-centric cost attribution (new dimension)
+
+### Problem
+
+All existing attribution dimensions describe *what the agent was doing*
+(activity, phase, tool type) but none describe *what it was working on*.
+The most natural question a developer asks is "which files are expensive
+to maintain?" — and no tool answers it.
+
+CodeBurn, aider-cost, and toktrack are all blind to file-level cost.
+CodePlane uniquely stores `job_file_access_log` with `file_path`,
+`turn_number`, and `byte_count` — the join to per-turn cost attribution
+is direct.
+
+### Design
+
+#### Attribution strategy
+
+Each turn's cost is attributed to the files that turn accessed (from
+`job_file_access_log`). If a turn touched N files, the turn's cost is
+split equally across those N files. This is a deliberate simplification
+— proportional-by-bytes was considered but rejected because LLM cost
+correlates with the number of distinct files reasoned about, not byte
+volume.
+
+Equal splitting avoids penalizing large files unfairly and is easy to
+reason about: "this turn cost $0.30 and touched 3 files, so each file
+gets $0.10."
+
+#### DB — new table `job_file_cost`
+
+A denormalized per-job file cost table, written during the attribution
+pipeline alongside existing dimension rows.
+
+```sql
+CREATE TABLE job_file_cost (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      TEXT NOT NULL REFERENCES jobs(id),
+    file_path   TEXT NOT NULL,
+    cost_usd    REAL NOT NULL DEFAULT 0.0,
+    read_cost   REAL NOT NULL DEFAULT 0.0,
+    write_cost  REAL NOT NULL DEFAULT 0.0,
+    turn_count  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_file_cost_job ON job_file_cost(job_id);
+CREATE INDEX idx_file_cost_path ON job_file_cost(file_path);
+```
+
+Columns:
+
+* `cost_usd` — total cost attributed to this file in this job
+* `read_cost` — portion of cost from turns that *read* this file
+* `write_cost` — portion of cost from turns that *wrote* this file
+* `turn_count` — how many turns interacted with this file
+
+#### Alembic migration `0035`
+
+```python
+"""Add job_file_cost table for file-centric cost attribution."""
+
+revision = "0035"
+down_revision = "0034"
+
+def upgrade():
+    op.create_table(
+        "job_file_cost",
+        sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+        sa.Column("job_id", sa.String, sa.ForeignKey("jobs.id"), nullable=False),
+        sa.Column("file_path", sa.String, nullable=False),
+        sa.Column("cost_usd", sa.Float, nullable=False, server_default="0.0"),
+        sa.Column("read_cost", sa.Float, nullable=False, server_default="0.0"),
+        sa.Column("write_cost", sa.Float, nullable=False, server_default="0.0"),
+        sa.Column("turn_count", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("created_at", sa.Text, nullable=False),
+    )
+    op.create_index("idx_file_cost_job", "job_file_cost", ["job_id"])
+    op.create_index("idx_file_cost_path", "job_file_cost", ["file_path"])
+
+def downgrade():
+    op.drop_table("job_file_cost")
+```
+
+#### Backend — `cost_attribution.py`
+
+After computing activity/turn/phase attribution rows, add a file cost
+computation block:
+
+```python
+# --- File-centric cost attribution ---
+file_access_rows = await file_repo.for_job(job_id)
+if file_access_rows:
+    # Group file accesses by turn
+    files_by_turn: dict[int, list[dict]] = defaultdict(list)
+    for fa in file_access_rows:
+        turn = fa.get("turn_number")
+        if turn is not None:
+            files_by_turn[int(turn)].append(fa)
+
+    # Attribute each turn's cost equally across its files
+    file_costs: dict[str, dict] = defaultdict(
+        lambda: {"cost_usd": 0.0, "read_cost": 0.0, "write_cost": 0.0, "turn_count": 0}
+    )
+    for turn_num, turn_files in files_by_turn.items():
+        turn_cost = float(by_turn.get(turn_num, _zero_bucket())["cost_usd"])
+        if turn_cost <= 0 or not turn_files:
+            continue
+        share = turn_cost / len(set(f["file_path"] for f in turn_files))
+        seen_files = set()
+        for fa in turn_files:
+            fp = fa["file_path"]
+            if fp not in seen_files:
+                seen_files.add(fp)
+                file_costs[fp]["cost_usd"] += share
+                if fa.get("access_type") == "read":
+                    file_costs[fp]["read_cost"] += share
+                else:
+                    file_costs[fp]["write_cost"] += share
+                file_costs[fp]["turn_count"] += 1
+
+    await file_cost_repo.insert_batch(job_id=job_id, rows=[
+        {"file_path": fp, **data} for fp, data in file_costs.items()
+    ])
+```
+
+#### Backend — new `FileCostRepository`
+
+```python
+class FileCostRepository(BaseRepository):
+    """Read/write for per-job file cost attribution."""
+
+    async def insert_batch(self, *, job_id: str, rows: list[dict]) -> None:
+        await self._session.execute(
+            text("DELETE FROM job_file_cost WHERE job_id = :job_id"),
+            {"job_id": job_id},
+        )
+        now = datetime.now(UTC).isoformat()
+        for row in rows:
+            await self._session.execute(
+                text("""
+                    INSERT INTO job_file_cost
+                        (job_id, file_path, cost_usd, read_cost, write_cost,
+                         turn_count, created_at)
+                    VALUES
+                        (:job_id, :file_path, :cost_usd, :read_cost, :write_cost,
+                         :turn_count, :now)
+                """),
+                {"job_id": job_id, **row, "now": now},
+            )
+        await self._session.flush()
+
+    async def for_job(self, job_id: str) -> list[dict]:
+        result = await self._session.execute(
+            text("""
+                SELECT file_path, cost_usd, read_cost, write_cost, turn_count
+                FROM job_file_cost
+                WHERE job_id = :job_id
+                ORDER BY cost_usd DESC
+            """),
+            {"job_id": job_id},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def fleet_top_files(
+        self, *, period_days: int = 30, limit: int = 30
+    ) -> list[dict]:
+        """Most expensive files across all jobs in the period."""
+        result = await self._session.execute(
+            text("""
+                SELECT
+                    fc.file_path,
+                    SUM(fc.cost_usd) AS total_cost_usd,
+                    SUM(fc.read_cost) AS total_read_cost,
+                    SUM(fc.write_cost) AS total_write_cost,
+                    SUM(fc.turn_count) AS total_turns,
+                    COUNT(DISTINCT fc.job_id) AS job_count
+                FROM job_file_cost fc
+                JOIN jobs j ON j.id = fc.job_id
+                WHERE j.created_at >= datetime('now', :offset)
+                GROUP BY fc.file_path
+                ORDER BY total_cost_usd DESC
+                LIMIT :limit
+            """),
+            {"offset": f"-{int(period_days)} days", "limit": limit},
+        )
+        return [dict(r) for r in result.mappings().all()]
+```
+
+#### API — new endpoint
+
+```
+GET /analytics/file-cost?period=30&limit=30
+```
+
+Returns:
+
+```python
+class FileCostEntry(CamelModel):
+    file_path: str
+    total_cost_usd: float
+    total_read_cost: float
+    total_write_cost: float
+    total_turns: int
+    job_count: int
+
+class FileCostResponse(CamelModel):
+    files: list[FileCostEntry]
+    period_days: int
+```
+
+Also add per-job file cost to the existing `GET /analytics/cost-drivers/{job_id}`
+response as `fileCost: list[FileCostEntry]`.
+
+#### Frontend — new `FileCostBreakdown.tsx`
+
+A sorted bar chart showing the top N most expensive files by total cost.
+Each bar is stacked: read cost (blue) + write cost (green). Hover tooltip
+shows turn count and job count.
+
+The per-job view shows the same chart scoped to a single job, embedded in
+the existing cost drivers expandable card.
+
+---
+
+## Item 15 — Outcome-weighted efficiency (cost × yield cross-tab)
+
+### Problem
+
+The yield card (Item 2) shows cost by resolution, and the cost drivers
+show cost by activity — but they're separate views. The highest-value
+question is the *intersection*: "When jobs fail, where does the money go?
+Is it investigation (bad prompt scoping) or implementation (the agent
+built the wrong thing)?"
+
+No competitor can answer this because none have both per-turn activity
+attribution AND per-job resolution. CodePlane has both.
+
+### Design
+
+#### DB — no schema change
+
+The cross-tab is a join of `job_cost_attribution` (dimension=`activity`)
+with `jobs.resolution`. No new tables or columns needed.
+
+#### Backend — `analytics_service.py`
+
+New method:
+
+```python
+async def outcome_cost_matrix(
+    self, *, period_days: int = 30
+) -> list[dict]:
+    """Cost breakdown by activity × resolution.
+
+    Returns rows like:
+    {"activity": "investigation", "resolution": "failed", "cost_usd": 12.50, "job_count": 5}
+    """
+    result = await session.execute(
+        text("""
+            SELECT
+                a.bucket AS activity,
+                COALESCE(j.resolution, 'running') AS resolution,
+                SUM(a.cost_usd) AS cost_usd,
+                COUNT(DISTINCT a.job_id) AS job_count
+            FROM job_cost_attribution a
+            JOIN jobs j ON j.id = a.job_id
+            WHERE a.dimension = 'activity'
+                AND j.created_at >= datetime('now', :offset)
+            GROUP BY a.bucket, j.resolution
+            ORDER BY cost_usd DESC
+        """),
+        {"offset": f"-{int(period_days)} days"},
+    )
+    return [dict(r) for r in result.mappings().all()]
+```
+
+#### Backend — `cost_attribution_repo.py`
+
+New method:
+
+```python
+async def cost_by_activity_and_resolution(
+    self, *, period_days: int = 30
+) -> list[dict[str, Any]]:
+    """Cross-tab: cost by activity bucket × job resolution."""
+    result = await self._session.execute(
+        text("""
+            SELECT
+                a.bucket AS activity,
+                COALESCE(j.resolution, 'running') AS resolution,
+                ROUND(SUM(a.cost_usd), 6) AS cost_usd,
+                SUM(a.input_tokens) AS input_tokens,
+                SUM(a.output_tokens) AS output_tokens,
+                COUNT(DISTINCT a.job_id) AS job_count
+            FROM job_cost_attribution a
+            JOIN jobs j ON j.id = a.job_id
+            WHERE a.dimension = 'activity'
+                AND j.created_at >= datetime('now', :offset)
+            GROUP BY a.bucket, j.resolution
+            ORDER BY cost_usd DESC
+        """),
+        {"offset": f"-{int(period_days)} days"},
+    )
+    return [dict(r) for r in result.mappings().all()]
+```
+
+#### API — new endpoint
+
+```
+GET /analytics/outcome-matrix?period=30
+```
+
+```python
+class OutcomeMatrixCell(CamelModel):
+    activity: str
+    resolution: str
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    job_count: int
+
+class OutcomeMatrixResponse(CamelModel):
+    cells: list[OutcomeMatrixCell]
+    period_days: int
+    total_waste_usd: float  # sum of cost where resolution in (discarded, failed)
+```
+
+The `total_waste_usd` field is pre-computed for headline display.
+
+#### Frontend — new `OutcomeMatrix.tsx`
+
+A heatmap table with:
+
+* **Rows**: activity buckets (investigation, implementation, verification, ...)
+* **Columns**: resolution outcomes (merged, pr_created, discarded, failed, cancelled)
+* **Cells**: colored by cost intensity (white → red gradient)
+* **Cell content**: USD amount + job count
+
+The discarded and failed columns are highlighted with a warning background.
+Row and column totals are shown.
+
+A toggle switches between absolute USD and percentage-of-column view
+(answering "of failed-job cost, what percentage went to investigation?").
+
+---
+
+## Item 16 — Phase × activity heatmap
+
+### Problem
+
+The `activity_phase` compound dimension already exists in the attribution
+pipeline (written as `"activity:phase"` bucket strings). But this data is
+only used for narrow inline phase-distribution bars in the per-job cost
+driver card. It's never surfaced as a standalone fleet-level analysis.
+
+The question it answers is *temporal*: "When in the job lifecycle does each
+activity happen?" Anomalous patterns are immediately visible:
+
+* Heavy investigation during finalization → the agent is lost at the end
+* Implementation during environment_setup → premature coding before context
+* Verification only in post_completion → testing treated as afterthought
+
+No competitor tracks execution phases at all.
+
+### Design
+
+#### DB — no schema change
+
+The `activity_phase` dimension is already written to `job_cost_attribution`.
+Fleet aggregation is a SQL `GROUP BY`.
+
+#### Backend — `cost_attribution_repo.py`
+
+New method:
+
+```python
+async def fleet_activity_phase_matrix(
+    self, *, period_days: int = 30
+) -> list[dict[str, Any]]:
+    """Aggregate activity×phase cost across all jobs in the period."""
+    result = await self._session.execute(
+        text("""
+            SELECT
+                SUBSTR(a.bucket, 1, INSTR(a.bucket, ':') - 1) AS activity,
+                SUBSTR(a.bucket, INSTR(a.bucket, ':') + 1) AS phase,
+                ROUND(SUM(a.cost_usd), 6) AS cost_usd,
+                SUM(a.input_tokens) AS input_tokens,
+                SUM(a.output_tokens) AS output_tokens,
+                SUM(a.call_count) AS call_count,
+                COUNT(DISTINCT a.job_id) AS job_count
+            FROM job_cost_attribution a
+            JOIN jobs j ON j.id = a.job_id
+            WHERE a.dimension = 'activity_phase'
+                AND a.bucket LIKE '%:%'
+                AND j.created_at >= datetime('now', :offset)
+            GROUP BY activity, phase
+            ORDER BY cost_usd DESC
+        """),
+        {"offset": f"-{int(period_days)} days"},
+    )
+    return [dict(r) for r in result.mappings().all()]
+```
+
+#### API — new endpoint
+
+```
+GET /analytics/activity-phase-matrix?period=30
+```
+
+```python
+class ActivityPhaseCell(CamelModel):
+    activity: str
+    phase: str
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    call_count: int
+    job_count: int
+
+class ActivityPhaseMatrixResponse(CamelModel):
+    cells: list[ActivityPhaseCell]
+    period_days: int
+```
+
+#### Frontend — new `ActivityPhaseHeatmap.tsx`
+
+A grid heatmap with:
+
+* **Rows**: activity buckets (implementation, investigation, verification, ...)
+* **Columns**: execution phases (environment_setup, agent_reasoning,
+  verification, finalization, post_completion)
+* **Cells**: colored by cost intensity (green → yellow → red gradient)
+* **Cell content**: USD amount or percentage
+
+Column headers use short labels: Setup, Active, Verify, Final, Post.
+Row headers use the same `formatActivityBucket` helper from MetricsPanelTypes.
+
+An "anomaly highlight" mode outlines cells that deviate from the expected
+pattern (e.g., investigation cost in finalization phase exceeding a
+fleet-relative threshold). The threshold is the cell's percentage of its
+row total — if any non-primary phase exceeds 25% of the activity's total
+cost, it's outlined in orange.
+
+---
+
+## Item 17 — Motivation-driven attribution (trail-enriched)
+
+### Problem
+
+All existing attribution classifies cost by *what tools were used*
+(file_write → implementation, file_read → investigation). This answers
+"how?" but not "why?" — the agent may read a file because the user
+asked, because it got confused, or because it's recovering from an error.
+These have the same tool fingerprint but different motivations and different
+waste profiles.
+
+CodePlane uniquely stores `edit_motivations` (JSON array per span),
+`motivation_summary` (per span), and trail node `intent`/`rationale`
+fields. No competitor has this data.
+
+This is the highest-differentiation breakdown: classifying cost by the
+agent's *reason for acting*, not just the action itself.
+
+### Design
+
+#### Motivation taxonomy
+
+```
+├── User-directed work    — edits/reads directly traceable to user prompt keywords
+├── Agent exploration     — agent decided to investigate on its own initiative
+├── Error recovery        — fixing the agent's own mistakes (retries, failed edits)
+├── Test-driven iteration — changes triggered by test failures
+├── Context gathering     — reading to understand before acting
+└── Plan execution        — following a plan item the agent created
+```
+
+#### Classification logic
+
+For each turn, the motivation is determined by examining trail node fields
+in priority order:
+
+```python
+def _classify_motivation(
+    turn_num: int,
+    trail_nodes: list[dict],
+    turn_context: TurnContext,
+) -> str:
+    """Classify a turn's motivation from trail node metadata."""
+    nodes = [n for n in trail_nodes if n.get("turn_number") == turn_num]
+
+    # Priority 1: Error recovery — is_retry or error_kind present
+    if any(n.get("is_retry") or n.get("error_kind") for n in nodes):
+        return "error_recovery"
+
+    # Priority 2: Test-driven — shell commands include test runners
+    # and the previous turn had a test failure
+    shell_cmds = turn_context.get("shell_commands", [])
+    if any(classify_shell_command(cmd) == "verification" for cmd in shell_cmds):
+        return "test_driven_iteration"
+
+    # Priority 3: Plan execution — trail node has plan_item_id
+    if any(n.get("plan_item_id") for n in nodes):
+        return "plan_execution"
+
+    # Priority 4: User-directed — turn has no preceding agent turns
+    # (first turn or immediately after user message)
+    if turn_num <= 1:
+        return "user_directed"
+
+    # Priority 5: Context gathering — turn is pure reads, no writes
+    cats = set(turn_context.get("tool_categories", []))
+    if cats and not (cats & {"file_write", "git_write"}):
+        return "context_gathering"
+
+    # Default: agent exploration
+    return "agent_exploration"
+```
+
+#### DB — no schema change
+
+Motivation is written as a new `dimension = 'motivation'` in the existing
+`job_cost_attribution` table. The bucket values are the 6 motivation
+categories above.
+
+For latency attribution, the same dimension is added to
+`job_latency_attribution`.
+
+#### Backend — `cost_attribution.py`
+
+After computing existing dimensions, add motivation attribution:
+
+```python
+# --- Motivation dimension ---
+trail_nodes = await trail_repo.get_by_job(job_id, limit=1000)
+trail_list = [_trail_to_dict(n) for n in trail_nodes]
+
+by_motivation: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+for turn_num, context in turn_contexts.items():
+    motivation = _classify_motivation(turn_num, trail_list, context)
+    turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
+    turn_in = int(context.get("input_tokens", 0) or 0)
+    turn_out = int(context.get("output_tokens", 0) or 0)
+    turn_cache_r = int(context.get("cache_read_tokens", 0) or 0)
+    turn_cache_w = int(context.get("cache_write_tokens", 0) or 0)
+    _accumulate(
+        by_motivation[motivation], turn_cost, turn_in, turn_out,
+        cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1,
+    )
+
+for bucket, data in by_motivation.items():
+    rows.append({"dimension": "motivation", "bucket": bucket, "model": job_model, **data})
+```
+
+#### Backend — `latency_attribution.py`
+
+Mirror the motivation dimension in the latency pipeline:
+
+```python
+by_motivation: dict[str, list[int]] = defaultdict(list)
+motivation_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
+
+for turn_num, context in turn_contexts.items():
+    motivation = _classify_motivation(turn_num, trail_list, context)
+    by_motivation[motivation].extend(turn_durations.get(turn_num, []))
+    motivation_intervals[motivation].extend(turn_span_intervals.get(turn_num, []))
+
+_build_rows("motivation", by_motivation, motivation_intervals)
+```
+
+#### API — extend existing endpoints
+
+Add `motivation` to the `CostDriversData` and `LatencyDriversData` types:
+
+```python
+class CostDriversData(CamelModel):
+    activity: list[CostAttributionBucket] | None = None
+    phase: list[CostAttributionBucket] | None = None
+    activity_phase: list[CostAttributionBucket] | None = None
+    edit_efficiency: list[CostAttributionBucket] | None = None
+    motivation: list[CostAttributionBucket] | None = None  # new
+```
+
+The existing `GET /analytics/cost-drivers` and
+`GET /analytics/cost-drivers/{job_id}` endpoints return motivation rows
+automatically because they query `dimension IN ('activity', 'phase', ...)`
+— add `'motivation'` to the filter.
+
+Fleet-level endpoint `GET /analytics/cost-drivers` aggregates motivation
+the same way it aggregates activity.
+
+#### Frontend — new `MotivationBreakdown.tsx`
+
+A horizontal stacked bar chart showing the 6 motivation buckets. Each
+bucket has a distinct color:
+
+* User-directed: blue
+* Agent exploration: purple
+* Error recovery: red
+* Test-driven iteration: amber
+* Context gathering: cyan
+* Plan execution: green
+
+The component is placed in the analytics screen alongside the existing
+cost drivers card. A toggle switches between cost and latency views.
+
+Label formatting and descriptions:
+
+```typescript
+const MOTIVATION_LABELS: Record<string, string> = {
+  user_directed: "User-Directed",
+  agent_exploration: "Agent Exploration",
+  error_recovery: "Error Recovery",
+  test_driven_iteration: "Test-Driven Iteration",
+  context_gathering: "Context Gathering",
+  plan_execution: "Plan Execution",
+};
+
+const MOTIVATION_DESCRIPTIONS: Record<string, string> = {
+  user_directed: "Work directly responding to the user's prompt",
+  agent_exploration: "Agent-initiated investigation or coding",
+  error_recovery: "Fixing the agent's own mistakes — retries and error handling",
+  test_driven_iteration: "Changes driven by test failures",
+  context_gathering: "Reading and searching to build understanding",
+  plan_execution: "Executing a plan item the agent created",
+};
+```
+
+#### Coverage caveat
+
+Motivation classification depends on trail node coverage. Jobs without
+enriched trail nodes (older jobs, or jobs where enrichment failed) will
+have all turns classified as `agent_exploration` (the default). The
+frontend shows a "coverage: X% of jobs have motivation data" indicator
+when motivation attribution is displayed, computed from
+`trail_nodes.enrichment = 'done'` vs total job count.
+
+---
+
+## Item 18 — Simplified 3-bucket executive view
+
+### Problem
+
+The analytics screen shows 9+ activity categories, 5 phase categories,
+multiple sub-classifications, and various derived metrics. For executive
+or team-lead audiences, this is overwhelming. The fundamental question
+is simple: "Is the AI spending my money well?"
+
+A 3-bucket "traffic light" view answers this instantly. No existing tool
+provides this level of simplification.
+
+### Design
+
+#### Taxonomy
+
+| Bucket | Color | Includes | Meaning |
+|--------|-------|----------|---------|
+| **Building** | Green | implementation, feature_dev, debugging, refactoring, verification, git_ops | Directly productive work that creates or validates code |
+| **Thinking** | Blue | investigation, reasoning, setup, communication, context_gathering, plan_execution | Preparatory or supportive work that enables building |
+| **Wasted** | Red | retries (retry_cost_usd), failed tool calls (tool_failure_count), discarded/failed job cost, compaction overhead, file re-reads above threshold | Money spent without producing value |
+
+#### Waste calculation
+
+The "Wasted" bucket aggregates from multiple sources:
+
+```python
+async def executive_summary(
+    self, *, period_days: int = 30
+) -> dict:
+    """3-bucket executive summary."""
+    # 1. Get total cost by activity
+    activity_rows = await attr_repo.fleet_cost_by_dimension(
+        dimension="activity", period_days=period_days
+    )
+    building_activities = {
+        "implementation", "feature_dev", "debugging", "refactoring",
+        "verification", "git_ops",
+    }
+    thinking_activities = {
+        "investigation", "reasoning", "setup", "communication",
+    }
+
+    building = sum(r["cost_usd"] for r in activity_rows if r["bucket"] in building_activities)
+    thinking = sum(r["cost_usd"] for r in activity_rows if r["bucket"] in thinking_activities)
+
+    # 2. Waste: retry cost + failed job cost + compaction overhead + re-read overhead
+    summaries = await summary_repo.fleet_waste_metrics(period_days=period_days)
+    retry_waste = summaries["total_retry_cost_usd"]
+    failed_job_cost = summaries["failed_discarded_cost_usd"]
+    compaction_waste = summaries["compaction_cost_estimate_usd"]
+    reread_waste = summaries["reread_cost_estimate_usd"]
+
+    wasted = retry_waste + failed_job_cost + compaction_waste + reread_waste
+
+    # Subtract waste from building/thinking to avoid double-counting
+    total = building + thinking + wasted
+
+    return {
+        "building_usd": building,
+        "thinking_usd": thinking,
+        "wasted_usd": wasted,
+        "total_usd": total,
+        "building_pct": round(building / total * 100, 1) if total > 0 else 0,
+        "thinking_pct": round(thinking / total * 100, 1) if total > 0 else 0,
+        "wasted_pct": round(wasted / total * 100, 1) if total > 0 else 0,
+        "waste_breakdown": {
+            "retry_usd": retry_waste,
+            "failed_jobs_usd": failed_job_cost,
+            "compaction_usd": compaction_waste,
+            "rereads_usd": reread_waste,
+        },
+    }
+```
+
+#### Backend — `telemetry_analytics_repo.py`
+
+New method:
+
+```python
+async def fleet_waste_metrics(
+    self, *, period_days: int = 30
+) -> dict[str, float]:
+    """Aggregate waste-related metrics across the fleet."""
+    result = await self._session.execute(
+        text("""
+            SELECT
+                COALESCE(SUM(t.retry_cost_usd), 0) AS total_retry_cost_usd,
+                COALESCE(SUM(
+                    CASE WHEN j.resolution IN ('failed', 'discarded')
+                    THEN t.total_cost_usd ELSE 0 END
+                ), 0) AS failed_discarded_cost_usd,
+                COALESCE(SUM(t.tokens_compacted), 0) AS total_tokens_compacted,
+                COALESCE(SUM(
+                    CASE WHEN t.file_reread_count > t.unique_files_read
+                    THEN t.file_reread_count - t.unique_files_read ELSE 0 END
+                ), 0) AS excess_rereads
+            FROM job_telemetry_summary t
+            JOIN jobs j ON j.id = t.job_id
+            WHERE j.created_at >= datetime('now', :offset)
+        """),
+        {"offset": f"-{int(period_days)} days"},
+    )
+    row = result.mappings().first() or {}
+    # Estimate compaction cost: re-ingesting tokens at avg input cost
+    compaction_tokens = int(row.get("total_tokens_compacted", 0))
+    # Use a conservative estimate: compaction re-sends context at input token rate
+    # Actual rate depends on model; use fleet average from pricing
+    avg_input_rate = 0.000003  # ~$3/1M tokens — conservative Claude Sonnet-class rate
+    compaction_cost = compaction_tokens * avg_input_rate
+    # Estimate re-read cost: each excess re-read wastes ~avg_turn_cost / 10
+    # (reading is cheap relative to a full turn)
+    excess_rereads = int(row.get("excess_rereads", 0))
+    reread_cost = excess_rereads * 0.001  # placeholder — refined by per-model pricing
+
+    return {
+        "total_retry_cost_usd": float(row.get("total_retry_cost_usd", 0)),
+        "failed_discarded_cost_usd": float(row.get("failed_discarded_cost_usd", 0)),
+        "compaction_cost_estimate_usd": compaction_cost,
+        "reread_cost_estimate_usd": reread_cost,
+    }
+```
+
+**Note on estimated costs**: The compaction and re-read waste figures are
+estimates, not exact costs. The compaction estimate uses a conservative
+per-token rate. The re-read estimate uses a fixed per-read overhead. Both
+are labeled as estimates in the UI. Future refinement: use the actual
+model pricing from the `model` column on attribution rows and the
+per-model rates from `tools/update_model_pricing.py`.
+
+#### DB — no schema change
+
+All data comes from existing columns on `job_telemetry_summary` and
+`job_cost_attribution`.
+
+#### API — new endpoint
+
+```
+GET /analytics/executive-summary?period=30
+```
+
+```python
+class WasteBreakdown(CamelModel):
+    retry_usd: float
+    failed_jobs_usd: float
+    compaction_usd: float
+    rereads_usd: float
+
+class ExecutiveSummaryResponse(CamelModel):
+    building_usd: float
+    thinking_usd: float
+    wasted_usd: float
+    total_usd: float
+    building_pct: float
+    thinking_pct: float
+    wasted_pct: float
+    waste_breakdown: WasteBreakdown
+    period_days: int
+```
+
+#### Frontend — new `ExecutiveSummary.tsx`
+
+A single donut chart with three segments:
+
+* **Building** (green) — productive work
+* **Thinking** (blue) — preparatory work
+* **Wasted** (red) — money without value
+
+Center of the donut shows total spend. Below the donut, each segment
+shows its USD amount and percentage.
+
+The "Wasted" segment is expandable: clicking it reveals the waste
+breakdown (retries, failed jobs, compaction, re-reads) as a mini bar
+chart.
+
+This component is placed at the **top** of the analytics screen, before
+all other cards, as the headline metric. It's the first thing users see.
+
+---
+
 ## Alembic migration `0034` — combined schema changes
 
 All schema changes from Items 6 and 8 are combined into a single migration:
@@ -1791,7 +2742,9 @@ Items have dependencies. The recommended order:
 | 1b | **Backfill** | Run `backfill-attribution` after Phase 1 deploys. Re-computes all historical attribution rows with cache tokens, model, and sub-classifications. Must complete before Phase 2 — model efficiency and cache efficiency queries read from the backfilled data. |
 | 2 | 6, 7 | Model efficiency and cache efficiency depend on the `model` column (Item 6→migration) and cache tokens (Item 8). |
 | 3 | 9, 2, 1, 12 | Cost-per-line, yield, waste detectors, and communication waste are independent query/analysis additions. Item 1 depends on attribution data from Phase 1b for the exploration detector. |
-| 4 | 4, 5, 10 | Repo grouping, budget tracking, and export are additive features with no upstream dependencies. |
+| 4 | 4, 5, 10, 13, 16 | Repo grouping, budget tracking, export, hierarchical taxonomy (frontend-only), and phase×activity heatmap (existing data). No upstream dependencies. |
+| 5 | 14, 15, 18 | File-centric cost (new table + migration), outcome matrix, and executive summary. Item 14 requires migration 0035 and backfill. Items 15 and 18 are query-only over existing data. |
+| 6 | 17 | Motivation-driven attribution depends on trail node enrichment coverage. Deploy after trail enrichment is mature. Requires backfill to populate the new `motivation` dimension for historical jobs. |
 
 ---
 
@@ -1824,3 +2777,9 @@ match expectations.
 | 9 | — | — | — | extend model_comparison | extend `/model-comparison`, `/scorecard` | extend response models | update types | add column, KPI |
 | 10 | — | — | — | — | `/export` | — | `exportAnalytics` | export button |
 | 12 | — | — | `communication_heavy_jobs` | — | — | — | — | icon mapping |
+| 13 | — | — | — | extend `scorecard` (compaction cost) | extend `/scorecard` | extend `ScorecardResponse` | update types | `HierarchicalBreakdown.tsx` |
+| 14 | **0035** | file cost attribution block | — | — | `/file-cost` | `FileCostResponse` | `fetchFileCost` | `FileCostBreakdown.tsx` |
+| 15 | — | — | `cost_by_activity_and_resolution` | `outcome_cost_matrix` | `/outcome-matrix` | `OutcomeMatrixResponse` | `fetchOutcomeMatrix` | `OutcomeMatrix.tsx` |
+| 16 | — | — | `fleet_activity_phase_matrix` | — | `/activity-phase-matrix` | `ActivityPhaseMatrixResponse` | `fetchActivityPhaseMatrix` | `ActivityPhaseHeatmap.tsx` |
+| 17 | — | motivation dimension block | — | — | extend `/cost-drivers` | extend `CostDriversData` | update types | `MotivationBreakdown.tsx` |
+| 18 | — | — | — | `executive_summary` | `/executive-summary` | `ExecutiveSummaryResponse` | `fetchExecutiveSummary` | `ExecutiveSummary.tsx` |

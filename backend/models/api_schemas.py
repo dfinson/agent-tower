@@ -204,6 +204,8 @@ class JobResponse(CamelModel):
     verify_prompt: str | None = None
     self_review_prompt: str | None = None
     parent_job_id: str | None = None
+    source: str = "managed"
+    external_session_id: str | None = None
     total_cost_usd: float | None = None
     total_tokens: int | None = None
     input_tokens: int | None = None
@@ -240,6 +242,8 @@ class JobResponse(CamelModel):
             verify_prompt=job.verify_prompt,
             self_review_prompt=job.self_review_prompt,
             parent_job_id=job.parent_job_id,
+            source=job.source,
+            external_session_id=job.external_session_id,
             **overrides,
         )
 

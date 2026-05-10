@@ -162,6 +162,14 @@ class AgentSDK(StrEnum):
     claude = "claude"
 
 
+class JobSource(StrEnum):
+    """How the job was created."""
+
+    managed = "managed"
+    copilot_cli = "copilot_cli"
+    claude_cli = "claude_cli"
+
+
 class InvalidStateTransitionError(CodePlaneError):
     """Raised when a job state transition is not allowed."""
 
@@ -685,6 +693,8 @@ class Job:
     self_review_prompt: str | None = None
     version: int = 1
     parent_job_id: str | None = None
+    source: str = "managed"
+    external_session_id: str | None = None
 
 
 @dataclass

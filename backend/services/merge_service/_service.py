@@ -508,6 +508,12 @@ class MergeService:
 
         action: "merge" | "smart_merge" | "create_pr" | "discard"
         """
+        # Imported sessions use a separate resolution path that avoids
+        # destructive local operations (no worktree removal, no branch
+        # deletion, no checkout in the user's working directory).
+        if job.source != "managed":
+            return await self._resolve_imported(job, action)
+
         job_id = job.id
         repo_path = job.repo
         worktree_path = job.worktree_path
@@ -749,6 +755,81 @@ class MergeService:
             await self._publish_merge_completed(job_id, branch, base_ref, "cherry_pick")
             await self._post_merge_cleanup(job_id, repo_path, worktree_path, branch)
             return MergeResult(status=MergeStatus.merged, strategy="cherry_pick")
+
+    async def _resolve_imported(
+        self,
+        job: Job,
+        action: str,
+    ) -> MergeResult:
+        """Resolve an imported CLI session — no destructive local operations.
+
+        For imported sessions CodePlane did not create the working directory
+        or the branch, so it must never delete them.
+        """
+        job_id = job.id
+        repo_path = job.repo
+        branch = job.branch
+        base_ref = job.base_ref
+        worktree_path = job.worktree_path
+        prompt = job.prompt
+
+        # Preserve diff snapshot before resolution
+        await self._preserve_diff_snapshot(job_id, worktree_path, base_ref)
+
+        if action == "discard":
+            # Mark as discarded — do NOT remove worktree or delete branch
+            return MergeResult(status=MergeStatus.skipped)
+
+        if not branch:
+            return MergeResult(status=MergeStatus.error, error="No branch to resolve")
+
+        # If already on default branch, nothing to merge
+        if branch == base_ref:
+            await self._update_merge_status(job_id, GitMergeOutcome.merged)
+            await self._publish_merge_completed(job_id, branch, base_ref, "already_on_target")
+            return MergeResult(status=MergeStatus.merged, strategy="already_on_target")
+
+        if action == "create_pr":
+            # Push branch, create PR — do NOT clean up worktree
+            try:
+                await self._git.push(branch, cwd=repo_path)
+            except GitError:
+                log.warning("imported_push_failed", job_id=job_id, exc_info=True)
+            return await self._create_pr(job_id, repo_path, worktree_path, branch, base_ref, prompt or "")
+
+        if action in ("merge", "smart_merge"):
+            # Auto-commit any uncommitted changes
+            try:
+                committed = await self._git.auto_commit(
+                    cwd=worktree_path or repo_path,
+                    message=f"CodePlane: agent changes for {job_id}",
+                )
+                if committed:
+                    log.info("imported_auto_committed", job_id=job_id)
+            except GitError:
+                log.warning("imported_auto_commit_failed", job_id=job_id, exc_info=True)
+
+            # Push the branch
+            try:
+                await self._git.push(branch, cwd=repo_path)
+            except GitError:
+                log.warning("imported_push_failed", job_id=job_id, exc_info=True)
+
+            # Try fast-forward via ref update (no checkout needed)
+            lock = self._repo_locks.setdefault(repo_path, asyncio.Lock())
+            async with lock:
+                try:
+                    ff_result = await self._try_ff_via_ref(job_id, repo_path, branch, base_ref)
+                    if ff_result is not None:
+                        # Do NOT call _post_merge_cleanup — leave worktree and branch
+                        return ff_result
+                except GitError:
+                    log.debug("imported_ff_ref_failed", job_id=job_id, exc_info=True)
+
+            # FF failed — fall back to PR creation
+            return await self._create_pr(job_id, repo_path, worktree_path, branch, base_ref, prompt or "")
+
+        return MergeResult(status=MergeStatus.error, error=f"Unknown action: {action}")
 
     async def _discard(
         self,

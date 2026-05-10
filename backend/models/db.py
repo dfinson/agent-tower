@@ -51,6 +51,8 @@ class JobRow(Base):
     completed_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     parent_job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String, nullable=False, default="managed", server_default="managed")
+    external_session_id: Mapped[str | None] = mapped_column(String, nullable=True)
     story_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     review_story_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     review_story_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
