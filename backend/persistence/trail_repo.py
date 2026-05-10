@@ -111,7 +111,7 @@ class TrailNodeRepository:
             if files is not None:
                 values["files"] = json.dumps(files, ensure_ascii=False)
             if purpose is not None:
-                valid_purposes = {"advancing", "recovering", "orienting", "verifying", "housekeeping"}
+                valid_purposes = {"building", "recovering", "orienting", "verifying", "housekeeping"}
                 if purpose in valid_purposes:
                     values["purpose"] = purpose
                     values["purpose_source"] = "enrich"

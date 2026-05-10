@@ -36,7 +36,18 @@ export function parseArgs(toolArgs?: string): Record<string, unknown> {
     const parsed = JSON.parse(toolArgs);
     return typeof parsed === "object" && parsed !== null ? parsed : {};
   } catch {
-    return {};
+    // Handle Python repr strings (single quotes, None, True/False)
+    try {
+      const fixed = toolArgs
+        .replace(/\bNone\b/g, "null")
+        .replace(/\bTrue\b/g, "true")
+        .replace(/\bFalse\b/g, "false")
+        .replace(/'/g, '"');
+      const parsed = JSON.parse(fixed);
+      return typeof parsed === "object" && parsed !== null ? parsed : {};
+    } catch {
+      return {};
+    }
   }
 }
 

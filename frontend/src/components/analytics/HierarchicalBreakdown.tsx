@@ -8,7 +8,7 @@ import { formatUsd } from "./helpers";
  */
 
 const PURPOSE_META: Record<string, { label: string; color: string; bg: string }> = {
-  advancing: { label: "Advancing", color: "text-green-600", bg: "bg-green-500" },
+  building: { label: "Building", color: "text-green-600", bg: "bg-green-500" },
   recovering: { label: "Recovering", color: "text-red-600", bg: "bg-red-500" },
   orienting: { label: "Orienting", color: "text-blue-600", bg: "bg-blue-500" },
   verifying: { label: "Verifying", color: "text-amber-600", bg: "bg-amber-500" },

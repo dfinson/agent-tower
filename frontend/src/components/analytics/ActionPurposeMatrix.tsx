@@ -3,10 +3,10 @@ import { type ActionPurposeMatrixResponse } from "../../api/client-analytics";
 import { formatUsd } from "./helpers";
 
 const ACTIONS = ["write", "test", "execute", "vcs", "delegate", "read", "think"] as const;
-const PURPOSES = ["advancing", "recovering", "orienting", "verifying", "housekeeping"] as const;
+const PURPOSES = ["building", "recovering", "orienting", "verifying", "housekeeping"] as const;
 
 const PURPOSE_COLORS: Record<string, string> = {
-  advancing: "bg-green-500",
+  building: "bg-green-500",
   recovering: "bg-red-500",
   orienting: "bg-blue-500",
   verifying: "bg-amber-500",
@@ -14,7 +14,7 @@ const PURPOSE_COLORS: Record<string, string> = {
 };
 
 const PURPOSE_LABELS: Record<string, string> = {
-  advancing: "Advancing",
+  building: "Building",
   recovering: "Recovering",
   orienting: "Orienting",
   verifying: "Verifying",

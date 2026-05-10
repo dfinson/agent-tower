@@ -1,2 +1,1 @@
-# verify
-DIFF_OK = True
+VERIFIED = 1

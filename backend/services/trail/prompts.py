@@ -207,8 +207,8 @@ def build_enrichment_prompt(
         '1. "annotations": [{node_id, kind, intent, rationale, outcome, files, tags, purpose}]\n'
         "   - For kind=modify or kind=explore: do NOT change the kind\n"
         "   - For kind=shell: reclassify to modify, explore, or verify\n"
-        "   - purpose must be one of: advancing, recovering, orienting, verifying, housekeeping\n"
-        "     advancing = building toward the goal; recovering = fixing mistakes/retrying;\n"
+        "   - purpose must be one of: building, recovering, orienting, verifying, housekeeping\n"
+        "     building = producing artifacts toward the goal; recovering = fixing mistakes/retrying;\n"
         "     orienting = understanding code/context; verifying = confirming correctness;\n"
         "     housekeeping = cleanup, formatting, bookkeeping\n"
         '2. "semantic_nodes": [{kind, intent, rationale, outcome, tags, supersedes, anchor_node_id}]\n'

@@ -387,8 +387,8 @@ class AnalyticsService:
         thinking = 0.0
 
         if ap_rows:
-            # Building = advancing × (write|test|execute|delegate)
-            # Thinking = (advancing|orienting) × (read|think)
+            # Building = building × (write|test|execute|delegate)
+            # Thinking = (building|orienting) × (read|think)
             # Wasted = recovering × all + housekeeping × all
             building_actions = {"write", "test", "execute", "delegate"}
             thinking_actions = {"read", "think"}
@@ -404,11 +404,11 @@ class AnalyticsService:
 
                 if purpose in wasted_purposes:
                     pass  # counted in waste below
-                elif purpose == "advancing" and action in building_actions:
+                elif purpose == "building" and action in building_actions:
                     building += cost
                 elif purpose == "verifying":
                     building += cost
-                elif purpose in ("advancing", "orienting") and action in thinking_actions:
+                elif purpose in ("building", "orienting") and action in thinking_actions:
                     thinking += cost
                 else:
                     # Unmatched — split between building and thinking

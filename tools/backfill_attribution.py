@@ -9,7 +9,7 @@ Purpose heuristics use a priority ladder applied per-turn:
   3. Test execution after writes (same turn or previous turn wrote) → verifying
   4. Only reads/searches, no writes → orienting
   5. Git commit/push or bookkeeping-only tools → housekeeping
-  6. Has file_write or non-trivial shell execution → advancing
+  6. Has file_write or non-trivial shell execution → building
   7. Pure LLM reasoning with no tools → orienting
 
 Usage:
@@ -121,7 +121,7 @@ def classify_action(tool_categories: list[str], shell_commands: list[str]) -> st
 #            bookkeeping (memory, todos) → HOUSEKEEPING
 # Signal 5 — Pure reads: no writes at all (file_read, file_search, browser,
 #            read-only shell) → ORIENTING
-# Signal 6 — Has writes: file_write or non-trivial shell → ADVANCING
+# Signal 6 — Has writes: file_write or non-trivial shell → BUILDING
 # Signal 7 — No tools (pure reasoning) → ORIENTING
 # ---------------------------------------------------------------------------
 
@@ -222,15 +222,15 @@ def classify_purpose_heuristic(
         # Any mix of reads, searches, read-only shells → orienting
         return "orienting"
 
-    # --- Signal 6: Has writes → ADVANCING ---
+    # --- Signal 6: Has writes → BUILDING ---
     if has_writes:
-        return "advancing"
+        return "building"
 
     # Execute/delegate without writes
     if has_delegation or has_productive_shell:
-        return "advancing"
+        return "building"
 
-    return "advancing"
+    return "building"
 
 
 def classify_purposes_for_job(

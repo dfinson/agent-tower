@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -191,8 +192,8 @@ class IngestService:
                 payload={
                     "role": "tool_call",
                     "tool_name": tool_name,
-                    "tool_args": str(tool_input) if tool_input else None,
-                    "tool_result": str(tool_response) if tool_response else None,
+                    "tool_args": json.dumps(tool_input) if tool_input else None,
+                    "tool_result": json.dumps(tool_response) if tool_response else None,
                     "tool_duration_ms": duration_ms,
                     "turn_id": turn_id,
                     "seq": self._next_seq(job_id),
@@ -452,9 +453,8 @@ class IngestService:
         if not tool_input:
             return None
         if isinstance(tool_input, str):
-            import json as _json
             try:
-                tool_input = _json.loads(tool_input) if tool_input.startswith("{") else {}
+                tool_input = json.loads(tool_input) if tool_input.startswith("{") else {}
             except (ValueError, TypeError):
                 return None
         if isinstance(tool_input, dict):
