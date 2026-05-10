@@ -211,7 +211,7 @@ remote merge without touching the local working directory.
 
 The existing `_auto_merge` (post-session) path also needs the same
 guard: when `IngestService._finalize_session()` triggers
-`MergeService.merge_to_base()`, it must use the imported-session
+`MergeService.try_merge_back()`, it must use the imported-session
 path.
 
 ### 4.2 `backend/models/db.py` — `JobRow`
@@ -411,40 +411,16 @@ async def claude_hook(
     return JSONResponse(content=response_body)
 ```
 
-### 6.2 `backend/api/ingest.py` (new file)
+### 6.2 Existing routes — `backend/api/approvals.py` and `backend/api/jobs.py`
 
-Operator messaging endpoints for imported sessions:
+No new router file needed. The existing endpoints gain a conditional
+branch based on `job.source`:
 
-```python
-router = APIRouter(tags=["ingest"])
-
-@router.post("/jobs/{job_id}/message")
-async def send_message(
-    job_id: str,
-    body: SendMessageRequest,
-    ingest: FromDishka[IngestService],
-) -> MessageResponse:
-    """Send an operator message to an imported CLI session."""
-    await ingest.send_operator_message(job_id, body.message)
-    return MessageResponse(delivered=True)
-
-@router.post("/jobs/{job_id}/abort")
-async def abort_imported(
-    job_id: str,
-    ingest: FromDishka[IngestService],
-) -> dict:
-    """Abort an imported CLI session."""
-    await ingest.abort_session(job_id)
-    return {"status": "ok"}
-```
-
-### 6.3 Existing routes — `backend/api/jobs.py`
-
-The existing `POST /jobs/{job_id}/message` endpoint (operator messages
-for managed sessions) should delegate to `IngestService` when
-`job.source != "managed"`. Same for `POST /jobs/{job_id}/cancel`.
-
-No new route needed — the existing routes gain a conditional branch.
+- `POST /jobs/{job_id}/messages` (plural, in `approvals.py`) — when
+  `source != "managed"`, delegate to `IngestService.send_operator_message()`
+  instead of `RuntimeService`.
+- `POST /jobs/{job_id}/cancel` (in `jobs.py`) — when `source != "managed"`,
+  delegate to `IngestService.abort_session()` instead of `RuntimeService`.
 
 ---
 
@@ -645,7 +621,6 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `backend/services/otel_file_watcher.py` | Async JSONL file tailer for Copilot OTEL |
 | `backend/services/copilot_steer.py` | GitHub steer API client |
 | `backend/api/hooks.py` | Claude hook receiver route |
-| `backend/api/ingest.py` | Operator messaging routes for imported jobs |
 | `alembic/versions/NNNN_add_job_source.py` | DB migration |
 
 ### Modified files
@@ -659,9 +634,10 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `backend/config.py` | Add `copilot_otel_path` config field |
 | `backend/di.py` | Register `IngestService`, `OtelFileWatcher`, `CopilotSteerClient` |
 | `backend/lifespan.py` | Start/stop `OtelFileWatcher` |
-| `backend/app_factory.py` | Mount hooks + ingest routers |
-| `backend/cli.py` | Add `cpl hook` subcommand — reads hook JSON from stdin, POSTs to `/api/hooks/claude`. Required because `SessionStart` only supports `command` hooks, not `http` |
+| `backend/app_factory.py` | Mount hooks router |
+| `backend/api/approvals.py` | Delegate to `IngestService` for imported jobs when sending operator messages |
 | `backend/api/jobs.py` | Route operator message/cancel to `IngestService` for imported jobs. Skip worktree/branch deletion on discard when `source != "managed"` |
+| `backend/cli.py` | Add `cpl hook` subcommand — reads hook JSON from stdin, POSTs to `/api/hooks/claude`. Required because `SessionStart` only supports `command` hooks, not `http` |
 | `backend/services/merge_service/_service.py` | Add `_resolve_imported()` path: push + remote merge (no local checkout/stash). Guard `_post_merge_cleanup` and `_discard` against imported sessions |
 | `frontend/src/store/types.ts` | Add `source` to `JobSummary` |
 | `frontend/src/components/JobHeaderCard.tsx` | CLI import badge |
@@ -676,6 +652,7 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `backend/services/base_adapter.py` | Base class for managed adapters only |
 | `backend/services/adapter_registry.py` | Only creates managed adapters |
 | `backend/services/event_bus.py` | Generic — accepts any `DomainEvent` |
+| `backend/services/diff_service.py` | `calculate_diff()` calls `git add -N` on untracked files — modifies the user's index for imported sessions. Consider suppressing intent-to-add for `source != "managed"` or documenting this as expected behavior |
 | `backend/services/sse_manager.py` | Generic — routes any SSE event |
 | `backend/api/events.py` | SSE endpoint is source-agnostic |
 | `backend/models/events.py` | No new event kinds needed |
