@@ -371,6 +371,14 @@ class JobRepository(BaseRepository):
         """Update the job prompt (e.g. from first user message in imported sessions)."""
         await self._update_row(job_id, prompt=prompt)
 
+    async def update_model(self, job_id: str, model: str) -> None:
+        """Update the model field on a job."""
+        await self._update_row(job_id, model=model)
+
+    async def update_preset(self, job_id: str, preset: str) -> None:
+        """Update the preset (permission policy) on a job."""
+        await self._update_row(job_id, preset=preset)
+
     # ------------------------------------------------------------------
     # Retention helpers
     # ------------------------------------------------------------------

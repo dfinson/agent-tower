@@ -1,34 +1,44 @@
-"""IngestService — central coordinator for imported CLI sessions.
+"""IngestService — thin bridge for imported CLI sessions.
 
-Routes incoming data from Claude hooks and Copilot OTEL spans into
-the standard CodePlane event pipeline (EventBus → SSE → persistence).
+Translates incoming data from Claude hooks and Copilot OTEL spans into
+SessionEvent objects and feeds them through the shared EventProcessor
+pipeline — the same path used by managed SDK sessions in RuntimeService.
+
+Responsibilities:
+  - Session lifecycle (job creation, state transitions, finalization)
+  - Hook/OTEL payload → SessionEvent translation
+  - Operator message delivery (hook injection / steer API)
+
+Event processing (diffs, step tracking, trail enrichment) is delegated
+entirely to EventProcessor.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.domain import Job, JobSource, JobState
+from backend.models.domain import Job, JobSource, JobState, Preset, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.services.tool_classifier import TOOL_CATEGORIES
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
-    from backend.persistence.job_repo import JobRepository
     from backend.services.coderecon_service import CodeReconService
     from backend.services.copilot_steer import CopilotSteerClient
-    from backend.services.diff_service import DiffService
     from backend.services.event_bus import EventBus
+    from backend.services.event_processor import EventProcessor
     from backend.services.git_service import GitService
     from backend.services.merge_service import MergeService
-    from backend.services.trail import TrailService
+    from backend.services.sister_session import SisterSessionManager
 
 log = structlog.get_logger()
 
@@ -43,30 +53,47 @@ def _fire_bg(coro: Any, *, name: str) -> asyncio.Task:
     return task
 
 
+# Tool categories that count as file writes (triggers diff + file_changed)
+_WRITE_TOOLS = frozenset(
+    name for name, cat in TOOL_CATEGORIES.items() if cat == "file_write"
+)
+_READ_TOOLS = frozenset(
+    name for name, cat in TOOL_CATEGORIES.items() if cat in ("file_read", "file_search")
+)
+
+
+@dataclass
+class _JobContext:
+    """Per-job runtime context for the event processor."""
+
+    worktree_path: str
+    base_ref: str
+
+
 class IngestService:
-    """Ingests events from native CLI sessions and maps them to DomainEvents."""
+    """Bridge for imported CLI sessions — translates hooks/OTEL into the standard pipeline."""
 
     def __init__(
         self,
         event_bus: EventBus,
+        event_processor: EventProcessor,
         session_factory: async_sessionmaker[AsyncSession],
         config: CPLConfig,
         git_service: GitService | None = None,
-        diff_service: DiffService | None = None,
         merge_service: MergeService | None = None,
-        trail_service: TrailService | None = None,
         coderecon_service: CodeReconService | None = None,
         steer_client: CopilotSteerClient | None = None,
+        sister_sessions: SisterSessionManager | None = None,
     ) -> None:
         self._event_bus = event_bus
+        self._processor = event_processor
         self._session_factory = session_factory
         self._config = config
         self._git = git_service
-        self._diff = diff_service
         self._merge = merge_service
-        self._trail = trail_service
         self._coderecon = coderecon_service
         self._steer = steer_client
+        self._sister_sessions = sister_sessions
 
         # Per-session state: external_session_id → job_id
         self._session_to_job: dict[str, str] = {}
@@ -78,11 +105,26 @@ class IngestService:
         self._conversation_to_job: dict[str, str] = {}
         # Guard set for double-finalize protection
         self._finalized_jobs: set[str] = set()
+        # Per-job turn counter for synthetic turn_ids
+        self._turn_counters: dict[str, int] = {}
+        # Per-job accumulated tool state for the current turn
+        self._turn_tools: dict[str, list[str]] = {}  # job_id → [tool_name, ...]
+        self._turn_files_read: dict[str, list[str]] = {}
+        self._turn_files_written: dict[str, list[str]] = {}
+        self._turn_duration_ms: dict[str, int] = {}  # job_id → accumulated ms
+        # Per-job context (worktree/base_ref) for event processor
+        self._job_ctx: dict[str, _JobContext] = {}
 
     def _next_seq(self, job_id: str) -> int:
         val = self._seq_counters.get(job_id, 0) + 1
         self._seq_counters[job_id] = val
         return val
+
+    def _next_turn_id(self, job_id: str) -> str:
+        """Generate a synthetic turn_id for the current agent turn."""
+        val = self._turn_counters.get(job_id, 0) + 1
+        self._turn_counters[job_id] = val
+        return f"turn-{val}"
 
     # ------------------------------------------------------------------
     # Claude hooks
@@ -101,10 +143,12 @@ class IngestService:
             existing_job_id = self._session_to_job.get(session_id)
             if existing_job_id:
                 return {"additionalContext": f"CodePlane is observing this session as job {existing_job_id}."}
+            model = payload.get("model") or None
             job = await self._create_job_from_session(
                 cwd=cwd,
                 source=JobSource.claude_cli,
                 session_id=session_id,
+                model=model,
             )
             return {"additionalContext": f"CodePlane is observing this session as job {job.id}."}
 
@@ -115,9 +159,23 @@ class IngestService:
 
         if event_type == "UserPromptSubmit":
             content = payload.get("prompt") or payload.get("content", "")
-            await self._emit_transcript(job_id, role="operator", content=content)
+            # Reset turn accumulators for the new turn
+            self._turn_tools.pop(job_id, None)
+            self._turn_files_read.pop(job_id, None)
+            self._turn_files_written.pop(job_id, None)
+            self._turn_duration_ms.pop(job_id, None)
+            # Transition back to running if agent was idle (between turns)
+            await self._ensure_running(job_id)
+            # Feed operator message through the standard pipeline
+            await self._feed_event(job_id, SessionEvent(
+                kind=SessionEventKind.transcript,
+                payload={"role": "operator", "content": content, "seq": self._next_seq(job_id),
+                         "timestamp": datetime.now(UTC).isoformat()},
+            ))
             # Set job prompt from first user message
             await self._maybe_set_job_prompt(job_id, content)
+            # Capture permission_mode → preset mapping
+            await self._maybe_set_preset_from_permission_mode(job_id, payload.get("permission_mode"))
             return {}
 
         if event_type == "PostToolUse":
@@ -125,14 +183,41 @@ class IngestService:
             tool_input = payload.get("tool_input")
             tool_response = payload.get("tool_response")
             duration_ms = payload.get("duration_ms")
-            await self._emit_transcript(
-                job_id,
-                role="tool_call",
-                tool_name=tool_name,
-                tool_args=str(tool_input) if tool_input else None,
-                tool_result=str(tool_response) if tool_response else None,
-                tool_duration_ms=duration_ms,
-            )
+
+            # Build transcript event and feed through processor
+            turn_id = f"turn-{self._turn_counters.get(job_id, 0) + 1}"
+            await self._feed_event(job_id, SessionEvent(
+                kind=SessionEventKind.transcript,
+                payload={
+                    "role": "tool_call",
+                    "tool_name": tool_name,
+                    "tool_args": str(tool_input) if tool_input else None,
+                    "tool_result": str(tool_response) if tool_response else None,
+                    "tool_duration_ms": duration_ms,
+                    "turn_id": turn_id,
+                    "seq": self._next_seq(job_id),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            ))
+
+            # Accumulate for end-of-turn step_completed
+            self._turn_tools.setdefault(job_id, []).append(tool_name)
+            self._turn_duration_ms[job_id] = self._turn_duration_ms.get(job_id, 0) + (duration_ms or 0)
+
+            # Track file paths for the step filter
+            file_path = self._extract_file_path(tool_name, tool_input)
+            if file_path:
+                category = TOOL_CATEGORIES.get(tool_name, "other")
+                if category == "file_write":
+                    self._turn_files_written.setdefault(job_id, []).append(file_path)
+                    # Emit file_changed so DiffService recalculates
+                    await self._feed_event(job_id, SessionEvent(
+                        kind=SessionEventKind.file_changed,
+                        payload={"path": file_path},
+                    ))
+                elif category in ("file_read", "file_search"):
+                    self._turn_files_read.setdefault(job_id, []).append(file_path)
+
             return {}
 
         if event_type == "PreToolUse":
@@ -143,13 +228,43 @@ class IngestService:
             # Emit agent transcript from Claude's response
             assistant_msg = payload.get("last_assistant_message", "")
             if assistant_msg:
-                await self._emit_transcript(job_id, role="agent", content=assistant_msg)
+                turn_id = f"turn-{self._turn_counters.get(job_id, 0) + 1}"
+                await self._feed_event(job_id, SessionEvent(
+                    kind=SessionEventKind.transcript,
+                    payload={"role": "agent", "content": assistant_msg, "turn_id": turn_id,
+                             "seq": self._next_seq(job_id), "timestamp": datetime.now(UTC).isoformat()},
+                ))
+
+            # Emit step_completed with accumulated turn data (drives activity timeline)
+            turn_id = self._next_turn_id(job_id)
+            tool_names = self._turn_tools.pop(job_id, [])
+            files_read = self._turn_files_read.pop(job_id, [])
+            files_written = self._turn_files_written.pop(job_id, [])
+            duration_ms = self._turn_duration_ms.pop(job_id, 0)
+            await self._event_bus.publish(DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.step_completed,
+                payload={
+                    "turn_id": turn_id,
+                    "agent_message": assistant_msg or "",
+                    "tool_names": tool_names,
+                    "tool_count": len(tool_names),
+                    "duration_ms": duration_ms,
+                    "files_read": files_read,
+                    "files_written": files_written,
+                },
+            ))
 
             # Deliver any pending operator messages
             messages = self._pending_messages.pop(job_id, [])
             if messages:
                 combined = "\n\n".join(messages)
                 return {"decision": "block", "reason": combined}
+
+            # Agent turn complete — transition to review (idle between turns)
+            await self._transition_state(job_id, JobState.review)
             return {}
 
         if event_type == "SessionEnd":
@@ -157,11 +272,9 @@ class IngestService:
             return {}
 
         if event_type == "SubagentStart":
-            await self._emit_step_started(job_id, intent=payload.get("agent_type", "subagent"))
             return {}
 
         if event_type == "SubagentStop":
-            await self._emit_step_completed(job_id)
             return {}
 
         log.debug("ingest_unhandled_hook", event_type=event_type, session_id=session_id)
@@ -196,29 +309,58 @@ class IngestService:
             job_id = job.id
             self._conversation_to_job[conversation_id] = job_id
 
-        # Map span to events
+        # Map span to SessionEvents and feed through the standard processor
         if span_name.startswith("execute_tool"):
             tool_name = span_name.removeprefix("execute_tool ").strip() or span_name
-            await self._emit_transcript(
-                job_id,
-                role="tool_call",
-                tool_name=tool_name,
-                tool_args=attrs.get("gen_ai.tool.call.arguments"),
-                tool_result=attrs.get("gen_ai.tool.call.result"),
-            )
+            tool_args = attrs.get("gen_ai.tool.call.arguments")
+            turn_id = f"turn-{self._turn_counters.get(job_id, 0) + 1}"
+            await self._feed_event(job_id, SessionEvent(
+                kind=SessionEventKind.transcript,
+                payload={
+                    "role": "tool_call",
+                    "tool_name": tool_name,
+                    "tool_args": tool_args,
+                    "tool_result": attrs.get("gen_ai.tool.call.result"),
+                    "turn_id": turn_id,
+                    "seq": self._next_seq(job_id),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            ))
+
+            # Accumulate turn state
+            self._turn_tools.setdefault(job_id, []).append(tool_name)
+
+            # Track file paths and emit file_changed for writes
+            file_path = self._extract_file_path(tool_name, tool_args)
+            if file_path:
+                category = TOOL_CATEGORIES.get(tool_name, "other")
+                if category == "file_write":
+                    self._turn_files_written.setdefault(job_id, []).append(file_path)
+                    await self._feed_event(job_id, SessionEvent(
+                        kind=SessionEventKind.file_changed,
+                        payload={"path": file_path},
+                    ))
+                elif category in ("file_read", "file_search"):
+                    self._turn_files_read.setdefault(job_id, []).append(file_path)
+
         elif span_name.startswith("chat"):
-            # LLM call — emit telemetry
+            # LLM call — emit telemetry (this stays direct — telemetry isn't a SessionEvent)
             input_tokens = attrs.get("gen_ai.usage.input_tokens", 0)
             output_tokens = attrs.get("gen_ai.usage.output_tokens", 0)
             cost = attrs.get("github.copilot.cost", 0.0)
             model = attrs.get("gen_ai.response.model", "")
-            await self._emit_telemetry(
-                job_id,
-                input_tokens=int(input_tokens),
-                output_tokens=int(output_tokens),
-                cost_usd=float(cost),
-                model=model,
-            )
+            await self._event_bus.publish(DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.telemetry_updated,
+                payload={
+                    "input_tokens": int(input_tokens),
+                    "output_tokens": int(output_tokens),
+                    "total_cost_usd": float(cost),
+                    "model": model,
+                },
+            ))
         elif span_name == "invoke_agent":
             # Check for span end (non-zero duration means session finished)
             duration = span.get("duration", 0)
@@ -290,11 +432,46 @@ class IngestService:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    async def _feed_event(self, job_id: str, event: SessionEvent) -> None:
+        """Feed a SessionEvent through the shared EventProcessor pipeline.
+
+        This is the core bridge: hooks/OTEL translate to SessionEvent, then
+        the same processing (diff, step tracking, trail) as managed sessions.
+        """
+        ctx = self._job_ctx.get(job_id)
+        await self._processor.process_event(
+            job_id,
+            event,
+            worktree_path=ctx.worktree_path if ctx else None,
+            base_ref=ctx.base_ref if ctx else None,
+        )
+
+    @staticmethod
+    def _extract_file_path(tool_name: str, tool_input: Any) -> str | None:
+        """Best-effort extract file path from tool input."""
+        if not tool_input:
+            return None
+        if isinstance(tool_input, str):
+            import json as _json
+            try:
+                tool_input = _json.loads(tool_input) if tool_input.startswith("{") else {}
+            except (ValueError, TypeError):
+                return None
+        if isinstance(tool_input, dict):
+            return (
+                tool_input.get("file_path")
+                or tool_input.get("filePath")
+                or tool_input.get("path")
+                or tool_input.get("file")
+            )
+        return None
+
     async def _create_job_from_session(
         self,
         cwd: str,
         source: str,
         session_id: str,
+        model: str | None = None,
     ) -> Job:
         """Detect git metadata from cwd, create Job record."""
         if not self._git:
@@ -344,6 +521,7 @@ class IngestService:
             sdk="claude" if source == JobSource.claude_cli else "copilot",
             source=source,
             external_session_id=session_id,
+            model=model,
         )
 
         # Persist
@@ -377,6 +555,15 @@ class IngestService:
             payload={"state": JobState.running, "new_state": JobState.running},
         ))
 
+        # Assign a sister session so the title generator has LLM access
+        if self._sister_sessions:
+            self._sister_sessions.create_for_job(job_id)
+
+        # Register worktree with event processor for diff/step tracking
+        worktree_path = job.worktree_path or repo_path
+        self._job_ctx[job_id] = _JobContext(worktree_path=worktree_path, base_ref=base_ref)
+        self._processor.register_worktree(job_id, worktree_path)
+
         # Background: CodeRecon indexing
         if self._coderecon:
             async def _index() -> None:
@@ -391,20 +578,25 @@ class IngestService:
         return job
 
     async def _finalize_session(self, job_id: str) -> None:
-        """Transition to review and trigger post-session merge flow."""
+        """Transition to completed and trigger post-session cleanup."""
         # Guard against double-finalize (duplicate SessionEnd, OTEL race)
         if job_id in self._finalized_jobs:
             log.debug("ingest_already_finalized", job_id=job_id)
             return
         self._finalized_jobs.add(job_id)
 
-        # Verify current state allows transition
+        # Verify current state allows transition (running or review/idle-between-turns)
         job = await self._get_job(job_id)
-        if job and job.state != JobState.running:
+        if job and job.state not in (JobState.running, JobState.review):
             log.debug("ingest_finalize_wrong_state", job_id=job_id, state=job.state)
             return
 
-        await self._transition_state(job_id, JobState.review)
+        # If still running (SessionEnd without Stop), transition to review first
+        if job and job.state == JobState.running:
+            await self._transition_state(job_id, JobState.review)
+
+        # Notify processor of terminal state (closes step tracker)
+        await self._processor.on_job_terminal(job_id, JobState.review)
 
         # Publish job_review event (triggers existing review story prefetch etc.)
         await self._event_bus.publish(DomainEvent(
@@ -417,6 +609,10 @@ class IngestService:
 
         # Clean up in-memory tracking for this session
         self._cleanup_session(job_id)
+
+        # Release the sister session
+        if self._sister_sessions:
+            self._sister_sessions.close_job(job_id)
 
         log.info("ingest_session_finalized", job_id=job_id)
 
@@ -439,83 +635,11 @@ class IngestService:
             payload={"state": new_state, "new_state": new_state},
         ))
 
-    async def _emit_transcript(
-        self,
-        job_id: str,
-        *,
-        role: str,
-        content: str | None = None,
-        tool_name: str | None = None,
-        tool_args: str | None = None,
-        tool_result: str | None = None,
-        tool_duration_ms: int | None = None,
-    ) -> None:
-        """Publish a transcript_updated DomainEvent."""
-        seq = self._next_seq(job_id)
-        payload: dict[str, Any] = {
-            "seq": seq,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "role": role,
-        }
-        if content is not None:
-            payload["content"] = content
-        if tool_name is not None:
-            payload["tool_name"] = tool_name
-        if tool_args is not None:
-            payload["tool_args"] = tool_args
-        if tool_result is not None:
-            payload["tool_result"] = tool_result
-        if tool_duration_ms is not None:
-            payload["tool_duration_ms"] = tool_duration_ms
-
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=DomainEventKind.transcript_updated,
-            payload=payload,
-        ))
-
-    async def _emit_telemetry(
-        self,
-        job_id: str,
-        *,
-        input_tokens: int = 0,
-        output_tokens: int = 0,
-        cost_usd: float = 0.0,
-        model: str = "",
-    ) -> None:
-        """Publish a telemetry_updated DomainEvent."""
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=DomainEventKind.telemetry_updated,
-            payload={
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "total_cost_usd": cost_usd,
-                "model": model,
-            },
-        ))
-
-    async def _emit_step_started(self, job_id: str, intent: str) -> None:
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=DomainEventKind.step_started,
-            payload={"intent": intent},
-        ))
-
-    async def _emit_step_completed(self, job_id: str) -> None:
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=datetime.now(UTC),
-            kind=DomainEventKind.step_completed,
-            payload={},
-        ))
+    async def _ensure_running(self, job_id: str) -> None:
+        """Re-enter running state if agent was idle between turns (review state)."""
+        job = await self._get_job(job_id)
+        if job and job.state == JobState.review:
+            await self._transition_state(job_id, JobState.running)
 
     async def _maybe_set_job_prompt(self, job_id: str, content: str) -> None:
         """Set job prompt from first user message (replaces placeholder)."""
@@ -530,6 +654,31 @@ class IngestService:
                 await repo.update_prompt(job_id, content[:500])
                 await session.commit()
 
+    # Map Claude CLI permission_mode values to CodePlane presets
+    _PERMISSION_MODE_TO_PRESET: dict[str, str] = {
+        "default": Preset.supervised,
+        "acceptEdits": Preset.autonomous,
+        "bypassPermissions": Preset.autonomous,
+        "plan": Preset.strict,
+    }
+
+    async def _maybe_set_preset_from_permission_mode(self, job_id: str, permission_mode: str | None) -> None:
+        """Map Claude CLI permission_mode to a CodePlane preset on first encounter."""
+        if not permission_mode:
+            return
+        preset = self._PERMISSION_MODE_TO_PRESET.get(permission_mode)
+        if not preset:
+            return
+        async with self._session_factory() as session:
+            from backend.persistence.job_repo import JobRepository
+
+            repo = JobRepository(session)
+            job = await repo.get(job_id)
+            # Only set once (don't overwrite if already non-default)
+            if job and job.preset == Preset.supervised:
+                await repo.update_preset(job_id, preset)
+                await session.commit()
+
     def _cleanup_session(self, job_id: str) -> None:
         """Remove in-memory tracking state for a completed session."""
         # Find and remove from session/conversation maps
@@ -541,6 +690,14 @@ class IngestService:
             del self._conversation_to_job[k]
         self._pending_messages.pop(job_id, None)
         self._seq_counters.pop(job_id, None)
+        self._turn_counters.pop(job_id, None)
+        self._turn_tools.pop(job_id, None)
+        self._turn_files_read.pop(job_id, None)
+        self._turn_files_written.pop(job_id, None)
+        self._turn_duration_ms.pop(job_id, None)
+        self._job_ctx.pop(job_id, None)
+        # Clean up processor state (step tracker, diff throttle)
+        self._processor.cleanup(job_id)
 
     async def _get_job(self, job_id: str) -> Job | None:
         async with self._session_factory() as session:

@@ -870,6 +870,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(_persist_structural_analytics)
 
     # --- IngestService (CLI session import) ---
+    from backend.services.event_processor import EventProcessor
     from backend.services.ingest_service import IngestService
 
     steer_client = None
@@ -878,16 +879,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         from backend.services.copilot_steer import CopilotSteerClient
         steer_client = CopilotSteerClient(copilot_token)
 
+    # EventProcessor — shared pipeline for imported sessions (diff, step tracking, trail)
+    ingest_event_processor = EventProcessor(
+        event_bus=event_bus,
+        diff_service=services.diff_service,
+        step_tracker=StepTracker(
+            event_bus=event_bus,
+            git_service=services.git_service,
+        ),
+        trail_service=trail_service,
+    )
+
     ingest_service = IngestService(
         event_bus=event_bus,
+        event_processor=ingest_event_processor,
         session_factory=session_factory,
         config=config,
         git_service=services.git_service,
-        diff_service=services.diff_service,
         merge_service=services.merge_service,
-        trail_service=trail_service,
         coderecon_service=coderecon_service,
         steer_client=steer_client,
+        sister_sessions=services.sister_sessions,
     )
 
     # --- OtelFileWatcher (Copilot OTEL file tail) ---
