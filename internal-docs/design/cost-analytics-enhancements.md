@@ -2783,3 +2783,123 @@ match expectations.
 | 16 | — | — | `fleet_activity_phase_matrix` | — | `/activity-phase-matrix` | `ActivityPhaseMatrixResponse` | `fetchActivityPhaseMatrix` | `ActivityPhaseHeatmap.tsx` |
 | 17 | — | motivation dimension block | — | — | extend `/cost-drivers` | extend `CostDriversData` | update types | `MotivationBreakdown.tsx` |
 | 18 | — | — | — | `executive_summary` | `/executive-summary` | `ExecutiveSummaryResponse` | `fetchExecutiveSummary` | `ExecutiveSummary.tsx` |
+
+---
+
+## Item 19: Action × Purpose Attribution Rework
+
+### Problem
+
+The single "activity" dimension conflates two orthogonal questions — what the
+agent physically did (wrote files, ran tests, read code) vs. why it did it
+(building a feature, fixing a bug, recovering from a mistake). This produces
+misleading breakdowns: "69% overhead" when the agent is reasoning productively,
+"investigation" that's equally split between debugging and feature work but
+indistinguishable, and sub-classification that only applies to write-turns via
+regex on the job description.
+
+### Design: Two Orthogonal Dimensions
+
+Replace ALL legacy activity/motivation dimensions with two clean axes stored
+independently and cross-tabbed.
+
+#### Dimension 1: Action (what physically happened)
+
+Deterministic from tool calls. Priority ladder picks one per turn.
+
+| Bucket | Signal |
+|---|---|
+| `write` | `file_write` tools |
+| `test` | Shell command matches test runner regex |
+| `read` | `file_read`/`file_search`/`browser` tools, OR shell cat/grep/find/ls/head/tail |
+| `execute` | Shell command that isn't test, vcs, or read |
+| `vcs` | `git_write`/`git_read` tools, or shell git commands |
+| `delegate` | `agent`-category tool ONLY when no inner sub-agent spans visible |
+| `think` | Think tool only, or no tools (pure LLM output) |
+
+Priority ladder: `write > test > vcs > execute > delegate > read > think`
+
+Shell classification (replaces `classify_shell_command`):
+
+```python
+def _shell_action(cmd: str) -> str:
+    if _RE_TEST.search(cmd):   return "test"
+    if _RE_GIT.search(cmd):    return "vcs"
+    if _RE_READ.search(cmd):   return "read"
+    return "execute"
+```
+
+Sub-agent decomposition: When inner spans are visible (`is_subagent=True`),
+classify them by actual action and tag with `subagent=True`. Only use
+`delegate` when the invocation is opaque (no inner spans). Child jobs
+(`parent_job_id`) have independent attribution — no double-counting.
+
+#### Dimension 2: Purpose (why it happened)
+
+LLM-enriched (primary), heuristic fallback.
+
+| Bucket | Meaning |
+|---|---|
+| `advancing` | Executing toward the goal |
+| `recovering` | Fixing own mistakes, retrying after failure |
+| `orienting` | Building understanding before acting |
+| `verifying` | Confirming correctness of completed work |
+| `housekeeping` | Mechanical overhead (git commit, memory, todos) |
+
+Primary source: Trail enrichment LLM adds `purpose` field per node.
+
+Heuristic fallback:
+
+```python
+def classify_purpose(turn_num, trail_nodes, context, first_write_turn, prev_test_failed):
+    nodes = [n for n in trail_nodes if n.get("turn_number") == turn_num]
+    enriched = next((n["purpose"] for n in nodes if n.get("purpose")), None)
+    if enriched:
+        return enriched
+    if any(n.get("is_retry") or n.get("error_kind") for n in nodes) or prev_test_failed:
+        return "recovering"
+    cats = set(context["tool_categories"])
+    if cats and cats <= {"git_write", "git_read", "bookkeeping"}:
+        return "housekeeping"
+    if any(_shell_action(cmd) == "test" for cmd in context["shell_commands"]):
+        if first_write_turn is not None and turn_num > first_write_turn:
+            return "verifying"
+    if not (cats & {"file_write"}) and first_write_turn is None:
+        return "orienting"
+    return "advancing"
+```
+
+### Storage
+
+`job_cost_attribution` table — 3 dimensions per turn:
+
+- `dimension="action"`, bucket in {write, test, read, execute, vcs, delegate, think}
+- `dimension="purpose"`, bucket in {advancing, recovering, orienting, verifying, housekeeping}
+- `dimension="action_purpose"`, bucket = "write:advancing", etc.
+
+Keep: `dimension="turn"` (per-turn cost curve), `dimension="phase"` (execution phases).
+
+Delete: `dimension="activity"`, `dimension="motivation"`, `dimension="edit_efficiency"`,
+`dimension="activity_phase"`.
+
+New columns on `trail_nodes`: `purpose` (String 20) and `purpose_source` (String 10).
+
+### Executive Summary Derivation
+
+```
+Building = advancing × (write|test|execute|delegate)
+Thinking = (advancing|orienting) × (read|think)
+Wasted   = recovering × all + housekeeping × all
+```
+
+### Frontend
+
+- DELETE `MotivationBreakdown.tsx`
+- REWRITE `HierarchicalBreakdown.tsx` — L1=purpose groups, L2=action bars nested inside
+- ADD `ActionPurposeMatrix.tsx` — heatmap grid 7×5, marginal totals, insight sentences
+- MODIFY `FleetCostDriverInsights.tsx` — action buckets, optional "group by purpose" toggle
+- MODIFY `FleetLatencyDriverInsights.tsx` — same
+- MODIFY `OutcomeMatrix.tsx` — rows become action buckets
+- MODIFY `ActivityPhaseHeatmap.tsx` → `ActionPhaseHeatmap.tsx` — rows become action buckets
+- MODIFY `AnalyticsScreen.tsx` — remove MotivationBreakdown, wire new components
+- MODIFY `MetricsPanelTypes.ts` — replace ACTIVITY_DESCRIPTIONS with ACTION/PURPOSE maps
