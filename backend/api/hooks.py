@@ -23,6 +23,6 @@ async def claude_hook(
 ) -> JSONResponse:
     """Receive Claude CLI hook events. Returns hook response for steering."""
     body = await request.json()
-    event_type = body.get("hookEventName", "")
+    event_type = body.get("hook_event_name", "")
     response_body = await ingest.ingest_claude_hook(event_type, body)
     return JSONResponse(content=response_body)
