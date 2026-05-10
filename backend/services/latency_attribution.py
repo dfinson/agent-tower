@@ -8,6 +8,8 @@ columns for idle time and parallelism ratio.
 The **activity** dimension mirrors cost attribution exactly — each turn is
 classified by intent (implementation, investigation, verification, etc.)
 and all span durations within that turn are attributed to that activity.
+Implementation turns are further sub-classified into feature_dev, debugging,
+or refactoring using the same keyword heuristics as cost attribution.
 """
 
 from __future__ import annotations
@@ -19,7 +21,11 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.cost_attribution import TurnContext, _classify_turn_intent
+from backend.services.cost_attribution import (
+    TurnContext,
+    _classify_turn_intent,
+    _sub_classify_implementation,
+)
 from backend.services.tool_classifier import classify_tool
 
 if TYPE_CHECKING:
@@ -131,6 +137,16 @@ async def _compute_latency(
         log.info("latency_attribution_skip_no_spans", job_id=job_id)
         return
 
+    # Fetch job description for implementation sub-classification
+    from sqlalchemy import text as sa_text
+
+    result = await session.execute(
+        sa_text("SELECT description FROM jobs WHERE id = :jid"),
+        {"jid": job_id},
+    )
+    row = result.mappings().first()
+    job_description: str | None = (row or {}).get("description")
+
     # Get job total duration from summary
     summary = await summary_repo.get(job_id)
     total_duration_ms = int(summary.get("duration_ms", 0)) if summary else 0
@@ -235,6 +251,8 @@ async def _compute_latency(
 
     for turn_num, context in turn_contexts.items():
         activity = _classify_turn_intent(context)
+        if activity == "implementation":
+            activity = _sub_classify_implementation(job_description, None)
         by_activity[activity].extend(turn_durations.get(turn_num, []))
         activity_intervals[activity].extend(turn_span_intervals.get(turn_num, []))
 

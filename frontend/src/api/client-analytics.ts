@@ -66,12 +66,12 @@ export interface AnalyticsTools {
   tools: {
     name: string;
     count: number;
-    avg_duration_ms: number;
-    total_duration_ms: number;
-    failure_count: number;
-    p50_duration_ms: number;
-    p95_duration_ms: number;
-    p99_duration_ms: number;
+    avgDurationMs: number;
+    totalDurationMs: number;
+    failureCount: number;
+    p50DurationMs: number;
+    p95DurationMs: number;
+    p99DurationMs: number;
   }[];
   toolMix?: {
     activity: string;

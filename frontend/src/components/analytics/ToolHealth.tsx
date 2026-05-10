@@ -105,7 +105,7 @@ export function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
         </thead>
         <tbody>
           {tools.map((t, i) => {
-            const failures = t.failure_count || 0;
+            const failures = t.failureCount || 0;
             const successRate = t.count > 0 ? ((t.count - failures) / t.count * 100) : 100;
             const desc = toolDescriptions[t.name];
             return (
@@ -122,10 +122,10 @@ export function ToolHealth({ tools }: { tools: AnalyticsTools["tools"] }) {
                     {successRate.toFixed(0)}%
                   </span>
                 </td>
-                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.avg_duration_ms) || 0)}</td>
-                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.p50_duration_ms) || 0)}</td>
-                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.p95_duration_ms) || 0)}</td>
-                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.total_duration_ms) || 0)}</td>
+                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.avgDurationMs) || 0)}</td>
+                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.p50DurationMs) || 0)}</td>
+                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.p95DurationMs) || 0)}</td>
+                <td className="text-right py-1.5 px-2">{formatDuration(Number(t.totalDurationMs) || 0)}</td>
               </tr>
             );
           })}
