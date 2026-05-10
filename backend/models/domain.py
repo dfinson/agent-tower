@@ -579,6 +579,7 @@ class ModelComparisonRow(TypedDict, total=False):
     cost_per_minute: float
     cost_per_turn: float
     cost_per_tool_call: float
+    cost_per_diff_line: float
 
 
 @dataclass

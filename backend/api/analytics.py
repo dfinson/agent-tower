@@ -346,32 +346,7 @@ async def analytics_scorecard(
     period: Annotated[int, Query(ge=1, le=365)] = 7,
 ) -> ScorecardResponse:
     """Top-level scorecard: budget per SDK, activity with resolution, quota, cost trend."""
-    from backend.config import load_config
-
-    scorecard = await svc.scorecard(period_days=period)
-    cfg = load_config()
-    scorecard["dailySpendLimitUsd"] = cfg.telemetry.daily_spend_limit_usd
-
-    # Monthly budget data (Item 5)
-    monthly = await svc.monthly_burn()
-    monthly_budget = cfg.telemetry.claude_monthly_budget_usd
-    scorecard["monthly_budget_usd"] = monthly_budget
-    scorecard["month_spend_usd"] = monthly["month_spend_usd"]
-    scorecard["projected_month_end_usd"] = monthly["projected_month_end_usd"]
-    scorecard["days_elapsed"] = monthly["days_elapsed"]
-    scorecard["days_in_month"] = monthly["days_in_month"]
-    scorecard["daily_avg_usd"] = monthly["daily_avg_usd"]
-    scorecard["pct_monthly_budget_used"] = (
-        monthly["month_spend_usd"] / monthly_budget if monthly_budget > 0 else 0.0
-    )
-
-    # Cost-per-diff-line (Item 9): compute from budget + telemetry summary
-    budget_rows = scorecard.get("budget", [])
-    period_total_cost = sum(b.get("total_cost_usd", 0) or 0 for b in budget_rows) if isinstance(budget_rows, list) else 0.0
-    total_lines = await svc.total_diff_lines(period_days=period)
-    scorecard["cost_per_diff_line"] = period_total_cost / total_lines if total_lines > 0 else 0.0
-    scorecard["total_diff_lines"] = total_lines
-
+    scorecard = await svc.enriched_scorecard(period_days=period)
     return ScorecardResponse(**scorecard)
 
 
@@ -604,7 +579,7 @@ async def analytics_export(
         combined["cost-drivers"] = [dict(r) for r in summary]
 
     if "overview" in requested:
-        scorecard = await svc.scorecard(period_days=period)
+        scorecard = await svc.enriched_scorecard(period_days=period)
         combined["overview"] = [scorecard]
 
     if "models" in requested:

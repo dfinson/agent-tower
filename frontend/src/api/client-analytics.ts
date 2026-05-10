@@ -186,25 +186,25 @@ export interface CostDriversResponse {
 export interface CostAttributionBucket {
   dimension: string;
   bucket: string;
-  cost_usd: number;
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  call_count: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  callCount: number;
   confidence: "exact" | "approximate";
 }
 
 export interface FleetCostDriversResponse {
   period: number;
   summary?: Array<CostAttributionBucket & {
-    job_count?: number;
-    avg_cost_per_job?: number;
+    jobCount?: number;
+    avgCostPerJob?: number;
     confidence?: "exact" | "approximate";
   }>;
   dimension?: string;
   buckets?: Array<CostAttributionBucket & {
-    job_count?: number;
+    jobCount?: number;
   }>;
 }
 
@@ -467,10 +467,10 @@ export interface Observation {
   title: string;
   detail: string;
   evidence: Record<string, unknown>;
-  job_count: number;
-  total_waste_usd: number;
-  first_seen_at: string;
-  last_seen_at: string;
+  jobCount: number;
+  totalWasteUsd: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
 }
 
 export interface ObservationsResponse {

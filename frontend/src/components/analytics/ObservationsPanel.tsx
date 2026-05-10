@@ -48,12 +48,12 @@ export function ObservationsPanel({ observations, onDismiss }: { observations: O
                 <Badge variant="outline" className="text-[10px]">{obs.category}</Badge>
               </div>
               <p className="text-xs text-muted-foreground">{obs.detail}</p>
-              {obs.total_waste_usd > 0 && (
+              {obs.totalWasteUsd > 0 && (
                 <p className="text-xs mt-1">
                   <Tooltip content="Estimated excess spend attributable to this pattern">
-                    <span className="cursor-help text-yellow-400">{formatUsd(obs.total_waste_usd)} estimated waste</span>
+                    <span className="cursor-help text-yellow-400">{formatUsd(obs.totalWasteUsd)} estimated waste</span>
                   </Tooltip>
-                  {obs.job_count > 0 && <span className="text-muted-foreground"> across {obs.job_count} jobs</span>}
+                  {obs.jobCount > 0 && <span className="text-muted-foreground"> across {obs.jobCount} jobs</span>}
                 </p>
               )}
             </div>

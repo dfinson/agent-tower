@@ -53,14 +53,14 @@ export function FleetCostDriverInsights({ fleetDrivers, period }: { fleetDrivers
       .filter((row) => row.dimension === "activity")
       .map((row) => ({
         bucket: row.bucket,
-        costUsd: Number((row as any).costUsd ?? (row as any).cost_usd ?? 0),
-        inputTokens: Number((row as any).inputTokens ?? (row as any).input_tokens ?? 0),
-        outputTokens: Number((row as any).outputTokens ?? (row as any).output_tokens ?? 0),
-        cacheReadTokens: Number((row as any).cacheReadTokens ?? (row as any).cache_read_tokens ?? 0),
-        cacheWriteTokens: Number((row as any).cacheWriteTokens ?? (row as any).cache_write_tokens ?? 0),
-        callCount: Number((row as any).callCount ?? (row as any).call_count ?? 0),
-        jobCount: Number((row as any).jobCount ?? (row as any).job_count ?? 0),
-        avgCostPerJob: Number((row as any).avgCostPerJob ?? (row as any).avg_cost_per_job ?? 0),
+        costUsd: row.costUsd ?? 0,
+        inputTokens: row.inputTokens ?? 0,
+        outputTokens: row.outputTokens ?? 0,
+        cacheReadTokens: row.cacheReadTokens ?? 0,
+        cacheWriteTokens: row.cacheWriteTokens ?? 0,
+        callCount: row.callCount ?? 0,
+        jobCount: row.jobCount ?? 0,
+        avgCostPerJob: row.avgCostPerJob ?? 0,
       }))
       .sort((a, b) => b.costUsd - a.costUsd);
   }, [fleetDrivers.summary]);
@@ -128,11 +128,11 @@ export function FleetCostDriverInsights({ fleetDrivers, period }: { fleetDrivers
                     <div className="px-3 pb-2 space-y-1">
                       {repo.buckets
                         .filter((b) => b.dimension === "activity")
-                        .sort((a, b) => (b.cost_usd ?? 0) - (a.cost_usd ?? 0))
+                        .sort((a, b) => (b.costUsd ?? 0) - (a.costUsd ?? 0))
                         .map((b) => (
                           <div key={b.bucket} className="flex items-center justify-between text-[10px]">
                             <span className="text-muted-foreground">{formatActivityBucket(b.bucket)}</span>
-                            <span className="tabular-nums">{formatUsd(b.cost_usd ?? 0)}</span>
+                            <span className="tabular-nums">{formatUsd(b.costUsd ?? 0)}</span>
                           </div>
                         ))}
                     </div>

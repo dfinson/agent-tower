@@ -272,6 +272,37 @@ class AnalyticsService:
 
         return await TelemetryAnalyticsRepository(self._session).monthly_burn()
 
+    async def enriched_scorecard(self, *, period_days: int) -> dict[str, Any]:
+        """Scorecard with monthly budget, cost-per-line, and config enrichments."""
+        from backend.config import load_config
+
+        scorecard = await self.scorecard(period_days=period_days)
+        cfg = load_config()
+        scorecard["period"] = period_days
+        scorecard["dailySpendLimitUsd"] = cfg.telemetry.daily_spend_limit_usd
+
+        # Monthly budget data (Item 5)
+        monthly = await self.monthly_burn()
+        monthly_budget = cfg.telemetry.claude_monthly_budget_usd
+        scorecard["monthly_budget_usd"] = monthly_budget
+        scorecard["month_spend_usd"] = monthly["month_spend_usd"]
+        scorecard["projected_month_end_usd"] = monthly["projected_month_end_usd"]
+        scorecard["days_elapsed"] = monthly["days_elapsed"]
+        scorecard["days_in_month"] = monthly["days_in_month"]
+        scorecard["daily_avg_usd"] = monthly["daily_avg_usd"]
+        scorecard["pct_monthly_budget_used"] = (
+            monthly["month_spend_usd"] / monthly_budget if monthly_budget > 0 else 0.0
+        )
+
+        # Cost-per-diff-line (Item 9)
+        budget_rows = scorecard.get("budget", [])
+        period_total_cost = sum(b.get("total_cost_usd", 0) or 0 for b in budget_rows) if isinstance(budget_rows, list) else 0.0
+        total_lines = await self.total_diff_lines(period_days=period_days)
+        scorecard["cost_per_diff_line"] = period_total_cost / total_lines if total_lines > 0 else 0.0
+        scorecard["total_diff_lines"] = total_lines
+
+        return scorecard
+
     async def total_diff_lines(self, *, period_days: int) -> int:
         """Total diff lines (added + removed) across all jobs in the period."""
         from sqlalchemy import text as sa_text

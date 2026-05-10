@@ -484,7 +484,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 FROM jobs j
                 JOIN job_telemetry_summary t ON t.job_id = j.id
                 WHERE j.created_at >= datetime('now', :offset)
-                    AND j.state IN ('completed', 'failed', 'cancelled')
+                    AND j.state IN ('completed', 'failed', 'canceled')
                     {repo_filter}
                 GROUP BY category
             """),

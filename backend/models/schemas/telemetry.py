@@ -105,6 +105,7 @@ class CostTrendEntry(CamelModel):
 
 
 class ScorecardResponse(CamelModel):
+    period: int = 0
     activity: ScorecardActivity
     budget: list[ScorecardBudget] = []
     quota_json: str | None = None
@@ -510,6 +511,8 @@ class FleetCostEntry(CamelModel, extra="allow"):
     input_tokens: int = 0
     output_tokens: int = 0
     call_count: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     job_count: int = 0
     avg_cost_per_job: float = 0.0
     confidence: str = ""
@@ -529,6 +532,11 @@ class ObservationEntry(CamelModel, extra="allow"):
     severity: str = ""
     title: str = ""
     detail: str = ""
+    evidence: dict[str, Any] = {}
+    job_count: int = 0
+    total_waste_usd: float = 0.0
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
 
 
 class AnalyticsOverviewResponse(CamelModel):
