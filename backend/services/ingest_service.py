@@ -114,8 +114,10 @@ class IngestService:
             return {}
 
         if event_type == "UserPromptSubmit":
-            content = payload.get("userPrompt") or payload.get("content", "")
+            content = payload.get("prompt") or payload.get("content", "")
             await self._emit_transcript(job_id, role="operator", content=content)
+            # Set job prompt from first user message
+            await self._maybe_set_job_prompt(job_id, content)
             return {}
 
         if event_type == "PostToolUse":
@@ -138,6 +140,11 @@ class IngestService:
             return {}
 
         if event_type == "Stop":
+            # Emit agent transcript from Claude's response
+            assistant_msg = payload.get("last_assistant_message", "")
+            if assistant_msg:
+                await self._emit_transcript(job_id, role="agent", content=assistant_msg)
+
             # Deliver any pending operator messages
             messages = self._pending_messages.pop(job_id, [])
             if messages:
@@ -150,7 +157,7 @@ class IngestService:
             return {}
 
         if event_type == "SubagentStart":
-            await self._emit_step_started(job_id, intent=payload.get("subagent_name", "subagent"))
+            await self._emit_step_started(job_id, intent=payload.get("agent_type", "subagent"))
             return {}
 
         if event_type == "SubagentStop":
@@ -509,6 +516,19 @@ class IngestService:
             kind=DomainEventKind.step_completed,
             payload={},
         ))
+
+    async def _maybe_set_job_prompt(self, job_id: str, content: str) -> None:
+        """Set job prompt from first user message (replaces placeholder)."""
+        if not content:
+            return
+        async with self._session_factory() as session:
+            from backend.persistence.job_repo import JobRepository
+
+            repo = JobRepository(session)
+            job = await repo.get(job_id)
+            if job and job.prompt == "(imported CLI session)":
+                await repo.update_prompt(job_id, content[:500])
+                await session.commit()
 
     def _cleanup_session(self, job_id: str) -> None:
         """Remove in-memory tracking state for a completed session."""

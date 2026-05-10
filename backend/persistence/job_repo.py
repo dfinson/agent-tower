@@ -367,6 +367,10 @@ class JobRepository(BaseRepository):
         if updates:
             await self._update_row(job_id, **updates)
 
+    async def update_prompt(self, job_id: str, prompt: str) -> None:
+        """Update the job prompt (e.g. from first user message in imported sessions)."""
+        await self._update_row(job_id, prompt=prompt)
+
     # ------------------------------------------------------------------
     # Retention helpers
     # ------------------------------------------------------------------
