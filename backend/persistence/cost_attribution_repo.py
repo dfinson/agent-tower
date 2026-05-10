@@ -28,15 +28,20 @@ class CostAttributionRepository(BaseRepository):
         input_tokens: int = 0,
         output_tokens: int = 0,
         call_count: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        model: str | None = None,
     ) -> None:
         """Insert a single attribution row."""
         now = datetime.now(UTC).isoformat()
         await self._session.execute(
             text("""
                 INSERT INTO job_cost_attribution
-                    (job_id, dimension, bucket, cost_usd, input_tokens, output_tokens, call_count, created_at)
+                    (job_id, dimension, bucket, cost_usd, input_tokens, output_tokens,
+                     call_count, cache_read_tokens, cache_write_tokens, model, created_at)
                 VALUES
-                    (:job_id, :dimension, :bucket, :cost_usd, :input_tokens, :output_tokens, :call_count, :now)
+                    (:job_id, :dimension, :bucket, :cost_usd, :input_tokens, :output_tokens,
+                     :call_count, :cache_read_tokens, :cache_write_tokens, :model, :now)
             """),
             {
                 "job_id": job_id,
@@ -46,6 +51,9 @@ class CostAttributionRepository(BaseRepository):
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "call_count": call_count,
+                "cache_read_tokens": cache_read_tokens,
+                "cache_write_tokens": cache_write_tokens,
+                "model": model,
                 "now": now,
             },
         )
@@ -74,9 +82,11 @@ class CostAttributionRepository(BaseRepository):
             await self._session.execute(
                 text("""
                     INSERT INTO job_cost_attribution
-                        (job_id, dimension, bucket, cost_usd, input_tokens, output_tokens, call_count, created_at)
+                        (job_id, dimension, bucket, cost_usd, input_tokens, output_tokens,
+                         call_count, cache_read_tokens, cache_write_tokens, model, created_at)
                     VALUES
-                        (:job_id, :dimension, :bucket, :cost_usd, :input_tokens, :output_tokens, :call_count, :now)
+                        (:job_id, :dimension, :bucket, :cost_usd, :input_tokens, :output_tokens,
+                         :call_count, :cache_read_tokens, :cache_write_tokens, :model, :now)
                 """),
                 {
                     "job_id": job_id,
@@ -86,6 +96,9 @@ class CostAttributionRepository(BaseRepository):
                     "input_tokens": row.get("input_tokens", 0),
                     "output_tokens": row.get("output_tokens", 0),
                     "call_count": row.get("call_count", 0),
+                    "cache_read_tokens": row.get("cache_read_tokens", 0),
+                    "cache_write_tokens": row.get("cache_write_tokens", 0),
+                    "model": row.get("model"),
                     "now": now,
                 },
             )
@@ -144,6 +157,8 @@ class CostAttributionRepository(BaseRepository):
                     SUM(input_tokens) as input_tokens,
                     SUM(output_tokens) as output_tokens,
                     SUM(call_count) as call_count,
+                    COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+                    COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
                     COUNT(DISTINCT job_id) as job_count,
                     AVG(cost_usd) as avg_cost_per_job
                 FROM job_cost_attribution
@@ -154,3 +169,131 @@ class CostAttributionRepository(BaseRepository):
             """),
         )
         return cast("list[FleetCostRow]", [dict(r) for r in result.mappings().all()])
+
+    async def edit_efficiency_by_model(
+        self, period_days: int,
+    ) -> list[dict[str, Any]]:
+        """Edit efficiency aggregated per model."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    a.model,
+                    SUM(a.call_count) AS edit_turns,
+                    SUM(a.input_tokens) AS one_shot_turns,
+                    SUM(a.output_tokens) AS retries,
+                    CASE WHEN SUM(a.call_count) > 0
+                        THEN SUM(a.input_tokens) * 1.0 / SUM(a.call_count)
+                        ELSE 0 END AS one_shot_rate,
+                    COUNT(DISTINCT a.job_id) AS job_count
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE a.dimension = 'edit_efficiency'
+                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND a.model IS NOT NULL AND a.model != ''
+                GROUP BY a.model
+                ORDER BY one_shot_rate DESC
+            """),
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def cache_efficiency_by_phase(
+        self, period_days: int,
+    ) -> list[dict[str, Any]]:
+        """Cache hit rate aggregated by execution phase from spans."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    s.execution_phase AS bucket,
+                    SUM(s.input_tokens) AS total_input_tokens,
+                    COALESCE(SUM(s.cache_read_tokens), 0) AS total_cache_read_tokens,
+                    COALESCE(SUM(s.cache_write_tokens), 0) AS total_cache_write_tokens,
+                    CASE WHEN SUM(s.input_tokens) > 0
+                        THEN COALESCE(SUM(s.cache_read_tokens), 0) * 1.0 / SUM(s.input_tokens)
+                        ELSE 0 END AS cache_hit_rate,
+                    COUNT(DISTINCT s.job_id) AS job_count
+                FROM telemetry_spans s
+                JOIN jobs j ON j.id = s.job_id
+                WHERE s.span_type = 'llm'
+                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND s.execution_phase IS NOT NULL
+                GROUP BY s.execution_phase
+                ORDER BY cache_hit_rate DESC
+            """),
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def cache_efficiency_by_activity(
+        self, period_days: int,
+    ) -> list[dict[str, Any]]:
+        """Cache hit rate aggregated by activity bucket from attribution."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    a.bucket,
+                    SUM(a.input_tokens) AS total_input_tokens,
+                    COALESCE(SUM(a.cache_read_tokens), 0) AS total_cache_read_tokens,
+                    COALESCE(SUM(a.cache_write_tokens), 0) AS total_cache_write_tokens,
+                    CASE WHEN SUM(a.input_tokens) > 0
+                        THEN COALESCE(SUM(a.cache_read_tokens), 0) * 1.0 / SUM(a.input_tokens)
+                        ELSE 0 END AS cache_hit_rate,
+                    COUNT(DISTINCT a.job_id) AS job_count
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE a.dimension = 'activity'
+                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY a.bucket
+                ORDER BY cache_hit_rate DESC
+            """),
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def by_dimension_per_repo(
+        self, dimension: str, period_days: int,
+    ) -> list[dict[str, Any]]:
+        """Activity cost broken down by repo."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    j.repo,
+                    a.bucket,
+                    SUM(a.cost_usd) AS cost_usd,
+                    SUM(a.input_tokens) AS input_tokens,
+                    SUM(a.output_tokens) AS output_tokens,
+                    SUM(a.call_count) AS call_count,
+                    COUNT(DISTINCT a.job_id) AS job_count
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE a.dimension = :dimension
+                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY j.repo, a.bucket
+                ORDER BY cost_usd DESC
+            """),
+            {"dimension": dimension},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def communication_heavy_jobs(
+        self, period_days: int,
+    ) -> list[dict[str, Any]]:
+        """Jobs where communication + reasoning cost > threshold of total."""
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    a.job_id,
+                    SUM(CASE WHEN a.bucket IN ('communication', 'reasoning')
+                        THEN a.cost_usd ELSE 0 END) AS comm_cost,
+                    SUM(a.cost_usd) AS total_cost,
+                    CASE WHEN SUM(a.cost_usd) > 0
+                        THEN SUM(CASE WHEN a.bucket IN ('communication', 'reasoning')
+                            THEN a.cost_usd ELSE 0 END) / SUM(a.cost_usd)
+                        ELSE 0 END AS comm_pct
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE a.dimension = 'activity'
+                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                GROUP BY a.job_id
+                HAVING comm_pct > 0.30
+                ORDER BY comm_cost DESC
+            """),
+        )
+        return [dict(r) for r in result.mappings().all()]

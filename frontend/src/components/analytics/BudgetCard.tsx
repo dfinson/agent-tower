@@ -119,6 +119,41 @@ export function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
           )}
         </div>
       )}
+
+      {scorecard.monthlyBudgetUsd > 0 && (
+        <div className="pt-2 border-t border-border">
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-muted-foreground">Monthly Budget</span>
+            <span className={scorecard.pctMonthlyBudgetUsed > 0.8 ? "text-red-400 font-medium" : "text-foreground"}>
+              {formatUsd(scorecard.monthSpendUsd)} / {formatUsd(scorecard.monthlyBudgetUsd)}
+            </span>
+          </div>
+          <div className="h-1.5 rounded-full bg-border overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                scorecard.pctMonthlyBudgetUsed > 0.8
+                  ? "bg-red-500"
+                  : scorecard.pctMonthlyBudgetUsed > 0.6
+                  ? "bg-yellow-500"
+                  : "bg-green-500"
+              }`}
+              style={{ width: `${Math.min(scorecard.pctMonthlyBudgetUsed * 100, 100)}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+            <span>Day {scorecard.daysElapsed} of {scorecard.daysInMonth}</span>
+            <Tooltip content={`At ${formatUsd(scorecard.dailyAvgUsd)}/day average, projected month-end total`}>
+              <span className="cursor-help">Proj: {formatUsd(scorecard.projectedMonthEndUsd)}</span>
+            </Tooltip>
+          </div>
+          {scorecard.pctMonthlyBudgetUsed > 0.8 && (
+            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400">
+              <AlertTriangle size={11} />
+              Approaching monthly budget
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

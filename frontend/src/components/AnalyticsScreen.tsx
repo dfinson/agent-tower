@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import {
-  BarChart3, DollarSign, Clock, Wrench, GitBranch, Zap, Loader2,
+  BarChart3, DollarSign, Clock, Wrench, GitBranch, Zap, Loader2, Download,
 } from "lucide-react";
 import {
   fetchScorecard,
@@ -11,6 +11,9 @@ import {
   fetchFleetLatencyDrivers,
   fetchObservations,
   dismissObservation,
+  fetchYield,
+  fetchCacheEfficiency,
+  exportCostDrivers,
   type ScorecardResponse,
   type ModelComparisonResponse,
   type AnalyticsTools,
@@ -18,6 +21,8 @@ import {
   type FleetCostDriversResponse,
   type FleetLatencyDriversResponse,
   type Observation,
+  type YieldResponse,
+  type CacheEfficiencyResponse,
 } from "../api/client";
 import {
   formatRelativeTime,
@@ -34,6 +39,8 @@ import {
   FleetCostDriverInsights,
   FleetLatencyDriverInsights,
   JobsTable,
+  YieldCard,
+  CacheEfficiencyChart,
 } from "./AnalyticsWidgets";
 
 export function AnalyticsScreen() {
@@ -46,6 +53,8 @@ export function AnalyticsScreen() {
   const [fleetDrivers, setFleetDrivers] = useState<FleetCostDriversResponse | null>(null);
   const [fleetLatency, setFleetLatency] = useState<FleetLatencyDriversResponse | null>(null);
   const [observations, setObservations] = useState<Observation[]>([]);
+  const [yieldData, setYieldData] = useState<YieldResponse | null>(null);
+  const [cacheEfficiency, setCacheEfficiency] = useState<CacheEfficiencyResponse | null>(null);
 
   // Per-section loading states
   const [scorecardLoading, setScorecardLoading] = useState(true);
@@ -55,6 +64,8 @@ export function AnalyticsScreen() {
   const [driversLoading, setDriversLoading] = useState(true);
   const [latencyLoading, setLatencyLoading] = useState(true);
   const [obsLoading, setObsLoading] = useState(true);
+  const [yieldLoading, setYieldLoading] = useState(true);
+  const [cacheLoading, setCacheLoading] = useState(true);
 
   const [scorecardError, setScorecardError] = useState<string | null>(null);
 
@@ -72,6 +83,8 @@ export function AnalyticsScreen() {
     setDriversLoading(true);
     setLatencyLoading(true);
     setObsLoading(true);
+    setYieldLoading(true);
+    setCacheLoading(true);
     setScorecardError(null);
 
     // Fire all fetches independently
@@ -109,6 +122,16 @@ export function AnalyticsScreen() {
       .then((obs) => setObservations(obs?.observations ?? []))
       .catch(() => {})
       .finally(() => setObsLoading(false));
+
+    fetchYield(Math.max(period, 30))
+      .then(setYieldData)
+      .catch(() => setYieldData(null))
+      .finally(() => setYieldLoading(false));
+
+    fetchCacheEfficiency(Math.max(period, 30))
+      .then(setCacheEfficiency)
+      .catch(() => setCacheEfficiency(null))
+      .finally(() => setCacheLoading(false));
   };
 
   useEffect(() => {
@@ -150,6 +173,14 @@ export function AnalyticsScreen() {
             <Loader2 size={14} className={refreshing ? "animate-spin" : ""} />
             Refresh
           </button>
+          <a
+            href={exportCostDrivers(Math.max(period, 30), "csv")}
+            download
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground hover:bg-accent/50 transition-colors"
+          >
+            <Download size={14} />
+            Export
+          </a>
           <select
             value={period}
             onChange={(e) => setPeriod(Number(e.target.value))}
@@ -175,6 +206,12 @@ export function AnalyticsScreen() {
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">{scorecardError}</div>
         ) : scorecard ? <BudgetCard scorecard={scorecard} /> : null}
         {scorecardLoading ? <SectionSkeleton height="h-48" /> : scorecard ? <ActivityCard scorecard={scorecard} /> : null}
+      </div>
+
+      {/* Yield / ROI + Cache Efficiency */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {yieldLoading ? <SectionSkeleton height="h-40" /> : yieldData && <YieldCard data={yieldData} />}
+        {cacheLoading ? <SectionSkeleton height="h-40" /> : cacheEfficiency && <CacheEfficiencyChart data={cacheEfficiency} />}
       </div>
 
       {/* Cost trend */}

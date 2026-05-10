@@ -14,6 +14,8 @@ interface ActivityRow {
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   callCount: number;
   jobCount: number;
   avgCostPerJob: number;
@@ -29,6 +31,8 @@ export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetC
         costUsd: Number((row as any).costUsd ?? (row as any).cost_usd ?? 0),
         inputTokens: Number((row as any).inputTokens ?? (row as any).input_tokens ?? 0),
         outputTokens: Number((row as any).outputTokens ?? (row as any).output_tokens ?? 0),
+        cacheReadTokens: Number((row as any).cacheReadTokens ?? (row as any).cache_read_tokens ?? 0),
+        cacheWriteTokens: Number((row as any).cacheWriteTokens ?? (row as any).cache_write_tokens ?? 0),
         callCount: Number((row as any).callCount ?? (row as any).call_count ?? 0),
         jobCount: Number((row as any).jobCount ?? (row as any).job_count ?? 0),
         avgCostPerJob: Number((row as any).avgCostPerJob ?? (row as any).avg_cost_per_job ?? 0),
@@ -120,6 +124,24 @@ export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetC
                     <div className="tabular-nums">{formatUsd(row.avgCostPerJob)}</div>
                   </div>
                 </div>
+                {(row.cacheReadTokens > 0 || row.cacheWriteTokens > 0) && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 text-[10px] text-muted-foreground">
+                    <div>
+                      <div className="text-muted-foreground/60">Cache read</div>
+                      <div className="tabular-nums">{formatTokens(row.cacheReadTokens)}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground/60">Cache write</div>
+                      <div className="tabular-nums">{formatTokens(row.cacheWriteTokens)}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground/60">Cache hit %</div>
+                      <div className="tabular-nums">
+                        {row.inputTokens > 0 ? ((row.cacheReadTokens / row.inputTokens) * 100).toFixed(1) : "0"}%
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

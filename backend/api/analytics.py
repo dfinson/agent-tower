@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.api_schemas import (
@@ -18,6 +19,9 @@ from backend.models.api_schemas import (
     AnalyticsPricingResponse,
     AnalyticsReposResponse,
     AnalyticsToolsResponse,
+    CacheEfficiencyResponse,
+    CacheEfficiencyRow,
+    CostAttributionBucket,
     CostDriversJobResponse,
     CostTrendEntry,
     DismissResponse,
@@ -30,13 +34,19 @@ from backend.models.api_schemas import (
     FleetLatencyEntry,
     JobContextResponse,
     ModelComparisonResponse,
+    ModelEfficiencyResponse,
+    ModelEfficiencyRow,
     ModelPricingEntry,
     ObservationsListResponse,
+    RepoCostBreakdown,
+    RepoCostDriversResponse,
     RetryCostResponse,
     ScorecardResponse,
     ShellCommandsResponse,
     TriggerAnalysisResponse,
     TurnEconomicsResponse,
+    YieldCategoryRow,
+    YieldResponse,
 )
 from backend.services.analytics_service import AnalyticsService
 
@@ -228,13 +238,32 @@ async def cost_drivers_for_job(
     return CostDriversJobResponse(job_id=job_id, dimensions=by_dimension)
 
 
-@router.get("/analytics/cost-drivers", response_model=FleetCostDriversResponse)
+@router.get("/analytics/cost-drivers")
 async def fleet_cost_drivers(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
     dimension: str | None = None,
-) -> FleetCostDriversResponse:
+    group_by: str | None = None,
+) -> FleetCostDriversResponse | RepoCostDriversResponse:
     """Fleet-wide cost attribution: top cost buckets across all dimensions."""
+    if group_by == "repo":
+        dim = dimension or "activity"
+        rows = await svc.cost_by_repo_activity(period_days=period, dimension=dim)
+        # Group by repo
+        from collections import defaultdict
+        repo_map: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for r in rows:
+            repo_map[r.get("repo", "")].append(r)
+        repos = []
+        for repo_name, buckets in sorted(repo_map.items(), key=lambda x: -sum(b.get("cost_usd", 0) for b in x[1])):
+            total = sum(b.get("cost_usd", 0) for b in buckets)
+            repos.append(RepoCostBreakdown(
+                repo=repo_name or "(unknown)",
+                total_cost_usd=total,
+                buckets=[CostAttributionBucket(dimension=dim, **{k: v for k, v in b.items() if k not in ("repo",)}) for b in buckets],
+            ))
+        return RepoCostDriversResponse(period=period, dimension=dim, repos=repos)
+
     if dimension:
         rows = await svc.cost_by_dimension(dimension, period_days=period)
         return FleetCostDriversResponse(period=period, dimension=dimension, buckets=rows)
@@ -322,6 +351,27 @@ async def analytics_scorecard(
     scorecard = await svc.scorecard(period_days=period)
     cfg = load_config()
     scorecard["dailySpendLimitUsd"] = cfg.telemetry.daily_spend_limit_usd
+
+    # Monthly budget data (Item 5)
+    monthly = await svc.monthly_burn()
+    monthly_budget = cfg.telemetry.monthly_budget_usd if hasattr(cfg.telemetry, "monthly_budget_usd") else 0.0
+    scorecard["monthly_budget_usd"] = monthly_budget
+    scorecard["month_spend_usd"] = monthly["month_spend_usd"]
+    scorecard["projected_month_end_usd"] = monthly["projected_month_end_usd"]
+    scorecard["days_elapsed"] = monthly["days_elapsed"]
+    scorecard["days_in_month"] = monthly["days_in_month"]
+    scorecard["daily_avg_usd"] = monthly["daily_avg_usd"]
+    scorecard["pct_monthly_budget_used"] = (
+        monthly["month_spend_usd"] / monthly_budget if monthly_budget > 0 else 0.0
+    )
+
+    # Cost-per-diff-line (Item 9): compute from activity data
+    activity = scorecard.get("activity", {})
+    total_cost = activity.get("total_cost_usd", 0.0) if isinstance(activity, dict) else 0.0
+    total_lines = activity.get("total_diff_lines", 0) if isinstance(activity, dict) else 0
+    scorecard["cost_per_diff_line"] = total_cost / total_lines if total_lines > 0 else 0.0
+    scorecard["total_diff_lines"] = total_lines
+
     return ScorecardResponse(**scorecard)
 
 
@@ -457,3 +507,109 @@ async def fleet_edit_efficiency(
             job_count=row.get("job_count", 0),
         ))
     return EditEfficiencyResponse(period=period, categories=categories)
+
+
+# ---------------------------------------------------------------------------
+# Yield / ROI (Item 2)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/yield", response_model=YieldResponse)
+async def analytics_yield(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+    repo: str | None = None,
+) -> YieldResponse:
+    """Cost yield breakdown by outcome category."""
+    data = await svc.yield_summary(period_days=period, repo=repo)
+    categories = [YieldCategoryRow(**c) for c in data["categories"]]
+    return YieldResponse(
+        period=data["period"],
+        categories=categories,
+        cost_per_merge_usd=data["cost_per_merge_usd"],
+        total_cost_usd=data["total_cost_usd"],
+        total_jobs=data["total_jobs"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Model efficiency (Item 6)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/model-efficiency", response_model=ModelEfficiencyResponse)
+async def analytics_model_efficiency(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> ModelEfficiencyResponse:
+    """Per-model one-shot rate and retry statistics."""
+    rows = await svc.model_efficiency(period_days=period)
+    return ModelEfficiencyResponse(
+        period=period,
+        models=[ModelEfficiencyRow(**r) for r in rows],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cache efficiency (Item 7)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/cache-efficiency", response_model=CacheEfficiencyResponse)
+async def analytics_cache_efficiency(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+    dimension: str = "phase",
+) -> CacheEfficiencyResponse:
+    """Cache token hit rate by execution phase or activity bucket."""
+    rows = await svc.cache_efficiency(period_days=period, dimension=dimension)
+    return CacheEfficiencyResponse(
+        period=period,
+        dimension=dimension,
+        buckets=[CacheEfficiencyRow(**r) for r in rows],
+    )
+
+
+# ---------------------------------------------------------------------------
+# CSV/JSON export (Item 10)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/export")
+async def analytics_export(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+    fmt: str = "csv",
+) -> Response:
+    """Export cost-driver data as CSV or JSON for external analysis."""
+    import csv
+    import io
+    import json
+
+    summary = await svc.fleet_cost_summary(period_days=period)
+    data = [dict(r) for r in summary]
+
+    if fmt == "json":
+        return Response(
+            content=json.dumps(data, default=str),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=cost-drivers.json"},
+        )
+
+    # Default: CSV
+    if not data:
+        return Response(
+            content="",
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=cost-drivers.csv"},
+        )
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=data[0].keys())
+    writer.writeheader()
+    writer.writerows(data)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=cost-drivers.csv"},
+    )

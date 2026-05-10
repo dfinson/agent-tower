@@ -36,6 +36,8 @@ class CostBucket(TypedDict):
     cost_usd: float
     input_tokens: int
     output_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
     call_count: int
 
 
@@ -46,6 +48,8 @@ class TurnContext(TypedDict):
     cost_usd: float
     input_tokens: int
     output_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
     tool_categories: list[str]
     shell_commands: list[str]
 
@@ -128,6 +132,56 @@ def _classify_turn_intent(context: TurnContext) -> str:
     return "reasoning"
 
 
+# ---------------------------------------------------------------------------
+# Sub-classification: implementation → feature_dev / refactoring / debugging
+# Adapted from CodeBurn's refineByKeywords first-match-position approach.
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_FEATURE_RE = _re.compile(
+    r"\b(add|create|implement|new|build|feature|introduce|support|enable)\b",
+    _re.IGNORECASE,
+)
+_DEBUG_RE = _re.compile(
+    r"\b(fix|bug|error|broken|failing|crash|debug|issue|wrong|incorrect)\b",
+    _re.IGNORECASE,
+)
+_REFACTOR_RE = _re.compile(
+    r"\b(refactor|clean\s*up|rename|reorganize|simplify|restructure|extract|deduplicate)\b",
+    _re.IGNORECASE,
+)
+
+_SUB_CLASSIFIERS = [
+    ("refactoring", _REFACTOR_RE),
+    ("debugging", _DEBUG_RE),
+    ("feature_dev", _FEATURE_RE),
+]
+
+
+def _sub_classify_implementation(description: str | None, motivation: str | None) -> str:
+    """Sub-classify 'implementation' into feature_dev / debugging / refactoring.
+
+    Uses CodeBurn's first-match-position approach: find the earliest regex
+    match across all candidates; tie-break by candidate order (refactoring
+    wins ties over debugging, debugging over feature_dev).
+    """
+    text = (description or "") + " " + (motivation or "")
+    if not text.strip():
+        return "implementation"
+
+    best_pos = len(text) + 1
+    best_label = "implementation"
+
+    for label, pattern in _SUB_CLASSIFIERS:
+        m = pattern.search(text)
+        if m and m.start() < best_pos:
+            best_pos = m.start()
+            best_label = label
+
+    return best_label
+
+
 async def compute_attribution(
     session: AsyncSession,
     job_id: str,
@@ -180,6 +234,24 @@ async def _compute_attribution(
         log.info("cost_attribution_skip_no_spans", job_id=job_id)
         return
 
+    # --- Load job metadata for sub-classification and model tagging ---
+    from sqlalchemy import text as sa_text
+
+    job_meta = await session.execute(
+        sa_text(
+            "SELECT j.description, j.motivation_summary, "
+            "COALESCE(t.model, '') AS model "
+            "FROM jobs j "
+            "LEFT JOIN job_telemetry_summary t ON t.job_id = j.id "
+            "WHERE j.id = :jid"
+        ),
+        {"jid": job_id},
+    )
+    job_row = job_meta.mappings().first()
+    job_description = (job_row or {}).get("description")
+    job_motivation = (job_row or {}).get("motivation_summary")
+    job_model = (job_row or {}).get("model", "") or ""
+
     # --- Aggregate by dimension ---
     by_activity: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_turn: dict[int, CostBucket] = defaultdict(lambda: _zero_bucket())
@@ -194,6 +266,8 @@ async def _compute_attribution(
         cost = span.get("cost_usd") or attrs.get("cost", 0.0)
         in_tok = span.get("input_tokens") or attrs.get("input_tokens", 0)
         out_tok = span.get("output_tokens") or attrs.get("output_tokens", 0)
+        cache_r = span.get("cache_read_tokens") or 0
+        cache_w = span.get("cache_write_tokens") or 0
 
         if phase is not None:
             turn = span.get("turn_number")
@@ -228,10 +302,12 @@ async def _compute_attribution(
         # Turn dimension (LLM spans carry the cost)
         turn = span.get("turn_number")
         if turn is not None and span.get("span_type") == "llm":
-            _accumulate(by_turn[turn], cost, in_tok, out_tok)
+            _accumulate(by_turn[turn], cost, in_tok, out_tok, cache_read=cache_r, cache_write=cache_w)
             turn_contexts[int(turn)]["cost_usd"] += float(cost or 0)
             turn_contexts[int(turn)]["input_tokens"] += int(in_tok or 0)
             turn_contexts[int(turn)]["output_tokens"] += int(out_tok or 0)
+            turn_contexts[int(turn)]["cache_read_tokens"] += int(cache_r or 0)
+            turn_contexts[int(turn)]["cache_write_tokens"] += int(cache_w or 0)
 
     # --- One-shot rate tracking ---
     # Track edit→shell→edit retry patterns per turn, aggregated by activity.
@@ -243,12 +319,18 @@ async def _compute_attribution(
         # Single dominant intent per turn — no splitting
         activity = _classify_turn_intent(context)
 
+        # Sub-classify implementation turns using job description/motivation
+        if activity == "implementation":
+            activity = _sub_classify_implementation(job_description, job_motivation)
+
         turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
         turn_in = int(context.get("input_tokens", 0) or 0)
         turn_out = int(context.get("output_tokens", 0) or 0)
+        turn_cache_r = int(context.get("cache_read_tokens", 0) or 0)
+        turn_cache_w = int(context.get("cache_write_tokens", 0) or 0)
 
         # Whole turn attributed to a single activity
-        _accumulate(by_activity[activity], turn_cost, turn_in, turn_out, call_count=1)
+        _accumulate(by_activity[activity], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
 
         # One-shot detection: does this turn have file_write tools?
         tool_cats = context.get("tool_categories", [])
@@ -263,7 +345,7 @@ async def _compute_attribution(
         # Phase dimension — aggregate by execution phase
         phase = context.get("phase")
         if phase:
-            _accumulate(by_phase[phase], turn_cost, turn_in, turn_out)
+            _accumulate(by_phase[phase], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w)
 
         # Activity×Phase compound dimension — cross-reference for inline phase
         # bars in the unified cost view.  Bucket format: "activity:phase".
@@ -274,19 +356,21 @@ async def _compute_attribution(
                 turn_cost,
                 turn_in,
                 turn_out,
+                cache_read=turn_cache_r,
+                cache_write=turn_cache_w,
                 call_count=1,
             )
 
     # --- Write attribution rows ---
     rows: list[dict[str, Any]] = []
     for bucket, data in by_activity.items():
-        rows.append({"dimension": "activity", "bucket": bucket, **data})
+        rows.append({"dimension": "activity", "bucket": bucket, "model": job_model, **data})
     for turn_num, data in sorted(by_turn.items()):
-        rows.append({"dimension": "turn", "bucket": str(turn_num), **data})
+        rows.append({"dimension": "turn", "bucket": str(turn_num), "model": job_model, **data})
     for phase_name, data in by_phase.items():
-        rows.append({"dimension": "phase", "bucket": phase_name, **data})
+        rows.append({"dimension": "phase", "bucket": phase_name, "model": job_model, **data})
     for compound_key, data in by_activity_phase.items():
-        rows.append({"dimension": "activity_phase", "bucket": compound_key, **data})
+        rows.append({"dimension": "activity_phase", "bucket": compound_key, "model": job_model, **data})
     # One-shot rate rows (dimension="edit_efficiency")
     for activity_bucket, stats in one_shot_by_activity.items():
         if stats["edit_turns"] > 0:
@@ -294,10 +378,13 @@ async def _compute_attribution(
                 {
                     "dimension": "edit_efficiency",
                     "bucket": activity_bucket,
+                    "model": job_model,
                     "cost_usd": 0.0,
                     "input_tokens": stats["one_shot_turns"],
                     "output_tokens": stats["retries"],
                     "call_count": stats["edit_turns"],
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
                 }
             )
 
@@ -374,7 +461,14 @@ async def _compute_attribution(
 
 
 def _zero_bucket() -> CostBucket:
-    return {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "call_count": 0}
+    return {
+        "cost_usd": 0.0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "call_count": 0,
+    }
 
 
 def _zero_turn_context() -> TurnContext:
@@ -383,6 +477,8 @@ def _zero_turn_context() -> TurnContext:
         "cost_usd": 0.0,
         "input_tokens": 0,
         "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
         "tool_categories": [],
         "shell_commands": [],
     }
@@ -413,10 +509,21 @@ def _infer_execution_phases(spans: list[dict[str, Any]] | list[TelemetrySpanRow]
     return inferred
 
 
-def _accumulate(bucket: CostBucket, cost: float, in_tok: int, out_tok: int, *, call_count: int = 1) -> None:
+def _accumulate(
+    bucket: CostBucket,
+    cost: float,
+    in_tok: int,
+    out_tok: int,
+    *,
+    cache_read: int = 0,
+    cache_write: int = 0,
+    call_count: int = 1,
+) -> None:
     bucket["cost_usd"] += float(cost or 0)
     bucket["input_tokens"] += int(in_tok or 0)
     bucket["output_tokens"] += int(out_tok or 0)
+    bucket["cache_read_tokens"] += int(cache_read or 0)
+    bucket["cache_write_tokens"] += int(cache_write or 0)
     bucket["call_count"] += int(call_count or 0)
 
 

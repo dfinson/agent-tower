@@ -22,6 +22,8 @@ class CostAttributionBucket(CamelModel):
     cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     call_count: int = 0
     confidence: str = "exact"
     # Per-turn enrichment (only populated for dimension="turn")
@@ -108,6 +110,17 @@ class ScorecardResponse(CamelModel):
     quota_json: str | None = None
     cost_trend: list[CostTrendEntry] = []
     daily_spend_limit_usd: float = 0.0
+    # Monthly budget tracking (Item 5)
+    monthly_budget_usd: float = 0.0
+    month_spend_usd: float = 0.0
+    projected_month_end_usd: float = 0.0
+    days_elapsed: int = 0
+    days_in_month: int = 0
+    daily_avg_usd: float = 0.0
+    pct_monthly_budget_used: float = 0.0
+    # Cost-per-line (Item 9)
+    cost_per_diff_line: float = 0.0
+    total_diff_lines: int = 0
 
 
 class ModelComparisonRow(CamelModel):
@@ -130,12 +143,91 @@ class ModelComparisonRow(CamelModel):
     cost_per_minute: float = 0.0
     cost_per_turn: float = 0.0
     cost_per_tool_call: float = 0.0
+    cost_per_diff_line: float = 0.0
 
 
 class ModelComparisonResponse(CamelModel):
     period: int
     repo: str | None = None
     models: list[ModelComparisonRow] = []
+
+
+# ---------------------------------------------------------------------------
+# Yield / ROI (Item 2)
+# ---------------------------------------------------------------------------
+
+
+class YieldCategoryRow(CamelModel):
+    category: str
+    job_count: int = 0
+    total_cost_usd: float = 0.0
+    avg_cost_usd: float = 0.0
+    pct_of_total: float = 0.0
+
+
+class YieldResponse(CamelModel):
+    period: int
+    categories: list[YieldCategoryRow] = []
+    cost_per_merge_usd: float = 0.0
+    total_cost_usd: float = 0.0
+    total_jobs: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Model efficiency (Item 6)
+# ---------------------------------------------------------------------------
+
+
+class ModelEfficiencyRow(CamelModel):
+    model: str
+    edit_turns: int = 0
+    one_shot_turns: int = 0
+    retries: int = 0
+    one_shot_rate: float = 0.0
+    retry_rate: float = 0.0
+    job_count: int = 0
+
+
+class ModelEfficiencyResponse(CamelModel):
+    period: int
+    models: list[ModelEfficiencyRow] = []
+
+
+# ---------------------------------------------------------------------------
+# Cache efficiency (Item 7)
+# ---------------------------------------------------------------------------
+
+
+class CacheEfficiencyRow(CamelModel):
+    bucket: str
+    total_input_tokens: int = 0
+    total_cache_read_tokens: int = 0
+    total_cache_write_tokens: int = 0
+    cache_hit_rate: float = 0.0
+    job_count: int = 0
+
+
+class CacheEfficiencyResponse(CamelModel):
+    period: int
+    dimension: str
+    buckets: list[CacheEfficiencyRow] = []
+
+
+# ---------------------------------------------------------------------------
+# Per-repo cost drivers (Item 4)
+# ---------------------------------------------------------------------------
+
+
+class RepoCostBreakdown(CamelModel):
+    repo: str
+    total_cost_usd: float = 0.0
+    buckets: list[CostAttributionBucket] = []
+
+
+class RepoCostDriversResponse(CamelModel):
+    period: int
+    dimension: str
+    repos: list[RepoCostBreakdown] = []
 
 
 # ---------------------------------------------------------------------------

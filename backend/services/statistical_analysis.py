@@ -34,11 +34,13 @@ async def run_analysis(session: AsyncSession) -> int:
     from backend.persistence.observations_repo import ObservationsRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
+    from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
     obs_repo = ObservationsRepository(session)
     file_repo = FileAccessRepository(session)
     spans_repo = TelemetrySpansRepository(session)
     summary_repo = TelemetryAnalyticsRepository(session)
+    cost_repo = CostAttributionRepository(session)
     count = 0
     count += await _analyse_file_rereads(file_repo, obs_repo)
     count += await _analyse_tool_failures(spans_repo, obs_repo)
@@ -46,6 +48,7 @@ async def run_analysis(session: AsyncSession) -> int:
     count += await _analyse_retry_waste(spans_repo, obs_repo)
     count += await _analyse_compaction_storms(summary_repo, obs_repo)
     count += await _analyse_cache_efficiency_regression(summary_repo, obs_repo)
+    count += await _analyse_communication_waste(cost_repo, obs_repo)
     log.info("statistical_analysis_complete", observations=count)
     return count
 
@@ -230,3 +233,42 @@ async def _analyse_cache_efficiency_regression(
         },
     )
     return 1
+
+
+# ---------------------------------------------------------------------------
+# 7. Communication waste (Item 12)
+# ---------------------------------------------------------------------------
+
+
+async def _analyse_communication_waste(
+    cost_repo: "CostAttributionRepository",
+    obs_repo: "ObservationsRepository",
+) -> int:
+    """Flag jobs where communication + reasoning dominate cost."""
+    from backend.persistence.cost_attribution_repo import CostAttributionRepository
+
+    rows = await cost_repo.communication_heavy_jobs(period_days=14)
+    if not rows:
+        return 0
+
+    count = 0
+    for row in rows[:5]:  # cap at 5 observations
+        pct = round(row["comm_pct"] * 100, 1)
+        await obs_repo.upsert(
+            category="communication_waste",
+            severity="warning" if pct >= 50 else "info",
+            title=f"Job {row['job_id'][:8]}… spent {pct}% on communication/reasoning",
+            detail=(
+                f"Job {row['job_id']} spent {pct}% of ${row['total_cost']:.4f} on "
+                f"communication and reasoning (${row['comm_cost']:.4f}). "
+                f"Consider tighter prompts or task decomposition."
+            ),
+            evidence={
+                "job_id": row["job_id"],
+                "total_cost_usd": row["total_cost"],
+                "communication_cost_usd": row["comm_cost"],
+                "communication_pct": pct,
+            },
+        )
+        count += 1
+    return count

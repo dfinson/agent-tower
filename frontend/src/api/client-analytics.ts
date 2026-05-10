@@ -189,6 +189,8 @@ export interface CostAttributionBucket {
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   call_count: number;
   confidence: "exact" | "approximate";
 }
@@ -388,6 +390,17 @@ export interface ScorecardResponse {
   quotaJson: string | null;
   costTrend: { date: string; cost: number; jobs: number }[];
   dailySpendLimitUsd: number;
+  // Monthly budget (Item 5)
+  monthlyBudgetUsd: number;
+  monthSpendUsd: number;
+  projectedMonthEndUsd: number;
+  daysElapsed: number;
+  daysInMonth: number;
+  dailyAvgUsd: number;
+  pctMonthlyBudgetUsed: number;
+  // Cost-per-line (Item 9)
+  costPerDiffLine: number;
+  totalDiffLines: number;
 }
 
 export interface ModelComparisonRow {
@@ -410,6 +423,7 @@ export interface ModelComparisonRow {
   costPerMinute: number;
   costPerTurn: number;
   costPerToolCall: number;
+  costPerDiffLine: number;
 }
 
 export interface ModelComparisonResponse {
@@ -493,4 +507,113 @@ export function fetchObservations(
 
 export function dismissObservation(observationId: number): Promise<{ status: string }> {
   return request(`/analytics/observations/${observationId}/dismiss`, { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
+// Yield / ROI (Item 2)
+// ---------------------------------------------------------------------------
+
+export interface YieldCategoryRow {
+  category: string;
+  jobCount: number;
+  totalCostUsd: number;
+  avgCostUsd: number;
+  pctOfTotal: number;
+}
+
+export interface YieldResponse {
+  period: number;
+  categories: YieldCategoryRow[];
+  costPerMergeUsd: number;
+  totalCostUsd: number;
+  totalJobs: number;
+}
+
+export function fetchYield(period = 30, repo?: string): Promise<YieldResponse> {
+  const params = new URLSearchParams({ period: String(period) });
+  if (repo) params.set("repo", repo);
+  return request(`/analytics/yield?${params}`);
+}
+
+// ---------------------------------------------------------------------------
+// Model efficiency (Item 6)
+// ---------------------------------------------------------------------------
+
+export interface ModelEfficiencyRow {
+  model: string;
+  editTurns: number;
+  oneShotTurns: number;
+  retries: number;
+  oneShotRate: number;
+  retryRate: number;
+  jobCount: number;
+}
+
+export interface ModelEfficiencyResponse {
+  period: number;
+  models: ModelEfficiencyRow[];
+}
+
+export function fetchModelEfficiency(period = 30): Promise<ModelEfficiencyResponse> {
+  return request(`/analytics/model-efficiency?period=${period}`);
+}
+
+// ---------------------------------------------------------------------------
+// Cache efficiency (Item 7)
+// ---------------------------------------------------------------------------
+
+export interface CacheEfficiencyRow {
+  bucket: string;
+  totalInputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
+  cacheHitRate: number;
+  jobCount: number;
+}
+
+export interface CacheEfficiencyResponse {
+  period: number;
+  dimension: string;
+  buckets: CacheEfficiencyRow[];
+}
+
+export function fetchCacheEfficiency(
+  period = 30,
+  dimension = "phase",
+): Promise<CacheEfficiencyResponse> {
+  return request(`/analytics/cache-efficiency?period=${period}&dimension=${dimension}`);
+}
+
+// ---------------------------------------------------------------------------
+// Per-repo cost drivers (Item 4)
+// ---------------------------------------------------------------------------
+
+export interface RepoCostBreakdown {
+  repo: string;
+  totalCostUsd: number;
+  buckets: CostAttributionBucket[];
+}
+
+export interface RepoCostDriversResponse {
+  period: number;
+  dimension: string;
+  repos: RepoCostBreakdown[];
+}
+
+export function fetchRepoCostDrivers(
+  period = 30,
+  dimension = "activity",
+): Promise<RepoCostDriversResponse> {
+  return request(`/analytics/cost-drivers?period=${period}&dimension=${dimension}&group_by=repo`);
+}
+
+// ---------------------------------------------------------------------------
+// CSV/JSON export (Item 10)
+// ---------------------------------------------------------------------------
+
+export function exportCostDrivers(
+  period = 30,
+  fmt: "csv" | "json" = "csv",
+): string {
+  return `/api/analytics/export?period=${period}&fmt=${fmt}`;
 }

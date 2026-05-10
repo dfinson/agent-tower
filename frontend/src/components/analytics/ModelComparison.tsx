@@ -77,6 +77,9 @@ export function ModelComparison({
               <th className="text-right py-1.5 px-2 font-medium">
                 <Tooltip content="Cache hit rate — % of input tokens served from cache"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Cache %</span></Tooltip>
               </th>
+              <th className="text-right py-1.5 px-2 font-medium">
+                <Tooltip content="API-equivalent cost per line of diff output"><span className="cursor-help border-b border-dotted border-muted-foreground/50">$/Line</span></Tooltip>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -107,6 +110,15 @@ export function ModelComparison({
                 <td className="text-right py-1.5 px-2">{m.discarded > 0 ? <span className="text-yellow-400">{m.discarded}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2">{m.failed > 0 ? <span className="text-red-400">{m.failed}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2"><span className={cacheColor}>{cacheRate.toFixed(0)}%</span></td>
+                <td className="text-right py-1.5 px-2">
+                  {m.costPerDiffLine > 0 ? (
+                    <Tooltip content={`${formatUsd(m.costPerDiffLine)} per diff line (added+removed)`}>
+                      <span className="cursor-help">{formatUsd(m.costPerDiffLine)}</span>
+                    </Tooltip>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
               </tr>
             );})}
           </tbody>

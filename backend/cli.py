@@ -469,6 +469,60 @@ def setup() -> None:
     execute_setup_wizard()
 
 
+@cli.command(name="backfill-attribution")
+@click.option("--batch-size", default=50, type=int, help="Jobs per batch")
+@click.option("--dry-run", is_flag=True, help="Count eligible jobs without processing")
+def backfill_attribution(batch_size: int, dry_run: bool) -> None:
+    """Re-run cost attribution for historical jobs missing model/cache columns."""
+    import asyncio
+
+    async def _run() -> None:
+        from sqlalchemy import text
+        from backend.persistence.database import get_engine
+
+        engine = get_engine()
+        async with engine.begin() as conn:
+            # Find jobs that have telemetry but no attribution rows with model set
+            result = await conn.execute(text("""
+                SELECT t.job_id
+                FROM job_telemetry_summary t
+                LEFT JOIN job_cost_attribution a
+                    ON a.job_id = t.job_id AND a.model IS NOT NULL AND a.model != ''
+                WHERE a.job_id IS NULL
+                    AND t.total_cost_usd > 0
+                ORDER BY t.created_at DESC
+            """))
+            job_ids = [r[0] for r in result.fetchall()]
+
+        if dry_run:
+            click.echo(f"Found {len(job_ids)} jobs eligible for attribution backfill.")
+            return
+
+        click.echo(f"Backfilling attribution for {len(job_ids)} jobs…")
+
+        from backend.persistence.database import async_session_factory
+        from backend.services.cost_attribution import compute_and_store_attribution
+
+        processed = 0
+        errors = 0
+        for i in range(0, len(job_ids), batch_size):
+            batch = job_ids[i : i + batch_size]
+            for job_id in batch:
+                try:
+                    async with async_session_factory() as session:
+                        await compute_and_store_attribution(session, job_id)
+                        await session.commit()
+                    processed += 1
+                except Exception as exc:
+                    errors += 1
+                    click.echo(f"  Error for {job_id}: {exc}", err=True)
+            click.echo(f"  Processed {min(i + batch_size, len(job_ids))}/{len(job_ids)}")
+
+        click.echo(f"Done. Processed={processed}, Errors={errors}")
+
+    asyncio.run(_run())
+
+
 @cli.command()
 @click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
 def doctor(as_json: bool) -> None:

@@ -305,7 +305,10 @@ class TelemetryAnalyticsRepository(BaseRepository):
                         ELSE 0 END as cost_per_turn,
                     CASE WHEN SUM(t.tool_call_count) > 0
                         THEN COALESCE(SUM(t.total_cost_usd), 0) / SUM(t.tool_call_count)
-                        ELSE 0 END as cost_per_tool_call
+                        ELSE 0 END as cost_per_tool_call,
+                    CASE WHEN SUM(t.diff_lines_added + t.diff_lines_removed) > 0
+                        THEN COALESCE(SUM(t.total_cost_usd), 0) / SUM(t.diff_lines_added + t.diff_lines_removed)
+                        ELSE 0 END as cost_per_diff_line
                 FROM job_telemetry_summary t
                 JOIN jobs j ON j.id = t.job_id
                 WHERE t.created_at >= datetime('now', '-{int(period_days)} days')
@@ -455,3 +458,100 @@ class TelemetryAnalyticsRepository(BaseRepository):
         )
         row = result.mappings().first()
         return dict(row) if row else {}
+
+    async def yield_summary(
+        self, *, period_days: int, repo: str | None = None,
+    ) -> dict[str, Any]:
+        """Yield/ROI: job cost by resolution outcome."""
+        repo_filter = ""
+        params: dict[str, Any] = {"offset": f"-{int(period_days)} days"}
+        if repo:
+            repo_filter = "AND j.repo = :repo"
+            params["repo"] = repo
+
+        result = await self._session.execute(
+            text(f"""
+                SELECT
+                    CASE
+                        WHEN j.resolution IN ('merged', 'pr_created') THEN 'productive'
+                        WHEN j.resolution = 'discarded' THEN 'abandoned'
+                        WHEN j.state = 'failed' THEN 'failed'
+                        ELSE 'cancelled'
+                    END AS yield_category,
+                    COUNT(*) AS job_count,
+                    COALESCE(SUM(t.total_cost_usd), 0) AS total_cost_usd,
+                    COALESCE(AVG(t.total_cost_usd), 0) AS avg_cost_usd
+                FROM jobs j
+                JOIN job_telemetry_summary t ON t.job_id = j.id
+                WHERE j.created_at >= datetime('now', :offset)
+                    AND j.state IN ('completed', 'failed', 'cancelled')
+                    {repo_filter}
+                GROUP BY yield_category
+            """),
+            params,
+        )
+        rows = [dict(r) for r in result.mappings().all()]
+
+        total_cost = sum(r["total_cost_usd"] for r in rows)
+        total_jobs = sum(r["job_count"] for r in rows)
+
+        # Compute pct_of_total for each category
+        categories = []
+        for r in rows:
+            r["pct_of_total"] = (r["total_cost_usd"] / total_cost) if total_cost > 0 else 0.0
+            categories.append(r)
+
+        # Cost per merge
+        productive = next((r for r in rows if r["yield_category"] == "productive"), None)
+        merged_cost = productive["total_cost_usd"] if productive else 0.0
+        merged_count = productive["job_count"] if productive else 0
+        cost_per_merge = merged_cost / merged_count if merged_count > 0 else 0.0
+
+        return {
+            "period": period_days,
+            "categories": categories,
+            "cost_per_merge_usd": cost_per_merge,
+            "total_cost_usd": total_cost,
+            "total_jobs": total_jobs,
+        }
+
+    async def monthly_burn(self) -> dict[str, Any]:
+        """Current month spend, daily average, and projected month-end total."""
+        result = await self._session.execute(
+            text("""
+                SELECT
+                    COALESCE(SUM(total_cost_usd), 0) AS month_spend,
+                    COUNT(DISTINCT date(created_at)) AS active_days,
+                    julianday('now') - julianday(
+                        strftime('%Y-%m-01', 'now')
+                    ) + 1 AS days_elapsed
+                FROM job_telemetry_summary
+                WHERE created_at >= strftime('%Y-%m-01', 'now')
+            """),
+        )
+        row = result.mappings().first()
+        month_spend = float(row["month_spend"])
+        days_elapsed = max(float(row["days_elapsed"]), 1)
+
+        days_in_month_result = await self._session.execute(
+            text("""
+                SELECT julianday(
+                    strftime('%Y-%m-01', 'now', '+1 month')
+                ) - julianday(
+                    strftime('%Y-%m-01', 'now')
+                ) AS days_in_month
+            """),
+        )
+        days_in_month = float(
+            days_in_month_result.mappings().first()["days_in_month"]
+        )
+        daily_avg = month_spend / days_elapsed
+        projected = daily_avg * days_in_month
+
+        return {
+            "month_spend_usd": month_spend,
+            "days_elapsed": int(days_elapsed),
+            "days_in_month": int(days_in_month),
+            "daily_avg_usd": daily_avg,
+            "projected_month_end_usd": projected,
+        }

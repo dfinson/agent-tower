@@ -223,3 +223,51 @@ class AnalyticsService:
         from backend.persistence.observations_repo import ObservationsRepository
 
         await ObservationsRepository(self._session).dismiss(observation_id)
+
+    # -- Yield / ROI (Item 2) -----------------------------------------------
+
+    async def yield_summary(
+        self, *, period_days: int, repo: str | None = None,
+    ) -> dict[str, Any]:
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
+
+        return await TelemetryAnalyticsRepository(self._session).yield_summary(
+            period_days=period_days, repo=repo,
+        )
+
+    # -- Model efficiency (Item 6) ------------------------------------------
+
+    async def model_efficiency(self, *, period_days: int) -> list[dict[str, Any]]:
+        from backend.persistence.cost_attribution_repo import CostAttributionRepository
+
+        return await CostAttributionRepository(self._session).edit_efficiency_by_model(period_days)
+
+    # -- Cache efficiency (Item 7) ------------------------------------------
+
+    async def cache_efficiency(
+        self, *, period_days: int, dimension: str = "phase",
+    ) -> list[dict[str, Any]]:
+        from backend.persistence.cost_attribution_repo import CostAttributionRepository
+
+        repo = CostAttributionRepository(self._session)
+        if dimension == "activity":
+            return await repo.cache_efficiency_by_activity(period_days)
+        return await repo.cache_efficiency_by_phase(period_days)
+
+    # -- Per-repo activity breakdown (Item 4) --------------------------------
+
+    async def cost_by_repo_activity(
+        self, *, period_days: int, dimension: str = "activity",
+    ) -> list[dict[str, Any]]:
+        from backend.persistence.cost_attribution_repo import CostAttributionRepository
+
+        return await CostAttributionRepository(self._session).by_dimension_per_repo(
+            dimension, period_days,
+        )
+
+    # -- Monthly budget tracking (Item 5) ------------------------------------
+
+    async def monthly_burn(self) -> dict[str, Any]:
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
+
+        return await TelemetryAnalyticsRepository(self._session).monthly_burn()
