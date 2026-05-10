@@ -52,6 +52,13 @@ class JobRow(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     parent_job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), nullable=True)
     story_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_story_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_story_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    structural_coupling_delta: Mapped[float | None] = mapped_column(Float, nullable=True)
+    structural_cycle_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    structural_test_coverage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    structural_change_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    structural_merge_confidence: Mapped[str | None] = mapped_column(String(10), nullable=True)
     trail_state_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
 
 

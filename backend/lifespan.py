@@ -248,6 +248,7 @@ async def _wire_core_services(
     session_factory: async_sessionmaker[AsyncSession],
     event_bus: EventBus,
     config: CPLConfig,
+    coderecon_service: CodeReconService | None = None,
 ) -> _CoreServices:
     """Instantiate and wire together the core application services."""
     approval_service = ApprovalService(session_factory=session_factory)
@@ -459,7 +460,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         event_bus.subscribe(dashboard.handle_event)
 
     config = load_config()
-    services = await _wire_core_services(session_factory, event_bus, config)
+
+    # --- CodeRecon structural analysis service ---
+    coderecon_service = CodeReconService(
+        binary=config.coderecon.binary,
+        home=config.coderecon.home,
+    )
+    coderecon_service.set_event_bus(event_bus)
+
+    services = await _wire_core_services(session_factory, event_bus, config, coderecon_service)
 
     optional = await _init_optional_services(
         app,
@@ -529,12 +538,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         trail_service.drain_loop(), name="trail-enrichment-drain"
     )
 
-    # --- CodeRecon structural analysis service ---
-    coderecon_service = CodeReconService(
-        binary=config.coderecon.binary,
-        home=config.coderecon.home,
-    )
-    coderecon_service.set_event_bus(event_bus)
+    # --- CodeRecon start (instantiated earlier, before _wire_core_services) ---
     if config.coderecon.enabled:
         await coderecon_service.start()
 
@@ -646,6 +650,162 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         asyncio.create_task(_run_prefetch(), name=f"review-story-prefetch-{job_id[:8]}")
 
     event_bus.subscribe(_prefetch_review_story)
+
+    # --- §11.11 Persist review story as approval artifact on merge ---
+    async def _persist_review_story_on_resolve(event: DomainEvent) -> None:
+        if event.kind != DomainEventKind.job_resolved:
+            return
+        resolution = event.payload.get("resolution")
+        if resolution not in ("merged", "pr_created", "smart_merged"):
+            return
+        if not coderecon_service.available:
+            return
+        job_id = event.job_id
+
+        async def _run_persist() -> None:
+            try:
+                import hashlib
+                import json as _json
+
+                from backend.api.job_artifacts import _generate_review_story
+
+                async with session_factory() as session:
+                    from sqlalchemy import text
+
+                    row = await session.execute(
+                        text("SELECT repo, worktree_path, base_ref, title, prompt FROM jobs WHERE id = :jid"),
+                        {"jid": job_id},
+                    )
+                    job_row = row.one_or_none()
+                if not job_row:
+                    return
+
+                class _JobLike:
+                    def __init__(self, r: Any) -> None:
+                        self.repo = r[0]
+                        self.worktree_path = r[1]
+                        self.base_ref = r[2]
+                        self.title = r[3]
+                        self.prompt = r[4]
+
+                job_like = _JobLike(job_row)
+                result = await _generate_review_story(job_id, job_like, coderecon_service)
+
+                story_json = result.model_dump_json()
+                story_hash = hashlib.sha256(story_json.encode()).hexdigest()
+
+                async with session_factory() as session:
+                    await session.execute(
+                        text(
+                            "UPDATE jobs SET review_story_json = :story, review_story_hash = :hash "
+                            "WHERE id = :jid"
+                        ),
+                        {"story": story_json, "hash": story_hash, "jid": job_id},
+                    )
+                    await session.commit()
+                log.debug("review_story_persisted", job_id=job_id)
+            except Exception:
+                log.debug("review_story_persist_failed", job_id=job_id, exc_info=True)
+
+        asyncio.create_task(_run_persist(), name=f"review-story-persist-{job_id[:8]}")
+
+    event_bus.subscribe(_persist_review_story_on_resolve)
+
+    # --- §7.5 Post-resolution structural analytics ---
+    async def _persist_structural_analytics(event: DomainEvent) -> None:
+        if event.kind != DomainEventKind.job_resolved:
+            return
+        resolution = event.payload.get("resolution")
+        if resolution not in ("merged", "pr_created", "smart_merged"):
+            return
+        if not coderecon_service.available:
+            return
+        job_id = event.job_id
+
+        async def _run_analytics() -> None:
+            try:
+                from sqlalchemy import text
+
+                async with session_factory() as session:
+                    row = await session.execute(
+                        text("SELECT repo, worktree_path, base_ref FROM jobs WHERE id = :jid"),
+                        {"jid": job_id},
+                    )
+                    job_row = row.one_or_none()
+                if not job_row:
+                    return
+
+                repo_path, worktree_path, base_ref = job_row[0], job_row[1], job_row[2]
+                if not repo_path or not worktree_path:
+                    return
+
+                repo_name = await coderecon_service.ensure_repo_indexed(repo_path)
+
+                # Structural diff for change count and confidence
+                diff_result = await coderecon_service.semantic_diff(
+                    repo_name, base=base_ref or "HEAD", worktree=worktree_path,
+                )
+                change_count = len(diff_result.structural_changes)
+                merge_confidence = getattr(diff_result, "merge_confidence", None)
+
+                # Test coverage: did any changes touch test files?
+                test_coverage = any(
+                    c.get("file", "").startswith("test") or "/test" in c.get("file", "")
+                    for c in diff_result.structural_changes
+                )
+
+                # Cycle count in worktree
+                cycle_count = 0
+                try:
+                    cycles = await coderecon_service.graph_cycles(repo_name, worktree=worktree_path)
+                    cycle_count = len(cycles.cycles) if cycles.cycles else 0
+                except Exception:
+                    pass
+
+                # Cross-community coupling delta
+                coupling_delta: float | None = None
+                try:
+                    communities = await coderecon_service.graph_communities(repo_name, worktree=worktree_path)
+                    touched: set[str] = set()
+                    for c in diff_result.structural_changes:
+                        file_path = c.get("file", "")
+                        for comm in communities.communities:
+                            if file_path in comm.get("members", []):
+                                touched.add(comm.get("name", ""))
+                    # Coupling delta = communities touched / total communities (0-1 scale)
+                    total = len(communities.communities) if communities.communities else 1
+                    coupling_delta = len(touched) / total
+                except Exception:
+                    pass
+
+                async with session_factory() as session:
+                    await session.execute(
+                        text(
+                            "UPDATE jobs SET "
+                            "structural_change_count = :cc, "
+                            "structural_cycle_count = :cyc, "
+                            "structural_test_coverage = :tc, "
+                            "structural_coupling_delta = :cd, "
+                            "structural_merge_confidence = :mc "
+                            "WHERE id = :jid"
+                        ),
+                        {
+                            "cc": change_count,
+                            "cyc": cycle_count,
+                            "tc": test_coverage,
+                            "cd": coupling_delta,
+                            "mc": merge_confidence,
+                            "jid": job_id,
+                        },
+                    )
+                    await session.commit()
+                log.debug("structural_analytics_persisted", job_id=job_id, changes=change_count)
+            except Exception:
+                log.debug("structural_analytics_failed", job_id=job_id, exc_info=True)
+
+        asyncio.create_task(_run_analytics(), name=f"struct-analytics-{job_id[:8]}")
+
+    event_bus.subscribe(_persist_structural_analytics)
 
     # --- Share service ---
     share_service = ShareService()
