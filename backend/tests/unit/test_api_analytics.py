@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -112,17 +111,25 @@ def _job_context_data() -> dict[str, object]:
 @pytest.mark.asyncio
 async def test_scorecard_returns_data():
     """analytics_scorecard delegates to service and returns enriched dict."""
-    svc = _mock_analytics_svc(scorecard=_scorecard_data())
+    scorecard_data = _scorecard_data()
+    scorecard_data["period"] = 7
+    scorecard_data["dailySpendLimitUsd"] = 25.0
+    scorecard_data["monthly_budget_usd"] = 0.0
+    scorecard_data["month_spend_usd"] = 0.0
+    scorecard_data["projected_month_end_usd"] = 0.0
+    scorecard_data["days_elapsed"] = 0
+    scorecard_data["days_in_month"] = 30
+    scorecard_data["daily_avg_usd"] = 0.0
+    scorecard_data["pct_monthly_budget_used"] = 0.0
+    scorecard_data["cost_per_diff_line"] = 0.0
+    scorecard_data["total_diff_lines"] = 0
+    scorecard_data["compaction_cost_usd"] = 0.0
+    scorecard_data["compaction_tokens"] = 0
+    svc = _mock_analytics_svc(enriched_scorecard=scorecard_data)
 
-    with patch("backend.config.load_config") as mock_load_config:
-        mock_cfg = SimpleNamespace(
-            telemetry=SimpleNamespace(daily_spend_limit_usd=25.0),
-        )
-        mock_load_config.return_value = mock_cfg
+    from backend.api.analytics import analytics_scorecard
 
-        from backend.api.analytics import analytics_scorecard
-
-        result = await analytics_scorecard(svc=svc, period=7)
+    result = await analytics_scorecard(svc=svc, period=7)
 
     assert result.activity.total_jobs == 5
     assert len(result.budget) > 0

@@ -19,6 +19,8 @@ from backend.models.api_schemas import (
     AnalyticsPricingResponse,
     AnalyticsReposResponse,
     AnalyticsToolsResponse,
+    ActivityPhaseCell,
+    ActivityPhaseMatrixResponse,
     CacheEfficiencyResponse,
     CacheEfficiencyRow,
     CostAttributionBucket,
@@ -27,7 +29,10 @@ from backend.models.api_schemas import (
     DismissResponse,
     EditEfficiencyCategory,
     EditEfficiencyResponse,
+    ExecutiveSummaryResponse,
     FileAccessJobResponse,
+    FileCostEntry,
+    FileCostResponse,
     FleetCostDriversResponse,
     FleetFileAccessResponse,
     FleetLatencyDriversResponse,
@@ -38,6 +43,8 @@ from backend.models.api_schemas import (
     ModelEfficiencyRow,
     ModelPricingEntry,
     ObservationsListResponse,
+    OutcomeMatrixCell,
+    OutcomeMatrixResponse,
     RepoCostBreakdown,
     RepoCostDriversResponse,
     RetryCostResponse,
@@ -45,6 +52,7 @@ from backend.models.api_schemas import (
     ShellCommandsResponse,
     TriggerAnalysisResponse,
     TurnEconomicsResponse,
+    WasteBreakdown,
     YieldCategoryRow,
     YieldResponse,
 )
@@ -542,6 +550,91 @@ async def analytics_cache_efficiency(
         period=period,
         dimension=dimension,
         buckets=[CacheEfficiencyRow(**r) for r in rows],
+    )
+
+
+# ---------------------------------------------------------------------------
+# File cost (Item 14)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/file-cost", response_model=FileCostResponse)
+async def analytics_file_cost(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+) -> FileCostResponse:
+    """Most expensive files across the fleet."""
+    rows = await svc.file_cost_fleet(period_days=period, limit=limit)
+    return FileCostResponse(
+        files=[FileCostEntry(**r) for r in rows],
+        period_days=period,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Outcome matrix (Item 15)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/outcome-matrix", response_model=OutcomeMatrixResponse)
+async def analytics_outcome_matrix(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> OutcomeMatrixResponse:
+    """Cost breakdown by activity × job resolution."""
+    cells = await svc.outcome_cost_matrix(period_days=period)
+    total_waste = sum(
+        c["cost_usd"] for c in cells
+        if c.get("resolution") in ("discarded", "failed")
+    )
+    return OutcomeMatrixResponse(
+        cells=[OutcomeMatrixCell(**c) for c in cells],
+        period_days=period,
+        total_waste_usd=total_waste,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Activity × Phase heatmap (Item 16)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/activity-phase-matrix", response_model=ActivityPhaseMatrixResponse)
+async def analytics_activity_phase_matrix(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> ActivityPhaseMatrixResponse:
+    """Phase × activity cost heatmap across the fleet."""
+    cells = await svc.activity_phase_matrix(period_days=period)
+    return ActivityPhaseMatrixResponse(
+        cells=[ActivityPhaseCell(**c) for c in cells],
+        period_days=period,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Executive summary (Item 18)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/executive-summary", response_model=ExecutiveSummaryResponse)
+async def analytics_executive_summary(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> ExecutiveSummaryResponse:
+    """Simplified 3-bucket executive view: building / thinking / wasted."""
+    data = await svc.executive_summary(period_days=period)
+    return ExecutiveSummaryResponse(
+        building_usd=data["building_usd"],
+        thinking_usd=data["thinking_usd"],
+        wasted_usd=data["wasted_usd"],
+        total_usd=data["total_usd"],
+        building_pct=data["building_pct"],
+        thinking_pct=data["thinking_pct"],
+        wasted_pct=data["wasted_pct"],
+        waste_breakdown=WasteBreakdown(**data["waste_breakdown"]),
+        period_days=data["period_days"],
     )
 
 

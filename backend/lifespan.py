@@ -130,6 +130,8 @@ class _CoreServices:
     merge_service: MergeService
     sister_sessions: SisterSessionManager
     runtime_service: RuntimeService
+    git_service: GitService
+    diff_service: DiffService
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +344,8 @@ async def _wire_core_services(
         merge_service=merge_service,
         sister_sessions=sister_sessions,
         runtime_service=runtime_service,
+        git_service=git_service,
+        diff_service=diff_service,
     )
 
 
@@ -351,7 +355,8 @@ class _OptionalServices:
 
     terminal_service: TerminalService | None
     retention_task: asyncio.Task[None]
-    mcp_cleanup: Any
+    mcp_task: asyncio.Task[None]
+    mcp_stop_event: asyncio.Event
     voice_service: VoiceService
     voice_max_bytes: int
     cached_models_by_sdk: dict[str, list[dict[str, object]]]
@@ -437,6 +442,21 @@ async def _init_optional_services(
     )
 
     # --- MCP server ---
+    #
+    # The MCP SDK's streamable_http_app() returns a Starlette app whose lifespan
+    # calls session_manager.run() — an anyio task group context manager.  When
+    # FastAPI mounts this sub-app it merges the sub-app lifespan into the parent
+    # chain.  Because FastAPI's merged lifespan yields (to let the app serve),
+    # the anyio task-group scope ends up being entered and exited in different
+    # task contexts, causing:
+    #
+    #   RuntimeError: Attempted to exit cancel scope in a different task
+    #
+    # Fix: wrap the sub-app in an ASGI middleware that intercepts lifespan
+    # events (standard ASGI protocol), preventing the sub-app's own lifespan
+    # from firing.  We then manage session_manager.run() ourselves in a
+    # dedicated asyncio task where the anyio scope stays within one task.
+    #
     from backend.mcp.server import create_mcp_server
 
     mcp_server = create_mcp_server(
@@ -446,17 +466,50 @@ async def _init_optional_services(
         sister_sessions=services.sister_sessions,
     )
     mcp_app = mcp_server.streamable_http_app()
-    app.mount(MCP_PATH, mcp_app)
-    # Manually start the session manager's task group (sub-app lifespan
-    # doesn't fire when mounted during the parent's lifespan).
-    mcp_ctx = mcp_server.session_manager.run()
-    await mcp_ctx.__aenter__()
+
+    class _StripLifespan:
+        """ASGI wrapper that handles lifespan events as no-ops.
+
+        All HTTP/WebSocket scopes pass through to the wrapped app unchanged.
+        Lifespan scopes are acknowledged immediately without delegating to the
+        wrapped app, preventing it from running its own lifespan logic.
+        """
+
+        __slots__ = ("_app",)
+
+        def __init__(self, wrapped_app: Any) -> None:
+            self._app = wrapped_app
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope["type"] == "lifespan":
+                await receive()  # lifespan.startup
+                await send({"type": "lifespan.startup.complete"})
+                await receive()  # lifespan.shutdown
+                await send({"type": "lifespan.shutdown.complete"})
+                return
+            await self._app(scope, receive, send)
+
+    app.mount(MCP_PATH, _StripLifespan(mcp_app))
+
+    # Run the session manager in a dedicated asyncio task.  This keeps the
+    # anyio task-group scope entirely within one task for its full lifetime.
+    mcp_stop_event = asyncio.Event()
+    mcp_started_event = asyncio.Event()
+
+    async def _run_mcp_session_manager() -> None:
+        async with mcp_server.session_manager.run():
+            mcp_started_event.set()
+            await mcp_stop_event.wait()
+
+    mcp_task = asyncio.create_task(_run_mcp_session_manager(), name="mcp-session-mgr")
+    await mcp_started_event.wait()
     log.debug("mcp_server_mounted", path=MCP_PATH)
 
     return _OptionalServices(
         terminal_service=terminal_service,
         retention_task=retention_task,
-        mcp_cleanup=mcp_ctx,
+        mcp_task=mcp_task,
+        mcp_stop_event=mcp_stop_event,
         voice_service=voice_service,
         voice_max_bytes=voice_max_bytes,
         cached_models_by_sdk=cached_models_by_sdk,
@@ -829,8 +882,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         event_bus=event_bus,
         session_factory=session_factory,
         config=config,
-        git_service=git_service,
-        diff_service=diff_service,
+        git_service=services.git_service,
+        diff_service=services.diff_service,
         merge_service=services.merge_service,
         trail_service=trail_service,
         coderecon_service=coderecon_service,
@@ -900,7 +953,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if dashboard is not None:
         dashboard.stop()
     await container.close()
-    await optional.mcp_cleanup.__aexit__(None, None, None)
+    optional.mcp_stop_event.set()
+    await optional.mcp_task
     optional.retention_task.cancel()
     motivation_task.cancel()
     trail_task.cancel()
