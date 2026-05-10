@@ -227,7 +227,8 @@ async def register_repo_endpoint(
             structlog.get_logger().warning("clone_failed", source=source, exc_info=exc)
             raise HTTPException(status_code=400, detail="Clone failed") from exc
         register_repo(config, cloned_path)
-        await coderecon.ensure_repo_indexed(cloned_path)
+        if coderecon.available:
+            await coderecon.ensure_repo_indexed(cloned_path)
         return RegisterRepoResponse(path=cloned_path, source=source, cloned=True)
 
     # Local path
@@ -239,7 +240,8 @@ async def register_repo_endpoint(
             detail=f"Not a valid git repository: {source}",
         )
     register_repo(config, resolved)
-    await coderecon.ensure_repo_indexed(resolved)
+    if coderecon.available:
+        await coderecon.ensure_repo_indexed(resolved)
     return RegisterRepoResponse(path=resolved, source=source, cloned=False)
 
 
@@ -265,7 +267,8 @@ async def create_repo_endpoint(
         raise HTTPException(status_code=400, detail="Failed to create repository") from exc
 
     register_repo(config, repo_path)
-    await coderecon.ensure_repo_indexed(repo_path)
+    if coderecon.available:
+        await coderecon.ensure_repo_indexed(repo_path)
     return CreateRepoResponse(path=repo_path, name=resolved.name)
 
 

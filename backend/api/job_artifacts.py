@@ -475,6 +475,7 @@ async def resolve_job(
     runtime_service: FromDishka[RuntimeService],
     merge_service: FromDishka[MergeService],
     event_bus: FromDishka[EventBus],
+    coderecon: FromDishka[CodeReconService],
 ) -> ResolveJobResponse:
     """Resolve a review job: merge, create PR, discard, or resolve with agent."""
     job = await svc.validate_for_resolution(job_id)
@@ -483,18 +484,7 @@ async def resolve_job(
     # is a merge action, require explicit confirmation from the operator.
     if body.action in (ResolutionAction.merge, ResolutionAction.smart_merge) and not body.confirm_low_confidence:
         try:
-            from backend.services.coderecon_service import CodeReconService
-            coderecon: CodeReconService | None = None
-            try:
-                from dishka import AsyncContainer
-                # Try to get CodeReconService from the request scope
-                coderecon = await session.info.get("coderecon", None)  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            if coderecon is None:
-                # Fallback: import from DI container via runtime_service
-                coderecon = getattr(runtime_service, "_coderecon_service", None)
-            if coderecon is not None and coderecon.available and job.repo and job.worktree_path:
+            if coderecon.available and job.repo and job.worktree_path:
                 story = await _generate_review_story(job_id, job, coderecon)
                 if story.available and story.header and story.header.merge_confidence == "LOW":
                     blocker_list = []
