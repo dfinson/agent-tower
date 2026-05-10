@@ -595,6 +595,13 @@ class IngestService:
         if job and job.state == JobState.running:
             await self._transition_state(job_id, JobState.review)
 
+        # Final diff calculation (bypasses throttle) before we clean up context
+        ctx = self._job_ctx.get(job_id)
+        if ctx and self._processor._diff_service:
+            await self._processor._diff_service.finalize(
+                job_id, ctx.worktree_path, ctx.base_ref
+            )
+
         # Notify processor of terminal state (closes step tracker)
         await self._processor.on_job_terminal(job_id, JobState.review)
 

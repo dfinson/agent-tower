@@ -181,7 +181,6 @@ async def get_job_diff(
     if (
         job.state in (JobState.running, JobState.waiting_for_approval)
         and job.worktree_path
-        and job.worktree_path != job.repo
     ):
         try:
             files = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
