@@ -8,6 +8,7 @@ export type ReviewSubView = "dashboard" | "timeline" | "communities" | "narrativ
 interface ReviewSubTabsProps {
   active: ReviewSubView;
   onChange: (view: ReviewSubView) => void;
+  showDashboard?: boolean;
   showTimeline: boolean;
   showCommunities?: boolean;
 }
@@ -20,10 +21,11 @@ const TABS: Array<{ id: ReviewSubView; icon: typeof LayoutDashboard; label: stri
   { id: "story", icon: BookOpen, label: "Story" },
 ];
 
-export function ReviewSubTabs({ active, onChange, showTimeline, showCommunities = true }: ReviewSubTabsProps) {
+export function ReviewSubTabs({ active, onChange, showDashboard = true, showTimeline, showCommunities = true }: ReviewSubTabsProps) {
   return (
     <div className="flex items-center gap-1 px-4 pt-3 pb-1">
       {TABS.map(({ id, icon: Icon, label }) => {
+        if (id === "dashboard" && !showDashboard) return null;
         if (id === "timeline" && !showTimeline) return null;
         if (id === "communities" && !showCommunities) return null;
         const isActive = active === id;

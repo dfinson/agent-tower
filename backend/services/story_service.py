@@ -118,7 +118,8 @@ class TrailBeat(TypedDict, total=False):
 
 _STORY_SYSTEM = (
     "You write technical narratives about coding sessions. You receive a "
-    "numbered list of code changes with snippets, motivation summaries, and "
+    "numbered list of code changes (or session events for investigative tasks) "
+    "with snippets, motivation summaries, and "
     "session context. Write a first-person narrative that a human reviewer "
     "can follow like a blog post — not a terse summary, not a commit log, "
     "but an actual story of what happened and why.\n\n"
@@ -264,12 +265,17 @@ def _truncate(s: str | None, max_len: int) -> str:
 async def _build_references(
     session: "AsyncSession", job_id: str,
 ) -> list[StoryReference]:
-    """Build validated reference dicts from trail write sub-nodes, chronologically."""
+    """Build validated reference dicts from trail nodes, chronologically.
+
+    Prefers write nodes (file-level changes with snippets).  When no write
+    nodes exist — e.g. investigative or audit tasks — falls back to all
+    enriched trail nodes so the story still has anchors.
+    """
     from sqlalchemy import select, text
 
     from backend.models.db import TrailNodeRow
 
-    # Fetch write sub-nodes ordered chronologically
+    # Try write nodes first — they're the strongest story anchors
     stmt = (
         select(TrailNodeRow)
         .where(TrailNodeRow.job_id == job_id)
@@ -277,8 +283,20 @@ async def _build_references(
         .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
     )
     result = await session.execute(stmt)
-    write_nodes = list(result.scalars().all())
-    if not write_nodes:
+    nodes = list(result.scalars().all())
+
+    # Fallback: use all enriched trail nodes when no writes exist
+    if not nodes:
+        stmt = (
+            select(TrailNodeRow)
+            .where(TrailNodeRow.job_id == job_id)
+            .where(TrailNodeRow.enrichment == "complete")
+            .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
+        )
+        result = await session.execute(stmt)
+        nodes = list(result.scalars().all())
+
+    if not nodes:
         return []
 
     # Fetch step metadata (step_number, title, intent) keyed by turn_id
@@ -295,9 +313,9 @@ async def _build_references(
         if r["turn_id"]:
             step_map[r["turn_id"]] = dict(r)
 
-    # Deduplicate by file+step — keep latest per group
+    # Deduplicate — by file+step for writes, by kind+seq for others
     seen: dict[str, StoryReference] = {}
-    for node in write_nodes:
+    for node in nodes:
         file_val = ""
         if node.files:
             files_list = json.loads(node.files)
@@ -306,15 +324,21 @@ async def _build_references(
         step_info = step_map.get(node.turn_id or "")
         step_number = step_info["step_number"] if step_info else None
 
-        if not file_val or step_number is None:
-            key = f"__node_{node.id}"
+        is_write = node.kind == "write"
+
+        if is_write:
+            if not file_val or step_number is None:
+                key = f"__node_{node.id}"
+            else:
+                key = f"{file_val}|{step_number}"
         else:
-            key = f"{file_val}|{step_number}"
+            # Non-write nodes: one entry per kind+seq
+            key = f"__{node.kind}_{node.seq}"
 
         ref: StoryReference = {
             "spanId": node.id,
             "file": file_val,
-            "why": node.write_summary or "",
+            "why": node.write_summary or node.intent or node.rationale or "",
             "stepNumber": step_number,
             "stepTitle": _truncate(step_info.get("title") if step_info else None, 60),
             "turnId": node.turn_id or "",
@@ -329,8 +353,8 @@ async def _build_references(
             ref["phase"] = node.phase
         if step_info and step_info.get("intent"):
             ref["stepIntent"] = step_info["intent"]
-        # Merge per-edit details if available
-        if node.edit_motivations:
+        # Merge per-edit details if available (write nodes only)
+        if is_write and node.edit_motivations:
             try:
                 edits = json.loads(node.edit_motivations)
                 if isinstance(edits, list) and edits:
@@ -507,8 +531,10 @@ def _build_prompt(
                 line += f"\n    Proposed: {a['proposed_action']}"
             parts.append(line)
 
-    # Changes — grouped by activity when available
-    parts.append(f"\n## CHANGES ({len(refs)} total, chronological)")
+    # Entries — grouped by activity when available
+    has_files = any(ref.get("file") for ref in refs)
+    section_label = "CHANGES" if has_files else "SESSION EVENTS"
+    parts.append(f"\n## {section_label} ({len(refs)} total, chronological)")
 
     activities: dict[str, list[tuple[int, StoryReference]]] = {}
     ungrouped: list[tuple[int, StoryReference]] = []
@@ -521,14 +547,15 @@ def _build_prompt(
 
     def _fmt_ref(idx: int, ref: StoryReference) -> list[str]:
         lines: list[str] = []
-        line = f"{idx}. **{ref['file']}**"
-        if ref.get("stepTitle"):
-            line += f" (step {ref.get('stepNumber', '?')}: {ref['stepTitle']})"
+        anchor = ref.get("file") or ref.get("stepTitle") or ref.get("why") or f"event {idx}"
+        line = f"{idx}. **{anchor}**"
+        if ref.get("file") and ref.get("stepTitle"):
+            line = f"{idx}. **{ref['file']}** (step {ref.get('stepNumber', '?')}: {ref['stepTitle']})"
         if ref.get("isRetry"):
             line += " [RETRY]"
         if ref.get("errorKind"):
             line += f" [error: {ref['errorKind']}]"
-        if ref.get("why"):
+        if ref.get("why") and ref.get("why") != anchor:
             line += f" — {ref['why']}"
         if ref.get("editCount") and ref["editCount"] > 1:
             line += f" [{ref['editCount']} edits]"
@@ -760,8 +787,15 @@ class StoryService:
         from sqlalchemy import text
 
         refs = await _build_references(session, job_id)
-        if len(refs) < 2:
-            return None  # not enough changes for a meaningful story
+
+        ctx = await _collect_context(session, job_id)
+        if not ctx:
+            return None
+
+        # Need at least some trail data or context to generate a story
+        beats = ctx.get("trail_beats", [])
+        if not refs and not beats:
+            return None  # no trail data at all
 
         # Guard against write-summary staleness — if there are write sub-nodes
         # still missing their write_summary, skip caching so the next

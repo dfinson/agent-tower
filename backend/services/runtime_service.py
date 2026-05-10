@@ -658,7 +658,7 @@ class RuntimeService:
             self._heartbeat_tasks.pop(job_id, None)
             if self._trail_service is not None:
                 self._trail_service.stop_tracking(job_id)
-                succeeded = final_state == JobState.completed
+                succeeded = final_state in (JobState.completed, JobState.review)
                 await self._trail_service.finalize(job_id, succeeded=succeeded)
             await self._cleanup_job_state(job_id)
 

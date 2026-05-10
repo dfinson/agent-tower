@@ -225,59 +225,9 @@ export function ActivityTimeline({
   // When the job has reached a terminal state, force all activities to "done"
   // so the spinner stops.
   const jobFinished = !!jobState && TERMINAL_STATES.has(jobState);
-  const rawActivities = jobFinished
+  const activities = jobFinished
     ? timeline.activities.map((a) => a.status === "active" ? { ...a, status: "done" as const } : a)
     : timeline.activities;
-
-  // Post-process: merge all activities with the same label (even
-  // non-consecutive) to eliminate duplicate headings, then absorb
-  // single-step activities into their neighbor so there are no naked
-  // orphan steps.
-  const merged = rawActivities.reduce<typeof rawActivities>((acc, act) => {
-    const existing = acc.find((a) => a.label === act.label);
-    if (existing) {
-      // Merge into first occurrence: combine steps, keep latest status
-      const idx = acc.indexOf(existing);
-      acc[idx] = {
-        ...existing,
-        steps: [...existing.steps, ...act.steps],
-        status: act.status,
-        planItemId: act.planItemId ?? existing.planItemId,
-      };
-    } else {
-      acc.push(act);
-    }
-    return acc;
-  }, []);
-
-  // Absorb single-step activities into the next (or previous) neighbor
-  const activities: typeof merged = [];
-  for (let i = 0; i < merged.length; i++) {
-    const act = merged[i]!;
-    if (act.steps.length === 1 && merged.length > 1) {
-      // Try absorb into the next activity
-      const next = merged[i + 1];
-      if (next) {
-        merged[i + 1] = {
-          ...next,
-          steps: [...act.steps, ...next.steps],
-          planItemId: next.planItemId ?? act.planItemId,
-        };
-        continue;
-      }
-      // No next — absorb into previous
-      const prev = activities[activities.length - 1];
-      if (prev) {
-        activities[activities.length - 1] = {
-          ...prev,
-          steps: [...prev.steps, ...act.steps],
-          planItemId: prev.planItemId ?? act.planItemId,
-        };
-        continue;
-      }
-    }
-    activities.push(act);
-  }
 
   if (activities.length === 0 && planSteps.length === 0) {
     return (

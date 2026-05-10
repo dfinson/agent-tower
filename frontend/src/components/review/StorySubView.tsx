@@ -17,6 +17,7 @@ import { useStore } from "../../store";
 import { selectReviewStory, selectJobStory } from "../../store/selectors";
 import type { StoryResponse, StoryBlock } from "../../api/types";
 import { Spinner } from "../ui/spinner";
+import { NarrativeSubView } from "./NarrativeSubView";
 
 interface StorySubViewProps {
   jobId: string;
@@ -217,11 +218,8 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
   }
 
   if (!story || story.blocks.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
-        Not enough data to generate a story yet.
-      </div>
-    );
+    // Fall back to narrative view when trail story has insufficient data
+    return <NarrativeSubView jobId={jobId} />;
   }
 
   return (

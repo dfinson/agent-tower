@@ -76,10 +76,16 @@ export function PlanPanel({ jobId, jobState }: { jobId: string; jobState?: strin
   const rawSteps = useStore(selectJobPlan(jobId));
   const setHoveredPlanItemId = useStore((s) => s.setHoveredPlanItemId);
   const [expanded, setExpanded] = useState(true);
-  // Force active→done when the job has reached a terminal state
+  // Force all incomplete steps to done when the job has finished successfully.
+  // For failed/canceled jobs, only force active→done (pending stays pending).
   const jobFinished = !!jobState && TERMINAL_STATES.has(jobState);
+  const jobSucceeded = jobState === "review" || jobState === "completed" || jobState === "archived";
   const steps = jobFinished
-    ? rawSteps.map((s) => s.status === "active" ? { ...s, status: "done" as const } : s)
+    ? rawSteps.map((s) => {
+        if (s.status === "active") return { ...s, status: "done" as const };
+        if (s.status === "pending" && jobSucceeded) return { ...s, status: "done" as const };
+        return s;
+      })
     : rawSteps;
   const visible = steps.filter((s) => s.status !== "skipped");
 

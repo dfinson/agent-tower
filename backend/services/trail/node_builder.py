@@ -522,10 +522,14 @@ class TrailNodeBuilder:
         if not state:
             return
 
-        # Delegate plan classification to PlanManager
+        # Delegate plan classification to PlanManager.
+        # Isolated: failures here must not prevent turn_summary emission below.
         assigned_plan_step_id: str | None = None
         if self._plan_manager:
-            assigned_plan_step_id = await self._plan_manager.classify_turn(job_id, payload)
+            try:
+                assigned_plan_step_id = await self._plan_manager.classify_turn(job_id, payload)
+            except Exception:
+                log.warning("classify_turn_failed", job_id=job_id, node_id=node_id, exc_info=True)
 
         # Delegate activity step to ActivityTracker
         turn_id = payload.get("turn_id")

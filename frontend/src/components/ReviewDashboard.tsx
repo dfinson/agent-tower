@@ -326,6 +326,7 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
       <ReviewSubTabs
         active={subView}
         onChange={setSubView}
+        showDashboard={available}
         showTimeline={showTimeline}
         showCommunities={showCommunities}
       />
