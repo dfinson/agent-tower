@@ -401,6 +401,9 @@ export interface ScorecardResponse {
   // Cost-per-line (Item 9)
   costPerDiffLine: number;
   totalDiffLines: number;
+  // Compaction cost (Item 13)
+  compactionCostUsd: number;
+  compactionTokens: number;
 }
 
 export interface ModelComparisonRow {
@@ -616,4 +619,99 @@ export function exportCostDrivers(
   fmt: "csv" | "json" = "csv",
 ): string {
   return `/api/analytics/export?period=${period}&fmt=${fmt}`;
+}
+
+// ---------------------------------------------------------------------------
+// File cost (Item 14)
+// ---------------------------------------------------------------------------
+
+export interface FileCostEntry {
+  filePath: string;
+  totalCostUsd: number;
+  totalReadCost: number;
+  totalWriteCost: number;
+  totalTurns: number;
+  jobCount: number;
+}
+
+export interface FileCostResponse {
+  files: FileCostEntry[];
+  periodDays: number;
+}
+
+export function fetchFileCost(period = 30, limit = 30): Promise<FileCostResponse> {
+  return request(`/analytics/file-cost?period=${period}&limit=${limit}`);
+}
+
+// ---------------------------------------------------------------------------
+// Outcome matrix (Item 15)
+// ---------------------------------------------------------------------------
+
+export interface OutcomeMatrixCell {
+  activity: string;
+  resolution: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  jobCount: number;
+}
+
+export interface OutcomeMatrixResponse {
+  cells: OutcomeMatrixCell[];
+  periodDays: number;
+  totalWasteUsd: number;
+}
+
+export function fetchOutcomeMatrix(period = 30): Promise<OutcomeMatrixResponse> {
+  return request(`/analytics/outcome-matrix?period=${period}`);
+}
+
+// ---------------------------------------------------------------------------
+// Activity × Phase matrix (Item 16)
+// ---------------------------------------------------------------------------
+
+export interface ActivityPhaseCell {
+  activity: string;
+  phase: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  callCount: number;
+  jobCount: number;
+}
+
+export interface ActivityPhaseMatrixResponse {
+  cells: ActivityPhaseCell[];
+  periodDays: number;
+}
+
+export function fetchActivityPhaseMatrix(period = 30): Promise<ActivityPhaseMatrixResponse> {
+  return request(`/analytics/activity-phase-matrix?period=${period}`);
+}
+
+// ---------------------------------------------------------------------------
+// Executive summary (Item 18)
+// ---------------------------------------------------------------------------
+
+export interface WasteBreakdown {
+  retryUsd: number;
+  failedJobsUsd: number;
+  compactionUsd: number;
+  rereadsUsd: number;
+}
+
+export interface ExecutiveSummaryResponse {
+  buildingUsd: number;
+  thinkingUsd: number;
+  wastedUsd: number;
+  totalUsd: number;
+  buildingPct: number;
+  thinkingPct: number;
+  wastedPct: number;
+  wasteBreakdown: WasteBreakdown;
+  periodDays: number;
+}
+
+export function fetchExecutiveSummary(period = 30): Promise<ExecutiveSummaryResponse> {
+  return request(`/analytics/executive-summary?period=${period}`);
 }

@@ -14,6 +14,10 @@ import {
   fetchYield,
   fetchCacheEfficiency,
   fetchModelEfficiency,
+  fetchFileCost,
+  fetchOutcomeMatrix,
+  fetchActivityPhaseMatrix,
+  fetchExecutiveSummary,
   exportCostDrivers,
   type ScorecardResponse,
   type ModelComparisonResponse,
@@ -25,6 +29,10 @@ import {
   type YieldResponse,
   type CacheEfficiencyResponse,
   type ModelEfficiencyResponse,
+  type FileCostResponse,
+  type OutcomeMatrixResponse,
+  type ActivityPhaseMatrixResponse,
+  type ExecutiveSummaryResponse,
 } from "../api/client";
 import {
   formatRelativeTime,
@@ -44,6 +52,13 @@ import {
   YieldCard,
   CacheEfficiencyChart,
 } from "./AnalyticsWidgets";
+import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
+import { FileCostBreakdown } from "./analytics/FileCostBreakdown";
+import { OutcomeMatrix } from "./analytics/OutcomeMatrix";
+import { ActivityPhaseHeatmap } from "./analytics/ActivityPhaseHeatmap";
+import { MotivationBreakdown } from "./analytics/MotivationBreakdown";
+import { ExecutiveSummary } from "./analytics/ExecutiveSummary";
+import { type CostDriversData } from "./MetricsPanelTypes";
 
 function ExportDropdown({ period }: { period: number }) {
   const [open, setOpen] = useState(false);
@@ -99,11 +114,17 @@ export function AnalyticsScreen() {
   const [tools, setTools] = useState<AnalyticsTools | null>(null);
   const [repos, setRepos] = useState<AnalyticsRepos | null>(null);
   const [fleetDrivers, setFleetDrivers] = useState<FleetCostDriversResponse | null>(null);
+  const [activityDrivers, setActivityDrivers] = useState<FleetCostDriversResponse | null>(null);
+  const [motivationDrivers, setMotivationDrivers] = useState<FleetCostDriversResponse | null>(null);
   const [fleetLatency, setFleetLatency] = useState<FleetLatencyDriversResponse | null>(null);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [yieldData, setYieldData] = useState<YieldResponse | null>(null);
   const [cacheEfficiency, setCacheEfficiency] = useState<CacheEfficiencyResponse | null>(null);
   const [modelEfficiency, setModelEfficiency] = useState<ModelEfficiencyResponse | null>(null);
+  const [fileCost, setFileCost] = useState<FileCostResponse | null>(null);
+  const [outcomeMatrix, setOutcomeMatrix] = useState<OutcomeMatrixResponse | null>(null);
+  const [activityPhaseMatrix, setActivityPhaseMatrix] = useState<ActivityPhaseMatrixResponse | null>(null);
+  const [executiveSummary, setExecutiveSummary] = useState<ExecutiveSummaryResponse | null>(null);
 
   // Per-section loading states
   const [scorecardLoading, setScorecardLoading] = useState(true);
@@ -162,6 +183,14 @@ export function AnalyticsScreen() {
       .catch(() => setFleetDrivers(null))
       .finally(() => setDriversLoading(false));
 
+    fetchFleetCostDrivers(Math.max(period, 30), "activity")
+      .then(setActivityDrivers)
+      .catch(() => setActivityDrivers(null));
+
+    fetchFleetCostDrivers(Math.max(period, 30), "motivation")
+      .then(setMotivationDrivers)
+      .catch(() => setMotivationDrivers(null));
+
     fetchFleetLatencyDrivers(Math.max(period, 30))
       .then(setFleetLatency)
       .catch(() => setFleetLatency(null))
@@ -185,6 +214,22 @@ export function AnalyticsScreen() {
     fetchModelEfficiency(Math.max(period, 30))
       .then(setModelEfficiency)
       .catch(() => setModelEfficiency(null));
+
+    fetchFileCost(Math.max(period, 30))
+      .then(setFileCost)
+      .catch(() => setFileCost(null));
+
+    fetchOutcomeMatrix(Math.max(period, 30))
+      .then(setOutcomeMatrix)
+      .catch(() => setOutcomeMatrix(null));
+
+    fetchActivityPhaseMatrix(Math.max(period, 30))
+      .then(setActivityPhaseMatrix)
+      .catch(() => setActivityPhaseMatrix(null));
+
+    fetchExecutiveSummary(period)
+      .then(setExecutiveSummary)
+      .catch(() => setExecutiveSummary(null));
   };
 
   useEffect(() => {
@@ -245,6 +290,29 @@ export function AnalyticsScreen() {
       {!obsLoading && observations.length > 0 && (
         <ObservationsPanel observations={observations} onDismiss={handleDismissObservation} />
       )}
+
+      {/* Executive Summary — 3-bucket overview */}
+      <ExecutiveSummary data={executiveSummary} />
+
+      {/* Hierarchical + Motivation views of activity cost */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <HierarchicalBreakdown
+          data={activityDrivers?.buckets ? { activity: activityDrivers.buckets } as CostDriversData : null}
+          compactionCostUsd={scorecard?.compactionCostUsd}
+        />
+        <MotivationBreakdown
+          data={motivationDrivers?.buckets ? { motivation: motivationDrivers.buckets } as CostDriversData : null}
+        />
+      </div>
+
+      {/* File-centric cost breakdown */}
+      <FileCostBreakdown data={fileCost} />
+
+      {/* Outcome × Activity cross-tab */}
+      <OutcomeMatrix data={outcomeMatrix} />
+
+      {/* Activity × Phase heatmap */}
+      <ActivityPhaseHeatmap data={activityPhaseMatrix} />
 
       {/* Top row: Budget + Activity */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

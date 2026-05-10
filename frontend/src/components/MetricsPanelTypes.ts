@@ -83,6 +83,7 @@ export interface CostDriversData {
   phase?: CostDriverBucket[];
   activityPhase?: CostDriverBucket[];
   editEfficiency?: CostDriverBucket[];
+  motivation?: CostDriverBucket[];
 }
 
 export interface TurnEconomicsData {
