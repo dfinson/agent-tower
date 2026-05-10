@@ -1,14 +1,22 @@
 """One-off backfill: classify action + purpose for all completed jobs.
 
-Action is deterministic from tool calls (no LLM needed).
-Purpose requires understanding intent — uses Copilot sessions on a cheap model.
+Both action and purpose are determined by fast deterministic heuristics —
+NO LLM calls needed. Processes 183 jobs in seconds.
+
+Purpose heuristics use a priority ladder applied per-turn:
+  1. is_retry / error_kind on trail nodes → recovering
+  2. Turn follows a test failure (retry pattern) → recovering
+  3. Test execution after writes (same turn or previous turn wrote) → verifying
+  4. Only reads/searches, no writes → orienting
+  5. Git commit/push or bookkeeping-only tools → housekeeping
+  6. Has file_write or non-trivial shell execution → advancing
+  7. Pure LLM reasoning with no tools → orienting
 
 Usage:
-    uv run python tools/backfill_attribution.py [--dry-run] [--job-id JOB_ID] [--sdk copilot|claude]
+    uv run python tools/backfill_attribution.py [--dry-run] [--job-id JOB_ID]
 
 Writes new dimension rows (action, purpose, action_purpose) to
-job_cost_attribution and job_latency_attribution. Stores purpose +
-purpose_source on trail_nodes.
+job_cost_attribution. Stores purpose + purpose_source on trail_nodes.
 """
 
 from __future__ import annotations
