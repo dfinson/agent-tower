@@ -482,14 +482,16 @@ def backfill_attribution(batch_size: int, dry_run: bool) -> None:
 
         engine = get_engine()
         async with engine.begin() as conn:
-            # Find jobs that have spans but no attribution rows with model set
+            # Find terminal-state jobs that have spans but no attribution with model
             result = await conn.execute(text("""
                 SELECT DISTINCT s.job_id
                 FROM telemetry_spans s
+                JOIN jobs j ON j.id = s.job_id
                 LEFT JOIN job_cost_attribution a
                     ON a.job_id = s.job_id AND a.model IS NOT NULL AND a.model != ''
                 WHERE a.job_id IS NULL
-                ORDER BY s.job_id DESC
+                    AND j.state IN ('completed', 'failed', 'cancelled')
+                ORDER BY j.created_at DESC
             """))
             job_ids = [r[0] for r in result.fetchall()]
 
@@ -506,15 +508,15 @@ def backfill_attribution(batch_size: int, dry_run: bool) -> None:
         errors = 0
         for i in range(0, len(job_ids), batch_size):
             batch = job_ids[i : i + batch_size]
-            for job_id in batch:
-                try:
-                    async with async_session_factory() as session:
+            async with async_session_factory() as session:
+                for job_id in batch:
+                    try:
                         await compute_attribution(session, job_id, session_factory=async_session_factory)
-                        await session.commit()
-                    processed += 1
-                except Exception as exc:
-                    errors += 1
-                    click.echo(f"  Error for {job_id}: {exc}", err=True)
+                        processed += 1
+                    except Exception as exc:
+                        errors += 1
+                        click.echo(f"  Error for {job_id}: {exc}", err=True)
+                await session.commit()
             click.echo(f"  Processed {min(i + batch_size, len(job_ids))}/{len(job_ids)}")
 
         click.echo(f"Done. Processed={processed}, Errors={errors}")

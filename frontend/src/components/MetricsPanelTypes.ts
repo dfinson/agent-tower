@@ -243,10 +243,13 @@ export function formatActivityBucket(bucket: string): string {
       return "Idle / Overhead";
     // Legacy categories (older jobs before migration)
     case "code_changes":
-    case "debugging":
-    case "refactoring":
-    case "feature_dev":
       return "Implementation";
+    case "debugging":
+      return "Debugging";
+    case "refactoring":
+      return "Refactoring";
+    case "feature_dev":
+      return "Feature Development";
     case "code_reading":
     case "search_discovery":
     case "command_execution":

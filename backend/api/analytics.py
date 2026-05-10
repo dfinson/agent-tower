@@ -580,7 +580,7 @@ async def analytics_export(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
     fmt: Annotated[str, Query(pattern="^(csv|json)$")] = "csv",
-    sections: Annotated[str, Query()] = "cost-drivers",
+    sections: Annotated[str, Query()] = "overview,models,cost-drivers",
 ) -> Response:
     """Export analytics data as CSV or JSON for external analysis.
 
@@ -595,7 +595,7 @@ async def analytics_export(
     valid_sections = {"overview", "models", "cost-drivers", "yield", "observations"}
     requested = requested & valid_sections
     if not requested:
-        requested = {"cost-drivers"}
+        requested = {"overview", "models", "cost-drivers"}
 
     combined: dict[str, list[dict]] = {}
 
@@ -623,7 +623,7 @@ async def analytics_export(
         return Response(
             content=json.dumps(combined, default=str),
             media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=analytics-export.json"},
+            headers={"Content-Disposition": f'attachment; filename="codeplane-analytics-{period}d.json"'},
         )
 
     # CSV: flatten all sections
@@ -637,7 +637,7 @@ async def analytics_export(
         return Response(
             content="",
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=analytics-export.csv"},
+            headers={"Content-Disposition": f'attachment; filename="codeplane-analytics-{period}d.csv"'},
         )
 
     # Collect all fieldnames across rows
@@ -656,5 +656,5 @@ async def analytics_export(
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=analytics-export.csv"},
+        headers={"Content-Disposition": f'attachment; filename="codeplane-analytics-{period}d.csv"'},
     )

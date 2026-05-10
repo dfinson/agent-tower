@@ -127,7 +127,7 @@ class CostAttributionRepository(BaseRepository):
     ) -> list[CostDimensionRow]:
         """Aggregate attribution across jobs for a given dimension."""
         result = await self._session.execute(
-            text(f"""
+            text("""
                 SELECT
                     bucket,
                     SUM(cost_usd) as cost_usd,
@@ -137,19 +137,19 @@ class CostAttributionRepository(BaseRepository):
                     COUNT(DISTINCT job_id) as job_count
                 FROM job_cost_attribution
                 WHERE dimension = :dimension
-                    AND created_at >= datetime('now', '-{int(period_days)} days')
+                    AND created_at >= datetime('now', '-' || :days || ' days')
                 GROUP BY bucket
                 ORDER BY cost_usd DESC
                 LIMIT :limit
             """),
-            {"dimension": dimension, "limit": limit},
+            {"dimension": dimension, "days": int(period_days), "limit": limit},
         )
         return cast("list[CostDimensionRow]", [dict(r) for r in result.mappings().all()])
 
     async def fleet_summary(self, *, period_days: int = 30) -> list[FleetCostRow]:
         """Cross-job summary: top cost buckets across all dimensions."""
         result = await self._session.execute(
-            text(f"""
+            text("""
                 SELECT
                     dimension,
                     bucket,
@@ -162,11 +162,12 @@ class CostAttributionRepository(BaseRepository):
                     COUNT(DISTINCT job_id) as job_count,
                     AVG(cost_usd) as avg_cost_per_job
                 FROM job_cost_attribution
-                WHERE created_at >= datetime('now', '-{int(period_days)} days')
+                WHERE created_at >= datetime('now', '-' || :days || ' days')
                 GROUP BY dimension, bucket
                 ORDER BY cost_usd DESC
                 LIMIT 100
             """),
+            {"days": int(period_days)},
         )
         return cast("list[FleetCostRow]", [dict(r) for r in result.mappings().all()])
 
@@ -175,7 +176,7 @@ class CostAttributionRepository(BaseRepository):
     ) -> list[dict[str, Any]]:
         """Edit efficiency aggregated per model."""
         result = await self._session.execute(
-            text(f"""
+            text("""
                 SELECT
                     a.model,
                     SUM(a.call_count) AS edit_turns,
@@ -191,11 +192,12 @@ class CostAttributionRepository(BaseRepository):
                 FROM job_cost_attribution a
                 JOIN jobs j ON j.id = a.job_id
                 WHERE a.dimension = 'edit_efficiency'
-                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND j.created_at >= datetime('now', '-' || :days || ' days')
                     AND a.model IS NOT NULL AND a.model != ''
                 GROUP BY a.model
                 ORDER BY one_shot_rate DESC
             """),
+            {"days": int(period_days)},
         )
         return [dict(r) for r in result.mappings().all()]
 
@@ -204,7 +206,7 @@ class CostAttributionRepository(BaseRepository):
     ) -> list[dict[str, Any]]:
         """Cache hit rate aggregated by execution phase from spans."""
         result = await self._session.execute(
-            text(f"""
+            text("""
                 SELECT
                     s.execution_phase AS bucket,
                     SUM(s.input_tokens) AS total_input_tokens,
@@ -217,11 +219,12 @@ class CostAttributionRepository(BaseRepository):
                 FROM telemetry_spans s
                 JOIN jobs j ON j.id = s.job_id
                 WHERE s.span_type = 'llm'
-                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND j.created_at >= datetime('now', '-' || :days || ' days')
                     AND s.execution_phase IS NOT NULL
                 GROUP BY s.execution_phase
                 ORDER BY cache_hit_rate DESC
             """),
+            {"days": int(period_days)},
         )
         return [dict(r) for r in result.mappings().all()]
 
@@ -230,7 +233,7 @@ class CostAttributionRepository(BaseRepository):
     ) -> list[dict[str, Any]]:
         """Cache hit rate aggregated by activity bucket from attribution."""
         result = await self._session.execute(
-            text(f"""
+            text("""
                 SELECT
                     a.bucket,
                     SUM(a.input_tokens) AS total_input_tokens,
@@ -243,10 +246,11 @@ class CostAttributionRepository(BaseRepository):
                 FROM job_cost_attribution a
                 JOIN jobs j ON j.id = a.job_id
                 WHERE a.dimension = 'activity'
-                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND j.created_at >= datetime('now', '-' || :days || ' days')
                 GROUP BY a.bucket
                 ORDER BY cache_hit_rate DESC
             """),
+            {"days": int(period_days)},
         )
         return [dict(r) for r in result.mappings().all()]
 
@@ -282,7 +286,7 @@ class CostAttributionRepository(BaseRepository):
     ) -> list[dict[str, Any]]:
         """Jobs where communication + reasoning cost > threshold of total."""
         result = await self._session.execute(
-            text(f"""
+            text("""
                 SELECT
                     a.job_id,
                     SUM(CASE WHEN a.bucket IN ('communication', 'reasoning')
@@ -295,10 +299,11 @@ class CostAttributionRepository(BaseRepository):
                 FROM job_cost_attribution a
                 JOIN jobs j ON j.id = a.job_id
                 WHERE a.dimension = 'activity'
-                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND j.created_at >= datetime('now', '-' || :days || ' days')
                 GROUP BY a.job_id
                 HAVING comm_pct > 0.30
                 ORDER BY comm_cost DESC
             """),
+            {"days": int(period_days)},
         )
         return [dict(r) for r in result.mappings().all()]

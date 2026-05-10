@@ -5,7 +5,7 @@ import { formatUsd } from "./helpers";
 
 const CATEGORY_COLORS: Record<string, string> = {
   productive: "bg-green-500",
-  abandoned: "bg-yellow-500",
+  abandoned: "bg-amber-500",
   failed: "bg-red-500",
   cancelled: "bg-gray-500",
 };

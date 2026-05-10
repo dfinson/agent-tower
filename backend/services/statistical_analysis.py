@@ -251,29 +251,35 @@ async def _analyse_communication_waste(
     if not rows:
         return 0
 
-    count = 0
-    for row in rows:
-        # Design doc: flag when comm_pct > 0.40 AND total_cost > $0.50
-        if row["comm_pct"] <= 0.40 or row["total_cost"] <= 0.50:
-            continue
-        if count >= 5:  # cap at 5 observations
-            break
-        pct = round(row["comm_pct"] * 100, 1)
-        await obs_repo.upsert(
-            category="communication_waste",
-            severity="warning" if pct >= 50 else "info",
-            title=f"Job {row['job_id'][:8]}… spent {pct}% on communication/reasoning",
-            detail=(
-                f"Job {row['job_id']} spent {pct}% of ${row['total_cost']:.4f} on "
-                f"communication and reasoning (${row['comm_cost']:.4f}). "
-                f"Consider tighter prompts or task decomposition."
-            ),
-            evidence={
-                "job_id": row["job_id"],
-                "total_cost_usd": row["total_cost"],
-                "communication_cost_usd": row["comm_cost"],
-                "communication_pct": pct,
-            },
-        )
-        count += 1
-    return count
+    # Design doc: flag when comm_pct > 0.40 AND total_cost > $0.50
+    flagged = [r for r in rows if r["comm_pct"] > 0.40 and r["total_cost"] > 0.50]
+    if not flagged:
+        return 0
+
+    total_waste = sum(r["comm_cost"] for r in flagged)
+    await obs_repo.upsert(
+        category="communication_waste",
+        severity="warning" if len(flagged) >= 3 else "info",
+        title=f"{len(flagged)} jobs spent >40% of cost on communication/reasoning",
+        detail=(
+            f"These jobs spent {total_waste:.4f} USD on communication and "
+            f"reasoning turns with no file edits or verification. This may "
+            f"indicate unclear prompts, excessive back-and-forth, or tasks "
+            f"that didn't need an agent."
+        ),
+        evidence={
+            "flagged_jobs": [
+                {
+                    "job_id": r["job_id"],
+                    "comm_cost_usd": round(r["comm_cost"], 4),
+                    "total_cost_usd": round(r["total_cost"], 4),
+                    "comm_pct": round(r["comm_pct"], 2),
+                }
+                for r in flagged[:10]
+            ],
+            "total_waste_usd": round(total_waste, 4),
+        },
+        job_count=len(flagged),
+        total_waste_usd=total_waste,
+    )
+    return 1
