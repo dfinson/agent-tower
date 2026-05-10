@@ -33,7 +33,7 @@ on the user's working directory directly.
 
 | Channel | Mode | Data |
 |---------|------|------|
-| OTEL File Exporter | Real-time JSONL (no batching) | Spans: `invoke_agent`, `chat <model>`, `execute_tool`. Attributes: `gen_ai.usage.input_tokens`, `output_tokens`, `github.copilot.cost`, `gen_ai.request.model`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, `github.copilot.turn_id` |
+| OTEL File Exporter | Real-time JSONL (no batching) | Single global file for ALL sessions (not per-session). Sessions distinguished by `gen_ai.conversation_id`. Spans: `invoke_agent`, `chat <model>`, `execute_tool`. Attributes: `gen_ai.usage.input_tokens`, `output_tokens`, `github.copilot.cost`, `gen_ai.request.model`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, `github.copilot.turn_id`. **Note**: No `cwd` or workspace path attribute exists in any span (empirically verified) — see §13.5 for workarounds |
 | GitHub Steer API | Cloud relay, 3s poll | `POST /agents/tasks/{taskId}/steer` — user messages, permission responses, mode switch, abort |
 
 **User setup** (one-time, in shell profile):
@@ -51,7 +51,7 @@ Launch sessions with `copilot --remote` to enable steering.
 |---------|------|------|
 | HTTP Hooks | Real-time synchronous POST | 28 event types: `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart/Stop`, `TaskCreated/Completed`, `WorktreeCreate/Remove`, etc. Payloads include `session_id`, `cwd`, `tool_name`, `tool_input`, `tool_response`, `duration_ms` |
 | Hook Responses | Synchronous return | `Stop` → `{"decision":"block","reason":"..."}` injects operator messages. `PreToolUse` → `{"permissionDecision":"deny"}` blocks tools. `PostToolUse` → `{"additionalContext":"..."}` injects context |
-| OTEL OTLP | Real-time HTTP | Metrics: `claude_code.cost.usage`, `claude_code.token.usage`, `claude_code.lines_of_code.count` |
+| OTEL OTLP | Standard OTLP protocol (gRPC or HTTP) | Metrics: `claude_code.cost.usage` (USD), `claude_code.token.usage` (tokens), `claude_code.lines_of_code.count`. Events via logs protocol: `claude_code.user_prompt`, `claude_code.tool_result`, `claude_code.api_request`. Standard attributes include `session.id`. Requires an OTLP receiver endpoint — see §13.8 |
 
 **User setup** (one-time):
 
@@ -71,10 +71,13 @@ Launch sessions with `copilot --remote` to enable steering.
 }
 ```
 
-Plus OTEL:
+Plus OTEL (requires an OTLP receiver — see §13.8):
 ```bash
 export CLAUDE_CODE_ENABLE_TELEMETRY=1
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:9418/api/otlp
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_LOGS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:9418
 ```
 
 ---
@@ -178,8 +181,8 @@ machine changes needed.
 | `prompt` | User enters in UI | First user message from session (hook `UserPromptSubmit` or OTEL content capture) |
 
 Because `repo`, `branch`, `base_ref`, and `worktree_path` are all
-populated, `MergeService`, `DiffService`, and PR creation work
-identically to managed sessions.
+populated, `DiffService` and PR creation work unchanged. `MergeService`
+requires import-aware handling — see below.
 
 **No destructive operations for imported sessions**: When `source !=
 "managed"`, CodePlane did not create the working directory or the
@@ -603,7 +606,7 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `TrailService` | Consumes `DomainEvent`s — source-agnostic |
 | `StepTracker` | Driven by `DomainEvent`s — source-agnostic |
 | `SisterSessionManager` | Not applicable (no managed sister sessions) |
-| `DiffService` | Works — `worktree_path` points to CLI's `cwd` |
+| `DiffService` | Works — `worktree_path` points to CLI's `cwd`. For Copilot: depends on resolving `cwd` (see §13.5) |
 | `MergeService` | Needs a new `_resolve_imported()` path. Existing local merge/checkout/stash logic assumes CodePlane owns the worktree — for imported sessions it must push + remote-merge instead. See §4.1 "No destructive operations" |
 | `CodeReconService` | Works — `IngestService` fires background indexing task at session start. Structural features become available when indexing completes. If the repo was already indexed (e.g. previously added via settings), structural features are immediate |
 | Frontend SSE handlers | All existing handlers work unchanged |
@@ -658,6 +661,7 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `backend/lifespan.py` | Start/stop `OtelFileWatcher` |
 | `backend/app_factory.py` | Mount hooks + ingest routers |
 | `backend/api/jobs.py` | Route operator message/cancel to `IngestService` for imported jobs. Skip worktree/branch deletion on discard when `source != "managed"` |
+| `backend/services/merge_service/_service.py` | Add `_resolve_imported()` path: push + remote merge (no local checkout/stash). Guard `_post_merge_cleanup` and `_discard` against imported sessions |
 | `frontend/src/store/types.ts` | Add `source` to `JobSummary` |
 | `frontend/src/components/JobHeaderCard.tsx` | CLI import badge |
 | `frontend/src/components/JobDetailScreen.tsx` | No functional changes (full parity) — all action buttons work for imported sessions |
@@ -681,16 +685,25 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 
 ## 13. Open Questions
 
-1. **Multiple concurrent CLI sessions**: The OTEL file watcher sees all
-   sessions interleaved in one JSONL file. The `conversation_id` /
-   `session_id` span attribute distinguishes them. Each unique session ID
-   maps to a separate CodePlane job.
+1. **OTEL file is global, not per-session**: The Copilot OTEL file
+   exporter writes ALL sessions to a single JSONL file (empirically
+   verified v1.0.44). Sessions are interleaved and distinguished by
+   `gen_ai.conversation_id`. The `OtelFileWatcher` must demux spans
+   by this attribute, maintaining a map of `conversation_id → job_id`.
+   New conversation IDs trigger job creation; existing IDs route events
+   to the corresponding job. On Copilot restart, the same file continues
+   growing with new conversation IDs. The watcher should NOT attempt to
+   infer session boundaries from timing gaps.
 
 2. **Session recovery after CodePlane restart**: On startup, the file
-   watcher should seek to the end of the OTEL file (or to a persisted
-   offset) to avoid replaying historical spans. For Claude hooks, sessions
-   in progress will re-fire `SessionStart` on the next hook event — the
-   `IngestService` should handle idempotent job creation.
+   watcher seeks to the end of the OTEL file (or to a persisted byte
+   offset) to avoid replaying historical spans. For Claude hooks: every
+   hook event includes `session_id` in the common input fields.
+   `IngestService` looks up by `external_session_id` on each event. If
+   found, resumes ingestion. If not found (session started before
+   CodePlane launched), creates a new job from the current event forward.
+   Events that fired before restart are lost — there is no replay
+   mechanism for hooks.
 
 3. **GitHub token for steer API**: CodePlane needs the user's Copilot
    token to call the steer endpoint. This could be sourced from `gh auth
@@ -698,9 +711,62 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
    works without it.
 
 4. **User working on main**: If the CLI session is on the default branch
-   directly (no feature branch), merge is a no-op — the changes are
-   already where they belong. `IngestService` should detect this at
-   session start and set `base_ref == branch` so that `MergeService`
-   recognizes there's nothing to merge. The review screen would show
-   "already on target branch" and offer PR or mark-complete as the
-   primary actions.
+   directly (no feature branch), there is nothing to merge — the changes
+   are already where they belong. `IngestService` detects this at session
+   start (`branch == base_ref`). The review screen shows "already on
+   target branch" and offers PR creation or mark-complete as the primary
+   actions. `MergeService` skips merge entirely and transitions to
+   `completed` with resolution `merged`.
+
+5. **Copilot OTEL has no `cwd` attribute**: Empirically verified
+   (v1.0.44). The `invoke_agent` and `chat` spans contain only GenAI
+   semantic convention attributes (`gen_ai.usage.*`, `github.copilot.cost`,
+   `gen_ai.conversation.id`, etc.) — no workspace path. Two fallback
+   approaches:
+   - *Infer from file paths*: Parse `gen_ai.tool.call.arguments` from the
+     first `execute_tool` span to extract an absolute file path, then
+     derive the git root via `git rev-parse --show-toplevel <dir>`.
+     Requires content capture to be ON.
+   - *Explicit resource attribute*: Document that users must set
+     `OTEL_RESOURCE_ATTRIBUTES=process.cwd=/path/to/repo` alongside
+     `COPILOT_OTEL_FILE_EXPORTER_PATH`. This is more reliable but adds
+     setup friction. The watcher should try both (resource attribute
+     first, then file path inference, then mark job as `needs_cwd` for
+     manual resolution).
+
+6. **Job ID generation for imported sessions**: Managed jobs use the
+   repo slug as the job ID stem. Imported sessions from the same repo
+   would collide. Add a 6-character hex suffix:
+   `{repo_slug}-{hex_suffix}`. The suffix is derived from a hash of
+   `external_session_id` for deterministic dedup.
+
+7. **Concurrent imported sessions on same repo**: Unlike managed
+   sessions (which run in separate worktrees), imported sessions share
+   the user's live working directory. Two concurrent CLI sessions in the
+   same repo are inherently conflicting at the git level — CodePlane
+   doesn't need to solve this (the CLIs themselves will conflict on
+   file writes). CodePlane's job is to track each session independently
+   via its `external_session_id`.
+
+8. **Claude OTLP metrics endpoint**: Claude Code exports cost/token
+   metrics via standard OTLP protocol (gRPC or HTTP/protobuf or
+   HTTP/json). The design doc's original `/api/otlp` route needs to be
+   a proper OTLP receiver. Options:
+   - *Embedded receiver*: Use `opentelemetry-sdk` +
+     `opentelemetry-exporter-otlp-proto-http` to embed a minimal OTLP
+     HTTP receiver in FastAPI at `/v1/metrics`. Parse
+     `ExportMetricsServiceRequest` protobuf, extract
+     `claude_code.cost.usage` and `claude_code.token.usage` data points,
+     filter by `session.id`, and emit `telemetry_updated` events.
+   - *Sidecar collector*: Run an OpenTelemetry Collector that receives
+     OTLP, filters by metric name, and forwards to CodePlane's internal
+     REST API. More operationally complex but standard.
+   The embedded receiver approach is simpler for single-user deployments.
+   Claude sets `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:<port>`.
+
+9. **Session end detection for Copilot**: Copilot OTEL has no explicit
+   "session ended" signal. The `invoke_agent` span end marks session
+   completion. The watcher must detect span end events (spans have start
+   time + duration; when the root `invoke_agent` span appears with a
+   non-zero duration, the session is over). No idle timeout needed — the
+   span's own duration field is the signal.
