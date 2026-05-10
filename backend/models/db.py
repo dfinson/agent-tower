@@ -421,6 +421,9 @@ class TrailNodeRow(Base):
     tool_display: Mapped[str | None] = mapped_column(String(200), nullable=True)
     tool_intent: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Purpose classification (populated by enrichment or backfill)
+    purpose: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    purpose_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     __table_args__ = (
         Index("ix_trail_nodes_job_id", "job_id"),

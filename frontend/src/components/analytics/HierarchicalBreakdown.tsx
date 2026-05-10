@@ -3,29 +3,26 @@ import { type CostDriversData } from "../MetricsPanelTypes";
 import { formatUsd } from "./helpers";
 
 /**
- * Hierarchical 2-level breakdown of activity costs (Item 13).
- * Groups flat activity buckets into 3 pillars: Productive / Preparatory / Overhead.
+ * Hierarchical 2-level breakdown: L1 = Purpose, L2 = Action within purpose.
+ * Uses the action_purpose cross-tab when available, falls back to action-only.
  */
 
-const ACTIVITY_TO_PILLAR: Record<string, string> = {
-  implementation: "productive",
-  feature_dev: "productive",
-  debugging: "productive",
-  refactoring: "productive",
-  verification: "productive",
-  git_ops: "productive",
-  investigation: "preparatory",
-  setup: "preparatory",
-  reasoning: "preparatory",
-  communication: "overhead",
-  delegation: "overhead",
-  overhead: "overhead",
+const PURPOSE_META: Record<string, { label: string; color: string; bg: string }> = {
+  advancing: { label: "Advancing", color: "text-green-600", bg: "bg-green-500" },
+  recovering: { label: "Recovering", color: "text-red-600", bg: "bg-red-500" },
+  orienting: { label: "Orienting", color: "text-blue-600", bg: "bg-blue-500" },
+  verifying: { label: "Verifying", color: "text-amber-600", bg: "bg-amber-500" },
+  housekeeping: { label: "Housekeeping", color: "text-gray-600", bg: "bg-gray-400" },
 };
 
-const PILLAR_META: Record<string, { label: string; color: string; bg: string }> = {
-  productive: { label: "Productive Work", color: "text-green-600", bg: "bg-green-500" },
-  preparatory: { label: "Preparatory Work", color: "text-blue-600", bg: "bg-blue-500" },
-  overhead: { label: "Overhead", color: "text-amber-600", bg: "bg-amber-500" },
+const ACTION_LABELS: Record<string, string> = {
+  write: "Write",
+  test: "Test",
+  execute: "Execute",
+  vcs: "VCS",
+  delegate: "Delegate",
+  read: "Read",
+  think: "Think",
 };
 
 interface Props {
@@ -34,87 +31,113 @@ interface Props {
 }
 
 export function HierarchicalBreakdown({ data, compactionCostUsd = 0 }: Props) {
-  if (!data?.activity?.length) {
+  // Prefer actionPurpose cross-tab, fall back to purpose-only or action-only
+  const apBuckets = data?.actionPurpose ?? [];
+  const purposeBuckets = data?.purpose ?? [];
+
+  const hasCrossTab = apBuckets.length > 0;
+  const hasPurpose = purposeBuckets.length > 0;
+
+  if (!hasCrossTab && !hasPurpose && !data?.action?.length) {
     return (
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium uppercase tracking-wide">
           <Layers size={14} />
-          Activity Hierarchy
+          Purpose Breakdown
         </div>
-        <p className="text-muted-foreground text-sm mt-2">No activity data yet.</p>
+        <p className="text-muted-foreground text-sm mt-2">No purpose data yet.</p>
       </div>
     );
   }
 
-  // Group buckets by pillar
-  const pillars: Record<string, { cost: number; buckets: { name: string; cost: number }[] }> = {
-    productive: { cost: 0, buckets: [] },
-    preparatory: { cost: 0, buckets: [] },
-    overhead: { cost: 0, buckets: [] },
-  };
-
-  for (const bucket of data.activity) {
-    const pillar = ACTIVITY_TO_PILLAR[bucket.bucket] || "overhead";
-    const cost = bucket.costUsd ?? 0;
-    pillars[pillar]!.cost += cost;
-    pillars[pillar]!.buckets.push({ name: bucket.bucket, cost });
+  // Build purpose groups with action sub-buckets
+  const purposes: Record<string, { cost: number; actions: { name: string; cost: number }[] }> = {};
+  for (const key of Object.keys(PURPOSE_META)) {
+    purposes[key] = { cost: 0, actions: [] };
   }
 
-  // Add compaction to overhead
+  if (hasCrossTab) {
+    for (const bucket of apBuckets) {
+      const parts = bucket.bucket.split(":", 1);
+      // bucket format: "action:purpose"
+      const colonIdx = bucket.bucket.indexOf(":");
+      if (colonIdx < 0) continue;
+      const action = bucket.bucket.slice(0, colonIdx);
+      const purpose = bucket.bucket.slice(colonIdx + 1);
+      const cost = bucket.costUsd ?? 0;
+      if (!purposes[purpose]) {
+        purposes[purpose] = { cost: 0, actions: [] };
+      }
+      purposes[purpose]!.cost += cost;
+      purposes[purpose]!.actions.push({ name: action, cost });
+    }
+  } else if (hasPurpose) {
+    for (const bucket of purposeBuckets) {
+      const cost = bucket.costUsd ?? 0;
+      if (!purposes[bucket.bucket]) {
+        purposes[bucket.bucket] = { cost: 0, actions: [] };
+      }
+      purposes[bucket.bucket]!.cost += cost;
+    }
+  }
+
+  // Add compaction to housekeeping
   if (compactionCostUsd > 0) {
-    pillars.overhead!.cost += compactionCostUsd;
-    pillars.overhead!.buckets.push({ name: "compaction", cost: compactionCostUsd });
+    purposes.housekeeping!.cost += compactionCostUsd;
+    purposes.housekeeping!.actions.push({ name: "compaction", cost: compactionCostUsd });
   }
 
-  const total = Object.values(pillars).reduce((s, p) => s + p.cost, 0);
+  const total = Object.values(purposes).reduce((s, p) => s + p.cost, 0);
+  const orderedKeys = Object.keys(PURPOSE_META).filter((k) => purposes[k]!.cost > 0);
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
       <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium uppercase tracking-wide">
         <Layers size={14} />
-        Activity Hierarchy
+        Purpose Breakdown
       </div>
 
       {/* Summary bar */}
       <div className="flex h-3 rounded overflow-hidden">
-        {(["productive", "preparatory", "overhead"] as const).map((key) => {
-          const p = pillars[key]!;
+        {orderedKeys.map((key) => {
+          const p = purposes[key]!;
           const pct = total > 0 ? (p.cost / total) * 100 : 0;
           return pct > 0 ? (
             <div
               key={key}
-              className={`${PILLAR_META[key]!.bg} transition-all`}
+              className={`${PURPOSE_META[key]!.bg} transition-all`}
               style={{ width: `${pct}%` }}
-              title={`${PILLAR_META[key]!.label}: ${pct.toFixed(1)}%`}
+              title={`${PURPOSE_META[key]!.label}: ${pct.toFixed(1)}%`}
             />
           ) : null;
         })}
       </div>
 
-      {/* Pillars */}
-      {(["productive", "preparatory", "overhead"] as const).map((key) => {
-        const pillar = pillars[key]!;
-        if (pillar.cost <= 0) return null;
-        const meta = PILLAR_META[key]!;
-        const pct = total > 0 ? (pillar.cost / total) * 100 : 0;
+      {/* Purpose groups */}
+      {orderedKeys.map((key) => {
+        const purpose = purposes[key]!;
+        const meta = PURPOSE_META[key]!;
+        const pct = total > 0 ? (purpose.cost / total) * 100 : 0;
         return (
           <details key={key} className="group">
             <summary className="flex items-center justify-between cursor-pointer py-1">
               <span className={`font-medium text-sm ${meta.color}`}>{meta.label}</span>
               <span className="text-sm text-foreground">
-                {formatUsd(pillar.cost)} <span className="text-muted-foreground">({pct.toFixed(1)}%)</span>
+                {formatUsd(purpose.cost)} <span className="text-muted-foreground">({pct.toFixed(1)}%)</span>
               </span>
             </summary>
-            <div className="pl-4 mt-1 space-y-1">
-              {pillar.buckets
-                .sort((a, b) => b.cost - a.cost)
-                .map((b) => (
-                  <div key={b.name} className="flex justify-between text-xs text-muted-foreground">
-                    <span className="capitalize">{b.name.replace(/_/g, " ")}</span>
-                    <span>{formatUsd(b.cost)}</span>
-                  </div>
-                ))}
-            </div>
+            {purpose.actions.length > 0 && (
+              <div className="pl-4 mt-1 space-y-1">
+                {purpose.actions
+                  .sort((a, b) => b.cost - a.cost)
+                  .map((b) => (
+                    <div key={b.name} className="flex justify-between text-xs text-muted-foreground">
+                      <span>{ACTION_LABELS[b.name] ?? b.name}</span>
+                      <span>{formatUsd(b.cost)}</span>
+                    </div>
+                  ))}
+              </div>
+            )}
           </details>
         );
       })}

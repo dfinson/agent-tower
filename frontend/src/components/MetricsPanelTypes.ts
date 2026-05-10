@@ -80,6 +80,9 @@ export interface CostDriverBucket {
 
 export interface CostDriversData {
   activity?: CostDriverBucket[];
+  action?: CostDriverBucket[];
+  purpose?: CostDriverBucket[];
+  actionPurpose?: CostDriverBucket[];
   phase?: CostDriverBucket[];
   activityPhase?: CostDriverBucket[];
   editEfficiency?: CostDriverBucket[];
@@ -110,6 +113,7 @@ export interface LatencyBucket {
 export interface LatencyDriversData {
   category?: LatencyBucket[];
   activity?: LatencyBucket[];
+  action?: LatencyBucket[];
   phase?: LatencyBucket[];
   toolType?: LatencyBucket[];
 }

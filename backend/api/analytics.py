@@ -13,6 +13,8 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.api_schemas import (
+    ActionPurposeCell,
+    ActionPurposeMatrixResponse,
     AnalyticsJobsResponse,
     AnalyticsModelsResponse,
     AnalyticsOverviewResponse,
@@ -611,6 +613,34 @@ async def analytics_activity_phase_matrix(
         cells=[ActivityPhaseCell(**c) for c in cells],
         period_days=period,
     )
+
+
+# ---------------------------------------------------------------------------
+# Action × Purpose heatmap (Item 19)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/action-purpose-matrix", response_model=ActionPurposeMatrixResponse)
+async def analytics_action_purpose_matrix(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> ActionPurposeMatrixResponse:
+    """Action × purpose cost heatmap across the fleet."""
+    from backend.persistence.cost_attribution_repo import CostAttributionRepository
+
+    attr_repo = CostAttributionRepository(svc._session)
+    rows = await attr_repo.by_dimension("action_purpose", period_days=period, limit=200)
+    cells = []
+    for row in rows:
+        parts = row["bucket"].split(":", 1)
+        if len(parts) == 2:
+            cells.append(ActionPurposeCell(
+                action=parts[0],
+                purpose=parts[1],
+                cost_usd=row["cost_usd"],
+                call_count=row.get("call_count", 0),
+            ))
+    return ActionPurposeMatrixResponse(cells=cells, period_days=period)
 
 
 # ---------------------------------------------------------------------------

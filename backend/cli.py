@@ -12,22 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import click
-import structlog
-import uvicorn
 
-from backend.app_factory import create_app
 from backend.config import load_config
-from backend.logging_config import setup_logging
-from backend.persistence.database import run_migrations
-from backend.services.tunnel_service import (
-    RemoteProvider,
-    TunnelHandle,
-    TunnelStartError,
-    start_remote_access,
-    validate_remote_provider,
-)
-
-log = structlog.get_logger()
 
 
 @click.group()
@@ -151,6 +137,22 @@ def up(
     phone: bool,
 ) -> None:
     """Start the CodePlane server."""
+    import structlog
+    import uvicorn
+
+    from backend.app_factory import create_app
+    from backend.logging_config import setup_logging
+    from backend.persistence.database import run_migrations
+    from backend.services.tunnel_service import (
+        RemoteProvider,
+        TunnelHandle,
+        TunnelStartError,
+        start_remote_access,
+        validate_remote_provider,
+    )
+
+    log = structlog.get_logger()
+
     # --phone implies --remote
     if phone:
         remote = True
@@ -495,6 +497,8 @@ def _find_pids_on_port(port: int) -> list[int]:
         if result.returncode == 0 and result.stdout.strip():
             return [int(p) for p in result.stdout.strip().splitlines() if p.strip().isdigit()]
     except FileNotFoundError:
+        import structlog
+
         structlog.get_logger().debug("lsof_not_found", port=port)
 
     # Fallback: ss (Linux)
@@ -504,6 +508,8 @@ def _find_pids_on_port(port: int) -> list[int]:
         result = _sp.run(["ss", "-tlnp", f"sport = :{port}"], capture_output=True, text=True)
         return [int(p) for p in re.findall(r"pid=(\d+)", result.stdout)]
     except Exception:  # noqa: BLE001
+        import structlog
+
         structlog.get_logger().warning("ss_probe_failed", port=port, exc_info=True)
 
     return []

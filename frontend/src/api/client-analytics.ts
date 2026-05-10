@@ -690,6 +690,26 @@ export function fetchActivityPhaseMatrix(period = 30): Promise<ActivityPhaseMatr
 }
 
 // ---------------------------------------------------------------------------
+// Action × Purpose matrix (Item 19)
+// ---------------------------------------------------------------------------
+
+export interface ActionPurposeCell {
+  action: string;
+  purpose: string;
+  costUsd: number;
+  callCount: number;
+}
+
+export interface ActionPurposeMatrixResponse {
+  cells: ActionPurposeCell[];
+  periodDays: number;
+}
+
+export function fetchActionPurposeMatrix(period = 30): Promise<ActionPurposeMatrixResponse> {
+  return request(`/analytics/action-purpose-matrix?period=${period}`);
+}
+
+// ---------------------------------------------------------------------------
 // Executive summary (Item 18)
 // ---------------------------------------------------------------------------
 

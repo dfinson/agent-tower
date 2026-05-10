@@ -135,6 +135,7 @@ class TrailEnricher:
                         tags=annotation.get("tags") if isinstance(annotation.get("tags"), list) else None,
                         supersedes=sup,
                         files=files,
+                        purpose=annotation.get("purpose"),
                     )
                     processed += 1
 

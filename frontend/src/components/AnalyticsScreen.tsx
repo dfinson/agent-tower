@@ -17,6 +17,7 @@ import {
   fetchFileCost,
   fetchOutcomeMatrix,
   fetchActivityPhaseMatrix,
+  fetchActionPurposeMatrix,
   fetchExecutiveSummary,
   exportCostDrivers,
   type ScorecardResponse,
@@ -32,6 +33,7 @@ import {
   type FileCostResponse,
   type OutcomeMatrixResponse,
   type ActivityPhaseMatrixResponse,
+  type ActionPurposeMatrixResponse,
   type ExecutiveSummaryResponse,
 } from "../api/client";
 import {
@@ -56,7 +58,7 @@ import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
 import { FileCostBreakdown } from "./analytics/FileCostBreakdown";
 import { OutcomeMatrix } from "./analytics/OutcomeMatrix";
 import { ActivityPhaseHeatmap } from "./analytics/ActivityPhaseHeatmap";
-import { MotivationBreakdown } from "./analytics/MotivationBreakdown";
+import { ActionPurposeMatrix } from "./analytics/ActionPurposeMatrix";
 import { ExecutiveSummary } from "./analytics/ExecutiveSummary";
 import { type CostDriversData } from "./MetricsPanelTypes";
 
@@ -115,7 +117,7 @@ export function AnalyticsScreen() {
   const [repos, setRepos] = useState<AnalyticsRepos | null>(null);
   const [fleetDrivers, setFleetDrivers] = useState<FleetCostDriversResponse | null>(null);
   const [activityDrivers, setActivityDrivers] = useState<FleetCostDriversResponse | null>(null);
-  const [motivationDrivers, setMotivationDrivers] = useState<FleetCostDriversResponse | null>(null);
+  const [actionPurposeMatrix, setActionPurposeMatrix] = useState<ActionPurposeMatrixResponse | null>(null);
   const [fleetLatency, setFleetLatency] = useState<FleetLatencyDriversResponse | null>(null);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [yieldData, setYieldData] = useState<YieldResponse | null>(null);
@@ -187,9 +189,9 @@ export function AnalyticsScreen() {
       .then(setActivityDrivers)
       .catch(() => setActivityDrivers(null));
 
-    fetchFleetCostDrivers(Math.max(period, 30), "motivation")
-      .then(setMotivationDrivers)
-      .catch(() => setMotivationDrivers(null));
+    fetchActionPurposeMatrix(Math.max(period, 30))
+      .then(setActionPurposeMatrix)
+      .catch(() => setActionPurposeMatrix(null));
 
     fetchFleetLatencyDrivers(Math.max(period, 30))
       .then(setFleetLatency)
@@ -294,15 +296,13 @@ export function AnalyticsScreen() {
       {/* Executive Summary — 3-bucket overview */}
       <ExecutiveSummary data={executiveSummary} />
 
-      {/* Hierarchical + Motivation views of activity cost */}
+      {/* Hierarchical purpose breakdown + Action×Purpose matrix */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <HierarchicalBreakdown
           data={activityDrivers?.buckets ? { activity: activityDrivers.buckets } as CostDriversData : null}
           compactionCostUsd={scorecard?.compactionCostUsd}
         />
-        <MotivationBreakdown
-          data={motivationDrivers?.buckets ? { motivation: motivationDrivers.buckets } as CostDriversData : null}
-        />
+        <ActionPurposeMatrix data={actionPurposeMatrix} />
       </div>
 
       {/* File-centric cost breakdown */}

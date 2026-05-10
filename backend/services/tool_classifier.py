@@ -184,6 +184,71 @@ def classify_shell_command(cmd: str) -> str:
     return "shell_other"
 
 
+# ---------------------------------------------------------------------------
+# Action classification — the new Action × Purpose system (Item 19)
+# ---------------------------------------------------------------------------
+
+_CATEGORY_TO_ACTION: dict[str, str] = {
+    "file_write": "write",
+    "git_write": "vcs",
+    "git_read": "read",
+    "file_read": "read",
+    "file_search": "read",
+    "browser": "read",
+    "shell": "execute",
+    "agent": "delegate",
+    "thinking": "think",
+    "bookkeeping": "think",
+    "other": "think",
+}
+
+
+def shell_action(cmd: str) -> str:
+    """Map a shell command to an action bucket (test/vcs/read/execute).
+
+    Priority: test > vcs > read > execute.
+    """
+    if _RE_SHELL_TEST.search(cmd):
+        return "test"
+    if _RE_SHELL_GIT_WRITE.search(cmd) or _RE_SHELL_GIT_READ.search(cmd):
+        return "vcs"
+    if _RE_SHELL_INVESTIGATE.search(cmd):
+        return "read"
+    return "execute"
+
+
+def classify_action_from_tools(
+    tool_categories: list[str],
+    shell_commands: list[str] | None = None,
+) -> str:
+    """Deterministic action classifier from tool categories.
+
+    Priority ladder: write > test > vcs > execute > delegate > read > think.
+    """
+    has_write = "file_write" in tool_categories
+    has_delegate = "agent" in tool_categories
+
+    # Check shell commands for test/vcs
+    shell_actions: set[str] = set()
+    if shell_commands:
+        for cmd in shell_commands:
+            shell_actions.add(shell_action(cmd))
+
+    if has_write:
+        return "write"
+    if "test" in shell_actions:
+        return "test"
+    if "git_write" in tool_categories or "git_read" in tool_categories or "vcs" in shell_actions:
+        return "vcs"
+    if "shell" in tool_categories:
+        return "execute"
+    if has_delegate:
+        return "delegate"
+    if any(c in tool_categories for c in ("file_read", "file_search", "browser")):
+        return "read"
+    return "think"
+
+
 def classify_tool(tool_name: str) -> str:
     """Return the normalized category for a tool name.
 

@@ -836,6 +836,18 @@ class ActivityPhaseMatrixResponse(CamelModel):
     period_days: int = 30
 
 
+class ActionPurposeCell(CamelModel):
+    action: str
+    purpose: str
+    cost_usd: float = 0.0
+    call_count: int = 0
+
+
+class ActionPurposeMatrixResponse(CamelModel):
+    cells: list[ActionPurposeCell] = []
+    period_days: int = 30
+
+
 class WasteBreakdown(CamelModel):
     retry_usd: float = 0.0
     failed_jobs_usd: float = 0.0

@@ -15,7 +15,11 @@ import structlog
 from sqlalchemy.exc import DBAPIError
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.tool_classifier import classify_shell_command, classify_tool
+from backend.services.tool_classifier import (
+    classify_action_from_tools,
+    classify_shell_command,
+    classify_tool,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -286,14 +290,11 @@ async def _compute_attribution(
         {"jid": job_id},
     )
     job_row = job_meta.mappings().first()
-    job_description = (job_row or {}).get("description")
     job_model = (job_row or {}).get("model", "") or ""
 
     # --- Aggregate by dimension ---
-    by_activity: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_turn: dict[int, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_phase: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
-    by_activity_phase: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     turn_contexts: dict[int, TurnContext] = defaultdict(_zero_turn_context)
     normalized_phases = _infer_execution_phases(spans)
     spans_missing_phase = 0
@@ -347,58 +348,12 @@ async def _compute_attribution(
             turn_contexts[int(turn)]["cache_write_tokens"] += int(cache_w or 0)
 
     # --- One-shot rate tracking ---
-    # Track edit→shell→edit retry patterns per turn, aggregated by activity.
-    one_shot_by_activity: dict[str, dict[str, int]] = defaultdict(
+    # Track edit→shell→edit retry patterns per turn, aggregated by action.
+    one_shot_by_action: dict[str, dict[str, int]] = defaultdict(
         lambda: {"edit_turns": 0, "one_shot_turns": 0, "retries": 0}
     )
 
-    for _turn_num, context in turn_contexts.items():
-        # Single dominant intent per turn — no splitting
-        activity = _classify_turn_intent(context)
-
-        # Sub-classify implementation turns using job description/motivation
-        if activity == "implementation":
-            activity = _sub_classify_implementation(job_description, None)
-
-        turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
-        turn_in = int(context.get("input_tokens", 0) or 0)
-        turn_out = int(context.get("output_tokens", 0) or 0)
-        turn_cache_r = int(context.get("cache_read_tokens", 0) or 0)
-        turn_cache_w = int(context.get("cache_write_tokens", 0) or 0)
-
-        # Whole turn attributed to a single activity
-        _accumulate(by_activity[activity], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
-
-        # One-shot detection: does this turn have file_write tools?
-        tool_cats = context.get("tool_categories", [])
-        has_edits = any(c in _WRITE_TOOL_CATEGORIES for c in tool_cats)
-        if has_edits:
-            retries = _count_edit_retries(tool_cats)
-            one_shot_by_activity[activity]["edit_turns"] += 1
-            one_shot_by_activity[activity]["retries"] += retries
-            if retries == 0:
-                one_shot_by_activity[activity]["one_shot_turns"] += 1
-
-        # Phase dimension — aggregate by execution phase
-        phase = context.get("phase")
-        if phase:
-            _accumulate(by_phase[phase], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w)
-
-        # Activity×Phase compound dimension — cross-reference for inline phase
-        # bars in the unified cost view.  Bucket format: "activity:phase".
-        if phase:
-            compound_key = f"{activity}:{phase}"
-            _accumulate(
-                by_activity_phase[compound_key],
-                turn_cost,
-                turn_in,
-                turn_out,
-                cache_read=turn_cache_r,
-                cache_write=turn_cache_w,
-                call_count=1,
-            )
-
-    # --- Motivation dimension (Item 17) ---
+    # --- Load trail nodes for purpose attribution ---
     trail_list: list[dict] = []
     try:
         if trail_repo is not None:
@@ -406,66 +361,85 @@ async def _compute_attribution(
             trail_list = [
                 {
                     "turn_number": getattr(n, "turn_number", None) or getattr(n, "anchor_seq", None),
-                    "is_retry": getattr(n, "is_retry", False),
-                    "error_kind": getattr(n, "error_kind", None),
-                    "plan_item_id": getattr(n, "plan_item_id", None),
+                    "purpose": getattr(n, "purpose", None),
                 }
                 for n in trail_nodes
             ]
     except Exception:
         log.debug("cost_attribution_trail_fetch_failed", job_id=job_id, exc_info=True)
 
-    by_motivation: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
-    for turn_num_m, context_m in turn_contexts.items():
-        motivation = _classify_motivation(turn_num_m, trail_list, context_m)
-        turn_cost_m = float(context_m.get("cost_usd", 0.0) or 0.0)
-        turn_in_m = int(context_m.get("input_tokens", 0) or 0)
-        turn_out_m = int(context_m.get("output_tokens", 0) or 0)
-        turn_cache_r_m = int(context_m.get("cache_read_tokens", 0) or 0)
-        turn_cache_w_m = int(context_m.get("cache_write_tokens", 0) or 0)
-        _accumulate(
-            by_motivation[motivation], turn_cost_m, turn_in_m, turn_out_m,
-            cache_read=turn_cache_r_m, cache_write=turn_cache_w_m, call_count=1,
+    # Build turn→purpose lookup from trail nodes
+    turn_purpose: dict[int, str | None] = {}
+    for tn in trail_list:
+        t = tn.get("turn_number")
+        if t is not None and tn.get("purpose"):
+            turn_purpose[int(t)] = tn["purpose"]
+
+    by_action: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+    by_purpose: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+    by_action_purpose: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+
+    for turn_num_a, context in turn_contexts.items():
+        # Deterministic action from tool categories
+        action = classify_action_from_tools(
+            context.get("tool_categories", []),
+            shell_commands=context.get("shell_commands") or None,
         )
+
+        turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
+        turn_in = int(context.get("input_tokens", 0) or 0)
+        turn_out = int(context.get("output_tokens", 0) or 0)
+        turn_cache_r = int(context.get("cache_read_tokens", 0) or 0)
+        turn_cache_w = int(context.get("cache_write_tokens", 0) or 0)
+
+        # Action dimension
+        _accumulate(by_action[action], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+
+        # Purpose dimension (nullable — only if enriched)
+        purpose = turn_purpose.get(turn_num_a)
+        if purpose:
+            _accumulate(by_purpose[purpose], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+            # Action×Purpose compound dimension
+            compound = f"{action}:{purpose}"
+            _accumulate(by_action_purpose[compound], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+
+        # Phase dimension — aggregate by execution phase
+        phase = context.get("phase")
+        if phase:
+            _accumulate(by_phase[phase], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w)
+
+        # One-shot detection: does this turn have file_write tools?
+        tool_cats = context.get("tool_categories", [])
+        has_edits = any(c in _WRITE_TOOL_CATEGORIES for c in tool_cats)
+        if has_edits:
+            retries = _count_edit_retries(tool_cats)
+            one_shot_by_action[action]["edit_turns"] += 1
+            one_shot_by_action[action]["retries"] += retries
+            if retries == 0:
+                one_shot_by_action[action]["one_shot_turns"] += 1
 
     # --- Write attribution rows ---
     rows: list[dict[str, Any]] = []
-    for bucket, data in by_activity.items():
-        rows.append({"dimension": "activity", "bucket": bucket, "model": job_model, **data})
+    for bucket, data in by_action.items():
+        rows.append({"dimension": "action", "bucket": bucket, "model": job_model, **data})
+    for bucket, data in by_purpose.items():
+        rows.append({"dimension": "purpose", "bucket": bucket, "model": job_model, **data})
+    for bucket, data in by_action_purpose.items():
+        rows.append({"dimension": "action_purpose", "bucket": bucket, "model": job_model, **data})
     for turn_num, data in sorted(by_turn.items()):
         rows.append({"dimension": "turn", "bucket": str(turn_num), "model": job_model, **data})
     for phase_name, data in by_phase.items():
         rows.append({"dimension": "phase", "bucket": phase_name, "model": job_model, **data})
-    for compound_key, data in by_activity_phase.items():
-        rows.append({"dimension": "activity_phase", "bucket": compound_key, "model": job_model, **data})
-    for motivation_bucket, mdata in by_motivation.items():
-        rows.append({"dimension": "motivation", "bucket": motivation_bucket, "model": job_model, **mdata})
-    # One-shot rate rows (dimension="edit_efficiency")
-    for activity_bucket, stats in one_shot_by_activity.items():
-        if stats["edit_turns"] > 0:
-            rows.append(
-                {
-                    "dimension": "edit_efficiency",
-                    "bucket": activity_bucket,
-                    "model": job_model,
-                    "cost_usd": 0.0,
-                    "input_tokens": stats["one_shot_turns"],
-                    "output_tokens": stats["retries"],
-                    "call_count": stats["edit_turns"],
-                    "cache_read_tokens": 0,
-                    "cache_write_tokens": 0,
-                }
-            )
 
     await attr_repo.insert_batch(job_id=job_id, rows=rows)
     log.info(
         "cost_attribution_written",
         job_id=job_id,
-        activity_buckets=len(by_activity),
+        action_buckets=len(by_action),
+        purpose_buckets=len(by_purpose),
+        action_purpose_buckets=len(by_action_purpose),
         turn_buckets=len(by_turn),
         phase_buckets=len(by_phase),
-        activity_phase_buckets=len(by_activity_phase),
-        motivation_buckets=len(by_motivation),
         spans_missing_phase=spans_missing_phase,
     )
 

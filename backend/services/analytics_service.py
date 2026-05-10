@@ -369,24 +369,61 @@ class AnalyticsService:
     # -- Executive summary (Item 18) -----------------------------------------
 
     async def executive_summary(self, *, period_days: int = 30) -> dict[str, Any]:
-        """3-bucket executive summary: building / thinking / wasted."""
+        """3-bucket executive summary: building / thinking / wasted.
+
+        Uses the action_purpose cross-tab when available, falling back to
+        action-only classification if purpose data is sparse.
+        """
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
         from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
         attr_repo = CostAttributionRepository(self._session)
         summary_repo = TelemetryAnalyticsRepository(self._session)
 
-        activity_rows = await attr_repo.by_dimension("activity", period_days=period_days, limit=100)
-        building_activities = {
-            "implementation", "feature_dev", "debugging", "refactoring",
-            "verification", "git_ops",
-        }
-        thinking_activities = {
-            "investigation", "reasoning", "setup", "communication",
-        }
+        # Try action_purpose first (most precise)
+        ap_rows = await attr_repo.by_dimension("action_purpose", period_days=period_days, limit=200)
 
-        building = sum(r["cost_usd"] for r in activity_rows if r["bucket"] in building_activities)
-        thinking = sum(r["cost_usd"] for r in activity_rows if r["bucket"] in thinking_activities)
+        building = 0.0
+        thinking = 0.0
+
+        if ap_rows:
+            # Building = advancing × (write|test|execute|delegate)
+            # Thinking = (advancing|orienting) × (read|think)
+            # Wasted = recovering × all + housekeeping × all
+            building_actions = {"write", "test", "execute", "delegate"}
+            thinking_actions = {"read", "think"}
+            wasted_purposes = {"recovering", "housekeeping"}
+
+            for row in ap_rows:
+                bucket = row["bucket"]  # format: "action:purpose"
+                parts = bucket.split(":", 1)
+                if len(parts) != 2:
+                    continue
+                action, purpose = parts
+                cost = row["cost_usd"]
+
+                if purpose in wasted_purposes:
+                    pass  # counted in waste below
+                elif purpose == "advancing" and action in building_actions:
+                    building += cost
+                elif purpose == "verifying":
+                    building += cost
+                elif purpose in ("advancing", "orienting") and action in thinking_actions:
+                    thinking += cost
+                else:
+                    # Unmatched — split between building and thinking
+                    building += cost * 0.5
+                    thinking += cost * 0.5
+        else:
+            # Fallback: use action dimension only
+            action_rows = await attr_repo.by_dimension("action", period_days=period_days, limit=50)
+            building_actions_fb = {"write", "test", "execute", "delegate", "vcs"}
+            thinking_actions_fb = {"read", "think"}
+            for row in action_rows:
+                if row["bucket"] in building_actions_fb:
+                    building += row["cost_usd"]
+                elif row["bucket"] in thinking_actions_fb:
+                    thinking += row["cost_usd"]
 
         waste = await summary_repo.fleet_waste_metrics(period_days=period_days)
         wasted = (

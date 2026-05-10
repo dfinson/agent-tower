@@ -1,15 +1,14 @@
 """Post-job latency attribution pipeline.
 
 Runs after a job completes (alongside cost attribution) to compute
-latency breakdowns by dimension (activity, category, phase, turn, tool_type)
+latency breakdowns by dimension (action, category, phase, turn, tool_type)
 and write them to the latency attribution table.  Also updates summary
 columns for idle time and parallelism ratio.
 
-The **activity** dimension mirrors cost attribution exactly — each turn is
-classified by intent (implementation, investigation, verification, etc.)
-and all span durations within that turn are attributed to that activity.
-Implementation turns are further sub-classified into feature_dev, debugging,
-or refactoring using the same keyword heuristics as cost attribution.
+The **action** dimension mirrors cost attribution exactly — each turn is
+classified by its dominant action (write, test, vcs, execute, delegate,
+read, think) and all span durations within that turn are attributed to
+that action bucket.
 """
 
 from __future__ import annotations
@@ -21,13 +20,8 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.cost_attribution import (
-    TurnContext,
-    _classify_motivation,
-    _classify_turn_intent,
-    _sub_classify_implementation,
-)
-from backend.services.tool_classifier import classify_tool
+from backend.services.cost_attribution import TurnContext
+from backend.services.tool_classifier import classify_action_from_tools, classify_tool
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,41 +32,35 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-# Maps tool_category (from classify_tool) to an activity — same priority ladder
-# as _classify_turn_intent but applied to individual spans without turn context.
-_TOOL_CATEGORY_TO_ACTIVITY: dict[str, str] = {
-    "file_write": "implementation",
-    "shell": "investigation",  # no command text available; conservative default
-    "git_write": "git_ops",
-    "git_read": "git_ops",
-    "file_read": "investigation",
-    "file_search": "investigation",
-    "browser": "investigation",
-    "agent": "delegation",
-    "bookkeeping": "overhead",
-    "thinking": "reasoning",
+
+# Maps tool_category to action bucket — used for turnless spans where we have
+# no turn context to apply the full priority ladder.
+_CATEGORY_TO_ACTION: dict[str, str] = {
+    "file_write": "write",
+    "shell": "execute",
+    "git_write": "vcs",
+    "git_read": "read",
+    "file_read": "read",
+    "file_search": "read",
+    "browser": "read",
+    "agent": "delegate",
+    "bookkeeping": "think",
+    "thinking": "think",
 }
 
 
-def _classify_turnless_span(span: dict[str, Any]) -> str:
-    """Classify a span that has no turn_number into an activity.
-
-    Uses the span's type and tool name to determine the activity,
-    mirroring the priority ladder from _classify_turn_intent.
-    """
+def _classify_turnless_span_action(span: dict[str, Any]) -> str:
+    """Classify a span without a turn_number into an action bucket."""
     span_type = span.get("span_type", "")
     if span_type == "llm":
-        return "reasoning"
+        return "think"
     if span_type == "approval":
-        return "overhead"
+        return "think"
     if span_type == "tool":
         tool_name = span.get("name") or ""
         cat = classify_tool(tool_name)
-        if cat:
-            return _TOOL_CATEGORY_TO_ACTIVITY.get(cat, "investigation")
-        return "investigation"
-    # Unknown span type — attribute to overhead rather than hiding
-    return "overhead"
+        return _CATEGORY_TO_ACTION.get(cat, "read")
+    return "think"
 
 
 def _percentile(sorted_values: list[int], pct: float) -> int:
@@ -138,15 +126,7 @@ async def _compute_latency(
         log.info("latency_attribution_skip_no_spans", job_id=job_id)
         return
 
-    # Fetch job description for implementation sub-classification
     from sqlalchemy import text as sa_text
-
-    result = await session.execute(
-        sa_text("SELECT description FROM jobs WHERE id = :jid"),
-        {"jid": job_id},
-    )
-    row = result.mappings().first()
-    job_description: str | None = (row or {}).get("description")
 
     # Get job total duration from summary
     summary = await summary_repo.get(job_id)
@@ -246,16 +226,17 @@ async def _compute_latency(
             out_tok = span.get("output_tokens") or 0
             turn_contexts[int(turn)]["output_tokens"] += int(out_tok or 0)
 
-    # --- Activity dimension: classify each turn's intent, aggregate durations ---
-    by_activity: dict[str, list[int]] = defaultdict(list)
-    activity_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    # --- Action dimension: classify each turn's action, aggregate durations ---
+    by_action: dict[str, list[int]] = defaultdict(list)
+    action_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
 
     for turn_num, context in turn_contexts.items():
-        activity = _classify_turn_intent(context)
-        if activity == "implementation":
-            activity = _sub_classify_implementation(job_description, None)
-        by_activity[activity].extend(turn_durations.get(turn_num, []))
-        activity_intervals[activity].extend(turn_span_intervals.get(turn_num, []))
+        action = classify_action_from_tools(
+            context.get("tool_categories", []),
+            shell_commands=context.get("shell_commands") or None,
+        )
+        by_action[action].extend(turn_durations.get(turn_num, []))
+        action_intervals[action].extend(turn_span_intervals.get(turn_num, []))
 
     # Classify turnless spans individually by their own properties
     for span in spans:
@@ -264,11 +245,11 @@ async def _compute_latency(
             continue
         turn = span.get("turn_number")
         if turn is None:
-            activity = _classify_turnless_span(span)
-            by_activity[activity].append(duration_ms)
+            action = _classify_turnless_span_action(span)
+            by_action[action].append(duration_ms)
             offset_sec = float(span.get("started_at", 0) or 0)
             start_ms = offset_sec * 1000
-            activity_intervals[activity].append((start_ms, start_ms + duration_ms))
+            action_intervals[action].append((start_ms, start_ms + duration_ms))
 
     # Compute attribution rows
     rows: list[dict[str, Any]] = []
@@ -300,34 +281,10 @@ async def _compute_latency(
             })
 
     _build_rows("category", by_category, category_intervals)
-    _build_rows("activity", by_activity, activity_intervals)
+    _build_rows("action", by_action, action_intervals)
     _build_rows("phase", by_phase)
     _build_rows("turn", by_turn, turn_intervals)
     _build_rows("tool_type", by_tool_type)
-
-    # Motivation dimension (Item 17) — mirrors cost attribution
-    by_motivation: dict[str, list[int]] = defaultdict(list)
-    motivation_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
-    # Attempt to load trail nodes for motivation classification
-    trail_list: list[dict] = []
-    try:
-        trail_result = await session.execute(
-            sa_text(
-                "SELECT turn_number, is_retry, error_kind, plan_item_id "
-                "FROM trail_nodes WHERE job_id = :jid ORDER BY seq LIMIT 1000"
-            ),
-            {"jid": job_id},
-        )
-        trail_list = [dict(r) for r in trail_result.mappings().all()]
-    except Exception:
-        pass  # trail nodes unavailable — all turns default to agent_exploration
-
-    for turn_num, context in turn_contexts.items():
-        motivation = _classify_motivation(turn_num, trail_list, context)
-        by_motivation[motivation].extend(turn_durations.get(turn_num, []))
-        motivation_intervals[motivation].extend(turn_span_intervals.get(turn_num, []))
-
-    _build_rows("motivation", by_motivation, motivation_intervals)
 
     await latency_repo.insert_batch(job_id=job_id, rows=rows)
 

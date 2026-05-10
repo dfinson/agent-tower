@@ -90,6 +90,7 @@ class TrailNodeRepository:
         tags: list[str] | None = None,
         supersedes: str | None = None,
         files: list[str] | None = None,
+        purpose: str | None = None,
         enrichment: str = "complete",
     ) -> None:
         """Update a node with enrichment results."""
@@ -109,6 +110,11 @@ class TrailNodeRepository:
                 values["supersedes"] = supersedes
             if files is not None:
                 values["files"] = json.dumps(files, ensure_ascii=False)
+            if purpose is not None:
+                valid_purposes = {"advancing", "recovering", "orienting", "verifying", "housekeeping"}
+                if purpose in valid_purposes:
+                    values["purpose"] = purpose
+                    values["purpose_source"] = "enrich"
             stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(**values)
             await session.execute(stmt)
             await session.commit()
