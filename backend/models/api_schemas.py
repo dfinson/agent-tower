@@ -373,6 +373,20 @@ class RepoDetailResponse(CamelModel):
     platform: str | None = None
 
 
+class RepoHealthResponse(CamelModel):
+    """Structural health status for a repository (§6.2)."""
+
+    repo: str
+    available: bool = False
+    index_status: str | None = None  # pending | indexing | ready | error
+    symbol_count: int = 0
+    file_count: int = 0
+    last_indexed_sha: str | None = None
+    community_count: int = 0
+    cycle_count: int = 0
+    stale: bool = False
+
+
 # --- SSE Payload Models ---
 
 
@@ -512,6 +526,7 @@ class PlatformStatusListResponse(CamelModel):
 
 class ResolveJobRequest(CamelModel):
     action: ResolutionAction
+    confirm_low_confidence: bool = False
 
 
 class ResolveJobResponse(CamelModel):
@@ -885,6 +900,27 @@ class StoryResponse(CamelModel):
     verbosity: str = "standard"  # summary | standard | detailed
 
 
+class NarrativeBlockSchema(CamelModel):
+    """A block in the agent cognitive narrative."""
+
+    type: str  # lede | prose | beat | outcome
+    text: str
+    beat_kind: str | None = None  # decide | backtrack | insight | verify
+    files: list[str] = Field(default_factory=list)
+
+
+class NarrativeResponse(CamelModel):
+    """Agent cognitive journey narrative assembled from trail data."""
+
+    job_id: str
+    blocks: list[NarrativeBlockSchema] = []
+    beat_count: int = 0
+    has_decisions: bool = False
+    has_backtracks: bool = False
+    verbosity: str = "standard"
+    cached: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Structural Review (CodeRecon integration)
 # ---------------------------------------------------------------------------
@@ -993,17 +1029,51 @@ class ReviewStoryVerdict(CamelModel):
     summary: str = ""
 
 
+class EdgeCaseBlockSchema(CamelModel):
+    """A metadata block for non-narrative content (docs, generated, vendor, etc.)."""
+
+    kind: str = ""
+    icon: str = ""
+    title: str = ""
+    files: list[str] = Field(default_factory=list)
+    detail: str = ""
+
+
+class CommunityRollupSchema(CamelModel):
+    """Community-level aggregation when body changes exceed cognitive cap."""
+
+    name: str = ""
+    change_count: int = 0
+    avg_risk: float = 0.0
+    highest_risk_symbol: str | None = None
+    highest_risk: float = 0.0
+    summary: str = ""
+
+
+class PatternGroupSchema(CamelModel):
+    """A group of changes sharing a common structural pattern."""
+
+    pattern: str = ""
+    count: int = 0
+    files: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
 class ReviewStoryResponse(CamelModel):
     """Structured review story artifact (§11)."""
 
     job_id: str
     available: bool = True
+    collapsed: bool = False
     header: ReviewStoryHeader | None = None
     attention_required: list[dict[str, Any]] = Field(default_factory=list)
     structural_concerns: list[dict[str, Any]] = Field(default_factory=list)
     what_changed: list[dict[str, Any]] = Field(default_factory=list)
     what_added: list[dict[str, Any]] = Field(default_factory=list)
     non_structural_count: int = 0
+    edge_cases: list[EdgeCaseBlockSchema] = Field(default_factory=list)
+    community_rollups: list[CommunityRollupSchema] = Field(default_factory=list)
+    pattern_groups: list[PatternGroupSchema] = Field(default_factory=list)
     verdict: ReviewStoryVerdict | None = None
 
 

@@ -42,6 +42,7 @@ from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.step_diff_service import StepDiffService
 from backend.services.story_service import StoryService
+from backend.services.narrative_service import NarrativeService
 from backend.services.telemetry_query_service import TelemetryQueryService
 from backend.services.terminal_service import TerminalService
 from backend.services.trail import TrailService
@@ -91,6 +92,10 @@ class AppProvider(Provider):
         self, sister_sessions: SisterSessionManager, coderecon: CodeReconService,
     ) -> StoryService:
         return StoryService(completer=sister_sessions, coderecon=coderecon)
+
+    @provide
+    def narrative_service(self, sister_sessions: SisterSessionManager) -> NarrativeService:
+        return NarrativeService(completer=sister_sessions)
 
     @provide
     def step_repo(self, sf: async_sessionmaker[AsyncSession]) -> StepRepository:

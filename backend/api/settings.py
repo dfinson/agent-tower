@@ -29,6 +29,7 @@ from backend.models.api_schemas import (
     RegisterRepoRequest,
     RegisterRepoResponse,
     RepoDetailResponse,
+    RepoHealthResponse,
     RepoListResponse,
     SDKInfoResponse,
     SDKListResponse,
@@ -136,6 +137,65 @@ async def get_repo_detail(
         base_branch=base_branch,
         current_branch=current_branch,
         platform=detect_platform(origin_url),
+    )
+
+
+@router.get("/settings/repos/{repo_path:path}/health", response_model=RepoHealthResponse)
+async def get_repo_health(
+    repo_path: str,
+    config: FromDishka[CPLConfig],
+    coderecon: FromDishka[CodeReconService],
+) -> RepoHealthResponse:
+    """Structural health status for a repository (§6.2)."""
+    resolved = str(Path(repo_path).expanduser().resolve())
+    if resolved not in config.repos:
+        raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
+
+    if not coderecon.available:
+        return RepoHealthResponse(repo=resolved)
+
+    try:
+        repo_name = await coderecon.ensure_repo_indexed(resolved)
+    except Exception:
+        return RepoHealthResponse(repo=resolved, index_status="error")
+
+    # Gather health metrics
+    symbol_count = 0
+    file_count = 0
+    last_sha = None
+    community_count = 0
+    cycle_count = 0
+
+    try:
+        status = await coderecon.repo_status(repo_name)
+        if status:
+            symbol_count = status.get("symbol_count", 0)
+            file_count = status.get("file_count", 0)
+            last_sha = status.get("last_indexed_sha")
+    except Exception:
+        pass
+
+    try:
+        communities = await coderecon.graph_communities(repo_name)
+        community_count = len(communities.communities) if communities.communities else 0
+    except Exception:
+        pass
+
+    try:
+        cycles = await coderecon.graph_cycles(repo_name)
+        cycle_count = len(cycles.cycles) if cycles.cycles else 0
+    except Exception:
+        pass
+
+    return RepoHealthResponse(
+        repo=resolved,
+        available=True,
+        index_status="ready",
+        symbol_count=symbol_count,
+        file_count=file_count,
+        last_indexed_sha=last_sha,
+        community_count=community_count,
+        cycle_count=cycle_count,
     )
 
 

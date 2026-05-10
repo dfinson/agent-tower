@@ -22,6 +22,8 @@ from backend.models.api_schemas import (
     LogLinePayload,
     LogListResponse,
     MultiSessionResponse,
+    NarrativeBlockSchema,
+    NarrativeResponse,
     PlanStepPayload,
     ProgressHeadlinePayload,
     ResolutionAction,
@@ -61,7 +63,9 @@ from backend.services.runtime_service import RuntimeService
 from backend.services.step_diff_service import StepDiffService
 from backend.services.step_tracker import hydrate_plan_steps
 from backend.services.story_service import StoryService
+from backend.services.narrative_service import NarrativeService
 from backend.services.coderecon_service import CodeReconService
+from backend.services.review_story_service import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
 
@@ -475,6 +479,40 @@ async def resolve_job(
     """Resolve a review job: merge, create PR, discard, or resolve with agent."""
     job = await svc.validate_for_resolution(job_id)
 
+    # §7.4 — Merge confidence gate: if structural confidence is LOW and this
+    # is a merge action, require explicit confirmation from the operator.
+    if body.action in (ResolutionAction.merge, ResolutionAction.smart_merge) and not body.confirm_low_confidence:
+        try:
+            from backend.services.coderecon_service import CodeReconService
+            coderecon: CodeReconService | None = None
+            try:
+                from dishka import AsyncContainer
+                # Try to get CodeReconService from the request scope
+                coderecon = await session.info.get("coderecon", None)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            if coderecon is None:
+                # Fallback: import from DI container via runtime_service
+                coderecon = getattr(runtime_service, "_coderecon_service", None)
+            if coderecon is not None and coderecon.available and job.repo and job.worktree_path:
+                story = await _generate_review_story(job_id, job, coderecon)
+                if story.available and story.header and story.header.merge_confidence == "LOW":
+                    blocker_list = []
+                    if story.verdict:
+                        blocker_list = story.verdict.blockers
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "reason": "low_confidence",
+                            "message": "Structural analysis confidence is LOW — explicit confirmation required.",
+                            "blockers": blocker_list,
+                        },
+                    )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # Non-critical — if we can't check confidence, allow the merge
+
     # agent_merge: hand the conflict back to the agent to resolve
     if body.action == ResolutionAction.agent_merge:
         if job.resolution != Resolution.conflict:
@@ -551,6 +589,30 @@ async def get_job_story(
     blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
     cached = not regenerate and bool(blocks)
     return StoryResponse(job_id=job_id, blocks=blocks, cached=cached, verbosity=verbosity)
+
+
+@router.get("/jobs/{job_id}/narrative", response_model=NarrativeResponse)
+async def get_job_narrative(
+    job_id: str,
+    session: FromDishka[AsyncSession],
+    narrative_service: FromDishka[NarrativeService],
+    verbosity: str = Query(default="standard", pattern="^(brief|standard|detailed)$"),
+) -> NarrativeResponse:
+    """Return the agent cognitive journey narrative for a job.
+
+    Assembled from trail enrichment data (decisions, backtracks, insights,
+    verifications).  Uses a cheap LLM for prose transitions between beats.
+    """
+    result = await narrative_service.generate(session, job_id, verbosity=verbosity)
+    return NarrativeResponse(
+        job_id=result["job_id"],
+        blocks=[NarrativeBlockSchema(**b) for b in result["blocks"]],
+        beat_count=result["beat_count"],
+        has_decisions=result["has_decisions"],
+        has_backtracks=result["has_backtracks"],
+        verbosity=result["verbosity"],
+        cached=result["cached"],
+    )
 
 
 @router.get("/jobs/{job_id}/structural-diff", response_model=StructuralDiffResponse)
@@ -1075,7 +1137,13 @@ async def _generate_review_story(
     job: Any,
     coderecon: "CodeReconService",
 ) -> "ReviewStoryResponse":
-    """Core review story generation — reusable from endpoint and subscriber."""
+    """Core review story generation — reusable from endpoint and subscriber.
+
+    Applies the full §11 pipeline: edge-case extraction, density classification,
+    aggregation when over cognitive budget, and community rollups.
+    """
+    from backend.services.review_story_service import classify_story
+
     if not coderecon.available or not job.repo or not job.worktree_path:
         return ReviewStoryResponse(job_id=job_id, available=False)
 
@@ -1107,15 +1175,38 @@ async def _generate_review_story(
     except Exception:
         pass
 
-    # Categorize changes
-    breaking = [c for c in changes if c.category == "breaking"]
-    body = [c for c in changes if c.category == "body"]
-    additive = [c for c in changes if c.category == "additive"]
-    non_structural = [c for c in changes if c.category == "non-structural"]
+    # Build file → community map for aggregation
+    file_to_community: dict[str, str] = {}
+    try:
+        communities = await coderecon.graph_communities(repo_name, worktree=job.worktree_path)
+        for comm in communities.communities:
+            comm_name = comm.get("name", "")
+            for member in comm.get("members", []):
+                file_to_community[member] = comm_name
+    except Exception:
+        pass
 
-    # Attention required — breaking changes with full context
+    # Full §11 classification pipeline
+    classification = classify_story(changes, file_to_community or None)
+    remaining = classification.get("remaining_changes", changes)
+    edge_cases = classification.get("edge_cases", [])
+    collapsed = classification.get("collapsed", False)
+    community_rollups = classification.get("community_rollups", [])
+    pattern_groups = classification.get("pattern_groups", [])
+    density_map = classification.get("density_map", {})
+
+    # Categorize remaining changes (edge cases already extracted)
+    breaking = [c for c in remaining if c.category == "breaking"]
+    body = [c for c in remaining if c.category == "body"]
+    additive = [c for c in remaining if c.category == "additive"]
+    non_structural = [c for c in remaining if c.category == "non-structural"]
+
+    # Also count edge-case files as non-structural
+    edge_file_count = sum(len(e.get("files", [])) for e in edge_cases)
+
+    # Attention required — breaking changes with full context (capped at 5)
     attention_items = []
-    for ch in sorted(breaking, key=lambda c: -c.risk)[:5]:
+    for ch in sorted(breaking, key=lambda c: -c.risk)[:_ATTENTION_CAP]:
         attention_items.append({
             "symbol": ch.symbol,
             "file": ch.file,
@@ -1124,6 +1215,14 @@ async def _generate_review_story(
             "refTiers": ch.ref_tiers,
             "testFiles": ch.test_files,
             "summary": ch.summary,
+            "density": density_map.get(ch.file + "::" + (ch.symbol or ""), "full"),
+        })
+    # If more breaking changes exist, note the overflow
+    if len(breaking) > _ATTENTION_CAP:
+        attention_items.append({
+            "symbol": None,
+            "summary": f"+{len(breaking) - _ATTENTION_CAP} more breaking change(s)",
+            "overflow": True,
         })
 
     # Structural concerns — cycles, unknown refs
@@ -1134,24 +1233,48 @@ async def _generate_review_story(
             "detail": f"{len(new_cycles)} new dependency cycle(s) introduced",
             "cycles": new_cycles[:3],
         })
-    unverified_count = sum(1 for c in changes if c.ref_tiers.get("unverified", 0) > 0)
+    unverified_count = sum(1 for c in remaining if c.ref_tiers.get("unverified", 0) > 0)
     if unverified_count:
         concerns.append({
             "type": "unverified_references",
             "detail": f"{unverified_count} change(s) have unverified callers",
         })
 
-    # What changed — body changes grouped by community (top 10)
-    what_changed = [
-        {"symbol": c.symbol, "file": c.file, "risk": c.risk, "summary": c.summary}
-        for c in sorted(body, key=lambda c: -c.risk)[:10]
-    ]
+    # What changed — body changes, use community rollup when over cap
+    what_changed: list[dict[str, Any]]
+    if community_rollups:
+        # Over budget → show rollups instead of individual items
+        what_changed = [
+            {"symbol": r["name"], "summary": r["summary"],
+             "risk": r["highest_risk"], "community": True,
+             "changeCount": r["change_count"]}
+            for r in community_rollups
+        ]
+    else:
+        what_changed = [
+            {"symbol": c.symbol, "file": c.file, "risk": c.risk, "summary": c.summary,
+             "density": density_map.get(c.file + "::" + (c.symbol or ""), "summary")}
+            for c in sorted(body, key=lambda c: -c.risk)[:_BODY_CAP]
+        ]
+        if len(body) > _BODY_CAP:
+            what_changed.append({
+                "symbol": None,
+                "summary": f"+{len(body) - _BODY_CAP} more body change(s)",
+                "overflow": True,
+            })
 
-    # What was added
+    # What was added (capped at 7)
     what_added = [
-        {"symbol": c.symbol, "file": c.file, "summary": c.summary}
-        for c in additive[:7]
+        {"symbol": c.symbol, "file": c.file, "summary": c.summary,
+         "density": density_map.get(c.file + "::" + (c.symbol or ""), "summary")}
+        for c in additive[:_ADDITIVE_CAP]
     ]
+    if len(additive) > _ADDITIVE_CAP:
+        what_added.append({
+            "symbol": None,
+            "summary": f"+{len(additive) - _ADDITIVE_CAP} more addition(s)",
+            "overflow": True,
+        })
 
     # Verdict
     confidence = _compute_merge_confidence(changes, has_new_cycles=has_new_cycles)
@@ -1161,9 +1284,20 @@ async def _generate_review_story(
     if any(c.ref_tiers.get("unverified", 0) > 0 and c.category == "breaking" for c in changes):
         blockers.append("Breaking changes with unverified callers")
 
+    # Edge-case schemas
+    from backend.models.api_schemas import (
+        CommunityRollupSchema,
+        EdgeCaseBlockSchema,
+        PatternGroupSchema,
+    )
+    edge_schemas = [EdgeCaseBlockSchema(**e) for e in edge_cases]
+    rollup_schemas = [CommunityRollupSchema(**r) for r in community_rollups]
+    pattern_schemas = [PatternGroupSchema(**p) for p in pattern_groups]
+
     return ReviewStoryResponse(
         job_id=job_id,
         available=True,
+        collapsed=collapsed,
         header=ReviewStoryHeader(
             title=job.title or job.prompt[:60],
             file_count=len({c.file for c in changes}),
@@ -1174,7 +1308,10 @@ async def _generate_review_story(
         structural_concerns=concerns,
         what_changed=what_changed,
         what_added=what_added,
-        non_structural_count=len(non_structural),
+        non_structural_count=len(non_structural) + edge_file_count,
+        edge_cases=edge_schemas,
+        community_rollups=rollup_schemas,
+        pattern_groups=pattern_schemas,
         verdict=ReviewStoryVerdict(
             confidence=confidence,
             blockers=blockers,
