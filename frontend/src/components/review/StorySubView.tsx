@@ -11,10 +11,11 @@
  */
 import { useState } from "react";
 import { useEffect } from "react";
-import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, ChevronDown, ChevronRight } from "lucide-react";
-import { fetchReviewStory, type ReviewStoryResponse, type EdgeCaseBlock, type PatternGroup } from "../../api/client";
+import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
+import { fetchReviewStory, fetchJobStory, type ReviewStoryResponse, type EdgeCaseBlock, type PatternGroup } from "../../api/client";
 import { useStore } from "../../store";
-import { selectReviewStory } from "../../store/selectors";
+import { selectReviewStory, selectJobStory } from "../../store/selectors";
+import type { StoryResponse, StoryBlock } from "../../api/types";
 import { Spinner } from "../ui/spinner";
 
 interface StorySubViewProps {
@@ -147,6 +148,117 @@ function PatternGroupSection({ groups }: { groups: PatternGroup[] }) {
   );
 }
 
+/** Split text on `backtick` spans and render inline <code> elements. */
+function renderInlineCode(text: string): React.ReactNode[] {
+  const parts = text.split(/(`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={i}
+          className="font-mono text-[0.85em] text-primary/80 bg-muted/40 px-1 py-px rounded"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
+/** Trail-based story fallback when CodeRecon is unavailable. */
+function TrailStoryFallback({ jobId }: { jobId: string }) {
+  const cachedStory = useStore(selectJobStory(jobId));
+  const setStory = useStore((s) => s.setStory);
+
+  const [story, setStoryLocal] = useState<StoryResponse | null>(cachedStory);
+  const [loading, setLoading] = useState(cachedStory == null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (cachedStory) {
+      setStoryLocal(cachedStory);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchJobStory(jobId)
+      .then((res) => {
+        if (!cancelled) {
+          setStoryLocal(res);
+          setStory(jobId, res);
+        }
+      })
+      .catch((err) => { if (!cancelled) setError(err?.message ?? "Failed to load story"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [jobId, cachedStory, setStory]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-48">
+        <Spinner size="md" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 justify-center h-48 text-sm text-muted-foreground">
+        <AlertTriangle size={16} className="text-yellow-400" />
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  if (!story || story.blocks.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
+        Not enough data to generate a story yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <BookOpen size={14} className="text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Code Review Story</h3>
+        </div>
+        <div className="text-sm text-muted-foreground leading-relaxed">
+          {story.blocks.map((block: StoryBlock, i: number) => {
+            if (block.type === "narrative" && block.text) {
+              return <span key={`n-${i}`}>{renderInlineCode(block.text)}</span>;
+            }
+            if (block.type === "reference" && block.file) {
+              const fileName = block.file.split("/").pop() ?? "file";
+              return (
+                <span
+                  key={`r-${i}`}
+                  className="inline-flex items-center gap-1 mx-0.5 font-mono text-[11px] text-primary/80 bg-muted/30 px-1.5 py-0.5 rounded"
+                  title={block.file}
+                >
+                  {fileName}
+                  {block.why && (
+                    <span className="text-muted-foreground font-sans"> — {block.why}</span>
+                  )}
+                </span>
+              );
+            }
+            return null;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function StorySubView({ jobId }: StorySubViewProps) {
   const cached = useStore(selectReviewStory(jobId));
   const setReviewStory = useStore((s) => s.setReviewStory);
@@ -196,12 +308,9 @@ export function StorySubView({ jobId }: StorySubViewProps) {
     );
   }
 
+  // Fallback to trail-based story when CodeRecon review-story is unavailable
   if (!data || !data.available) {
-    return (
-      <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
-        Review story not available for this job.
-      </div>
-    );
+    return <TrailStoryFallback jobId={jobId} />;
   }
 
   const confidenceCfg = data.header?.mergeConfidence

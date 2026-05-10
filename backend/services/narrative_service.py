@@ -105,14 +105,14 @@ _NARRATIVE_SYSTEM = (
 
 _VERBOSITY_SUFFIX = {
     "brief": (
-        "\n\nVERBOSITY=brief: Executive summary only. 80-150 words. "
+        "\n\nVERBOSITY=brief: Executive summary only. "
         "Decisions and backtracks in single sentences."
     ),
     "standard": "",
     "detailed": (
         "\n\nVERBOSITY=detailed: Full arc with exploration details, "
         "alternatives considered at each decision point, and expanded "
-        "verification results. 600-1200 words."
+        "verification results."
     ),
 }
 
