@@ -329,6 +329,9 @@ class CostAttributionRow(TypedDict, total=False):
     input_tokens: int
     output_tokens: int
     call_count: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+    model: str | None
 
 
 class TelemetrySummaryRow(TypedDict, total=False):
@@ -498,6 +501,8 @@ class CostDimensionRow(TypedDict):
     input_tokens: int
     output_tokens: int
     call_count: int
+    cache_read_tokens: int
+    cache_write_tokens: int
     job_count: int
 
 
@@ -510,6 +515,8 @@ class FleetCostRow(TypedDict):
     input_tokens: int
     output_tokens: int
     call_count: int
+    cache_read_tokens: int
+    cache_write_tokens: int
     job_count: int
     avg_cost_per_job: float
 

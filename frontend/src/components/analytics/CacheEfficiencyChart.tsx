@@ -78,7 +78,7 @@ export function CacheEfficiencyChart({ data: initialData, period }: { data: Cach
       <div className="space-y-2">
         {buckets.map((b) => {
           const barColor =
-            b.cacheHitRate >= 0.6 ? "bg-green-500" : b.cacheHitRate >= 0.3 ? "bg-yellow-500" : "bg-red-500";
+            b.cacheHitRate >= 0.7 ? "bg-green-500" : b.cacheHitRate >= 0.4 ? "bg-yellow-500" : "bg-red-500";
           return (
             <div key={b.bucket} className="space-y-0.5">
               <div className="flex items-center justify-between text-xs">

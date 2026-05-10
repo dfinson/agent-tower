@@ -109,7 +109,10 @@ class CostAttributionRepository(BaseRepository):
         result = await self._session.execute(
             text("""
                 SELECT id, job_id, dimension, bucket, cost_usd,
-                       input_tokens, output_tokens, call_count, created_at
+                       input_tokens, output_tokens, call_count,
+                       COALESCE(cache_read_tokens, 0) AS cache_read_tokens,
+                       COALESCE(cache_write_tokens, 0) AS cache_write_tokens,
+                       model, created_at
                 FROM job_cost_attribution
                 WHERE job_id = :job_id
                 ORDER BY dimension, cost_usd DESC
@@ -134,6 +137,8 @@ class CostAttributionRepository(BaseRepository):
                     SUM(input_tokens) as input_tokens,
                     SUM(output_tokens) as output_tokens,
                     SUM(call_count) as call_count,
+                    COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
+                    COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
                     COUNT(DISTINCT job_id) as job_count
                 FROM job_cost_attribution
                 WHERE dimension = :dimension

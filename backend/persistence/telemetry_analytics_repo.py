@@ -486,7 +486,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 WHERE j.created_at >= datetime('now', :offset)
                     AND j.state IN ('completed', 'failed', 'cancelled')
                     {repo_filter}
-                GROUP BY yield_category
+                GROUP BY category
             """),
             params,
         )

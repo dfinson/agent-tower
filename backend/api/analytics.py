@@ -630,7 +630,8 @@ async def analytics_export(
     all_rows: list[dict] = []
     for section_name, rows in combined.items():
         for row in rows:
-            flat = {"_section": section_name, **({k: v for k, v in row.items()} if isinstance(row, dict) else {})}
+            raw = dict(row) if isinstance(row, dict) else {}
+            flat = {"_section": section_name, **{k: v for k, v in raw.items() if not isinstance(v, (list, dict))}}
             all_rows.append(flat)
 
     if not all_rows:
