@@ -248,6 +248,26 @@ class JobTelemetrySpanRow(Base):
     )
 
 
+class JobFileCostRow(Base):
+    """Per-job file cost attribution (Item 14)."""
+
+    __tablename__ = "job_file_cost"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String, ForeignKey("jobs.id"), nullable=False)
+    file_path: Mapped[str] = mapped_column(String, nullable=False)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0.0")
+    read_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0.0")
+    write_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0.0")
+    turn_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_file_cost_job", "job_id"),
+        Index("idx_file_cost_path", "file_path"),
+    )
+
+
 class JobFileAccessRow(Base):
     """Per-file read/write access log for cost analytics."""
 

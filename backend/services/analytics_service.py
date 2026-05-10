@@ -301,6 +301,16 @@ class AnalyticsService:
         scorecard["cost_per_diff_line"] = period_total_cost / total_lines if total_lines > 0 else 0.0
         scorecard["total_diff_lines"] = total_lines
 
+        # Compaction cost estimate (Item 13)
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
+
+        ta_repo = TelemetryAnalyticsRepository(self._session)
+        compaction_tokens = await ta_repo.sum_compacted_tokens(period_days)
+        # Use fleet avg input cost if available, else conservative estimate
+        avg_input_rate = 0.000003  # ~$3/1M tokens
+        scorecard["compaction_cost_usd"] = compaction_tokens * avg_input_rate
+        scorecard["compaction_tokens"] = compaction_tokens
+
         return scorecard
 
     async def total_diff_lines(self, *, period_days: int) -> int:
@@ -317,3 +327,90 @@ class AnalyticsService:
         )
         row = result.mappings().first()
         return int((row or {}).get("total_lines", 0))
+
+    # -- File cost (Item 14) -------------------------------------------------
+
+    async def file_cost_fleet(
+        self, *, period_days: int = 30, limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        from backend.persistence.file_cost_repo import FileCostRepository
+
+        return await FileCostRepository(self._session).fleet_top_files(
+            period_days=period_days, limit=limit,
+        )
+
+    async def file_cost_for_job(self, job_id: str) -> list[dict[str, Any]]:
+        from backend.persistence.file_cost_repo import FileCostRepository
+
+        return await FileCostRepository(self._session).for_job(job_id)
+
+    # -- Outcome matrix (Item 15) --------------------------------------------
+
+    async def outcome_cost_matrix(
+        self, *, period_days: int = 30,
+    ) -> list[dict[str, Any]]:
+        from backend.persistence.cost_attribution_repo import CostAttributionRepository
+
+        return await CostAttributionRepository(self._session).cost_by_activity_and_resolution(
+            period_days=period_days,
+        )
+
+    # -- Activity × phase matrix (Item 16) -----------------------------------
+
+    async def activity_phase_matrix(
+        self, *, period_days: int = 30,
+    ) -> list[dict[str, Any]]:
+        from backend.persistence.cost_attribution_repo import CostAttributionRepository
+
+        return await CostAttributionRepository(self._session).fleet_activity_phase_matrix(
+            period_days=period_days,
+        )
+
+    # -- Executive summary (Item 18) -----------------------------------------
+
+    async def executive_summary(self, *, period_days: int = 30) -> dict[str, Any]:
+        """3-bucket executive summary: building / thinking / wasted."""
+        from backend.persistence.cost_attribution_repo import CostAttributionRepository
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
+
+        attr_repo = CostAttributionRepository(self._session)
+        summary_repo = TelemetryAnalyticsRepository(self._session)
+
+        activity_rows = await attr_repo.by_dimension("activity", period_days=period_days, limit=100)
+        building_activities = {
+            "implementation", "feature_dev", "debugging", "refactoring",
+            "verification", "git_ops",
+        }
+        thinking_activities = {
+            "investigation", "reasoning", "setup", "communication",
+        }
+
+        building = sum(r["cost_usd"] for r in activity_rows if r["bucket"] in building_activities)
+        thinking = sum(r["cost_usd"] for r in activity_rows if r["bucket"] in thinking_activities)
+
+        waste = await summary_repo.fleet_waste_metrics(period_days=period_days)
+        wasted = (
+            waste["total_retry_cost_usd"]
+            + waste["failed_discarded_cost_usd"]
+            + waste["compaction_cost_estimate_usd"]
+            + waste["reread_cost_estimate_usd"]
+        )
+
+        total = building + thinking + wasted
+
+        return {
+            "building_usd": building,
+            "thinking_usd": thinking,
+            "wasted_usd": wasted,
+            "total_usd": total,
+            "building_pct": round(building / total * 100, 1) if total > 0 else 0,
+            "thinking_pct": round(thinking / total * 100, 1) if total > 0 else 0,
+            "wasted_pct": round(wasted / total * 100, 1) if total > 0 else 0,
+            "waste_breakdown": {
+                "retry_usd": waste["total_retry_cost_usd"],
+                "failed_jobs_usd": waste["failed_discarded_cost_usd"],
+                "compaction_usd": waste["compaction_cost_estimate_usd"],
+                "rereads_usd": waste["reread_cost_estimate_usd"],
+            },
+            "period_days": period_days,
+        }

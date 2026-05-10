@@ -23,6 +23,7 @@ import structlog
 from backend.models.api_schemas import ExecutionPhase
 from backend.services.cost_attribution import (
     TurnContext,
+    _classify_motivation,
     _classify_turn_intent,
     _sub_classify_implementation,
 )
@@ -303,6 +304,30 @@ async def _compute_latency(
     _build_rows("phase", by_phase)
     _build_rows("turn", by_turn, turn_intervals)
     _build_rows("tool_type", by_tool_type)
+
+    # Motivation dimension (Item 17) — mirrors cost attribution
+    by_motivation: dict[str, list[int]] = defaultdict(list)
+    motivation_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    # Attempt to load trail nodes for motivation classification
+    trail_list: list[dict] = []
+    try:
+        trail_result = await session.execute(
+            sa_text(
+                "SELECT turn_number, is_retry, error_kind, plan_item_id "
+                "FROM trail_nodes WHERE job_id = :jid ORDER BY seq LIMIT 1000"
+            ),
+            {"jid": job_id},
+        )
+        trail_list = [dict(r) for r in trail_result.mappings().all()]
+    except Exception:
+        pass  # trail nodes unavailable — all turns default to agent_exploration
+
+    for turn_num, context in turn_contexts.items():
+        motivation = _classify_motivation(turn_num, trail_list, context)
+        by_motivation[motivation].extend(turn_durations.get(turn_num, []))
+        motivation_intervals[motivation].extend(turn_span_intervals.get(turn_num, []))
+
+    _build_rows("motivation", by_motivation, motivation_intervals)
 
     await latency_repo.insert_batch(job_id=job_id, rows=rows)
 

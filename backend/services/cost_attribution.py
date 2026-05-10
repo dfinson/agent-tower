@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from backend.models.domain import TelemetrySpanRow
     from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
+    from backend.persistence.file_cost_repo import FileCostRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
     from backend.persistence.trail_repo import TrailNodeRepository
@@ -182,6 +183,40 @@ def _sub_classify_implementation(description: str | None, motivation: str | None
     return best_label
 
 
+def _classify_motivation(
+    turn_num: int,
+    trail_nodes: list[dict],
+    turn_context: TurnContext,
+) -> str:
+    """Classify a turn's motivation from trail node metadata (Item 17)."""
+    nodes = [n for n in trail_nodes if n.get("turn_number") == turn_num]
+
+    # Priority 1: Error recovery — is_retry or error_kind present
+    if any(n.get("is_retry") or n.get("error_kind") for n in nodes):
+        return "error_recovery"
+
+    # Priority 2: Test-driven — shell commands include test runners
+    shell_cmds = turn_context.get("shell_commands", [])
+    if any(classify_shell_command(cmd) == "verification" for cmd in shell_cmds):
+        return "test_driven_iteration"
+
+    # Priority 3: Plan execution — trail node has plan_item_id
+    if any(n.get("plan_item_id") for n in nodes):
+        return "plan_execution"
+
+    # Priority 4: User-directed — first turn or immediately after user message
+    if turn_num <= 1:
+        return "user_directed"
+
+    # Priority 5: Context gathering — turn is pure reads, no writes
+    cats = set(turn_context.get("tool_categories", []))
+    if cats and not (cats & {"file_write", "git_write"}):
+        return "context_gathering"
+
+    # Default: agent exploration
+    return "agent_exploration"
+
+
 async def compute_attribution(
     session: AsyncSession,
     job_id: str,
@@ -197,6 +232,7 @@ async def compute_attribution(
     """
     from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
+    from backend.persistence.file_cost_repo import FileCostRepository
     from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
@@ -212,6 +248,7 @@ async def compute_attribution(
         attr_repo=CostAttributionRepository(session),
         summary_repo=TelemetrySummaryRepository(session),
         file_repo=FileAccessRepository(session),
+        file_cost_repo=FileCostRepository(session),
         session=session,
         trail_repo=trail_repo,
     )
@@ -224,6 +261,7 @@ async def _compute_attribution(
     attr_repo: CostAttributionRepository,
     summary_repo: TelemetrySummaryRepository,
     file_repo: FileAccessRepository,
+    file_cost_repo: FileCostRepository,
     session: AsyncSession,
     trail_repo: TrailNodeRepository | None = None,
 ) -> None:
@@ -360,6 +398,36 @@ async def _compute_attribution(
                 call_count=1,
             )
 
+    # --- Motivation dimension (Item 17) ---
+    trail_list: list[dict] = []
+    try:
+        if trail_repo is not None:
+            trail_nodes = await trail_repo.get_by_job(job_id, limit=1000)
+            trail_list = [
+                {
+                    "turn_number": getattr(n, "turn_number", None) or getattr(n, "anchor_seq", None),
+                    "is_retry": getattr(n, "is_retry", False),
+                    "error_kind": getattr(n, "error_kind", None),
+                    "plan_item_id": getattr(n, "plan_item_id", None),
+                }
+                for n in trail_nodes
+            ]
+    except Exception:
+        log.debug("cost_attribution_trail_fetch_failed", job_id=job_id, exc_info=True)
+
+    by_motivation: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+    for turn_num_m, context_m in turn_contexts.items():
+        motivation = _classify_motivation(turn_num_m, trail_list, context_m)
+        turn_cost_m = float(context_m.get("cost_usd", 0.0) or 0.0)
+        turn_in_m = int(context_m.get("input_tokens", 0) or 0)
+        turn_out_m = int(context_m.get("output_tokens", 0) or 0)
+        turn_cache_r_m = int(context_m.get("cache_read_tokens", 0) or 0)
+        turn_cache_w_m = int(context_m.get("cache_write_tokens", 0) or 0)
+        _accumulate(
+            by_motivation[motivation], turn_cost_m, turn_in_m, turn_out_m,
+            cache_read=turn_cache_r_m, cache_write=turn_cache_w_m, call_count=1,
+        )
+
     # --- Write attribution rows ---
     rows: list[dict[str, Any]] = []
     for bucket, data in by_activity.items():
@@ -370,6 +438,8 @@ async def _compute_attribution(
         rows.append({"dimension": "phase", "bucket": phase_name, "model": job_model, **data})
     for compound_key, data in by_activity_phase.items():
         rows.append({"dimension": "activity_phase", "bucket": compound_key, "model": job_model, **data})
+    for motivation_bucket, mdata in by_motivation.items():
+        rows.append({"dimension": "motivation", "bucket": motivation_bucket, "model": job_model, **mdata})
     # One-shot rate rows (dimension="edit_efficiency")
     for activity_bucket, stats in one_shot_by_activity.items():
         if stats["edit_turns"] > 0:
@@ -395,8 +465,48 @@ async def _compute_attribution(
         turn_buckets=len(by_turn),
         phase_buckets=len(by_phase),
         activity_phase_buckets=len(by_activity_phase),
+        motivation_buckets=len(by_motivation),
         spans_missing_phase=spans_missing_phase,
     )
+
+    # --- File-centric cost attribution (Item 14) ---
+    try:
+        file_access_rows = await file_repo.raw_accesses_for_job(job_id)
+        if file_access_rows:
+            files_by_turn: dict[int, list[dict]] = defaultdict(list)
+            for fa in file_access_rows:
+                turn = fa.get("turn_number")
+                if turn is not None:
+                    files_by_turn[int(turn)].append(fa)
+
+            file_costs: dict[str, dict] = defaultdict(
+                lambda: {"cost_usd": 0.0, "read_cost": 0.0, "write_cost": 0.0, "turn_count": 0}
+            )
+            for turn_num_f, turn_files in files_by_turn.items():
+                turn_cost_f = float(by_turn.get(turn_num_f, _zero_bucket())["cost_usd"])
+                if turn_cost_f <= 0 or not turn_files:
+                    continue
+                unique_files = set(f["file_path"] for f in turn_files)
+                share = turn_cost_f / len(unique_files)
+                seen_files: set[str] = set()
+                for fa in turn_files:
+                    fp = fa["file_path"]
+                    if fp not in seen_files:
+                        seen_files.add(fp)
+                        file_costs[fp]["cost_usd"] += share
+                        if fa.get("access_type") == "read":
+                            file_costs[fp]["read_cost"] += share
+                        else:
+                            file_costs[fp]["write_cost"] += share
+                        file_costs[fp]["turn_count"] += 1
+
+            if file_costs:
+                await file_cost_repo.insert_batch(
+                    job_id=job_id,
+                    rows=[{"file_path": fp, **data} for fp, data in file_costs.items()],
+                )
+    except Exception:
+        log.debug("file_cost_attribution_failed", job_id=job_id, exc_info=True)
 
     # --- Compute turn economics for summary ---
     turn_costs = [d["cost_usd"] for d in by_turn.values()]

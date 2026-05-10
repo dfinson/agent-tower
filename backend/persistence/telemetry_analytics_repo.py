@@ -586,3 +586,53 @@ class TelemetryAnalyticsRepository(BaseRepository):
             {"days": int(period_days)},
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def sum_compacted_tokens(self, period_days: int) -> int:
+        """Total tokens compacted (re-ingested) across all jobs in the period (Item 13)."""
+        result = await self._session.execute(
+            text("""
+                SELECT COALESCE(SUM(t.tokens_compacted), 0) AS total
+                FROM job_telemetry_summary t
+                JOIN jobs j ON j.id = t.job_id
+                WHERE j.created_at >= datetime('now', :offset)
+            """),
+            {"offset": f"-{int(period_days)} days"},
+        )
+        return int(result.scalar() or 0)
+
+    async def fleet_waste_metrics(self, *, period_days: int = 30) -> dict[str, float]:
+        """Aggregate waste-related metrics across the fleet (Item 18)."""
+        result = await self._session.execute(
+            text("""
+                SELECT
+                    COALESCE(SUM(t.retry_cost_usd), 0) AS total_retry_cost_usd,
+                    COALESCE(SUM(
+                        CASE WHEN j.resolution IN ('failed', 'discarded')
+                        THEN t.total_cost_usd ELSE 0 END
+                    ), 0) AS failed_discarded_cost_usd,
+                    COALESCE(SUM(t.tokens_compacted), 0) AS total_tokens_compacted,
+                    COALESCE(SUM(
+                        CASE WHEN t.file_reread_count > t.unique_files_read
+                        THEN t.file_reread_count - t.unique_files_read ELSE 0 END
+                    ), 0) AS excess_rereads
+                FROM job_telemetry_summary t
+                JOIN jobs j ON j.id = t.job_id
+                WHERE j.created_at >= datetime('now', :offset)
+            """),
+            {"offset": f"-{int(period_days)} days"},
+        )
+        row = result.mappings().first() or {}
+        # Estimate compaction cost: re-ingesting tokens at conservative input rate
+        compaction_tokens = int(row.get("total_tokens_compacted", 0))
+        avg_input_rate = 0.000003  # ~$3/1M tokens — conservative Claude Sonnet-class rate
+        compaction_cost = compaction_tokens * avg_input_rate
+        # Estimate re-read cost: each excess re-read wastes marginal overhead
+        excess_rereads = int(row.get("excess_rereads", 0))
+        reread_cost = excess_rereads * 0.001
+
+        return {
+            "total_retry_cost_usd": float(row.get("total_retry_cost_usd", 0)),
+            "failed_discarded_cost_usd": float(row.get("failed_discarded_cost_usd", 0)),
+            "compaction_cost_estimate_usd": compaction_cost,
+            "reread_cost_estimate_usd": reread_cost,
+        }

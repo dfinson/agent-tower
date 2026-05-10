@@ -122,6 +122,9 @@ class ScorecardResponse(CamelModel):
     # Cost-per-line (Item 9)
     cost_per_diff_line: float = 0.0
     total_diff_lines: int = 0
+    # Compaction cost (Item 13)
+    compaction_cost_usd: float = 0.0
+    compaction_tokens: int = 0
 
 
 class ModelComparisonRow(CamelModel):
@@ -782,3 +785,71 @@ class SisterSessionJobMetrics(CamelModel):
 class SisterSessionMetricsResponse(CamelModel):
     global_metrics: SisterSessionGlobalMetrics = Field(alias="global")
     jobs: dict[str, SisterSessionJobMetrics]
+
+
+# ---------------------------------------------------------------------------
+# Items 13-18: New analytics response models
+# ---------------------------------------------------------------------------
+
+
+class FileCostEntry(CamelModel):
+    file_path: str = ""
+    total_cost_usd: float = 0.0
+    total_read_cost: float = 0.0
+    total_write_cost: float = 0.0
+    total_turns: int = 0
+    job_count: int = 0
+
+
+class FileCostResponse(CamelModel):
+    files: list[FileCostEntry] = []
+    period_days: int = 30
+
+
+class OutcomeMatrixCell(CamelModel):
+    activity: str = ""
+    resolution: str = ""
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    job_count: int = 0
+
+
+class OutcomeMatrixResponse(CamelModel):
+    cells: list[OutcomeMatrixCell] = []
+    period_days: int = 30
+    total_waste_usd: float = 0.0
+
+
+class ActivityPhaseCell(CamelModel):
+    activity: str = ""
+    phase: str = ""
+    cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    call_count: int = 0
+    job_count: int = 0
+
+
+class ActivityPhaseMatrixResponse(CamelModel):
+    cells: list[ActivityPhaseCell] = []
+    period_days: int = 30
+
+
+class WasteBreakdown(CamelModel):
+    retry_usd: float = 0.0
+    failed_jobs_usd: float = 0.0
+    compaction_usd: float = 0.0
+    rereads_usd: float = 0.0
+
+
+class ExecutiveSummaryResponse(CamelModel):
+    building_usd: float = 0.0
+    thinking_usd: float = 0.0
+    wasted_usd: float = 0.0
+    total_usd: float = 0.0
+    building_pct: float = 0.0
+    thinking_pct: float = 0.0
+    wasted_pct: float = 0.0
+    waste_breakdown: WasteBreakdown = WasteBreakdown()
+    period_days: int = 30

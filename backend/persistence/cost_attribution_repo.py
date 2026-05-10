@@ -362,3 +362,53 @@ class CostAttributionRepository(BaseRepository):
             {"days": int(period_days)},
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def cost_by_activity_and_resolution(
+        self, *, period_days: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Cross-tab: cost by activity bucket × job resolution (Item 15)."""
+        result = await self._session.execute(
+            text("""
+                SELECT
+                    a.bucket AS activity,
+                    COALESCE(j.resolution, 'running') AS resolution,
+                    ROUND(SUM(a.cost_usd), 6) AS cost_usd,
+                    SUM(a.input_tokens) AS input_tokens,
+                    SUM(a.output_tokens) AS output_tokens,
+                    COUNT(DISTINCT a.job_id) AS job_count
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE a.dimension = 'activity'
+                    AND j.created_at >= datetime('now', :offset)
+                GROUP BY a.bucket, j.resolution
+                ORDER BY cost_usd DESC
+            """),
+            {"offset": f"-{int(period_days)} days"},
+        )
+        return [dict(r) for r in result.mappings().all()]
+
+    async def fleet_activity_phase_matrix(
+        self, *, period_days: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Aggregate activity×phase cost across all jobs (Item 16)."""
+        result = await self._session.execute(
+            text("""
+                SELECT
+                    SUBSTR(a.bucket, 1, INSTR(a.bucket, ':') - 1) AS activity,
+                    SUBSTR(a.bucket, INSTR(a.bucket, ':') + 1) AS phase,
+                    ROUND(SUM(a.cost_usd), 6) AS cost_usd,
+                    SUM(a.input_tokens) AS input_tokens,
+                    SUM(a.output_tokens) AS output_tokens,
+                    SUM(a.call_count) AS call_count,
+                    COUNT(DISTINCT a.job_id) AS job_count
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE a.dimension = 'activity_phase'
+                    AND a.bucket LIKE '%:%'
+                    AND j.created_at >= datetime('now', :offset)
+                GROUP BY activity, phase
+                ORDER BY cost_usd DESC
+            """),
+            {"offset": f"-{int(period_days)} days"},
+        )
+        return [dict(r) for r in result.mappings().all()]

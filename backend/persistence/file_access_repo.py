@@ -167,3 +167,16 @@ class FileAccessRepository(BaseRepository):
             """)
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def raw_accesses_for_job(self, job_id: str) -> list[dict[str, Any]]:
+        """Get raw file access entries with turn numbers for cost attribution."""
+        result = await self._session.execute(
+            text("""
+                SELECT file_path, access_type, turn_number
+                FROM job_file_access_log
+                WHERE job_id = :job_id AND turn_number IS NOT NULL
+                ORDER BY turn_number, id
+            """),
+            {"job_id": job_id},
+        )
+        return [dict(r) for r in result.mappings().all()]
