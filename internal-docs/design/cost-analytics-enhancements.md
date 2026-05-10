@@ -1,6 +1,6 @@
 ---
 title: "Cost Analytics Enhancements — Design Document"
-description: "End-to-end design for 10 cost analytics improvements derived from competitive audit of CodeBurn, toktrack, aider-cost, and other OSS token-spend analysis tools."
+description: "End-to-end design for 11 cost analytics improvements derived from competitive audit of CodeBurn, toktrack, aider-cost, and other OSS token-spend analysis tools."
 author: CodePlane Team
 ms.date: 2026-07-24
 ms.topic: concept
@@ -14,7 +14,7 @@ estimated_reading_time: 30
 
 ## Overview
 
-This document specifies 10 enhancements to CodePlane's cost analytics subsystem.
+This document specifies 11 enhancements to CodePlane's cost analytics subsystem.
 Each item is traced from competitive research (primarily CodeBurn, toktrack,
 aider-cost) through every layer: DB schema, Alembic migration, backend services,
 API endpoints, Pydantic response models, frontend API client, and React UI
@@ -41,6 +41,326 @@ components.
 * **Statistical analysis** (`statistical_analysis.py`): 6 anomaly detectors writing to `cost_observations`.
 * **BudgetCard** (`BudgetCard.tsx`): daily limit progress bar, quota % from Copilot, SDK breakdown.
 * **Config** (`TelemetryConfig`): `claude_monthly_budget_usd`, `copilot_premium_entitlement`, `daily_spend_limit_usd`.
+
+---
+
+## Item 1 — Waste detection engine (Optimize)
+
+### Problem
+
+CodeBurn's `optimize` command is its highest-rated feature: deterministic
+waste-pattern scanners that flag file re-reads, unused MCP servers, bloated
+system prompts, uncapped bash output, ghost skills, and low read:edit ratios.
+Each finding carries a penalty grade and trend status (active / improving /
+resolved).
+
+CodePlane's `statistical_analysis.py` runs seven detectors that write to
+`cost_observations` and surface through the `ObservationsPanel`. But two gaps
+remain: (a) the design doc never formalized these detectors as a cohesive
+feature, and (b) several waste patterns from the research audit have no
+equivalent detector.
+
+### What CodeBurn does
+
+`optimize.ts` runs waste detectors in sequence:
+
+* `detectFileRereads`: flags files read repeatedly within a session
+* `detectUnusedMCPServers`: compares configured servers against actual tool
+  calls
+* `detectBloatedSystemPrompt`: estimates CLAUDE.md / system prompt token cost
+* `detectUncappedBashOutput`: flags shell commands returning massive output
+* `detectGhostSkills`: finds skills configured but never invoked
+* `detectLowReadEditRatio`: flags sessions with high reads but few edits
+
+Each detector produces a penalty-graded finding with trend tracking
+(active / improving / resolved).
+
+### Architectural differences
+
+CodePlane is a control plane, not a CLI scraper. It receives telemetry
+post-hoc from agents and has no access to agent-side configuration files
+(CLAUDE.md, MCP server lists, skill definitions). Three CodeBurn detectors
+are inapplicable:
+
+| CodeBurn detector | CodePlane applicability |
+|-------------------|------------------------|
+| Unused MCP servers | Not applicable: CodePlane does not know what MCP servers agents have configured |
+| Bloated system prompt | Not applicable: system prompts are agent-side, not transmitted in telemetry |
+| Ghost skills | Not applicable: skill configuration is agent-side |
+
+The remaining patterns are either already implemented or constructible from
+existing telemetry data.
+
+### Design
+
+#### Existing detectors (pre-design-doc, no changes needed)
+
+These seven detectors already write to `cost_observations` via
+`statistical_analysis.py`:
+
+| Detector | Category | Source data |
+|----------|----------|-------------|
+| File re-read hotspots | `file_reread` | `file_access` table |
+| Tool failure patterns | `tool_failure` | `telemetry_spans` |
+| Turn cost escalation | `turn_escalation` | `job_telemetry_summary` |
+| Retry waste | `retry_waste` | `telemetry_spans` |
+| Compaction storms | `compaction_storm` | `job_telemetry_summary` |
+| Cache efficiency regression | `cache_regression` | `job_telemetry_summary` |
+| Communication waste (Item 12) | `communication_waste` | `job_cost_attribution` |
+
+#### New detector A: unproductive exploration
+
+Flag jobs where investigation is the dominant activity and the job produced
+no merged or PR'd output. "I spent most of my budget reading code and the
+job was discarded/failed" is a clear waste signal.
+
+Category: `unproductive_exploration`
+
+Source: `job_cost_attribution` (dimension=`activity`) joined with `jobs`
+(resolution) and `job_telemetry_summary` (diff lines, total cost).
+
+Trigger conditions (all must hold):
+
+1. Investigation bucket holds the majority (>50%) of the job's total
+   attribution cost. This is not an arbitrary threshold: majority means
+   investigation was the single largest time sink.
+2. The job's resolution is `discarded` or `failed` (no productive outcome).
+3. The job's total cost exceeds the fleet median job cost (avoid flagging
+   cheap exploratory jobs that aren't worth optimizing).
+
+##### Backend — `statistical_analysis.py`
+
+New function `_analyse_unproductive_exploration`:
+
+```python
+async def _analyse_unproductive_exploration(
+    cost_repo: CostAttributionRepository,
+    obs_repo: ObservationsRepository,
+) -> int:
+    """Flag jobs where investigation dominated cost and no code landed."""
+    rows = await cost_repo.unproductive_exploration_jobs(period_days=14)
+    if not rows:
+        return 0
+
+    total_waste = sum(r["investigation_cost"] for r in rows)
+    await obs_repo.upsert(
+        category="unproductive_exploration",
+        severity="warning" if total_waste >= 5.0 else "info",
+        title=(
+            f"{len(rows)} jobs spent majority of cost investigating "
+            f"but produced no merged output"
+        ),
+        detail=(
+            f"These jobs spent {total_waste:.2f} USD on investigation/exploration "
+            f"turns and ended as discarded or failed. Consider more targeted "
+            f"prompts or breaking large exploration tasks into cheaper scoping "
+            f"jobs before committing to full implementation."
+        ),
+        evidence={
+            "flagged_jobs": [
+                {
+                    "job_id": r["job_id"],
+                    "investigation_cost_usd": round(r["investigation_cost"], 4),
+                    "total_cost_usd": round(r["total_cost"], 4),
+                    "investigation_pct": round(r["investigation_pct"], 2),
+                    "resolution": r["resolution"],
+                    "diff_lines": r["diff_lines"],
+                }
+                for r in rows[:10]
+            ],
+            "total_waste_usd": round(total_waste, 4),
+        },
+        job_count=len(rows),
+        total_waste_usd=total_waste,
+    )
+    return 1
+```
+
+##### Backend — `cost_attribution_repo.py`
+
+New method `unproductive_exploration_jobs`:
+
+```python
+async def unproductive_exploration_jobs(
+    self, period_days: int,
+) -> list[dict[str, Any]]:
+    """Jobs where investigation cost > 50% of total and outcome was
+    discarded or failed."""
+    result = await self._session.execute(
+        text("""
+            WITH job_activity AS (
+                SELECT
+                    a.job_id,
+                    SUM(CASE WHEN a.bucket = 'investigation'
+                        THEN a.cost_usd ELSE 0 END) AS investigation_cost,
+                    SUM(a.cost_usd) AS total_cost
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE a.dimension = 'activity'
+                    AND j.created_at >= datetime('now', :offset)
+                GROUP BY a.job_id
+            ),
+            fleet_median AS (
+                SELECT AVG(total_cost) AS median_cost
+                FROM (
+                    SELECT total_cost,
+                        ROW_NUMBER() OVER (ORDER BY total_cost) AS rn,
+                        COUNT(*) OVER () AS cnt
+                    FROM job_activity
+                )
+                WHERE rn IN (cnt / 2, cnt / 2 + 1)
+            )
+            SELECT
+                ja.job_id,
+                ja.investigation_cost,
+                ja.total_cost,
+                ja.investigation_cost / ja.total_cost AS investigation_pct,
+                j.resolution,
+                COALESCE(t.diff_lines_added, 0)
+                    + COALESCE(t.diff_lines_removed, 0) AS diff_lines
+            FROM job_activity ja
+            JOIN jobs j ON j.id = ja.job_id
+            LEFT JOIN job_telemetry_summary t ON t.job_id = ja.job_id
+            CROSS JOIN fleet_median fm
+            WHERE ja.investigation_cost > ja.total_cost * 0.5
+                AND j.resolution IN ('discarded', 'failed')
+                AND ja.total_cost > fm.median_cost
+            ORDER BY ja.investigation_cost DESC
+        """),
+        {"offset": f"-{int(period_days)} days"},
+    )
+    return [dict(r) for r in result.mappings().all()]
+```
+
+#### New detector B: high delegation overhead
+
+Flag jobs where sub-agent delegation cost exceeds the parent job's direct
+LLM cost. When sub-agents cost more than the parent, the delegation itself
+may be wasteful (the parent spent tokens coordinating work that could have
+been done directly).
+
+Category: `delegation_overhead`
+
+Source: `job_telemetry_summary.subagent_cost_usd` versus
+`job_telemetry_summary.total_cost_usd - subagent_cost_usd` (direct cost).
+
+Trigger: `subagent_cost_usd > total_cost_usd - subagent_cost_usd` (sub-agent
+cost exceeds the parent's own spend) AND `subagent_cost_usd > 0` (job actually
+used delegation).
+
+##### Backend — `statistical_analysis.py`
+
+New function `_analyse_delegation_overhead`:
+
+```python
+async def _analyse_delegation_overhead(
+    summary_repo: TelemetryAnalyticsRepository,
+    obs_repo: ObservationsRepository,
+) -> int:
+    """Flag jobs where sub-agent cost exceeds parent direct cost."""
+    rows = await summary_repo.high_delegation_jobs(period_days=14)
+    if not rows:
+        return 0
+
+    total_delegation_excess = sum(
+        r["subagent_cost_usd"] - r["direct_cost_usd"] for r in rows
+    )
+    await obs_repo.upsert(
+        category="delegation_overhead",
+        severity="warning" if total_delegation_excess >= 5.0 else "info",
+        title=(
+            f"{len(rows)} jobs spent more on sub-agents than on direct work"
+        ),
+        detail=(
+            f"These jobs delegated work to sub-agents that cost more than "
+            f"the parent job's own LLM calls. Excess delegation cost: "
+            f"${total_delegation_excess:.2f}. Consider whether the parent "
+            f"could have done the work directly, or whether sub-agent prompts "
+            f"need tightening."
+        ),
+        evidence={
+            "flagged_jobs": [
+                {
+                    "job_id": r["job_id"],
+                    "subagent_cost_usd": round(r["subagent_cost_usd"], 4),
+                    "direct_cost_usd": round(r["direct_cost_usd"], 4),
+                    "total_cost_usd": round(r["total_cost_usd"], 4),
+                    "delegation_pct": round(
+                        r["subagent_cost_usd"] / r["total_cost_usd"], 2,
+                    ),
+                }
+                for r in rows[:10]
+            ],
+            "total_excess_usd": round(total_delegation_excess, 4),
+        },
+        job_count=len(rows),
+        total_waste_usd=total_delegation_excess,
+    )
+    return 1
+```
+
+##### Backend — `telemetry_analytics_repo.py`
+
+New method `high_delegation_jobs`:
+
+```python
+async def high_delegation_jobs(
+    self, period_days: int,
+) -> list[dict[str, Any]]:
+    """Jobs where sub-agent cost exceeds the parent's direct cost."""
+    result = await self._session.execute(
+        text("""
+            SELECT
+                t.job_id,
+                t.subagent_cost_usd,
+                t.total_cost_usd - t.subagent_cost_usd AS direct_cost_usd,
+                t.total_cost_usd
+            FROM job_telemetry_summary t
+            JOIN jobs j ON j.id = t.job_id
+            WHERE j.created_at >= datetime('now', :offset)
+                AND t.subagent_cost_usd > 0
+                AND t.subagent_cost_usd
+                    > t.total_cost_usd - t.subagent_cost_usd
+            ORDER BY t.subagent_cost_usd DESC
+        """),
+        {"offset": f"-{int(period_days)} days"},
+    )
+    return [dict(r) for r in result.mappings().all()]
+```
+
+#### DB — no schema change
+
+Both detectors query existing tables (`job_cost_attribution`,
+`job_telemetry_summary`, `jobs`). No migration needed.
+
+#### API — no endpoint change
+
+Both detectors write to `cost_observations` via `ObservationsRepository.upsert`.
+The existing `GET /analytics/observations` endpoint returns them automatically.
+
+#### Frontend — `ObservationsPanel.tsx`
+
+Add icon mappings for the new categories:
+
+```typescript
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  // ... existing ...
+  unproductive_exploration: Search,
+  delegation_overhead: GitFork,
+};
+```
+
+No new component needed. Both observation types render through the existing
+panel with severity coloring and dismiss functionality.
+
+#### Integration — `statistical_analysis.py`
+
+Add both detectors to `run_analysis`:
+
+```python
+count += await _analyse_unproductive_exploration(cost_repo, obs_repo)
+count += await _analyse_delegation_overhead(summary_repo, obs_repo)
+```
 
 ---
 
@@ -1470,7 +1790,7 @@ Items have dependencies. The recommended order:
 | 1 | 8, 3 | Token disaggregation and sub-classification are attribution pipeline changes. Must land first because Items 6, 7 depend on the enriched data. |
 | 1b | **Backfill** | Run `backfill-attribution` after Phase 1 deploys. Re-computes all historical attribution rows with cache tokens, model, and sub-classifications. Must complete before Phase 2 — model efficiency and cache efficiency queries read from the backfilled data. |
 | 2 | 6, 7 | Model efficiency and cache efficiency depend on the `model` column (Item 6→migration) and cache tokens (Item 8). |
-| 3 | 9, 2, 12 | Cost-per-line, yield, and communication waste are independent query/analysis additions. |
+| 3 | 9, 2, 1, 12 | Cost-per-line, yield, waste detectors, and communication waste are independent query/analysis additions. Item 1 depends on attribution data from Phase 1b for the exploration detector. |
 | 4 | 4, 5, 10 | Repo grouping, budget tracking, and export are additive features with no upstream dependencies. |
 
 ---
@@ -1493,6 +1813,7 @@ match expectations.
 
 | Item | Migration | `cost_attribution.py` | `cost_attribution_repo.py` | `analytics_service.py` | `api/analytics.py` | `schemas/telemetry.py` | FE client | FE component |
 |------|-----------|----------------------|---------------------------|----------------------|-------------------|----------------------|-----------|-------------|
+| 1 | — | — | `unproductive_exploration_jobs` | — | — | — | — | icon mapping in `ObservationsPanel` |
 | 2 | — | — | — | `yield_summary` | `/yield` | `YieldResponse` | `fetchYield` | `YieldCard.tsx` |
 | 3 | — | `_sub_classify_implementation` | — | — | — | — | — | color/label maps |
 | 4 | — | — | `by_dimension_per_repo` | `cost_by_repo_activity` | extend `/cost-drivers` | `RepoCostDriversResponse` | update `fetchFleetCostDrivers` | extend `FleetCostDriverInsights` |
