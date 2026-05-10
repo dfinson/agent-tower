@@ -35,16 +35,26 @@ class CopilotSteerClient:
     async def send_message(self, task_id: str, message: str) -> None:
         """POST /agents/tasks/{task_id}/steer with type=user."""
         url = f"{_STEER_BASE}/{task_id}/steer"
-        resp = await self._client.post(url, json={"content": message, "type": "user"})
-        resp.raise_for_status()
-        log.info("copilot_steer_message_sent", task_id=task_id)
+        try:
+            resp = await self._client.post(url, json={"content": message, "type": "user"})
+            resp.raise_for_status()
+            log.info("copilot_steer_message_sent", task_id=task_id)
+        except httpx.HTTPStatusError:
+            log.warning("copilot_steer_message_failed", task_id=task_id, exc_info=True)
+        except httpx.HTTPError:
+            log.warning("copilot_steer_message_error", task_id=task_id, exc_info=True)
 
     async def abort(self, task_id: str) -> None:
         """POST /agents/tasks/{task_id}/steer with type=abort."""
         url = f"{_STEER_BASE}/{task_id}/steer"
-        resp = await self._client.post(url, json={"type": "abort"})
-        resp.raise_for_status()
-        log.info("copilot_steer_abort_sent", task_id=task_id)
+        try:
+            resp = await self._client.post(url, json={"type": "abort"})
+            resp.raise_for_status()
+            log.info("copilot_steer_abort_sent", task_id=task_id)
+        except httpx.HTTPStatusError:
+            log.warning("copilot_steer_abort_failed", task_id=task_id, exc_info=True)
+        except httpx.HTTPError:
+            log.warning("copilot_steer_abort_error", task_id=task_id, exc_info=True)
 
     async def close(self) -> None:
         await self._client.aclose()

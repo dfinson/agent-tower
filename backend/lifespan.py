@@ -819,9 +819,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # --- IngestService (CLI session import) ---
     from backend.services.ingest_service import IngestService
 
-    git_service = GitService(config)
-    diff_service = DiffService(git_service=git_service, event_bus=event_bus)
-
     steer_client = None
     copilot_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if copilot_token:

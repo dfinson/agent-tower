@@ -76,6 +76,8 @@ class IngestService:
         self._seq_counters: dict[str, int] = {}
         # Copilot conversation_id → job_id (OTEL demux)
         self._conversation_to_job: dict[str, str] = {}
+        # Guard set for double-finalize protection
+        self._finalized_jobs: set[str] = set()
 
     def _next_seq(self, job_id: str) -> int:
         val = self._seq_counters.get(job_id, 0) + 1
@@ -89,9 +91,16 @@ class IngestService:
     async def ingest_claude_hook(self, event_type: str, payload: dict) -> dict:
         """Process a Claude hook POST. Returns the hook response body."""
         session_id = payload.get("session_id", "")
+        if not session_id:
+            log.warning("ingest_empty_session_id", event_type=event_type)
+            return {}
         cwd = payload.get("cwd", "")
 
         if event_type == "SessionStart":
+            # Idempotent: if session already tracked, return existing job id
+            existing_job_id = self._session_to_job.get(session_id)
+            if existing_job_id:
+                return {"additionalContext": f"CodePlane is observing this session as job {existing_job_id}."}
             job = await self._create_job_from_session(
                 cwd=cwd,
                 source=JobSource.claude_cli,
@@ -218,27 +227,8 @@ class IngestService:
         if cwd:
             return str(cwd)
 
-        # Try to infer from tool call arguments (file paths)
-        attrs = span.get("attributes", {})
-        tool_args = attrs.get("gen_ai.tool.call.arguments", "")
-        if tool_args and "/" in str(tool_args):
-            import json as json_mod
-            try:
-                parsed = json_mod.loads(tool_args)
-                # Look for path-like values
-                for val in (parsed.values() if isinstance(parsed, dict) else []):
-                    s = str(val)
-                    if s.startswith("/") and "/" in s[1:]:
-                        # Try git rev-parse from the directory
-                        from pathlib import Path as P
-                        candidate = P(s)
-                        if candidate.is_file():
-                            candidate = candidate.parent
-                        if candidate.is_dir():
-                            return str(candidate)
-            except (json_mod.JSONDecodeError, TypeError, ValueError):
-                pass
-
+        # Inferring from tool arguments is risky (untrusted data); skip it
+        # to avoid filesystem probing via crafted OTEL spans.
         return None
 
     # ------------------------------------------------------------------
@@ -265,7 +255,12 @@ class IngestService:
             log.warning("operator_message_no_channel", job_id=job_id, source=job.source)
 
     async def abort_session(self, job_id: str) -> None:
-        """Abort the external session."""
+        """Abort the external session.
+
+        Note: the caller (cancel_job endpoint) already transitions job state
+        to canceled via JobService.cancel_job(). This method only handles
+        the external agent communication (hook message or steer API).
+        """
         job = await self._get_job(job_id)
         if not job:
             return
@@ -280,8 +275,9 @@ class IngestService:
             if ext_id:
                 await self._steer.abort(ext_id)
 
-        # Transition to canceled
-        await self._transition_state(job_id, JobState.canceled)
+        # Clean up in-memory state
+        self._cleanup_session(job_id)
+        self._finalized_jobs.add(job_id)  # Prevent further finalization
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -389,6 +385,18 @@ class IngestService:
 
     async def _finalize_session(self, job_id: str) -> None:
         """Transition to review and trigger post-session merge flow."""
+        # Guard against double-finalize (duplicate SessionEnd, OTEL race)
+        if job_id in self._finalized_jobs:
+            log.debug("ingest_already_finalized", job_id=job_id)
+            return
+        self._finalized_jobs.add(job_id)
+
+        # Verify current state allows transition
+        job = await self._get_job(job_id)
+        if job and job.state != JobState.running:
+            log.debug("ingest_finalize_wrong_state", job_id=job_id, state=job.state)
+            return
+
         await self._transition_state(job_id, JobState.review)
 
         # Publish job_review event (triggers existing review story prefetch etc.)
@@ -399,6 +407,9 @@ class IngestService:
             kind=DomainEventKind.job_review,
             payload={},
         ))
+
+        # Clean up in-memory tracking for this session
+        self._cleanup_session(job_id)
 
         log.info("ingest_session_finalized", job_id=job_id)
 
@@ -498,6 +509,18 @@ class IngestService:
             kind=DomainEventKind.step_completed,
             payload={},
         ))
+
+    def _cleanup_session(self, job_id: str) -> None:
+        """Remove in-memory tracking state for a completed session."""
+        # Find and remove from session/conversation maps
+        stale_session_keys = [k for k, v in self._session_to_job.items() if v == job_id]
+        for k in stale_session_keys:
+            del self._session_to_job[k]
+        stale_conv_keys = [k for k, v in self._conversation_to_job.items() if v == job_id]
+        for k in stale_conv_keys:
+            del self._conversation_to_job[k]
+        self._pending_messages.pop(job_id, None)
+        self._seq_counters.pop(job_id, None)
 
     async def _get_job(self, job_id: str) -> Job | None:
         async with self._session_factory() as session:

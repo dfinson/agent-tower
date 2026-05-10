@@ -75,9 +75,9 @@ class OtelFileWatcher:
 
                 # Read new bytes
                 new_data = await asyncio.to_thread(self._read_from, offset)
-                offset += len(new_data.encode())
+                offset += len(new_data)
 
-                buffer += new_data
+                buffer += new_data.decode("utf-8", errors="replace")
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
                     line = line.strip()
@@ -98,8 +98,8 @@ class OtelFileWatcher:
 
             await asyncio.sleep(_POLL_INTERVAL_S)
 
-    def _read_from(self, offset: int) -> str:
-        """Read file from offset (called in thread)."""
-        with open(self._path, encoding="utf-8", errors="replace") as f:
+    def _read_from(self, offset: int) -> bytes:
+        """Read file from byte offset (called in thread)."""
+        with open(self._path, "rb") as f:
             f.seek(offset)
             return f.read()

@@ -147,10 +147,14 @@ class MergeService:
         repo_path: str,
         branch: str,
         base_ref: str,
+        *,
+        skip_cleanup: bool = False,
     ) -> MergeResult | None:
         """Attempt a fast-forward by updating the base ref directly.
 
         Returns a MergeResult on success, or None if FF is not possible.
+        When *skip_cleanup* is True, the branch and worktree are preserved
+        (used by imported session resolution).
         """
         # Check if base_ref is an ancestor of branch (i.e. FF-able)
         if not await self._git.is_ancestor(base_ref, branch, cwd=repo_path):
@@ -170,7 +174,8 @@ class MergeService:
         # that the DB hasn't committed.
         await self._update_merge_status(job_id, GitMergeOutcome.merged)
         await self._publish_merge_completed(job_id, branch, base_ref, "ff_only")
-        await self._post_merge_cleanup(job_id, repo_path, None, branch)
+        if not skip_cleanup:
+            await self._post_merge_cleanup(job_id, repo_path, None, branch)
         return MergeResult(status=MergeStatus.merged, strategy="ff_only")
 
     @contextlib.asynccontextmanager
@@ -819,7 +824,9 @@ class MergeService:
             lock = self._repo_locks.setdefault(repo_path, asyncio.Lock())
             async with lock:
                 try:
-                    ff_result = await self._try_ff_via_ref(job_id, repo_path, branch, base_ref)
+                    ff_result = await self._try_ff_via_ref(
+                        job_id, repo_path, branch, base_ref, skip_cleanup=True,
+                    )
                     if ff_result is not None:
                         # Do NOT call _post_merge_cleanup — leave worktree and branch
                         return ff_result
