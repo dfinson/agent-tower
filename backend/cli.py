@@ -469,61 +469,6 @@ def setup() -> None:
     execute_setup_wizard()
 
 
-@cli.command(name="backfill-attribution")
-@click.option("--batch-size", default=50, type=int, help="Jobs per batch")
-@click.option("--dry-run", is_flag=True, help="Count eligible jobs without processing")
-def backfill_attribution(batch_size: int, dry_run: bool) -> None:
-    """Re-run cost attribution for historical jobs missing model/cache columns."""
-    import asyncio
-
-    async def _run() -> None:
-        from sqlalchemy import text
-        from backend.persistence.database import get_engine
-
-        engine = get_engine()
-        async with engine.begin() as conn:
-            # Find terminal-state jobs that have spans but no attribution with model
-            result = await conn.execute(text("""
-                SELECT DISTINCT s.job_id
-                FROM telemetry_spans s
-                JOIN jobs j ON j.id = s.job_id
-                LEFT JOIN job_cost_attribution a
-                    ON a.job_id = s.job_id AND a.model IS NOT NULL AND a.model != ''
-                WHERE a.job_id IS NULL
-                    AND j.state IN ('completed', 'failed', 'canceled')
-                ORDER BY j.created_at DESC
-            """))
-            job_ids = [r[0] for r in result.fetchall()]
-
-        if dry_run:
-            click.echo(f"Found {len(job_ids)} jobs eligible for attribution backfill.")
-            return
-
-        click.echo(f"Backfilling attribution for {len(job_ids)} jobs…")
-
-        from backend.persistence.database import async_session_factory
-        from backend.services.cost_attribution import compute_attribution
-
-        processed = 0
-        errors = 0
-        for i in range(0, len(job_ids), batch_size):
-            batch = job_ids[i : i + batch_size]
-            async with async_session_factory() as session:
-                for job_id in batch:
-                    try:
-                        await compute_attribution(session, job_id, session_factory=async_session_factory)
-                        processed += 1
-                    except Exception as exc:
-                        errors += 1
-                        click.echo(f"  Error for {job_id}: {exc}", err=True)
-                await session.commit()
-            click.echo(f"  Processed {min(i + batch_size, len(job_ids))}/{len(job_ids)}")
-
-        click.echo(f"Done. Processed={processed}, Errors={errors}")
-
-    asyncio.run(_run())
-
-
 @cli.command()
 @click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
 def doctor(as_json: bool) -> None:

@@ -239,7 +239,7 @@ async def _compute_attribution(
 
     job_meta = await session.execute(
         sa_text(
-            "SELECT j.description, j.motivation_summary, "
+            "SELECT j.description, "
             "COALESCE(t.model, '') AS model "
             "FROM jobs j "
             "LEFT JOIN job_telemetry_summary t ON t.job_id = j.id "
@@ -249,7 +249,6 @@ async def _compute_attribution(
     )
     job_row = job_meta.mappings().first()
     job_description = (job_row or {}).get("description")
-    job_motivation = (job_row or {}).get("motivation_summary")
     job_model = (job_row or {}).get("model", "") or ""
 
     # --- Aggregate by dimension ---
@@ -321,7 +320,7 @@ async def _compute_attribution(
 
         # Sub-classify implementation turns using job description/motivation
         if activity == "implementation":
-            activity = _sub_classify_implementation(job_description, job_motivation)
+            activity = _sub_classify_implementation(job_description, None)
 
         turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
         turn_in = int(context.get("input_tokens", 0) or 0)
