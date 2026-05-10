@@ -1,0 +1,614 @@
+---
+title: "CLI Session Import: Real-Time Observation and Steering of Native CLI Sessions"
+status: draft
+---
+
+# CLI Session Import
+
+> Users run `copilot` or `claude` in their own terminal. CodePlane observes
+> every event in real time, builds the same job view as a managed session, and
+> can send messages back to the running agent.
+
+---
+
+## 1. Problem
+
+CodePlane currently requires launching agent sessions through its own
+orchestration layer (`RuntimeService` → `AdapterRegistry` → SDK adapter).
+Users who prefer running the Copilot or Claude CLIs natively get none of
+CodePlane's visibility — no transcript, no timeline, no metrics, no operator
+messaging.
+
+The goal is **full parity**: an imported CLI session is
+indistinguishable from a managed session in the UI. Same state machine,
+same review flow, same merge/PR/discard resolution actions. CodePlane
+captures the repo path and branch from session start data and operates
+on the user's working directory directly.
+
+---
+
+## 2. Data Sources (Empirically Verified)
+
+### 2.1 Copilot CLI (v1.0.44)
+
+| Channel | Mode | Data |
+|---------|------|------|
+| OTEL File Exporter | Real-time JSONL (no batching) | Spans: `invoke_agent`, `chat <model>`, `execute_tool`. Attributes: `gen_ai.usage.input_tokens`, `output_tokens`, `github.copilot.cost`, `gen_ai.request.model`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, `github.copilot.turn_id` |
+| GitHub Steer API | Cloud relay, 3s poll | `POST /agents/tasks/{taskId}/steer` — user messages, permission responses, mode switch, abort |
+
+**User setup** (one-time, in shell profile):
+
+```bash
+export COPILOT_OTEL_FILE_EXPORTER_PATH=$HOME/.copilot/codeplane-otel.jsonl
+export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
+```
+
+Launch sessions with `copilot --remote` to enable steering.
+
+### 2.2 Claude CLI (v2.1.81+)
+
+| Channel | Mode | Data |
+|---------|------|------|
+| HTTP Hooks | Real-time synchronous POST | 28 event types: `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart/Stop`, `TaskCreated/Completed`, `WorktreeCreate/Remove`, etc. Payloads include `session_id`, `cwd`, `tool_name`, `tool_input`, `tool_response`, `duration_ms` |
+| Hook Responses | Synchronous return | `Stop` → `{"decision":"block","reason":"..."}` injects operator messages. `PreToolUse` → `{"permissionDecision":"deny"}` blocks tools. `PostToolUse` → `{"additionalContext":"..."}` injects context |
+| OTEL OTLP | Real-time HTTP | Metrics: `claude_code.cost.usage`, `claude_code.token.usage`, `claude_code.lines_of_code.count` |
+
+**User setup** (one-time):
+
+`~/.claude/settings.json`:
+```json
+{
+  "hooks": {
+    "PostToolUse":       [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
+    "UserPromptSubmit":  [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
+    "Stop":              [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
+    "SessionStart":      [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
+    "SessionEnd":        [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
+    "PreToolUse":        [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
+    "SubagentStart":     [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}],
+    "SubagentStop":      [{"type": "http", "url": "http://localhost:9418/api/hooks/claude"}]
+  }
+}
+```
+
+Plus OTEL:
+```bash
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:9418/api/otlp
+```
+
+---
+
+## 3. Architecture
+
+```
+┌──────────────────────┐     ┌────────────────────────┐
+│  Copilot OTEL File   │     │  Claude HTTP Hooks      │
+│  Watcher (tail JSONL)│     │  (FastAPI POST handler)  │
+└──────────┬───────────┘     └──────────┬─────────────┘
+           │                            │
+           ▼                            ▼
+    ┌──────────────────────────────────────────┐
+    │             IngestService                │
+    │  ┌────────────────┐ ┌──────────────────┐ │
+    │  │ OtelSpanMapper │ │ ClaudeHookMapper │ │
+    │  │ (JSONL spans → │ │ (hook payloads → │ │
+    │  │  DomainEvents) │ │  DomainEvents)   │ │
+    │  └────────────────┘ └──────────────────┘ │
+    └──────────────────┬───────────────────────┘
+                       │
+                       ▼
+    ┌──────────────────────────────────────────┐
+    │     Existing EventBus + SSE Pipeline     │
+    │  (publishes to SSEManager, persists to   │
+    │   EventRepository — unchanged)           │
+    └──────────────────┬───────────────────────┘
+                       │
+                       ▼
+    ┌──────────────────────────────────────────┐
+    │   Frontend (unchanged except read-only   │
+    │   flag and source badge)                 │
+    └──────────────────────────────────────────┘
+```
+
+### Steering (messages TO the agent)
+
+```
+CodePlane UI → operator types message
+       │
+       ├─── Claude: store pending message → next Stop hook fires →
+       │    return {"decision":"block","reason":"<message>"} →
+       │    Claude reads it as next instruction
+       │
+       └─── Copilot: POST /agents/tasks/{taskId}/steer →
+            {"content":"<message>","type":"user"} →
+            CommandPoller picks up within 3s →
+            injected as session.send()
+```
+
+---
+
+## 4. Domain Model Changes
+
+### 4.1 `backend/models/domain.py`
+
+**`JobSource` enum** (new):
+
+```python
+class JobSource(StrEnum):
+    """How the job was created."""
+    managed = "managed"          # CodePlane launched the agent
+    copilot_cli = "copilot_cli"  # Imported from native Copilot CLI
+    claude_cli = "claude_cli"    # Imported from native Claude CLI
+```
+
+**`Job` dataclass** — add two fields:
+
+```python
+@dataclass
+class Job:
+    ...
+    source: str = "managed"           # JobSource value
+    external_session_id: str | None = None  # CLI's own session/task ID
+```
+
+**State machine** — imported jobs enter at `running` directly (no
+`preparing` → `queued` transitions since CodePlane doesn't set up a
+worktree):
+
+```python
+_VALID_TRANSITIONS: dict[JobState | None, set[JobState]] = {
+    None: {JobState.preparing, JobState.running, JobState.queued},
+    ...
+}
+```
+
+No change needed — `None → running` is already valid.
+
+### 4.2 `backend/models/db.py` — `JobRow`
+
+Add columns:
+
+```python
+source: Mapped[str] = mapped_column(String, nullable=False, default="managed", server_default="managed")
+external_session_id: Mapped[str | None] = mapped_column(String, nullable=True)
+```
+
+### 4.3 `alembic/versions/` — new migration
+
+```python
+"""Add source and external_session_id to jobs."""
+
+def upgrade():
+    op.add_column("jobs", sa.Column("source", sa.String(), nullable=False, server_default="managed"))
+    op.add_column("jobs", sa.Column("external_session_id", sa.String(), nullable=True))
+
+def downgrade():
+    op.drop_column("jobs", "external_session_id")
+    op.drop_column("jobs", "source")
+```
+
+### 4.4 `backend/models/api_schemas.py`
+
+**`JobResponse`** — add:
+
+```python
+class JobResponse(CamelModel):
+    ...
+    source: str = "managed"
+    external_session_id: str | None = None
+    read_only: bool = False   # computed, not stored
+```
+
+**`JobResponse.from_domain()`** — wire new fields, set `read_only = source != "managed"`.
+
+### 4.5 `backend/models/events.py`
+
+No new `DomainEventKind` values needed. Imported sessions emit the same
+event types as managed sessions:
+
+- `transcript_updated` — tool calls and agent messages
+- `telemetry_updated` — tokens, cost, model
+- `step_started` / `step_completed` — timeline activities
+- `job_state_changed` — session lifecycle
+- `diff_updated` — git changes (via existing `DiffService` git watcher)
+
+### 4.6 `backend/persistence/job_repo.py`
+
+Wire `source` and `external_session_id` in `_to_domain()` and `create()`.
+
+---
+
+## 5. New Backend Services
+
+### 5.1 `backend/services/ingest_service.py` (new file)
+
+Central coordinator for imported sessions. Responsibilities:
+
+- Create the `Job` record on first event (state = `running`, source = `copilot_cli` or `claude_cli`)
+- Route incoming data to the appropriate mapper
+- Publish `DomainEvent`s to the existing `EventBus`
+- Track per-session state (seq counters, turn IDs, telemetry accumulators)
+- Store pending operator messages for Claude hook response injection
+- Forward steering commands to the Copilot steer API
+
+```python
+class IngestService:
+    def __init__(
+        self,
+        event_bus: EventBus,
+        session_factory: async_sessionmaker[AsyncSession],
+        config: CPLConfig,
+        diff_service: DiffService | None = None,
+        trail_service: TrailService | None = None,
+    ) -> None: ...
+
+    async def ingest_otel_span(self, span: dict) -> None:
+        """Process a single OTEL JSONL span from the Copilot file watcher."""
+
+    async def ingest_claude_hook(self, event_type: str, payload: dict) -> dict:
+        """Process a Claude hook POST. Returns the hook response body."""
+
+    async def send_operator_message(self, job_id: str, message: str) -> None:
+        """Queue an operator message for delivery to the agent."""
+
+    async def abort_session(self, job_id: str) -> None:
+        """Abort the external session (steer API for Copilot, hook block for Claude)."""
+```
+
+### 5.2 `backend/services/otel_file_watcher.py` (new file)
+
+Async file tailer for the Copilot OTEL JSONL file.
+
+```python
+class OtelFileWatcher:
+    """Tails COPILOT_OTEL_FILE_EXPORTER_PATH, parses JSONL, routes to IngestService."""
+
+    def __init__(self, path: str, ingest_service: IngestService) -> None: ...
+
+    async def start(self) -> None:
+        """Begin tailing. Called from lifespan startup."""
+
+    async def stop(self) -> None:
+        """Stop tailing. Called from lifespan shutdown."""
+```
+
+Implementation: `asyncio` loop with `os.stat()` polling for file size
+changes, reads new bytes, splits on newlines, parses JSON, calls
+`ingest_service.ingest_otel_span()`.
+
+### 5.3 `backend/services/copilot_steer.py` (new file)
+
+Thin wrapper around the GitHub steer API.
+
+```python
+class CopilotSteerClient:
+    """Sends steering commands to a Copilot CLI --remote session."""
+
+    def __init__(self, github_token: str) -> None: ...
+
+    async def send_message(self, task_id: str, message: str) -> None:
+        """POST /agents/tasks/{task_id}/steer with type=user."""
+
+    async def abort(self, task_id: str) -> None:
+        """POST /agents/tasks/{task_id}/steer with type=abort."""
+```
+
+API endpoint: `https://api.enterprise.githubcopilot.com/agents/tasks/{taskId}/steer`
+
+Auth: Bearer token from the user's GitHub/Copilot token (same token
+CodePlane already uses).
+
+---
+
+## 6. New API Routes
+
+### 6.1 `backend/api/hooks.py` (new file)
+
+Claude hook receiver endpoint:
+
+```python
+router = APIRouter(tags=["hooks"])
+
+@router.post("/hooks/claude")
+async def claude_hook(
+    request: Request,
+    ingest: FromDishka[IngestService],
+) -> JSONResponse:
+    """Receive Claude CLI hook events. Returns hook response for steering."""
+    body = await request.json()
+    event_type = body.get("hookEventName", "")
+    response_body = await ingest.ingest_claude_hook(event_type, body)
+    return JSONResponse(content=response_body)
+```
+
+### 6.2 `backend/api/ingest.py` (new file)
+
+Operator messaging endpoints for imported sessions:
+
+```python
+router = APIRouter(tags=["ingest"])
+
+@router.post("/jobs/{job_id}/message")
+async def send_message(
+    job_id: str,
+    body: SendMessageRequest,
+    ingest: FromDishka[IngestService],
+) -> MessageResponse:
+    """Send an operator message to an imported CLI session."""
+    await ingest.send_operator_message(job_id, body.message)
+    return MessageResponse(delivered=True)
+
+@router.post("/jobs/{job_id}/abort")
+async def abort_imported(
+    job_id: str,
+    ingest: FromDishka[IngestService],
+) -> dict:
+    """Abort an imported CLI session."""
+    await ingest.abort_session(job_id)
+    return {"status": "ok"}
+```
+
+### 6.3 Existing routes — `backend/api/jobs.py`
+
+The existing `POST /jobs/{job_id}/message` endpoint (operator messages
+for managed sessions) should delegate to `IngestService` when
+`job.source != "managed"`. Same for `POST /jobs/{job_id}/cancel`.
+
+No new route needed — the existing routes gain a conditional branch.
+
+---
+
+## 7. DI & Lifecycle Changes
+
+### 7.1 `backend/di.py`
+
+Register new providers:
+
+```python
+# IngestService
+IngestService(
+    event_bus=event_bus,
+    session_factory=session_factory,
+    config=config,
+    diff_service=diff_service,
+    trail_service=trail_service,
+)
+
+# OtelFileWatcher (only if COPILOT_OTEL_FILE_EXPORTER_PATH is set)
+OtelFileWatcher(path=otel_path, ingest_service=ingest_service)
+
+# CopilotSteerClient (only if GitHub token is available)
+CopilotSteerClient(github_token=token)
+```
+
+### 7.2 `backend/lifespan.py`
+
+Add to startup:
+
+```python
+if config.copilot_otel_path:
+    watcher = container.get(OtelFileWatcher)
+    await watcher.start()
+```
+
+Add to shutdown:
+
+```python
+if watcher:
+    await watcher.stop()
+```
+
+### 7.3 `backend/config.py` — `CPLConfig`
+
+Add optional config field:
+
+```python
+copilot_otel_path: str | None = None  # COPILOT_OTEL_FILE_EXPORTER_PATH
+```
+
+Read from environment at config load time.
+
+### 7.4 `backend/app_factory.py`
+
+Mount the new routers:
+
+```python
+from backend.api.hooks import router as hooks_router
+from backend.api.ingest import router as ingest_router
+
+app.include_router(hooks_router, prefix="/api")
+app.include_router(ingest_router, prefix="/api")
+```
+
+---
+
+## 8. Frontend Changes
+
+### 8.1 `frontend/src/store/types.ts` — `JobSummary`
+
+Add fields:
+
+```typescript
+export interface JobSummary {
+  ...
+  source?: string;            // "managed" | "copilot_cli" | "claude_cli"
+  readOnly?: boolean;         // true for imported sessions
+}
+```
+
+### 8.2 `frontend/src/api/types.ts`
+
+No change — types are generated from OpenAPI schema. Run `openapi-typescript`
+after backend changes.
+
+### 8.3 `frontend/src/components/JobHeaderCard.tsx`
+
+- Show a "CLI Import" badge next to the SDK badge when `source !== "managed"`
+- Show the external session ID as a tooltip
+
+### 8.4 `frontend/src/components/JobDetailScreen.tsx`
+
+Guard all write actions behind `!job.readOnly`:
+
+```typescript
+// Hide these when readOnly:
+// - Merge / PR / Discard buttons (resolve actions)
+// - Complete & Archive (resolution flow)
+// - "Continue" button
+// Show these (still functional for imported sessions):
+// - Cancel/Abort → delegates to IngestService
+// - Send message → delegates to IngestService
+// - All read tabs (live, diff, files, metrics, artifacts)
+```
+
+The operator message input (in `CuratedFeed` / `TranscriptPanel`) should
+remain visible — it calls the existing `/jobs/{job_id}/message` endpoint
+which will route to `IngestService` for imported jobs.
+
+### 8.5 `frontend/src/components/JobListScreen.tsx` (or `JobCard`)
+
+- Show a "CLI" indicator on imported job cards
+- Filter/sort: imported jobs should appear in the normal job list
+
+### 8.6 No SSE changes
+
+The frontend's SSE handler table (`sseHandlers`) and the `useSSE` hook
+require zero changes. Imported sessions emit the same event types as
+managed sessions.
+
+---
+
+## 9. Span-to-DomainEvent Mapping
+
+### 9.1 Copilot OTEL Spans → DomainEvents
+
+| OTEL Span Type | DomainEvent | Payload mapping |
+|---------------|-------------|-----------------|
+| `execute_tool` | `transcript_updated` | `tool_name` = span name suffix, `tool_args` = `gen_ai.tool.call.arguments`, `tool_result` = `gen_ai.tool.call.result`, `role` = `tool`, `turn_id` = `github.copilot.turn_id` |
+| `chat <model>` | `transcript_updated` | `content` = captured message content, `role` = `assistant`, `turn_id` = `github.copilot.turn_id` |
+| `chat <model>` | `telemetry_updated` | `input_tokens` = `gen_ai.usage.input_tokens`, `output_tokens` = `gen_ai.usage.output_tokens`, `total_cost_usd` = `github.copilot.cost`, `model` = `gen_ai.response.model` |
+| `invoke_agent` (end) | `job_state_changed` (→ review) | Session ended cleanly |
+| Error on any span | `job_failed` | `reason` from span status |
+
+### 9.2 Claude Hooks → DomainEvents
+
+| Hook Event | DomainEvent | Payload mapping |
+|-----------|-------------|-----------------|
+| `SessionStart` | `job_created` + `job_state_changed` (→ running) | `session_id`, `cwd` |
+| `UserPromptSubmit` | `transcript_updated` | `role` = `user`, `content` = input |
+| `PostToolUse` | `transcript_updated` | `role` = `tool`, `tool_name`, `tool_args` = `tool_input`, `tool_result` = `tool_response`, `duration_ms` |
+| `Stop` | (turn boundary) | Emit pending `step_completed`, check for pending operator messages |
+| `SessionEnd` | `job_state_changed` (→ review) | Session over |
+| `SubagentStart` | `step_started` | Subagent as a new activity section |
+| `TaskCreated` | `agent_plan_updated` | Map to plan steps |
+
+OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
+→ `telemetry_updated` events, accumulated per job.
+
+---
+
+## 10. What Doesn't Change
+
+| Component | Why unchanged |
+|-----------|--------------|
+| `EventBus` / `SSEManager` | Imported sessions produce standard `DomainEvent` objects |
+| `EventRepository` | Persists events identically regardless of source |
+| `TrailService` | Consumes `DomainEvent`s — source-agnostic |
+| `StepTracker` | Driven by `DomainEvent`s — source-agnostic |
+| `SisterSessionManager` | Not applicable (no managed sister sessions) |
+| `DiffService` | Works if repo path is known — git watch on cwd |
+| `MergeService` | Not invoked for read-only jobs |
+| Frontend SSE handlers | All existing handlers work unchanged |
+| Frontend store shape | Only additive fields (`source`, `readOnly`) |
+
+---
+
+## 11. Capability Matrix
+
+| Feature | Managed | Copilot CLI Import | Claude CLI Import |
+|---------|---------|-------------------|-------------------|
+| Live transcript | Yes | Yes (OTEL spans) | Yes (hooks) |
+| Activity timeline | Yes | Yes | Yes |
+| Token/cost metrics | Yes | Yes | Yes |
+| Model identification | Yes | Yes | Yes |
+| Tool call detail | Yes | Yes (content capture ON) | Yes |
+| Diff view | Yes | Yes (git watch on cwd) | Yes (git watch on cwd) |
+| Operator messages | Yes | Yes (steer API, ~3s latency) | Yes (hook response, 0ms) |
+| Tool blocking | Yes | No | Yes (PreToolUse deny) |
+| Cancel/abort | Yes | Yes (steer abort) | Yes (hook block) |
+| Streaming text | Yes | No (complete messages) | No (complete messages) |
+| Merge/resolve | Yes | No (read-only) | No (read-only) |
+| Approval flow | Yes | No | No |
+
+---
+
+## 12. File Change Summary
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `backend/services/ingest_service.py` | Central ingestion coordinator |
+| `backend/services/otel_file_watcher.py` | Async JSONL file tailer for Copilot OTEL |
+| `backend/services/copilot_steer.py` | GitHub steer API client |
+| `backend/api/hooks.py` | Claude hook receiver route |
+| `backend/api/ingest.py` | Operator messaging routes for imported jobs |
+| `alembic/versions/NNNN_add_job_source.py` | DB migration |
+
+### Modified files
+
+| File | Change |
+|------|--------|
+| `backend/models/domain.py` | Add `JobSource` enum, `source` + `external_session_id` fields to `Job` |
+| `backend/models/db.py` | Add `source` + `external_session_id` columns to `JobRow` |
+| `backend/models/api_schemas.py` | Add `source`, `external_session_id`, `read_only` to `JobResponse` |
+| `backend/persistence/job_repo.py` | Wire new fields in `_to_domain()` and `create()` |
+| `backend/config.py` | Add `copilot_otel_path` config field |
+| `backend/di.py` | Register `IngestService`, `OtelFileWatcher`, `CopilotSteerClient` |
+| `backend/lifespan.py` | Start/stop `OtelFileWatcher` |
+| `backend/app_factory.py` | Mount hooks + ingest routers |
+| `backend/api/jobs.py` | Route operator message/cancel to `IngestService` for imported jobs |
+| `frontend/src/store/types.ts` | Add `source`, `readOnly` to `JobSummary` |
+| `frontend/src/components/JobHeaderCard.tsx` | CLI import badge |
+| `frontend/src/components/JobDetailScreen.tsx` | Guard write actions behind `!readOnly` |
+
+### Unchanged files (confirmed)
+
+| File | Why |
+|------|-----|
+| `backend/services/runtime_service.py` | Only manages CodePlane-launched sessions |
+| `backend/services/agent_adapter.py` | Interface for managed adapters only |
+| `backend/services/base_adapter.py` | Base class for managed adapters only |
+| `backend/services/adapter_registry.py` | Only creates managed adapters |
+| `backend/services/event_bus.py` | Generic — accepts any `DomainEvent` |
+| `backend/services/sse_manager.py` | Generic — routes any SSE event |
+| `backend/api/events.py` | SSE endpoint is source-agnostic |
+| `backend/models/events.py` | No new event kinds needed |
+| `frontend/src/hooks/useSSE.ts` | SSE client is source-agnostic |
+| `frontend/src/store/sseHandlers.ts` | Handler table is source-agnostic |
+
+---
+
+## 13. Open Questions
+
+1. **Git watch for imported sessions**: `DiffService` needs the repo path
+   to watch for changes. The Claude hook `SessionStart` payload includes
+   `cwd`. The Copilot OTEL `invoke_agent` span may include working
+   directory. If unavailable, diff view is disabled for that session.
+
+2. **Multiple concurrent CLI sessions**: The OTEL file watcher sees all
+   sessions interleaved in one JSONL file. The `conversation_id` /
+   `session_id` span attribute distinguishes them. Each unique session ID
+   maps to a separate CodePlane job.
+
+3. **Session recovery after CodePlane restart**: On startup, the file
+   watcher should seek to the end of the OTEL file (or to a persisted
+   offset) to avoid replaying historical spans. For Claude hooks, sessions
+   in progress will re-fire `SessionStart` on the next hook event — the
+   `IngestService` should handle idempotent job creation.
+
+4. **GitHub token for steer API**: CodePlane needs the user's Copilot
+   token to call the steer endpoint. This could be sourced from `gh auth
+   token` or configured explicitly. Steering is optional — observation
+   works without it.

@@ -12,6 +12,8 @@ export function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
   const { budget, quotaJson, dailySpendLimitUsd, costTrend } = scorecard;
   const totalCost = budget.reduce((s, b) => s + b.totalCostUsd, 0);
   const totalJobs = budget.reduce((s, b) => s + b.jobCount, 0);
+  const hasBudgetConfig = (scorecard.monthlyBudgetUsd > 0) || dailySpendLimitUsd > 0 || !!quotaJson;
+  const periodLabel = scorecard.period === 1 ? "today" : `last ${scorecard.period} days`;
 
   // Today's spend from costTrend (last entry is today/most recent day)
   const todaysCost = costTrend.length > 0 ? Number(costTrend[costTrend.length - 1]?.cost ?? 0) : 0;
@@ -34,13 +36,16 @@ export function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium uppercase tracking-wide">
-        <DollarSign size={14} />
-        Budget
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          <DollarSign size={14} />
+          {hasBudgetConfig ? "Spend & Budget" : "Spend"}
+        </div>
+        <span className="text-muted-foreground text-[11px]">{periodLabel}</span>
       </div>
 
       <div className="text-2xl font-semibold text-foreground">
-        <Tooltip content={`API-equivalent cost across ${totalJobs} jobs. For subscription plans (Claude Max, Copilot Pro), this reflects what the same usage would cost at API rates — not your subscription charge.`}>
+        <Tooltip content={`Total API-equivalent cost across ${totalJobs} job${totalJobs !== 1 ? "s" : ""} in the ${periodLabel}. For subscription plans (Claude Max, Copilot Pro), this reflects what the same usage would cost at API rates — not your subscription charge.`}>
           <span className="cursor-help">{formatUsd(totalCost)}</span>
         </Tooltip>
       </div>
@@ -54,7 +59,7 @@ export function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
             </div>
             <div className="flex items-center gap-3">
               {b.totalCostUsd > 0 || b.avgCostPerJob > 0 ? (
-                <Tooltip content={`API-equivalent cost: ${formatUsd(b.avgCostPerJob)} avg per job, ${formatDuration(b.avgDurationMs)} avg duration. For subscriptions this reflects usage value, not your actual charge.`}>
+                <Tooltip content={`${formatUsd(b.avgCostPerJob)} avg per job · ${formatDuration(b.avgDurationMs)} avg duration. For subscriptions this reflects API-equivalent usage, not your actual charge.`}>
                   <span className="cursor-help text-foreground">{formatUsd(b.totalCostUsd)}</span>
                 </Tooltip>
               ) : (
