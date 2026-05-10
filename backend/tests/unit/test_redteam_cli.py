@@ -59,7 +59,7 @@ class TestUpCommand:
         assert "devtunnel" in result.output
         assert "cloudflare" in result.output
 
-    @patch("backend.cli.validate_remote_provider", return_value="ERROR: 'devtunnel' CLI not found.")
+    @patch("backend.services.tunnel_service.validate_remote_provider", return_value="ERROR: 'devtunnel' CLI not found.")
     def test_up_remote_requires_devtunnel_cli(self, mock_validate) -> None:
         runner = CliRunner()
         result = runner.invoke(cli, ["up", "--remote", "--skip-preflight"])
@@ -85,8 +85,8 @@ class TestUpCommand:
         runner = CliRunner()
         with (
             patch("backend.cli._build_frontend"),
-            patch("backend.cli.run_migrations"),
-            patch("backend.cli.uvicorn.Server") as mock_server,
+            patch("backend.persistence.database.run_migrations"),
+            patch("uvicorn.Server") as mock_server,
         ):
             result = runner.invoke(cli, ["up", "--port", "-1"])
             # Should reach uvicorn.Server (click doesn't validate port range)
@@ -99,8 +99,8 @@ class TestUpCommand:
         runner = CliRunner()
         with (
             patch("backend.cli._build_frontend"),
-            patch("backend.cli.run_migrations"),
-            patch("backend.cli.uvicorn.Server") as mock_server,
+            patch("backend.persistence.database.run_migrations"),
+            patch("uvicorn.Server") as mock_server,
         ):
             result = runner.invoke(cli, ["up", "--port", "0"])
             if result.exit_code == 0:
@@ -110,8 +110,8 @@ class TestUpCommand:
         runner = CliRunner()
         with (
             patch("backend.cli._build_frontend"),
-            patch("backend.cli.run_migrations"),
-            patch("backend.cli.uvicorn.Server") as mock_server,
+            patch("backend.persistence.database.run_migrations"),
+            patch("uvicorn.Server") as mock_server,
         ):
             result = runner.invoke(cli, ["up", "--host", "0.0.0.0"])
             if result.exit_code == 0:
@@ -122,8 +122,8 @@ class TestUpCommand:
         runner = CliRunner()
         with (
             patch("backend.cli._build_frontend"),
-            patch("backend.cli.run_migrations"),
-            patch("backend.cli.uvicorn.Server") as mock_server,
+            patch("backend.persistence.database.run_migrations"),
+            patch("uvicorn.Server") as mock_server,
         ):
             result = runner.invoke(cli, ["up"])
             if result.exit_code == 0:
@@ -147,8 +147,8 @@ class TestUpCommand:
         runner = CliRunner()
         with (
             patch("backend.cli._build_frontend"),
-            patch("backend.cli.run_migrations"),
-            patch("backend.cli.uvicorn.Server"),
+            patch("backend.persistence.database.run_migrations"),
+            patch("uvicorn.Server"),
         ):
             result = runner.invoke(cli, ["up", "--host", "0.0.0.0", "--skip-preflight"])
             # The password auto-generation happens before server.run()
@@ -160,8 +160,8 @@ class TestUpCommand:
         runner = CliRunner()
         with (
             patch("backend.cli._build_frontend"),
-            patch("backend.cli.run_migrations"),
-            patch("backend.cli.uvicorn.Server"),
+            patch("backend.persistence.database.run_migrations"),
+            patch("uvicorn.Server"),
         ):
             result = runner.invoke(
                 cli,

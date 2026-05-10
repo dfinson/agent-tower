@@ -151,7 +151,6 @@ async def _build_diff(
     if (
         job.state in (JobState.running, JobState.waiting_for_approval)
         and job.worktree_path
-        and job.worktree_path != job.repo
     ):
         with contextlib.suppress(GitError, OSError):
             diff = await diff_service.calculate_diff(job.worktree_path, job.base_ref)

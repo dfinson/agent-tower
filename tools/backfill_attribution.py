@@ -106,109 +106,156 @@ def classify_action(tool_categories: list[str], shell_commands: list[str]) -> st
 
 
 # ---------------------------------------------------------------------------
-# Purpose classification (LLM-powered, batch per job)
+# Purpose classification (deterministic heuristics — no LLM)
+#
+# The key insight: purpose is about WHY the agent did something in context,
+# not WHAT it did (that's action). We use structural signals:
+#
+# Signal 1 — Retry/error markers: is_retry=True or error_kind present on any
+#            trail node for this turn → RECOVERING
+# Signal 2 — Post-failure pattern: if the previous turn ran a test and the
+#            current turn edits (without a new user message), → RECOVERING
+# Signal 3 — Verification: turn runs tests AND a recent prior turn wrote files
+#            → VERIFYING. A test run with no prior writes is just exploration.
+# Signal 4 — Git/housekeeping: turn's ONLY actions are git commits/pushes or
+#            bookkeeping (memory, todos) → HOUSEKEEPING
+# Signal 5 — Pure reads: no writes at all (file_read, file_search, browser,
+#            read-only shell) → ORIENTING
+# Signal 6 — Has writes: file_write or non-trivial shell → ADVANCING
+# Signal 7 — No tools (pure reasoning) → ORIENTING
 # ---------------------------------------------------------------------------
 
-PURPOSE_SYSTEM_PROMPT = """\
-You classify each turn of a coding agent session by its PURPOSE — why the agent \
-took that action in the context of the job.
+_RE_GIT_WRITE = re.compile(
+    r"\bgit\s+(add|commit|push|merge|rebase|checkout|cherry-pick|stash|tag|reset)\b",
+    re.IGNORECASE,
+)
 
-Allowed values (exactly one per turn):
-- advancing: executing toward the goal (writing features, making progress)
-- recovering: fixing own mistakes, retrying after a failure, debugging self-caused errors
-- orienting: building understanding before acting (reading code, exploring, planning)
-- verifying: confirming correctness of completed work (running tests after implementation)
-- housekeeping: mechanical overhead not directly advancing the goal (git commit, memory, todos)
-
-Rules:
-- Consider the SEQUENCE — early reads before any writes are "orienting", not "advancing"
-- A test run immediately after writing code is "verifying"
-- A test run that FAILS followed by edits means those edits are "recovering"
-- Git commits/pushes after implementation are "housekeeping"
-- If a turn re-does something that was just attempted and failed, it's "recovering"
-"""
-
-PURPOSE_USER_TEMPLATE = """\
-Job goal: "{goal}"
-
-Turns (in order):
-{turn_block}
-
-Respond with ONLY a JSON object: {{"turns": [{{"turn": 1, "purpose": "advancing"}}, ...]}}
-No explanation, just the JSON.
-"""
+_BOOKKEEPING_CATEGORIES = {"bookkeeping", "thinking"}
+_WRITE_CATEGORIES = {"file_write"}
+_READ_ONLY_CATEGORIES = {"file_read", "file_search", "browser"}
 
 
-def _build_turn_block(turn_contexts: dict[int, dict]) -> str:
-    """Build compact turn descriptions for the LLM prompt."""
-    lines = []
-    for turn_num in sorted(turn_contexts.keys()):
-        ctx = turn_contexts[turn_num]
-        cats = ctx.get("tool_categories", [])
-        shells = ctx.get("shell_commands", [])
-        action = classify_action(cats, shells)
-
-        # Summarize compactly
-        cat_counts: dict[str, int] = defaultdict(int)
-        for c in cats:
-            cat_counts[c] += 1
-        cat_str = ", ".join(f"{k}×{v}" for k, v in sorted(cat_counts.items()))
-
-        shell_str = ""
-        if shells:
-            # Show first 3 commands, truncated
-            shown = [cmd[:80] for cmd in shells[:3]]
-            shell_str = f" | Shell: {shown}"
-
-        lines.append(f"{turn_num}. [{action}] Tools: [{cat_str}]{shell_str}")
-
-    return "\n".join(lines)
-
-
-async def classify_purposes_llm(
-    goal: str,
+def classify_purpose_heuristic(
+    turn_num: int,
     turn_contexts: dict[int, dict],
-    *,
-    adapter: Any,
+    trail_nodes_by_turn: dict[int, list[dict]],
+    actions_by_turn: dict[int, str],
+) -> str:
+    """Deterministic purpose classification for a single turn.
+
+    Uses structural signals from trail nodes, tool categories, shell commands,
+    and the sequence of preceding turns to determine why the agent acted.
+    """
+    ctx = turn_contexts.get(turn_num, {})
+    cats = set(ctx.get("tool_categories", []))
+    shells: list[str] = ctx.get("shell_commands", [])
+    nodes = trail_nodes_by_turn.get(turn_num, [])
+
+    # --- Signal 1: Retry/error markers → RECOVERING ---
+    if any(n.get("is_retry") for n in nodes):
+        return "recovering"
+    if any(n.get("error_kind") for n in nodes):
+        return "recovering"
+
+    # --- Signal 2: Post-failure pattern ---
+    # If the previous turn ran tests and this turn writes, it's fixing a failure.
+    prev_turn = turn_num - 1
+    if prev_turn in actions_by_turn:
+        prev_action = actions_by_turn[prev_turn]
+        this_action = actions_by_turn.get(turn_num, "think")
+        if prev_action == "test" and this_action == "write":
+            return "recovering"
+
+    # --- Signal 3: Verification ---
+    # Turn runs tests. If any of the preceding 3 turns wrote files, this is verifying.
+    has_test = any(_RE_TEST.search(cmd) for cmd in shells)
+    if has_test:
+        lookback = range(max(1, turn_num - 3), turn_num)
+        prior_wrote = any(actions_by_turn.get(t) == "write" for t in lookback)
+        if prior_wrote:
+            return "verifying"
+        # Test run with no prior writes — exploring test behavior
+        return "orienting"
+
+    # --- Signal 3b: Early exploration ---
+    # If NO preceding turn in this job has written yet, this turn is orienting
+    # (agent is still building understanding before acting)
+    this_action = actions_by_turn.get(turn_num, "think")
+    any_prior_write = any(
+        actions_by_turn.get(t) == "write"
+        for t in range(min(actions_by_turn.keys(), default=turn_num), turn_num)
+    )
+    if not any_prior_write and this_action in ("read", "think"):
+        return "orienting"
+
+    # --- Signal 4: Git/housekeeping-only turns ---
+    # If all shell commands are git writes and no non-housekeeping tool categories
+    has_git_write = any(_RE_GIT_WRITE.search(cmd) for cmd in shells) or "git_write" in cats
+    all_shells_are_git = shells and all(_RE_GIT_WRITE.search(cmd) or _RE_GIT.search(cmd) for cmd in shells)
+
+    # Categories that don't prevent housekeeping classification
+    housekeeping_safe = _BOOKKEEPING_CATEGORIES | {"git_write", "git_read"}
+    if all_shells_are_git:
+        housekeeping_safe = housekeeping_safe | {"shell"}
+
+    non_housekeeping = cats - housekeeping_safe
+    if has_git_write and not non_housekeeping and not any(
+        c in _WRITE_CATEGORIES for c in cats
+    ):
+        return "housekeeping"
+    if cats and cats <= (_BOOKKEEPING_CATEGORIES | {"git_read"}):
+        return "housekeeping"
+    # Pure bookkeeping tools (memory, todos) without shell/file ops
+    if cats and cats <= (_BOOKKEEPING_CATEGORIES | {"shell"}) and all_shells_are_git:
+        return "housekeeping"
+
+    # --- Signal 5: Pure reads → ORIENTING ---
+    has_writes = bool(cats & _WRITE_CATEGORIES)
+    # Shell is only "execute" if it runs something beyond read-only commands
+    # If no shell text was extracted, defer to the action classifier's judgment
+    has_productive_shell = "shell" in cats and not has_test and not has_git_write and (
+        bool(shells) and not all(_RE_READ_SHELL.search(cmd) for cmd in shells)
+    )
+    has_delegation = "agent" in cats
+
+    if not has_writes and not has_productive_shell and not has_delegation:
+        # Any mix of reads, searches, read-only shells → orienting
+        return "orienting"
+
+    # --- Signal 6: Has writes → ADVANCING ---
+    if has_writes:
+        return "advancing"
+
+    # Execute/delegate without writes
+    if has_delegation or has_productive_shell:
+        return "advancing"
+
+    return "advancing"
+
+
+def classify_purposes_for_job(
+    turn_contexts: dict[int, dict],
+    trail_nodes: list[dict],
+    actions_by_turn: dict[int, str],
 ) -> dict[int, str]:
-    """Call LLM via Copilot/Claude adapter to classify purpose for all turns in a job.
+    """Classify purpose for all turns in a job using deterministic heuristics.
 
     Returns {turn_number: purpose} dict.
     """
-    from backend.services.agent_adapter import CompletionResult
+    # Group trail nodes by turn
+    trail_nodes_by_turn: dict[int, list[dict]] = defaultdict(list)
+    for node in trail_nodes:
+        turn = node.get("turn_number") or node.get("anchor_seq")
+        if turn is not None:
+            trail_nodes_by_turn[int(turn)].append(node)
 
-    turn_block = _build_turn_block(turn_contexts)
-    user_msg = PURPOSE_USER_TEMPLATE.format(goal=goal or "unknown", turn_block=turn_block)
-    full_prompt = f"{PURPOSE_SYSTEM_PROMPT}\n\n{user_msg}"
+    result: dict[int, str] = {}
+    for turn_num in sorted(turn_contexts.keys()):
+        result[turn_num] = classify_purpose_heuristic(
+            turn_num, turn_contexts, trail_nodes_by_turn, actions_by_turn
+        )
 
-    result: CompletionResult = await adapter.complete(full_prompt)
-    raw_text = result.text or ""
-
-    if not raw_text.strip():
-        log.warning("purpose_llm_empty_response")
-        return {}
-
-    # Parse response
-    try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError:
-        # Try to extract JSON from markdown code block
-        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.DOTALL)
-        if match:
-            parsed = json.loads(match.group(1))
-        else:
-            log.warning("purpose_llm_parse_failed", raw=raw_text[:200])
-            return {}
-
-    valid_purposes = {"advancing", "recovering", "orienting", "verifying", "housekeeping"}
-    result_map: dict[int, str] = {}
-    for entry in parsed.get("turns", []):
-        turn = entry.get("turn")
-        purpose = entry.get("purpose")
-        if isinstance(turn, int) and purpose in valid_purposes:
-            result_map[turn] = purpose
-
-    return result_map
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +295,7 @@ async def get_trail_nodes(session: AsyncSession, job_id: str) -> list[dict[str, 
     """Get trail nodes for a job."""
     result = await session.execute(
         text("""
-            SELECT id, seq, anchor_seq, turn_number, kind, is_retry, error_kind,
+            SELECT id, seq, anchor_seq, kind, is_retry, error_kind,
                    intent, enrichment
             FROM trail_nodes
             WHERE job_id = :job_id
@@ -256,31 +303,30 @@ async def get_trail_nodes(session: AsyncSession, job_id: str) -> list[dict[str, 
         """),
         {"job_id": job_id},
     )
-    # turn_number may not exist on older schemas — handle gracefully
     rows = []
     for r in result.mappings().all():
         row = dict(r)
-        # Normalize missing turn_number
-        if "turn_number" not in row:
-            row["turn_number"] = row.get("anchor_seq")
+        # Use anchor_seq as the turn number (1-based sequence within job)
+        row["turn_number"] = row.get("anchor_seq")
         rows.append(row)
     return rows
 
 
 async def delete_old_dimensions(session: AsyncSession, job_id: str) -> None:
-    """Remove legacy dimension rows for a job (activity, motivation, edit_efficiency, activity_phase)."""
+    """Remove old dimension rows for a job before re-writing."""
     await session.execute(
         text("""
             DELETE FROM job_cost_attribution
             WHERE job_id = :job_id
-              AND dimension IN ('activity', 'motivation', 'edit_efficiency', 'activity_phase')
+              AND dimension IN ('activity', 'motivation', 'edit_efficiency',
+                                'activity_phase', 'action', 'purpose', 'action_purpose')
         """),
         {"job_id": job_id},
     )
     await session.execute(
         text("""
             DELETE FROM job_latency_attribution
-            WHERE job_id = :job_id AND dimension = 'activity'
+            WHERE job_id = :job_id AND dimension IN ('activity', 'action')
         """),
         {"job_id": job_id},
     )
@@ -459,20 +505,11 @@ def _build_turn_contexts(spans: list[dict]) -> tuple[dict[int, dict], dict[int, 
     return dict(turn_contexts), dict(turn_costs)
 
 
-def _create_adapter(sdk: str) -> Any:
-    """Instantiate an agent adapter for the given SDK (copilot or claude)."""
-    from backend.services.adapter_registry import AdapterRegistry
-
-    registry = AdapterRegistry()
-    return registry.get_adapter(sdk)
-
-
 async def backfill_job(
     session: AsyncSession,
     job_id: str,
     description: str | None,
     *,
-    adapter: Any,
     dry_run: bool = False,
 ) -> dict[str, int]:
     """Backfill action + purpose attribution for a single job.
@@ -494,17 +531,9 @@ async def backfill_job(
             ctx["tool_categories"], ctx["shell_commands"]
         )
 
-    # Purpose classification — LLM via adapter
-    turn_purposes: dict[int, str] = {}
-    if len(turn_contexts) > 0:
-        try:
-            turn_purposes = await classify_purposes_llm(
-                goal=description or "unknown",
-                turn_contexts=turn_contexts,
-                adapter=adapter,
-            )
-        except (json.JSONDecodeError, KeyError, OSError, RuntimeError) as exc:
-            log.warning("purpose_classification_failed", job_id=job_id, error=str(exc))
+    # Purpose classification — deterministic heuristics (no LLM)
+    trail_nodes = await get_trail_nodes(session, job_id)
+    turn_purposes = classify_purposes_for_job(turn_contexts, trail_nodes, turn_actions)
 
     if dry_run:
         return {
@@ -521,7 +550,6 @@ async def backfill_job(
     )
 
     # Update trail nodes with purpose
-    trail_nodes = await get_trail_nodes(session, job_id)
     await update_trail_purpose(session, job_id, turn_purposes, trail_nodes)
 
     await session.commit()
@@ -539,12 +567,6 @@ async def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Classify but don't write to DB")
     parser.add_argument("--job-id", help="Backfill a single job instead of all")
     parser.add_argument(
-        "--sdk",
-        default="copilot",
-        choices=["copilot", "claude"],
-        help="SDK adapter to use for LLM calls (default: copilot)",
-    )
-    parser.add_argument(
         "--db-url",
         default=os.environ.get(
             "CODEPLANE_DB_URL",
@@ -554,10 +576,6 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    # Create adapter — uses Copilot/Claude SDK session for LLM calls
-    adapter = _create_adapter(args.sdk)
-
-    print(f"SDK: {args.sdk}")
     print(f"Database: {args.db_url}")
     print(f"Dry run: {args.dry_run}")
     print()
@@ -591,7 +609,6 @@ async def main() -> None:
                     session,
                     job_id,
                     description,
-                    adapter=adapter,
                     dry_run=args.dry_run,
                 )
                 for k in total_stats:
