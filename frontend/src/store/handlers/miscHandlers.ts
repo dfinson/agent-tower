@@ -152,5 +152,21 @@ export const miscHandlers: Record<string, SSEHandler> = {
   policy_settings_changed: handlePolicySettingsChanged,
   repo_index_progress: handleRepoIndexProgress,
   repo_index_complete: handleRepoIndexComplete,
-  structural_warning: () => ({}), // Consumed via event queries, no store state needed
+  structural_warning: (state, payload) => {
+    const jobId = payload.jobId as string | undefined;
+    if (!jobId) return {};
+    const warning = {
+      warningType: (payload.warningType as string) || "",
+      detail: (payload.detail as string) || "",
+      repo: (payload.repo as string) || "",
+      timestamp: Date.now(),
+    };
+    const existing = state.structuralWarnings[jobId] ?? [];
+    return {
+      structuralWarnings: {
+        ...state.structuralWarnings,
+        [jobId]: [...existing, warning],
+      },
+    };
+  },
 };

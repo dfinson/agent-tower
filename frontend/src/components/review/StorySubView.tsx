@@ -2,10 +2,17 @@
  * Story sub-view — structured review story with header, attention items,
  * concerns, and verdict. Falls back to trail-based narrative when
  * structural enrichment is unavailable.
+ *
+ * Implements §11 density/edge-case/aggregation rendering:
+ * - Edge-case metadata blocks (docs, generated, bulk rename, vendor)
+ * - Community rollups when body changes exceed cognitive cap
+ * - Pattern groups for repeated structural patterns
+ * - Collapsed single-paragraph mode for small jobs
  */
-import { useEffect, useState } from "react";
-import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle } from "lucide-react";
-import { fetchReviewStory, type ReviewStoryResponse } from "../../api/client";
+import { useState } from "react";
+import { useEffect } from "react";
+import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { fetchReviewStory, type ReviewStoryResponse, type EdgeCaseBlock, type PatternGroup } from "../../api/client";
 import { useStore } from "../../store";
 import { selectReviewStory } from "../../store/selectors";
 import { Spinner } from "../ui/spinner";
@@ -20,6 +27,24 @@ const CONFIDENCE_CONFIG: Record<string, { icon: typeof ShieldCheck; color: strin
   LOW: { icon: ShieldAlert, color: "text-red-400", label: "Low Confidence" },
 };
 
+/** Render a single dependency cycle as a visual chain: A → B → C → A */
+function CycleChain({ members }: { members: string[] }) {
+  if (members.length === 0) return null;
+  // Close the loop by appending the first member
+  const display = members.map((m) => m.split("/").pop() ?? m);
+  display.push(display[0] ?? "");
+  return (
+    <div className="flex items-center gap-1 flex-wrap text-[10px] font-mono mt-1">
+      {display.map((name, idx) => (
+        <span key={idx} className="flex items-center gap-1">
+          {idx > 0 && <span className="text-red-400/60">→</span>}
+          <span className="text-foreground/80">{name}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function StorySection({ title, items }: { title: string; items: Array<Record<string, unknown>> }) {
   if (items.length === 0) return null;
 
@@ -27,21 +52,97 @@ function StorySection({ title, items }: { title: string; items: Array<Record<str
     <div className="flex flex-col gap-2">
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{title}</h4>
       <div className="flex flex-col gap-1.5">
-        {items.map((item, i) => (
-          <div key={i} className="text-xs text-foreground/90 pl-3 border-l-2 border-border py-1">
-            {item.symbol ? (
-              <span className="font-mono font-medium">{String(item.symbol)}</span>
-            ) : null}
-            {item.summary ? (
-              <span className="text-muted-foreground"> &mdash; {String(item.summary)}</span>
-            ) : item.detail ? (
-              <span className="text-muted-foreground">{String(item.detail)}</span>
-            ) : (
-              <span className="text-muted-foreground">{JSON.stringify(item)}</span>
-            )}
-          </div>
-        ))}
+        {items.map((item, i) => {
+          // §9.8 — Cycle visualization: render cycle paths as visual chains
+          const itemType = typeof item.type === "string" ? item.type : "";
+          const isCycleItem = itemType === "new_cycles";
+          const cycles = isCycleItem && Array.isArray(item.cycles)
+            ? (item.cycles as Array<Record<string, unknown>>)
+            : [];
+
+          return (
+            <div key={i} className={`text-xs text-foreground/90 pl-3 border-l-2 py-1 ${
+              isCycleItem ? "border-red-400/50 bg-red-400/5 rounded-r" :
+              itemType === "unverified_references" ? "border-yellow-400/50" :
+              item.overflow ? "border-muted-foreground/30 italic text-muted-foreground" :
+              item.community ? "border-blue-400/40" : "border-border"
+            }`}>
+              {item.symbol ? (
+                <span className="font-mono font-medium">{String(item.symbol)}</span>
+              ) : null}
+              {item.changeCount ? (
+                <span className="text-muted-foreground text-[10px] ml-1">({String(item.changeCount)} changes)</span>
+              ) : null}
+              {item.summary ? (
+                <span className="text-muted-foreground"> &mdash; {String(item.summary)}</span>
+              ) : item.detail ? (
+                <span className="text-muted-foreground">{String(item.detail)}</span>
+              ) : (
+                <span className="text-muted-foreground">{JSON.stringify(item)}</span>
+              )}
+              {item.density && item.density !== "full" && item.density !== "summary" ? (
+                <span className="ml-1 text-[10px] text-muted-foreground/60">[{String(item.density)}]</span>
+              ) : null}
+              {/* §9.8 — Render cycle members as visual path chains */}
+              {cycles.map((cycle, ci) => (
+                <CycleChain
+                  key={ci}
+                  members={Array.isArray(cycle.members) ? (cycle.members as string[]) : []}
+                />
+              ))}
+            </div>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+/** §11.5 — Edge-case metadata block (docs, generated, vendor, bulk rename) */
+function EdgeCaseSection({ blocks }: { blocks: EdgeCaseBlock[] }) {
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+
+  if (blocks.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {blocks.map((block, i) => (
+        <div key={i} className="rounded border border-border/50 bg-card/50 p-3">
+          <button
+            className="flex items-center gap-2 w-full text-left"
+            onClick={() => setExpanded((prev) => ({ ...prev, [i]: !prev[i] }))}
+          >
+            <span className="text-sm">{block.icon}</span>
+            <span className="text-xs font-medium flex-1">{block.title}</span>
+            {expanded[i] ? <ChevronDown size={12} className="text-muted-foreground" /> : <ChevronRight size={12} className="text-muted-foreground" />}
+          </button>
+          <p className="text-[10px] text-muted-foreground mt-1">{block.detail}</p>
+          {expanded[i] && block.files.length > 0 && (
+            <div className="mt-2 flex flex-col gap-0.5">
+              {block.files.map((f, fi) => (
+                <span key={fi} className="text-[10px] font-mono text-muted-foreground pl-2">{f}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** §11.6.2 — Pattern group rendering */
+function PatternGroupSection({ groups }: { groups: PatternGroup[] }) {
+  if (groups.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Patterns</h4>
+      {groups.map((g, i) => (
+        <div key={i} className="text-xs text-foreground/90 pl-3 border-l-2 border-purple-400/40 py-1">
+          <span className="font-medium">{g.count} changes</span>
+          <span className="text-muted-foreground"> — {g.summary}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -107,6 +208,36 @@ export function StorySubView({ jobId }: StorySubViewProps) {
     ? CONFIDENCE_CONFIG[data.header.mergeConfidence]
     : null;
 
+  // §11.5.6 — Collapsed single-paragraph for small jobs
+  if (data.collapsed && data.verdict) {
+    return (
+      <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
+        {data.header && (
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold">{data.header.title || "Review Story"}</h3>
+              {confidenceCfg && (
+                <div className={`flex items-center gap-1.5 text-xs font-medium ${confidenceCfg.color}`}>
+                  <confidenceCfg.icon size={14} />
+                  <span>{confidenceCfg.label}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        <div className={`rounded-lg border p-4 ${
+          data.verdict.confidence === "HIGH" ? "border-green-400/30 bg-green-400/5" :
+          data.verdict.confidence === "LOW" ? "border-red-400/30 bg-red-400/5" :
+          "border-yellow-400/30 bg-yellow-400/5"
+        }`}>
+          <p className="text-xs text-foreground/90">{data.verdict.summary}</p>
+        </div>
+        {/* Show edge cases even in collapsed mode */}
+        <EdgeCaseSection blocks={data.edgeCases ?? []} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5 p-4 h-full overflow-y-auto">
       {/* Header card */}
@@ -138,16 +269,22 @@ export function StorySubView({ jobId }: StorySubViewProps) {
       {/* Structural concerns */}
       <StorySection title="Structural Concerns" items={data.structuralConcerns} />
 
-      {/* What changed */}
+      {/* What changed — may be community rollups */}
       <StorySection title="What Changed" items={data.whatChanged} />
+
+      {/* Pattern groups (§11.6.2) */}
+      <PatternGroupSection groups={data.patternGroups ?? []} />
 
       {/* What was added */}
       <StorySection title="What Was Added" items={data.whatAdded} />
 
+      {/* Edge-case metadata blocks (§11.5) */}
+      <EdgeCaseSection blocks={data.edgeCases ?? []} />
+
       {/* Non-structural count */}
       {data.nonStructuralCount > 0 && (
         <div className="text-xs text-muted-foreground">
-          +{data.nonStructuralCount} non-structural change{data.nonStructuralCount !== 1 ? "s" : ""} (formatting, comments, etc.)
+          +{data.nonStructuralCount} non-structural change{data.nonStructuralCount !== 1 ? "s" : ""} (formatting, comments, docs, etc.)
         </div>
       )}
 

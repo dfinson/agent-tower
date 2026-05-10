@@ -1,9 +1,9 @@
 /**
  * Sub-tab bar for the Review tab — switches between Dashboard, Timeline, Communities, and Story.
  */
-import { LayoutDashboard, Clock, BookOpen, Network } from "lucide-react";
+import { LayoutDashboard, Clock, BookOpen, Network, ScrollText } from "lucide-react";
 
-export type ReviewSubView = "dashboard" | "timeline" | "communities" | "story";
+export type ReviewSubView = "dashboard" | "timeline" | "communities" | "narrative" | "story";
 
 interface ReviewSubTabsProps {
   active: ReviewSubView;
@@ -16,6 +16,7 @@ const TABS: Array<{ id: ReviewSubView; icon: typeof LayoutDashboard; label: stri
   { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { id: "timeline", icon: Clock, label: "Timeline" },
   { id: "communities", icon: Network, label: "Communities" },
+  { id: "narrative", icon: ScrollText, label: "Narrative" },
   { id: "story", icon: BookOpen, label: "Story" },
 ];
 

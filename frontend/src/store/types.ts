@@ -177,6 +177,14 @@ export interface RepoIndexProgress {
   phase: string;
 }
 
+/** Structural warning emitted at step boundaries during execution. */
+export interface StructuralWarning {
+  warningType: string;
+  detail: string;
+  repo: string;
+  timestamp: number;
+}
+
 export interface AppState {
   // Data slices
   jobs: Record<string, JobSummary>;
@@ -213,6 +221,9 @@ export interface AppState {
   multiSessions: Record<string, MultiSessionResponse | null>;
   communities: Record<string, CommunitiesResponse | null>;
   reviewStories: Record<string, StructuralReviewStoryResponse | null>;
+
+  // Structural warnings accumulated during execution (keyed by jobId)
+  structuralWarnings: Record<string, StructuralWarning[]>;
 
   // Terminal state
   terminalDrawerOpen: boolean;

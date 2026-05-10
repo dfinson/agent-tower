@@ -27,12 +27,16 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
 
 class ApiError extends Error {
+  /** Parsed response body (if JSON), for structured error inspection. */
+  body: Record<string, unknown> | null;
   constructor(
     public status: number,
     public detail: string,
+    body?: Record<string, unknown> | null,
   ) {
     super(detail);
     this.name = "ApiError";
+    this.body = body ?? null;
   }
 }
 
@@ -99,6 +103,9 @@ async function buildApiError(res: Response): Promise<ApiError> {
     detail = res.statusText || `HTTP ${res.status}`;
   } else if (typeof body.detail === "string") {
     detail = sanitize(body.detail);
+  } else if (typeof body.detail === "object" && body.detail !== null && !Array.isArray(body.detail)) {
+    // Structured detail object (e.g. {reason, message, blockers})
+    detail = sanitize(body.detail.message ?? body.detail.reason ?? (res.statusText || `HTTP ${res.status}`));
   } else if (Array.isArray(body.detail)) {
     detail = body.detail
       .map((e: { loc?: string[]; msg?: string }) =>
@@ -108,7 +115,7 @@ async function buildApiError(res: Response): Promise<ApiError> {
   } else {
     detail = res.statusText || `HTTP ${res.status}`;
   }
-  return new ApiError(res.status, detail);
+  return new ApiError(res.status, detail, body);
 }
 
 // --- Health ---
@@ -642,10 +649,11 @@ export function resumeJob(
 export function resolveJob(
   jobId: string,
   action: "merge" | "smart_merge" | "create_pr" | "discard" | "agent_merge",
+  opts?: { confirmLowConfidence?: boolean },
 ): Promise<{ resolution: string; prUrl?: string | null; conflictFiles?: string[] | null; error?: string | null }> {
   return request(`/jobs/${encodeURIComponent(jobId)}/resolve`, {
     method: "POST",
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, confirmLowConfidence: opts?.confirmLowConfidence ?? false }),
   });
 }
 
@@ -776,6 +784,36 @@ export function fetchJobStory(
   return request(`/jobs/${encodeURIComponent(jobId)}/story${qs}`);
 }
 
+// Narrative
+// ---------------------------------------------------------------------------
+
+export interface NarrativeBlock {
+  type: "lede" | "prose" | "beat" | "outcome";
+  text: string;
+  beatKind?: "decide" | "backtrack" | "insight" | "verify" | null;
+  files?: string[];
+}
+
+export interface NarrativeResponse {
+  jobId: string;
+  blocks: NarrativeBlock[];
+  beatCount: number;
+  hasDecisions: boolean;
+  hasBacktracks: boolean;
+  verbosity: string;
+  cached: boolean;
+}
+
+export function fetchNarrative(
+  jobId: string,
+  verbosity: "brief" | "standard" | "detailed" = "standard",
+): Promise<NarrativeResponse> {
+  const params = new URLSearchParams();
+  if (verbosity !== "standard") params.set("verbosity", verbosity);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return request(`/jobs/${encodeURIComponent(jobId)}/narrative${qs}`);
+}
+
 // Structural Diff
 // ---------------------------------------------------------------------------
 
@@ -890,15 +928,43 @@ export interface ReviewStoryVerdict {
   summary: string;
 }
 
+export interface EdgeCaseBlock {
+  kind: string;
+  icon: string;
+  title: string;
+  files: string[];
+  detail: string;
+}
+
+export interface CommunityRollup {
+  name: string;
+  changeCount: number;
+  avgRisk: number;
+  highestRiskSymbol: string | null;
+  highestRisk: number;
+  summary: string;
+}
+
+export interface PatternGroup {
+  pattern: string;
+  count: number;
+  files: string[];
+  summary: string;
+}
+
 export interface ReviewStoryResponse {
   jobId: string;
   available: boolean;
+  collapsed: boolean;
   header: ReviewStoryHeader | null;
   attentionRequired: Array<Record<string, unknown>>;
   structuralConcerns: Array<Record<string, unknown>>;
   whatChanged: Array<Record<string, unknown>>;
   whatAdded: Array<Record<string, unknown>>;
   nonStructuralCount: number;
+  edgeCases: EdgeCaseBlock[];
+  communityRollups: CommunityRollup[];
+  patternGroups: PatternGroup[];
   verdict: ReviewStoryVerdict | null;
 }
 

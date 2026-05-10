@@ -246,6 +246,7 @@ export const useStore = create<AppState>((set, get) => ({
   multiSessions: {},
   communities: {},
   reviewStories: {},
+  structuralWarnings: {},
   connectionStatus: "reconnecting",
   reconnectAttempt: 0,
   hoveredPlanItemId: null,

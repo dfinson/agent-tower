@@ -19,6 +19,7 @@ import { ReviewSubTabs, type ReviewSubView } from "./review/ReviewSubTabs";
 import { TimelineSubView } from "./review/TimelineSubView";
 import { StorySubView } from "./review/StorySubView";
 import { CommunitiesSubView } from "./review/CommunitiesSubView";
+import { NarrativeSubView } from "./review/NarrativeSubView";
 import { ImpactGraphModal } from "./review/ImpactGraphModal";
 
 // -- Category styling --
@@ -341,6 +342,9 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
         )}
         {subView === "communities" && showCommunities && (
           <CommunitiesSubView jobId={jobId} />
+        )}
+        {subView === "narrative" && (
+          <NarrativeSubView jobId={jobId} />
         )}
         {subView === "story" && (
           <StorySubView jobId={jobId} />
