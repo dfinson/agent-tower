@@ -401,10 +401,9 @@ export function JobCreationScreen() {
               Cancel
             </Button>
             <Button
-              disabled={!repo || !prompt.trim() || voiceState !== "idle" || !!sdkNotReady || branchSuggesting}
+              disabled={!repo || !prompt.trim() || voiceState !== "idle" || !!sdkNotReady}
               loading={submitting}
               onClick={handleSubmit}
-              title={branchSuggesting ? "Waiting for name generation…" : undefined}
             >
               <PlaneTakeoff size={16} />
               Create Job

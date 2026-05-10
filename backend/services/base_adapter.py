@@ -433,7 +433,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._job_main_models[job_id] = actual_model
         self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=actual_model))
 
-        if requested_model and normalize_model_name(actual_model) != normalize_model_name(requested_model):
+        if requested_model and requested_model != "auto" and normalize_model_name(actual_model) != normalize_model_name(requested_model):
             log.error(
                 "model_mismatch",
                 requested=requested_model,
