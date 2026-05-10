@@ -509,9 +509,8 @@ class RuntimeService:
         )
         self._heartbeat_tasks[job_id] = heartbeat_task
 
-        # Start plan tracking via trail service
-        if self._trail_service is not None:
-            await self._trail_service.start_tracking(job_id, prompt=config.prompt or "")
+        # Plan tracking is now handled entirely by TrailService's EventBus
+        # subscriber (handle_event) — no explicit start_tracking call needed.
 
         # Start telemetry tracking — init OTEL spans and SQLite summary row.
         from backend.services import telemetry as tel
@@ -1343,26 +1342,8 @@ class RuntimeService:
                 downgrade = (requested, actual)
                 break
 
-            # Trail service feed (main loop only) — skip ephemeral delta chunks
-            if domain_event.kind == DomainEventKind.transcript_updated and self._trail_service is not None:
-                _p = cast("dict[str, Any]", domain_event.payload)
-                role = str(_p.get("role", ""))
-                if role != "agent_delta":
-                    content = str(_p.get("content", ""))
-                    tool_intent = str(_p.get("tool_intent") or "")
-                    await self._trail_service.feed_transcript(job_id, role, content, tool_intent)
-
-                # Feed tool names to trail service for summary context
-                if role == "tool_call":
-                    tool_name = str(_p.get("tool_name", ""))
-                    if tool_name:
-                        await self._trail_service.feed_tool_name(job_id, tool_name)
-                    # Native plan capture: extract structured plan data from the
-                    # agent's own todo/plan tool.
-                    if tool_name in ("manage_todo_list", "TodoWrite"):
-                        await self._ingest_native_plan(job_id, _p)
-
             # Step tracking — annotate transcript events with step_id
+            # (must run BEFORE publish so the payload is enriched for subscribers)
             if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
                 role = str(domain_event.payload.get("role", ""))
                 if role != "agent_delta":
@@ -1389,30 +1370,6 @@ class RuntimeService:
             made_progress=made_progress,
             downgrade=downgrade,
         )
-
-    async def _ingest_native_plan(self, job_id: str, payload: dict[str, object]) -> None:
-        """Extract plan steps from a manage_todo_list / TodoWrite tool call."""
-        from backend.services.parsing_utils import ensure_dict
-
-        if self._trail_service is None:
-            return
-        raw_args = payload.get("tool_args")
-        if not raw_args:
-            return
-
-        args = ensure_dict(raw_args)
-        if args is None:
-            return
-
-        # Copilot: {"todoList": [...]}   Claude: {"todos": [...]}
-        items = args.get("todoList") or args.get("todos") or []
-        if not isinstance(items, list):
-            return
-
-        try:
-            await self._trail_service.feed_native_plan(job_id, items)
-        except (ValueError, TypeError, KeyError):
-            log.warning("native_plan_ingest_failed", job_id=job_id, exc_info=True)
 
     async def _run_followup_turn(
         self,

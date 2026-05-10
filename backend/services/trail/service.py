@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
 from backend.config import TrailConfig
-from backend.models.events import DomainEvent
+from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
+from backend.services.parsing_utils import ensure_dict
 from backend.services.trail.activity_tracker import ActivityTracker
 from backend.services.trail.enricher import TrailEnricher
 from backend.services.trail.models import TrailJobState, TrailResponse, TrailSummary
@@ -85,19 +87,134 @@ class TrailService:
         self._query = TrailQueryService(session_factory)
 
     # ==================================================================
-    # Event handling (delegate to node builder)
+    # Event handling (delegate to node builder + plan feed)
     # ==================================================================
 
     async def handle_event(self, event: DomainEvent) -> None:
-        """Domain event subscriber."""
+        """Domain event subscriber — single entry point for all enrichment.
+
+        Both managed (RuntimeService) and imported (IngestService) jobs
+        publish the same DomainEvents to the EventBus.  All plan-feed,
+        tool tracking, native-plan capture, and auto-naming is driven
+        from here so both paths get identical treatment.
+        """
         await self._node_builder.handle_event(event)
+
+        if event.kind == DomainEventKind.transcript_updated:
+            await self._on_transcript_event(event)
+
+    async def _on_transcript_event(self, event: DomainEvent) -> None:
+        """Feed plan manager and capture native plans from transcript events."""
+        payload = cast("dict[str, Any]", event.payload or {})
+        role = str(payload.get("role", ""))
+
+        # Skip ephemeral streaming deltas — no plan value
+        if role == "agent_delta":
+            return
+
+        job_id = event.job_id
+        content = str(payload.get("content", ""))
+        tool_intent = str(payload.get("tool_intent") or "")
+
+        await self._plan_manager.feed_transcript(job_id, role, content, tool_intent)
+
+        if role == "tool_call":
+            tool_name = str(payload.get("tool_name", ""))
+            if tool_name:
+                await self._plan_manager.feed_tool_name(job_id, tool_name)
+            # Native plan capture from the agent's own todo tool
+            if tool_name in ("manage_todo_list", "TodoWrite"):
+                await self._try_ingest_native_plan(job_id, payload)
+
+        # Auto-generate a title for jobs that don't have one yet
+        if role in ("agent", "assistant") and content:
+            await self._maybe_auto_title(job_id, content)
+
+    async def _try_ingest_native_plan(
+        self, job_id: str, payload: dict[str, Any],
+    ) -> None:
+        """Extract plan steps from a manage_todo_list / TodoWrite tool call."""
+        raw_args = payload.get("tool_args")
+        if not raw_args:
+            return
+        args = ensure_dict(raw_args)
+        if args is None:
+            return
+        # Copilot: {"todoList": [...]}   Claude: {"todos": [...]}
+        items = args.get("todoList") or args.get("todos") or []
+        if not isinstance(items, list):
+            return
+        try:
+            await self._plan_manager.feed_native_plan(job_id, items)
+        except (ValueError, TypeError, KeyError):
+            log.warning("native_plan_ingest_failed", job_id=job_id, exc_info=True)
+
+    async def _maybe_auto_title(self, job_id: str, first_content: str) -> None:
+        """Generate a job title from the first agent message if the job has none."""
+        state = self._job_state.get(job_id)
+        if not state:
+            return
+        # Only fire once per job
+        if getattr(state, "_title_attempted", False):
+            return
+        state._title_attempted = True  # type: ignore[attr-defined]
+
+        if not self._sister_sessions:
+            return
+
+        try:
+            from backend.models.db import JobRow
+            from sqlalchemy import select as sa_select
+
+            async with self._session_factory() as session:
+                title_val = (await session.execute(
+                    sa_select(JobRow.title).where(JobRow.id == job_id)
+                )).scalar_one_or_none()
+                if title_val is not None:
+                    # Already has a title — nothing to do
+                    return
+
+            # Generate title via one-shot sister session
+            prompt = (
+                "Given this agent's first message, generate a concise 3-8 word title "
+                "for the coding task.  Respond with ONLY the title text, no quotes, "
+                "no punctuation at the end.\n\n"
+                f"Agent message:\n{first_content[:2000]}"
+            )
+            title = await self._sister_sessions.complete(prompt, timeout=10.0)
+            title = str(title).strip().strip('"').strip("'")
+            if not title or len(title) < 3:
+                return
+
+            # Persist and broadcast
+            from backend.persistence.job_repo import JobRepository
+            async with self._session_factory() as session:
+                repo = JobRepository(session)
+                await repo.update_title_and_branch(job_id, title=title)
+                await session.commit()
+
+            await self._event_bus.publish(DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.job_title_updated,
+                payload={"title": title},
+            ))
+            log.info("trail_auto_title_generated", job_id=job_id, title=title)
+        except Exception:
+            log.debug("trail_auto_title_failed", job_id=job_id, exc_info=True)
 
     # ==================================================================
     # Data ingestion (delegate to plan manager)
     # ==================================================================
 
     async def start_tracking(self, job_id: str, prompt: str = "") -> None:
-        """Initialize plan tracking for a job."""
+        """Initialize plan tracking for a job.
+
+        NOTE: Kept for backward compatibility but largely redundant —
+        ``_on_job_started`` already sets ``job_prompt`` from the DB row
+        when the ``job_state_changed(running)`` event fires.
+        """
         state = self._job_state.get(job_id)
         if state:
             state.job_prompt = prompt

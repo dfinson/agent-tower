@@ -196,19 +196,19 @@ class TestFeedNativePlan:
 
 
 # ---------------------------------------------------------------------------
-# RuntimeService._ingest_native_plan
+# TrailService native plan ingestion
 # ---------------------------------------------------------------------------
 
 
 class TestIngestNativePlan:
-    """Tests for RuntimeService._ingest_native_plan parsing logic."""
+    """Tests for TrailService native plan ingestion parsing logic."""
 
     @pytest.mark.asyncio()
     async def test_copilot_payload(self, service: TrailService, event_bus: AsyncMock) -> None:
         """Copilot-style tool_args with todoList are parsed correctly."""
         _init_job(service)
 
-        # Simulate what RuntimeService._ingest_native_plan does
+        # Simulate a Copilot-style native plan payload
         payload = {
             "tool_name": "manage_todo_list",
             "tool_args": json.dumps(
