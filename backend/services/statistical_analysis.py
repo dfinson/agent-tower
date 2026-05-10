@@ -49,6 +49,8 @@ async def run_analysis(session: AsyncSession) -> int:
     count += await _analyse_compaction_storms(summary_repo, obs_repo)
     count += await _analyse_cache_efficiency_regression(summary_repo, obs_repo)
     count += await _analyse_communication_waste(cost_repo, obs_repo)
+    count += await _analyse_unproductive_exploration(cost_repo, obs_repo)
+    count += await _analyse_delegation_overhead(summary_repo, obs_repo)
     log.info("statistical_analysis_complete", observations=count)
     return count
 
@@ -281,5 +283,104 @@ async def _analyse_communication_waste(
         },
         job_count=len(flagged),
         total_waste_usd=total_waste,
+    )
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# 8. Unproductive exploration (Item 1)
+# ---------------------------------------------------------------------------
+
+
+async def _analyse_unproductive_exploration(
+    cost_repo: "CostAttributionRepository",
+    obs_repo: "ObservationsRepository",
+) -> int:
+    """Flag jobs where investigation dominated cost and no code landed."""
+    rows = await cost_repo.unproductive_exploration_jobs(period_days=14)
+    if not rows:
+        return 0
+
+    total_waste = sum(r["investigation_cost"] for r in rows)
+    await obs_repo.upsert(
+        category="unproductive_exploration",
+        severity="warning" if total_waste >= 5.0 else "info",
+        title=(
+            f"{len(rows)} jobs spent majority of cost investigating "
+            f"but produced no merged output"
+        ),
+        detail=(
+            f"These jobs spent {total_waste:.2f} USD on investigation/exploration "
+            f"turns and ended as discarded or failed. Consider more targeted "
+            f"prompts or breaking large exploration tasks into cheaper scoping "
+            f"jobs before committing to full implementation."
+        ),
+        evidence={
+            "flagged_jobs": [
+                {
+                    "job_id": r["job_id"],
+                    "investigation_cost_usd": round(float(r["investigation_cost"]), 4),
+                    "total_cost_usd": round(float(r["total_cost"]), 4),
+                    "investigation_pct": round(float(r["investigation_pct"]), 2),
+                    "resolution": r["resolution"],
+                    "diff_lines": int(r["diff_lines"]),
+                }
+                for r in rows[:10]
+            ],
+            "total_waste_usd": round(total_waste, 4),
+        },
+        job_count=len(rows),
+        total_waste_usd=total_waste,
+    )
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# 9. Delegation overhead (Item 1)
+# ---------------------------------------------------------------------------
+
+
+async def _analyse_delegation_overhead(
+    summary_repo: "TelemetryAnalyticsRepository",
+    obs_repo: "ObservationsRepository",
+) -> int:
+    """Flag jobs where sub-agent cost exceeds parent direct cost."""
+    rows = await summary_repo.high_delegation_jobs(period_days=14)
+    if not rows:
+        return 0
+
+    total_delegation_excess = sum(
+        float(r["subagent_cost_usd"]) - float(r["direct_cost_usd"]) for r in rows
+    )
+    await obs_repo.upsert(
+        category="delegation_overhead",
+        severity="warning" if total_delegation_excess >= 5.0 else "info",
+        title=(
+            f"{len(rows)} jobs spent more on sub-agents than on direct work"
+        ),
+        detail=(
+            f"These jobs delegated work to sub-agents that cost more than "
+            f"the parent job's own LLM calls. Excess delegation cost: "
+            f"${total_delegation_excess:.2f}. Consider whether the parent "
+            f"could have done the work directly, or whether sub-agent prompts "
+            f"need tightening."
+        ),
+        evidence={
+            "flagged_jobs": [
+                {
+                    "job_id": r["job_id"],
+                    "subagent_cost_usd": round(float(r["subagent_cost_usd"]), 4),
+                    "direct_cost_usd": round(float(r["direct_cost_usd"]), 4),
+                    "total_cost_usd": round(float(r["total_cost_usd"]), 4),
+                    "delegation_pct": round(
+                        float(r["subagent_cost_usd"]) / float(r["total_cost_usd"]), 2,
+                    ) if float(r["total_cost_usd"]) > 0 else 0.0,
+                }
+                for r in rows[:10]
+            ],
+            "total_excess_usd": round(total_delegation_excess, 4),
+        },
+        job_count=len(rows),
+        total_waste_usd=total_delegation_excess,
     )
     return 1

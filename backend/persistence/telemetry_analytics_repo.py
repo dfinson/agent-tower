@@ -563,3 +563,26 @@ class TelemetryAnalyticsRepository(BaseRepository):
             "daily_avg_usd": daily_avg,
             "projected_month_end_usd": projected,
         }
+
+    async def high_delegation_jobs(
+        self, *, period_days: int = 14,
+    ) -> list[dict[str, Any]]:
+        """Jobs where sub-agent cost exceeds the parent's direct cost."""
+        result = await self._session.execute(
+            text("""
+                SELECT
+                    t.job_id,
+                    t.subagent_cost_usd,
+                    t.total_cost_usd - t.subagent_cost_usd AS direct_cost_usd,
+                    t.total_cost_usd
+                FROM job_telemetry_summary t
+                JOIN jobs j ON j.id = t.job_id
+                WHERE j.created_at >= datetime('now', '-' || :days || ' days')
+                    AND t.subagent_cost_usd > 0
+                    AND t.subagent_cost_usd
+                        > t.total_cost_usd - t.subagent_cost_usd
+                ORDER BY t.subagent_cost_usd DESC
+            """),
+            {"days": int(period_days)},
+        )
+        return [dict(r) for r in result.mappings().all()]

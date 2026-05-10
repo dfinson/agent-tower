@@ -312,3 +312,53 @@ class CostAttributionRepository(BaseRepository):
             {"days": int(period_days)},
         )
         return [dict(r) for r in result.mappings().all()]
+
+    async def unproductive_exploration_jobs(
+        self, period_days: int,
+    ) -> list[dict[str, Any]]:
+        """Jobs where investigation cost > 50% of total and outcome was
+        discarded or failed, filtered to jobs above fleet median cost."""
+        result = await self._session.execute(
+            text("""
+                WITH job_activity AS (
+                    SELECT
+                        a.job_id,
+                        SUM(CASE WHEN a.bucket = 'investigation'
+                            THEN a.cost_usd ELSE 0 END) AS investigation_cost,
+                        SUM(a.cost_usd) AS total_cost
+                    FROM job_cost_attribution a
+                    JOIN jobs j ON j.id = a.job_id
+                    WHERE a.dimension = 'activity'
+                        AND j.created_at >= datetime('now', '-' || :days || ' days')
+                    GROUP BY a.job_id
+                ),
+                fleet_median AS (
+                    SELECT AVG(total_cost) AS median_cost
+                    FROM (
+                        SELECT total_cost,
+                            ROW_NUMBER() OVER (ORDER BY total_cost) AS rn,
+                            COUNT(*) OVER () AS cnt
+                        FROM job_activity
+                    )
+                    WHERE rn IN (cnt / 2, cnt / 2 + 1)
+                )
+                SELECT
+                    ja.job_id,
+                    ja.investigation_cost,
+                    ja.total_cost,
+                    ja.investigation_cost / ja.total_cost AS investigation_pct,
+                    j.resolution,
+                    COALESCE(t.diff_lines_added, 0)
+                        + COALESCE(t.diff_lines_removed, 0) AS diff_lines
+                FROM job_activity ja
+                JOIN jobs j ON j.id = ja.job_id
+                LEFT JOIN job_telemetry_summary t ON t.job_id = ja.job_id
+                CROSS JOIN fleet_median fm
+                WHERE ja.investigation_cost > ja.total_cost * 0.5
+                    AND j.resolution IN ('discarded', 'failed')
+                    AND ja.total_cost > fm.median_cost
+                ORDER BY ja.investigation_cost DESC
+            """),
+            {"days": int(period_days)},
+        )
+        return [dict(r) for r in result.mappings().all()]
