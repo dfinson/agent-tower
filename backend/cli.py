@@ -501,7 +501,7 @@ def backfill_attribution(batch_size: int, dry_run: bool) -> None:
         click.echo(f"Backfilling attribution for {len(job_ids)} jobs…")
 
         from backend.persistence.database import async_session_factory
-        from backend.services.cost_attribution import compute_and_store_attribution
+        from backend.services.cost_attribution import compute_attribution
 
         processed = 0
         errors = 0
@@ -510,7 +510,7 @@ def backfill_attribution(batch_size: int, dry_run: bool) -> None:
             for job_id in batch:
                 try:
                     async with async_session_factory() as session:
-                        await compute_and_store_attribution(session, job_id)
+                        await compute_attribution(session, job_id)
                         await session.commit()
                     processed += 1
                 except Exception as exc:

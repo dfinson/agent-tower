@@ -354,7 +354,7 @@ async def analytics_scorecard(
 
     # Monthly budget data (Item 5)
     monthly = await svc.monthly_burn()
-    monthly_budget = cfg.telemetry.monthly_budget_usd if hasattr(cfg.telemetry, "monthly_budget_usd") else 0.0
+    monthly_budget = cfg.telemetry.claude_monthly_budget_usd
     scorecard["monthly_budget_usd"] = monthly_budget
     scorecard["month_spend_usd"] = monthly["month_spend_usd"]
     scorecard["projected_month_end_usd"] = monthly["projected_month_end_usd"]
