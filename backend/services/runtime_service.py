@@ -563,6 +563,18 @@ class RuntimeService:
             try:
                 repo_name = await self._coderecon_service.ensure_repo_indexed(job.repo)
                 await self._coderecon_service.register_worktree(repo_name, worktree_path)
+
+                # Provision native CodeRecon tools for the agent (§8)
+                from backend.services.coderecon_tools import build_coderecon_tools
+
+                toolkit = build_coderecon_tools(
+                    self._coderecon_service,
+                    repo_name,
+                    worktree=worktree_path,
+                    tier="standard",
+                )
+                config = dataclass_replace(config, coderecon_tools=toolkit)
+                log.info("coderecon.tools_provisioned", job_id=job_id, tier="standard")
             except Exception:
                 log.debug("coderecon.worktree_register_failed", job_id=job_id, exc_info=True)
 

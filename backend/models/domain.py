@@ -592,6 +592,8 @@ class SessionConfig:
     blocking_permission_handler: Callable[[str, str], Awaitable[str]] | None = None
     # Set when resuming a job to reconnect to an existing Copilot SDK session
     resume_sdk_session_id: str | None = None
+    # CodeRecon native tool kit (§8) — built by RuntimeService at job start
+    coderecon_tools: Any | None = None
 
 
 @dataclass

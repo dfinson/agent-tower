@@ -683,22 +683,33 @@ class CopilotAdapter(BaseAgentAdapter):
         async def _on_permission(request: PermissionRequest, invocation: dict[str, str]) -> PermissionRequestResult:
             return await self._handle_permission_request(request, invocation, config)
 
+        # Build system prompt — append CodeRecon tool guidance when tools are provisioned (§8.5)
+        base_prompt = (
+            CODEPLANE_SYSTEM_PROMPT + "\n\n"
+            "**REPORT INTENT — REQUIRED BEFORE EVERY TOOL BURST:**\n"
+            "Call `report_intent` in parallel with your FIRST tool call whenever you start "
+            "a new group of related tool calls. The intent you declare is shown to the user "
+            "in real-time so they understand what you are working on and why. Make it "
+            "descriptive of the HIGH-LEVEL GOAL of the upcoming calls — not the mechanics "
+            "(e.g., 'Exploring authentication module to understand token refresh flow' rather "
+            "than 'reading files'). Call `report_intent` again whenever your focus shifts "
+            "to a new sub-task. Never call it in isolation — always pair it with at least "
+            "one other tool call in the same turn."
+        )
+        if config.coderecon_tools is not None and config.coderecon_tools.system_prompt:
+            base_prompt = base_prompt + "\n\n" + config.coderecon_tools.system_prompt
+
         # Common session kwargs shared by create and resume
         system_message: SystemMessageAppendConfig = {
             "mode": "append",
-            "content": (
-                CODEPLANE_SYSTEM_PROMPT + "\n\n"
-                "**REPORT INTENT — REQUIRED BEFORE EVERY TOOL BURST:**\n"
-                "Call `report_intent` in parallel with your FIRST tool call whenever you start "
-                "a new group of related tool calls. The intent you declare is shown to the user "
-                "in real-time so they understand what you are working on and why. Make it "
-                "descriptive of the HIGH-LEVEL GOAL of the upcoming calls — not the mechanics "
-                "(e.g., 'Exploring authentication module to understand token refresh flow' rather "
-                "than 'reading files'). Call `report_intent` again whenever your focus shifts "
-                "to a new sub-task. Never call it in isolation — always pair it with at least "
-                "one other tool call in the same turn."
-            ),
+            "content": base_prompt,
         }
+
+        # CodeRecon native tools (§8.1)
+        copilot_custom_tools = None
+        if config.coderecon_tools is not None and config.coderecon_tools.copilot_tools:
+            copilot_custom_tools = config.coderecon_tools.copilot_tools
+
         requested_model = config.model or ""
         if config.model:
             log.info("sdk_session_model_requested", model=config.model)
@@ -721,6 +732,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     working_directory=config.workspace_path,
                     system_message=system_message,
                     model=config.model or None,
+                    tools=copilot_custom_tools,
                 )
         else:
             session = await client.create_session(
@@ -728,6 +740,7 @@ class CopilotAdapter(BaseAgentAdapter):
                 working_directory=config.workspace_path,
                 system_message=system_message,
                 model=config.model or None,
+                tools=copilot_custom_tools,
             )
 
         session_id = session.session_id  # Use SDK-assigned ID as CodePlane's session identifier

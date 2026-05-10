@@ -657,21 +657,26 @@ class ClaudeAdapter(BaseAgentAdapter):
         self._stderr_files[session_id] = stderr_path
         self._stderr_file_objects[session_id] = stderr_file
 
+        # Build system prompt — append CodeRecon tool guidance when tools are provisioned (§8.5)
+        system_prompt = CODEPLANE_SYSTEM_PROMPT
+        if config.coderecon_tools is not None and config.coderecon_tools.system_prompt:
+            system_prompt = system_prompt + "\n\n" + config.coderecon_tools.system_prompt
+
         # Build options
         options = ClaudeCodeOptions(
             cwd=config.workspace_path,
             model=config.model,
             permission_mode="default",  # Always use callback — policy router handles all decisions
             can_use_tool=self._build_can_use_tool(config, session_id),
-            append_system_prompt=CODEPLANE_SYSTEM_PROMPT,
+            append_system_prompt=system_prompt,
             extra_args={"debug-to-stderr": None},
             debug_stderr=stderr_file,
             include_partial_messages=True,
         )
 
         # MCP servers from CodePlane config
+        mcp_config: dict[str, Any] = {}
         if config.mcp_servers:
-            mcp_config: dict[str, dict[str, Any]] = {}
             for name, srv in config.mcp_servers.items():
                 entry: dict[str, Any] = {
                     "type": "stdio",
@@ -681,6 +686,15 @@ class ClaudeAdapter(BaseAgentAdapter):
                 if srv.env:
                     entry["env"] = srv.env
                 mcp_config[name] = entry
+
+        # CodeRecon in-process SDK tools (§8.1)
+        if config.coderecon_tools is not None and config.coderecon_tools.claude_mcp_server is not None:
+            mcp_config["coderecon"] = config.coderecon_tools.claude_mcp_server
+            # Auto-allow CodeRecon tools so they run without permission prompts
+            if config.coderecon_tools.allowed_tool_names:
+                options.allowed_tools = list(options.allowed_tools or []) + config.coderecon_tools.allowed_tool_names
+
+        if mcp_config:
             options.mcp_servers = mcp_config  # type: ignore[assignment]
 
         # Resume support
