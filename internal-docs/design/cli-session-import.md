@@ -106,8 +106,8 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:9418/api/otlp
                        │
                        ▼
     ┌──────────────────────────────────────────┐
-    │   Frontend (unchanged except read-only   │
-    │   flag and source badge)                 │
+    │   Frontend (unchanged except source      │
+    │   badge on job cards)                    │
     └──────────────────────────────────────────┘
 ```
 
@@ -174,18 +174,42 @@ machine changes needed.
 | `repo` | User selects in UI | Detected from `cwd` (`git rev-parse --show-toplevel`) |
 | `branch` | CodePlane creates | Detected from `cwd` (`git rev-parse --abbrev-ref HEAD`) |
 | `base_ref` | User selects in UI | Detected (`git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`) |
-| `worktree_path` | CodePlane creates worktree | CLI's `cwd` (from hook `SessionStart.cwd` or OTEL span attributes) |
+| `worktree_path` | CodePlane creates worktree | CLI's `cwd` — from Claude hook `SessionStart.cwd` (confirmed: `cwd` is a common input field on every hook event). For Copilot: `cwd` is **not** present in OTEL spans (empirically verified v1.0.44). Must be inferred from file paths in the first `execute_tool` span's `gen_ai.tool.call.arguments`, or from `OTEL_RESOURCE_ATTRIBUTES=process.cwd=<path>` (requires adding to user setup) |
 | `prompt` | User enters in UI | First user message from session (hook `UserPromptSubmit` or OTEL content capture) |
 
 Because `repo`, `branch`, `base_ref`, and `worktree_path` are all
 populated, `MergeService`, `DiffService`, and PR creation work
 identically to managed sessions.
 
-**Cleanup difference**: On discard, CodePlane does NOT delete the
-working directory or the branch for imported sessions (it didn't create
-them). It marks the job as discarded and leaves the filesystem as-is.
-This is controlled by checking `source != "managed"` in the cleanup
-path only.
+**No destructive operations for imported sessions**: When `source !=
+"managed"`, CodePlane did not create the working directory or the
+branch, so it must never delete them. This applies to ALL resolution
+paths, not just discard:
+
+- **Discard**: Mark job as discarded. Do NOT call `remove_worktree`
+  or `git branch -D`. Leave the filesystem as-is.
+- **Merge / Smart Merge**: The user's CLI session already committed
+  changes to their branch. CodePlane pushes the branch and does a
+  remote merge (fast-forward or merge commit via the forge API / `git
+  push`). It does NOT checkout/stash/merge in the user's working
+  directory — `_preserved_worktree` and `_checkout_and_merge` operate
+  on `repo_path` which for imported sessions IS the user's live
+  checkout. After merge, do NOT call `_post_merge_cleanup` (no
+  worktree removal, no branch deletion).
+- **Create PR**: Push the branch to origin, create PR. Do NOT call
+  `_cleanup_worktree_only`. Branch stays — the user is still on it.
+- **On default branch (branch == base_ref)**: There is nothing to
+  merge — the changes are already where they belong. Skip merge
+  entirely, transition to `completed` with resolution `merged`.
+
+Implementation: `MergeService.resolve_job()` checks `job.source` and
+routes to a new `_resolve_imported()` method that handles push +
+remote merge without touching the local working directory.
+
+The existing `_auto_merge` (post-session) path also needs the same
+guard: when `IngestService._finalize_session()` triggers
+`MergeService.merge_to_base()`, it must use the imported-session
+path.
 
 ### 4.2 `backend/models/db.py` — `JobRow`
 
@@ -516,10 +540,11 @@ after backend changes.
 
 **Full parity — no conditional hiding of actions.** All buttons work:
 
-- Merge / Smart Merge — `MergeService` operates on `worktree_path` (= CLI's `cwd`)
-- Create PR — works (repo + branch are known)
-- Discard — marks job as discarded; skips worktree/branch deletion
-  (the only behavioral difference, handled in the backend cleanup path)
+- Merge / Smart Merge — pushes branch and does remote merge (does NOT
+  checkout/stash in the user's working directory — see §4.1)
+- Create PR — pushes branch to origin, creates PR (does NOT remove
+  worktree or delete branch)
+- Discard — marks job as discarded, leaves filesystem untouched
 - Continue / Send message — routes through `IngestService` for steering
 - Cancel/Abort — routes through `IngestService`
 
@@ -579,7 +604,7 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `StepTracker` | Driven by `DomainEvent`s — source-agnostic |
 | `SisterSessionManager` | Not applicable (no managed sister sessions) |
 | `DiffService` | Works — `worktree_path` points to CLI's `cwd` |
-| `MergeService` | Works — `repo`, `branch`, `base_ref` are all populated |
+| `MergeService` | Needs a new `_resolve_imported()` path. Existing local merge/checkout/stash logic assumes CodePlane owns the worktree — for imported sessions it must push + remote-merge instead. See §4.1 "No destructive operations" |
 | `CodeReconService` | Works — `IngestService` fires background indexing task at session start. Structural features become available when indexing completes. If the repo was already indexed (e.g. previously added via settings), structural features are immediate |
 | Frontend SSE handlers | All existing handlers work unchanged |
 | Frontend store shape | Only additive field (`source`) |
@@ -600,7 +625,7 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | Tool blocking | Yes | No | Yes (PreToolUse deny) |
 | Cancel/abort | Yes | Yes (steer abort) | Yes (hook block) |
 | Streaming text | Yes | No (complete messages) | No (complete messages) |
-| Merge/resolve | Yes | Yes | Yes |
+| Merge/resolve | Yes (local) | Yes (push + remote) | Yes (push + remote) |
 | PR creation | Yes | Yes | Yes |
 | Approval flow | Yes | No | Yes (PreToolUse hook) |
 | Worktree cleanup on discard | Yes (delete) | No (user's directory) | No (user's directory) |

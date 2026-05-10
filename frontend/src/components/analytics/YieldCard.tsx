@@ -39,14 +39,27 @@ export function YieldCard({ data }: { data: YieldResponse }) {
       </div>
 
       <div className="flex items-baseline gap-4">
-        <div>
-          <Tooltip content="Average cost for jobs that resulted in a merge or PR">
-            <span className="text-2xl font-semibold text-foreground cursor-help">
-              {formatUsd(costPerMergeUsd)}
-            </span>
-          </Tooltip>
-          <span className="text-xs text-muted-foreground ml-1">per merge</span>
-        </div>
+        {(() => {
+          const mergedCount = categories.find((c) => c.category === "productive")?.jobCount ?? 0;
+          if (mergedCount === 0) {
+            return (
+              <div>
+                <span className="text-2xl font-semibold text-muted-foreground">No merges</span>
+                <span className="text-xs text-muted-foreground ml-1">in period</span>
+              </div>
+            );
+          }
+          return (
+            <div>
+              <Tooltip content={`Average cost across ${mergedCount} merged/PR'd job${mergedCount !== 1 ? "s" : ""}`}>
+                <span className="text-2xl font-semibold text-foreground cursor-help">
+                  {formatUsd(costPerMergeUsd)}
+                </span>
+              </Tooltip>
+              <span className="text-xs text-muted-foreground ml-1">per merge</span>
+            </div>
+          );
+        })()}
         <div className="text-xs text-muted-foreground">
           {totalJobs} jobs · {formatUsd(totalCostUsd)} total
         </div>

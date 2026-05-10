@@ -238,7 +238,7 @@ async def cost_drivers_for_job(
     return CostDriversJobResponse(job_id=job_id, dimensions=by_dimension)
 
 
-@router.get("/analytics/cost-drivers")
+@router.get("/analytics/cost-drivers", response_model=None)
 async def fleet_cost_drivers(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
