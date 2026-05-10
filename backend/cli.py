@@ -490,7 +490,7 @@ def backfill_attribution(batch_size: int, dry_run: bool) -> None:
                 LEFT JOIN job_cost_attribution a
                     ON a.job_id = s.job_id AND a.model IS NOT NULL AND a.model != ''
                 WHERE a.job_id IS NULL
-                    AND j.state IN ('completed', 'failed', 'cancelled')
+                    AND j.state IN ('completed', 'failed', 'canceled')
                 ORDER BY j.created_at DESC
             """))
             job_ids = [r[0] for r in result.fetchall()]

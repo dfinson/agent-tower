@@ -22,9 +22,11 @@ export function CacheEfficiencyChart({ data: initialData, period }: { data: Cach
   const switchDimension = (dim: string) => {
     if (dim === activeDimension) return;
     setLoading(true);
-    setActiveDimension(dim);
     fetchCacheEfficiency(period ?? 30, dim)
-      .then(setData)
+      .then((result) => {
+        setData(result);
+        setActiveDimension(dim);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
