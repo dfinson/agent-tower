@@ -352,4 +352,7 @@ export const ACTIVITY_COLORS: Record<string, string> = {
   reasoning: "bg-indigo-400",
   overhead: "bg-gray-400",
   communication: "bg-violet-500",
+  feature_dev: "bg-emerald-400",
+  refactoring: "bg-purple-500",
+  debugging: "bg-orange-400",
 };

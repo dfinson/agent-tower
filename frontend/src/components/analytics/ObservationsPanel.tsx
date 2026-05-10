@@ -1,8 +1,19 @@
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, X, MessageSquare, TrendingUp, DollarSign, Activity, type LucideIcon } from "lucide-react";
 import { Tooltip } from "../ui/tooltip";
 import { type Observation } from "../../api/client";
 import { Badge } from "../ui/badge";
 import { formatUsd } from "./helpers";
+
+// ---------------------------------------------------------------------------
+// Category icons — renders alongside observation title
+// ---------------------------------------------------------------------------
+
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  communication_waste: MessageSquare,
+  cost_spike: TrendingUp,
+  budget: DollarSign,
+  performance: Activity,
+};
 
 // ---------------------------------------------------------------------------
 // Observations panel
@@ -29,7 +40,10 @@ export function ObservationsPanel({ observations, onDismiss }: { observations: O
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <AlertTriangle size={13} className={severityText[obs.severity] || "text-muted-foreground"} />
+                {(() => {
+                  const Icon = CATEGORY_ICONS[obs.category] ?? AlertTriangle;
+                  return <Icon size={13} className={severityText[obs.severity] || "text-muted-foreground"} />;
+                })()}
                 <span className="text-sm font-medium text-foreground">{obs.title}</span>
                 <Badge variant="outline" className="text-[10px]">{obs.category}</Badge>
               </div>

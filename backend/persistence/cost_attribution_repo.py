@@ -255,7 +255,7 @@ class CostAttributionRepository(BaseRepository):
     ) -> list[dict[str, Any]]:
         """Activity cost broken down by repo."""
         result = await self._session.execute(
-            text(f"""
+            text("""
                 SELECT
                     j.repo,
                     a.bucket,
@@ -269,11 +269,11 @@ class CostAttributionRepository(BaseRepository):
                 FROM job_cost_attribution a
                 JOIN jobs j ON j.id = a.job_id
                 WHERE a.dimension = :dimension
-                    AND j.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND j.created_at >= datetime('now', '-' || :days || ' days')
                 GROUP BY j.repo, a.bucket
                 ORDER BY cost_usd DESC
             """),
-            {"dimension": dimension},
+            {"dimension": dimension, "days": int(period_days)},
         )
         return [dict(r) for r in result.mappings().all()]
 

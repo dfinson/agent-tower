@@ -3,6 +3,7 @@ import {
   type ModelComparisonResponse,
   type ModelComparisonRow,
   type AnalyticsRepos,
+  type ModelEfficiencyResponse,
 } from "../../api/client";
 import { Badge } from "../ui/badge";
 import { formatUsd, formatDuration, downloadCsv, CsvButton } from "./helpers";
@@ -16,14 +17,21 @@ export function ModelComparison({
   repos,
   selectedRepo,
   onRepoChange,
+  modelEfficiency,
 }: {
   data: ModelComparisonResponse;
   repos: AnalyticsRepos | null;
   selectedRepo: string;
   onRepoChange: (repo: string) => void;
+  modelEfficiency?: ModelEfficiencyResponse;
 }) {
   const models = data.models;
   if (!models.length) return <p className="text-muted-foreground text-sm">No model data yet.</p>;
+
+  // Build efficiency lookup by model name
+  const efficiencyByModel = new Map(
+    (modelEfficiency?.models ?? []).map((m) => [m.model, m]),
+  );
 
   const exportModelsCsv = () => {
     downloadCsv(
@@ -78,6 +86,15 @@ export function ModelComparison({
                 <Tooltip content="Cache hit rate — % of input tokens served from cache"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Cache %</span></Tooltip>
               </th>
               <th className="text-right py-1.5 px-2 font-medium">
+                <Tooltip content="% of jobs completed in one edit turn"><span className="cursor-help border-b border-dotted border-muted-foreground/50">1-shot %</span></Tooltip>
+              </th>
+              <th className="text-right py-1.5 px-2 font-medium">
+                <Tooltip content="% of jobs that required retry/re-run"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Retry %</span></Tooltip>
+              </th>
+              <th className="text-right py-1.5 px-2 font-medium">
+                <Tooltip content="Average edit turns per job"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Edit Turns</span></Tooltip>
+              </th>
+              <th className="text-right py-1.5 px-2 font-medium">
                 <Tooltip content="API-equivalent cost per line of diff output"><span className="cursor-help border-b border-dotted border-muted-foreground/50">$/Line</span></Tooltip>
               </th>
             </tr>
@@ -86,6 +103,7 @@ export function ModelComparison({
             {models.map((m: ModelComparisonRow, i: number) => {
               const cacheRate = m.cacheHitRate != null ? m.cacheHitRate * 100 : 0;
               const cacheColor = cacheRate >= 60 ? "text-green-400" : cacheRate >= 30 ? "text-yellow-400" : "text-red-400";
+              const eff = efficiencyByModel.get(m.model);
               return (
               <tr key={i} className="border-b border-border/50 hover:bg-accent/30">
                 <td className="py-1.5 px-2">
@@ -110,6 +128,9 @@ export function ModelComparison({
                 <td className="text-right py-1.5 px-2">{m.discarded > 0 ? <span className="text-yellow-400">{m.discarded}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2">{m.failed > 0 ? <span className="text-red-400">{m.failed}</span> : <span className="text-muted-foreground">0</span>}</td>
                 <td className="text-right py-1.5 px-2"><span className={cacheColor}>{cacheRate.toFixed(0)}%</span></td>
+                <td className="text-right py-1.5 px-2">{eff ? `${(eff.oneShotRate * 100).toFixed(0)}%` : <span className="text-muted-foreground">—</span>}</td>
+                <td className="text-right py-1.5 px-2">{eff ? `${(eff.retryRate * 100).toFixed(0)}%` : <span className="text-muted-foreground">—</span>}</td>
+                <td className="text-right py-1.5 px-2">{eff ? eff.editTurns.toFixed(1) : <span className="text-muted-foreground">—</span>}</td>
                 <td className="text-right py-1.5 px-2">
                   {m.costPerDiffLine > 0 ? (
                     <Tooltip content={`${formatUsd(m.costPerDiffLine)} per diff line (added+removed)`}>

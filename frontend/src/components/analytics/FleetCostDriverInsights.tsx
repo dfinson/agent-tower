@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Tooltip } from "../ui/tooltip";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { type FleetCostDriversResponse } from "../../api/client";
+import { type FleetCostDriversResponse, fetchRepoCostDrivers, type RepoCostBreakdown } from "../../api/client";
 import { formatUsd } from "./helpers";
 import { formatTokens, formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "../MetricsPanelTypes";
 
@@ -21,7 +21,32 @@ interface ActivityRow {
   avgCostPerJob: number;
 }
 
-export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetCostDriversResponse }) {
+export function FleetCostDriverInsights({ fleetDrivers, period }: { fleetDrivers: FleetCostDriversResponse; period?: number }) {
+  const [groupBy, setGroupBy] = useState<"none" | "repo">("none");
+  const [repoData, setRepoData] = useState<RepoCostBreakdown[] | null>(null);
+  const [repoLoading, setRepoLoading] = useState(false);
+  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
+
+  const switchGroupBy = (mode: "none" | "repo") => {
+    setGroupBy(mode);
+    if (mode === "repo" && !repoData) {
+      setRepoLoading(true);
+      fetchRepoCostDrivers(period ?? 30)
+        .then((r) => setRepoData(r.repos))
+        .catch(() => {})
+        .finally(() => setRepoLoading(false));
+    }
+  };
+
+  const toggleRepo = (repo: string) => {
+    setExpandedRepos((prev) => {
+      const next = new Set(prev);
+      if (next.has(repo)) next.delete(repo);
+      else next.add(repo);
+      return next;
+    });
+  };
+
   const activityRows = useMemo<ActivityRow[]>(() => {
     const summary = fleetDrivers.summary ?? [];
     return summary
@@ -59,6 +84,68 @@ export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetC
 
   return (
     <div className="space-y-2">
+      {/* Group-by toggle */}
+      <div className="flex items-center justify-end gap-2 text-[11px]">
+        <span className="text-muted-foreground">Group by:</span>
+        <div className="flex rounded-md border border-border overflow-hidden">
+          {(["none", "repo"] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => switchGroupBy(mode)}
+              className={`px-2 py-0.5 capitalize transition-colors ${
+                groupBy === mode
+                  ? "bg-accent text-accent-foreground font-medium"
+                  : "text-muted-foreground hover:bg-accent/50"
+              }`}
+            >
+              {mode === "none" ? "None" : "Repository"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {groupBy === "repo" ? (
+        repoLoading ? (
+          <div className="h-20 animate-pulse bg-muted rounded" />
+        ) : repoData && repoData.length > 0 ? (
+          <div className="space-y-2">
+            {repoData.map((repo) => {
+              const repoName = repo.repo || "(no repo)";
+              const isOpen = expandedRepos.has(repoName);
+              return (
+                <div key={repoName} className="border border-border/50 rounded-lg overflow-hidden">
+                  <div
+                    className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-accent/30 transition-colors"
+                    onClick={() => toggleRepo(repoName)}
+                  >
+                    <div className="flex items-center gap-2">
+                      {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      <span className="text-xs font-medium text-foreground">{repoName.split("/").pop()}</span>
+                    </div>
+                    <span className="text-xs tabular-nums">{formatUsd(repo.totalCostUsd)}</span>
+                  </div>
+                  {isOpen && (
+                    <div className="px-3 pb-2 space-y-1">
+                      {repo.buckets
+                        .filter((b) => b.dimension === "activity")
+                        .sort((a, b) => (b.cost_usd ?? 0) - (a.cost_usd ?? 0))
+                        .map((b) => (
+                          <div key={b.bucket} className="flex items-center justify-between text-[10px]">
+                            <span className="text-muted-foreground">{formatActivityBucket(b.bucket)}</span>
+                            <span className="tabular-nums">{formatUsd(b.cost_usd ?? 0)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No per-repo data available.</p>
+        )
+      ) : (
+        <>
       {activityRows.map((row) => {
         const maxCost = activityRows[0]?.costUsd || 1;
         const widthPct = (row.costUsd / maxCost) * 100;
@@ -153,6 +240,8 @@ export function FleetCostDriverInsights({ fleetDrivers }: { fleetDrivers: FleetC
         <span>{totalTurns} total turns across {activityRows.reduce((s, r) => Math.max(s, r.jobCount), 0)} jobs</span>
         <span className="tabular-nums font-medium">{formatUsd(totalCost)} total</span>
       </div>
+        </>
+      )}
     </div>
   );
 }

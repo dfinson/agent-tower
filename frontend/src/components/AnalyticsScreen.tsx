@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   BarChart3, DollarSign, Clock, Wrench, GitBranch, Zap, Loader2, Download,
 } from "lucide-react";
@@ -13,6 +13,7 @@ import {
   dismissObservation,
   fetchYield,
   fetchCacheEfficiency,
+  fetchModelEfficiency,
   exportCostDrivers,
   type ScorecardResponse,
   type ModelComparisonResponse,
@@ -23,6 +24,7 @@ import {
   type Observation,
   type YieldResponse,
   type CacheEfficiencyResponse,
+  type ModelEfficiencyResponse,
 } from "../api/client";
 import {
   formatRelativeTime,
@@ -43,6 +45,52 @@ import {
   CacheEfficiencyChart,
 } from "./AnalyticsWidgets";
 
+function ExportDropdown({ period }: { period: number }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground hover:bg-accent/50 transition-colors"
+      >
+        <Download size={14} />
+        Export
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 w-32 rounded-md border border-border bg-card shadow-lg z-10">
+          <a
+            href={exportCostDrivers(period, "csv")}
+            download
+            className="block px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            CSV
+          </a>
+          <a
+            href={exportCostDrivers(period, "json")}
+            download
+            className="block px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            JSON
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AnalyticsScreen() {
   const [period, setPeriod] = useState(7);
   const [selectedRepo, setSelectedRepo] = useState("");
@@ -55,6 +103,7 @@ export function AnalyticsScreen() {
   const [observations, setObservations] = useState<Observation[]>([]);
   const [yieldData, setYieldData] = useState<YieldResponse | null>(null);
   const [cacheEfficiency, setCacheEfficiency] = useState<CacheEfficiencyResponse | null>(null);
+  const [modelEfficiency, setModelEfficiency] = useState<ModelEfficiencyResponse | null>(null);
 
   // Per-section loading states
   const [scorecardLoading, setScorecardLoading] = useState(true);
@@ -132,6 +181,10 @@ export function AnalyticsScreen() {
       .then(setCacheEfficiency)
       .catch(() => setCacheEfficiency(null))
       .finally(() => setCacheLoading(false));
+
+    fetchModelEfficiency(Math.max(period, 30))
+      .then(setModelEfficiency)
+      .catch(() => setModelEfficiency(null));
   };
 
   useEffect(() => {
@@ -173,14 +226,7 @@ export function AnalyticsScreen() {
             <Loader2 size={14} className={refreshing ? "animate-spin" : ""} />
             Refresh
           </button>
-          <a
-            href={exportCostDrivers(Math.max(period, 30), "csv")}
-            download
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground hover:bg-accent/50 transition-colors"
-          >
-            <Download size={14} />
-            Export
-          </a>
+          <ExportDropdown period={Math.max(period, 30)} />
           <select
             value={period}
             onChange={(e) => setPeriod(Number(e.target.value))}
@@ -211,7 +257,7 @@ export function AnalyticsScreen() {
       {/* Yield / ROI + Cache Efficiency */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {yieldLoading ? <SectionSkeleton height="h-40" /> : yieldData && <YieldCard data={yieldData} />}
-        {cacheLoading ? <SectionSkeleton height="h-40" /> : cacheEfficiency && <CacheEfficiencyChart data={cacheEfficiency} />}
+        {cacheLoading ? <SectionSkeleton height="h-40" /> : cacheEfficiency && <CacheEfficiencyChart data={cacheEfficiency} period={Math.max(period, 30)} />}
       </div>
 
       {/* Cost trend */}
@@ -229,7 +275,7 @@ export function AnalyticsScreen() {
             Cost Breakdown
           </h2>
           <p className="text-xs text-muted-foreground mb-3">Aggregate spend by activity across all jobs in this period</p>
-          <FleetCostDriverInsights fleetDrivers={fleetDrivers} />
+          <FleetCostDriverInsights fleetDrivers={fleetDrivers} period={Math.max(period, 30)} />
         </div>
       )}
 
@@ -266,7 +312,7 @@ export function AnalyticsScreen() {
           Model Comparison
         </h2>
         <p className="text-xs text-muted-foreground mb-3">Cost, speed, and outcomes per model — use this to pick models for future jobs</p>
-        {modelLoading ? <div className="h-[200px] animate-pulse bg-muted rounded" /> : modelComparison && <ModelComparison data={modelComparison} repos={repos} selectedRepo={selectedRepo} onRepoChange={setSelectedRepo} />}
+        {modelLoading ? <div className="h-[200px] animate-pulse bg-muted rounded" /> : modelComparison && <ModelComparison data={modelComparison} repos={repos} selectedRepo={selectedRepo} onRepoChange={setSelectedRepo} modelEfficiency={modelEfficiency ?? undefined} />}
       </div>
 
       {/* Repo breakdown */}

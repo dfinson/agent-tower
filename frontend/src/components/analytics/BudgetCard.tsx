@@ -152,6 +152,29 @@ export function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
               Approaching monthly budget
             </div>
           )}
+          {scorecard.projectedMonthEndUsd > scorecard.monthlyBudgetUsd && (
+            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400">
+              <AlertTriangle size={11} />
+              Projected month-end: {formatUsd(scorecard.projectedMonthEndUsd)} (exceeds {formatUsd(scorecard.monthlyBudgetUsd)} budget by {Math.round(((scorecard.projectedMonthEndUsd - scorecard.monthlyBudgetUsd) / scorecard.monthlyBudgetUsd) * 100)}%)
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cost per line of code */}
+      {scorecard.costPerDiffLine != null && scorecard.costPerDiffLine > 0 && (
+        <div className="pt-2 border-t border-border">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Cost per line</span>
+            <span className="text-foreground font-medium">
+              ${scorecard.costPerDiffLine.toFixed(4)} / line
+              {scorecard.totalDiffLines != null && (
+                <span className="text-muted-foreground font-normal ml-1">
+                  ({scorecard.totalDiffLines.toLocaleString()} lines changed)
+                </span>
+              )}
+            </span>
+          </div>
         </div>
       )}
     </div>

@@ -580,36 +580,81 @@ async def analytics_export(
     svc: FromDishka[AnalyticsService],
     period: Annotated[int, Query(ge=1, le=365)] = 30,
     fmt: Annotated[str, Query(pattern="^(csv|json)$")] = "csv",
+    sections: Annotated[str, Query()] = "cost-drivers",
 ) -> Response:
-    """Export cost-driver data as CSV or JSON for external analysis."""
+    """Export analytics data as CSV or JSON for external analysis.
+
+    ``sections`` is a comma-separated list of data sections to include.
+    Supported: overview, models, cost-drivers, yield, observations.
+    """
     import csv
     import io
     import json
 
-    summary = await svc.fleet_cost_summary(period_days=period)
-    data = [dict(r) for r in summary]
+    requested = {s.strip() for s in sections.split(",") if s.strip()}
+    valid_sections = {"overview", "models", "cost-drivers", "yield", "observations"}
+    requested = requested & valid_sections
+    if not requested:
+        requested = {"cost-drivers"}
+
+    combined: dict[str, list[dict]] = {}
+
+    if "cost-drivers" in requested:
+        summary = await svc.fleet_cost_summary(period_days=period)
+        combined["cost-drivers"] = [dict(r) for r in summary]
+
+    if "overview" in requested:
+        scorecard = await svc.scorecard(period_days=period)
+        combined["overview"] = [scorecard]
+
+    if "models" in requested:
+        models = await svc.model_comparison(period_days=period)
+        combined["models"] = models
+
+    if "yield" in requested:
+        ys = await svc.yield_summary(period_days=period)
+        combined["yield"] = ys
+
+    if "observations" in requested:
+        obs = await svc.list_observations()
+        combined["observations"] = obs
 
     if fmt == "json":
         return Response(
-            content=json.dumps(data, default=str),
+            content=json.dumps(combined, default=str),
             media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=cost-drivers.json"},
+            headers={"Content-Disposition": "attachment; filename=analytics-export.json"},
         )
 
-    # Default: CSV
-    if not data:
+    # CSV: flatten all sections
+    all_rows: list[dict] = []
+    for section_name, rows in combined.items():
+        for row in rows:
+            flat = {"_section": section_name, **({k: v for k, v in row.items()} if isinstance(row, dict) else {})}
+            all_rows.append(flat)
+
+    if not all_rows:
         return Response(
             content="",
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=cost-drivers.csv"},
+            headers={"Content-Disposition": "attachment; filename=analytics-export.csv"},
         )
 
+    # Collect all fieldnames across rows
+    all_keys: list[str] = []
+    seen: set[str] = set()
+    for row in all_rows:
+        for k in row:
+            if k not in seen:
+                all_keys.append(k)
+                seen.add(k)
+
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=data[0].keys())
+    writer = csv.DictWriter(output, fieldnames=all_keys)
     writer.writeheader()
-    writer.writerows(data)
+    writer.writerows(all_rows)
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=cost-drivers.csv"},
+        headers={"Content-Disposition": "attachment; filename=analytics-export.csv"},
     )

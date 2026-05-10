@@ -482,15 +482,14 @@ def backfill_attribution(batch_size: int, dry_run: bool) -> None:
 
         engine = get_engine()
         async with engine.begin() as conn:
-            # Find jobs that have telemetry but no attribution rows with model set
+            # Find jobs that have spans but no attribution rows with model set
             result = await conn.execute(text("""
-                SELECT t.job_id
-                FROM job_telemetry_summary t
+                SELECT DISTINCT s.job_id
+                FROM telemetry_spans s
                 LEFT JOIN job_cost_attribution a
-                    ON a.job_id = t.job_id AND a.model IS NOT NULL AND a.model != ''
+                    ON a.job_id = s.job_id AND a.model IS NOT NULL AND a.model != ''
                 WHERE a.job_id IS NULL
-                    AND t.total_cost_usd > 0
-                ORDER BY t.created_at DESC
+                ORDER BY s.job_id DESC
             """))
             job_ids = [r[0] for r in result.fetchall()]
 
@@ -510,7 +509,7 @@ def backfill_attribution(batch_size: int, dry_run: bool) -> None:
             for job_id in batch:
                 try:
                     async with async_session_factory() as session:
-                        await compute_attribution(session, job_id)
+                        await compute_attribution(session, job_id, session_factory=async_session_factory)
                         await session.commit()
                     processed += 1
                 except Exception as exc:

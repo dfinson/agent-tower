@@ -252,7 +252,12 @@ async def _analyse_communication_waste(
         return 0
 
     count = 0
-    for row in rows[:5]:  # cap at 5 observations
+    for row in rows:
+        # Design doc: flag when comm_pct > 0.40 AND total_cost > $0.50
+        if row["comm_pct"] <= 0.40 or row["total_cost"] <= 0.50:
+            continue
+        if count >= 5:  # cap at 5 observations
+            break
         pct = round(row["comm_pct"] * 100, 1)
         await obs_repo.upsert(
             category="communication_waste",
