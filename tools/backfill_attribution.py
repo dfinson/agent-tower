@@ -226,7 +226,7 @@ async def get_job_spans(session: AsyncSession, job_id: str) -> list[dict[str, An
         text("""
             SELECT span_type, name, turn_number, tool_category, tool_args_json,
                    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-                   cost_usd, duration_ms, execution_phase, is_subagent
+                   cost_usd, duration_ms, execution_phase
             FROM job_telemetry_spans
             WHERE job_id = :job_id
             ORDER BY started_at ASC

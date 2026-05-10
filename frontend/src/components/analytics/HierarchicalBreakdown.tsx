@@ -58,7 +58,6 @@ export function HierarchicalBreakdown({ data, compactionCostUsd = 0 }: Props) {
 
   if (hasCrossTab) {
     for (const bucket of apBuckets) {
-      const parts = bucket.bucket.split(":", 1);
       // bucket format: "action:purpose"
       const colonIdx = bucket.bucket.indexOf(":");
       if (colonIdx < 0) continue;
