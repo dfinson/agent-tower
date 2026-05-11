@@ -1882,11 +1882,47 @@ class RuntimeService:
             preparing_jobs.extend(preparing)
 
         for job in preparing_jobs:
-            log.warning("recovering_preparing_job", job_id=job.id)
+            log.info("recovering_preparing_job", job_id=job.id)
             asyncio.create_task(self.setup_and_start(job), name=f"recover-setup-{job.id}")
 
+        # Pre-filter orphaned jobs whose worktree directories no longer exist —
+        # fail them immediately instead of attempting a costly recovery that will
+        # always error out.
+        from pathlib import Path as _Path
+
+        unreachable: list[tuple[Job, JobState]] = []
+        recoverable: list[tuple[Job, JobState]] = []
         for job, state in orphaned_jobs:
-            log.warning("recovering_orphaned_job", job_id=job.id, state=state)
+            wt = job.worktree_path
+            if wt and wt != job.repo and not _Path(wt).exists():
+                unreachable.append((job, state))
+            else:
+                recoverable.append((job, state))
+
+        if unreachable:
+            now = datetime.now(UTC)
+            async with self._session_factory() as session:
+                job_repo = JobRepository(session)
+                for job, state in unreachable:
+                    await job_repo.update_state(
+                        job.id,
+                        new_state=JobState.failed,
+                        updated_at=now,
+                        completed_at=now,
+                        failure_reason="Worktree no longer exists — cannot recover after restart",
+                    )
+                await session.commit()
+            log.warning(
+                "orphaned_jobs_unreachable",
+                count=len(unreachable),
+                job_ids=[j.id for j, _ in unreachable],
+                reason="worktree deleted while server was down",
+            )
+
+        if recoverable:
+            log.info("recovering_orphaned_jobs", count=len(recoverable))
+        for job, state in recoverable:
+            log.info("recovering_orphaned_job", job_id=job.id, state=state)
             await self._recover_active_job(job.id)
 
         for job in queued_jobs:

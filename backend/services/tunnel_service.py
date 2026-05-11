@@ -71,6 +71,7 @@ class TunnelWatchdog:
     """Restart a tunnel host process when the remote relay stops forwarding."""
 
     _CHECK_INTERVAL: float = 10
+    _INITIAL_DELAY: float = 30  # wait for the HTTP server to finish startup before first health check
     _FAIL_THRESHOLD = 2
     _HTTP_TIMEOUT = 5
     _RESTART_ATTEMPTS = 3
@@ -125,7 +126,7 @@ class TunnelWatchdog:
             with urllib.request.urlopen(req, timeout=self._HTTP_TIMEOUT) as resp:  # noqa: S310
                 return bool(resp.status == 200)
         except (urllib.error.URLError, OSError, TimeoutError):
-            log.warning("tunnel_health_check_failed", url=url, exc_info=True)
+            log.debug("tunnel_health_check_failed", url=url)
             return False
 
     def _process_running(self, proc: subprocess.Popen[str] | None = None) -> bool:
@@ -230,7 +231,7 @@ class TunnelWatchdog:
         return False
 
     def _run(self) -> None:
-        if self._stop_event.wait(timeout=self._CHECK_INTERVAL):
+        if self._stop_event.wait(timeout=self._INITIAL_DELAY):
             return
 
         consecutive_failures = 0
