@@ -465,20 +465,6 @@ class RepoStatsEntry(CamelModel, extra="allow"):
     premium_requests: float = 0.0
 
 
-class ToolMixToolDetail(CamelModel):
-    name: str = ""
-    count: int = 0
-    pct: float = 0.0
-
-
-class ToolMixEntry(CamelModel):
-    activity: str = ""
-    count: int = 0
-    pct: float = 0.0
-    total_duration_ms: float = 0.0
-    tools: list[ToolMixToolDetail] = []
-
-
 class ToolStatsEntry(CamelModel, extra="allow"):
     name: str = ""
     count: int = 0
@@ -575,8 +561,6 @@ class AnalyticsModelsResponse(CamelModel):
 class AnalyticsToolsResponse(CamelModel):
     period: int
     tools: list[ToolStatsEntry] = []
-    tool_mix: list[ToolMixEntry] = []
-    tool_mix_job_count: int = 0
 
 
 class AnalyticsReposResponse(CamelModel):
