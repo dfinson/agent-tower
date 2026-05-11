@@ -23,16 +23,18 @@ function formatDuration(ms: number): string {
 }
 
 const ACTIVITY_COLORS: Record<string, string> = {
-  implementation: "bg-blue-500",
-  investigation: "bg-emerald-500",
+  implementation: "bg-emerald-500",
+  debugging: "bg-orange-500",
+  investigation: "bg-blue-500",
   verification: "bg-amber-500",
   git_ops: "bg-purple-500",
   setup: "bg-cyan-500",
-  delegation: "bg-pink-500",
   overhead: "bg-slate-400",
   reasoning: "bg-indigo-400",
-  communication: "bg-orange-400",
+  communication: "bg-violet-500",
   idle: "bg-slate-600",
+  // Legacy
+  delegation: "bg-blue-500",
 };
 
 export function LatencyBreakdown({

@@ -260,28 +260,6 @@ export function FleetLatencyDriverInsights({
           </div>
         </div>
       )}
-
-      {/* Tool type breakdown */}
-      {toolTypeRows.length > 0 && (
-        <div className="pt-3 mt-1 border-t border-border/50">
-          <div className="text-[10px] font-medium text-muted-foreground mb-1.5">Tool execution breakdown</div>
-          <div className="space-y-0.5">
-            {toolTypeRows.map((t) => {
-              const maxToolMs = toolTypeRows[0]?.avgWallClockMs || 1;
-              const barW = (t.avgWallClockMs / maxToolMs) * 100;
-              return (
-                <div key={t.bucket} className="flex items-center gap-2 text-[10px]">
-                  <span className="w-16 truncate text-muted-foreground">{TOOL_TYPE_LABELS[t.bucket] ?? t.bucket}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-muted/40 overflow-hidden">
-                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${barW}%` }} />
-                  </div>
-                  <span className="w-12 text-right tabular-nums text-muted-foreground">{formatDurationCompact(t.avgWallClockMs)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

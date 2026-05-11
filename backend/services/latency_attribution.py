@@ -34,34 +34,37 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
-# Maps tool_category to action bucket — used for turnless spans where we have
+# Maps tool_category to activity bucket — used for turnless spans where we have
 # no turn context to apply the full priority ladder.
-_CATEGORY_TO_ACTION: dict[str, str] = {
-    "file_write": "write",
-    "shell": "execute",
-    "git_write": "vcs",
-    "git_read": "read",
-    "file_read": "read",
-    "file_search": "read",
-    "browser": "read",
-    "agent": "delegate",
-    "bookkeeping": "think",
-    "thinking": "think",
+_CATEGORY_TO_ACTIVITY: dict[str, str] = {
+    "file_write": "implementation",
+    "shell": "investigation",
+    "git_write": "git_ops",
+    "git_read": "git_ops",
+    "file_read": "investigation",
+    "file_search": "investigation",
+    "browser": "investigation",
+    "agent": "investigation",
+    "bookkeeping": "overhead",
+    "thinking": "reasoning",
 }
 
 
-def _classify_turnless_span_action(span: dict[str, Any]) -> str:
-    """Classify a span without a turn_number into an action bucket."""
+def _classify_turnless_span_activity(span: dict[str, Any], *, is_debug_job: bool = False) -> str:
+    """Classify a span without a turn_number into an activity bucket."""
     span_type = span.get("span_type", "")
     if span_type == "llm":
-        return "think"
+        return "reasoning"
     if span_type == "approval":
-        return "think"
+        return "overhead"
     if span_type == "tool":
         tool_name = span.get("name") or ""
         cat = classify_tool(tool_name)
-        return _CATEGORY_TO_ACTION.get(cat, "read")
-    return "think"
+        activity = _CATEGORY_TO_ACTIVITY.get(cat, "investigation")
+        if activity == "implementation" and is_debug_job:
+            return "debugging"
+        return activity
+    return "reasoning"
 
 
 def _percentile(sorted_values: list[int], pct: float) -> int:
@@ -129,6 +132,19 @@ async def _compute_latency(
 
     from sqlalchemy import text as sa_text
 
+    # Load job metadata for debugging detection
+    job_meta = await session.execute(
+        sa_text(
+            "SELECT j.description, j.prompt "
+            "FROM jobs j WHERE j.id = :jid"
+        ),
+        {"jid": job_id},
+    )
+    job_row = job_meta.mappings().first()
+    job_description = (job_row or {}).get("description", "") or ""
+    job_prompt = (job_row or {}).get("prompt", "") or ""
+    is_debug_job = _is_debugging_context(job_description, job_prompt)
+
     # Get job total duration from summary
     summary = await summary_repo.get(job_id)
     total_duration_ms = int(summary.get("duration_ms", 0)) if summary else 0
@@ -137,7 +153,6 @@ async def _compute_latency(
     by_category: dict[str, list[int]] = defaultdict(list)  # llm/tool/approval
     by_phase: dict[str, list[int]] = defaultdict(list)
     by_turn: dict[int, list[int]] = defaultdict(list)
-    by_tool_type: dict[str, list[int]] = defaultdict(list)
 
     # Also collect intervals for wall-clock computation
     category_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
@@ -196,11 +211,10 @@ async def _compute_latency(
         if phase and phase in {p.value for p in ExecutionPhase}:
             by_phase[phase].append(duration_ms)
 
-        # Tool type dimension (only for tool spans)
+        # Tool type dimension (only for tool spans) — build turn context
         if span_type == "tool":
             tool_name = span.get("name") or ""
             tool_cat = classify_tool(tool_name) or "other"
-            by_tool_type[tool_cat].append(duration_ms)
 
             # Build turn context for intent classification
             if turn is not None:
@@ -227,17 +241,14 @@ async def _compute_latency(
             out_tok = span.get("output_tokens") or 0
             turn_contexts[int(turn)]["output_tokens"] += int(out_tok or 0)
 
-    # --- Action dimension: classify each turn's action, aggregate durations ---
-    by_action: dict[str, list[int]] = defaultdict(list)
-    action_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    # --- Activity dimension: classify each turn's activity, aggregate durations ---
+    by_activity: dict[str, list[int]] = defaultdict(list)
+    activity_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
 
     for turn_num, context in turn_contexts.items():
-        action = classify_action_from_tools(
-            context.get("tool_categories", []),
-            shell_commands=context.get("shell_commands") or None,
-        )
-        by_action[action].extend(turn_durations.get(turn_num, []))
-        action_intervals[action].extend(turn_span_intervals.get(turn_num, []))
+        activity = _classify_turn_intent(context, is_debug_job=is_debug_job)
+        by_activity[activity].extend(turn_durations.get(turn_num, []))
+        activity_intervals[activity].extend(turn_span_intervals.get(turn_num, []))
 
     # Classify turnless spans individually by their own properties
     for span in spans:
@@ -246,11 +257,11 @@ async def _compute_latency(
             continue
         turn = span.get("turn_number")
         if turn is None:
-            action = _classify_turnless_span_action(span)
-            by_action[action].append(duration_ms)
+            activity = _classify_turnless_span_activity(span, is_debug_job=is_debug_job)
+            by_activity[activity].append(duration_ms)
             offset_sec = float(span.get("started_at", 0) or 0)
             start_ms = offset_sec * 1000
-            action_intervals[action].append((start_ms, start_ms + duration_ms))
+            activity_intervals[activity].append((start_ms, start_ms + duration_ms))
 
     # Compute attribution rows
     rows: list[dict[str, Any]] = []
@@ -282,10 +293,9 @@ async def _compute_latency(
             })
 
     _build_rows("category", by_category, category_intervals)
-    _build_rows("action", by_action, action_intervals)
+    _build_rows("activity", by_activity, activity_intervals)
     _build_rows("phase", by_phase)
     _build_rows("turn", by_turn, turn_intervals)
-    _build_rows("tool_type", by_tool_type)
 
     await latency_repo.insert_batch(job_id=job_id, rows=rows)
 

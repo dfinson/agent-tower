@@ -225,9 +225,11 @@ export function formatUsd(amount: number): string {
 
 export function formatActivityBucket(bucket: string): string {
   switch (bucket) {
-    // New intent-based categories
+    // New intent-based categories (9 canonical)
     case "implementation":
       return "Implementation";
+    case "debugging":
+      return "Debugging";
     case "investigation":
       return "Investigation";
     case "verification":
@@ -236,8 +238,6 @@ export function formatActivityBucket(bucket: string): string {
       return "Git & Commit";
     case "setup":
       return "Setup";
-    case "delegation":
-      return "Delegation";
     case "overhead":
       return "Overhead";
     case "reasoning":
@@ -249,12 +249,12 @@ export function formatActivityBucket(bucket: string): string {
     // Legacy categories (older jobs before migration)
     case "code_changes":
       return "Implementation";
-    case "debugging":
-      return "Debugging";
+    case "delegation":
+      return "Investigation";
     case "refactoring":
-      return "Refactoring";
+      return "Implementation";
     case "feature_dev":
-      return "Feature Development";
+      return "Implementation";
     case "code_reading":
     case "search_discovery":
     case "command_execution":
@@ -287,17 +287,18 @@ export function formatActivityBucket(bucket: string): string {
 // ---------------------------------------------------------------------------
 
 export const ACTIVITY_DESCRIPTIONS: Record<string, string> = {
-  // New intent-based categories
+  // 9 canonical categories
   implementation: "Turns where the agent edited or created files — the actual coding work",
-  investigation: "Turns where the agent read code, searched, or explored the codebase",
+  debugging: "Turns where the agent fixed bugs, errors, or failing tests",
+  investigation: "Turns where the agent read code, searched, browsed, or delegated to sub-agents",
   verification: "Turns where the agent ran tests to validate changes",
   git_ops: "Turns where the agent committed, pushed, or managed git state",
   setup: "Turns where the agent installed dependencies or set up the environment",
-  delegation: "Turns where the agent delegated work to sub-agents",
   overhead: "Turns spent on internal housekeeping — todos, memory, intent tracking",
   reasoning: "Turns of explicit thinking with no user-facing output",
   communication: "Turns where the agent composed a message to you (no tool calls)",
   // Legacy descriptions for older jobs
+  delegation: "Turns where the agent delegated work to sub-agents",
   command_execution: "Turns where the agent ran shell commands",
   code_reading: "Turns where the agent read files or checked diffs",
   code_changes: "Turns where the agent edited/created files",
@@ -305,7 +306,6 @@ export const ACTIVITY_DESCRIPTIONS: Record<string, string> = {
   user_communication: "Turns where the agent composed a message to you",
   bookkeeping: "Turns spent on internal housekeeping",
   other_tools: "Turns using unclassified or custom tools",
-  debugging: "Turns where the agent fixed bugs or errors",
   refactoring: "Turns where the agent restructured or renamed code",
   feature_dev: "Turns where the agent built new features",
   testing: "Turns where the agent ran or wrote tests",
@@ -352,15 +352,16 @@ export function estimateCostWithoutCache(
 
 export const ACTIVITY_COLORS: Record<string, string> = {
   implementation: "bg-emerald-500",
+  debugging: "bg-orange-500",
   investigation: "bg-blue-500",
   verification: "bg-amber-500",
-  git_ops: "bg-orange-500",
+  git_ops: "bg-purple-500",
   setup: "bg-cyan-500",
-  delegation: "bg-pink-500",
   reasoning: "bg-indigo-400",
   overhead: "bg-gray-400",
   communication: "bg-violet-500",
+  // Legacy fallbacks
+  delegation: "bg-blue-500",
   feature_dev: "bg-emerald-400",
-  refactoring: "bg-purple-500",
-  debugging: "bg-orange-400",
+  refactoring: "bg-emerald-400",
 };
