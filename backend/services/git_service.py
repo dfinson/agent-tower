@@ -182,12 +182,13 @@ class GitService:
         """Resolve a ref to its full commit SHA."""
         return await self._run_git("rev-parse", ref, cwd=cwd)
 
-    async def tag(self, name: str, *, message: str = "", cwd: str | Path) -> None:
+    async def tag(self, name: str, *, message: str = "", cwd: str | Path, force: bool = False) -> None:
         """Create an annotated git tag."""
+        force_flag = ["-f"] if force else []
         if message:
-            await self._run_git("tag", "-a", name, "-m", message, cwd=cwd)
+            await self._run_git("tag", "-a", *force_flag, name, "-m", message, cwd=cwd)
         else:
-            await self._run_git("tag", name, cwd=cwd)
+            await self._run_git("tag", *force_flag, name, cwd=cwd)
 
     async def reset_hard(self, sha: str, *, cwd: str | Path) -> None:
         await self._run_git("reset", "--hard", sha, cwd=cwd)

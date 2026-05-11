@@ -38,9 +38,9 @@ class CheckpointService:
         seq = self._next_seq(job_id)
         tag = f"cp/{job_id[:12]}/{seq}"
         try:
-            await self._git.tag(tag, message=action_summary, cwd=cwd)
+            await self._git.tag(tag, message=action_summary, cwd=cwd, force=True)
         except Exception:
-            log.warning("checkpoint_create_failed", job_id=job_id, tag=tag, exc_info=True)
+            log.debug("checkpoint_create_failed", job_id=job_id, tag=tag, exc_info=True)
             # Fall back to HEAD ref
             try:
                 return await self._git.rev_parse("HEAD", cwd=cwd)
