@@ -255,7 +255,7 @@ class TestStoryServiceCache:
         session = _make_session_mock(story_text=cached)
         svc = StoryService(FakeCompleter([]))
         result = await svc.get_or_generate(session, "j1")
-        assert result == {"blocks": [{"type": "narrative", "text": "cached"}]}
+        assert result == {"blocks": [{"type": "narrative", "text": "cached"}], "_from_cache": True}
 
     @pytest.mark.asyncio
     async def test_generates_when_no_cache(self):

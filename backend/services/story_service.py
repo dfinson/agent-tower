@@ -297,6 +297,25 @@ _STORY_VERBOSITY_SUFFIX = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Verbosity → column mapping (whitelist — prevents SQL injection)
+# ---------------------------------------------------------------------------
+
+_VERBOSITY_COLUMNS: dict[str, str] = {
+    "summary": "story_text_summary",
+    "standard": "story_text",
+    "detailed": "story_text_detailed",
+}
+
+
+def _col_for_verbosity(verbosity: str) -> str:
+    """Return the DB column name for a verbosity level, or raise."""
+    col = _VERBOSITY_COLUMNS.get(verbosity)
+    if col is None:
+        raise ValueError(f"Invalid verbosity: {verbosity!r}")
+    return col
+
+
 def _truncate(s: str | None, max_len: int) -> str:
     if not s:
         return ""
@@ -327,6 +346,7 @@ async def _build_references(
         select(TrailNodeRow)
         .where(TrailNodeRow.job_id == job_id)
         .where(TrailNodeRow.kind == "write")
+        .where(TrailNodeRow.enrichment == "complete")
         .order_by(TrailNodeRow.anchor_seq, TrailNodeRow.seq)
     )
     result = await session.execute(stmt)
@@ -365,8 +385,12 @@ async def _build_references(
     for node in nodes:
         file_val = ""
         if node.files:
-            files_list = json.loads(node.files)
-            file_val = files_list[0] if files_list else ""
+            try:
+                parsed = json.loads(node.files)
+                files_list = parsed if isinstance(parsed, list) else []
+            except (json.JSONDecodeError, TypeError):
+                files_list = []
+            file_val = str(files_list[0]) if files_list else ""
 
         step_info = step_map.get(node.turn_id or "")
         step_number = step_info["step_number"] if step_info else None
@@ -418,6 +442,9 @@ async def _build_references(
         if node.activity_label:
             ref["activityLabel"] = node.activity_label
 
+        if key in seen and not ref.get("isRetry"):
+            log.warning("story_duplicate_ref_key", key=key, span_id=node.id)
+            key = f"{key}|{node.id}"  # disambiguate — both refs appear
         seen[key] = ref
 
     return list(seen.values())
@@ -451,7 +478,8 @@ async def _build_trail_beats(
         files_list: list[str] = []
         if node.files:
             try:
-                files_list = json.loads(node.files)
+                parsed = json.loads(node.files)
+                files_list = [str(f) for f in parsed] if isinstance(parsed, list) else []
             except (json.JSONDecodeError, TypeError):
                 files_list = []
         beat: TrailBeat = {
@@ -478,22 +506,27 @@ async def _build_trail_beats(
 # Context collection (non-reference metadata for the prompt)
 # ---------------------------------------------------------------------------
 
-async def _collect_context(session: "AsyncSession", job_id: str) -> StoryContext:
+async def _collect_context(
+    session: "AsyncSession", job_id: str,
+    *, job_row: dict[str, Any] | None = None,
+) -> StoryContext:
     """Gather lightweight context metadata (no file_write spans — those are
     handled by ``_build_references``)."""
     from sqlalchemy import text
 
     ctx: StoryContext = {}
 
-    # Job metadata
-    row = await session.execute(
-        text("SELECT id, title, description, prompt, state, model FROM jobs WHERE id = :jid"),
-        {"jid": job_id},
-    )
-    job = row.mappings().first()
-    if not job:
-        return {}
-    ctx["job"] = cast("_JobContext", dict(job))
+    # Job metadata — reuse caller-provided row when available (#8)
+    if job_row is None:
+        result = await session.execute(
+            text("SELECT id, title, description, prompt, state, model FROM jobs WHERE id = :jid"),
+            {"jid": job_id},
+        )
+        mapping = result.mappings().first()
+        if not mapping:
+            return {}
+        job_row = dict(mapping)
+    ctx["job"] = cast("_JobContext", job_row)
 
     # Telemetry summary
     row = await session.execute(
@@ -578,19 +611,10 @@ def _build_prompt(
                 line += f"\n    Proposed: {a['proposed_action']}"
             parts.append(line)
 
-    # Entries — grouped by activity when available
+    # Entries — render in chronological order with activity headers at transitions (#13)
     has_files = any(ref.get("file") for ref in refs)
     section_label = "CHANGES" if has_files else "SESSION EVENTS"
     parts.append(f"\n## {section_label} ({len(refs)} total, chronological)")
-
-    activities: dict[str, list[tuple[int, StoryReference]]] = {}
-    ungrouped: list[tuple[int, StoryReference]] = []
-    for i, ref in enumerate(refs, 1):
-        label = ref.get("activityLabel", "")
-        if label:
-            activities.setdefault(label, []).append((i, ref))
-        else:
-            ungrouped.append((i, ref))
 
     def _fmt_ref(idx: int, ref: StoryReference) -> list[str]:
         lines: list[str] = []
@@ -619,18 +643,16 @@ def _build_prompt(
             lines.append("```")
         return lines
 
-    if activities:
-        for label, group in activities.items():
-            parts.append(f"\n### Activity: {label}")
-            for i, ref in group:
-                parts.extend(_fmt_ref(i, ref))
-        if ungrouped:
-            parts.append("\n### Other changes")
-            for i, ref in ungrouped:
-                parts.extend(_fmt_ref(i, ref))
-    else:
-        for i, ref in ungrouped:
-            parts.extend(_fmt_ref(i, ref))
+    current_activity: str | None = None
+    for i, ref in enumerate(refs, 1):
+        label = ref.get("activityLabel", "") or ""
+        if label != (current_activity or ""):
+            if label:
+                parts.append(f"\n### Activity: {label}")
+            elif current_activity:
+                parts.append("\n### Other changes")
+            current_activity = label or None
+        parts.extend(_fmt_ref(i, ref))
 
     return "\n".join(parts)
 
@@ -640,8 +662,10 @@ def _build_prompt(
 # ---------------------------------------------------------------------------
 
 _MARKER_RE = re.compile(r"\[\[(\d+)\]\]")
-_BEAT_RE = re.compile(r"\{\{(DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\}")
-_SPLIT_RE = re.compile(r"(\[\[\d+\]\]|\{\{(?:DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\})")
+_BEAT_RE = re.compile(r"\{\{(DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\}", re.IGNORECASE)
+_SPLIT_RE = re.compile(
+    r"(\[\[\d+\]\]|\{\{(?:DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\})", re.IGNORECASE,
+)
 
 
 def _parse_blocks(
@@ -666,6 +690,14 @@ def _parse_blocks(
         # Check if this segment is a reference marker
         ref_match = _MARKER_RE.fullmatch(seg)
         if ref_match:
+            # Flush any pending beat before the reference (#6)
+            if pending_beat:
+                blocks.append({
+                    "type": "beat",
+                    "text": "",
+                    "beatKind": pending_beat,
+                })
+                pending_beat = None
             raw_idx = int(ref_match.group(1))
             idx = raw_idx - 1  # 1-based → 0-based
             if 0 <= idx < len(refs):
@@ -694,18 +726,20 @@ def _parse_blocks(
         else:
             blocks.append({"type": "narrative", "text": text})
 
-    # If a beat marker was dangling at the end with no text after it
+    # Discard any dangling beat marker with no trailing prose (#10)
     if pending_beat:
-        blocks.append({
-            "type": "beat",
-            "text": "",
-            "beatKind": pending_beat,
-        })
+        log.debug("story_dangling_beat_marker", beat_kind=pending_beat)
 
     # Append any unreferenced changes at the end
     for i, ref in enumerate(refs):
         if i not in referenced:
             blocks.append(cast("StoryBlock", {"type": "reference", **ref}))
+
+    # Filter out any empty beat blocks that slipped through (#10)
+    blocks = [
+        b for b in blocks
+        if not (b.get("type") == "beat" and not b.get("text"))
+    ]
 
     return blocks
 
@@ -717,8 +751,6 @@ def _parse_blocks(
 class StoryService:
     """Generates and caches structured code-review stories for jobs."""
 
-    _gen_locks: dict[str, asyncio.Lock] = {}
-
     def __init__(
         self,
         completer: "Completable",
@@ -726,6 +758,7 @@ class StoryService:
     ) -> None:
         self._completer = completer
         self._coderecon = coderecon
+        self._gen_locks: dict[str, asyncio.Lock] = {}
 
     async def get_or_generate(
         self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
@@ -733,8 +766,9 @@ class StoryService:
         """Return cached story blocks, or generate and cache them."""
         from sqlalchemy import text
 
+        col = _col_for_verbosity(verbosity)
+
         # Check cache
-        col = "story_text" if verbosity == "standard" else f"story_text_{verbosity}"
         row = await session.execute(
             text(f"SELECT {col} FROM jobs WHERE id = :jid"),  # noqa: S608
             {"jid": job_id},
@@ -742,12 +776,15 @@ class StoryService:
         cached = row.scalar_one_or_none()
         if cached:
             try:
-                return cast("dict[str, Any]", json.loads(cached))
+                result = cast("dict[str, Any]", json.loads(cached))
+                result["_from_cache"] = True
+                return result
             except (json.JSONDecodeError, TypeError):
                 log.debug("story_cache_decode_failed", job_id=job_id)  # stale plain-text → regenerate
 
         # Serialize generation per job to avoid duplicate LLM calls.
-        lock = self._gen_locks.setdefault(f"{job_id}:{verbosity}", asyncio.Lock())
+        lock_key = f"{job_id}:{verbosity}"
+        lock = self._gen_locks.setdefault(lock_key, asyncio.Lock())
         async with lock:
             # Re-check cache — another coroutine may have populated it.
             row = await session.execute(
@@ -757,14 +794,16 @@ class StoryService:
             cached = row.scalar_one_or_none()
             if cached:
                 try:
-                    return cast("dict[str, Any]", json.loads(cached))
+                    result = cast("dict[str, Any]", json.loads(cached))
+                    result["_from_cache"] = True
+                    return result
                 except (json.JSONDecodeError, TypeError):
                     log.debug("story_cache_parse_failed", job_id=job_id)
                     pass
             try:
                 return await self._generate(session, job_id, verbosity=verbosity)
             finally:
-                self._gen_locks.pop(f"{job_id}:{verbosity}", None)
+                self._gen_locks.pop(lock_key, None)
 
     async def regenerate(
         self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
@@ -772,16 +811,29 @@ class StoryService:
         """Force regeneration, ignoring cache."""
         from sqlalchemy import text
 
-        col = "story_text" if verbosity == "standard" else f"story_text_{verbosity}"
-        await session.execute(
-            text(f"UPDATE jobs SET {col} = NULL WHERE id = :jid"),  # noqa: S608
-            {"jid": job_id},
-        )
-        await session.commit()
-        return await self._generate(session, job_id, verbosity=verbosity)
+        col = _col_for_verbosity(verbosity)
+
+        # Acquire the same lock as get_or_generate to prevent races (#3)
+        lock_key = f"{job_id}:{verbosity}"
+        lock = self._gen_locks.setdefault(lock_key, asyncio.Lock())
+        async with lock:
+            await session.execute(
+                text(f"UPDATE jobs SET {col} = NULL WHERE id = :jid"),  # noqa: S608
+                {"jid": job_id},
+            )
+            # Don't commit the NULL separately — _generate will commit
+            # with the new value, or we commit below on failure (#14)
+            try:
+                return await self._generate(session, job_id, verbosity=verbosity)
+            except Exception:
+                await session.commit()  # persist the NULL on failure
+                raise
+            finally:
+                self._gen_locks.pop(lock_key, None)
 
     async def _fetch_structural_section(
         self, session: "AsyncSession", job_id: str,
+        *, job_row: dict[str, Any] | None = None,
     ) -> str | None:
         """Fetch structural diff from CodeRecon and format as prompt section."""
         if not self._coderecon or not self._coderecon.available:
@@ -789,12 +841,13 @@ class StoryService:
 
         from sqlalchemy import text
 
-        row = await session.execute(
-            text("SELECT repo, worktree_path, base_ref FROM jobs WHERE id = :jid"),
-            {"jid": job_id},
-        )
-        job_row = row.mappings().first()
-        if not job_row or not job_row["repo"] or not job_row["worktree_path"]:
+        if job_row is None:
+            row = await session.execute(
+                text("SELECT repo, worktree_path, base_ref FROM jobs WHERE id = :jid"),
+                {"jid": job_id},
+            )
+            job_row = row.mappings().first()  # type: ignore[assignment]
+        if not job_row or not job_row.get("repo") or not job_row.get("worktree_path"):
             return None
 
         try:
@@ -861,9 +914,27 @@ class StoryService:
     ) -> dict[str, Any] | None:
         from sqlalchemy import text
 
+        # Validate verbosity early (#1)
+        if verbosity not in _STORY_VERBOSITY_SUFFIX:
+            raise ValueError(f"Unknown story verbosity {verbosity!r}")
+
+        # Fetch job row once and share with sub-queries (#8)
+        job_result = await session.execute(
+            text(
+                "SELECT id, title, description, prompt, state, model, "
+                "repo, worktree_path, base_ref "
+                "FROM jobs WHERE id = :jid"
+            ),
+            {"jid": job_id},
+        )
+        job_mapping = job_result.mappings().first()
+        if not job_mapping:
+            return None
+        job_row = dict(job_mapping)
+
         refs = await _build_references(session, job_id)
 
-        ctx = await _collect_context(session, job_id)
+        ctx = await _collect_context(session, job_id, job_row=job_row)
         if not ctx:
             return None
 
@@ -899,7 +970,9 @@ class StoryService:
         user_prompt = _build_prompt(refs, ctx)
 
         # Structural analysis enrichment from CodeRecon
-        structural_section = await self._fetch_structural_section(session, job_id)
+        structural_section = await self._fetch_structural_section(
+            session, job_id, job_row=job_row,
+        )
         if structural_section:
             user_prompt += "\n\n" + structural_section
 
@@ -929,7 +1002,7 @@ class StoryService:
         # Only cache when all enrichment is ready — otherwise the next
         # request will regenerate with richer trail and motivation data.
         if pending_motivations == 0 and pending_enrichment == 0:
-            col = "story_text" if verbosity == "standard" else f"story_text_{verbosity}"
+            col = _col_for_verbosity(verbosity)
             await session.execute(
                 text(f"UPDATE jobs SET {col} = :story WHERE id = :jid"),  # noqa: S608
                 {"jid": job_id, "story": json.dumps(payload)},

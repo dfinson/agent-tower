@@ -575,7 +575,7 @@ async def get_job_story(
         return StoryResponse(job_id=job_id, blocks=[], cached=False, verbosity=verbosity)
 
     blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
-    cached = not regenerate and bool(blocks)
+    cached = bool(payload.get("_from_cache", False))
     return StoryResponse(
         job_id=job_id,
         blocks=blocks,
