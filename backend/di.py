@@ -131,8 +131,9 @@ class RequestProvider(Provider):
         async with sf() as session:
             try:
                 yield session
-                async with get_write_lock():
-                    await session.commit()
+                if session.dirty or session.new or session.deleted:
+                    async with get_write_lock():
+                        await session.commit()
             except Exception:
                 await session.rollback()
                 raise
