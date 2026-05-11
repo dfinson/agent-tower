@@ -212,7 +212,7 @@ export function FleetCostDriverInsights({ fleetDrivers, period }: { fleetDrivers
                   </div>
                 </div>
                 {(row.cacheReadTokens > 0 || row.cacheWriteTokens > 0) && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 text-[10px] text-muted-foreground">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-[10px] text-muted-foreground">
                     <div>
                       <div className="text-muted-foreground/60">Cache read</div>
                       <div className="tabular-nums">{formatTokens(row.cacheReadTokens)}</div>
