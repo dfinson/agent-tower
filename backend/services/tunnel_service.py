@@ -365,15 +365,19 @@ def start_remote_access(
         return handle
     origin, proc = _start_cloudflare(port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname)
     handle = TunnelHandle(provider=provider, origin=origin, proc=proc)
-    handle.watchdog = TunnelWatchdog(
-        tunnel_url=origin,
-        restart_command=["cloudflared", "tunnel", "--no-autoupdate", "run"],
-        restart_env={"TUNNEL_TOKEN": cloudflare_token or ""},
-        proc=proc,
-        label="cloudflare",
-        local_port=port,
-    )
-    handle.watchdog.start()
+    if proc is not None:
+        # We started our own process — attach a watchdog to keep it alive
+        handle.watchdog = TunnelWatchdog(
+            tunnel_url=origin,
+            restart_command=["cloudflared", "tunnel", "--no-autoupdate", "run"],
+            restart_env={"TUNNEL_TOKEN": cloudflare_token or ""},
+            proc=proc,
+            label="cloudflare",
+            local_port=port,
+        )
+        handle.watchdog.start()
+    else:
+        log.info("tunnel_reusing_existing", provider="cloudflare", url=origin)
     return handle
 
 
@@ -464,16 +468,43 @@ def _start_devtunnel(port: int, *, tunnel_name: str | None = None) -> tuple[str,
     return tunnel_url, proc, tunnel_name
 
 
+def _cloudflared_already_running() -> bool:
+    """Check if a cloudflared tunnel process is already active on the system."""
+    import os
+
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", "cloudflared"],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return False
+        # Verify at least one matched PID is not our own process tree
+        our_pid = os.getpid()
+        pids = [int(p) for p in result.stdout.split() if p.strip()]
+        return any(pid != our_pid for pid in pids)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def _start_cloudflare(
     port: int,
     *,
     cloudflare_token: str | None,
     cloudflare_hostname: str | None,
-) -> tuple[str, subprocess.Popen[str]]:
+) -> tuple[str, subprocess.Popen[str] | None]:
     if not cloudflare_token or not cloudflare_hostname:
         raise TunnelStartError("Cloudflare remote access requires a tunnel token and hostname.")
 
     hostname = cloudflare_hostname.removeprefix("https://").rstrip("/")
+    tunnel_url = f"https://{hostname}"
+
+    # If cloudflared is already running (e.g. via systemd), reuse it
+    if _cloudflared_already_running():
+        log.debug("cloudflared_already_running", url=tunnel_url, port=port)
+        return tunnel_url, None
+
     env = {**__import__("os").environ, "TUNNEL_TOKEN": cloudflare_token}
     proc = subprocess.Popen(
         ["cloudflared", "tunnel", "--no-autoupdate", "run"],
@@ -485,6 +516,5 @@ def _start_cloudflare(
     _wait_for_startup(proc, label="cloudflare")
     _start_output_drain(proc)
 
-    tunnel_url = f"https://{hostname}"
     log.debug("tunnel_started", provider="cloudflare", url=tunnel_url, port=port)
     return tunnel_url, proc
