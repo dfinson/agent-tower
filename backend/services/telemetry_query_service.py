@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -373,9 +373,9 @@ class TelemetryQueryService:
     def _enrich_turn_curve(turn_curve: list[TelemetryCostBucket], spans: list[TelemetrySpanRow]) -> None:
         """Annotate each turn bucket with intent and concrete actions."""
         import json as _json
+        from collections import Counter
 
-        from backend.services.cost_attribution import TurnContext, _classify_turn_intent
-        from backend.services.tool_classifier import classify_tool
+        from backend.services.tool_classifier import classify_tool, classify_tool_activity
 
         # Group tool spans by turn
         turns: dict[str, list[TelemetrySpanRow]] = {}
@@ -404,15 +404,27 @@ class TelemetryQueryService:
             return "/".join(parts)
 
         def _short_cmd(cmd: str) -> str:
-            """Extract first meaningful word from a shell command."""
-            # Strip cd prefix
+            """Extract first meaningful command from a shell command."""
             c = cmd.strip()
             if c.startswith("cd ") and "&&" in c:
                 c = c.split("&&", 1)[1].strip()
-            # Get first word
-            word = c.split()[0] if c.split() else c
-            # Strip path from command name
-            return word.split("/")[-1]
+            parts = c.split()
+            if not parts:
+                return c
+            # Skip env vars, sudo, etc.
+            for i, part in enumerate(parts):
+                if "=" in part and not part.startswith("-"):
+                    continue
+                if part in ("sudo", "env", "nohup", "time"):
+                    continue
+                base = part.split("/")[-1]
+                # For compound commands, include the subcommand
+                if base in ("git", "npm", "npx", "uv", "cargo", "docker", "kubectl") and i + 1 < len(parts):
+                    sub = parts[i + 1]
+                    if not sub.startswith("-"):
+                        return f"{base} {sub}"
+                return base
+            return parts[0].split("/")[-1]
 
         for bucket in turn_curve:
             turn_spans = turns.get(bucket.bucket, [])
@@ -479,15 +491,17 @@ class TelemetryQueryService:
             if commands_run:
                 actions.append(f"ran {', '.join(commands_run[:3])}")
 
-            # Classify activity
-            context = {
-                "tool_categories": categories,
-                "shell_commands": shell_commands,
-                "phase": None,
-                "cost_usd": 0.0,
-                "input_tokens": 0,
-                "output_tokens": 0,
-            }
-            bucket.activity = _classify_turn_intent(cast("TurnContext", context))
+            # Classify activity — per-tool, pick the most common
+            tool_activities: list[str] = []
+            for span in turn_spans:
+                name = span.get("name", "")
+                tool_args_json = span.get("tool_args_json")
+                tool_activities.append(classify_tool_activity(name, tool_args_json))
+
+            if tool_activities:
+                activity_counts = Counter(tool_activities)
+                bucket.activity = activity_counts.most_common(1)[0][0]
+            else:
+                bucket.activity = "communication"
             bucket.intent = intent
             bucket.actions = actions
