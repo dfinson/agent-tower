@@ -42,7 +42,7 @@ export function FleetLatencyDriverInsights({
 }) {
   const activityRows = useMemo<LatencyRow[]>(() => {
     const summary = fleetLatency.summary ?? [];
-    const raw = summary
+    return summary
       .filter((row) => row.dimension === "activity")
       .map((row) => ({
         bucket: row.bucket,
@@ -51,23 +51,8 @@ export function FleetLatencyDriverInsights({
         totalSpanCount: Number(row.totalSpanCount ?? 0),
         jobCount: Number(row.jobCount ?? 0),
         avgPctOfTotal: Number(row.avgPctOfTotal ?? 0),
-      }));
-    // Merge buckets that map to the same display label
-    const map = new Map<string, LatencyRow>();
-    for (const r of raw) {
-      const label = formatActivityBucket(r.bucket);
-      const existing = map.get(label);
-      if (existing) {
-        existing.avgWallClockMs += r.avgWallClockMs;
-        existing.avgSumDurationMs += r.avgSumDurationMs;
-        existing.totalSpanCount += r.totalSpanCount;
-        existing.jobCount = Math.max(existing.jobCount, r.jobCount);
-        existing.avgPctOfTotal += r.avgPctOfTotal;
-      } else {
-        map.set(label, { ...r });
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => b.avgWallClockMs - a.avgWallClockMs);
+      }))
+      .sort((a, b) => b.avgWallClockMs - a.avgWallClockMs);
   }, [fleetLatency.summary]);
 
   // Category breakdown (llm/tool) for the LLM vs Tool time split

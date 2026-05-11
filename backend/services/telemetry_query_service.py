@@ -31,6 +31,7 @@ from backend.models.api_schemas import (
     TelemetryTurnEconomics,
     TelemetryTurnLatency,
 )
+from backend.services.cost_attribution import _classify_turn_intent
 from backend.services.tool_classifier import classify_tool, classify_tool_activity
 
 if TYPE_CHECKING:
@@ -139,6 +140,48 @@ class TelemetryQueryService:
         latency_rows = await self._latency_repo.for_job(job_id)
         file_stats = await self._file_repo.reread_stats(job_id)
         top_files = await self._file_repo.most_accessed_files(job_id=job_id)
+
+        # --- Pass 1: build per-turn context for turn-level classification ---
+        turn_contexts: dict[int, dict] = {}
+        for span in spans:
+            turn = span.get("turn_number")
+            if turn is None:
+                continue
+            turn = int(turn)
+            if turn not in turn_contexts:
+                turn_contexts[turn] = {
+                    "phase": None, "cost_usd": 0.0,
+                    "input_tokens": 0, "output_tokens": 0,
+                    "cache_read_tokens": 0, "cache_write_tokens": 0,
+                    "tool_categories": [], "shell_commands": [],
+                }
+            ctx = turn_contexts[turn]
+            if span.get("span_type") == "tool":
+                cat = span.get("tool_category") or classify_tool(span.get("name", ""))
+                ctx["tool_categories"].append(cat)
+                if cat == "shell":
+                    tool_args = span.get("tool_args_json")
+                    cmd = ""
+                    if isinstance(tool_args, str):
+                        with contextlib.suppress(json.JSONDecodeError, TypeError):
+                            parsed = json.loads(tool_args)
+                            cmd = parsed.get("command", "") or parsed.get("cmd", "") or parsed.get("input", "")
+                    elif isinstance(tool_args, dict):
+                        cmd = tool_args.get("command", "") or tool_args.get("cmd", "") or tool_args.get("input", "")
+                    if cmd:
+                        ctx["shell_commands"].append(str(cmd))
+            elif span.get("span_type") == "llm":
+                attrs_l = span.get("attrs", {})
+                ctx["output_tokens"] += attrs_l.get("output_tokens", 0) or 0
+            if span.get("execution_phase"):
+                ctx["phase"] = span["execution_phase"]
+
+        # Classify each turn
+        turn_activity: dict[int, str] = {}
+        for turn_num, ctx in turn_contexts.items():
+            turn_activity[turn_num] = _classify_turn_intent(ctx)
+
+        # --- Pass 2: build tool/LLM call lists ---
         tool_calls: list[TelemetryToolCall] = []
         llm_calls: list[TelemetryLlmCall] = []
         for span in spans:
@@ -163,7 +206,7 @@ class TelemetryQueryService:
                     TelemetryToolCall(
                         name=tool_name,
                         display_label=display_label,
-                        activity=classify_tool_activity(tool_name, tool_args),
+                        activity=turn_activity.get(int(span.get("turn_number", 0)), classify_tool_activity(tool_name, tool_args)),
                         tool_category=classify_tool(tool_name),
                         duration_ms=float(span.get("duration_ms", 0)),
                         success=attrs.get("success", True),

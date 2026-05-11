@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime  # noqa: TC003 — Pydantic resolves annotations at runtime
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from backend.models.domain import (  # noqa: TC001 — Pydantic resolves annotations at runtime
     ApprovalResolution,
@@ -885,8 +885,15 @@ class StoryBlock(CamelModel):
     type: str  # "narrative" or "reference"
     # Narrative fields
     text: str | None = None
-    # Reference fields
+    # Reference fields (coerce int→str for legacy cached payloads)
     span_id: str | None = None
+
+    @field_validator("span_id", mode="before")
+    @classmethod
+    def _coerce_span_id(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        return str(v)
     step_number: int | None = None
     step_title: str | None = None
     file: str | None = None

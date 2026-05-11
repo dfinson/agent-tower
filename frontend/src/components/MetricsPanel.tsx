@@ -15,7 +15,7 @@ import type {
   TelemetryData, LLMCall, SortField, SortDir, ToolAggregate,
   SessionCheckpoint, SessionSummaryJson,
 } from "./MetricsPanelTypes";
-import { formatDuration, formatTokens, formatUsd, formatActivityBucket, mergeActivityBuckets, ACTIVITY_DESCRIPTIONS } from "./MetricsPanelTypes";
+import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "./MetricsPanelTypes";
 import {
   useModelPricing,
   CacheEfficiencyBar,
@@ -187,7 +187,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
   // Dynamic model pricing from backend
   const modelPricing = useModelPricing(data?.model ?? data?.mainModel);
-  const activityBuckets = mergeActivityBuckets(data?.costDrivers?.activity ?? []);
+  const activityBuckets = data?.costDrivers?.activity ?? [];
   const editEfficiencyBuckets = data?.costDrivers?.editEfficiency ?? [];
   const turnEconomics = data?.turnEconomics;
   const turnCurve = turnEconomics?.turnCurve ?? [];
