@@ -25,9 +25,9 @@ export function ExecutiveSummary({ data }: Props) {
   }
 
   const segments = [
-    { key: "building", label: "Building", pct: data.buildingPct, usd: data.buildingUsd, color: "text-green-600", bg: "bg-green-500", ring: "#22c55e" },
-    { key: "thinking", label: "Thinking", pct: data.thinkingPct, usd: data.thinkingUsd, color: "text-blue-600", bg: "bg-blue-500", ring: "#3b82f6" },
-    { key: "wasted", label: "Wasted", pct: data.wastedPct, usd: data.wastedUsd, color: "text-red-600", bg: "bg-red-500", ring: "#ef4444" },
+    { key: "building", label: "Building", pct: data.buildingPct, usd: data.buildingUsd, color: "text-green-600", bg: "bg-green-500", ring: "#22c55e", tooltip: "Writing code, running tests, executing commands, and delegating to sub-agents — direct productive output" },
+    { key: "thinking", label: "Thinking", pct: data.thinkingPct, usd: data.thinkingUsd, color: "text-blue-600", bg: "bg-blue-500", ring: "#3b82f6", tooltip: "Reading files, reasoning about approach, gathering context — preparatory work that enables building" },
+    { key: "wasted", label: "Wasted", pct: data.wastedPct, usd: data.wastedUsd, color: "text-red-600", bg: "bg-red-500", ring: "#ef4444", tooltip: "Retries, failed/discarded jobs, context compaction, and redundant file re-reads — spend without value" },
   ];
 
   // SVG donut
@@ -74,14 +74,17 @@ export function ExecutiveSummary({ data }: Props) {
         {/* Legend */}
         <div className="space-y-2 flex-1">
           {segments.map((seg) => (
-            <div key={seg.key} className="flex items-center justify-between">
+            <div key={seg.key} className="flex items-center justify-between group relative">
               <div className="flex items-center gap-2">
                 <span className={`w-3 h-3 rounded ${seg.bg}`} />
-                <span className={`text-sm font-medium ${seg.color}`}>{seg.label}</span>
+                <span className={`text-sm font-medium ${seg.color} cursor-help`} title={seg.tooltip}>{seg.label}</span>
               </div>
               <div className="text-right">
                 <span className="text-sm text-foreground">{formatUsd(seg.usd)}</span>
                 <span className="text-xs text-muted-foreground ml-1">({seg.pct.toFixed(1)}%)</span>
+              </div>
+              <div className="absolute left-0 -bottom-1 translate-y-full z-50 hidden group-hover:block w-64 p-2 rounded bg-popover border border-border shadow-lg text-xs text-popover-foreground">
+                {seg.tooltip}
               </div>
             </div>
           ))}
