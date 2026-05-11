@@ -132,18 +132,19 @@ class CostAttributionRepository(BaseRepository):
         result = await self._session.execute(
             text("""
                 SELECT
-                    bucket,
-                    SUM(cost_usd) as cost_usd,
-                    SUM(input_tokens) as input_tokens,
-                    SUM(output_tokens) as output_tokens,
-                    SUM(call_count) as call_count,
-                    COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-                    COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
-                    COUNT(DISTINCT job_id) as job_count
-                FROM job_cost_attribution
-                WHERE dimension = :dimension
-                    AND created_at >= datetime('now', '-' || :days || ' days')
-                GROUP BY bucket
+                    a.bucket,
+                    SUM(a.cost_usd) as cost_usd,
+                    SUM(a.input_tokens) as input_tokens,
+                    SUM(a.output_tokens) as output_tokens,
+                    SUM(a.call_count) as call_count,
+                    COALESCE(SUM(a.cache_read_tokens), 0) as cache_read_tokens,
+                    COALESCE(SUM(a.cache_write_tokens), 0) as cache_write_tokens,
+                    COUNT(DISTINCT a.job_id) as job_count
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE a.dimension = :dimension
+                    AND j.created_at >= datetime('now', '-' || :days || ' days')
+                GROUP BY a.bucket
                 ORDER BY cost_usd DESC
                 LIMIT :limit
             """),
@@ -156,19 +157,20 @@ class CostAttributionRepository(BaseRepository):
         result = await self._session.execute(
             text("""
                 SELECT
-                    dimension,
-                    bucket,
-                    SUM(cost_usd) as cost_usd,
-                    SUM(input_tokens) as input_tokens,
-                    SUM(output_tokens) as output_tokens,
-                    SUM(call_count) as call_count,
-                    COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-                    COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
-                    COUNT(DISTINCT job_id) as job_count,
-                    AVG(cost_usd) as avg_cost_per_job
-                FROM job_cost_attribution
-                WHERE created_at >= datetime('now', '-' || :days || ' days')
-                GROUP BY dimension, bucket
+                    a.dimension,
+                    a.bucket,
+                    SUM(a.cost_usd) as cost_usd,
+                    SUM(a.input_tokens) as input_tokens,
+                    SUM(a.output_tokens) as output_tokens,
+                    SUM(a.call_count) as call_count,
+                    COALESCE(SUM(a.cache_read_tokens), 0) as cache_read_tokens,
+                    COALESCE(SUM(a.cache_write_tokens), 0) as cache_write_tokens,
+                    COUNT(DISTINCT a.job_id) as job_count,
+                    AVG(a.cost_usd) as avg_cost_per_job
+                FROM job_cost_attribution a
+                JOIN jobs j ON j.id = a.job_id
+                WHERE j.created_at >= datetime('now', '-' || :days || ' days')
+                GROUP BY a.dimension, a.bucket
                 ORDER BY cost_usd DESC
                 LIMIT 100
             """),
