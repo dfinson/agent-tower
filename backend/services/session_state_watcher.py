@@ -20,8 +20,9 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
+from backend.models.domain import Job, JobSource, JobState
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.services.watcher_telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -55,8 +56,10 @@ _IDLE_POLLS_BEFORE_LIVENESS = math.ceil(_DISCOVERY_POLL_S / _TAIL_POLL_S)
 _SESSION_ID_PATTERN = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 
 
-class SessionStateWatcher:
+class SessionStateWatcher(WatcherTelemetryMixin):
     """Discovers and ingests Copilot CLI sessions from the local session store."""
+
+    _watcher_log_prefix = "session_watcher"
 
     def __init__(
         self,
@@ -212,12 +215,7 @@ class SessionStateWatcher:
             await asyncio.gather(*self._bg_tasks, return_exceptions=True)
         log.info("session_state_watcher_stopped")
 
-    def _fire_bg(self, coro: Any, *, name: str) -> asyncio.Task:
-        """Create a background task tracked for clean shutdown."""
-        task = asyncio.create_task(coro, name=name)
-        self._bg_tasks.add(task)
-        task.add_done_callback(self._bg_tasks.discard)
-        return task
+
 
     async def send_message(self, session_id: str, message: str) -> None:
         """Send an operator message to a tracked session via steer API."""
@@ -555,19 +553,37 @@ class SessionStateWatcher:
     ) -> None:
         """Process a single SDK SessionEvent through the telemetry + event pipeline.
 
-        Maps SDK events to the same SessionEvent objects that the managed adapter
-        produces, then feeds them through EventProcessor for diffs, steps, and
-        domain event publishing.
+        Uses the shared ``sdk_event_mapping`` module for event mapping and
+        telemetry extraction — the canonical implementation for Copilot SDK events.
         """
+        from backend.services.sdk_event_mapping import (
+            emit_copilot_otel,
+            extract_copilot_telemetry,
+            map_sdk_event,
+        )
+
         kind_str = sdk_event.type.value if sdk_event.type else ""
         data = sdk_event.data
 
-        # --- Telemetry extraction (mirrors CopilotAdapter._on_event) ---
+        # --- Telemetry extraction ---
         if data:
-            await self._extract_telemetry(kind_str, data, job_id)
+            counters = extract_copilot_telemetry(kind_str, data)
+            if counters is not None:
+                emit_copilot_otel(kind_str, counters, job_id)
+                # Handle context_tokens (set, not accumulated)
+                ctx = counters.pop("_context_tokens", None)
+                if ctx is not None:
+                    self._schedule_context_update(job_id, ctx)
+                # Strip internal keys before accumulation
+                db_counters = {k: v for k, v in counters.items() if not k.startswith("_")}
+                if db_counters:
+                    self._accumulate_telemetry(job_id, db_counters)
+                model = counters.get("_otel", {}).get("model")
+                if model:
+                    self._schedule_model_update(job_id, model)
 
         # --- Map to SessionEvent for the EventProcessor ---
-        session_event = self._map_to_session_event(kind_str, data)
+        session_event = map_sdk_event(kind_str, data)
         if session_event is None:
             return
 
@@ -580,80 +596,7 @@ class SessionStateWatcher:
             base_ref=base_ref,
         )
 
-    async def _extract_telemetry(self, kind_str: str, data: Any, job_id: str) -> None:
-        """Extract telemetry metrics from SDK events (cost, tokens, tools)."""
-        from backend.services import telemetry as tel
 
-        if kind_str == "assistant.usage":
-            input_toks = int(getattr(data, "input_tokens", 0) or 0)
-            output_toks = int(getattr(data, "output_tokens", 0) or 0)
-            cache_read = int(getattr(data, "cache_read_tokens", 0) or 0)
-            cache_write = int(getattr(data, "cache_write_tokens", 0) or 0)
-            cost = float(getattr(data, "cost", 0) or 0)
-            model = getattr(data, "model", "") or ""
-            duration_ms = float(getattr(data, "duration", 0) or 0)
-
-            attrs = {"job_id": job_id, "sdk": "copilot"}
-            tel.llm_calls_counter.add(1, attrs)
-            tel.input_tokens_counter.add(input_toks, {**attrs, "model": model})
-            tel.output_tokens_counter.add(output_toks, {**attrs, "model": model})
-            tel.cost_counter.add(cost, attrs)
-
-            # Accumulate for atomic flush with offset
-            self._accumulate_telemetry(job_id, {
-                "input_tokens": input_toks,
-                "output_tokens": output_toks,
-                "cache_read_tokens": cache_read,
-                "cache_write_tokens": cache_write,
-                "total_cost_usd": cost,
-                "llm_call_count": 1,
-                "total_llm_duration_ms": int(duration_ms),
-            })
-            if model:
-                self._schedule_model_update(job_id, model)
-
-        elif kind_str == "session.usage_info":
-            current = int(getattr(data, "current_tokens", 0) or 0)
-            tel.context_tokens_gauge.set(current, {"job_id": job_id, "sdk": "copilot"})
-            self._schedule_context_update(job_id, current)
-
-        elif kind_str == "session.compaction_complete":
-            pre = int(getattr(data, "pre_compaction_tokens", 0) or 0)
-            post = int(getattr(data, "post_compaction_tokens", 0) or 0)
-            tel.compactions_counter.add(1, {"job_id": job_id, "sdk": "copilot"})
-            tel.tokens_compacted.add(max(0, pre - post), {"job_id": job_id, "sdk": "copilot"})
-            self._accumulate_telemetry(job_id, {
-                "compactions": 1,
-                "tokens_compacted": max(0, pre - post),
-            })
-
-        elif kind_str == "assistant.message":
-            tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "agent"})
-            self._accumulate_telemetry(job_id, {"agent_messages": 1})
-
-        elif kind_str == "user.message":
-            tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "operator"})
-            self._accumulate_telemetry(job_id, {"operator_messages": 1})
-
-    def _accumulate_telemetry(self, job_id: str, counters: dict[str, Any]) -> None:
-        """Accumulate telemetry deltas in memory for atomic flush with offset."""
-        pending = self._pending_telemetry.setdefault(job_id, {})
-        for key, value in counters.items():
-            pending[key] = pending.get(key, 0) + value  # type: ignore[operator]
-
-    def _schedule_model_update(self, job_id: str, model: str) -> None:
-        """Schedule a model update on the telemetry summary row."""
-
-        async def _write() -> None:
-            try:
-                async with self._session_factory() as session:
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-                    await TelemetrySummaryRepository(session).set_model(job_id=job_id, model=model)
-                    await session.commit()
-            except Exception:
-                log.debug("session_watcher_model_update_failed", job_id=job_id, exc_info=True)
-
-        self._fire_bg(_write(), name=f"watcher-model-{job_id[:8]}")
 
     def _schedule_context_update(self, job_id: str, current_tokens: int) -> None:
         """Schedule a context window update on the telemetry summary row."""
@@ -671,143 +614,7 @@ class SessionStateWatcher:
 
         self._fire_bg(_write(), name=f"watcher-ctx-{job_id[:8]}")
 
-    def _schedule_offset_persist(self, job_id: str, offset: int) -> None:
-        """Flush accumulated telemetry + offset in a single transaction.
 
-        Because both are committed atomically, a crash-recovery replay from
-        the old offset will re-derive the same deltas without double-counting.
-        """
-        # Snapshot and clear pending telemetry
-        counters = self._pending_telemetry.pop(job_id, {})
-
-        async def _write() -> None:
-            try:
-                async with self._session_factory() as session:
-                    from backend.persistence.job_repo import JobRepository
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-                    if counters:
-                        await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
-                    await JobRepository(session).update_tail_offset(job_id, offset)
-                    await session.commit()
-            except Exception:
-                log.debug("session_watcher_flush_failed", job_id=job_id, exc_info=True)
-
-        self._fire_bg(_write(), name=f"watcher-flush-{job_id[:8]}")
-
-    def _map_to_session_event(self, kind_str: str, data: Any) -> SessionEvent | None:
-        """Map an SDK event type to a CodePlane SessionEvent."""
-        # Event kind mapping (same as CopilotAdapter._SDK_KIND_MAP)
-        _KIND_MAP: dict[str, SessionEventKind] = {
-            "session.task_complete": SessionEventKind.done,
-            "session.idle": SessionEventKind.done,
-            "session.shutdown": SessionEventKind.done,
-            "session.error": SessionEventKind.error,
-            "assistant.message": SessionEventKind.transcript,
-            "assistant.message_delta": SessionEventKind.transcript,
-            "assistant.reasoning": SessionEventKind.transcript,
-            "assistant.reasoning_delta": SessionEventKind.transcript,
-            "user.message": SessionEventKind.transcript,
-            "tool.execution_complete": SessionEventKind.transcript,
-            "tool.execution_start": SessionEventKind.transcript,
-            "tool.execution_partial_result": SessionEventKind.transcript,
-            "session.workspace_file_changed": SessionEventKind.file_changed,
-        }
-
-        kind = _KIND_MAP.get(kind_str)
-        if kind is None:
-            return None
-
-        payload: dict[str, Any] = {}
-
-        if kind == SessionEventKind.transcript:
-            if kind_str == "assistant.message":
-                content = getattr(data, "content", "") or ""
-                if not content.strip():
-                    return None
-                payload = {"role": "agent", "content": content}
-            elif kind_str == "assistant.message_delta":
-                delta = getattr(data, "delta_content", "") or ""
-                if not delta:
-                    return None
-                payload = {"role": "agent_delta", "content": delta}
-            elif kind_str == "assistant.reasoning":
-                content = getattr(data, "content", "") or ""
-                payload = {"role": "reasoning", "content": content}
-            elif kind_str == "assistant.reasoning_delta":
-                delta = getattr(data, "delta_content", "") or ""
-                if not delta:
-                    return None
-                payload = {"role": "reasoning_delta", "content": delta}
-            elif kind_str == "user.message":
-                content = getattr(data, "content", "") or ""
-                if "<system_notification>" in content:
-                    return None
-                payload = {"role": "operator", "content": content}
-            elif kind_str == "tool.execution_start":
-                tool_name = getattr(data, "tool_name", None) or getattr(data, "mcp_tool_name", None) or "tool"
-                mcp_server = getattr(data, "mcp_server_name", None)
-                if mcp_server and getattr(data, "mcp_tool_name", None):
-                    tool_name = f"{mcp_server}/{data.mcp_tool_name}"
-                args = getattr(data, "arguments", None)
-                args_str = None
-                if args is not None:
-                    try:
-                        args_str = json.dumps(args) if not isinstance(args, str) else args
-                    except (TypeError, ValueError):
-                        args_str = str(args)
-                # Skip report_intent from transcript
-                if tool_name == "report_intent":
-                    return None
-                payload = {
-                    "role": "tool_running",
-                    "tool_name": tool_name,
-                    "tool_args": args_str,
-                    "content": tool_name,
-                }
-            elif kind_str == "tool.execution_complete":
-                tool_name = getattr(data, "tool_name", None) or "tool"
-                success = bool(getattr(data, "success", True))
-                result_text = ""
-                result_obj = getattr(data, "result", None)
-                if result_obj is not None:
-                    content_attr = getattr(result_obj, "content", None)
-                    if content_attr:
-                        if isinstance(content_attr, list):
-                            parts = []
-                            for item in content_attr:
-                                text = getattr(item, "text", None)
-                                if text:
-                                    parts.append(text)
-                            result_text = "\n".join(parts)
-                        else:
-                            result_text = str(content_attr)
-                    elif not result_text:
-                        result_text = str(result_obj)
-                # Skip internal tools
-                if tool_name == "report_intent":
-                    return None
-                payload = {
-                    "role": "tool_call",
-                    "tool_name": tool_name,
-                    "tool_result": result_text,
-                    "tool_success": success,
-                    "content": tool_name,
-                }
-            elif kind_str == "tool.execution_partial_result":
-                chunk = getattr(data, "partial_output", "") or ""
-                if not chunk:
-                    return None
-                tool_name = getattr(data, "tool_name", None) or "tool"
-                payload = {
-                    "role": "tool_output_delta",
-                    "content": chunk,
-                    "tool_name": tool_name,
-                }
-        elif kind == SessionEventKind.file_changed:
-            file_path = getattr(data, "file_path", None) or ""
-            payload = {"file": file_path}
-
-        return SessionEvent(kind=kind, payload=payload)
 
     # ------------------------------------------------------------------
     # Session finalization

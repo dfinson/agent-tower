@@ -78,30 +78,6 @@ class CopilotAdapter(BaseAgentAdapter):
             session_factory=session_factory,
         )
         self._sessions: dict[str, CopilotSession] = {}
-        # Synthesized turn_id for step tracking when the SDK doesn't provide one.
-        # Rotated on assistant.message to mark turn boundaries.
-        self._fallback_turn_ids: dict[str, str] = {}  # job_id → current fallback turn_id
-
-    def _get_turn_id(self, job_id: str | None, data: SessionEventData | None) -> str | None:
-        """Return the SDK turn_id or synthesize a fallback for step tracking.
-
-        When *job_id* is falsy and no SDK turn_id is available, returns None
-        rather than synthesizing a random id (no job to track it against).
-        """
-        sdk_turn = str(getattr(data, "turn_id", "")) if data and getattr(data, "turn_id", None) else ""
-        if sdk_turn:
-            return sdk_turn
-        if not job_id:
-            return None
-        tid = self._fallback_turn_ids.get(job_id)
-        if not tid:
-            tid = str(uuid.uuid4())
-            self._fallback_turn_ids[job_id] = tid
-        return tid
-
-    def _rotate_turn_id(self, job_id: str) -> None:
-        """Generate a new fallback turn_id after an assistant.message completes a turn."""
-        self._fallback_turn_ids[job_id] = str(uuid.uuid4())
 
     def _cleanup_session(self, session_id: str) -> None:
         """Remove session and queue references for a completed/aborted session.
@@ -184,21 +160,8 @@ class CopilotAdapter(BaseAgentAdapter):
 
     # --- Dispatch tables for telemetry and SDK→SessionEvent bridging ---
 
-    _SDK_KIND_MAP: dict[str, SessionEventKind] = {
-        "session.task_complete": SessionEventKind.done,
-        "session.idle": SessionEventKind.done,
-        "session.shutdown": SessionEventKind.done,
-        "session.error": SessionEventKind.error,
-        "assistant.message": SessionEventKind.transcript,
-        "assistant.message_delta": SessionEventKind.transcript,
-        "assistant.reasoning": SessionEventKind.transcript,
-        "assistant.reasoning_delta": SessionEventKind.transcript,
-        "user.message": SessionEventKind.transcript,
-        "tool.execution_complete": SessionEventKind.transcript,
-        "tool.execution_start": SessionEventKind.transcript,
-        "tool.execution_partial_result": SessionEventKind.transcript,
-        "session.workspace_file_changed": SessionEventKind.file_changed,
-    }
+    # Use the shared canonical mapping; avoid duplicating the dict here.
+    from backend.services.sdk_event_mapping import SDK_KIND_MAP as _SDK_KIND_MAP  # noqa: E301
 
     # --- Extracted telemetry handlers ---
 
@@ -265,7 +228,7 @@ class CopilotAdapter(BaseAgentAdapter):
             cache_write=cache_write,
             cost_usd=cost,
             is_subagent=is_subagent,
-            turn_id=self._get_turn_id(job_id, data),
+            turn_id=None,
         )
 
         # Capture Copilot quota snapshots if present
@@ -326,7 +289,7 @@ class CopilotAdapter(BaseAgentAdapter):
         self._pending_tool_metadata[tool_id] = {
             "tool_name": t_name_display,
             "tool_args": args_str or "",
-            "turn_id": self._get_turn_id(job_id, data) or "",
+            "turn_id": "",
             "tool_intent": tool_intent or tool_description,
             "tool_title": tool_title,
         }
@@ -518,38 +481,28 @@ class CopilotAdapter(BaseAgentAdapter):
                     # calls themselves are separate transcript events.
                     if not content.strip():
                         return
-                    turn_id = self._get_turn_id(job_id, data)
                     event_payload = {
                         "role": "agent",
                         "content": content,
                         "title": getattr(am, "title", None),
-                        "turn_id": turn_id,
                     }
-                    # Rotate the turn_id after an assistant.message — the next
-                    # set of events belongs to a new agent turn.
-                    if job_id:
-                        self._rotate_turn_id(job_id)
                 elif kind_str == "assistant.message_delta":
                     md = cast("AssistantMessageDeltaData", data) if data else None
                     delta = (md.delta_content or "") if md else ""
                     if not delta:
                         return
-                    turn_id = self._get_turn_id(job_id, data)
                     event_payload = {
                         "role": "agent_delta",
                         "content": delta,
-                        "turn_id": turn_id,
                     }
                 elif kind_str == "assistant.reasoning_delta":
                     rd = cast("AssistantReasoningDeltaData", data) if data else None
                     delta = (rd.delta_content or "") if rd else ""
                     if not delta:
                         return
-                    turn_id = self._get_turn_id(job_id, data)
                     event_payload = {
                         "role": "reasoning_delta",
                         "content": delta,
-                        "turn_id": turn_id,
                     }
                 elif kind_str == "assistant.reasoning":
                     ar = cast("AssistantReasoningData", data) if data else None
@@ -557,7 +510,6 @@ class CopilotAdapter(BaseAgentAdapter):
                     event_payload = {
                         "role": "reasoning",
                         "content": content,
-                        "turn_id": self._get_turn_id(job_id, data),
                     }
                 elif kind_str == "user.message":
                     um = cast("UserMessageData", data) if data else None
@@ -581,7 +533,7 @@ class CopilotAdapter(BaseAgentAdapter):
                     # it here (at start) because all we need is the args; we never
                     # need to wait for a result.
                     if tool_name == "report_intent":
-                        turn_id = buffered.get("turn_id") or self._get_turn_id(job_id, data)
+                        turn_id = buffered.get("turn_id")
                         event_payload = {
                             "role": "tool_call",
                             "content": "report_intent",
@@ -599,7 +551,7 @@ class CopilotAdapter(BaseAgentAdapter):
                         }
                         queue.put_nowait(SessionEvent(kind=kind, payload=event_payload))  # type: ignore[arg-type]
                         return
-                    turn_id = buffered.get("turn_id") or self._get_turn_id(job_id, data)
+                    turn_id = buffered.get("turn_id")
                     event_payload = self._build_tool_running_payload(
                         tool_name,
                         buffered.get("tool_args"),
@@ -658,7 +610,7 @@ class CopilotAdapter(BaseAgentAdapter):
                         tool_args_str,
                         result_text,
                         sdk_success=sdk_success,
-                        turn_id=buffered.get("turn_id") or self._get_turn_id(job_id, data),
+                        turn_id=buffered.get("turn_id"),
                         duration_ms=dur_ms,
                         tool_intent=buffered.get("tool_intent"),
                         tool_title=buffered.get("tool_title"),

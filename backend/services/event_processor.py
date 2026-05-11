@@ -14,6 +14,7 @@ This eliminates the duplicate logic that previously lived in IngestService.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -49,6 +50,9 @@ class EventProcessor:
         self._diff_service = diff_service
         self._step_tracker = step_tracker
         self._trail_service = trail_service
+        # Synthesized turn_id per job for callers that don't provide one
+        # (SessionStateWatcher, ClaudeSessionWatcher). Rotated on agent messages.
+        self._turn_ids: dict[str, str] = {}
 
     def register_worktree(self, job_id: str, worktree_path: str) -> None:
         """Register worktree for step tracker SHA capture."""
@@ -90,6 +94,23 @@ class EventProcessor:
         if domain_event is None:
             return None
 
+        # Ensure transcript events carry a turn_id for step tracking.
+        # Managed sessions (via CopilotAdapter) already include one; discovered
+        # sessions from the watchers don't.  Synthesize one here and rotate it
+        # on each completed agent message (role=="agent") to mark turn boundaries.
+        if domain_event.kind == DomainEventKind.transcript_updated:
+            payload = domain_event.payload
+            if not payload.get("turn_id"):
+                tid = self._turn_ids.get(job_id)
+                if not tid:
+                    tid = str(uuid.uuid4())
+                    self._turn_ids[job_id] = tid
+                payload["turn_id"] = tid
+            role = str(payload.get("role", ""))
+            # Rotate turn_id after a full agent message (signals end of turn)
+            if role == "agent":
+                self._turn_ids[job_id] = str(uuid.uuid4())
+
         # Step tracking — annotate transcript events with step boundaries
         if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
             role = str(domain_event.payload.get("role", ""))
@@ -114,6 +135,7 @@ class EventProcessor:
 
     def cleanup(self, job_id: str) -> None:
         """Clean up per-job tracking state."""
+        self._turn_ids.pop(job_id, None)
         if self._step_tracker is not None:
             self._step_tracker.cleanup(job_id)
         if self._diff_service is not None:

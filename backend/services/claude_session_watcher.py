@@ -23,6 +23,7 @@ import structlog
 
 from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.services.watcher_telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -182,8 +183,10 @@ def _is_claude_process_alive(session_id: str, repo_path: str | None = None) -> b
     return len(_find_claude_pids_at_cwd(repo_path)) > 0
 
 
-class ClaudeSessionStateWatcher:
+class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     """Discovers and ingests Claude CLI sessions from local JSONL files."""
+
+    _watcher_log_prefix = "claude_watcher"
 
     def __init__(
         self,
@@ -970,50 +973,6 @@ class ClaudeSessionStateWatcher:
             worktree_path=worktree,
             base_ref=base_ref,
         )
-
-    def _fire_bg(self, coro: Any, *, name: str) -> asyncio.Task:
-        """Create a background task tracked for clean shutdown."""
-        task = asyncio.create_task(coro, name=name)
-        self._bg_tasks.add(task)
-        task.add_done_callback(self._bg_tasks.discard)
-        return task
-
-    def _accumulate_telemetry(self, job_id: str, counters: dict[str, Any]) -> None:
-        """Accumulate telemetry deltas for atomic flush with offset."""
-        pending = self._pending_telemetry.setdefault(job_id, {})
-        for key, value in counters.items():
-            pending[key] = pending.get(key, 0) + value  # type: ignore[operator]
-
-    def _schedule_model_update(self, job_id: str, model: str) -> None:
-        """Schedule a model update on the telemetry summary row."""
-        async def _write() -> None:
-            try:
-                async with self._session_factory() as session:
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-                    await TelemetrySummaryRepository(session).set_model(job_id=job_id, model=model)
-                    await session.commit()
-            except Exception:
-                log.debug("claude_watcher_model_update_failed", job_id=job_id, exc_info=True)
-
-        self._fire_bg(_write(), name=f"claude-model-{job_id[:8]}")
-
-    def _schedule_offset_persist(self, job_id: str, offset: int) -> None:
-        """Flush accumulated telemetry + offset in a single transaction."""
-        counters = self._pending_telemetry.pop(job_id, {})
-
-        async def _write() -> None:
-            try:
-                async with self._session_factory() as session:
-                    from backend.persistence.job_repo import JobRepository
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-                    if counters:
-                        await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
-                    await JobRepository(session).update_tail_offset(job_id, offset)
-                    await session.commit()
-            except Exception:
-                log.debug("claude_watcher_flush_failed", job_id=job_id, exc_info=True)
-
-        self._fire_bg(_write(), name=f"claude-flush-{job_id[:8]}")
 
     async def _set_job_prompt(self, job_id: str, content: str) -> None:
         """Set job prompt from first user message."""
