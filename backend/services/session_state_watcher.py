@@ -388,7 +388,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         # Persist job + initialize telemetry summary row
         try:
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
                 repo = JobRepository(session)
@@ -396,7 +398,6 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 await TelemetrySummaryRepository(session).init_job(
                     job_id, sdk="copilot", repo=repo_path, branch=branch,
                 )
-                await session.commit()
         except Exception:
             log.warning("session_state_watcher_job_create_failed", session_id=session_id, exc_info=True)
             return None
@@ -603,12 +604,13 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         async def _write() -> None:
             try:
-                async with self._session_factory() as session:
+                from backend.persistence.database import serialized_write
+
+                async with serialized_write(self._session_factory) as session:
                     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
                     await TelemetrySummaryRepository(session).set_context(
                         job_id=job_id, current_tokens=current_tokens,
                     )
-                    await session.commit()
             except Exception:
                 log.debug("session_watcher_context_update_failed", job_id=job_id, exc_info=True)
 
