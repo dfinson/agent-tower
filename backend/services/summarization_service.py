@@ -158,42 +158,41 @@ class SummarizationService:
         from backend.persistence.trail_repo import TrailNodeRepository
         from backend.services.artifact_service import ArtifactService
 
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        # --- Read phase (no write lock needed) ---
+        trail_repo = TrailNodeRepository(self._session_factory)
+        if pre_built_transcript is not None:
+            transcript_text = pre_built_transcript
+        else:
+            transcript_nodes = await trail_repo.get_transcript_nodes(job_id)
+            cleaned_turns = _clean_transcript_from_trail(transcript_nodes)
+            transcript_text = _format_transcript(cleaned_turns)
+
+        if pre_built_changed_files is not None:
+            changed_files = pre_built_changed_files
+        else:
+            changed_files = await trail_repo.get_all_changed_files(job_id)
+
+        # --- Build prompt ---
+        changed_files_text = "\n".join(sorted(changed_files)) if changed_files else "None recorded"
+        prompt = _SYSTEM_PROMPT.format(
+            transcript=transcript_text,
+            changed_files=changed_files_text,
+            original_task=original_task,
+            session_number=session_number,
+        )
+
+        # --- Call LLM ---
+        log.info("summarization_started", job_id=job_id, session=session_number)
+        raw = await self._adapter.complete(prompt, timeout=60)
+        summary_json = _extract_json(raw, job_id, original_task, session_number)
+
+        # --- Write phase (serialized through global write lock) ---
+        async with serialized_write(self._session_factory) as session:
             artifact_repo = ArtifactRepository(session)
-
-            # --- Fetch and clean transcript ---
-            trail_repo = TrailNodeRepository(self._session_factory)
-            if pre_built_transcript is not None:
-                transcript_text = pre_built_transcript
-            else:
-                transcript_nodes = await trail_repo.get_transcript_nodes(job_id)
-                cleaned_turns = _clean_transcript_from_trail(transcript_nodes)
-                transcript_text = _format_transcript(cleaned_turns)
-
-            # --- Fetch changed file paths ---
-            if pre_built_changed_files is not None:
-                changed_files = pre_built_changed_files
-            else:
-                changed_files = await trail_repo.get_all_changed_files(job_id)
-
-            # --- Build prompt ---
-            changed_files_text = "\n".join(sorted(changed_files)) if changed_files else "None recorded"
-            prompt = _SYSTEM_PROMPT.format(
-                transcript=transcript_text,
-                changed_files=changed_files_text,
-                original_task=original_task,
-                session_number=session_number,
-            )
-
-            # --- Call LLM ---
-            log.info("summarization_started", job_id=job_id, session=session_number)
-            raw = await self._adapter.complete(prompt, timeout=60)
-            summary_json = _extract_json(raw, job_id, original_task, session_number)
-
-            # --- Store artifact ---
             artifact_svc = ArtifactService(artifact_repo)
             await artifact_svc.store_session_summary(job_id, session_number, summary_json)
-            await session.commit()
 
         log.info("summarization_complete", job_id=job_id, session=session_number)
         return summary_json
