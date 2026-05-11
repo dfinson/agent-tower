@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, get_codeplane_dir, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
 from backend.models.events import DomainEventKind
-from backend.persistence.database import create_engine, create_session_factory
+from backend.persistence.database import create_engine, create_session_factory, serialized_write
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
 from backend.services.adapter_registry import AdapterRegistry
@@ -201,7 +201,6 @@ def _init_event_infrastructure(
     """
     event_bus = EventBus()
     sse_manager = SSEManager()
-    persist_lock = asyncio.Lock()
     dead_letter: asyncio.Queue[tuple[DomainEvent, int]] = asyncio.Queue()
 
     # Persist-then-broadcast subscriber: ensures event.db_id is set
@@ -224,7 +223,6 @@ def _init_event_infrastructure(
             await _persist_event_with_retry(
                 event=event,
                 session_factory=session_factory,
-                write_lock=persist_lock,
             )
         except OperationalError:
             log.error(
@@ -255,7 +253,6 @@ def _init_event_infrastructure(
                 await _persist_event_with_retry(
                     event=event,
                     session_factory=session_factory,
-                    write_lock=persist_lock,
                 )
                 log.info(
                     "dead_letter_event_persisted",
@@ -300,28 +297,24 @@ async def _persist_event_with_retry(
     *,
     event: DomainEvent,
     session_factory: async_sessionmaker[AsyncSession],
-    write_lock: asyncio.Lock,
     max_attempts: int = _EVENT_PERSIST_MAX_ATTEMPTS,
     retry_delay_s: float = _EVENT_PERSIST_RETRY_DELAY_S,
 ) -> None:
-    async with write_lock:
-        for attempt in range(max_attempts):
-            async with session_factory() as session:
+    for attempt in range(max_attempts):
+        try:
+            async with serialized_write(session_factory) as session:
                 repo = EventRepository(session)
-                try:
-                    await repo.append(event)
-                    await session.commit()
-                    return
-                except OperationalError as exc:
-                    await session.rollback()
-                    if not _is_sqlite_lock_error(exc) or attempt == max_attempts - 1:
-                        raise
-                    log.warning(
-                        "event_persist_retrying_after_sqlite_lock",
-                        event_id=event.event_id,
-                        job_id=event.job_id,
-                        attempt=attempt + 1,
-                    )
+                await repo.append(event)
+            return
+        except OperationalError as exc:
+            if not _is_sqlite_lock_error(exc) or attempt == max_attempts - 1:
+                raise
+            log.warning(
+                "event_persist_retrying_after_sqlite_lock",
+                event_id=event.event_id,
+                job_id=event.job_id,
+                attempt=attempt + 1,
+            )
             await asyncio.sleep(retry_delay_s * (attempt + 1))
 
 
@@ -827,7 +820,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 story_json = result.model_dump_json()
                 story_hash = hashlib.sha256(story_json.encode()).hexdigest()
 
-                async with session_factory() as session:
+                async with serialized_write(session_factory) as session:
                     await session.execute(
                         text(
                             "UPDATE jobs SET review_story_json = :story, review_story_hash = :hash "
@@ -835,7 +828,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                         ),
                         {"story": story_json, "hash": story_hash, "jid": job_id},
                     )
-                    await session.commit()
                 log.debug("review_story_persisted", job_id=job_id)
             except Exception:
                 log.debug("review_story_persist_failed", job_id=job_id, exc_info=True)
@@ -911,7 +903,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 except Exception:
                     pass
 
-                async with session_factory() as session:
+                async with serialized_write(session_factory) as session:
                     await session.execute(
                         text(
                             "UPDATE jobs SET "
@@ -931,7 +923,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                             "jid": job_id,
                         },
                     )
-                    await session.commit()
                 log.debug("structural_analytics_persisted", job_id=job_id, changes=change_count)
             except Exception:
                 log.debug("structural_analytics_failed", job_id=job_id, exc_info=True)

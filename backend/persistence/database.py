@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,16 +16,17 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 # SQLite busy_timeout: how long a connection waits for a locked database
-# before raising OperationalError. 5000ms accommodates concurrent writers
-# in WAL mode without excessive blocking.
-_SQLITE_BUSY_TIMEOUT_MS = 5000
+# before raising OperationalError. 15s provides headroom for write queue
+# draining under burst traffic while the application-level write lock
+# serializes concurrent writers.
+_SQLITE_BUSY_TIMEOUT_MS = 15_000
 
 # SQLAlchemy connection pool sizing for the async SQLite engine.
-# pool_size=10 connections handle typical concurrent request load;
-# max_overflow=20 extra connections absorb burst traffic;
-# pool_timeout=60s prevents requests from waiting indefinitely.
-_POOL_SIZE = 10
-_POOL_MAX_OVERFLOW = 20
+# SQLite supports unlimited concurrent readers in WAL mode, but only one
+# writer. pool_size=5 is sufficient since writes are serialized through
+# the global write lock; max_overflow=5 handles read bursts.
+_POOL_SIZE = 5
+_POOL_MAX_OVERFLOW = 5
 _POOL_TIMEOUT_S = 60
 
 
@@ -55,6 +58,46 @@ def create_engine(db_path: Path | None = None) -> AsyncEngine:
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """Create a session factory bound to the given engine."""
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+# ---------------------------------------------------------------------------
+# Global write serializer
+# ---------------------------------------------------------------------------
+# SQLite supports only ONE concurrent writer (even in WAL mode). Rather than
+# relying on busy_timeout to queue writers at the OS level (which produces
+# opaque OperationalError on timeout), we serialize all writes at the
+# application layer through a single asyncio.Lock. This eliminates lock
+# contention entirely — writers queue cooperatively in Python.
+
+_write_lock: asyncio.Lock | None = None
+
+
+def get_write_lock() -> asyncio.Lock:
+    """Return the global SQLite write lock (created lazily, once per process)."""
+    global _write_lock  # noqa: PLW0603
+    if _write_lock is None:
+        _write_lock = asyncio.Lock()
+    return _write_lock
+
+
+@asynccontextmanager
+async def serialized_write(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> "AsyncGenerator[AsyncSession, None]":
+    """Acquire the global write lock and yield a session that commits on exit.
+
+    All database writes should go through this context manager to avoid
+    SQLite lock contention. The session is committed on clean exit and
+    rolled back on exception.
+    """
+    async with get_write_lock():
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
 
 
 async def get_session(

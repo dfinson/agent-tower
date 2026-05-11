@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -26,6 +26,10 @@ class _FakeSessionContext:
         return self._session
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if exc_type is not None:
+            await self._session.rollback()
+        else:
+            await self._session.commit()
         return None
 
 
@@ -61,12 +65,21 @@ async def test_persist_event_retries_sqlite_lock(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr("backend.lifespan.EventRepository", _FakeRepo)
 
-    await _persist_event_with_retry(
-        event=_make_event(),
-        session_factory=_session_factory,
-        write_lock=asyncio.Lock(),
-        retry_delay_s=0,
-    )
+    # Bypass the global write lock in tests by patching serialized_write
+    # to just yield a session directly from the factory.
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_serialized_write(sf: Any):
+        async with sf() as session:
+            yield session
+
+    with patch("backend.lifespan.serialized_write", _fake_serialized_write):
+        await _persist_event_with_retry(
+            event=_make_event(),
+            session_factory=_session_factory,
+            retry_delay_s=0,
+        )
 
     assert append_attempts == 2
     assert len(sessions) == 2
@@ -91,13 +104,20 @@ async def test_persist_event_does_not_retry_non_lock_errors(monkeypatch: pytest.
 
     monkeypatch.setattr("backend.lifespan.EventRepository", _FakeRepo)
 
-    with pytest.raises(OperationalError, match="disk I/O error"):
-        await _persist_event_with_retry(
-            event=_make_event(),
-            session_factory=_session_factory,
-            write_lock=asyncio.Lock(),
-            retry_delay_s=0,
-        )
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_serialized_write(sf: Any):
+        async with sf() as session:
+            yield session
+
+    with patch("backend.lifespan.serialized_write", _fake_serialized_write):
+        with pytest.raises(OperationalError, match="disk I/O error"):
+            await _persist_event_with_retry(
+                event=_make_event(),
+                session_factory=_session_factory,
+                retry_delay_s=0,
+            )
 
     session.rollback.assert_awaited_once()
     session.commit.assert_not_called()

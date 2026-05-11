@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 
 from backend.models.db import StepRow
+from backend.persistence.database import serialized_write
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -20,15 +21,17 @@ class StepRepository:
     Unlike other repos that extend BaseRepository with a shared session,
     this repo uses a session_factory to create independent sessions per
     operation—each write commits immediately for fire-and-forget semantics.
+
+    All writes go through the global write lock (``serialized_write``) to
+    avoid SQLite lock contention with other concurrent writers.
     """
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
     async def create(self, step: StepRow) -> None:
-        async with self._session_factory() as session:
+        async with serialized_write(self._session_factory) as session:
             session.add(step)
-            await session.commit()
 
     async def complete(
         self,
@@ -44,7 +47,7 @@ class StepRepository:
         files_written: str | None = None,
         preceding_context: str | None = None,
     ) -> None:
-        async with self._session_factory() as session:
+        async with serialized_write(self._session_factory) as session:
             stmt = (
                 update(StepRow)
                 .where(StepRow.id == step_id)
@@ -62,13 +65,11 @@ class StepRepository:
                 )
             )
             await session.execute(stmt)
-            await session.commit()
 
     async def set_title(self, step_id: str, title: str) -> None:
-        async with self._session_factory() as session:
+        async with serialized_write(self._session_factory) as session:
             stmt = update(StepRow).where(StepRow.id == step_id).values(title=title)
             await session.execute(stmt)
-            await session.commit()
 
     async def get(self, step_id: str) -> StepRow | None:
         async with self._session_factory() as session:

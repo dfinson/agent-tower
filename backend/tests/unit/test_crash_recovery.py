@@ -138,13 +138,10 @@ class TestDeadLetterRetry:
             payload={"seq": 1, "message": "test", "level": "info"},
         )
 
-        lock = asyncio.Lock()
-
         # First call should succeed normally
         await _persist_event_with_retry(
             event=event,
             session_factory=session_factory,
-            write_lock=lock,
         )
         assert event.db_id is not None
 
@@ -181,7 +178,6 @@ class TestDeadLetterRetry:
             await _persist_event_with_retry(
                 event=event,
                 session_factory=session_factory,
-                write_lock=lock,
                 retry_delay_s=0.01,
             )
 

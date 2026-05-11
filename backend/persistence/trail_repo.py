@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy import CursorResult, func, select, update
 
 from backend.models.db import TrailNodeRow
+from backend.persistence.database import serialized_write
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -19,20 +20,21 @@ class TrailNodeRepository:
     Uses session_factory (not BaseRepository) for independent session-per-
     operation semantics — each write commits immediately for fire-and-forget
     audit trail persistence.
+
+    All writes go through the global write lock (``serialized_write``) to
+    avoid SQLite lock contention with other concurrent writers.
     """
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
     async def create(self, node: TrailNodeRow) -> None:
-        async with self._session_factory() as session:
+        async with serialized_write(self._session_factory) as session:
             session.add(node)
-            await session.commit()
 
     async def create_many(self, nodes: list[TrailNodeRow]) -> None:
-        async with self._session_factory() as session:
+        async with serialized_write(self._session_factory) as session:
             session.add_all(nodes)
-            await session.commit()
 
     async def get(self, node_id: str) -> TrailNodeRow | None:
         async with self._session_factory() as session:
@@ -94,7 +96,7 @@ class TrailNodeRepository:
         enrichment: str = "complete",
     ) -> None:
         """Update a node with enrichment results."""
-        async with self._session_factory() as session:
+        async with serialized_write(self._session_factory) as session:
             values: dict[str, object] = {"enrichment": enrichment}
             if kind is not None:
                 values["kind"] = kind
@@ -117,7 +119,6 @@ class TrailNodeRepository:
                     values["purpose_source"] = "enrich"
             stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(**values)
             await session.execute(stmt)
-            await session.commit()
 
     async def max_seq(self, job_id: str) -> int:
         """Return the highest seq for a job, or 0 if no nodes exist."""
