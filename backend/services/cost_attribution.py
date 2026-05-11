@@ -77,10 +77,18 @@ class TurnContext(TypedDict):
 _WRITE_TOOL_CATEGORIES = {"file_write", "git_write"}
 
 
-def _classify_turn_intent(context: TurnContext) -> str:
+def _classify_turn_intent(
+    context: TurnContext,
+    *,
+    is_debug_job: bool = False,
+) -> str:
     """Assign a single dominant activity to a turn based on its tools.
 
     Uses a priority ladder: the highest-value action wins the whole turn.
+
+    9 canonical categories:
+        implementation, debugging, investigation, verification,
+        git_ops, communication, setup, reasoning, overhead
     """
     cats = set(context.get("tool_categories", []))
     shell_cmds = context.get("shell_commands", [])
@@ -96,11 +104,11 @@ def _classify_turn_intent(context: TurnContext) -> str:
     has_search = bool(cats & {"file_search", "browser"})
     has_bookkeeping = "bookkeeping" in cats
     has_thinking = "thinking" in cats
-    has_delegation = "agent" in cats
+    has_agents = "agent" in cats
 
-    # Priority 1: If the agent edited files, this is an implementation turn
+    # Priority 1: If the agent edited files — implementation or debugging
     if has_writes:
-        return "implementation"
+        return "debugging" if is_debug_job else "implementation"
 
     # Priority 2: If the agent ran tests, this is verification
     if "verification" in shell_intents:
@@ -115,7 +123,7 @@ def _classify_turn_intent(context: TurnContext) -> str:
         return "setup"
 
     # Priority 5: Investigation — sub-agents, reading, searching, browsing
-    if has_delegation or has_reads or has_search or "investigation" in shell_intents:
+    if has_agents or has_reads or has_search or "investigation" in shell_intents:
         return "investigation"
 
     # Priority 6: Unclassified shell commands (arbitrary bash)
