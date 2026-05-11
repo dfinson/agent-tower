@@ -52,11 +52,12 @@ class WatcherTelemetryMixin:
 
         async def _write() -> None:
             try:
-                async with self._session_factory() as session:
+                from backend.persistence.database import serialized_write
+
+                async with serialized_write(self._session_factory) as session:
                     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                     await TelemetrySummaryRepository(session).set_model(job_id=job_id, model=model)
-                    await session.commit()
             except Exception:
                 log.debug(f"{self._watcher_log_prefix}_model_update_failed", job_id=job_id, exc_info=True)
 
@@ -72,14 +73,15 @@ class WatcherTelemetryMixin:
 
         async def _write() -> None:
             try:
-                async with self._session_factory() as session:
+                from backend.persistence.database import serialized_write
+
+                async with serialized_write(self._session_factory) as session:
                     from backend.persistence.job_repo import JobRepository
                     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                     if counters:
                         await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
                     await JobRepository(session).update_tail_offset(job_id, offset)
-                    await session.commit()
             except Exception:
                 log.debug(f"{self._watcher_log_prefix}_flush_failed", job_id=job_id, exc_info=True)
 
