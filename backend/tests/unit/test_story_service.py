@@ -11,7 +11,10 @@ import pytest
 from backend.services.story_service import (
     StoryService,
     _build_prompt,
+    _estimate_tokens,
+    _get_model_max_input_tokens,
     _parse_blocks,
+    _split_refs_into_chunks,
     _truncate,
 )
 
@@ -371,3 +374,98 @@ class TestBuildReferencesDedup:
                 key = f"{file_val}|{step_val}"
             seen[key] = r
         assert len(seen) == 2  # NOT merged — each gets unique key
+
+
+# ---------------------------------------------------------------------------
+# Multi-pass helpers (#7)
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateTokens:
+    def test_basic_estimate(self):
+        text = "a" * 400
+        assert _estimate_tokens(text) == 100
+
+    def test_empty(self):
+        assert _estimate_tokens("") == 0
+
+
+class TestSplitRefsIntoChunks:
+    def test_all_fit_single_chunk(self):
+        refs = [_ref(span_id=f"s{i}") for i in range(3)]
+        ctx = {"job": {"title": "test", "prompt": "do stuff"}}
+        chunks = _split_refs_into_chunks(refs, ctx, "system", max_input_tokens=100_000)
+        assert len(chunks) == 1
+        assert len(chunks[0]) == 3
+        # Indices are 1-based
+        assert chunks[0][0][0] == 1
+        assert chunks[0][2][0] == 3
+
+    def test_splits_when_budget_tight(self):
+        # Create refs with large snippets that won't fit in a tiny window
+        refs = [
+            _ref(span_id=f"s{i}", snippet="x" * 500)
+            for i in range(10)
+        ]
+        ctx = {"job": {"title": "test", "prompt": "do stuff"}}
+        # Very small window — should force splitting
+        chunks = _split_refs_into_chunks(refs, ctx, "sys", max_input_tokens=1000)
+        assert len(chunks) > 1
+        # All refs accounted for
+        all_indices = [idx for chunk in chunks for idx, _ in chunk]
+        assert sorted(all_indices) == list(range(1, 11))
+
+    def test_preserves_global_indices(self):
+        refs = [_ref(span_id=f"s{i}", snippet="x" * 200) for i in range(5)]
+        ctx = {"job": {"title": "test", "prompt": "do stuff"}}
+        chunks = _split_refs_into_chunks(refs, ctx, "sys", max_input_tokens=500)
+        for chunk in chunks:
+            for global_idx, ref in chunk:
+                # Global index should correspond to position in refs
+                assert refs[global_idx - 1] is ref
+
+
+class TestMultiPassGeneration:
+    @pytest.mark.asyncio
+    async def test_single_pass_when_fits(self):
+        """When prompt fits in context, uses single LLM call."""
+        session = _make_session_mock(story_text=None)
+        completer = FakeCompleter(["I fixed [[1]] then [[2]]."])
+        svc = StoryService(completer)
+        result = await svc.get_or_generate(session, "j1")
+        assert result is not None
+        assert completer.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_multipass_generates_multiple_calls(self):
+        """When prompt exceeds context, makes multiple LLM calls."""
+        # Need enough responses for 2+ passes
+        completer = FakeCompleter([
+            "First I did [[1]].",
+            "Then I continued with [[2]].",
+            "And finished with [[3]].",
+        ])
+        svc = StoryService(completer)
+
+        # Directly test _generate_passes with a small token budget
+        from backend.services.story_service import StoryContext, StoryReference
+
+        refs: list[StoryReference] = [
+            _ref(span_id="s1", file="a.py", snippet="x" * 2000),
+            _ref(span_id="s2", file="b.py", snippet="y" * 2000),
+            _ref(span_id="s3", file="c.py", snippet="z" * 2000),
+        ]
+        ctx: StoryContext = {"job": {"title": "test", "prompt": "do stuff"}}
+
+        blocks = await svc._generate_passes(
+            refs=refs,
+            ctx=ctx,
+            system="short system",
+            structural_section=None,
+            # Budget that fits context + ~1 ref but not all 3
+            max_input_tokens=2000,
+            job_id="j1",
+        )
+
+        assert completer.call_count >= 2
+        assert len(blocks) > 0

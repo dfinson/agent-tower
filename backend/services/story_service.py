@@ -316,6 +316,48 @@ def _col_for_verbosity(verbosity: str) -> str:
     return col
 
 
+# ---------------------------------------------------------------------------
+# Token estimation and model-context lookup
+# ---------------------------------------------------------------------------
+
+_PRICING_PATH = (
+    __import__("pathlib").Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
+)
+
+
+def _get_model_max_input_tokens(model: str) -> int | None:
+    """Look up a model's max input tokens from the pricing dataset.
+
+    Returns ``None`` when the model isn't found — callers should fall back
+    to single-pass generation in that case (never truncate).
+    """
+    try:
+        data = json.loads(_PRICING_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    # Exact match first, then normalized
+    entry = data.get(model)
+    if not entry:
+        normalized = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]", "-", model.lower())).strip("-")
+        entry = data.get(normalized)
+    if entry and isinstance(entry.get("max_input_tokens"), (int, float)):
+        return int(entry["max_input_tokens"])
+    return None
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token count estimate.
+
+    OpenAI and Anthropic tokenisers average ~4 characters per token for
+    mixed English/code text.  This is a *standard approximation*, not a
+    tuning knob — the real safety margin comes from the 75% headroom
+    factor applied by the caller.
+    """
+    _CHARS_PER_TOKEN = 4  # industry-standard estimate (OpenAI tokenizer docs)
+    return len(text) // _CHARS_PER_TOKEN
+
+
 def _truncate(s: str | None, max_len: int) -> str:
     if not s:
         return ""
@@ -745,6 +787,199 @@ def _parse_blocks(
 
 
 # ---------------------------------------------------------------------------
+# Multi-pass generation — splits large ref sets across LLM calls (#7)
+# ---------------------------------------------------------------------------
+
+_CONTINUATION_SYSTEM = (
+    "\n\nCONTINUATION: This is part {pass_num} of {total_passes} of a larger "
+    "narrative. The previous part ended with changes up to [[{prev_last}]]. "
+    "You are now covering changes [[{first}]] through [[{last}]]. "
+    "Continue the narrative naturally from where the previous section left "
+    "off — no need to restate context or re-introduce the session. "
+    "Open with a brief transitional sentence, then proceed with the "
+    "remaining changes. Maintain the same voice and style."
+)
+
+
+def _split_refs_into_chunks(
+    refs: list[StoryReference],
+    ctx: StoryContext,
+    system: str,
+    *,
+    max_input_tokens: int,
+) -> list[list[tuple[int, StoryReference]]]:
+    """Split refs into chunks that each fit within the model's context window.
+
+    Each chunk is a list of (global_1based_index, ref) pairs.  The context
+    (job metadata, beats, approvals) is repeated in every chunk — only the
+    CHANGES section varies.
+
+    We use 75% of max_input_tokens as the budget to leave headroom for the
+    model's internal overhead, output generation, and estimation error.
+    """
+    # Build the fixed portion of the prompt (everything except refs)
+    fixed_prompt = _build_prompt([], ctx)
+    # Add the continuation suffix size (worst-case)
+    continuation_overhead = len(_CONTINUATION_SYSTEM) + 100  # format placeholders
+    fixed_tokens = _estimate_tokens(system + fixed_prompt) + _estimate_tokens(
+        " " * continuation_overhead
+    )
+
+    # 75% of the model's max input tokens, minus the fixed overhead
+    budget = int(max_input_tokens * 0.75) - fixed_tokens
+    if budget <= 0:
+        # Context section alone is enormous — can't split usefully,
+        # just return all refs in one chunk and let the LLM do its best.
+        return [[(i + 1, r) for i, r in enumerate(refs)]]
+
+    # Greedily pack refs into chunks
+    chunks: list[list[tuple[int, StoryReference]]] = []
+    current_chunk: list[tuple[int, StoryReference]] = []
+    current_tokens = 0
+
+    for i, ref in enumerate(refs):
+        # Estimate this ref's contribution using _fmt_ref-like formatting
+        ref_text = _estimate_ref_text(i + 1, ref)
+        ref_tokens = _estimate_tokens(ref_text)
+
+        if current_chunk and (current_tokens + ref_tokens) > budget:
+            # Start a new chunk
+            chunks.append(current_chunk)
+            current_chunk = [(i + 1, ref)]
+            current_tokens = ref_tokens
+        else:
+            current_chunk.append((i + 1, ref))
+            current_tokens += ref_tokens
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+def _estimate_ref_text(idx: int, ref: StoryReference) -> str:
+    """Approximate the prompt text a single ref contributes."""
+    parts: list[str] = []
+    anchor = ref.get("file") or ref.get("stepTitle") or ref.get("why") or f"event {idx}"
+    parts.append(f"{idx}. **{anchor}**")
+    if ref.get("why"):
+        parts.append(f" — {ref['why']}")
+    if ref.get("stepIntent"):
+        parts.append(f"   Intent: {ref['stepIntent']}")
+    if ref.get("editDetails"):
+        for ed in ref["editDetails"]:
+            if ed.get("why"):
+                parts.append(f"   • {ed.get('title', 'edit')}: {ed['why']}")
+    if ref.get("snippet"):
+        parts.append("```")
+        parts.append(ref["snippet"])
+        parts.append("```")
+    return "\n".join(parts)
+
+
+def _build_prompt_for_chunk(
+    chunk: list[tuple[int, StoryReference]],
+    ctx: StoryContext,
+    *,
+    total_refs: int,
+) -> str:
+    """Build a prompt for a subset of refs, keeping their global indices.
+
+    The LLM sees ``[[N]]`` with the *original* numbering so parsed blocks
+    map back to the global refs list without re-indexing.
+    """
+    parts: list[str] = []
+
+    job = ctx.get("job", {})
+    parts.append("## SESSION CONTEXT")
+    parts.append(f"Title: {job.get('title', 'Untitled')}")
+    parts.append(f"Task: {_truncate(job.get('prompt') or job.get('description', ''), 400)}")
+    telem = ctx.get("telemetry", {})
+    if telem:
+        dur = round((telem.get("duration_ms") or 0) / 60000, 1)
+        parts.append(f"Duration: {dur} min, {telem.get('tool_call_count', 0)} tool calls")
+        fails = telem.get("tool_failure_count", 0) or 0
+        retries = telem.get("retry_count", 0) or 0
+        if fails or retries:
+            parts.append(f"Issues: {fails} failures, {retries} retries")
+
+    # Trail beats — same for every chunk
+    beats = ctx.get("trail_beats", [])
+    if beats:
+        parts.append("\n## AGENT JOURNEY (key moments, chronological)")
+        for b in beats:
+            kind = b.get("kind", "")
+            intent = b.get("intent", "")
+            line = f"  [{kind.upper()}] {intent}"
+            if b.get("rationale"):
+                line += f"\n    Rationale: {b['rationale']}"
+            if b.get("outcome"):
+                line += f"\n    Outcome: {b['outcome']}"
+            if kind == "backtrack" and b.get("supersedes"):
+                line += " (reverses earlier approach)"
+            parts.append(line)
+
+    approvals = ctx.get("approvals", [])
+    if approvals:
+        parts.append("\n## DECISION POINTS")
+        for a in approvals:
+            line = f"  - {a.get('description', '')} → {a.get('resolution', 'pending')}"
+            if a.get("proposed_action"):
+                line += f"\n    Proposed: {a['proposed_action']}"
+            parts.append(line)
+
+    # Subset of changes — use global indices
+    first_idx = chunk[0][0]
+    last_idx = chunk[-1][0]
+    has_files = any(ref.get("file") for _, ref in chunk)
+    section_label = "CHANGES" if has_files else "SESSION EVENTS"
+    parts.append(
+        f"\n## {section_label} ({len(chunk)} of {total_refs}, "
+        f"items {first_idx}-{last_idx}, chronological)"
+    )
+
+    def _fmt_ref(idx: int, ref: StoryReference) -> list[str]:
+        lines: list[str] = []
+        anchor = ref.get("file") or ref.get("stepTitle") or ref.get("why") or f"event {idx}"
+        line = f"{idx}. **{anchor}**"
+        if ref.get("file") and ref.get("stepTitle"):
+            line = f"{idx}. **{ref['file']}** (step {ref.get('stepNumber', '?')}: {ref['stepTitle']})"
+        if ref.get("isRetry"):
+            line += " [RETRY]"
+        if ref.get("errorKind"):
+            line += f" [error: {ref['errorKind']}]"
+        if ref.get("why") and ref.get("why") != anchor:
+            line += f" — {ref['why']}"
+        if ref.get("editCount") and ref["editCount"] > 1:
+            line += f" [{ref['editCount']} edits]"
+        lines.append(line)
+        if ref.get("stepIntent"):
+            lines.append(f"   Intent: {ref['stepIntent']}")
+        if ref.get("editDetails"):
+            for ed in ref["editDetails"]:
+                if ed.get("why"):
+                    lines.append(f"   • {ed.get('title', 'edit')}: {ed['why']}")
+        if ref.get("snippet"):
+            lines.append("```")
+            lines.append(ref["snippet"])
+            lines.append("```")
+        return lines
+
+    current_activity: str | None = None
+    for global_idx, ref in chunk:
+        label = ref.get("activityLabel", "") or ""
+        if label != (current_activity or ""):
+            if label:
+                parts.append(f"\n### Activity: {label}")
+            elif current_activity:
+                parts.append("\n### Other changes")
+            current_activity = label or None
+        parts.extend(_fmt_ref(global_idx, ref))
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
 
@@ -967,29 +1202,30 @@ class StoryService:
         )
         pending_enrichment = unenriched.scalar() or 0
 
-        user_prompt = _build_prompt(refs, ctx)
-
         # Structural analysis enrichment from CodeRecon
         structural_section = await self._fetch_structural_section(
             session, job_id, job_row=job_row,
         )
-        if structural_section:
-            user_prompt += "\n\n" + structural_section
 
         system = _STORY_SYSTEM + _STORY_VERBOSITY_SUFFIX.get(verbosity, "")
-        full_prompt = f"SYSTEM:\n{system}\n\nUSER:\n{user_prompt}"
 
-        try:
-            result = await self._completer.complete(full_prompt)
-            raw = result.strip() if isinstance(result, str) else str(result).strip()
-        except (httpx.HTTPError, OSError, ValueError):
-            log.warning("story_generation_llm_failed", job_id=job_id, exc_info=True)
+        # Determine whether multi-pass is needed (#7)
+        # Look up the model's context window from pricing data.
+        model_name = getattr(self._completer, "model", None) or ""
+        max_input_tokens = _get_model_max_input_tokens(model_name) if model_name else None
+
+        blocks = await self._generate_passes(
+            refs=refs,
+            ctx=ctx,
+            system=system,
+            structural_section=structural_section,
+            max_input_tokens=max_input_tokens,
+            job_id=job_id,
+        )
+
+        if not blocks:
             return None
 
-        if not raw:
-            return None
-
-        blocks = _parse_blocks(raw, refs)
         has_decisions = any(b.get("kind") == "decide" for b in beats)
         has_backtracks = any(b.get("kind") == "backtrack" for b in beats)
         payload: dict[str, Any] = {
@@ -1017,3 +1253,95 @@ class StoryService:
             )
 
         return payload
+
+    async def _generate_passes(
+        self,
+        *,
+        refs: list[StoryReference],
+        ctx: StoryContext,
+        system: str,
+        structural_section: str | None,
+        max_input_tokens: int | None,
+        job_id: str,
+    ) -> list[StoryBlock]:
+        """Generate story blocks, splitting into multiple LLM passes if the
+        prompt would exceed the model's context window.
+
+        Never truncates any information — every ref is included in exactly
+        one pass.  When the model's context window is unknown, falls back to
+        single-pass (optimistic).
+        """
+        # Try single-pass first — check if it fits
+        user_prompt = _build_prompt(refs, ctx)
+        if structural_section:
+            user_prompt += "\n\n" + structural_section
+
+        full_prompt = f"SYSTEM:\n{system}\n\nUSER:\n{user_prompt}"
+        estimated_tokens = _estimate_tokens(full_prompt)
+
+        # If we don't know the model's limit, or it fits within 75% of the
+        # context window, use a single pass.
+        needs_multipass = (
+            max_input_tokens is not None
+            and estimated_tokens > int(max_input_tokens * 0.75)
+            and len(refs) > 1  # can't split a single ref
+        )
+
+        if not needs_multipass:
+            return await self._single_pass(full_prompt, refs, job_id=job_id)
+
+        assert max_input_tokens is not None  # narrowed above
+        log.info(
+            "story_multipass_triggered",
+            job_id=job_id,
+            estimated_tokens=estimated_tokens,
+            max_input_tokens=max_input_tokens,
+            ref_count=len(refs),
+        )
+
+        chunks = _split_refs_into_chunks(
+            refs, ctx, system, max_input_tokens=max_input_tokens,
+        )
+
+        all_blocks: list[StoryBlock] = []
+        for pass_num, chunk in enumerate(chunks, 1):
+            chunk_prompt = _build_prompt_for_chunk(chunk, ctx, total_refs=len(refs))
+            if structural_section and pass_num == 1:
+                chunk_prompt += "\n\n" + structural_section
+
+            chunk_system = system
+            if pass_num > 1:
+                prev_chunk = chunks[pass_num - 2]
+                chunk_system += _CONTINUATION_SYSTEM.format(
+                    pass_num=pass_num,
+                    total_passes=len(chunks),
+                    prev_last=prev_chunk[-1][0],
+                    first=chunk[0][0],
+                    last=chunk[-1][0],
+                )
+
+            pass_prompt = f"SYSTEM:\n{chunk_system}\n\nUSER:\n{chunk_prompt}"
+            pass_blocks = await self._single_pass(pass_prompt, refs, job_id=job_id)
+            all_blocks.extend(pass_blocks)
+
+        return all_blocks
+
+    async def _single_pass(
+        self,
+        full_prompt: str,
+        refs: list[StoryReference],
+        *,
+        job_id: str,
+    ) -> list[StoryBlock]:
+        """Execute one LLM call and parse the result into blocks."""
+        try:
+            result = await self._completer.complete(full_prompt)
+            raw = result.strip() if isinstance(result, str) else str(result).strip()
+        except (httpx.HTTPError, OSError, ValueError):
+            log.warning("story_generation_llm_failed", job_id=job_id, exc_info=True)
+            return []
+
+        if not raw:
+            return []
+
+        return _parse_blocks(raw, refs)
