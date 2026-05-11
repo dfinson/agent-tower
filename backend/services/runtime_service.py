@@ -31,6 +31,7 @@ from backend.models.domain import (
     GitMergeOutcome,
     Job,
     JobNotFoundError,
+    JobSource,
     JobState,
     Resolution,
     ServiceInitError,
@@ -1889,9 +1890,14 @@ class RuntimeService:
         async with self._session_factory() as session:
             svc = self._make_job_service(session)
             # Recover jobs that were already in progress before the backend restart.
+            # Skip discovered CLI sessions (copilot_cli / claude_cli) — their
+            # watchers handle re-attach or finalization on startup.
             for state in (JobState.running, JobState.waiting_for_approval):
                 jobs = await svc.list_all_jobs(state=state)
-                orphaned_jobs.extend((job, state) for job in jobs)
+                orphaned_jobs.extend(
+                    (job, state) for job in jobs
+                    if job.source == JobSource.managed
+                )
 
             # Re-enqueue queued jobs
             queued_jobs = await svc.list_all_jobs(state=JobState.queued)
@@ -1938,41 +1944,7 @@ class RuntimeService:
                 job_ids=[j.id for j, _ in unreachable],
             )
 
-        # Fail jobs that have already been recovered too many times —
-        # they will never complete and just clutter the board on every restart.
-        _MAX_RECOVERY_SESSIONS = 3
-        exhausted: list[tuple[Job, JobState]] = []
-        still_recoverable: list[tuple[Job, JobState]] = []
-        for job, state in recoverable:
-            if job.session_count >= _MAX_RECOVERY_SESSIONS:
-                exhausted.append((job, state))
-            else:
-                still_recoverable.append((job, state))
-
-        if exhausted:
-            now = datetime.now(UTC)
-            from backend.persistence.database import serialized_write
-
-            async with serialized_write(self._session_factory) as session:
-                job_repo = JobRepository(session)
-                for job, state in exhausted:
-                    await job_repo.update_state(
-                        job.id,
-                        new_state=JobState.failed,
-                        updated_at=now,
-                        completed_at=now,
-                        failure_reason=(
-                            f"Exceeded maximum recovery attempts "
-                            f"({job.session_count} sessions) — failing permanently"
-                        ),
-                    )
-            log.info(
-                "exhausted_recovery_jobs_failed",
-                count=len(exhausted),
-                job_ids=[j.id for j, _ in exhausted],
-            )
-
-        if still_recoverable:
+        if recoverable:
             log.info("recovering_orphaned_jobs", count=len(recoverable))
             # Recover sequentially to avoid exhausting the connection pool
             # and deadlocking against the global write lock.
