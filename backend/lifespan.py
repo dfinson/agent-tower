@@ -921,7 +921,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     event_bus.subscribe(_persist_structural_analytics)
 
-    # --- IngestService (CLI session import) ---
+    # --- IngestService (operator message routing) ---
     from backend.services.event_processor import EventProcessor
     from backend.services.ingest_service import IngestService
 
@@ -942,18 +942,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         trail_service=trail_service,
     )
 
-    ingest_service = IngestService(
-        event_bus=event_bus,
-        event_processor=ingest_event_processor,
-        session_factory=session_factory,
-        config=config,
-        git_service=services.git_service,
-        merge_service=services.merge_service,
-        coderecon_service=coderecon_service,
-        steer_client=steer_client,
-        sister_sessions=services.sister_sessions,
-    )
-
     # --- SessionStateWatcher (auto-discover Copilot --remote sessions) ---
     from backend.services.session_state_watcher import SessionStateWatcher
 
@@ -968,6 +956,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         sister_sessions=services.sister_sessions,
     )
     await session_state_watcher.start()
+
+    # --- ClaudeSessionStateWatcher (auto-discover Claude CLI sessions) ---
+    from backend.services.claude_session_watcher import ClaudeSessionStateWatcher
+
+    claude_session_watcher = ClaudeSessionStateWatcher(
+        event_bus=event_bus,
+        event_processor=ingest_event_processor,
+        session_factory=session_factory,
+        config=config,
+        git_service=services.git_service,
+        coderecon_service=coderecon_service,
+        sister_sessions=services.sister_sessions,
+    )
+    await claude_session_watcher.start()
+
+    ingest_service = IngestService(
+        session_factory=session_factory,
+        steer_client=steer_client,
+        claude_watcher=claude_session_watcher,
+        session_state_watcher=session_state_watcher,
+    )
 
     # --- Share service ---
     share_service = ShareService()
@@ -996,6 +1005,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             CodeReconService: coderecon_service,
             IngestService: ingest_service,
             SessionStateWatcher: session_state_watcher,
+            ClaudeSessionStateWatcher: claude_session_watcher,
         },
     )
     app.state.dishka_container = container
@@ -1047,6 +1057,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await optional.terminal_service.shutdown()
     # Stop SessionStateWatcher and steer client
     await session_state_watcher.stop()
+    await claude_session_watcher.stop()
     if steer_client is not None:
         await steer_client.close()
     # Drain any in-flight ephemeral background tasks before tearing down services.

@@ -31,6 +31,7 @@ from backend.services.coderecon_service import CodeReconService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
+from backend.services.claude_session_watcher import ClaudeSessionStateWatcher
 from backend.services.ingest_service import IngestService
 from backend.services.job_service import JobService
 from backend.services.merge_service import MergeService
@@ -80,6 +81,7 @@ class AppProvider(Provider):
     terminal_service = from_context(provides=TerminalService)
     coderecon_service = from_context(provides=CodeReconService)
     ingest_service = from_context(provides=IngestService)
+    claude_session_watcher = from_context(provides=ClaudeSessionStateWatcher)
 
     @provide
     def git_service(self, config: CPLConfig) -> GitService:
