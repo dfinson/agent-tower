@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -45,6 +46,10 @@ _TAIL_POLL_S = 0.3
 
 # Max bytes to read from events.jsonl in a single read (prevent memory spike)
 _MAX_READ_CHUNK = 256 * 1024  # 256 KB — will catch up over multiple polls
+
+# After this many consecutive idle polls with no new data, probe steer API liveness.
+# Derived from discovery cadence: check at the same frequency as session discovery.
+_IDLE_POLLS_BEFORE_LIVENESS = math.ceil(_DISCOVERY_POLL_S / _TAIL_POLL_S)
 
 # Acceptable characters for session IDs (alphanumeric, hyphens, underscores)
 _SESSION_ID_PATTERN = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
@@ -87,6 +92,8 @@ class SessionStateWatcher:
         self._job_base_refs: dict[str, str] = {}  # job_id → base_ref
         # Instance-level background tasks (DB writes, coderecon indexing)
         self._bg_tasks: set[asyncio.Task] = set()
+        # Per-job accumulated telemetry deltas (flushed atomically with offset)
+        self._pending_telemetry: dict[str, dict[str, float | int]] = {}
 
     async def start(self) -> None:
         """Begin discovery polling. Called from lifespan startup."""
@@ -446,6 +453,7 @@ class SessionStateWatcher:
         buffer = ""
         shutdown_seen = False
         error_reason: str | None = None
+        idle_polls = 0  # consecutive polls with no new data
 
         while self._running and not shutdown_seen:
             try:
@@ -459,12 +467,23 @@ class SessionStateWatcher:
                         # File truncated — reset
                         offset = 0
                         buffer = ""
+                    idle_polls += 1
+                    if idle_polls >= _IDLE_POLLS_BEFORE_LIVENESS and self._steer:
+                        idle_polls = 0  # reset to avoid hammering API
+                        alive = await self._steer.check_alive(session_id)
+                        if not alive:
+                            await self._finalize_session(
+                                job_id, error_reason=error_reason or "session ended without clean shutdown",
+                            )
+                            shutdown_seen = True
+                            break
                     await asyncio.sleep(_TAIL_POLL_S)
                     continue
 
                 # Read new bytes
                 new_data = await asyncio.to_thread(self._read_from, events_path, offset)
                 offset += len(new_data)
+                idle_polls = 0
 
                 buffer += new_data.decode("utf-8", errors="replace")
                 while "\n" in buffer:
@@ -574,8 +593,8 @@ class SessionStateWatcher:
             tel.output_tokens_counter.add(output_toks, {**attrs, "model": model})
             tel.cost_counter.add(cost, attrs)
 
-            # Persist to telemetry summary via atomic increment
-            self._schedule_telemetry_increment(job_id, {
+            # Accumulate for atomic flush with offset
+            self._accumulate_telemetry(job_id, {
                 "input_tokens": input_toks,
                 "output_tokens": output_toks,
                 "cache_read_tokens": cache_read,
@@ -597,32 +616,24 @@ class SessionStateWatcher:
             post = int(getattr(data, "post_compaction_tokens", 0) or 0)
             tel.compactions_counter.add(1, {"job_id": job_id, "sdk": "copilot"})
             tel.tokens_compacted.add(max(0, pre - post), {"job_id": job_id, "sdk": "copilot"})
-            self._schedule_telemetry_increment(job_id, {
+            self._accumulate_telemetry(job_id, {
                 "compactions": 1,
                 "tokens_compacted": max(0, pre - post),
             })
 
         elif kind_str == "assistant.message":
             tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "agent"})
-            self._schedule_telemetry_increment(job_id, {"agent_messages": 1})
+            self._accumulate_telemetry(job_id, {"agent_messages": 1})
 
         elif kind_str == "user.message":
             tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "operator"})
-            self._schedule_telemetry_increment(job_id, {"operator_messages": 1})
+            self._accumulate_telemetry(job_id, {"operator_messages": 1})
 
-    def _schedule_telemetry_increment(self, job_id: str, counters: dict[str, Any]) -> None:
-        """Schedule an atomic telemetry summary increment via TelemetrySummaryRepository."""
-
-        async def _write() -> None:
-            try:
-                async with self._session_factory() as session:
-                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
-                    await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
-                    await session.commit()
-            except Exception:
-                log.debug("session_watcher_telemetry_increment_failed", job_id=job_id, exc_info=True)
-
-        self._fire_bg(_write(), name=f"watcher-tel-{job_id[:8]}")
+    def _accumulate_telemetry(self, job_id: str, counters: dict[str, Any]) -> None:
+        """Accumulate telemetry deltas in memory for atomic flush with offset."""
+        pending = self._pending_telemetry.setdefault(job_id, {})
+        for key, value in counters.items():
+            pending[key] = pending.get(key, 0) + value  # type: ignore[operator]
 
     def _schedule_model_update(self, job_id: str, model: str) -> None:
         """Schedule a model update on the telemetry summary row."""
@@ -655,18 +666,27 @@ class SessionStateWatcher:
         self._fire_bg(_write(), name=f"watcher-ctx-{job_id[:8]}")
 
     def _schedule_offset_persist(self, job_id: str, offset: int) -> None:
-        """Schedule a tail-offset persist via JobRepository.update_tail_offset."""
+        """Flush accumulated telemetry + offset in a single transaction.
+
+        Because both are committed atomically, a crash-recovery replay from
+        the old offset will re-derive the same deltas without double-counting.
+        """
+        # Snapshot and clear pending telemetry
+        counters = self._pending_telemetry.pop(job_id, {})
 
         async def _write() -> None:
             try:
                 async with self._session_factory() as session:
                     from backend.persistence.job_repo import JobRepository
+                    from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+                    if counters:
+                        await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
                     await JobRepository(session).update_tail_offset(job_id, offset)
                     await session.commit()
             except Exception:
-                log.debug("session_watcher_offset_persist_failed", job_id=job_id, exc_info=True)
+                log.debug("session_watcher_flush_failed", job_id=job_id, exc_info=True)
 
-        self._fire_bg(_write(), name=f"watcher-offset-{job_id[:8]}")
+        self._fire_bg(_write(), name=f"watcher-flush-{job_id[:8]}")
 
     def _map_to_session_event(self, kind_str: str, data: Any) -> SessionEvent | None:
         """Map an SDK event type to a CodePlane SessionEvent."""
@@ -829,6 +849,19 @@ class SessionStateWatcher:
 
         # Notify processor for step cleanup
         await self._processor.on_job_terminal(job_id, new_state)
+
+        # Clean up internal state maps
+        self._job_worktrees.pop(job_id, None)
+        self._job_base_refs.pop(job_id, None)
+        self._pending_telemetry.pop(job_id, None)
+        # Find and remove session→job mapping
+        sid_to_remove = None
+        for sid, jid in self._session_to_job.items():
+            if jid == job_id:
+                sid_to_remove = sid
+                break
+        if sid_to_remove:
+            self._session_to_job.pop(sid_to_remove, None)
 
         log.info(
             "session_state_watcher_session_finalized",
