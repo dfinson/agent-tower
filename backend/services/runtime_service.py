@@ -1920,7 +1920,9 @@ class RuntimeService:
 
         if unreachable:
             now = datetime.now(UTC)
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 job_repo = JobRepository(session)
                 for job, state in unreachable:
                     await job_repo.update_state(
@@ -1930,7 +1932,6 @@ class RuntimeService:
                         completed_at=now,
                         failure_reason="Worktree no longer exists — cannot recover after restart",
                     )
-                await session.commit()
             log.debug(
                 "orphaned_jobs_marked_failed",
                 count=len(unreachable),
@@ -1939,16 +1940,14 @@ class RuntimeService:
 
         if recoverable:
             log.info("recovering_orphaned_jobs", count=len(recoverable))
-            recovery_tasks = []
+            # Recover sequentially to avoid exhausting the connection pool
+            # and deadlocking against the global write lock.
             for job, state in recoverable:
                 log.debug("recovering_orphaned_job", job_id=job.id, state=state)
-                recovery_tasks.append(
-                    asyncio.create_task(
-                        self._recover_active_job(job.id),
-                        name=f"recover-{job.id}",
-                    )
-                )
-            await asyncio.gather(*recovery_tasks, return_exceptions=True)
+                try:
+                    await self._recover_active_job(job.id)
+                except Exception:
+                    log.debug("orphaned_job_recovery_failed", job_id=job.id, exc_info=True)
 
         for job in queued_jobs:
             await self.start_or_enqueue(job)
