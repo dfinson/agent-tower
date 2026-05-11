@@ -1912,11 +1912,10 @@ class RuntimeService:
                         failure_reason="Worktree no longer exists — cannot recover after restart",
                     )
                 await session.commit()
-            log.warning(
-                "orphaned_jobs_unreachable",
+            log.debug(
+                "orphaned_jobs_marked_failed",
                 count=len(unreachable),
                 job_ids=[j.id for j, _ in unreachable],
-                reason="worktree deleted while server was down",
             )
 
         if recoverable:
