@@ -44,6 +44,7 @@ class TunnelHandle:
     origin: str | None = None
     proc: subprocess.Popen[str] | None = None
     watchdog: TunnelWatchdog | None = None
+    externally_managed: bool = False
 
     def close(self) -> None:
         if self.watchdog is not None:
@@ -364,7 +365,8 @@ def start_remote_access(
         handle.watchdog.start()
         return handle
     origin, proc = _start_cloudflare(port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname)
-    handle = TunnelHandle(provider=provider, origin=origin, proc=proc)
+    externally_managed = proc is None
+    handle = TunnelHandle(provider=provider, origin=origin, proc=proc, externally_managed=externally_managed)
     if proc is not None:
         # We started our own process — attach a watchdog to keep it alive
         handle.watchdog = TunnelWatchdog(

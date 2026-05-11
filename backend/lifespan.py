@@ -86,6 +86,58 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
+async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> None:
+    """Verify Cloudflare Access is active after the server starts accepting connections.
+
+    Waits for the local health endpoint, then probes through the tunnel.
+    If no Access gate is detected, logs a critical error and initiates shutdown.
+    """
+    import urllib.error
+    import urllib.request
+
+    banner_args = getattr(app.state, "banner_args", {})
+    local_port = banner_args.get("port", 8080)
+    tunnel_url = tunnel_handle.origin
+
+    # Wait for the local server to be ready (it just yielded, so should be immediate)
+    for _ in range(20):
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{local_port}/api/health", method="GET")
+            with urllib.request.urlopen(req, timeout=2) as resp:  # noqa: S310
+                if resp.status == 200:
+                    break
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+
+    # Probe the tunnel URL for Cloudflare Access
+    try:
+        req = urllib.request.Request(f"{tunnel_url}/api/health", method="HEAD")
+        req.add_header("User-Agent", "cpl-preflight/1.0")
+        resp = urllib.request.urlopen(req, timeout=10)  # noqa: S310
+        if resp.headers.get("CF-Access-Domain"):
+            log.info("cloudflare_access_verified", url=tunnel_url)
+            return
+    except urllib.error.HTTPError as exc:
+        location = exc.headers.get("Location", "")
+        if "cloudflareaccess.com" in location or exc.headers.get("CF-Access-Domain"):
+            log.info("cloudflare_access_verified", url=tunnel_url)
+            return
+    except Exception:
+        pass
+
+    # No Access gate detected — refuse to serve unprotected
+    log.critical(
+        "cloudflare_access_not_detected",
+        url=tunnel_url,
+        msg="No Cloudflare Access gate detected. Shutting down to prevent unprotected exposure.",
+    )
+    tunnel_handle.close()
+    # Signal the server to shut down
+    import signal
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
 def _print_qr_code(url: str) -> None:
     """Print a QR code for *url* to the console (best-effort)."""
     try:
@@ -966,6 +1018,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 password=banner_args.get("password"),
             )
         dashboard.start()
+
+    # --- Deferred Cloudflare Access check ---
+    # The probe goes through the tunnel to the origin, so it can only run
+    # after the server is accepting connections.  Scheduled as a background
+    # task — it runs once the event loop resumes after yield.
+    tunnel_handle = getattr(app.state, "tunnel_handle", None)
+    if tunnel_handle is not None and tunnel_handle.origin and tunnel_handle.provider.value == "cloudflare":
+        _fire_and_forget(
+            _deferred_cloudflare_access_check(tunnel_handle, app),
+            name="cloudflare-access-check",
+        )
 
     yield
 

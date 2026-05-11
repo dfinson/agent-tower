@@ -71,36 +71,6 @@ def _build_frontend() -> bool:
         return False
 
 
-def _cloudflare_access_enabled(tunnel_origin: str) -> bool:
-    """Probe the tunnel hostname to detect a Cloudflare Access gate.
-
-    Makes a single unauthenticated request. If the response contains a
-    ``CF-Access-Domain`` header, Cloudflare Access is active. Returns
-    False if no Access gate is detected or if the probe is inconclusive.
-    """
-    import time
-    import urllib.error
-    import urllib.request
-
-    # Give cloudflared a moment to register with the edge
-    time.sleep(2)
-
-    try:
-        req = urllib.request.Request(f"{tunnel_origin}/api/health", method="HEAD")
-        req.add_header("User-Agent", "cpl-preflight/1.0")
-        response = urllib.request.urlopen(req, timeout=10)  # noqa: S310
-        # Cloudflare Access intercepts and serves its login page with this header
-        return bool(response.headers.get("CF-Access-Domain"))
-    except urllib.error.HTTPError as exc:
-        # A redirect to cloudflareaccess.com or a response with CF-Access-Domain
-        location = exc.headers.get("Location", "")
-        if "cloudflareaccess.com" in location:
-            return True
-        return bool(exc.headers.get("CF-Access-Domain"))
-    except Exception:
-        # Network error, timeout — probe inconclusive, fail closed
-        return False
-
 
 # ---------------------------------------------------------------------------
 # ``cpl up`` — start the server
@@ -294,23 +264,13 @@ def up(
         tunnel_origin = tunnel_handle.origin
 
         if remote_provider is RemoteProvider.cloudflare and tunnel_origin:
-            if not _cloudflare_access_enabled(tunnel_origin):
-                tunnel_handle.close()
-                click.secho(
-                    "ERROR: No Cloudflare Access gate detected on this hostname.\n"
-                    "  CodePlane refuses to serve over Cloudflare without an identity layer.\n"
-                    "  Add a Cloudflare Access application with an email OTP or SSO policy,\n"
-                    "  then try again. See: https://codeplane.dev/configuration/#cloudflare-tunnels",
-                    fg="red",
-                    err=True,
-                )
-                raise SystemExit(1)
-            # Cloudflare Access is handling authentication — disable the
-            # redundant internal password gate.
+            # Cloudflare Access check deferred to lifespan — requires the backend
+            # to be listening first since the probe goes through the tunnel.
+            # Disable password auth preemptively (Access will be verified once live).
             if effective_password:
                 log.info(
-                    "cloudflare_access_detected",
-                    msg="Disabling local password auth — Cloudflare Access is active",
+                    "cloudflare_access_expected",
+                    msg="Disabling local password auth — Cloudflare Access will be verified after startup",
                 )
                 effective_password = None
 
@@ -356,6 +316,7 @@ def up(
         "password": effective_password,
     }
     app.state.dashboard = dashboard
+    app.state.tunnel_handle = tunnel_handle
 
     # Use uvicorn.Server directly so we can patch handle_exit to stop the
     # Rich Live display the instant a signal is received.  uvicorn installs
