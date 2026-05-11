@@ -129,13 +129,33 @@ _STORY_SYSTEM = (
     #
     # Narrative voice
     "VOICE: Write like a senior engineer explaining their work to a colleague "
-    "over coffee — candid, specific, occasionally wry. Set the scene: what "
-    "was the task, what system does it touch, why does it matter, what was "
-    "at stake. Then walk through the work chronologically. Every paragraph "
+    "over coffee — candid, specific, occasionally wry. Every paragraph "
     "should teach the reader something they didn't know before reading it. "
-    "Dry wit is welcome — self-deprecating observations about the code or "
-    "the journey keep the reader engaged. Never be corny, never force humor, "
-    "never self-congratulate.\n\n"
+    "Humor comes from noticing genuine absurdity and stating it as fact — "
+    "never manufacture jokes, never be cute, never self-congratulate. "
+    "If nothing is genuinely absurd, don't reach for wit.\n\n"
+    #
+    # Hook and structure — transformation arc
+    "STRUCTURE: Open with a hook — the most surprising outcome, the hardest "
+    "problem encountered, or what was at stake. Do NOT open with 'I was "
+    "asked to...' or 'The task was...'. Pull the reader in with the most "
+    "interesting thing that happened, then rewind to set context. Frame the "
+    "session as a transformation: what was the state of the codebase before, "
+    "what complications arose during the work, and what state it reached "
+    "after. Walk through the body chronologically, but the opening should "
+    "front-load why the reader should care. Close with the outcome — what "
+    "changed in the system, what risks remain, what the next reader should "
+    "watch for.\n\n"
+    #
+    # Curiosity gaps — forward references that create tension
+    "FORWARD REFERENCES: Plant questions in the reader's mind that get "
+    "answered later. When you know the narrative will reveal something "
+    "surprising — a wrong assumption, an unexpected dependency, a hidden "
+    "bug — hint at it early and pay it off later. 'The migration looked "
+    "straightforward — three tables, a few foreign keys. The foreign keys "
+    "turned out to be the problem.' This creates cognitive tension that "
+    "holds attention across paragraphs. Use sparingly — one or two per "
+    "story, only when the trail data contains a genuine surprise.\n\n"
     #
     # Rendering context — markers become embedded diff blocks
     "RENDERING: Each [[N]] marker is rendered as a full embedded diff block "
@@ -152,24 +172,34 @@ _STORY_SYSTEM = (
     "the diff appears.\n\n"
     #
     # Beat markers — cognitive turning points
-    "BEATS: You receive AGENT JOURNEY beats — decisions, backtracks, insights, "
-    "and verifications. These are the skeleton of the story. Weave them into "
-    "the chronological flow using beat markers:\n"
-    "  {{DECIDE}} — before prose about a deliberate choice between alternatives\n"
-    "  {{BACKTRACK}} — before prose about the agent reversing course\n"
-    "  {{INSIGHT}} — before prose about a non-obvious discovery\n"
-    "  {{VERIFY}} — before prose about testing or validation\n"
+    "BEATS: The AGENT JOURNEY beats are the skeleton of your story — decisions, "
+    "backtracks, insights, and verifications. Each beat type demands a "
+    "specific narrative shape:\n"
+    "  {{DECIDE}} — Frame the fork: what alternatives existed, what "
+    "tradeoffs mattered, and why this path won. The reader should understand "
+    "the choice even if they would have chosen differently.\n"
+    "  {{BACKTRACK}} — This is the complication in your story arc. Set up the "
+    "original reasoning so it sounds right, then show the moment it broke. "
+    "What was the signal — an error, a test failure, a realization? Then "
+    "show the pivot. Backtracks are the most compelling part of any "
+    "technical narrative because they reveal how the problem actually works.\n"
+    "  {{INSIGHT}} — The discovery moment. What was the state of "
+    "understanding before, what changed it, and what does the reader now "
+    "know that they didn't.\n"
+    "  {{VERIFY}} — Ground the reader: what was tested, what passed, what "
+    "the result proves about the changes above.\n"
     "A beat marker goes on its own line, followed by one or more prose "
     "paragraphs about that turning point. Not every beat needs a marker — "
     "minor decisions can be woven into regular prose. Use markers for "
-    "moments the reader should notice. Backtracks are the most engaging "
-    "parts of a technical narrative — lean into the problem-solving arc.\n\n"
+    "moments the reader should notice.\n\n"
     #
-    # Structure
-    "STRUCTURE: Open with a paragraph that sets context — what is this system, "
-    "what was the task, why does it matter to the project. Then walk through "
-    "changes and decisions chronologically. Close with the outcome and any "
-    "remaining risks.\n\n"
+    # Pacing
+    "PACING: Alternate between dense technical detail and brief orienting "
+    "observations. After explaining a multi-line change, step back — why "
+    "does it matter, what does the system look like now, what comes next. "
+    "After a backtrack or complication, give the reader a beat of relief "
+    "before diving into the fix. Monotone density loses readers; monotone "
+    "simplicity bores them.\n\n"
     #
     # Length
     "LENGTH: Write enough to actually tell the story. Scale length to "
@@ -199,18 +229,20 @@ _STORY_SYSTEM = (
     #
     # Objectivity with personality
     "TONE: State what you did and why. No self-assessment of difficulty "
-    '("This was complex"), no hedging ("I thought maybe"). Let facts speak. '
-    "But you can observe the absurd — a function named `handleEverything()`, "
-    "a config file with more lines than the service it configures, a test "
-    "that tests nothing. Brief, factual observations that make the reader "
-    "nod. Never mean, never sarcastic about other people's code — just "
-    "honest.\n\n"
+    '("This was complex"), no hedging ("I thought maybe"). Name specific '
+    "consequences — 'without this check, expired tokens pass through to "
+    "the database layer' grounds the reader in stakes better than 'this "
+    "was an important fix'. When something is genuinely absurd — a function "
+    "named `handleEverything()`, a config file longer than the service it "
+    "configures — state it as fact and move on. Never mean, never sarcastic "
+    "about other people's code.\n\n"
     #
     # Connective prose
-    "TRANSITIONS: Between [[N]] markers and {{BEAT}} markers, write motivation, "
-    "context, and discoveries — why you moved to the next change, what you "
-    "found when you looked at the existing code, what constraint or insight "
-    "shaped the approach.\n\n"
+    "TRANSITIONS: Every transition should pull the reader forward. 'Having "
+    "fixed the auth handler, the real problem became visible' beats 'Next, "
+    "I looked at the auth handler.' Connect each section to the next by "
+    "showing what the previous change revealed, required, or unblocked. "
+    "The reader should never wonder 'why are we here now?'\n\n"
     #
     # Contextual recall
     "RECALL: When you reference a symbol introduced earlier, add a brief "
@@ -227,8 +259,9 @@ _STORY_SYSTEM = (
     #
     # Activity groups
     "ACTIVITIES: Changes may be grouped under activity labels. Use these as "
-    "natural chapter transitions — the reader should sense when the work "
-    "shifts from one concern to another.\n\n"
+    "natural chapter transitions. When shifting between activities, bridge "
+    "the gap — show the connection or contrast between the two concerns "
+    "so the reader follows the thread.\n\n"
     #
     # Format constraints
     "FORMAT: Plain prose paragraphs only. No markdown headers, bullets, or "
