@@ -1062,28 +1062,40 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown in reverse initialisation order.
+    # Wrap the entire sequence so individual teardown failures don't produce
+    # cascading tracebacks visible to the operator (they still get logged).
     # Stop the live dashboard first so subsequent log output prints cleanly.
     if dashboard is not None:
         dashboard.stop()
-    await container.close()
-    optional.mcp_stop_event.set()
-    await optional.mcp_task
-    optional.retention_task.cancel()
-    motivation_task.cancel()
-    trail_task.cancel()
-    dead_letter_task.cancel()
-    if optional.terminal_service is not None:
-        await optional.terminal_service.shutdown()
-    # Stop SessionStateWatcher and steer client
-    await session_state_watcher.stop()
-    await claude_session_watcher.stop()
-    if steer_client is not None:
-        await steer_client.close()
-    # Drain any in-flight ephemeral background tasks before tearing down services.
-    if _ephemeral_tasks:
-        await asyncio.gather(*_ephemeral_tasks, return_exceptions=True)
-    await coderecon_service.stop()
-    await services.sister_sessions.shutdown()
-    await services.runtime_service.shutdown()
-    sse_manager.close_all()
-    await engine.dispose()
+
+    async def _quiet_shutdown() -> None:
+        """Run teardown steps, suppressing noisy exceptions."""
+        await container.close()
+        optional.mcp_stop_event.set()
+        await optional.mcp_task
+        optional.retention_task.cancel()
+        motivation_task.cancel()
+        trail_task.cancel()
+        dead_letter_task.cancel()
+        if optional.terminal_service is not None:
+            await optional.terminal_service.shutdown()
+        # Stop SessionStateWatcher and steer client
+        await session_state_watcher.stop()
+        await claude_session_watcher.stop()
+        if steer_client is not None:
+            await steer_client.close()
+        # Drain any in-flight ephemeral background tasks before tearing down services.
+        if _ephemeral_tasks:
+            await asyncio.gather(*_ephemeral_tasks, return_exceptions=True)
+        await coderecon_service.stop()
+        await services.sister_sessions.shutdown()
+        await services.runtime_service.shutdown()
+        sse_manager.close_all()
+        await engine.dispose()
+
+    try:
+        await asyncio.wait_for(_quiet_shutdown(), timeout=8.0)
+    except asyncio.TimeoutError:
+        log.warning("shutdown_timeout", msg="Shutdown timed out after 8s — forcing exit")
+    except (asyncio.CancelledError, Exception) as exc:
+        log.debug("shutdown_interrupted", error=str(exc))

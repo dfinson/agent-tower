@@ -320,14 +320,29 @@ def up(
     )
     server = uvicorn.Server(uv_config)
 
-    if dashboard is not None:
-        _original_handle_exit = server.handle_exit
+    _exit_signal_count = 0
 
-        def _handle_exit_with_dashboard_stop(sig: int, frame: Any) -> None:
-            dashboard.stop()
+    _original_handle_exit = server.handle_exit
+
+    def _handle_exit_patched(sig: int, frame: Any) -> None:
+        nonlocal _exit_signal_count
+        _exit_signal_count += 1
+        if _exit_signal_count == 1:
+            if dashboard is not None:
+                dashboard.stop()
+            click.echo("\nShutting down…")
             _original_handle_exit(sig, frame)
+        else:
+            # Second signal: force immediate exit — no more teardown errors.
+            if dashboard is not None:
+                dashboard.stop()
+            if tunnel_handle is not None:
+                tunnel_handle.close()
+            import os as _os
 
-        server.handle_exit = _handle_exit_with_dashboard_stop  # type: ignore[method-assign]
+            _os._exit(0)
+
+    server.handle_exit = _handle_exit_patched  # type: ignore[method-assign]
 
     try:
         server.run()
