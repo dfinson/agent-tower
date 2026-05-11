@@ -257,7 +257,7 @@ async def _compute_attribution(
 
     job_meta = await session.execute(
         sa_text(
-            "SELECT j.description, "
+            "SELECT j.description, j.prompt, "
             "COALESCE(t.model, '') AS model "
             "FROM jobs j "
             "LEFT JOIN job_telemetry_summary t ON t.job_id = j.id "
@@ -267,6 +267,9 @@ async def _compute_attribution(
     )
     job_row = job_meta.mappings().first()
     job_model = (job_row or {}).get("model", "") or ""
+    job_description = (job_row or {}).get("description", "") or ""
+    job_prompt = (job_row or {}).get("prompt", "") or ""
+    is_debug_job = _is_debugging_context(job_description, job_prompt)
 
     # --- Aggregate by dimension ---
     by_turn: dict[int, CostBucket] = defaultdict(lambda: _zero_bucket())
@@ -352,6 +355,7 @@ async def _compute_attribution(
             turn_purpose[int(t)] = tn["purpose"]
 
     by_action: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+    by_activity: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_purpose: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_action_purpose: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
 
@@ -362,14 +366,20 @@ async def _compute_attribution(
             shell_commands=context.get("shell_commands") or None,
         )
 
+        # Semantic activity from intent classification (the user-facing breakdown)
+        activity = _classify_turn_intent(context, is_debug_job=is_debug_job)
+
         turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
         turn_in = int(context.get("input_tokens", 0) or 0)
         turn_out = int(context.get("output_tokens", 0) or 0)
         turn_cache_r = int(context.get("cache_read_tokens", 0) or 0)
         turn_cache_w = int(context.get("cache_write_tokens", 0) or 0)
 
-        # Action dimension
+        # Action dimension (internal — feeds edit efficiency and matrix views)
         _accumulate(by_action[action], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+
+        # Activity dimension (user-facing cost breakdown)
+        _accumulate(by_activity[activity], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
 
         # Purpose dimension (nullable — only if enriched)
         purpose = turn_purpose.get(turn_num_a)
@@ -396,6 +406,8 @@ async def _compute_attribution(
 
     # --- Write attribution rows ---
     rows: list[dict[str, Any]] = []
+    for bucket, data in by_activity.items():
+        rows.append({"dimension": "activity", "bucket": bucket, "model": job_model, **data})
     for bucket, data in by_action.items():
         rows.append({"dimension": "action", "bucket": bucket, "model": job_model, **data})
     for bucket, data in by_purpose.items():
@@ -411,6 +423,7 @@ async def _compute_attribution(
     log.info(
         "cost_attribution_written",
         job_id=job_id,
+        activity_buckets=len(by_activity),
         action_buckets=len(by_action),
         purpose_buckets=len(by_purpose),
         action_purpose_buckets=len(by_action_purpose),

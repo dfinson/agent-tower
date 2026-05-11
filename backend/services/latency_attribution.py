@@ -1,14 +1,15 @@
 """Post-job latency attribution pipeline.
 
 Runs after a job completes (alongside cost attribution) to compute
-latency breakdowns by dimension (action, category, phase, turn, tool_type)
+latency breakdowns by dimension (activity, category, phase, turn)
 and write them to the latency attribution table.  Also updates summary
 columns for idle time and parallelism ratio.
 
-The **action** dimension mirrors cost attribution exactly — each turn is
-classified by its dominant action (write, test, vcs, execute, delegate,
-read, think) and all span durations within that turn are attributed to
-that action bucket.
+The **activity** dimension uses the same 9-category intent classifier as
+cost attribution — each turn is classified by its dominant activity
+(implementation, debugging, investigation, verification, git_ops,
+communication, setup, reasoning, overhead) and all span durations within
+that turn are attributed to that activity bucket.
 """
 
 from __future__ import annotations
@@ -20,8 +21,8 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.cost_attribution import TurnContext
-from backend.services.tool_classifier import classify_action_from_tools, classify_tool
+from backend.services.cost_attribution import TurnContext, _classify_turn_intent, _is_debugging_context
+from backend.services.tool_classifier import classify_tool
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
