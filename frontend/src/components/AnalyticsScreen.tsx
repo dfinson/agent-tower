@@ -43,10 +43,10 @@ import {
   ToolHealth,
   FleetCostDriverInsights,
   FleetLatencyDriverInsights,
-  JobsTable,
   YieldCard,
   CacheEfficiencyChart,
 } from "./AnalyticsWidgets";
+import { RecentJobsPreview } from "./analytics/RecentJobsPreview";
 import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
 
 import { ActionPurposeMatrix } from "./analytics/ActionPurposeMatrix";
@@ -355,10 +355,8 @@ export function AnalyticsScreen() {
         {reposLoading ? <div className="h-[200px] animate-pulse bg-muted rounded" /> : repos && <RepoBreakdown repos={repos.repos} />}
       </div>
 
-      {/* Collapsed detail sections */}
-      <CollapsibleSection title="Recent Jobs" icon={Clock}>
-        <JobsTable period={period} />
-      </CollapsibleSection>
+      {/* Recent jobs — compact preview, link to full history */}
+      <RecentJobsPreview period={period} />
 
       <CollapsibleSection title="Tool Health" icon={Wrench}>
         {toolsLoading ? <div className="h-[100px] animate-pulse bg-muted rounded" /> : tools && <ToolHealth tools={tools.tools} />}

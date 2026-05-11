@@ -73,14 +73,6 @@ export interface AnalyticsTools {
     p95DurationMs: number;
     p99DurationMs: number;
   }[];
-  toolMix?: {
-    activity: string;
-    count: number;
-    pct: number;
-    totalDurationMs: number;
-    tools: { name: string; count: number; pct: number }[];
-  }[];
-  toolMixJobCount?: number;
 }
 
 export interface AnalyticsJobs {
