@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.domain import Job, JobSource, JobState, Preset, SessionEvent, SessionEventKind
+from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
 
 if TYPE_CHECKING:
@@ -458,6 +458,17 @@ class SessionStateWatcher:
         while self._running and not shutdown_seen:
             try:
                 if not events_path.exists():
+                    idle_polls += 1
+                    if idle_polls >= _IDLE_POLLS_BEFORE_LIVENESS and self._steer:
+                        idle_polls = 0
+                        alive = await self._steer.check_alive(session_id)
+                        if not alive:
+                            self._schedule_offset_persist(job_id, offset)
+                            await self._finalize_session(
+                                job_id, error_reason=error_reason or "session ended without clean shutdown",
+                            )
+                            shutdown_seen = True
+                            break
                     await asyncio.sleep(_TAIL_POLL_S)
                     continue
 
@@ -472,6 +483,7 @@ class SessionStateWatcher:
                         idle_polls = 0  # reset to avoid hammering API
                         alive = await self._steer.check_alive(session_id)
                         if not alive:
+                            self._schedule_offset_persist(job_id, offset)
                             await self._finalize_session(
                                 job_id, error_reason=error_reason or "session ended without clean shutdown",
                             )
@@ -503,6 +515,7 @@ class SessionStateWatcher:
                             error_reason = str(getattr(data, "message", None) or getattr(data, "error", None) or "session error")
                         elif kind_str == "session.shutdown":
                             shutdown_seen = True
+                            self._schedule_offset_persist(job_id, offset)
                             await self._finalize_session(job_id, error_reason=error_reason)
                     except json.JSONDecodeError:
                         log.debug("session_watcher_invalid_json", line=line[:200])
