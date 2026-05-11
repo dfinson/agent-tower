@@ -1921,12 +1921,16 @@ class RuntimeService:
 
         if recoverable:
             log.info("recovering_orphaned_jobs", count=len(recoverable))
+            recovery_tasks = []
             for job, state in recoverable:
                 log.debug("recovering_orphaned_job", job_id=job.id, state=state)
-                asyncio.create_task(
-                    self._recover_active_job(job.id),
-                    name=f"recover-{job.id}",
+                recovery_tasks.append(
+                    asyncio.create_task(
+                        self._recover_active_job(job.id),
+                        name=f"recover-{job.id}",
+                    )
                 )
+            await asyncio.gather(*recovery_tasks, return_exceptions=True)
 
         for job in queued_jobs:
             await self.start_or_enqueue(job)
