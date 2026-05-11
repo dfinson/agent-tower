@@ -379,8 +379,11 @@ async def _wire_core_services(
         coderecon_service=coderecon_service,
     )
 
-    # Recover orphaned jobs from a previous crash
-    await runtime_service.recover_on_startup()
+    # Recover orphaned jobs from a previous crash (background — don't block startup)
+    asyncio.create_task(
+        runtime_service.recover_on_startup(),
+        name="recover-on-startup",
+    )
 
     return _CoreServices(
         approval_service=approval_service,
