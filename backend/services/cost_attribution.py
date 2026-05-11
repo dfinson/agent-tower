@@ -64,7 +64,11 @@ class TurnContext(TypedDict):
 #
 # Each turn gets ONE activity label based on its highest-priority action.
 # Priority: implementation > verification > git_ops > setup > investigation
-#           > delegation > overhead > reasoning > communication
+#           > overhead > reasoning > communication
+#
+# 9 canonical categories:
+#   implementation, investigation, verification, git_ops, communication,
+#   debugging, setup, reasoning, overhead
 #
 # Shell commands are classified by their actual content, not the job prompt.
 # ---------------------------------------------------------------------------
@@ -110,23 +114,19 @@ def _classify_turn_intent(context: TurnContext) -> str:
     if "setup" in shell_intents:
         return "setup"
 
-    # Priority 5: Delegation to sub-agents
-    if has_delegation:
-        return "delegation"
-
-    # Priority 6: Investigation — reading, searching, browsing, git diff/log
-    if has_reads or has_search or "investigation" in shell_intents:
+    # Priority 5: Investigation — sub-agents, reading, searching, browsing
+    if has_delegation or has_reads or has_search or "investigation" in shell_intents:
         return "investigation"
 
-    # Priority 7: Unclassified shell commands (arbitrary bash)
+    # Priority 6: Unclassified shell commands (arbitrary bash)
     if "shell_other" in shell_intents:
         return "investigation"  # conservative: unknown bash is probably exploration
 
-    # Priority 8: Pure overhead — only bookkeeping tools, no real work
+    # Priority 7: Pure overhead — only bookkeeping tools, no real work
     if has_bookkeeping:
         return "overhead"
 
-    # Priority 9: Reasoning — only Think tool
+    # Priority 8: Reasoning — only Think tool
     if has_thinking:
         return "reasoning"
 
@@ -138,53 +138,21 @@ def _classify_turn_intent(context: TurnContext) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Sub-classification: implementation → feature_dev / refactoring / debugging
-# Adapted from CodeBurn's refineByKeywords first-match-position approach.
+# Sub-classification: implementation → debugging (when job context suggests it)
 # ---------------------------------------------------------------------------
 
 import re as _re
 
-_FEATURE_RE = _re.compile(
-    r"\b(add|create|implement|new|build|feature|introduce|support|enable)\b",
-    _re.IGNORECASE,
-)
 _DEBUG_RE = _re.compile(
     r"\b(fix|bug|error|broken|failing|crash|debug|issue|wrong|incorrect)\b",
     _re.IGNORECASE,
 )
-_REFACTOR_RE = _re.compile(
-    r"\b(refactor|clean\s*up|rename|reorganize|simplify|restructure|extract|deduplicate)\b",
-    _re.IGNORECASE,
-)
-
-_SUB_CLASSIFIERS = [
-    ("refactoring", _REFACTOR_RE),
-    ("debugging", _DEBUG_RE),
-    ("feature_dev", _FEATURE_RE),
-]
 
 
-def _sub_classify_implementation(description: str | None, motivation: str | None) -> str:
-    """Sub-classify 'implementation' into feature_dev / debugging / refactoring.
-
-    Uses CodeBurn's first-match-position approach: find the earliest regex
-    match across all candidates; tie-break by candidate order (refactoring
-    wins ties over debugging, debugging over feature_dev).
-    """
+def _is_debugging_context(description: str | None, motivation: str | None) -> bool:
+    """Detect whether the job context indicates debugging work."""
     text = (description or "") + " " + (motivation or "")
-    if not text.strip():
-        return "implementation"
-
-    best_pos = len(text) + 1
-    best_label = "implementation"
-
-    for label, pattern in _SUB_CLASSIFIERS:
-        m = pattern.search(text)
-        if m and m.start() < best_pos:
-            best_pos = m.start()
-            best_label = label
-
-    return best_label
+    return bool(_DEBUG_RE.search(text))
 
 
 def _classify_motivation(
