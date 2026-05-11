@@ -14,8 +14,6 @@ import {
   fetchYield,
   fetchCacheEfficiency,
   fetchModelEfficiency,
-  fetchOutcomeMatrix,
-  fetchActivityPhaseMatrix,
   fetchActionPurposeMatrix,
   fetchExecutiveSummary,
   exportCostDrivers,
@@ -29,8 +27,6 @@ import {
   type YieldResponse,
   type CacheEfficiencyResponse,
   type ModelEfficiencyResponse,
-  type OutcomeMatrixResponse,
-  type ActivityPhaseMatrixResponse,
   type ActionPurposeMatrixResponse,
   type ExecutiveSummaryResponse,
 } from "../api/client";
@@ -53,8 +49,7 @@ import {
   CacheEfficiencyChart,
 } from "./AnalyticsWidgets";
 import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
-import { OutcomeMatrix } from "./analytics/OutcomeMatrix";
-import { ActivityPhaseHeatmap } from "./analytics/ActivityPhaseHeatmap";
+
 import { ActionPurposeMatrix } from "./analytics/ActionPurposeMatrix";
 import { ExecutiveSummary } from "./analytics/ExecutiveSummary";
 import { type CostDriversData } from "./MetricsPanelTypes";
@@ -121,8 +116,7 @@ export function AnalyticsScreen() {
   const [cacheEfficiency, setCacheEfficiency] = useState<CacheEfficiencyResponse | null>(null);
   const [modelEfficiency, setModelEfficiency] = useState<ModelEfficiencyResponse | null>(null);
 
-  const [outcomeMatrix, setOutcomeMatrix] = useState<OutcomeMatrixResponse | null>(null);
-  const [activityPhaseMatrix, setActivityPhaseMatrix] = useState<ActivityPhaseMatrixResponse | null>(null);
+
   const [executiveSummary, setExecutiveSummary] = useState<ExecutiveSummaryResponse | null>(null);
 
   // Per-section loading states
@@ -216,13 +210,7 @@ export function AnalyticsScreen() {
 
 
 
-    fetchOutcomeMatrix(Math.max(period, 30))
-      .then(setOutcomeMatrix)
-      .catch(() => setOutcomeMatrix(null));
 
-    fetchActivityPhaseMatrix(Math.max(period, 30))
-      .then(setActivityPhaseMatrix)
-      .catch(() => setActivityPhaseMatrix(null));
 
     fetchExecutiveSummary(period)
       .then(setExecutiveSummary)
@@ -302,11 +290,7 @@ export function AnalyticsScreen() {
 
 
 
-      {/* Outcome × Activity cross-tab */}
-      <OutcomeMatrix data={outcomeMatrix} />
 
-      {/* Activity × Phase heatmap */}
-      <ActivityPhaseHeatmap data={activityPhaseMatrix} />
 
       {/* Top row: Budget + Activity */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
