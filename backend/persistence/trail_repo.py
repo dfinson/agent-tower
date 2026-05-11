@@ -351,25 +351,27 @@ class TrailNodeRepository:
 
     async def set_write_summary(self, node_id: str, summary: str) -> None:
         """Set the write_summary on a write sub-node."""
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as session:
             stmt = (
                 update(TrailNodeRow)
                 .where(TrailNodeRow.id == node_id)
                 .values(write_summary=summary)
             )
             await session.execute(stmt)
-            await session.commit()
 
     async def set_edit_motivations(self, node_id: str, motivations_json: str) -> None:
         """Set the edit_motivations JSON on a write sub-node."""
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as session:
             stmt = (
                 update(TrailNodeRow)
                 .where(TrailNodeRow.id == node_id)
                 .values(edit_motivations=motivations_json)
             )
             await session.execute(stmt)
-            await session.commit()
 
     async def update_tool_metadata(
         self,
@@ -396,7 +398,9 @@ class TrailNodeRepository:
         if not values:
             return False
 
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as session:
             stmt = (
                 update(TrailNodeRow)
                 .where(TrailNodeRow.job_id == job_id)
@@ -407,7 +411,6 @@ class TrailNodeRepository:
                 .values(**values)
             )
             result = cast(CursorResult[Any], await session.execute(stmt))
-            await session.commit()
             return (result.rowcount or 0) > 0
 
     async def get_snapshot_turns(self, job_id: str) -> list[TrailNodeRow]:
