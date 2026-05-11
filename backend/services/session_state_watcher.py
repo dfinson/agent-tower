@@ -245,6 +245,18 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                     if sid in self._tracked_sessions:
                         continue
                     self._tracked_sessions.add(sid)
+
+                    # Skip sessions that are already dead — no point creating a
+                    # job just to immediately finalize it.
+                    if self._steer:
+                        alive = await self._steer.check_alive(sid)
+                        if not alive:
+                            log.debug(
+                                "session_state_watcher_skip_dead",
+                                session_id=sid,
+                            )
+                            continue
+
                     log.info(
                         "session_state_watcher_discovered",
                         session_id=sid,
