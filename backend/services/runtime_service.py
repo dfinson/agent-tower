@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import enum
+import uuid
 from dataclasses import dataclass, replace as dataclass_replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
@@ -238,6 +239,8 @@ class RuntimeService:
         self._queued_resume_session_ids: dict[str, str] = {}
         # Contents to suppress when the SDK echoes them back (already published locally)
         self._echo_suppress: dict[str, set[str]] = {}
+        # Synthesized turn_id per job for SDKs that don't provide one
+        self._turn_ids: dict[str, str] = {}
         # Trail service (unified timeline, plan, activity tracking)
         self._trail_service = trail_service
         # Observer terminals: job_id → terminal session ID
@@ -1031,6 +1034,7 @@ class RuntimeService:
             router.cleanup_job(job_id)
         self._policy_batchers.pop(job_id, None)
         self._echo_suppress.pop(job_id, None)
+        self._turn_ids.pop(job_id, None)
         self._pending_starts.pop(job_id, None)
         self._queued_override_prompts.pop(job_id, None)
         self._queued_resume_session_ids.pop(job_id, None)
@@ -1251,6 +1255,21 @@ class RuntimeService:
         domain_event = self._translate_event(job_id, session_event)
         if domain_event is None:
             return EventAction.skip, None, None
+
+        # Ensure transcript events carry a turn_id for step tracking.
+        # Managed sessions (via CopilotAdapter) already include one; discovered
+        # sessions from the watchers don't.  Synthesize one and rotate it
+        # on each completed agent message (role=="agent") to mark turn boundaries.
+        if domain_event.kind == DomainEventKind.transcript_updated:
+            payload = domain_event.payload
+            if not payload.get("turn_id"):
+                tid = self._turn_ids.get(job_id)
+                if not tid:
+                    tid = str(uuid.uuid4())
+                    self._turn_ids[job_id] = tid
+                payload["turn_id"] = tid
+            if str(payload.get("role", "")) == "agent":
+                self._turn_ids[job_id] = str(uuid.uuid4())
 
         error_reason: str | None = None
         if domain_event.kind == DomainEventKind.job_failed:
