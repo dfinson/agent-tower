@@ -56,5 +56,16 @@ class CopilotSteerClient:
         except httpx.HTTPError:
             log.warning("copilot_steer_abort_error", task_id=task_id, exc_info=True)
 
+    async def check_alive(self, task_id: str) -> bool:
+        """GET /agents/tasks/{task_id} — returns True if the session exists (200), False on 404."""
+        url = f"{_STEER_BASE}/{task_id}"
+        try:
+            resp = await self._client.get(url)
+            return resp.status_code != 404
+        except httpx.HTTPError:
+            log.debug("copilot_steer_check_alive_error", task_id=task_id, exc_info=True)
+            # Network error — assume alive to avoid false positives
+            return True
+
     async def close(self) -> None:
         await self._client.aclose()
