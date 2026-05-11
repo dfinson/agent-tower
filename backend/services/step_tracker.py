@@ -153,7 +153,7 @@ class StepTracker:
             return
 
         if not turn_id and role not in ("operator", "divider"):
-            log.warning(
+            log.debug(
                 "step_tracker_missing_turn_id",
                 job_id=job_id,
                 role=role,
