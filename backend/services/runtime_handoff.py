@@ -33,15 +33,17 @@ async def load_handoff_context_for_job(
     from backend.persistence.trail_repo import TrailNodeRepository
     from backend.services.artifact_service import ArtifactService
 
-    artifact_repo = ArtifactRepository(session)
-    artifact_svc = ArtifactService(artifact_repo)
-    summary_artifact = await artifact_svc.get_latest_session_summary(job.id)
+    # Use short-lived sessions for reads so we don't hold an implicit
+    # transaction open across the (potentially long) summarisation call.
+    async with session_factory() as read_session:
+        artifact_svc = ArtifactService(ArtifactRepository(read_session))
+        summary_artifact = await artifact_svc.get_latest_session_summary(job.id)
+        log_artifact = await artifact_svc.get_session_log(job.id) if summary_artifact is None else None
 
     trail_repo = TrailNodeRepository(session_factory)
     changed_files = await trail_repo.get_all_changed_files(job.id)
 
     if summary_artifact is None and summarization_service is not None:
-        log_artifact = await artifact_svc.get_session_log(job.id)
         if log_artifact is not None:
             try:
                 import json as _json
