@@ -695,6 +695,7 @@ class Job:
     parent_job_id: str | None = None
     source: str = "managed"
     external_session_id: str | None = None
+    tail_offset: int = 0
 
 
 @dataclass

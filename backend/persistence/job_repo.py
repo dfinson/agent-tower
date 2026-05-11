@@ -86,6 +86,7 @@ class JobRepository(BaseRepository):
             parent_job_id=row.parent_job_id,
             source=row.source or "managed",
             external_session_id=row.external_session_id,
+            tail_offset=row.tail_offset or 0,
         )
 
     async def create(self, job: Job) -> Job:
@@ -123,6 +124,7 @@ class JobRepository(BaseRepository):
             parent_job_id=job.parent_job_id,
             source=job.source,
             external_session_id=job.external_session_id,
+            tail_offset=job.tail_offset,
         )
         self._session.add(row)
         await self._session.flush()
@@ -378,6 +380,10 @@ class JobRepository(BaseRepository):
     async def update_preset(self, job_id: str, preset: str) -> None:
         """Update the preset (permission policy) on a job."""
         await self._update_row(job_id, preset=preset)
+
+    async def update_tail_offset(self, job_id: str, offset: int) -> None:
+        """Persist the events.jsonl tail offset for resume-after-restart."""
+        await self._update_row(job_id, tail_offset=offset)
 
     # ------------------------------------------------------------------
     # Retention helpers
