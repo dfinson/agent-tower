@@ -213,15 +213,11 @@ class ConsoleLog:
 
         if kind == DomainEventKind.job_created:
             self._jobs[event.job_id] = _JobInfo(event.job_id)
-            self._print_event(ts, "○", "queued", event.job_id, "created")
 
         elif kind == DomainEventKind.job_state_changed:
             new_state = str(event.payload.get("new_state", ""))
             if event.job_id not in self._jobs:
                 self._jobs[event.job_id] = _JobInfo(event.job_id)
-            label = new_state.replace("_", " ")
-            icon = _STATE_ICON.get(new_state, "?")
-            self._print_event(ts, icon, new_state, event.job_id, label)
 
         elif kind in (
             DomainEventKind.job_review,
