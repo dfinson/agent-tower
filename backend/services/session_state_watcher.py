@@ -850,7 +850,7 @@ class SessionStateWatcher:
                 job_id=job_id,
                 timestamp=now,
                 kind=DomainEventKind.job_review,
-                payload={"resolution": "done"},
+                payload={"resolution": "unresolved"},
             ))
 
         # Notify processor for step cleanup

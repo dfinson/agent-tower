@@ -476,3 +476,119 @@ class TestIngestServiceRouting:
 
         await ingest.abort_session("job-2")
         claude_watcher.abort_session.assert_called_once_with("job-2")
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: double finalization guard (RT-4)
+# ---------------------------------------------------------------------------
+
+
+class TestDoubleFinalizationGuard:
+    @pytest.mark.anyio
+    async def test_finalize_only_runs_once(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        db_session: async_sessionmaker[AsyncSession],
+        event_bus: AsyncMock,
+        event_processor: MagicMock,
+    ) -> None:
+        """Second call to _finalize_session should be a no-op."""
+        from backend.models.domain import Job, JobSource, JobState
+        from backend.persistence.job_repo import JobRepository
+
+        async with db_session() as session:
+            repo = JobRepository(session)
+            job = Job(
+                id="job-fin",
+                repo="/repo",
+                prompt="test",
+                state=JobState.running,
+                source=JobSource.claude_cli,
+                external_session_id="sess-fin",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+                sdk="claude",
+                base_ref="HEAD",
+                branch="main",
+                worktree_path="/repo",
+                session_id=None,
+            )
+            await repo.create(job)
+            await session.commit()
+
+        watcher._session_to_job["sess-fin"] = "job-fin"
+        watcher._job_to_session["job-fin"] = "sess-fin"
+
+        # First call should succeed
+        await watcher._finalize_session("job-fin")
+        assert event_bus.publish.call_count >= 1
+
+        # Second call should be no-op (guard prevents re-entry)
+        call_count_before = event_bus.publish.call_count
+        await watcher._finalize_session("job-fin")
+        assert event_bus.publish.call_count == call_count_before
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: session cleanup allows re-discovery (RT-10)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionCleanupReDiscovery:
+    @pytest.mark.anyio
+    async def test_finalize_removes_from_tracked(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        db_session: async_sessionmaker[AsyncSession],
+    ) -> None:
+        """After finalization, session_id should be removed from _tracked_sessions."""
+        from backend.models.domain import Job, JobSource, JobState
+        from backend.persistence.job_repo import JobRepository
+
+        async with db_session() as session:
+            repo = JobRepository(session)
+            job = Job(
+                id="job-re",
+                repo="/repo",
+                prompt="test",
+                state=JobState.running,
+                source=JobSource.claude_cli,
+                external_session_id="sess-re",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+                sdk="claude",
+                base_ref="HEAD",
+                branch="main",
+                worktree_path="/repo",
+                session_id=None,
+            )
+            await repo.create(job)
+            await session.commit()
+
+        watcher._tracked_sessions.add("sess-re")
+        watcher._session_to_job["sess-re"] = "job-re"
+        watcher._job_to_session["job-re"] = "sess-re"
+
+        await watcher._finalize_session("job-re")
+
+        # Session should be removed from tracked set
+        assert "sess-re" not in watcher._tracked_sessions
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: liveness check with cwd (RT-1)
+# ---------------------------------------------------------------------------
+
+
+class TestLivenessCheck:
+    def test_liveness_returns_false_when_no_proc(self) -> None:
+        """On real system with no matching claude process, should return False."""
+        result = _is_claude_process_alive("nonexistent-session-id", "/tmp/nonexistent")
+        assert result is False
+
+    def test_liveness_with_none_repo_path(self) -> None:
+        """Should not crash when repo_path is None. Returns True if any claude process."""
+        # This is a smoke test — behavior depends on whether claude is running.
+        # Main goal: no exception raised.
+        result = _is_claude_process_alive("nonexistent-session-id", None)
+        assert isinstance(result, bool)

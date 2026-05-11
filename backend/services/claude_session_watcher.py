@@ -14,7 +14,6 @@ import asyncio
 import hashlib
 import json
 import math
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -67,17 +66,31 @@ def _encode_cwd(path: str) -> str:
     return path.replace("/", "-")
 
 
-def _is_claude_process_alive(session_id: str) -> bool:
-    """Check if a claude process with this session ID is still running via /proc."""
+def _is_claude_process_alive(session_id: str, repo_path: str | None = None) -> bool:
+    """Check if a Claude CLI process is still running for this session's workspace.
+
+    Claude CLI does NOT put the session_id in its argv, so we cannot match by
+    session_id alone. Instead we look for any ``claude`` process whose working
+    directory (``/proc/PID/cwd``) resolves to the session's repo path.
+    Falls back to checking if ANY claude process exists when repo_path is unknown.
+    """
     try:
+        repo_path_resolved = Path(repo_path).resolve() if repo_path else None
         for pid_dir in Path("/proc").iterdir():
             if not pid_dir.name.isdigit():
                 continue
             cmdline_path = pid_dir / "cmdline"
             try:
                 cmdline = cmdline_path.read_bytes()
-                # /proc cmdline uses null bytes as separators
-                if b"claude" in cmdline and session_id.encode() in cmdline:
+                if b"claude" not in cmdline:
+                    continue
+                # If we have a repo_path, check if the process cwd matches
+                if repo_path_resolved is not None:
+                    proc_cwd = (pid_dir / "cwd").resolve()
+                    if proc_cwd == repo_path_resolved:
+                        return True
+                else:
+                    # No repo_path — any claude process counts
                     return True
             except (OSError, PermissionError):
                 continue
@@ -129,6 +142,8 @@ class ClaudeSessionStateWatcher:
         self._pending_messages: dict[str, list[str]] = {}
         # Per-job prompt capture (first user message)
         self._prompt_captured: set[str] = set()
+        # Guard: jobs currently being finalized (prevent double finalization)
+        self._finalizing: set[str] = set()
 
     # ------------------------------------------------------------------
     # Public interface
@@ -208,7 +223,13 @@ class ClaudeSessionStateWatcher:
         return f"http://{host}:{port}/api/hooks/claude"
 
     def _install_stop_hook(self) -> None:
-        """Write Stop hook entry into ~/.claude/settings.json."""
+        """Write Stop hook entry into ~/.claude/settings.json.
+
+        Uses atomic write (temp file + rename) to avoid TOCTOU races with
+        concurrent writers (other Claude instances, user edits).
+        """
+        import tempfile
+
         hook_url = self._get_hook_url()
         settings_dir = _CLAUDE_SETTINGS_PATH.parent
         settings_dir.mkdir(parents=True, exist_ok=True)
@@ -227,7 +248,18 @@ class ClaudeSessionStateWatcher:
             # Add our hook URL if not already present
             if hook_url not in stop_hooks:
                 stop_hooks.append(hook_url)
-                _CLAUDE_SETTINGS_PATH.write_text(json.dumps(settings, indent=2) + "\n")
+                # Atomic write: write temp file in same dir, then rename
+                fd, tmp_path = tempfile.mkstemp(
+                    dir=str(settings_dir), suffix=".tmp", prefix=".settings-",
+                )
+                try:
+                    with open(fd, "w") as f:
+                        json.dump(settings, f, indent=2)
+                        f.write("\n")
+                    Path(tmp_path).replace(_CLAUDE_SETTINGS_PATH)
+                except BaseException:
+                    Path(tmp_path).unlink(missing_ok=True)
+                    raise
                 log.info("claude_watcher_hook_installed", url=hook_url)
             else:
                 log.debug("claude_watcher_hook_already_present", url=hook_url)
@@ -266,7 +298,10 @@ class ClaudeSessionStateWatcher:
 
             # Re-attach or finalize running claude_cli jobs
             for job_id, ext_sid, offset, wt, base, repo in running_jobs:
-                alive = await asyncio.to_thread(_is_claude_process_alive, ext_sid)
+                repo_for_liveness = wt or repo or None
+                alive = await asyncio.to_thread(
+                    _is_claude_process_alive, ext_sid, repo_for_liveness,
+                )
 
                 if not alive:
                     log.info("claude_watcher_orphan_detected", job_id=job_id, session_id=ext_sid)
@@ -427,6 +462,35 @@ class ClaudeSessionStateWatcher:
         job_id = f"{repo_slug}-{hex_suffix}"
 
         now = datetime.now(UTC)
+
+        # Check if job already exists (resumed session after finalization)
+        try:
+            async with self._session_factory() as session:
+                from backend.persistence.job_repo import JobRepository
+                repo = JobRepository(session)
+                existing = await repo.get(job_id)
+                if existing is not None:
+                    # Re-activate the existing job — clear finalization guard
+                    self._finalizing.discard(job_id)
+                    await repo.update_state(
+                        job_id, JobState.running, updated_at=now,
+                    )
+                    await session.commit()
+                    log.info(
+                        "claude_watcher_job_reactivated",
+                        job_id=job_id, session_id=session_id,
+                    )
+                    await self._event_bus.publish(DomainEvent(
+                        event_id=DomainEvent.make_event_id(),
+                        job_id=job_id,
+                        timestamp=now,
+                        kind=DomainEventKind.job_state_changed,
+                        payload={"state": JobState.running, "new_state": JobState.running},
+                    ))
+                    return existing
+        except Exception:
+            log.debug("claude_watcher_job_check_failed", job_id=job_id, exc_info=True)
+
         job = Job(
             id=job_id,
             repo=repo_path,
@@ -513,7 +577,10 @@ class ClaudeSessionStateWatcher:
                     idle_polls += 1
                     if idle_polls >= _IDLE_POLLS_BEFORE_LIVENESS:
                         idle_polls = 0
-                        alive = await asyncio.to_thread(_is_claude_process_alive, session_id)
+                        repo_path = self._job_worktrees.get(job_id)
+                        alive = await asyncio.to_thread(
+                            _is_claude_process_alive, session_id, repo_path,
+                        )
                         if not alive:
                             self._schedule_offset_persist(job_id, offset)
                             await self._finalize_session(job_id, error_reason="session file disappeared")
@@ -531,7 +598,10 @@ class ClaudeSessionStateWatcher:
                     idle_polls += 1
                     if idle_polls >= _IDLE_POLLS_BEFORE_LIVENESS:
                         idle_polls = 0
-                        alive = await asyncio.to_thread(_is_claude_process_alive, session_id)
+                        repo_path = self._job_worktrees.get(job_id)
+                        alive = await asyncio.to_thread(
+                            _is_claude_process_alive, session_id, repo_path,
+                        )
                         if not alive:
                             self._schedule_offset_persist(job_id, offset)
                             await self._finalize_session(job_id)
@@ -546,6 +616,15 @@ class ClaudeSessionStateWatcher:
                 idle_polls = 0
 
                 buffer += new_data.decode("utf-8", errors="replace")
+
+                # Prevent unbounded buffer growth from a single massive line
+                if "\n" not in buffer and len(buffer) > _MAX_READ_CHUNK:
+                    log.warning(
+                        "claude_watcher_line_too_long",
+                        job_id=job_id, size=len(buffer),
+                    )
+                    buffer = ""
+
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
                     line = line.strip()
@@ -841,6 +920,11 @@ class ClaudeSessionStateWatcher:
         self, job_id: str, *, error_reason: str | None = None,
     ) -> None:
         """Transition job to review (clean) or failed (error/orphan)."""
+        # Guard against double finalization (liveness + last-prompt race)
+        if job_id in self._finalizing:
+            return
+        self._finalizing.add(job_id)
+
         now = datetime.now(UTC)
         new_state = JobState.failed if error_reason else JobState.review
 
@@ -871,7 +955,7 @@ class ClaudeSessionStateWatcher:
                 job_id=job_id,
                 timestamp=now,
                 kind=DomainEventKind.job_review,
-                payload={"resolution": "done"},
+                payload={"resolution": "unresolved"},
             ))
 
         # Notify processor for step cleanup
@@ -883,9 +967,14 @@ class ClaudeSessionStateWatcher:
         self._pending_telemetry.pop(job_id, None)
         self._pending_messages.pop(job_id, None)
         self._prompt_captured.discard(job_id)
+        # Note: do NOT remove from _finalizing here — the guard must persist
+        # to prevent double-finalization from concurrent triggers.
         sid_to_remove = self._job_to_session.pop(job_id, None)
         if sid_to_remove:
             self._session_to_job.pop(sid_to_remove, None)
+            # Allow re-discovery if session is resumed later
+            self._tracked_sessions.discard(sid_to_remove)
+            self._tail_tasks.pop(sid_to_remove, None)
 
         # Release sister session
         if self._sister_sessions:
