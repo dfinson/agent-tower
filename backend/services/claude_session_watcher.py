@@ -56,6 +56,55 @@ _SESSION_ID_PATTERN = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU
 # Regex to match JSONL session files (UUID format)
 _SESSION_FILE_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$")
 
+# ---------------------------------------------------------------------------
+# Model pricing cache (loaded once from bundled JSON)
+# ---------------------------------------------------------------------------
+
+_MODEL_PRICING: dict[str, dict[str, float]] | None = None
+_PRICING_PATH = Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
+
+
+def _get_pricing() -> dict[str, dict[str, float]]:
+    """Load model pricing data ($/MTok) from bundled JSON. Cached."""
+    global _MODEL_PRICING  # noqa: PLW0603
+    if _MODEL_PRICING is None:
+        try:
+            _MODEL_PRICING = json.loads(_PRICING_PATH.read_text())
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            log.debug("claude_watcher_pricing_unavailable")
+            _MODEL_PRICING = {}
+    return _MODEL_PRICING
+
+
+def _normalize_model_key(model: str) -> str:
+    """Normalize model name to match pricing keys (lowercase, non-alnum → hyphen)."""
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]", "-", model.lower())).strip("-")
+
+
+def _compute_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int,
+    cache_write_tokens: int,
+) -> float:
+    """Compute USD cost from token counts using bundled pricing data.
+
+    Returns 0.0 if model is unknown or pricing data unavailable.
+    """
+    pricing = _get_pricing()
+    entry = pricing.get(model) or pricing.get(_normalize_model_key(model))
+    if not entry:
+        return 0.0
+    # Pricing values are $/MTok (per 1M tokens)
+    cost = (
+        input_tokens * entry.get("input", 0)
+        + output_tokens * entry.get("output", 0)
+        + cache_read_tokens * entry.get("cache_read", 0)
+        + cache_write_tokens * entry.get("cache_write", 0)
+    ) / 1_000_000
+    return cost
+
 
 def _encode_cwd(path: str) -> str:
     """Encode a cwd path to the Claude projects directory name format.
@@ -789,6 +838,19 @@ class ClaudeSessionStateWatcher:
                     )
                     await self._feed_event(job_id, session_event)
 
+                    # Emit file_changed for file-write tools to trigger diff
+                    from backend.services.tool_classifier import (
+                        classify_tool,
+                        extract_file_paths,
+                    )
+                    if classify_tool(tool_name) == "file_write":
+                        paths = extract_file_paths(tool_name, args_str)
+                        for fpath in paths:
+                            await self._feed_event(job_id, SessionEvent(
+                                kind=SessionEventKind.file_changed,
+                                payload={"path": fpath},
+                            ))
+
                 elif block_type == "tool_result":
                     tool_name = block.get("name", "tool")
                     result_content = block.get("content", "")
@@ -830,12 +892,18 @@ class ClaudeSessionStateWatcher:
         tel.tokens_cache_write.add(cache_write, attrs)
         tel.messages_counter.add(1, {**attrs, "role": "agent"})
 
+        # Compute cost from bundled model pricing
+        cost_usd = _compute_cost(model, input_toks, output_toks, cache_read, cache_write)
+        if cost_usd > 0:
+            tel.cost_usd.add(cost_usd, attrs)
+
         # Accumulate for atomic flush with offset
         self._accumulate_telemetry(job_id, {
             "input_tokens": input_toks,
             "output_tokens": output_toks,
             "cache_read_tokens": cache_read,
             "cache_write_tokens": cache_write,
+            "total_cost_usd": cost_usd,
             "llm_call_count": 1,
         })
         if model:
