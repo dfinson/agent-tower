@@ -580,6 +580,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     init_telemetry()
 
+    # Install a custom asyncio exception handler to suppress benign
+    # InvalidStateError from the Copilot SDK's JSON-RPC transport.
+    # The SDK reader thread schedules call_soon_threadsafe(future.set_result)
+    # which can race with _fail_pending_requests on session teardown.
+    _loop = asyncio.get_running_loop()
+    _default_handler = _loop.get_exception_handler()
+
+    def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        exc = context.get("exception")
+        if isinstance(exc, asyncio.InvalidStateError):
+            log.debug("asyncio_invalid_state_suppressed", message=context.get("message", ""))
+            return
+        if _default_handler is not None:
+            _default_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    _loop.set_exception_handler(_asyncio_exception_handler)
+
     engine = create_engine()
     session_factory = create_session_factory(engine)
 
