@@ -559,7 +559,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
         # Check if job already exists (resumed session after finalization)
         try:
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
                 repo = JobRepository(session)
                 existing = await repo.get(job_id)
@@ -569,7 +571,6 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                     await repo.update_state(
                         job_id, JobState.running, updated_at=now,
                     )
-                    await session.commit()
                     log.info(
                         "claude_watcher_job_reactivated",
                         job_id=job_id, session_id=session_id,
@@ -603,7 +604,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
         # Persist job + initialize telemetry summary
         try:
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
                 repo = JobRepository(session)
@@ -611,7 +614,6 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 await TelemetrySummaryRepository(session).init_job(
                     job_id, sdk="claude", repo=repo_path, branch=branch,
                 )
-                await session.commit()
         except Exception:
             log.warning("claude_watcher_job_create_failed", session_id=session_id, exc_info=True)
             return None
@@ -977,13 +979,14 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     async def _set_job_prompt(self, job_id: str, content: str) -> None:
         """Set job prompt from first user message."""
         try:
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
                 repo = JobRepository(session)
                 job = await repo.get(job_id)
                 if job and job.prompt == "(discovered CLI session)":
                     await repo.update_prompt(job_id, content[:500])
-                    await session.commit()
         except Exception:
             log.debug("claude_watcher_prompt_update_failed", job_id=job_id, exc_info=True)
 
@@ -1004,14 +1007,15 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         new_state = JobState.failed if error_reason else JobState.review
 
         try:
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
                 repo = JobRepository(session)
                 await repo.update_state(
                     job_id, new_state, updated_at=now, completed_at=now,
                     failure_reason=error_reason,
                 )
-                await session.commit()
         except Exception:
             log.warning("claude_watcher_finalize_failed", job_id=job_id, exc_info=True)
             return
