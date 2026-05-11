@@ -1893,8 +1893,8 @@ class RuntimeService:
         unreachable: list[tuple[Job, JobState]] = []
         recoverable: list[tuple[Job, JobState]] = []
         for job, state in orphaned_jobs:
-            wt = job.worktree_path
-            if wt and wt != job.repo and not _Path(wt).exists():
+            wt = job.worktree_path or job.repo
+            if wt and not _Path(wt).exists():
                 unreachable.append((job, state))
             else:
                 recoverable.append((job, state))
