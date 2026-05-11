@@ -92,10 +92,12 @@ export function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
             />
           </div>
           {dailyPct > 80 && (
-            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400">
+            <Tooltip content="Agent spend today is close to your configured daily cap. New jobs may be throttled once the limit is reached.">
+            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400 cursor-help">
               <AlertTriangle size={11} />
               Approaching daily limit
             </div>
+            </Tooltip>
           )}
         </div>
       )}
@@ -117,10 +119,12 @@ export function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
             />
           </div>
           {quotaInfo.pct > 80 && (
-            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400">
+            <Tooltip content="Your Copilot API quota is nearly exhausted for this billing period. Jobs may be denied once 100% is reached.">
+            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400 cursor-help">
               <AlertTriangle size={11} />
               Approaching quota limit
             </div>
+            </Tooltip>
           )}
         </div>
       )}
@@ -152,16 +156,20 @@ export function BudgetCard({ scorecard }: { scorecard: ScorecardResponse }) {
             </Tooltip>
           </div>
           {scorecard.pctMonthlyBudgetUsed > 0.8 && (
-            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400">
+            <Tooltip content="Monthly agent spend is approaching your configured budget. Consider reducing job concurrency or pausing lower-priority work.">
+            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400 cursor-help">
               <AlertTriangle size={11} />
               Approaching monthly budget
             </div>
+            </Tooltip>
           )}
           {scorecard.projectedMonthEndUsd > scorecard.monthlyBudgetUsd && (
-            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400">
+            <Tooltip content="Based on your average daily spend so far, you're on track to exceed your monthly budget. Projection = daily average × days in month.">
+            <div className="flex items-center gap-1 mt-1 text-[11px] text-red-400 cursor-help">
               <AlertTriangle size={11} />
               Projected month-end: {formatUsd(scorecard.projectedMonthEndUsd)} (exceeds {formatUsd(scorecard.monthlyBudgetUsd)} budget by {Math.round(((scorecard.projectedMonthEndUsd - scorecard.monthlyBudgetUsd) / scorecard.monthlyBudgetUsd) * 100)}%)
             </div>
+            </Tooltip>
           )}
         </div>
       )}

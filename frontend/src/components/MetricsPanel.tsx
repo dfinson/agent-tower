@@ -15,7 +15,7 @@ import type {
   TelemetryData, LLMCall, SortField, SortDir, ToolAggregate,
   SessionCheckpoint, SessionSummaryJson,
 } from "./MetricsPanelTypes";
-import { formatDuration, formatTokens, formatUsd, formatActivityBucket, ACTIVITY_DESCRIPTIONS } from "./MetricsPanelTypes";
+import { formatDuration, formatTokens, formatUsd, formatActivityBucket, mergeActivityBuckets, ACTIVITY_DESCRIPTIONS } from "./MetricsPanelTypes";
 import {
   useModelPricing,
   CacheEfficiencyBar,
@@ -187,7 +187,7 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
   // Dynamic model pricing from backend
   const modelPricing = useModelPricing(data?.model ?? data?.mainModel);
-  const activityBuckets = data?.costDrivers?.activity ?? [];
+  const activityBuckets = mergeActivityBuckets(data?.costDrivers?.activity ?? []);
   const editEfficiencyBuckets = data?.costDrivers?.editEfficiency ?? [];
   const turnEconomics = data?.turnEconomics;
   const turnCurve = turnEconomics?.turnCurve ?? [];
@@ -264,10 +264,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   {data.agentMessages ?? 0} agent{(data.operatorMessages ?? 0) > 0 ? ` / ${data.operatorMessages} operator` : ""}
                 </span>
                 {(data.approvalCount ?? 0) > 0 && (
-                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                  <Tooltip content="Times the agent paused to ask for human approval before proceeding (e.g. destructive commands, sensitive operations). Wait time = how long the agent was blocked.">
+                  <span className="flex items-center gap-1.5 text-muted-foreground cursor-help">
                     <AlertTriangle size={12} />
                     {data.approvalCount} approval{data.approvalCount !== 1 ? "s" : ""} ({formatDuration(data.totalApprovalWaitMs ?? 0)} wait)
                   </span>
+                  </Tooltip>
                 )}
               </div>
 
@@ -366,10 +368,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                       color={(data.contextUtilization ?? 0) > 0.8 ? "red" : "blue"}
                     />
                     {(data.compactions ?? 0) > 0 && (
-                      <p className="text-xs text-yellow-400 mt-1.5 flex items-center gap-1">
+                      <Tooltip content="Compaction = the agent's conversation exceeded the model's context window so older messages were summarized and dropped. Tokens removed are no longer visible to the agent, which can cause repeated work.">
+                      <p className="text-xs text-yellow-400 mt-1.5 flex items-center gap-1 cursor-help">
                         <ArrowDownUp size={10} />
                         {data.compactions} compaction{data.compactions !== 1 ? "s" : ""} ({formatTokens(data.tokensCompacted ?? 0)} removed)
                       </p>
+                      </Tooltip>
                     )}
                   </div>
                 ) : null}
@@ -408,13 +412,15 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
 
                       {/* Rework banner */}
                       {reworkStats.retries > 0 && (
-                        <div className="flex items-center gap-2 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-2 text-xs">
+                        <Tooltip content="Rework = turns where the agent re-edited the same file to fix errors from a previous edit. High rework means the agent is looping on mistakes, burning tokens without forward progress.">
+                        <div className="flex items-center gap-2 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-2 text-xs cursor-help">
                           <AlertTriangle size={12} className="text-amber-400 shrink-0" />
                           <span>
                             <span className="font-semibold text-amber-400">Rework: {formatUsd(reworkStats.cost)}</span>
                             <span className="text-muted-foreground"> ({(reworkStats.fraction * 100).toFixed(0)}%) — {reworkStats.retries} retry loop{reworkStats.retries !== 1 ? "s" : ""} across {reworkStats.editTurns} edit turn{reworkStats.editTurns !== 1 ? "s" : ""}</span>
                           </span>
                         </div>
+                        </Tooltip>
                       )}
 
                       {/* Activity breakdown rows */}

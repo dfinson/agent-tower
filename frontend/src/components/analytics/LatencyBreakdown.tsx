@@ -47,7 +47,24 @@ export function LatencyBreakdown({
   // Primary view: activity buckets (like cost breakdown)
   const segments = useMemo(() => {
     const buckets = activityBuckets.length > 0 ? activityBuckets : categoryBuckets;
-    const sorted = [...buckets].sort(
+    // Merge buckets that map to the same display label
+    const map = new Map<string, LatencyBucketData>();
+    for (const b of buckets) {
+      const label = formatActivityBucket(b.bucket);
+      const existing = map.get(label);
+      if (existing) {
+        existing.wallClockMs += b.wallClockMs;
+        existing.sumDurationMs += b.sumDurationMs;
+        existing.spanCount += b.spanCount;
+        existing.pctOfTotal += b.pctOfTotal;
+        existing.p50Ms = Math.max(existing.p50Ms, b.p50Ms);
+        existing.p95Ms = Math.max(existing.p95Ms, b.p95Ms);
+        existing.maxMs = Math.max(existing.maxMs, b.maxMs);
+      } else {
+        map.set(label, { ...b });
+      }
+    }
+    const sorted = Array.from(map.values()).sort(
       (a, b) => b.wallClockMs - a.wallClockMs,
     );
     // Add idle as a synthetic segment
@@ -71,7 +88,7 @@ export function LatencyBreakdown({
         : []),
     ];
     return all;
-  }, [categoryBuckets, idleMs, totalDurationMs]);
+  }, [activityBuckets, categoryBuckets, idleMs, totalDurationMs]);
 
   if (totalDurationMs <= 0 || segments.length === 0) {
     return null;

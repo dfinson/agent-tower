@@ -110,6 +110,10 @@ def _classify_turn_intent(
     if has_writes:
         return "debugging" if is_debug_job else "implementation"
 
+    # Priority 1b: Shell commands that modify files (sed, rm, mv, cp, etc.)
+    if "implementation" in shell_intents:
+        return "debugging" if is_debug_job else "implementation"
+
     # Priority 2: If the agent ran tests, this is verification
     if "verification" in shell_intents:
         return "verification"

@@ -282,6 +282,27 @@ export function formatActivityBucket(bucket: string): string {
   }
 }
 
+/**
+ * Merge activity buckets that resolve to the same display label.
+ * E.g. "delegation", "code_reading", "search_discovery" all → "Investigation".
+ */
+export function mergeActivityBuckets(buckets: CostDriverBucket[]): CostDriverBucket[] {
+  const map = new Map<string, CostDriverBucket>();
+  for (const b of buckets) {
+    const label = formatActivityBucket(b.bucket);
+    const existing = map.get(label);
+    if (existing) {
+      existing.costUsd += b.costUsd;
+      existing.inputTokens += b.inputTokens;
+      existing.outputTokens += b.outputTokens;
+      existing.callCount += b.callCount;
+    } else {
+      map.set(label, { ...b });
+    }
+  }
+  return Array.from(map.values());
+}
+
 // ---------------------------------------------------------------------------
 // Activity descriptions — explains what each cost category actually means
 // ---------------------------------------------------------------------------

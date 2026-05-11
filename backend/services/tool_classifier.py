@@ -161,7 +161,11 @@ _RE_SHELL_SETUP = re.compile(
     re.IGNORECASE,
 )
 _RE_SHELL_INVESTIGATE = re.compile(
-    r"\b(find|ls|cat|head|tail|wc|tree|du|file|grep|awk|sed|diff|less|more|stat|strings)\b",
+    r"\b(find|ls|cat|head|tail|wc|tree|du|file|grep|awk|diff|less|more|stat|strings)\b",
+    re.IGNORECASE,
+)
+_RE_SHELL_IMPLEMENT = re.compile(
+    r"\b(sed|rm|mv|cp|chmod|chown|mkdir|touch|tee|patch|install)\b",
     re.IGNORECASE,
 )
 
@@ -169,7 +173,7 @@ _RE_SHELL_INVESTIGATE = re.compile(
 def classify_shell_command(cmd: str) -> str:
     """Classify a shell command string into an activity.
 
-    Returns one of: verification, git_ops, setup, investigation, shell_other.
+    Returns one of: verification, git_ops, setup, implementation, investigation, shell_other.
     """
     if _RE_SHELL_TEST.search(cmd):
         return "verification"
@@ -179,6 +183,8 @@ def classify_shell_command(cmd: str) -> str:
         return "setup"
     if _RE_SHELL_GIT_READ.search(cmd):
         return "git_ops"
+    if _RE_SHELL_IMPLEMENT.search(cmd):
+        return "implementation"
     if _RE_SHELL_INVESTIGATE.search(cmd):
         return "investigation"
     return "shell_other"

@@ -49,7 +49,7 @@ export function FleetCostDriverInsights({ fleetDrivers, period }: { fleetDrivers
 
   const activityRows = useMemo<ActivityRow[]>(() => {
     const summary = fleetDrivers.summary ?? [];
-    return summary
+    const raw = summary
       .filter((row) => row.dimension === "activity")
       .map((row) => ({
         bucket: row.bucket,
@@ -61,8 +61,26 @@ export function FleetCostDriverInsights({ fleetDrivers, period }: { fleetDrivers
         callCount: row.callCount ?? 0,
         jobCount: row.jobCount ?? 0,
         avgCostPerJob: row.avgCostPerJob ?? 0,
-      }))
-      .sort((a, b) => b.costUsd - a.costUsd);
+      }));
+    // Merge buckets that map to the same display label (e.g. delegation → Investigation)
+    const map = new Map<string, ActivityRow>();
+    for (const r of raw) {
+      const label = formatActivityBucket(r.bucket);
+      const existing = map.get(label);
+      if (existing) {
+        existing.costUsd += r.costUsd;
+        existing.inputTokens += r.inputTokens;
+        existing.outputTokens += r.outputTokens;
+        existing.cacheReadTokens += r.cacheReadTokens;
+        existing.cacheWriteTokens += r.cacheWriteTokens;
+        existing.callCount += r.callCount;
+        existing.jobCount = Math.max(existing.jobCount, r.jobCount);
+        existing.avgCostPerJob = existing.jobCount > 0 ? existing.costUsd / existing.jobCount : 0;
+      } else {
+        map.set(label, { ...r, bucket: r.bucket });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.costUsd - a.costUsd);
   }, [fleetDrivers.summary]);
 
   const totalCost = useMemo(() => activityRows.reduce((s, r) => s + r.costUsd, 0), [activityRows]);
