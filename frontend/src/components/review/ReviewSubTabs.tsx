@@ -1,29 +1,32 @@
 /**
- * Sub-tab bar for the Review tab — switches between Dashboard, Timeline, Communities, and Story.
+ * Sub-tab bar for the Review tab — switches between Changes, Dashboard, Timeline, Communities, and Story.
  */
-import { LayoutDashboard, Clock, BookOpen, Network } from "lucide-react";
+import { LayoutDashboard, Clock, BookOpen, Network, GitBranch } from "lucide-react";
 
-export type ReviewSubView = "dashboard" | "timeline" | "communities" | "story";
+export type ReviewSubView = "changes" | "dashboard" | "timeline" | "communities" | "story";
 
 interface ReviewSubTabsProps {
   active: ReviewSubView;
   onChange: (view: ReviewSubView) => void;
+  showChanges?: boolean;
   showDashboard?: boolean;
   showTimeline: boolean;
   showCommunities?: boolean;
 }
 
 const TABS: Array<{ id: ReviewSubView; icon: typeof LayoutDashboard; label: string }> = [
+  { id: "changes", icon: GitBranch, label: "Changes" },
   { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { id: "timeline", icon: Clock, label: "Timeline" },
   { id: "communities", icon: Network, label: "Communities" },
   { id: "story", icon: BookOpen, label: "Story" },
 ];
 
-export function ReviewSubTabs({ active, onChange, showDashboard = true, showTimeline, showCommunities = true }: ReviewSubTabsProps) {
+export function ReviewSubTabs({ active, onChange, showChanges = true, showDashboard = true, showTimeline, showCommunities = true }: ReviewSubTabsProps) {
   return (
     <div className="flex items-center gap-1 px-4 pt-3 pb-1">
       {TABS.map(({ id, icon: Icon, label }) => {
+        if (id === "changes" && !showChanges) return null;
         if (id === "dashboard" && !showDashboard) return null;
         if (id === "timeline" && !showTimeline) return null;
         if (id === "communities" && !showCommunities) return null;

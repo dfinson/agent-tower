@@ -19,6 +19,7 @@ import { JobDetailSkeleton } from "./JobDetailSkeleton";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import { cn } from "../lib/utils";
 import type { StepFilter } from "./DiffViewer";
+import type { ReviewSubView } from "./review/ReviewSubTabs";
 import { ActivityPanel } from "./ActivityPanel";
 import { ViewTabBar } from "./ViewTabBar";
 import { StructuralWarningBanner } from "./StructuralWarningBanner";
@@ -27,7 +28,6 @@ import { JobHeaderCard } from "./JobHeaderCard";
 import { MobileBottomNav, MobileFooterActions } from "./JobDetailMobile";
 
 const WorkspaceBrowser = lazyRetry(() => import("./WorkspaceBrowser"));
-const DiffViewer = lazyRetry(() => import("./DiffViewer"));
 const ArtifactViewer = lazyRetry(() => import("./ArtifactViewer"));
 const ReviewDashboard = lazyRetry(() => import("./ReviewDashboard"));
 
@@ -74,6 +74,7 @@ export function JobDetailScreen() {
   const [lowConfidenceAction, setLowConfidenceAction] = useState<"merge" | "smart_merge" | null>(null);
   const [tab, setTab] = useState("live");
   const [stepFilter, setStepFilter] = useState<StepFilter | null>(null);
+  const [requestedReviewSubView, setRequestedReviewSubView] = useState<ReviewSubView | null>(null);
   const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
   const [scrollToTurnId, setScrollToTurnId] = useState<string | null>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
@@ -135,13 +136,13 @@ export function JobDetailScreen() {
 
   const handleTabChange = useCallback((v: string) => {
     setTab(v);
-    if (v !== "diff") setStepFilter(null);
+    if (v !== "review") setStepFilter(null);
     if (v !== "live") setScrollToSeq(null);
   }, []);
 
   // ── Mobile swipe-to-switch-tab ──
   const mobileTabOrder = useMemo(() => {
-    const tabs = ["live", "shell", "diff", "files", "metrics"];
+    const tabs = ["live", "shell", "review", "files", "metrics"];
     if (hasArtifacts) tabs.push("artifacts");
     return tabs;
   }, [hasArtifacts]);
@@ -207,7 +208,8 @@ export function JobDetailScreen() {
 
   const handleViewStepChanges = useCallback((filePaths: string[], label: string, seq?: number, turnId?: string) => {
     setStepFilter({ filePaths, label, scrollToSeq: seq, turnId });
-    setTab("diff");
+    setRequestedReviewSubView("changes");
+    setTab("review");
   }, []);
 
   const handleClearStepFilter = useCallback(() => {
@@ -670,23 +672,6 @@ export function JobDetailScreen() {
         </TabErrorBoundary>
       )}
 
-      {tab === "diff" && (
-        <TabErrorBoundary>
-          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <DiffViewer
-            jobId={jobId}
-            jobState={job.state}
-            resolution={job.resolution}
-            archivedAt={job.archivedAt}
-            onAskSent={() => setTab("live")}
-            stepFilter={stepFilter}
-            onClearStepFilter={handleClearStepFilter}
-            onNavigateToStep={handleNavigateToStep}
-          />
-          </Suspense>
-        </TabErrorBoundary>
-      )}
-
       {tab === "metrics" && (
         <MetricsPanel jobId={jobId} isRunning={isRunning} />
       )}
@@ -694,7 +679,19 @@ export function JobDetailScreen() {
       {tab === "review" && (
         <TabErrorBoundary>
           <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
-            <ReviewDashboard jobId={jobId} />
+            <ReviewDashboard
+              jobId={jobId}
+              hasChanges={hasChanges}
+              jobState={job.state}
+              resolution={job.resolution}
+              archivedAt={job.archivedAt}
+              onAskSent={() => setTab("live")}
+              stepFilter={stepFilter}
+              onClearStepFilter={handleClearStepFilter}
+              onNavigateToStep={handleNavigateToStep}
+              requestedSubView={requestedReviewSubView}
+              onSubViewHandled={() => setRequestedReviewSubView(null)}
+            />
           </Suspense>
         </TabErrorBoundary>
       )}

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { ExternalLink, XCircle, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, PanelLeftClose, PanelLeftOpen, Loader2, Radio, TerminalSquare, FolderTree, GitBranch, BarChart3, Package, ChevronDown, ChevronRight } from "lucide-react";
+import { ExternalLink, XCircle, CheckCircle2, AlertTriangle, ArrowDownCircle, GitMerge, PanelLeftClose, PanelLeftOpen, Loader2, Radio, TerminalSquare, FolderTree, BarChart3, Package, ChevronDown, ChevronRight, ScanSearch } from "lucide-react";
 import type { JobSummary } from "../store";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { JobActions } from "./JobActions";
@@ -10,7 +10,7 @@ import { cn } from "../lib/utils";
 const TAB_ITEMS = [
   { id: "live", icon: Radio, label: "Live" },
   { id: "files", icon: FolderTree, label: "Files" },
-  { id: "diff", icon: GitBranch, label: "Changes", conditional: true },
+  { id: "review", icon: ScanSearch, label: "Review", conditional: true },
   { id: "metrics", icon: BarChart3, label: "Metrics" },
   { id: "artifacts", icon: Package, label: "Artifacts", conditional: true },
 ] as const;
@@ -126,7 +126,7 @@ export function JobDetailSidebar({
 
   // Filter visible tabs based on conditional flags
   const visibleTabs = TAB_ITEMS.filter((t) => {
-    if (t.id === "diff") return hasChanges;
+    if (t.id === "review") return hasChanges;
     if (t.id === "artifacts") return hasArtifacts;
     return true;
   });
@@ -198,24 +198,26 @@ export function JobDetailSidebar({
         style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
       >
         {sidebarCollapsed ? (
-          <button
-            onClick={() => setSidebarCollapsed(false)}
-            className="flex items-center justify-center h-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-            title="Expand sidebar"
-          >
-            <PanelLeftOpen size={18} />
-          </button>
+          <Tooltip content="Expand sidebar" side="left">
+            <button
+              onClick={() => setSidebarCollapsed(false)}
+              className="flex items-center justify-center h-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+            >
+              <PanelLeftOpen size={18} />
+            </button>
+          </Tooltip>
         ) : (
           <>
             {/* ── Collapse sidebar button ── */}
-            <button
-              onClick={() => setSidebarCollapsed(true)}
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left hover:bg-accent/50 transition-colors shrink-0 border-b border-border"
-              title="Collapse sidebar"
-            >
-              <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Sidebar</span>
-            </button>
+            <Tooltip content="Collapse sidebar">
+              <button
+                onClick={() => setSidebarCollapsed(true)}
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left hover:bg-accent/50 transition-colors shrink-0 border-b border-border"
+              >
+                <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Sidebar</span>
+              </button>
+            </Tooltip>
 
             {/* ── Job metadata — collapsible, on top ── */}
             <div className="shrink-0">

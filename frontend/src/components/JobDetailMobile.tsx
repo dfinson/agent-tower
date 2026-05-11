@@ -1,4 +1,4 @@
-import { ArrowLeft, RotateCcw, XCircle, GitMerge, GitPullRequest, Trash2, FolderTree, GitBranch, TerminalSquare, MoreHorizontal, ListTree, Radio, Package, BarChart3, CheckCircle2, Archive } from "lucide-react";
+import { ArrowLeft, RotateCcw, XCircle, GitMerge, GitPullRequest, Trash2, FolderTree, TerminalSquare, MoreHorizontal, ListTree, Radio, Package, BarChart3, CheckCircle2, Archive, ScanSearch } from "lucide-react";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
 import { Button } from "./ui/button";
@@ -246,7 +246,7 @@ export function MobileBottomNav({
       </button>
       {[
         { id: "live", icon: Radio, label: "Live" },
-        ...(hasChanges ? [{ id: "diff", icon: GitBranch, label: "Changes" }] : []),
+        ...(hasChanges ? [{ id: "review", icon: ScanSearch, label: "Review" }] : []),
         { id: "files", icon: FolderTree, label: "Files" },
       ].map(({ id, icon: Icon, label }) => (
         <button
@@ -322,7 +322,7 @@ export function MobileFooterActions({
   onResolve,
   onDiscardOpen,
 }: MobileFooterActionsProps) {
-  if (!(needsResolution && hasChanges && tab === "diff")) return null;
+  if (!(needsResolution && hasChanges && tab === "review")) return null;
 
   return (
     <div className="fixed bottom-[52px] inset-x-0 z-40 flex md:hidden items-center justify-center gap-2 px-3 py-2 border-t border-border bg-card/95 backdrop-blur-sm">

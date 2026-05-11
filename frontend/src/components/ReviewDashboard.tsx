@@ -2,6 +2,7 @@
  * ReviewDashboard — orchestrator for the Review tab.
  *
  * Sub-views:
+ * - Changes: code diff viewer (was a top-level tab)
  * - Dashboard: structural triage, change cards, merge confidence
  * - Timeline: per-session structural changes (hidden for single-session jobs)
  * - Story: structured review story with verdict
@@ -9,31 +10,36 @@
  * Degradation: when CodeRecon is unavailable (available=false on structural-diff),
  * the Story sub-view becomes default. Dashboard shows info banner. Timeline hidden.
  */
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ArrowRightLeft, Plus, Minus, Pencil, ShieldCheck, ShieldAlert, Shield, Info } from "lucide-react";
 import { fetchStructuralDiff, fetchMultiSession, type StructuralChange, type StructuralDiffResponse } from "../api/client";
 import { useStore } from "../store";
 import { selectStructuralDiff, selectMultiSession } from "../store/selectors";
 import { Spinner } from "./ui/spinner";
+import { Tooltip } from "./ui/tooltip";
 import { ReviewSubTabs, type ReviewSubView } from "./review/ReviewSubTabs";
 import { TimelineSubView } from "./review/TimelineSubView";
 import { StorySubView } from "./review/StorySubView";
 import { CommunitiesSubView } from "./review/CommunitiesSubView";
 import { ImpactGraphModal } from "./review/ImpactGraphModal";
+import { lazyRetry } from "../lib/lazyRetry";
+import type { StepFilter } from "./DiffViewer";
+
+const DiffViewer = lazyRetry(() => import("./DiffViewer"));
 
 // -- Category styling --
 
-const CATEGORY_CONFIG: Record<string, { color: string; dot: string; label: string }> = {
-  breaking: { color: "text-red-400", dot: "bg-red-400", label: "breaking" },
-  body: { color: "text-yellow-400", dot: "bg-yellow-400", label: "body" },
-  additive: { color: "text-green-400", dot: "bg-green-400", label: "additive" },
-  "non-structural": { color: "text-zinc-400", dot: "bg-zinc-400", label: "non-structural" },
+const CATEGORY_CONFIG: Record<string, { color: string; dot: string; label: string; tip: string }> = {
+  breaking: { color: "text-red-400", dot: "bg-red-400", label: "breaking", tip: "Changes that alter existing signatures or behavior — may break callers" },
+  body: { color: "text-yellow-400", dot: "bg-yellow-400", label: "body", tip: "Implementation changes within existing functions — behavior may shift" },
+  additive: { color: "text-green-400", dot: "bg-green-400", label: "additive", tip: "New code that doesn't change existing interfaces — safest category" },
+  "non-structural": { color: "text-zinc-400", dot: "bg-zinc-400", label: "non-structural", tip: "Formatting, comments, or whitespace — no functional impact" },
 };
 
-const CONFIDENCE_CONFIG: Record<string, { icon: typeof ShieldCheck; color: string; label: string }> = {
-  HIGH: { icon: ShieldCheck, color: "text-green-400", label: "High Confidence" },
-  MEDIUM: { icon: Shield, color: "text-yellow-400", label: "Medium Confidence" },
-  LOW: { icon: ShieldAlert, color: "text-red-400", label: "Low Confidence" },
+const CONFIDENCE_CONFIG: Record<string, { icon: typeof ShieldCheck; color: string; label: string; tip: string }> = {
+  HIGH: { icon: ShieldCheck, color: "text-green-400", label: "High Confidence", tip: "Changes are well-tested and low-risk — safe to merge" },
+  MEDIUM: { icon: Shield, color: "text-yellow-400", label: "Medium Confidence", tip: "Some changes may need closer review — moderate risk" },
+  LOW: { icon: ShieldAlert, color: "text-red-400", label: "Low Confidence", tip: "Significant risk detected — careful review recommended before merging" },
 };
 
 const KIND_ICONS: Record<string, typeof Plus> = {
@@ -63,16 +69,16 @@ function TriageBar({ triage, activeFilter, onFilter }: {
         const isActive = activeFilter === cat;
 
         return (
-          <button
-            key={cat}
-            onClick={() => onFilter(isActive ? null : cat)}
-            className={`h-full flex items-center justify-center gap-1 px-2 text-[10px] font-medium transition-opacity ${cfg.color} ${isActive ? "opacity-100 bg-accent" : "opacity-70 hover:opacity-100"}`}
-            style={{ width: `${Math.max(pct, 8)}%` }}
-            title={`${count} ${cfg.label}`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-            <span>{count}</span>
-          </button>
+          <Tooltip key={cat} content={`${count} ${cfg.label} change${count !== 1 ? "s" : ""} — ${cfg.tip}`}>
+            <button
+              onClick={() => onFilter(isActive ? null : cat)}
+              className={`h-full flex items-center justify-center gap-1 px-2 text-[10px] font-medium transition-opacity ${cfg.color} ${isActive ? "opacity-100 bg-accent" : "opacity-70 hover:opacity-100"}`}
+              style={{ width: `${Math.max(pct, 8)}%` }}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+              <span>{count}</span>
+            </button>
+          </Tooltip>
         );
       })}
     </div>
@@ -87,10 +93,12 @@ function MergeConfidenceBadge({ confidence }: { confidence: string }) {
   const Icon = cfg.icon;
 
   return (
-    <div className={`flex items-center gap-1.5 text-xs font-medium ${cfg.color}`}>
-      <Icon size={14} />
-      <span>{cfg.label}</span>
-    </div>
+    <Tooltip content={cfg.tip}>
+      <div className={`flex items-center gap-1.5 text-xs font-medium ${cfg.color} cursor-help`}>
+        <Icon size={14} />
+        <span>{cfg.label}</span>
+      </div>
+    </Tooltip>
   );
 }
 
@@ -234,7 +242,34 @@ function DegradedDashboard() {
 
 // -- Main Component --
 
-export function ReviewDashboard({ jobId }: { jobId: string }) {
+interface ReviewDashboardProps {
+  jobId: string;
+  hasChanges?: boolean;
+  jobState?: string;
+  resolution?: string | null;
+  archivedAt?: string | null;
+  onAskSent?: () => void;
+  stepFilter?: StepFilter | null;
+  onClearStepFilter?: () => void;
+  onNavigateToStep?: (seq: number, turnId?: string) => void;
+  /** Externally-requested sub-view (e.g. navigating to changes from activity feed) */
+  requestedSubView?: ReviewSubView | null;
+  onSubViewHandled?: () => void;
+}
+
+export function ReviewDashboard({
+  jobId,
+  hasChanges,
+  jobState,
+  resolution,
+  archivedAt,
+  onAskSent,
+  stepFilter,
+  onClearStepFilter,
+  onNavigateToStep,
+  requestedSubView,
+  onSubViewHandled,
+}: ReviewDashboardProps) {
   // Read from store (may already be prefetched via SSE side-effect)
   const cachedDiff = useStore(selectStructuralDiff(jobId));
   const cachedMulti = useStore(selectMultiSession(jobId));
@@ -248,10 +283,18 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
     cachedMulti != null && cachedMulti.available && cachedMulti.sessions.length > 1
   );
 
-  // Sub-view state — default depends on availability
+  // Sub-view state — default to "changes" when diffs exist, else dashboard/story
   const [subView, setSubView] = useState<ReviewSubView>(
-    cachedDiff && !cachedDiff.available ? "story" : "dashboard"
+    hasChanges ? "changes" : cachedDiff && !cachedDiff.available ? "story" : "dashboard"
   );
+
+  // Respond to externally-requested sub-view (e.g. "View step changes" from activity feed)
+  useEffect(() => {
+    if (requestedSubView) {
+      setSubView(requestedSubView);
+      onSubViewHandled?.();
+    }
+  }, [requestedSubView, onSubViewHandled]);
 
   // Impact graph modal state
   const [impactSymbol, setImpactSymbol] = useState<string | null>(null);
@@ -325,6 +368,7 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
       <ReviewSubTabs
         active={subView}
         onChange={setSubView}
+        showChanges={hasChanges}
         showDashboard={available}
         showTimeline={showTimeline}
         showCommunities={showCommunities}
@@ -332,6 +376,20 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
 
       {/* Sub-view content */}
       <div className="flex-1 min-h-0 overflow-hidden">
+        {subView === "changes" && hasChanges && (
+          <Suspense fallback={<div className="flex justify-center py-10"><Spinner /></div>}>
+            <DiffViewer
+              jobId={jobId}
+              jobState={jobState}
+              resolution={resolution}
+              archivedAt={archivedAt}
+              onAskSent={onAskSent}
+              stepFilter={stepFilter}
+              onClearStepFilter={onClearStepFilter}
+              onNavigateToStep={onNavigateToStep}
+            />
+          </Suspense>
+        )}
         {subView === "dashboard" && (
           available && structData
             ? <DashboardSubView data={structData} onSymbolClick={handleSymbolClick} />
