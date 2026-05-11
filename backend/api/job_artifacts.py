@@ -22,8 +22,6 @@ from backend.models.api_schemas import (
     LogLinePayload,
     LogListResponse,
     MultiSessionResponse,
-    NarrativeBlockSchema,
-    NarrativeResponse,
     PlanStepPayload,
     ProgressHeadlinePayload,
     ResolutionAction,
@@ -63,7 +61,6 @@ from backend.services.runtime_service import RuntimeService
 from backend.services.step_diff_service import StepDiffService
 from backend.services.step_tracker import hydrate_plan_steps
 from backend.services.story_service import StoryService
-from backend.services.narrative_service import NarrativeService
 from backend.services.coderecon_service import CodeReconService
 from backend.services.review_story_service import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
@@ -560,10 +557,12 @@ async def get_job_story(
     regenerate: bool = False,
     verbosity: str = Query(default="standard", pattern="^(summary|standard|detailed)$"),
 ) -> StoryResponse:
-    """Return a structured code-review story with validated change references.
+    """Return a structured code-review story with validated change references
+    and agent cognitive beats.
 
     Generated on demand using a cheap LLM for connective prose, with change
-    references built directly from telemetry spans.  Cached on the jobs table.
+    references built directly from telemetry spans and trail beats woven in
+    as inline narrative turning points.  Cached on the jobs table.
     Pass ?regenerate=true to force a fresh generation.
     Verbosity: summary (one-sentence per file), standard (default), detailed (full rationale).
     """
@@ -577,30 +576,14 @@ async def get_job_story(
 
     blocks = [StoryBlock(**b) for b in payload.get("blocks", [])]
     cached = not regenerate and bool(blocks)
-    return StoryResponse(job_id=job_id, blocks=blocks, cached=cached, verbosity=verbosity)
-
-
-@router.get("/jobs/{job_id}/narrative", response_model=NarrativeResponse)
-async def get_job_narrative(
-    job_id: str,
-    session: FromDishka[AsyncSession],
-    narrative_service: FromDishka[NarrativeService],
-    verbosity: str = Query(default="standard", pattern="^(brief|standard|detailed)$"),
-) -> NarrativeResponse:
-    """Return the agent cognitive journey narrative for a job.
-
-    Assembled from trail enrichment data (decisions, backtracks, insights,
-    verifications).  Uses a cheap LLM for prose transitions between beats.
-    """
-    result = await narrative_service.generate(session, job_id, verbosity=verbosity)
-    return NarrativeResponse(
-        job_id=result["job_id"],
-        blocks=[NarrativeBlockSchema(**b) for b in result["blocks"]],
-        beat_count=result["beat_count"],
-        has_decisions=result["has_decisions"],
-        has_backtracks=result["has_backtracks"],
-        verbosity=result["verbosity"],
-        cached=result["cached"],
+    return StoryResponse(
+        job_id=job_id,
+        blocks=blocks,
+        cached=cached,
+        verbosity=verbosity,
+        beat_count=payload.get("beat_count", 0),
+        has_decisions=payload.get("has_decisions", False),
+        has_backtracks=payload.get("has_backtracks", False),
     )
 
 

@@ -880,11 +880,19 @@ class RestoreRequest(CamelModel):
 
 
 class StoryBlock(CamelModel):
-    """A single block in a structured code-review story."""
+    """A single block in a structured code-review story.
 
-    type: str  # "narrative" or "reference"
-    # Narrative fields
+    Block types:
+    - ``narrative``: prose text connecting references and beats
+    - ``reference``: validated code change with file/snippet data
+    - ``beat``: cognitive turning point (decision, backtrack, insight, verify)
+    """
+
+    type: str  # "narrative" | "reference" | "beat"
+    # Narrative / beat fields
     text: str | None = None
+    # Beat fields
+    beat_kind: str | None = None  # decide | backtrack | insight | verify
     # Reference fields (coerce int→str for legacy cached payloads)
     span_id: str | None = None
 
@@ -903,33 +911,16 @@ class StoryBlock(CamelModel):
 
 
 class StoryResponse(CamelModel):
-    """Structured code-review story with validated change references."""
+    """Structured code-review story with validated change references
+    and agent cognitive beats."""
 
     job_id: str
     blocks: list[StoryBlock] = []
     cached: bool = False
     verbosity: str = "standard"  # summary | standard | detailed
-
-
-class NarrativeBlockSchema(CamelModel):
-    """A block in the agent cognitive narrative."""
-
-    type: str  # lede | prose | beat | outcome
-    text: str
-    beat_kind: str | None = None  # decide | backtrack | insight | verify
-    files: list[str] = Field(default_factory=list)
-
-
-class NarrativeResponse(CamelModel):
-    """Agent cognitive journey narrative assembled from trail data."""
-
-    job_id: str
-    blocks: list[NarrativeBlockSchema] = []
     beat_count: int = 0
     has_decisions: bool = False
     has_backtracks: bool = False
-    verbosity: str = "standard"
-    cached: bool = False
 
 
 # ---------------------------------------------------------------------------

@@ -365,7 +365,7 @@ export function fetchJobTelemetry(jobId: string): Promise<{
       callCount: number;
       activity?: string;
       intent?: string;
-      actions?: string[];
+      actions?: Array<{ text: string; activity: string }>;
     }>;
   };
   fileAccess?: {
@@ -782,36 +782,6 @@ export function fetchJobStory(
   if (verbosity !== "standard") params.set("verbosity", verbosity);
   const qs = params.toString() ? `?${params.toString()}` : "";
   return request(`/jobs/${encodeURIComponent(jobId)}/story${qs}`);
-}
-
-// Narrative
-// ---------------------------------------------------------------------------
-
-export interface NarrativeBlock {
-  type: "lede" | "prose" | "beat" | "outcome";
-  text: string;
-  beatKind?: "decide" | "backtrack" | "insight" | "verify" | null;
-  files?: string[];
-}
-
-export interface NarrativeResponse {
-  jobId: string;
-  blocks: NarrativeBlock[];
-  beatCount: number;
-  hasDecisions: boolean;
-  hasBacktracks: boolean;
-  verbosity: string;
-  cached: boolean;
-}
-
-export function fetchNarrative(
-  jobId: string,
-  verbosity: "brief" | "standard" | "detailed" = "standard",
-): Promise<NarrativeResponse> {
-  const params = new URLSearchParams();
-  if (verbosity !== "standard") params.set("verbosity", verbosity);
-  const qs = params.toString() ? `?${params.toString()}` : "";
-  return request(`/jobs/${encodeURIComponent(jobId)}/narrative${qs}`);
 }
 
 // Structural Diff

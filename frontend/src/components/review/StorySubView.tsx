@@ -11,7 +11,7 @@
  */
 import { useState } from "react";
 import { useEffect } from "react";
-import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
+import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, ChevronDown, ChevronRight, BookOpen, Lightbulb, RotateCcw, GitBranch, CheckCircle2 } from "lucide-react";
 import { fetchReviewStory, fetchJobStory, type ReviewStoryResponse, type EdgeCaseBlock, type PatternGroup } from "../../api/client";
 import { useStore } from "../../store";
 import { selectReviewStory, selectJobStory } from "../../store/selectors";
@@ -166,6 +166,28 @@ function renderInlineCode(text: string): React.ReactNode[] {
   });
 }
 
+const BEAT_STYLE: Record<string, { icon: typeof Lightbulb; color: string; border: string; label: string }> = {
+  decide: { icon: GitBranch, color: "text-blue-400", border: "border-blue-400/40", label: "Decision" },
+  backtrack: { icon: RotateCcw, color: "text-amber-400", border: "border-amber-400/40", label: "Course Correction" },
+  insight: { icon: Lightbulb, color: "text-emerald-400", border: "border-emerald-400/40", label: "Discovery" },
+  verify: { icon: CheckCircle2, color: "text-purple-400", border: "border-purple-400/40", label: "Verification" },
+};
+
+/** Render a trail beat as a colored aside block. */
+function BeatBlock({ kind, text }: { kind: string; text: string }) {
+  const cfg = (BEAT_STYLE[kind] ?? BEAT_STYLE.insight)!;
+  const Icon = cfg.icon;
+  return (
+    <div className={`my-2 pl-3 border-l-2 ${cfg.border} py-1.5`}>
+      <div className={`flex items-center gap-1.5 mb-0.5 ${cfg.color}`}>
+        <Icon size={11} />
+        <span className="text-[10px] font-semibold uppercase tracking-wider">{cfg.label}</span>
+      </div>
+      <span className="text-sm text-foreground/80 leading-relaxed">{renderInlineCode(text)}</span>
+    </div>
+  );
+}
+
 /** Trail-based story fallback when CodeRecon is unavailable. */
 function TrailStoryFallback({ jobId }: { jobId: string }) {
   const cachedStory = useStore(selectJobStory(jobId));
@@ -235,6 +257,9 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
           {story.blocks.map((block: StoryBlock, i: number) => {
             if (block.type === "narrative" && block.text) {
               return <span key={`n-${i}`}>{renderInlineCode(block.text)}</span>;
+            }
+            if (block.type === "beat" && block.text) {
+              return <BeatBlock key={`b-${i}`} kind={block.beatKind ?? "insight"} text={block.text} />;
             }
             if (block.type === "reference" && block.file) {
               const fileName = block.file.split("/").pop() ?? "file";

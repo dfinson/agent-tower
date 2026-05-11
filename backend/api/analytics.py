@@ -327,10 +327,31 @@ async def turn_economics_for_job(
     job_id: str,
     svc: FromDishka[AnalyticsService],
 ) -> TurnEconomicsResponse:
-    """Per-turn cost curve for a specific job."""
+    """Per-turn cost curve for a specific job, enriched with activity tags."""
+    from backend.models.api_schemas import TelemetryCostBucket
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+    from backend.services.telemetry_query_service import TelemetryQueryService
+
     summary = await svc.get_summary(job_id)
     turns = await svc.cost_drivers_for_job(job_id)
-    turn_data = [r for r in turns if r.get("dimension") == "turn"]
+    turn_data = [
+        TelemetryCostBucket(
+            dimension=r.get("dimension", "turn"),
+            bucket=r.get("bucket", ""),
+            cost_usd=float(r.get("cost_usd", 0)),
+            input_tokens=int(r.get("input_tokens", 0)),
+            output_tokens=int(r.get("output_tokens", 0)),
+            call_count=int(r.get("call_count", 0)),
+        )
+        for r in turns
+        if r.get("dimension") == "turn"
+    ]
+    turn_data.sort(key=lambda b: int(b.bucket) if b.bucket.isdigit() else 0)
+
+    # Enrich with activity/actions from raw spans
+    spans = await TelemetrySpansRepository(svc._session).list_for_job(job_id)
+    TelemetryQueryService._enrich_turn_curve(turn_data, spans)
+
     return TurnEconomicsResponse(
         job_id=job_id,
         total_turns=summary.get("total_turns", 0) if summary else 0,

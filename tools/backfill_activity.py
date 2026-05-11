@@ -15,7 +15,7 @@ import asyncio
 import json
 import os
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -80,7 +80,7 @@ def build_turn_data(spans: list[dict]) -> tuple[dict[int, dict], dict[int, dict]
     turn_contexts: dict[int, dict] = defaultdict(
         lambda: {"phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0,
                  "cache_read_tokens": 0, "cache_write_tokens": 0,
-                 "tool_categories": [], "shell_commands": [], "tool_activities": []}
+                 "tool_categories": [], "shell_commands": [], "tool_activity_weights": []}
     )
     turn_costs: dict[int, dict] = defaultdict(_zero_bucket)
 
@@ -103,8 +103,9 @@ def build_turn_data(spans: list[dict]) -> tuple[dict[int, dict], dict[int, dict]
             tool_args = span.get("tool_args_json")
             cat = span.get("tool_category") or classify_tool(tool_name)
             tool_activity = classify_tool_activity(tool_name, tool_args)
+            args_weight = len(tool_args) if isinstance(tool_args, str) else 1
             turn_contexts[turn]["tool_categories"].append(cat)
-            turn_contexts[turn]["tool_activities"].append(tool_activity)
+            turn_contexts[turn]["tool_activity_weights"].append((tool_activity, args_weight))
 
             if cat == "shell":
                 cmd = ""
@@ -134,18 +135,24 @@ async def backfill_job(session: AsyncSession, job_id: str, *, dry_run: bool = Fa
     if not turn_contexts:
         return {"turns": 0, "changed": 0}
 
-    # Per-tool classification with proportional cost splitting
+    # Per-tool classification with args-weighted cost splitting
     by_activity: dict[str, dict] = defaultdict(_zero_bucket)
     for turn_num in sorted(turn_contexts.keys()):
         ctx = turn_contexts[turn_num]
         cost = turn_costs.get(turn_num, _zero_bucket())
-        tool_activities = ctx.get("tool_activities", [])
+        tool_activity_weights = ctx.get("tool_activity_weights", [])
 
-        if tool_activities:
-            activity_counts = Counter(tool_activities)
-            total_tools = len(tool_activities)
-            for activity, count in activity_counts.items():
-                fraction = count / total_tools
+        if tool_activity_weights:
+            # Group weights by activity
+            activity_weight_sums: dict[str, int] = defaultdict(int)
+            activity_call_counts: dict[str, int] = defaultdict(int)
+            total_weight = 0
+            for activity, weight in tool_activity_weights:
+                activity_weight_sums[activity] += weight
+                activity_call_counts[activity] += 1
+                total_weight += weight
+            for activity, weight_sum in activity_weight_sums.items():
+                fraction = weight_sum / total_weight if total_weight > 0 else 1 / len(activity_weight_sums)
                 fractional_cost = {
                     "cost_usd": float(cost["cost_usd"]) * fraction,
                     "input_tokens": int(int(cost["input_tokens"]) * fraction),
@@ -154,7 +161,7 @@ async def backfill_job(session: AsyncSession, job_id: str, *, dry_run: bool = Fa
                     "cache_write_tokens": int(int(cost["cache_write_tokens"]) * fraction),
                 }
                 _accumulate(by_activity[activity], fractional_cost)
-                by_activity[activity]["call_count"] += count - 1  # _accumulate adds 1
+                by_activity[activity]["call_count"] += activity_call_counts[activity] - 1  # _accumulate adds 1
         else:
             # No tools — fallback to turn-level (reasoning / communication)
             activity = _classify_turn_intent(ctx)

@@ -289,6 +289,13 @@ class TelemetryLlmCall(CamelModel):
     call_count: int = 1
 
 
+class TurnAction(CamelModel):
+    """A single concrete action within a turn, tagged with its activity."""
+
+    text: str
+    activity: str
+
+
 class TelemetryCostBucket(CamelModel):
     dimension: str = "unknown"
     bucket: str = "unknown"
@@ -299,7 +306,7 @@ class TelemetryCostBucket(CamelModel):
     # Per-turn enrichment (only populated for dimension="turn")
     activity: str | None = None
     intent: str | None = None
-    actions: list[str] | None = None
+    actions: list[TurnAction] | None = None
 
 
 class TelemetryCostDrivers(CamelModel):
@@ -626,7 +633,7 @@ class TurnEconomicsResponse(CamelModel):
     avg_turn_cost_usd: float = 0.0
     cost_first_half_usd: float = 0.0
     cost_second_half_usd: float = 0.0
-    turn_curve: list[CostDriverEntry] = []
+    turn_curve: list[TelemetryCostBucket] = []
 
 
 class ObservationsListResponse(CamelModel):

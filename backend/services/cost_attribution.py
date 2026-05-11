@@ -8,7 +8,7 @@ intent-refined activity classification, and edit one-shot rate).
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import structlog
@@ -302,10 +302,15 @@ async def _compute_attribution(
             cat = classify_tool(span.get("name") or "") or "other"
             tool_args_raw = span.get("tool_args_json")
             tool_activity = classify_tool_activity(span.get("name") or "", tool_args_raw)
+            # Weight by serialised args length — direct proxy for output tokens
+            # the LLM spent generating this tool call's arguments.
+            args_weight = len(tool_args_raw) if isinstance(tool_args_raw, str) else 1
             turn = span.get("turn_number")
             if turn is not None:
                 turn_contexts[int(turn)]["tool_categories"].append(cat)
-                turn_contexts[int(turn)].setdefault("tool_activities", []).append(tool_activity)
+                turn_contexts[int(turn)].setdefault("tool_activity_weights", []).append(
+                    (tool_activity, args_weight)
+                )
                 # Collect shell command text for intent classification
                 if cat == "shell":
                     tool_args = tool_args_raw
@@ -384,13 +389,20 @@ async def _compute_attribution(
         _accumulate(by_action[action], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
 
         # Activity dimension (user-facing cost breakdown)
-        # Per-tool classification: split cost proportionally across activities
-        tool_activities = context.get("tool_activities", [])
-        if tool_activities:
-            activity_counts = Counter(tool_activities)
-            total_tools = len(tool_activities)
-            for activity, count in activity_counts.items():
-                fraction = count / total_tools
+        # Per-tool classification: split cost weighted by tool_args_json length
+        # (proxy for output tokens the LLM spent generating each tool call)
+        tool_activity_weights = context.get("tool_activity_weights", [])
+        if tool_activity_weights:
+            # Group weights by activity
+            activity_weight_sums: dict[str, int] = defaultdict(int)
+            activity_call_counts: dict[str, int] = defaultdict(int)
+            total_weight = 0
+            for activity, weight in tool_activity_weights:
+                activity_weight_sums[activity] += weight
+                activity_call_counts[activity] += 1
+                total_weight += weight
+            for activity, weight_sum in activity_weight_sums.items():
+                fraction = weight_sum / total_weight if total_weight > 0 else 1 / len(activity_weight_sums)
                 _accumulate(
                     by_activity[activity],
                     turn_cost * fraction,
@@ -398,7 +410,7 @@ async def _compute_attribution(
                     int(turn_out * fraction),
                     cache_read=int(turn_cache_r * fraction),
                     cache_write=int(turn_cache_w * fraction),
-                    call_count=count,
+                    call_count=activity_call_counts[activity],
                 )
         else:
             # No tools — use turn-level fallback (reasoning / communication)

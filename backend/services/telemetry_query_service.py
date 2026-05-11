@@ -30,6 +30,7 @@ from backend.models.api_schemas import (
     TelemetryToolCall,
     TelemetryTurnEconomics,
     TelemetryTurnLatency,
+    TurnAction,
 )
 from backend.services.tool_classifier import classify_tool, classify_tool_activity
 
@@ -436,17 +437,11 @@ class TelemetryQueryService:
 
             # Extract intent from report_intent spans (use last one as most specific)
             intent = None
-            categories: list[str] = []
-            shell_commands: list[str] = []
-            actions: list[str] = []
-            files_edited: list[str] = []
-            files_read: list[str] = []
-            commands_run: list[str] = []
+            actions: list[TurnAction] = []
 
             for span in turn_spans:
                 name = span.get("name", "")
                 cat = classify_tool(name)
-                categories.append(cat)
                 args_raw = span.get("tool_args_json")
                 args: dict[str, Any] = {}
                 if args_raw:
@@ -455,6 +450,8 @@ class TelemetryQueryService:
                         if not isinstance(args, dict):
                             args = {}
 
+                tool_activity = classify_tool_activity(name, args_raw)
+
                 if name == "report_intent":
                     i = args.get("intent", "")
                     if i:
@@ -462,46 +459,55 @@ class TelemetryQueryService:
                 elif cat == "file_write":
                     path = str(args.get("file_path", args.get("path", span.get("tool_target", ""))) or "")
                     short = _short_path(path)
-                    if short and short not in files_edited:
-                        files_edited.append(short)
-                elif cat in ("file_read", "search"):
+                    if short:
+                        actions.append(TurnAction(text=f"edited {short}", activity=tool_activity))
+                elif cat == "file_read":
                     path = str(args.get("file_path", args.get("path", span.get("tool_target", ""))) or "")
                     short = _short_path(path)
-                    if short and short not in files_read and short not in files_edited:
-                        files_read.append(short)
+                    if short:
+                        actions.append(TurnAction(text=f"read {short}", activity=tool_activity))
+                elif cat == "file_search":
+                    path = str(args.get("file_path", args.get("path", args.get("query", span.get("tool_target", "")))) or "")
+                    short = _short_path(path) if "/" in path or "." in path else path[:40]
+                    if short:
+                        actions.append(TurnAction(text=f"searched {short}", activity=tool_activity))
                 elif cat == "shell":
                     cmd = args.get("command", args.get("cmd", ""))
                     if cmd:
-                        shell_commands.append(cmd)
                         short = _short_cmd(cmd)
-                        if short and short not in commands_run:
-                            commands_run.append(short)
+                        if short:
+                            actions.append(TurnAction(text=f"ran {short}", activity=tool_activity))
+                elif cat in ("git_read", "git_write"):
+                    actions.append(TurnAction(text=name.replace("_", " "), activity=tool_activity))
+                elif cat == "agent":
+                    actions.append(TurnAction(text=f"delegated to {name}", activity=tool_activity))
+                elif cat == "browser":
+                    actions.append(TurnAction(text=f"fetched {name}", activity=tool_activity))
 
-            # Build action summaries
-            if files_edited:
-                if len(files_edited) <= 3:
-                    actions.append(f"edited {', '.join(files_edited)}")
+            # Deduplicate consecutive identical actions (e.g. multiple reads of same file)
+            deduped: list[TurnAction] = []
+            seen: dict[str, int] = {}
+            for action in actions:
+                if action.text in seen:
+                    seen[action.text] += 1
                 else:
-                    actions.append(f"edited {', '.join(files_edited[:2])} +{len(files_edited) - 2} more")
-            if files_read:
-                if len(files_read) <= 3:
-                    actions.append(f"read {', '.join(files_read)}")
+                    seen[action.text] = 1
+                    deduped.append(action)
+            # Update text with count for repeated actions
+            final_actions: list[TurnAction] = []
+            for action in deduped:
+                count = seen[action.text]
+                if count > 1:
+                    final_actions.append(TurnAction(text=f"{action.text} ×{count}", activity=action.activity))
                 else:
-                    actions.append(f"read {len(files_read)} files")
-            if commands_run:
-                actions.append(f"ran {', '.join(commands_run[:3])}")
+                    final_actions.append(action)
 
-            # Classify activity — per-tool, pick the most common
-            tool_activities: list[str] = []
-            for span in turn_spans:
-                name = span.get("name", "")
-                tool_args_json = span.get("tool_args_json")
-                tool_activities.append(classify_tool_activity(name, tool_args_json))
-
+            # Classify turn activity — most common per-tool activity
+            tool_activities = [a.activity for a in actions] if actions else []
             if tool_activities:
                 activity_counts = Counter(tool_activities)
                 bucket.activity = activity_counts.most_common(1)[0][0]
             else:
                 bucket.activity = "communication"
             bucket.intent = intent
-            bucket.actions = actions
+            bucket.actions = final_actions

@@ -65,6 +65,11 @@ export interface TelemetryData {
   reviewSignals?: { testCoModifications: unknown[] };
 }
 
+export interface TurnAction {
+  text: string;
+  activity: string;
+}
+
 export interface CostDriverBucket {
   dimension: string;
   bucket: string;
@@ -75,7 +80,7 @@ export interface CostDriverBucket {
   activity?: string;
   tools?: string[];
   intent?: string;
-  actions?: string[];
+  actions?: TurnAction[];
 }
 
 export interface CostDriversData {

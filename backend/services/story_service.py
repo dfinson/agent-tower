@@ -1,13 +1,16 @@
 """Story generation service — assembles a structured code-review narrative
 from trail data: validated change references interleaved with LLM-
-generated connective prose.
+generated connective prose, enriched with agent decision beats.
 
 The key design principle: *references are never LLM-generated*.  They are
 built from trail ``write`` sub-nodes (§13.1), ordered chronologically.
-The LLM only generates the prose that connects them.
+The LLM generates the prose that connects them, weaving in trail beats
+(decisions, backtracks, insights, verifications) as inline narrative
+turning points.
 
 Stories are generated on demand and cached as JSON on the ``jobs.story_text``
-column.
+column.  When trail enrichment is still pending, stories are returned
+uncached — enabling live rolling generation as the agent works.
 """
 
 from __future__ import annotations
@@ -85,6 +88,7 @@ class StoryContext(TypedDict, total=False):
 class StoryBlock(TypedDict, total=False):
     type: str
     text: str
+    beatKind: str
     spanId: str
     file: str
     why: str
@@ -117,23 +121,21 @@ class TrailBeat(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 _STORY_SYSTEM = (
-    "You write technical narratives about coding sessions. You receive a "
-    "numbered list of code changes (or session events for investigative tasks) "
-    "with snippets, motivation summaries, and "
-    "session context. Write a first-person narrative that a human reviewer "
-    "can follow like a blog post — not a terse summary, not a commit log, "
-    "but an actual story of what happened and why.\n\n"
+    "You write compelling technical narratives about coding sessions. You "
+    "receive code changes with snippets, the agent's cognitive trail "
+    "(decisions, backtracks, insights, verifications), and session context. "
+    "Write a first-person narrative that a human reviewer can follow like "
+    "a blog post — one that earns their attention and holds it.\n\n"
     #
     # Narrative voice
     "VOICE: Write like a senior engineer explaining their work to a colleague "
-    "over coffee. Set the scene: what was the task, what system does it touch, "
-    "why does it matter, what was at stake. Before diving into code changes, "
-    "the reader needs to understand the landscape — what existed before, what "
-    "problem needed solving, and why the existing code wasn't sufficient. "
-    "Then walk through the work chronologically: what you explored, what you "
-    "discovered, what decisions you made and why, what surprised you, and "
-    "what the code looks like now. Every paragraph should teach the reader "
-    "something they didn't know before reading it.\n\n"
+    "over coffee — candid, specific, occasionally wry. Set the scene: what "
+    "was the task, what system does it touch, why does it matter, what was "
+    "at stake. Then walk through the work chronologically. Every paragraph "
+    "should teach the reader something they didn't know before reading it. "
+    "Dry wit is welcome — self-deprecating observations about the code or "
+    "the journey keep the reader engaged. Never be corny, never force humor, "
+    "never self-congratulate.\n\n"
     #
     # Rendering context — markers become embedded diff blocks
     "RENDERING: Each [[N]] marker is rendered as a full embedded diff block "
@@ -149,81 +151,93 @@ _STORY_SYSTEM = (
     "code. The reader should always know what they are about to see BEFORE "
     "the diff appears.\n\n"
     #
+    # Beat markers — cognitive turning points
+    "BEATS: You receive AGENT JOURNEY beats — decisions, backtracks, insights, "
+    "and verifications. These are the skeleton of the story. Weave them into "
+    "the chronological flow using beat markers:\n"
+    "  {{DECIDE}} — before prose about a deliberate choice between alternatives\n"
+    "  {{BACKTRACK}} — before prose about the agent reversing course\n"
+    "  {{INSIGHT}} — before prose about a non-obvious discovery\n"
+    "  {{VERIFY}} — before prose about testing or validation\n"
+    "A beat marker goes on its own line, followed by one or more prose "
+    "paragraphs about that turning point. Not every beat needs a marker — "
+    "minor decisions can be woven into regular prose. Use markers for "
+    "moments the reader should notice. Backtracks are the most engaging "
+    "parts of a technical narrative — lean into the problem-solving arc.\n\n"
+    #
     # Structure
     "STRUCTURE: Open with a paragraph that sets context — what is this system, "
     "what was the task, why does it matter to the project. Then walk through "
-    "changes chronologically. Close with the outcome and any remaining risks.\n\n"
+    "changes and decisions chronologically. Close with the outcome and any "
+    "remaining risks.\n\n"
     #
-    # Length — these are REAL narratives, not summaries
+    # Length
     "LENGTH: Write enough to actually tell the story. Scale length to "
     "the number and complexity of changes — a session with two small "
     "fixes needs far less prose than one with a multi-file refactor. "
     "If a change involves a design decision, explain the alternatives "
-    "you considered and why you chose this path. If there was a surprise "
-    "or discovery during the work, describe what you found and what it "
-    "meant. Do NOT compress the narrative into terse bullet-point-like "
-    "sentences. Each paragraph should flow into the next.\n\n"
+    "considered and why this path won. Do NOT compress the narrative into "
+    "terse bullet-point-like sentences. Each paragraph should flow into "
+    "the next.\n\n"
     #
-    # Inline code — backticks for symbols and expressions
-    "INLINE CODE: Each change includes a code snippet showing what was added "
-    "or removed. Weave these into your narrative — quote the key lines, name "
-    "the specific functions, variables, and expressions using `backticks`. "
-    "Show the reader the actual code that matters, not just abstract "
-    "descriptions. The reader should encounter real code in your prose "
-    "before they see the full diff card.\n\n"
+    # Investigative milestones
+    "INVESTIGATIVE TASKS: When there are no file changes but the agent "
+    "explored, analyzed, or investigated — this is an insight story. "
+    "The trail beats ARE the story. Chronicle what was examined, what "
+    "was discovered, what hypotheses were tested and discarded. The "
+    "reader should feel like they walked through the investigation "
+    "with the agent. Use {{INSIGHT}} and {{DECIDE}} markers liberally. "
+    "Even without code changes, these narratives should be vivid and "
+    "specific — name the files examined, the patterns found, the "
+    "conclusions reached.\n\n"
     #
-    # Objectivity
-    "OBJECTIVITY: State what you did and why. No self-assessment of difficulty "
-    '("This was complex"), no hedging ("I thought maybe"), no flair ("elegant '
-    'refactor"). Let facts speak.\n\n'
+    # Inline code
+    "INLINE CODE: Weave code into your narrative — quote key lines, name "
+    "specific functions, variables, and expressions using `backticks`. "
+    "The reader should encounter real code in your prose before they see "
+    "the full diff card.\n\n"
     #
-    # Connective prose — why, not what
-    "TRANSITIONS: Between [[N]] markers, write motivation, context, and "
-    "discoveries — why you moved to the next change, what you found when you "
-    "looked at the existing code, what constraint or insight shaped the "
-    "approach. If you don't know why, use 'then' rather than inventing a "
-    "reason.\n\n"
+    # Objectivity with personality
+    "TONE: State what you did and why. No self-assessment of difficulty "
+    '("This was complex"), no hedging ("I thought maybe"). Let facts speak. '
+    "But you can observe the absurd — a function named `handleEverything()`, "
+    "a config file with more lines than the service it configures, a test "
+    "that tests nothing. Brief, factual observations that make the reader "
+    "nod. Never mean, never sarcastic about other people's code — just "
+    "honest.\n\n"
     #
-    # Contextual recall — help the reader track symbols
-    "RECALL: Function and class names drop out of working memory after a "
-    "few dense paragraphs. When you reference a symbol that was introduced "
-    "earlier, add a brief contextual tag on later mentions — 'the approval "
-    "entry point `create_request()`' rather than bare '`create_request()`', "
-    "'the resolution method `resolve()`' rather than bare '`resolve()`. "
-    "Do not re-explain what the reader already knows — just a 2-4 word "
-    "reminder of the symbol's role. First mention: full introduction. "
-    "Mentions within 1-2 paragraphs: bare name is fine. Later mentions "
-    "after intervening content: brief role tag.\n\n"
+    # Connective prose
+    "TRANSITIONS: Between [[N]] markers and {{BEAT}} markers, write motivation, "
+    "context, and discoveries — why you moved to the next change, what you "
+    "found when you looked at the existing code, what constraint or insight "
+    "shaped the approach.\n\n"
     #
-    # Trail beats — semantic turning points from the agent's decision trail
-    "TRAIL BEATS: You may receive an AGENT JOURNEY section listing key "
-    "moments — decisions, backtracks, insights, and verifications. These "
-    "are narrative turning points. When the agent chose between approaches, "
-    "tell the reader why. When the agent backtracked, explain what went "
-    "wrong and what changed. Insights are discoveries that shaped the rest "
-    "of the work. Weave these into the chronological flow — they are the "
-    "skeleton of the story, not a separate section.\n\n"
+    # Contextual recall
+    "RECALL: When you reference a symbol introduced earlier, add a brief "
+    "contextual tag on later mentions — 'the approval entry point "
+    "`create_request()`' rather than bare '`create_request()`'. "
+    "First mention: full introduction. Mentions within 1-2 paragraphs: "
+    "bare name is fine. Later mentions: brief role tag.\n\n"
     #
-    # Retry arcs — problem-solving narratives
+    # Retry arcs
     "RETRY ARCS: When a change is marked [RETRY], the original attempt "
     "failed. Tell the reader what happened — what error occurred, what the "
-    "agent tried first, and why the second attempt succeeded. These "
-    "problem-solving arcs are the most engaging parts of a technical "
-    "narrative. If an error kind is given, name it.\n\n"
+    "agent tried first, and why the second attempt succeeded. Use a "
+    "{{BACKTRACK}} marker for these.\n\n"
     #
-    # Activity groups — natural chapter transitions
-    "ACTIVITIES: Changes may be grouped under activity labels (e.g., "
-    "'Implement auth', 'Fix test suite'). Use these as natural chapter "
-    "transitions — the reader should sense when the work shifts from one "
-    "concern to another. Don't announce the label mechanically; let it "
-    "shape the narrative flow.\n\n"
+    # Activity groups
+    "ACTIVITIES: Changes may be grouped under activity labels. Use these as "
+    "natural chapter transitions — the reader should sense when the work "
+    "shifts from one concern to another.\n\n"
     #
     # Format constraints
     "FORMAT: Plain prose paragraphs only. No markdown headers, bullets, or "
     "code blocks — output renders inline. Backtick-wrapped `symbols` are "
     "allowed and encouraged. First person ('I started by…'). "
-    "Contractions fine. No jokes, emoji, or exclamation marks. "
-    "Every change MUST be referenced by its [[N]] marker at least once."
+    "Contractions fine. No emoji or exclamation marks. "
+    "Every change MUST be referenced by its [[N]] marker at least once. "
+    "Beat markers ({{DECIDE}}, {{BACKTRACK}}, {{INSIGHT}}, {{VERIFY}}) go "
+    "on their own line before the relevant prose."
 )
 
 
@@ -593,39 +607,67 @@ def _build_prompt(
 # ---------------------------------------------------------------------------
 
 _MARKER_RE = re.compile(r"\[\[(\d+)\]\]")
+_BEAT_RE = re.compile(r"\{\{(DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\}")
+_SPLIT_RE = re.compile(r"(\[\[\d+\]\]|\{\{(?:DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\})")
 
 
 def _parse_blocks(
     raw: str, refs: list[StoryReference],
 ) -> list[StoryBlock]:
-    """Split LLM output on ``[[N]]`` markers into narrative + reference blocks."""
+    """Split LLM output on ``[[N]]`` reference markers and ``{{BEAT}}``
+    beat markers into narrative, reference, and beat blocks."""
     blocks: list[StoryBlock] = []
-    last_end = 0
     referenced: set[int] = set()
 
-    for m in _MARKER_RE.finditer(raw):
-        raw_idx = int(m.group(1))
-        idx = raw_idx - 1  # 1-based → 0-based
-        # Narrative text before this marker
-        text_before = raw[last_end : m.start()].strip()
-        if text_before:
-            blocks.append({"type": "narrative", "text": text_before})
-        # Reference block (only if valid index)
-        if 0 <= idx < len(refs):
-            blocks.append(cast("StoryBlock", {"type": "reference", **refs[idx]}))
-            referenced.add(idx)
-        else:
-            log.warning(
-                "story_marker_out_of_range",
-                marker=raw_idx,
-                ref_count=len(refs),
-            )
-        last_end = m.end()
+    segments = _SPLIT_RE.split(raw)
 
-    # Trailing narrative
-    trailing = raw[last_end:].strip()
-    if trailing:
-        blocks.append({"type": "narrative", "text": trailing})
+    pending_beat: str | None = None
+
+    for seg in segments:
+        # Check if this segment is a beat marker
+        beat_match = _BEAT_RE.fullmatch(seg)
+        if beat_match:
+            pending_beat = beat_match.group(1).lower()
+            continue
+
+        # Check if this segment is a reference marker
+        ref_match = _MARKER_RE.fullmatch(seg)
+        if ref_match:
+            raw_idx = int(ref_match.group(1))
+            idx = raw_idx - 1  # 1-based → 0-based
+            if 0 <= idx < len(refs):
+                blocks.append(cast("StoryBlock", {"type": "reference", **refs[idx]}))
+                referenced.add(idx)
+            else:
+                log.warning(
+                    "story_marker_out_of_range",
+                    marker=raw_idx,
+                    ref_count=len(refs),
+                )
+            continue
+
+        # Plain text segment — narrative or beat prose
+        text = seg.strip()
+        if not text:
+            continue
+
+        if pending_beat:
+            blocks.append({
+                "type": "beat",
+                "text": text,
+                "beatKind": pending_beat,
+            })
+            pending_beat = None
+        else:
+            blocks.append({"type": "narrative", "text": text})
+
+    # If a beat marker was dangling at the end with no text after it
+    if pending_beat:
+        blocks.append({
+            "type": "beat",
+            "text": "",
+            "beatKind": pending_beat,
+        })
 
     # Append any unreferenced changes at the end
     for i, ref in enumerate(refs):
@@ -821,10 +863,6 @@ class StoryService:
         )
         pending_enrichment = unenriched.scalar() or 0
 
-        ctx = await _collect_context(session, job_id)
-        if not ctx:
-            return None
-
         user_prompt = _build_prompt(refs, ctx)
 
         # Structural analysis enrichment from CodeRecon
@@ -846,7 +884,14 @@ class StoryService:
             return None
 
         blocks = _parse_blocks(raw, refs)
-        payload = {"blocks": blocks}
+        has_decisions = any(b.get("kind") == "decide" for b in beats)
+        has_backtracks = any(b.get("kind") == "backtrack" for b in beats)
+        payload: dict[str, Any] = {
+            "blocks": blocks,
+            "beat_count": len(beats),
+            "has_decisions": has_decisions,
+            "has_backtracks": has_backtracks,
+        }
 
         # Only cache when all enrichment is ready — otherwise the next
         # request will regenerate with richer trail and motivation data.

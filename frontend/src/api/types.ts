@@ -153,9 +153,11 @@ export interface DiffUpdatePayload {
 // --- Story types ---
 
 export interface StoryBlock {
-  type: "narrative" | "reference";
-  // narrative fields
+  type: "narrative" | "reference" | "beat";
+  // narrative / beat fields
   text?: string | null;
+  // beat fields
+  beatKind?: "decide" | "backtrack" | "insight" | "verify" | null;
   // reference fields
   spanId?: number | null;
   stepNumber?: number | null;
@@ -171,6 +173,9 @@ export interface StoryResponse {
   blocks: StoryBlock[];
   cached: boolean;
   verbosity: "summary" | "standard" | "detailed";
+  beatCount: number;
+  hasDecisions: boolean;
+  hasBacktracks: boolean;
 }
 
 // --- Review signal types ---
