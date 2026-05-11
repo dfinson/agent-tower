@@ -22,15 +22,27 @@ test: ## Run backend and frontend tests with coverage
 	uv run pytest --cov=backend --cov-report=term-missing
 	cd frontend && npm run test:coverage
 
-run: ## Build frontend and start server with remote access
-	cd frontend && npm run build
+run: ## Build frontend (if changed) and start server with remote access
+	@if [ -f backend/web/index.html ] && \
+	    [ "$$(find frontend/src -newer backend/web/index.html -print -quit 2>/dev/null)" = "" ] && \
+	    [ frontend/package.json -ot backend/web/index.html ]; then \
+	  echo "Frontend unchanged — skipping build"; \
+	else \
+	  cd frontend && npm run build; \
+	fi
 	uv run cpl up --remote
 
 down: ## Gracefully pause sessions and stop the server
 	uv run cpl down
 
 restart: ## Restart the server (pause sessions, stop, then start)
-	cd frontend && npm run build
+	@if [ -f backend/web/index.html ] && \
+	    [ "$$(find frontend/src -newer backend/web/index.html -print -quit 2>/dev/null)" = "" ] && \
+	    [ frontend/package.json -ot backend/web/index.html ]; then \
+	  echo "Frontend unchanged — skipping build"; \
+	else \
+	  cd frontend && npm run build; \
+	fi
 	uv run cpl restart --remote
 
 ci: lint format typecheck test ## Run full CI pipeline
