@@ -44,7 +44,7 @@ export function ExecutiveSummary({ data }: Props) {
 
       <div className="flex items-center gap-6">
         {/* Donut */}
-        <div className="relative w-24 h-24 flex-shrink-0">
+        <div className="relative w-24 h-24 flex-shrink-0" title={`Total spend: ${formatUsd(data.totalUsd)} over ${data.periodDays} day${data.periodDays === 1 ? "" : "s"}`}>
           <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
             {segments.map((seg) => {
               const dashLen = (seg.pct / 100) * circumference;
@@ -60,7 +60,9 @@ export function ExecutiveSummary({ data }: Props) {
                   strokeWidth="12"
                   strokeDasharray={`${dashLen} ${dashGap}`}
                   strokeDashoffset={-offset}
-                />
+                >
+                  <title>{`${seg.label}: ${formatUsd(seg.usd)} (${seg.pct.toFixed(1)}%)`}</title>
+                </circle>
               );
               offset += dashLen;
               return el;
