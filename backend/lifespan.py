@@ -110,11 +110,19 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
             pass
         await asyncio.sleep(0.5)
 
-    # Probe the tunnel URL for Cloudflare Access
+    # Probe the tunnel URL for Cloudflare Access.
+    # Use a non-redirecting opener so we can inspect the 302 from Access
+    # instead of following it to the login page (which returns 200 with
+    # no CF-Access-Domain header).
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: PLR0913
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
     try:
         req = urllib.request.Request(f"{tunnel_url}/api/health", method="HEAD")
         req.add_header("User-Agent", "cpl-preflight/1.0")
-        resp = urllib.request.urlopen(req, timeout=10)  # noqa: S310
+        resp = opener.open(req, timeout=10)  # noqa: S310
         if resp.headers.get("CF-Access-Domain"):
             log.info("cloudflare_access_verified", url=tunnel_url)
             return
