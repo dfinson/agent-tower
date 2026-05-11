@@ -63,12 +63,12 @@ class TurnContext(TypedDict):
 # Intent-based turn classification
 #
 # Each turn gets ONE activity label based on its highest-priority action.
-# Priority: implementation > verification > git_ops > setup > investigation
-#           > overhead > reasoning > communication
+# Priority: implementation/debugging > verification > git_ops > setup >
+#           investigation > overhead > reasoning > communication
 #
 # 9 canonical categories:
-#   implementation, investigation, verification, git_ops, communication,
-#   debugging, setup, reasoning, overhead
+#   implementation, debugging, investigation, verification, git_ops,
+#   communication, setup, reasoning, overhead
 #
 # Shell commands are classified by their actual content, not the job prompt.
 # ---------------------------------------------------------------------------
