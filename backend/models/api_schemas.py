@@ -886,7 +886,7 @@ class StoryBlock(CamelModel):
     # Narrative fields
     text: str | None = None
     # Reference fields
-    span_id: int | None = None
+    span_id: str | None = None
     step_number: int | None = None
     step_title: str | None = None
     file: str | None = None

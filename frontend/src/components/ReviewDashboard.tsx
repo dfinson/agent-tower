@@ -19,7 +19,6 @@ import { ReviewSubTabs, type ReviewSubView } from "./review/ReviewSubTabs";
 import { TimelineSubView } from "./review/TimelineSubView";
 import { StorySubView } from "./review/StorySubView";
 import { CommunitiesSubView } from "./review/CommunitiesSubView";
-import { NarrativeSubView } from "./review/NarrativeSubView";
 import { ImpactGraphModal } from "./review/ImpactGraphModal";
 
 // -- Category styling --
@@ -227,7 +226,7 @@ function DegradedDashboard() {
       </div>
       <p className="text-xs text-muted-foreground max-w-md text-center">
         The structural index is not available for this job&apos;s repository.
-        The Narrative and Story views provide trail-based reviews of the agent&apos;s work.
+        The Story view provides a trail-based review of the agent&apos;s work.
       </p>
     </div>
   );
@@ -251,7 +250,7 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
 
   // Sub-view state — default depends on availability
   const [subView, setSubView] = useState<ReviewSubView>(
-    cachedDiff && !cachedDiff.available ? "narrative" : "dashboard"
+    cachedDiff && !cachedDiff.available ? "story" : "dashboard"
   );
 
   // Impact graph modal state
@@ -262,7 +261,7 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
     if (cachedDiff != null) {
       setStructData(cachedDiff);
       setLoading(false);
-      if (!cachedDiff.available) setSubView("narrative");
+      if (!cachedDiff.available) setSubView("story");
       return;
     }
 
@@ -281,9 +280,9 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
       if (multi) setMultiSession(jobId, multi);
       setHasMultiSession(multi != null && multi.available && multi.sessions.length > 1);
 
-      // If structural analysis unavailable, default to narrative view
+      // If structural analysis unavailable, default to story view
       if (!diff.available) {
-        setSubView("narrative");
+        setSubView("story");
       }
     }).catch((err) => {
       if (!cancelled) setError(err?.message ?? "Failed to load review data");
@@ -343,9 +342,6 @@ export function ReviewDashboard({ jobId }: { jobId: string }) {
         )}
         {subView === "communities" && showCommunities && (
           <CommunitiesSubView jobId={jobId} />
-        )}
-        {subView === "narrative" && (
-          <NarrativeSubView jobId={jobId} />
         )}
         {subView === "story" && (
           <StorySubView jobId={jobId} />

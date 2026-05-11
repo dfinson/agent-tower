@@ -267,7 +267,6 @@ class CPLConfig:
     coderecon: CodeReconConfig = field(default_factory=CodeReconConfig)
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
     repos: list[str] = field(default_factory=list)
-    copilot_otel_path: str | None = None
 
 
 def _parse_section(raw: dict[str, Any], cls: type, key: str) -> Any:
@@ -328,11 +327,6 @@ def load_config(path: Path | None = None) -> CPLConfig:
             save_config(cfg, path)
         except (OSError, yaml.YAMLError):
             log.warning("instance_id_persist_failed", exc_info=True)
-
-    # Load copilot_otel_path from environment
-    otel_path = os.environ.get("COPILOT_OTEL_FILE_EXPORTER_PATH")
-    if otel_path:
-        cfg.copilot_otel_path = otel_path
 
     return cfg
 

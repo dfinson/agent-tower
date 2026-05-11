@@ -102,8 +102,6 @@ class IngestService:
         self._pending_messages: dict[str, list[str]] = {}
         # Sequence counters per job
         self._seq_counters: dict[str, int] = {}
-        # Copilot conversation_id → job_id (OTEL demux)
-        self._conversation_to_job: dict[str, str] = {}
         # Guard set for double-finalize protection
         self._finalized_jobs: set[str] = set()
         # Per-job turn counter for synthetic turn_ids
@@ -282,105 +280,6 @@ class IngestService:
         return {}
 
     # ------------------------------------------------------------------
-    # Copilot OTEL spans
-    # ------------------------------------------------------------------
-
-    async def ingest_otel_span(self, span: dict) -> None:
-        """Process a single OTEL JSONL span from the Copilot file watcher."""
-        attrs = span.get("attributes", {})
-        span_name = span.get("name", "")
-        conversation_id = attrs.get("gen_ai.conversation.id", "")
-
-        if not conversation_id:
-            return
-
-        job_id = self._conversation_to_job.get(conversation_id)
-
-        # First span for this conversation → create job
-        if job_id is None:
-            cwd = self._infer_cwd_from_span(span)
-            if not cwd:
-                log.debug("otel_no_cwd_skip", conversation_id=conversation_id)
-                return
-            job = await self._create_job_from_session(
-                cwd=cwd,
-                source=JobSource.copilot_cli,
-                session_id=conversation_id,
-            )
-            job_id = job.id
-            self._conversation_to_job[conversation_id] = job_id
-
-        # Map span to SessionEvents and feed through the standard processor
-        if span_name.startswith("execute_tool"):
-            tool_name = span_name.removeprefix("execute_tool ").strip() or span_name
-            tool_args = attrs.get("gen_ai.tool.call.arguments")
-            turn_id = f"turn-{self._turn_counters.get(job_id, 0) + 1}"
-            await self._feed_event(job_id, SessionEvent(
-                kind=SessionEventKind.transcript,
-                payload={
-                    "role": "tool_call",
-                    "tool_name": tool_name,
-                    "tool_args": tool_args,
-                    "tool_result": attrs.get("gen_ai.tool.call.result"),
-                    "turn_id": turn_id,
-                    "seq": self._next_seq(job_id),
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
-            ))
-
-            # Accumulate turn state
-            self._turn_tools.setdefault(job_id, []).append(tool_name)
-
-            # Track file paths and emit file_changed for writes
-            file_path = self._extract_file_path(tool_name, tool_args)
-            if file_path:
-                category = TOOL_CATEGORIES.get(tool_name, "other")
-                if category == "file_write":
-                    self._turn_files_written.setdefault(job_id, []).append(file_path)
-                    await self._feed_event(job_id, SessionEvent(
-                        kind=SessionEventKind.file_changed,
-                        payload={"path": file_path},
-                    ))
-                elif category in ("file_read", "file_search"):
-                    self._turn_files_read.setdefault(job_id, []).append(file_path)
-
-        elif span_name.startswith("chat"):
-            # LLM call — emit telemetry (this stays direct — telemetry isn't a SessionEvent)
-            input_tokens = attrs.get("gen_ai.usage.input_tokens", 0)
-            output_tokens = attrs.get("gen_ai.usage.output_tokens", 0)
-            cost = attrs.get("github.copilot.cost", 0.0)
-            model = attrs.get("gen_ai.response.model", "")
-            await self._event_bus.publish(DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.telemetry_updated,
-                payload={
-                    "input_tokens": int(input_tokens),
-                    "output_tokens": int(output_tokens),
-                    "total_cost_usd": float(cost),
-                    "model": model,
-                },
-            ))
-        elif span_name == "invoke_agent":
-            # Check for span end (non-zero duration means session finished)
-            duration = span.get("duration", 0)
-            if duration and duration > 0:
-                await self._finalize_session(job_id)
-
-    def _infer_cwd_from_span(self, span: dict) -> str | None:
-        """Try to extract working directory from OTEL span data."""
-        # Check resource attributes first (user-configured)
-        resource = span.get("resource", {})
-        resource_attrs = resource.get("attributes", {})
-        cwd = resource_attrs.get("process.cwd")
-        if cwd:
-            return str(cwd)
-
-        # Inferring from tool arguments is risky (untrusted data); skip it
-        # to avoid filesystem probing via crafted OTEL spans.
-        return None
-
     # ------------------------------------------------------------------
     # Operator messaging
     # ------------------------------------------------------------------

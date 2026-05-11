@@ -38,6 +38,7 @@ from backend.services.git_service import GitService
 from backend.services.merge_service import MergeService
 from backend.services.platform_adapter import PlatformRegistry
 from backend.services.coderecon_service import CodeReconService
+from backend.services.ingest_service import IngestService
 from backend.services.runtime_service import RuntimeService
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
@@ -247,6 +248,7 @@ async def app(
             VoiceMaxBytes: VoiceMaxBytes(voice_max_bytes_value),
             TerminalService: mock_terminal_service,
             CodeReconService: mock_coderecon_service,
+            IngestService: AsyncMock(spec=IngestService),
         },
     )
     setup_dishka(container, application)

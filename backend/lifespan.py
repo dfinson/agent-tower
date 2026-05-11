@@ -902,12 +902,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         sister_sessions=services.sister_sessions,
     )
 
-    # --- OtelFileWatcher (Copilot OTEL file tail) ---
-    otel_watcher = None
-    if config.copilot_otel_path:
-        from backend.services.otel_file_watcher import OtelFileWatcher
-        otel_watcher = OtelFileWatcher(config.copilot_otel_path, ingest_service)
-        await otel_watcher.start()
+    # --- SessionStateWatcher (auto-discover Copilot --remote sessions) ---
+    from backend.services.session_state_watcher import SessionStateWatcher
+
+    session_state_watcher = SessionStateWatcher(
+        event_bus=event_bus,
+        event_processor=ingest_event_processor,
+        session_factory=session_factory,
+        config=config,
+        git_service=services.git_service,
+        coderecon_service=coderecon_service,
+        steer_client=steer_client,
+        sister_sessions=services.sister_sessions,
+    )
+    await session_state_watcher.start()
 
     # --- Share service ---
     share_service = ShareService()
@@ -935,6 +943,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             TerminalService: optional.terminal_service,
             CodeReconService: coderecon_service,
             IngestService: ingest_service,
+            SessionStateWatcher: session_state_watcher,
         },
     )
     app.state.dishka_container = container
@@ -973,9 +982,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     dead_letter_task.cancel()
     if optional.terminal_service is not None:
         await optional.terminal_service.shutdown()
-    # Stop OtelFileWatcher and steer client
-    if otel_watcher is not None:
-        await otel_watcher.stop()
+    # Stop SessionStateWatcher and steer client
+    await session_state_watcher.stop()
     if steer_client is not None:
         await steer_client.close()
     # Drain any in-flight ephemeral background tasks before tearing down services.
