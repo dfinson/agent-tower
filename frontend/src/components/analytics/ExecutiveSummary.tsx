@@ -1,6 +1,7 @@
 import { PieChart } from "lucide-react";
 import { type ExecutiveSummaryResponse } from "../../api/client-analytics";
 import { formatUsd } from "./helpers";
+import { Tooltip } from "../ui/tooltip";
 
 /**
  * 3-bucket executive summary donut (Item 18).
@@ -76,17 +77,16 @@ export function ExecutiveSummary({ data }: Props) {
         {/* Legend */}
         <div className="space-y-2 flex-1">
           {segments.map((seg) => (
-            <div key={seg.key} className="flex items-center justify-between group relative">
+            <div key={seg.key} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className={`w-3 h-3 rounded ${seg.bg}`} />
-                <span className={`text-sm font-medium ${seg.color} cursor-help`} title={seg.tooltip}>{seg.label}</span>
+                <Tooltip content={seg.tooltip}>
+                  <span className={`text-sm font-medium ${seg.color} cursor-help`}>{seg.label}</span>
+                </Tooltip>
               </div>
               <div className="text-right">
                 <span className="text-sm text-foreground">{formatUsd(seg.usd)}</span>
                 <span className="text-xs text-muted-foreground ml-1">({seg.pct.toFixed(1)}%)</span>
-              </div>
-              <div className="absolute left-0 -bottom-1 translate-y-full z-50 hidden group-hover:block w-64 p-2 rounded bg-popover border border-border shadow-lg text-xs text-popover-foreground">
-                {seg.tooltip}
               </div>
             </div>
           ))}

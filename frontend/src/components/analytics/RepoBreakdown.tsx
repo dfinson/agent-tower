@@ -39,15 +39,21 @@ export function RepoBreakdown({ repos }: { repos: AnalyticsRepos["repos"] }) {
           <thead>
             <tr className="text-muted-foreground border-b border-border">
               <th className="text-left py-1.5 px-2 font-medium">Repository</th>
-              <th className="text-right py-1.5 px-2 font-medium">Jobs</th>
+              <th className="text-right py-1.5 px-2 font-medium">
+                <Tooltip content="Number of jobs run against this repository"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Jobs</span></Tooltip>
+              </th>
               <th className="text-right py-1.5 px-2 font-medium">
                 <Tooltip content="Total API-equivalent cost"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Cost</span></Tooltip>
               </th>
               <th className="text-right py-1.5 px-2 font-medium">
                 <Tooltip content="API-equivalent cost per job"><span className="cursor-help border-b border-dotted border-muted-foreground/50">$/Job</span></Tooltip>
               </th>
-              <th className="text-right py-1.5 px-2 font-medium">Avg Time</th>
-              <th className="text-right py-1.5 px-2 font-medium">Tool Calls</th>
+              <th className="text-right py-1.5 px-2 font-medium">
+                <Tooltip content="Average wall-clock time per job"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Avg Time</span></Tooltip>
+              </th>
+              <th className="text-right py-1.5 px-2 font-medium">
+                <Tooltip content="Total tool calls across all jobs"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Tool Calls</span></Tooltip>
+              </th>
             </tr>
           </thead>
           <tbody>

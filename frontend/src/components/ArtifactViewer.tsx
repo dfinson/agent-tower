@@ -22,6 +22,7 @@ import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-async-lig
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { fetchArtifacts, downloadArtifactUrl, fetchArtifactText } from "../api/client";
 import { Spinner } from "./ui/spinner";
+import { Tooltip } from "./ui/tooltip";
 import { useStore } from "../store";
 
 // ---------------------------------------------------------------------------
@@ -447,15 +448,17 @@ function ArtifactRow({ artifact, displayType }: { artifact: Artifact; displayTyp
         <td className="px-4 py-2.5 text-muted-foreground text-xs">{formatSize(artifact.sizeBytes)}</td>
         <td className="px-4 py-2.5 text-muted-foreground text-xs hidden sm:table-cell">{new Date(artifact.createdAt).toLocaleString()}</td>
         <td className="px-4 py-2.5 text-right">
-          <a
-            href={downloadArtifactUrl(artifact.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Download ${artifact.name}`}
-            className="inline-flex items-center justify-center w-8 h-8 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Download size={14} aria-hidden="true" />
-          </a>
+          <Tooltip content={`Download ${artifact.name}`}>
+            <a
+              href={downloadArtifactUrl(artifact.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Download ${artifact.name}`}
+              className="inline-flex items-center justify-center w-8 h-8 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Download size={14} aria-hidden="true" />
+            </a>
+          </Tooltip>
         </td>
       </tr>
       {expanded && canPreview && (

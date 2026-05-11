@@ -29,6 +29,7 @@ import { AgentMarkdown } from "./AgentMarkdown";
 import { SdkIcon } from "./SdkBadge";
 import { MicButton } from "./VoiceButton";
 import { Button } from "./ui/button";
+import { Tooltip } from "./ui/tooltip";
 import { Spinner } from "./ui/spinner";
 import { cn } from "../lib/utils";
 import { trimWorktreePaths } from "./ToolRenderers";
@@ -827,17 +828,23 @@ export function CuratedFeed({
                 )}
                 {matchCount !== null && matchCount > 0 && (
                   <div className="flex items-center shrink-0">
-                    <button onClick={prevMatch} className="p-1.5 min-h-[44px] min-w-[32px] flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground" aria-label="Previous match">
-                      <ChevronUp size={14} />
-                    </button>
-                    <button onClick={nextMatch} className="p-1.5 min-h-[44px] min-w-[32px] flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground" aria-label="Next match">
-                      <ChevronDown size={14} />
-                    </button>
+                    <Tooltip content="Previous match (Shift+Enter)">
+                      <button onClick={prevMatch} className="p-1.5 min-h-[44px] min-w-[32px] flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground" aria-label="Previous match">
+                        <ChevronUp size={14} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Next match (Enter)">
+                      <button onClick={nextMatch} className="p-1.5 min-h-[44px] min-w-[32px] flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground" aria-label="Next match">
+                        <ChevronDown size={14} />
+                      </button>
+                    </Tooltip>
                   </div>
                 )}
-                <button onClick={() => { setSearchOpen(false); setSearchQuery(""); onSearchHighlightRef.current?.(null); }} className="p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground shrink-0">
-                  <X size={14} />
-                </button>
+                <Tooltip content="Close search">
+                  <button onClick={() => { setSearchOpen(false); setSearchQuery(""); onSearchHighlightRef.current?.(null); }} className="p-1.5 min-h-[44px] sm:min-h-0 min-w-[44px] sm:min-w-0 flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground shrink-0">
+                    <X size={14} />
+                  </button>
+                </Tooltip>
               </>
             ) : (
               <>
@@ -956,26 +963,28 @@ export function CuratedFeed({
                 onTranscript={(text: string) => setMsg((prev: string) => prev + text)}
               />
               {pausable && isJobLive && jobState === "running" && (
-                <button
-                  onClick={handlePause}
-                  disabled={pausing}
-                  className="p-1.5 text-muted-foreground/40 hover:text-amber-400 transition-colors"
-                  title="Pause agent"
-                >
-                  <PauseCircle size={15} />
-                </button>
+                <Tooltip content="Pause the agent after the current step">
+                  <button
+                    onClick={handlePause}
+                    disabled={pausing}
+                    className="p-1.5 text-muted-foreground/40 hover:text-amber-400 transition-colors"
+                  >
+                    <PauseCircle size={15} />
+                  </button>
+                </Tooltip>
               )}
-              <button
-                onClick={handleSend}
-                disabled={!msg.trim() || sending}
-                className={cn(
-                  "p-1.5 rounded-md transition-colors",
-                  msg.trim() ? "text-primary hover:bg-primary/10" : "text-muted-foreground/20",
-                )}
-                title={isReview ? "Resume job" : isTerminal ? "Create follow-up job" : "Send message"}
-              >
-                {sending ? <Spinner className="w-4 h-4" /> : <Send size={15} />}
-              </button>
+              <Tooltip content={isReview ? "Resume job with follow-up" : isTerminal ? "Create follow-up job" : "Send message to the agent"}>
+                <button
+                  onClick={handleSend}
+                  disabled={!msg.trim() || sending}
+                  className={cn(
+                    "p-1.5 rounded-md transition-colors",
+                    msg.trim() ? "text-primary hover:bg-primary/10" : "text-muted-foreground/20",
+                  )}
+                >
+                  {sending ? <Spinner className="w-4 h-4" /> : <Send size={15} />}
+                </button>
+              </Tooltip>
             </div>
           </div>
         </div>

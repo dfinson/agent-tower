@@ -94,10 +94,16 @@ export function JobsTable({ period }: { period: number }) {
       <table className="w-full text-xs">
         <thead>
           <tr className="text-muted-foreground border-b border-border">
-            <th className="text-left py-1.5 px-2 font-medium">Job</th>
+            <th className="text-left py-1.5 px-2 font-medium">
+              <Tooltip content="Short ID of the job — click row for details"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Job</span></Tooltip>
+            </th>
             <th className="text-left py-1.5 px-2 font-medium">Repo</th>
-            <th className="text-left py-1.5 px-2 font-medium">Agent</th>
-            <th className="text-left py-1.5 px-2 font-medium">Model</th>
+            <th className="text-left py-1.5 px-2 font-medium">
+              <Tooltip content="Which coding agent SDK ran this job"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Agent</span></Tooltip>
+            </th>
+            <th className="text-left py-1.5 px-2 font-medium">
+              <Tooltip content="LLM model used for this job"><span className="cursor-help border-b border-dotted border-muted-foreground/50">Model</span></Tooltip>
+            </th>
             <th className="text-left py-1.5 px-2 font-medium">Status</th>
             <SortHeader label="Cost" field="total_cost_usd" current={sortField} desc={sortDesc} onSort={handleSort} />
             <SortHeader label="Duration" field="duration_ms" current={sortField} desc={sortDesc} onSort={handleSort} />

@@ -130,14 +130,15 @@ export function PhaseBox({
           <ChevronRight size={11} className="opacity-40 shrink-0" />
         </button>
         {hasEdits && onViewStepChanges && (
-          <button
-            onClick={handleViewChanges}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-primary/70 hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
-            title="View changes in diff viewer"
-          >
-            <GitBranch size={10} />
-            <span>View Changes</span>
-          </button>
+          <Tooltip content="View changes in diff viewer">
+            <button
+              onClick={handleViewChanges}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-primary/70 hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
+            >
+              <GitBranch size={10} />
+              <span>View Changes</span>
+            </button>
+          </Tooltip>
         )}
       </div>
     );
@@ -160,14 +161,15 @@ export function PhaseBox({
           <ChevronDown size={11} className="opacity-40 shrink-0" />
         </button>
         {hasEdits && onViewStepChanges && (
-          <button
-            onClick={handleViewChanges}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-primary/70 hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
-            title="View changes in diff viewer"
-          >
-            <GitBranch size={10} />
-            <span>View Changes</span>
-          </button>
+          <Tooltip content="View changes in diff viewer">
+            <button
+              onClick={handleViewChanges}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-primary/70 hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
+            >
+              <GitBranch size={10} />
+              <span>View Changes</span>
+            </button>
+          </Tooltip>
         )}
       </div>
 

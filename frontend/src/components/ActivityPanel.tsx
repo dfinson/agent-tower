@@ -73,14 +73,15 @@ export function ActivityPanel({
           </Tooltip>
         ) : (
           <>
-            <button
-              onClick={() => setCollapsed(true)}
-              className="flex items-center gap-2 px-3 py-1.5 w-full text-left hover:bg-accent/50 transition-colors shrink-0 border-b border-border"
-              title="Collapse activity"
-            >
-              <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Activity</span>
-            </button>
+            <Tooltip content="Collapse activity">
+              <button
+                onClick={() => setCollapsed(true)}
+                className="flex items-center gap-2 px-3 py-1.5 w-full text-left hover:bg-accent/50 transition-colors shrink-0 border-b border-border"
+              >
+                <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Activity</span>
+              </button>
+            </Tooltip>
             <div className="flex-1 overflow-hidden">
               <ActivityTimeline
                 jobId={jobId}

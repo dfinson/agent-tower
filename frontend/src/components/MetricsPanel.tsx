@@ -237,7 +237,9 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                 const sdkConf = SDK_COST_CONFIG[data.sdk ?? ""] ?? DEFAULT_COST_CONFIG;
                 return (
               <div className={cn("grid grid-cols-2 gap-3", (data.totalCost ?? 0) > 0 ? "md:grid-cols-3 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4")}>
-                <StatCard icon={<Clock size={14} />} label="Duration" value={formatDuration(data.durationMs ?? 0)} color="text-blue-400" />
+                <Tooltip content="Wall-clock time from job start to completion">
+                  <div><StatCard icon={<Clock size={14} />} label="Duration" value={formatDuration(data.durationMs ?? 0)} color="text-blue-400" /></div>
+                </Tooltip>
                 {(data.totalCost ?? 0) > 0 && (
                   <Tooltip content={sdkConf.costTooltip}>
                     <div>
@@ -245,9 +247,15 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                     </div>
                   </Tooltip>
                 )}
-                <StatCard icon={<Cpu size={14} />} label="Tokens" value={formatTokens(data.totalTokens ?? 0)} color="text-violet-400" />
-                <StatCard icon={<Brain size={14} />} label={sdkConf.llmStatLabel} value={sdkConf.llmStatValue(data)} color="text-blue-400" />
-                <StatCard icon={<Wrench size={14} />} label="Tools" value={`${data.toolCallCount ?? 0}${fails ? ` (${fails} fail)` : ""}`} color="text-yellow-400" />
+                <Tooltip content="Total input and output tokens consumed by the LLM">
+                  <div><StatCard icon={<Cpu size={14} />} label="Tokens" value={formatTokens(data.totalTokens ?? 0)} color="text-violet-400" /></div>
+                </Tooltip>
+                <Tooltip content={sdkConf.llmStatLabel === "Turns" ? "Conversational turns between the agent and LLM" : "Individual requests made to the large language model"}>
+                  <div><StatCard icon={<Brain size={14} />} label={sdkConf.llmStatLabel} value={sdkConf.llmStatValue(data)} color="text-blue-400" /></div>
+                </Tooltip>
+                <Tooltip content="Shell commands, file edits, and other tool invocations by the agent">
+                  <div><StatCard icon={<Wrench size={14} />} label="Tools" value={`${data.toolCallCount ?? 0}${fails ? ` (${fails} fail)` : ""}`} color="text-yellow-400" /></div>
+                </Tooltip>
               </div>
                 );
               })()}
@@ -255,9 +263,11 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
               {/* Session Info */}
               <div className="flex flex-wrap items-center gap-3 text-xs">
                 {(data.mainModel || data.model) && (
-                  <Badge variant="secondary" title="Main agent model">
-                    {data.mainModel || data.model}
-                  </Badge>
+                  <Tooltip content="The primary LLM model used by the agent for this job">
+                    <Badge variant="secondary" className="cursor-help">
+                      {data.mainModel || data.model}
+                    </Badge>
+                  </Tooltip>
                 )}
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <MessageSquare size={12} />
@@ -545,16 +555,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                           {!turnsCollapsed && turnCurve.map((bucket) => {
                             const maxCost = Math.max(...turnCurve.map((entry) => entry.costUsd), 0);
                             const widthPct = maxCost > 0 ? (bucket.costUsd / maxCost) * 100 : 0;
-                            const activity = bucket.activity ? formatActivityBucket(bucket.activity) : null;
                             const actions = bucket.actions ?? [];
                             return (
                               <div key={bucket.bucket} className="space-y-0.5 py-1.5 border-b border-border/30 last:border-0">
                                 <div className="flex items-center justify-between text-xs">
                                   <div className="flex items-center gap-2">
                                     <span className="text-muted-foreground font-mono w-5 text-right">{bucket.bucket}</span>
-                                    {activity && (
-                                      <span className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded">{activity}</span>
-                                    )}
                                   </div>
                                   <span className="tabular-nums">{formatUsd(bucket.costUsd)}</span>
                                 </div>
@@ -565,7 +571,10 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                   <div className="ml-7 text-[11px] text-muted-foreground/80 space-y-0.5">
                                     {bucket.intent && <div className="italic">{bucket.intent}</div>}
                                     {actions.map((a, i) => (
-                                      <div key={i} className="text-muted-foreground/60">• {a}</div>
+                                      <div key={i} className="flex items-center gap-1.5 text-muted-foreground/60">
+                                        <span className="text-[9px] px-1 py-px rounded bg-muted text-muted-foreground/50 shrink-0">{formatActivityBucket(a.activity)}</span>
+                                        <span>• {a.text}</span>
+                                      </div>
                                     ))}
                                   </div>
                                 )}
@@ -718,7 +727,9 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                   >
                     {llmCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                     <Brain size={12} className="text-violet-400" />
-                    LLM Calls
+                    <Tooltip content="Individual requests made to the large language model">
+                      <span className="cursor-help">LLM Calls</span>
+                    </Tooltip>
                     <span className="text-muted-foreground font-normal ml-1">
                       ({data.llmCallCount ?? 0} calls, {formatDuration(data.totalLlmDurationMs ?? 0)})
                     </span>

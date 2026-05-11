@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { LatencyBucket } from "../MetricsPanelTypes";
 import { formatActivityBucket } from "../MetricsPanelTypes";
+import { Tooltip } from "../ui/tooltip";
 
 // ---------------------------------------------------------------------------
 // Per-Job Latency Breakdown — mirrors cost breakdown with activity categories
@@ -88,12 +89,12 @@ export function LatencyBreakdown({
               : 0;
           if (pct < 1) return null;
           return (
-            <div
-              key={seg.bucket}
-              className={`h-full ${ACTIVITY_COLORS[seg.bucket] ?? "bg-slate-400"} first:rounded-l-full last:rounded-r-full`}
-              style={{ width: `${pct}%` }}
-              title={`${formatActivityBucket(seg.bucket)}: ${formatDuration(seg.wallClockMs)} (${pct.toFixed(0)}%)`}
-            />
+            <Tooltip key={seg.bucket} content={`${formatActivityBucket(seg.bucket)}: ${formatDuration(seg.wallClockMs)} (${pct.toFixed(0)}%)`}>
+              <div
+                className={`h-full ${ACTIVITY_COLORS[seg.bucket] ?? "bg-slate-400"} first:rounded-l-full last:rounded-r-full`}
+                style={{ width: `${pct}%` }}
+              />
+            </Tooltip>
           );
         })}
       </div>

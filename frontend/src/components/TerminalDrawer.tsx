@@ -233,14 +233,16 @@ export function TerminalDrawer() {
             <span className="max-w-[120px] md:max-w-[180px] truncate">
               {session.label || session.cwd?.split("/").pop() || "Terminal"}
             </span>
-            <button
-              type="button"
-              onClick={(e) => handleCloseSession(session.id, e)}
-              aria-label="Close terminal tab"
-              className="ml-0.5 p-1 md:p-0.5 min-h-[44px] md:min-h-7 min-w-[44px] md:min-w-7 rounded hover:bg-muted-foreground/20 flex items-center justify-center"
-            >
-              <X size={12} aria-hidden="true" />
-            </button>
+            <Tooltip content="Close this terminal tab">
+              <button
+                type="button"
+                onClick={(e) => handleCloseSession(session.id, e)}
+                aria-label="Close terminal tab"
+                className="ml-0.5 p-1 md:p-0.5 min-h-[44px] md:min-h-7 min-w-[44px] md:min-w-7 rounded hover:bg-muted-foreground/20 flex items-center justify-center"
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            </Tooltip>
           </button>
           );
         })}
@@ -319,11 +321,11 @@ export function TerminalDrawer() {
             placeholder="Find in terminal…"
             className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 outline-none min-w-0"
           />
-          <button onClick={handleSearchPrev} className="p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Previous match">&#x25B2;</button>
-          <button onClick={handleSearchNext} className="p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Next match">&#x25BC;</button>
-          <button onClick={toggleSearch} className="p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Close search">
+          <Tooltip content="Previous match"><button onClick={handleSearchPrev} className="p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Previous match">&#x25B2;</button></Tooltip>
+          <Tooltip content="Next match"><button onClick={handleSearchNext} className="p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Next match">&#x25BC;</button></Tooltip>
+          <Tooltip content="Close search"><button onClick={toggleSearch} className="p-1 rounded text-muted-foreground hover:text-foreground" aria-label="Close search">
             <X size={12} />
-          </button>
+          </button></Tooltip>
         </div>
       )}
 

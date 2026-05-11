@@ -1,9 +1,20 @@
 import { Activity, Loader2 } from "lucide-react";
 import { type ScorecardResponse } from "../../api/client";
+import { Tooltip } from "../ui/tooltip";
 
 // ---------------------------------------------------------------------------
 // Activity card — raw resolution counts + animated running indicator
 // ---------------------------------------------------------------------------
+
+const OUTCOME_TIPS: Record<string, string> = {
+  Running: "Jobs currently being worked on by an agent",
+  "In Review": "Agent finished — changes waiting for your review",
+  Merged: "Changes reviewed and merged into the target branch",
+  "PR Created": "A pull request was opened for review",
+  Discarded: "Changes reviewed but not applied",
+  Failed: "Jobs that encountered an error",
+  Cancelled: "Jobs manually stopped before completion",
+};
 
 export function ActivityCard({ scorecard }: { scorecard: ScorecardResponse }) {
   const a = scorecard.activity;
@@ -30,17 +41,19 @@ export function ActivityCard({ scorecard }: { scorecard: ScorecardResponse }) {
 
       <div className="space-y-1.5">
         {outcomes.map((o) => (
-          <div key={o.label} className="flex items-center justify-between text-xs">
-            <span className="flex items-center gap-1.5">
-              {"spinning" in o && o.spinning ? (
-                <Loader2 size={10} className="animate-spin" style={{ color: o.color }} />
-              ) : (
-                <span className="w-2 h-2 rounded-full" style={{ background: o.color }} />
-              )}
-              {o.label}
-            </span>
-            <span className="text-foreground font-medium">{o.count}</span>
-          </div>
+          <Tooltip key={o.label} content={OUTCOME_TIPS[o.label] ?? o.label}>
+            <div className="flex items-center justify-between text-xs cursor-help">
+              <span className="flex items-center gap-1.5">
+                {"spinning" in o && o.spinning ? (
+                  <Loader2 size={10} className="animate-spin" style={{ color: o.color }} />
+                ) : (
+                  <span className="w-2 h-2 rounded-full" style={{ background: o.color }} />
+                )}
+                {o.label}
+              </span>
+              <span className="text-foreground font-medium">{o.count}</span>
+            </div>
+          </Tooltip>
         ))}
       </div>
     </div>

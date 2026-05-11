@@ -17,6 +17,7 @@ import type { PolicyState } from "../api/client";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { Tooltip } from "./ui/tooltip";
 import { Spinner } from "./ui/spinner";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 import { useStore } from "../store";
@@ -229,7 +230,9 @@ export function PolicySettingsPanel() {
 
       {/* Path rules */}
       <div className="space-y-2">
-        <Label>Path Rules</Label>
+        <Tooltip content="Glob patterns that control which files require approval when the agent modifies them">
+          <Label className="cursor-help w-fit">Path Rules</Label>
+        </Tooltip>
         {policy.pathRules.length === 0 && (
           <p className="text-xs text-muted-foreground">No path rules configured.</p>
         )}
@@ -237,13 +240,15 @@ export function PolicySettingsPanel() {
           <div key={rule.id} className="flex items-center gap-2 text-xs bg-background border border-border/50 rounded px-2.5 py-1.5">
             <code className="flex-1 font-mono">{rule.pathPattern}</code>
             <span className="text-muted-foreground">{rule.tier}</span>
-            <button
-              onClick={() => setDeleteTarget({ type: "path", id: rule.id })}
-              className="text-red-400 hover:text-red-300 p-1"
-              aria-label="Delete rule"
-            >
-              <Trash2 size={12} />
-            </button>
+            <Tooltip content="Delete this path rule">
+              <button
+                onClick={() => setDeleteTarget({ type: "path", id: rule.id })}
+                className="text-red-400 hover:text-red-300 p-1"
+                aria-label="Delete rule"
+              >
+                <Trash2 size={12} />
+              </button>
+            </Tooltip>
           </div>
         ))}
         <div className="flex gap-2 items-end">
@@ -274,7 +279,9 @@ export function PolicySettingsPanel() {
 
       {/* Action rules */}
       <div className="space-y-2">
-        <Label>Action Rules</Label>
+        <Tooltip content="Patterns that match agent tool calls — controls which actions require approval">
+          <Label className="cursor-help w-fit">Action Rules</Label>
+        </Tooltip>
         {policy.actionRules.length === 0 && (
           <p className="text-xs text-muted-foreground">No action rules configured.</p>
         )}
@@ -282,13 +289,15 @@ export function PolicySettingsPanel() {
           <div key={rule.id} className="flex items-center gap-2 text-xs bg-background border border-border/50 rounded px-2.5 py-1.5">
             <code className="flex-1 font-mono">{rule.matchPattern}</code>
             <span className="text-muted-foreground">{rule.tier}</span>
-            <button
-              onClick={() => setDeleteTarget({ type: "action", id: rule.id })}
-              className="text-red-400 hover:text-red-300 p-1"
-              aria-label="Delete rule"
-            >
-              <Trash2 size={12} />
-            </button>
+            <Tooltip content="Delete this action rule">
+              <button
+                onClick={() => setDeleteTarget({ type: "action", id: rule.id })}
+                className="text-red-400 hover:text-red-300 p-1"
+                aria-label="Delete rule"
+              >
+                <Trash2 size={12} />
+              </button>
+            </Tooltip>
           </div>
         ))}
         <div className="flex gap-2 items-end">
@@ -331,13 +340,15 @@ export function PolicySettingsPanel() {
             <span className="text-muted-foreground">→ {rule.promoteTo}</span>
             {rule.reason && <span className="text-muted-foreground flex-1 truncate">— {rule.reason}</span>}
             {!rule.reason && <span className="flex-1" />}
-            <button
-              onClick={() => setDeleteTarget({ type: "cost", id: rule.id })}
-              className="text-red-400 hover:text-red-300 p-1"
-              aria-label="Delete cost rule"
-            >
-              <Trash2 size={12} />
-            </button>
+            <Tooltip content="Delete this cost rule">
+              <button
+                onClick={() => setDeleteTarget({ type: "cost", id: rule.id })}
+                className="text-red-400 hover:text-red-300 p-1"
+                aria-label="Delete cost rule"
+              >
+                <Trash2 size={12} />
+              </button>
+            </Tooltip>
           </div>
         ))}
         <div className="flex gap-2 items-end">
@@ -372,7 +383,9 @@ export function PolicySettingsPanel() {
       {/* Trust grants */}
       {policy.trustGrants.length > 0 && (
         <div className="space-y-2">
-          <Label>Active Trust Grants</Label>
+          <Tooltip content="One-time permissions previously granted — the agent won't ask again for these">
+            <Label className="cursor-help w-fit">Active Trust Grants</Label>
+          </Tooltip>
           {policy.trustGrants.map((grant) => (
             <div key={grant.id} className="flex items-center gap-2 text-xs bg-background border border-border/50 rounded px-2.5 py-1.5">
               <span className="flex-1">
@@ -384,13 +397,15 @@ export function PolicySettingsPanel() {
               {grant.expiresAt && (
                 <span className="text-muted-foreground">expires {new Date(grant.expiresAt).toLocaleString()}</span>
               )}
-              <button
-                onClick={() => setDeleteTarget({ type: "trust", id: grant.id })}
-                className="text-red-400 hover:text-red-300 p-1"
-                aria-label="Revoke trust"
-              >
-                <Trash2 size={12} />
-              </button>
+              <Tooltip content="Revoke this trust grant">
+                <button
+                  onClick={() => setDeleteTarget({ type: "trust", id: grant.id })}
+                  className="text-red-400 hover:text-red-300 p-1"
+                  aria-label="Revoke trust"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </Tooltip>
             </div>
           ))}
         </div>

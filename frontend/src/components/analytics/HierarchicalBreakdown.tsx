@@ -1,6 +1,7 @@
 import { Layers } from "lucide-react";
 import { type CostDriversData } from "../MetricsPanelTypes";
 import { formatUsd } from "./helpers";
+import { Tooltip } from "../ui/tooltip";
 
 /**
  * Hierarchical 2-level breakdown: L1 = Purpose, L2 = Action within purpose.
@@ -102,12 +103,12 @@ export function HierarchicalBreakdown({ data, compactionCostUsd = 0 }: Props) {
           const p = purposes[key]!;
           const pct = total > 0 ? (p.cost / total) * 100 : 0;
           return pct > 0 ? (
-            <div
-              key={key}
-              className={`${PURPOSE_META[key]!.bg} transition-all`}
-              style={{ width: `${pct}%` }}
-              title={`${PURPOSE_META[key]!.label}: ${pct.toFixed(1)}%`}
-            />
+            <Tooltip key={key} content={`${PURPOSE_META[key]!.label}: ${formatUsd(p.cost)} (${pct.toFixed(1)}%)`}>
+              <div
+                className={`${PURPOSE_META[key]!.bg} transition-all`}
+                style={{ width: `${pct}%` }}
+              />
+            </Tooltip>
           ) : null;
         })}
       </div>

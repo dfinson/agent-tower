@@ -88,7 +88,7 @@ export function DashboardScreen() {
         className="md:hidden fixed right-6 z-50 h-14 w-14 rounded-full shadow-lg"
         style={{ bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}
         onClick={() => navigate("/jobs/new")}
-        aria-label="New Job"
+        aria-label="Create a new coding job"
       >
         <Plus size={22} />
       </Button>

@@ -1,4 +1,5 @@
 import { memo, type ReactElement } from "react";
+import { Tooltip } from "./ui/tooltip";
 
 type SdkIconComponent = (props: { size: number }) => ReactElement;
 
@@ -46,19 +47,21 @@ export function SdkIcon({
 
 const SDK_CONFIG: Record<
   string,
-  { label: string; className: string; Icon: SdkIconComponent }
+  { label: string; className: string; Icon: SdkIconComponent; tip: string }
 > = {
   copilot: {
     label: "GitHub Copilot",
     className:
       "border-[#8534F3]/25 bg-[#8534F3]/10 text-[#43179E] dark:text-[#C898FD]",
     Icon: ({ size }) => <BrandIcon size={size} path={COPILOT_ICON_PATH} fill="#8534F3" />,
+    tip: "Powered by GitHub Copilot coding agent",
   },
   claude: {
     label: "Claude Code",
     className:
       "border-[#D97757]/25 bg-[#D97757]/10 text-[#8B4B38] dark:text-[#F0B6A4]",
     Icon: ({ size }) => <BrandIcon size={size} path={CLAUDE_ICON_PATH} fill="#D97757" />,
+    tip: "Powered by Anthropic's Claude Code agent",
   },
 };
 
@@ -80,17 +83,20 @@ export const SdkBadge = memo(function SdkBadge({ sdk, size = "md" }: SdkBadgePro
   const label = cfg?.label ?? DEFAULT_CONFIG.label(sdk);
   const className = cfg?.className ?? DEFAULT_CONFIG.className;
   const Icon = cfg?.Icon;
+  const tip = cfg?.tip ?? `Agent SDK: ${sdk}`;
 
   const sizeClass =
     size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]";
   const iconSize = size === "sm" ? 9 : 11;
 
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border font-semibold shrink-0 ${sizeClass} ${className}`}
-    >
-      {Icon && <Icon size={iconSize} />}
-      {label}
-    </span>
+    <Tooltip content={tip}>
+      <span
+        className={`inline-flex items-center gap-1 rounded-full border font-semibold shrink-0 ${sizeClass} ${className}`}
+      >
+        {Icon && <Icon size={iconSize} />}
+        {label}
+      </span>
+    </Tooltip>
   );
 });

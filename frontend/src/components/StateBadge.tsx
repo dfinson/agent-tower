@@ -3,26 +3,29 @@ import {
   type LucideIcon,
   Loader2, Clock, ShieldQuestion, CheckCircle2, XCircle, Ban, Eye,
 } from "lucide-react";
+import { Tooltip } from "./ui/tooltip";
 
-const STATE_CONFIG: Record<string, { bg: string; text: string; label: string; Icon: LucideIcon }> = {
-  preparing: { bg: "bg-violet-900/30", text: "text-violet-400", label: "Preparing", Icon: Loader2 },
-  queued: { bg: "bg-yellow-900/30", text: "text-yellow-400", label: "Queued", Icon: Clock },
-  running: { bg: "bg-blue-900/30", text: "text-blue-400", label: "Running", Icon: Loader2 },
-  waiting_for_approval: { bg: "bg-orange-900/30", text: "text-orange-400", label: "Approval", Icon: ShieldQuestion },
-  review: { bg: "bg-cyan-900/30", text: "text-cyan-400", label: "In Review", Icon: Eye },
-  completed: { bg: "bg-green-900/30", text: "text-green-400", label: "Completed", Icon: CheckCircle2 },
-  failed: { bg: "bg-red-900/30", text: "text-red-400", label: "Failed", Icon: XCircle },
-  canceled: { bg: "bg-gray-800/50", text: "text-gray-400", label: "Canceled", Icon: Ban },
+const STATE_CONFIG: Record<string, { bg: string; text: string; label: string; Icon: LucideIcon; tip: string }> = {
+  preparing: { bg: "bg-violet-900/30", text: "text-violet-400", label: "Preparing", Icon: Loader2, tip: "Setting up the workspace and cloning the repo" },
+  queued: { bg: "bg-yellow-900/30", text: "text-yellow-400", label: "Queued", Icon: Clock, tip: "Waiting in line to start" },
+  running: { bg: "bg-blue-900/30", text: "text-blue-400", label: "Running", Icon: Loader2, tip: "Agent is actively working" },
+  waiting_for_approval: { bg: "bg-orange-900/30", text: "text-orange-400", label: "Approval", Icon: ShieldQuestion, tip: "Agent paused — waiting for your approval to continue" },
+  review: { bg: "bg-cyan-900/30", text: "text-cyan-400", label: "In Review", Icon: Eye, tip: "Agent finished — changes are ready for your review" },
+  completed: { bg: "bg-green-900/30", text: "text-green-400", label: "Completed", Icon: CheckCircle2, tip: "Job finished and changes have been resolved" },
+  failed: { bg: "bg-red-900/30", text: "text-red-400", label: "Failed", Icon: XCircle, tip: "Job encountered an error and stopped" },
+  canceled: { bg: "bg-gray-800/50", text: "text-gray-400", label: "Canceled", Icon: Ban, tip: "Job was manually canceled" },
 };
 
-const DEFAULT_CFG = { bg: "bg-gray-800/50", text: "text-gray-400", label: "Unknown", Icon: Clock };
+const DEFAULT_CFG = { bg: "bg-gray-800/50", text: "text-gray-400", label: "Unknown", Icon: Clock, tip: "Unknown job state" };
 
 export const StateBadge = memo(function StateBadge({ state }: { state: string }) {
   const cfg = STATE_CONFIG[state] ?? DEFAULT_CFG;
   return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${cfg.bg} ${cfg.text}`}>
-      <cfg.Icon size={12} aria-hidden="true" />
-      {cfg.label}
-    </span>
+    <Tooltip content={cfg.tip}>
+      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${cfg.bg} ${cfg.text}`}>
+        <cfg.Icon size={12} aria-hidden="true" />
+        {cfg.label}
+      </span>
+    </Tooltip>
   );
 });

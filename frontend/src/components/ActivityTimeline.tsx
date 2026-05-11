@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle, ListTree, Che
 import { useStore, selectActivityTimeline, selectJobPlan, selectHoveredPlanItemId } from "../store";
 import type { ActivityTimelineActivity } from "../store";
 import { PlanPanel } from "./PlanPanel";
+import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 
 /** Terminal job states where the agent is no longer working. */
@@ -27,10 +28,10 @@ function StepDot({ active }: { active: boolean }) {
   );
 }
 
-const TIER_BADGE: Record<string, { icon: string; cls: string }> = {
-  observe: { icon: "○", cls: "text-muted-foreground/60" },
-  checkpoint: { icon: "◐", cls: "text-amber-400" },
-  gate: { icon: "●", cls: "text-red-400" },
+const TIER_BADGE: Record<string, { icon: string; cls: string; tip: string }> = {
+  observe: { icon: "○", cls: "text-muted-foreground/60", tip: "Observe — informational checkpoint, no action needed" },
+  checkpoint: { icon: "◐", cls: "text-amber-400", tip: "Checkpoint — notable milestone in the agent's work" },
+  gate: { icon: "●", cls: "text-red-400", tip: "Gate — requires your approval before the agent continues" },
 };
 
 /** Renders a single step with a brief flash when its title is updated (merge). */
@@ -86,12 +87,13 @@ function StepButton({
       {(() => {
         const badge = step.tier ? TIER_BADGE[step.tier] : undefined;
         return badge ? (
-          <span
-            className={cn("text-[11px] shrink-0 leading-none", badge.cls)}
-            title={step.tier!}
-          >
-            {badge.icon}
-          </span>
+          <Tooltip content={badge.tip}>
+            <span
+              className={cn("text-[11px] shrink-0 leading-none cursor-help", badge.cls)}
+            >
+              {badge.icon}
+            </span>
+          </Tooltip>
         ) : null;
       })()}
     </button>
@@ -248,13 +250,14 @@ export function ActivityTimeline({
           <ListTree size={12} className="text-muted-foreground shrink-0" />
           <span className="text-xs font-semibold text-muted-foreground">Activity Log</span>
           {activities.length > 1 && (
-            <button
-              onClick={toggleAll}
-              className="ml-auto text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-              title={allExpanded ? "Collapse all" : "Expand all"}
-            >
-              {allExpanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
-            </button>
+            <Tooltip content={allExpanded ? "Collapse all activities" : "Expand all activities"}>
+              <button
+                onClick={toggleAll}
+                className="ml-auto text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              >
+                {allExpanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
+              </button>
+            </Tooltip>
           )}
           <span className={cn("text-[11px] text-muted-foreground/50 tabular-nums shrink-0", activities.length <= 1 && "ml-auto")}>{activities.length}</span>
         </div>
@@ -262,13 +265,14 @@ export function ActivityTimeline({
       {/* Minimal toggle header when no plan panel but multiple activities */}
       {planSteps.length === 0 && activities.length > 1 && (
         <div className="flex items-center justify-end px-3 py-1.5">
-          <button
-            onClick={toggleAll}
-            className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-            title={allExpanded ? "Collapse all" : "Expand all"}
-          >
-            {allExpanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
-          </button>
+          <Tooltip content={allExpanded ? "Collapse all activities" : "Expand all activities"}>
+            <button
+              onClick={toggleAll}
+              className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              {allExpanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
+            </button>
+          </Tooltip>
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">

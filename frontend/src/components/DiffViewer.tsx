@@ -7,6 +7,7 @@ import { useStore, selectJobDiffs } from "../store";
 import { sendOperatorMessage, resumeJob, continueJob, fetchStepDiff, fetchJobTelemetry } from "../api/client";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Spinner } from "./ui/spinner";
+import { Tooltip } from "./ui/tooltip";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 import { MicButton } from "./VoiceButton";
@@ -600,13 +601,14 @@ export default function DiffViewer({ jobId, jobState, onAskSent, stepFilter, onC
             >
               All Changes
             </button>
-            <button
-              onClick={onClearStepFilter}
-              className="p-1.5 min-h-[44px] md:min-h-0 min-w-[44px] md:min-w-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground transition-colors ml-1"
-              title="Clear filter"
-            >
-              <X size={13} />
-            </button>
+            <Tooltip content="Clear step filter — show all changes">
+              <button
+                onClick={onClearStepFilter}
+                className="p-1.5 min-h-[44px] md:min-h-0 min-w-[44px] md:min-w-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground transition-colors ml-1"
+              >
+                <X size={13} />
+              </button>
+            </Tooltip>
           </div>
         </div>
       )}

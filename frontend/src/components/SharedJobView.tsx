@@ -16,6 +16,7 @@ import { ActivityTimeline } from "./ActivityTimeline";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
 import { Spinner } from "./ui/spinner";
+import { Tooltip } from "./ui/tooltip";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { cn } from "../lib/utils";
 import { lazyRetry } from "../lib/lazyRetry";
@@ -243,23 +244,25 @@ export function SharedJobView() {
               style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
             >
               {sidebarCollapsed ? (
-                <button
-                  onClick={() => setSidebarCollapsed(false)}
-                  className="flex items-center justify-center h-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                  title="Expand activity timeline"
-                >
-                  <PanelLeftOpen size={18} />
-                </button>
+                <Tooltip content="Expand activity timeline" side="right">
+                  <button
+                    onClick={() => setSidebarCollapsed(false)}
+                    className="flex items-center justify-center h-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  >
+                    <PanelLeftOpen size={18} />
+                  </button>
+                </Tooltip>
               ) : (
                 <>
-                  <button
-                    onClick={() => setSidebarCollapsed(true)}
-                    className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-border hover:bg-accent/50 transition-colors"
-                    title="Collapse activity timeline"
-                  >
-                    <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
-                    <span className="text-sm font-semibold text-muted-foreground">Activity</span>
-                  </button>
+                  <Tooltip content="Collapse activity timeline">
+                    <button
+                      onClick={() => setSidebarCollapsed(true)}
+                      className="flex items-center gap-2 px-4 py-2.5 w-full text-left border-b border-border hover:bg-accent/50 transition-colors"
+                    >
+                      <PanelLeftClose size={13} className="text-muted-foreground shrink-0" />
+                      <span className="text-sm font-semibold text-muted-foreground">Activity</span>
+                    </button>
+                  </Tooltip>
                   <div className="flex-1 overflow-hidden">
                     <ActivityTimeline
                       jobId={job.id}

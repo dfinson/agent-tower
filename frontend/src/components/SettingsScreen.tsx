@@ -13,6 +13,7 @@ import { RepoIndexIndicator } from "./RepoIndexIndicator";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { Tooltip } from "./ui/tooltip";
 import { Spinner } from "./ui/spinner";
 import { ConfirmDialog } from "./ui/confirm-dialog";
 
@@ -236,14 +237,16 @@ export function SettingsScreen() {
                 <span className="text-sm font-mono text-muted-foreground truncate" title={r}>{r}</span>
                 <RepoIndexIndicator repo={r} />
               </div>
-                <button
-                  type="button"
-                  onClick={() => setRemoveRepoTarget(r)}
-                  aria-label={`Remove repository ${r}`}
-                  className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-400/10"
-                >
-                  <Trash2 size={14} aria-hidden="true" />
-                </button>
+                <Tooltip content="Remove this repository from CodePlane">
+                  <button
+                    type="button"
+                    onClick={() => setRemoveRepoTarget(r)}
+                    aria-label={`Remove repository ${r}`}
+                    className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-400/10"
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                  </button>
+                </Tooltip>
               </div>
             ))}
           </div>

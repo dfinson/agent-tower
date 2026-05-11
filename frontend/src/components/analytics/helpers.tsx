@@ -1,4 +1,5 @@
 import { Download } from "lucide-react";
+import { Tooltip } from "../ui/tooltip";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,13 +56,14 @@ export function downloadCsv(filename: string, headers: string[], rows: (string |
 
 export function CsvButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-      title="Export as CSV"
-    >
-      <Download size={10} />
-      CSV
-    </button>
+    <Tooltip content="Download this data as a CSV file">
+      <button
+        onClick={onClick}
+        className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+      >
+        <Download size={10} />
+        CSV
+      </button>
+    </Tooltip>
   );
 }

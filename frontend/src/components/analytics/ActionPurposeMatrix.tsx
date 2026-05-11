@@ -1,6 +1,7 @@
 import { Grid3X3, Info } from "lucide-react";
 import { type ActionPurposeMatrixResponse } from "../../api/client-analytics";
 import { formatUsd } from "./helpers";
+import { Tooltip } from "../ui/tooltip";
 
 const ACTIONS = ["write", "test", "execute", "vcs", "delegate", "read", "think"] as const;
 const PURPOSES = ["building", "recovering", "orienting", "verifying", "housekeeping"] as const;
@@ -80,12 +81,11 @@ export function ActionPurposeMatrix({ data }: Props) {
       <div className="flex items-center gap-2 text-muted-foreground text-xs font-medium uppercase tracking-wide">
         <Grid3X3 size={14} />
         Action × Purpose
-        <span
-          className="cursor-help"
-          title="How much was spent on each type of agent activity (rows) broken down by why the agent was doing it (columns). High spend in Recovering suggests the agent is wasting money fixing its own mistakes."
-        >
-          <Info size={12} className="text-muted-foreground/60" />
-        </span>
+        <Tooltip content="How much was spent on each type of agent activity (rows) broken down by why the agent was doing it (columns). High spend in Recovering suggests the agent is wasting money fixing its own mistakes.">
+          <span className="cursor-help">
+            <Info size={12} className="text-muted-foreground/60" />
+          </span>
+        </Tooltip>
       </div>
 
       <div className="overflow-x-auto">
@@ -94,18 +94,18 @@ export function ActionPurposeMatrix({ data }: Props) {
             <tr>
               <th
                 className="text-left px-2 py-1 text-muted-foreground font-medium"
-                title="What the agent was doing (the type of tool call)"
               />
               {PURPOSES.map((p) => (
                 <th
                   key={p}
-                  className="text-center px-2 py-1 text-muted-foreground font-medium cursor-help"
-                  title={PURPOSE_DESCRIPTIONS[p]}
+                  className="text-center px-2 py-1 text-muted-foreground font-medium"
                 >
-                  <div className="flex items-center justify-center gap-1">
-                    <span className={`w-2 h-2 rounded ${PURPOSE_COLORS[p]}`} />
-                    {PURPOSE_LABELS[p]}
-                  </div>
+                  <Tooltip content={PURPOSE_DESCRIPTIONS[p]}>
+                    <div className="flex items-center justify-center gap-1 cursor-help">
+                      <span className={`w-2 h-2 rounded ${PURPOSE_COLORS[p]}`} />
+                      {PURPOSE_LABELS[p]}
+                    </div>
+                  </Tooltip>
                 </th>
               ))}
             </tr>
@@ -116,27 +116,27 @@ export function ActionPurposeMatrix({ data }: Props) {
               if (!hasData) return null;
               return (
                 <tr key={action} className="border-t border-border/50">
-                  <td
-                    className="px-2 py-1.5 font-medium text-foreground cursor-help"
-                    title={ACTION_DESCRIPTIONS[action]}
-                  >
-                    {ACTION_LABELS[action]}
-                  </td>
+                  <Tooltip content={ACTION_DESCRIPTIONS[action]}>
+                    <td className="px-2 py-1.5 font-medium text-foreground cursor-help">
+                      {ACTION_LABELS[action]}
+                    </td>
+                  </Tooltip>
                   {PURPOSES.map((purpose) => {
                     const cost = lookup[`${action}:${purpose}`] ?? 0;
                     const intensity = maxCost > 0 ? cost / maxCost : 0;
                     return (
                       <td key={purpose} className="px-2 py-1.5 text-center">
                         {cost > 0 ? (
-                          <span
-                            className="inline-block rounded px-1.5 py-0.5 cursor-help"
-                            style={{
-                              backgroundColor: `rgba(var(--color-primary-rgb, 59, 130, 246), ${intensity * 0.3 + 0.05})`,
-                            }}
-                            title={`${formatUsd(cost)} spent on "${ACTION_LABELS[action]}" actions while "${PURPOSE_LABELS[purpose]}"\n\n${ACTION_DESCRIPTIONS[action]}\n${PURPOSE_DESCRIPTIONS[purpose]}`}
-                          >
-                            {formatUsd(cost)}
-                          </span>
+                          <Tooltip content={`${formatUsd(cost)} spent on "${ACTION_LABELS[action]}" while "${PURPOSE_LABELS[purpose]}"`}>
+                            <span
+                              className="inline-block rounded px-1.5 py-0.5 cursor-help"
+                              style={{
+                                backgroundColor: `rgba(var(--color-primary-rgb, 59, 130, 246), ${intensity * 0.3 + 0.05})`,
+                              }}
+                            >
+                              {formatUsd(cost)}
+                            </span>
+                          </Tooltip>
                         ) : (
                           <span className="text-muted-foreground/40">—</span>
                         )}

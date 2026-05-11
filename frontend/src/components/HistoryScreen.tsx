@@ -6,6 +6,7 @@ import { useStore, selectArchivedJobs, enrichJob } from "../store";
 import type { JobSummary } from "../store";
 import { fetchJobs } from "../api/client";
 import { StateBadge } from "./StateBadge";
+import { Tooltip } from "./ui/tooltip";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Spinner } from "./ui/spinner";
@@ -179,7 +180,9 @@ function HistoryRow({ job, onNavigate }: { job: JobSummary; onNavigate: () => vo
           <span className="font-mono">{job.id}</span>
           {job.completedAt && <span>{new Date(job.completedAt).toLocaleDateString()}</span>}
         </div>
-        <p className="text-xs text-foreground/60 truncate mt-0.5" title={job.prompt}>{job.prompt}</p>
+        <Tooltip content={job.prompt}>
+          <p className="text-xs text-foreground/60 truncate mt-0.5">{job.prompt}</p>
+        </Tooltip>
       </div>
     </button>
   );

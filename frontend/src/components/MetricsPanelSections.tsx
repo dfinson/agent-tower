@@ -346,13 +346,13 @@ export function FileAccessSection({ fileAccess }: { fileAccess: FileAccessData }
                 <tr className="bg-muted/20 text-muted-foreground">
                   <th className="px-2 py-1 text-left font-medium">File</th>
                   <th className="px-2 py-1 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => setSortField("accessCount")}>
-                    Total{sortField === "accessCount" ? " ↓" : ""}
+                    <Tooltip content="Total reads + writes for this file"><span className="cursor-help">Total{sortField === "accessCount" ? " ↓" : ""}</span></Tooltip>
                   </th>
                   <th className="px-2 py-1 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => setSortField("readCount")}>
-                    Reads{sortField === "readCount" ? " ↓" : ""}
+                    <Tooltip content="How many times the agent read this file"><span className="cursor-help">Reads{sortField === "readCount" ? " ↓" : ""}</span></Tooltip>
                   </th>
                   <th className="px-2 py-1 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => setSortField("writeCount")}>
-                    Writes{sortField === "writeCount" ? " ↓" : ""}
+                    <Tooltip content="How many times the agent wrote to this file"><span className="cursor-help">Writes{sortField === "writeCount" ? " ↓" : ""}</span></Tooltip>
                   </th>
                 </tr>
               </thead>

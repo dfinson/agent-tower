@@ -5,6 +5,7 @@ import { useStore, selectJobTranscript } from "../store";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
 import { SdkBadge } from "./SdkBadge";
+import { Tooltip } from "./ui/tooltip";
 import { useViewStateStore } from "../store/viewStateStore";
 
 function elapsed(createdAt: string): string {
@@ -33,11 +34,20 @@ function ResolutionBadge({ resolution }: { resolution: string }) {
     pr_created: "PR created",
     discarded: "Discarded",
   };
+  const tips: Record<string, string> = {
+    unresolved: "Changes need your review before merging",
+    conflict: "Merge conflict detected — manual resolution required",
+    merged: "Changes have been merged into the target branch",
+    pr_created: "A pull request was created for these changes",
+    discarded: "Changes were discarded and not applied",
+  };
   return (
-    <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${styles[resolution] ?? styles.unresolved}`}>
-      {resolution === "conflict" && <AlertTriangle size={10} className="mr-0.5" />}
-      {labels[resolution] ?? resolution}
-    </span>
+    <Tooltip content={tips[resolution] ?? `Resolution: ${resolution}`}>
+      <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium ${styles[resolution] ?? styles.unresolved}`}>
+        {resolution === "conflict" && <AlertTriangle size={10} className="mr-0.5" />}
+        {labels[resolution] ?? resolution}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -65,7 +75,9 @@ export const JobCard = memo(function JobCard({ job }: { job: JobSummary }) {
         )}
         <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
           {hasUnread && (
-            <span className="inline-block w-2 h-2 rounded-full bg-blue-500 shrink-0" title="New activity since last visit" />
+            <Tooltip content="New activity since your last visit">
+              <span className="inline-block w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+            </Tooltip>
           )}
           {job.resolution && !(job.state === "review" && job.resolution === "unresolved") && <ResolutionBadge resolution={job.resolution} />}
           <StateBadge state={job.state} />

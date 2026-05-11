@@ -8,6 +8,7 @@ import { JobActions, type JobActionsProps } from "./JobActions";
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator";
 import { NavMenuSlideout } from "./NavMenuSlideout";
 import { BottomSheet } from "./ui/bottom-sheet";
+import { Tooltip } from "./ui/tooltip";
 
 /** States where the card should default to expanded (user needs context/actions). */
 const EXPAND_STATES = new Set(["review", "failed", "canceled", "completed"]);
@@ -133,9 +134,11 @@ export function JobHeaderCard({
       {/* Desktop (>= md): top navigation bar                              */}
       {/* ────────────────────────────────────────────────────────────────── */}
       <div className="hidden md:flex items-center gap-3 shrink-0 mx-3 mt-2 px-4 h-10">
-        <button onClick={onNavigateHome} className="shrink-0 hover:opacity-80 transition-opacity" aria-label="Back to dashboard">
-          <img src="/mark.png" alt="" className="h-7 w-7 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
-        </button>
+        <Tooltip content="Back to dashboard">
+          <button onClick={onNavigateHome} className="shrink-0 hover:opacity-80 transition-opacity" aria-label="Back to dashboard">
+            <img src="/mark.png" alt="" className="h-7 w-7 object-contain brightness-110 drop-shadow-[0_0_3px_rgba(255,255,255,0.08)]" />
+          </button>
+        </Tooltip>
         <div className="flex-1" />
         <div className="flex items-center gap-1.5 shrink-0">
           <ConnectionStatusIndicator />

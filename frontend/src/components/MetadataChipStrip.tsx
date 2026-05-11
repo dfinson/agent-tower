@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, forwardRef } from "react";
 import { createPortal } from "react-dom";
 import { ExternalLink, AlertTriangle, ArrowDownCircle, Loader2, Coins } from "lucide-react";
 import type { JobSummary } from "../store";
+import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 
 interface MetadataChipStripProps {
@@ -11,13 +12,15 @@ interface MetadataChipStripProps {
   onCostClick?: () => void;
 }
 
-function Chip({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground whitespace-nowrap", className)}>
-      {children}
-    </span>
-  );
-}
+const Chip = forwardRef<HTMLSpanElement, { children: React.ReactNode; className?: string }>(
+  function Chip({ children, className }, ref) {
+    return (
+      <span ref={ref} className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground whitespace-nowrap", className)}>
+        {children}
+      </span>
+    );
+  },
+);
 
 function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => void }) {
   const [showTooltip, setShowTooltip] = useState(false);
@@ -96,7 +99,7 @@ function CostChip({ job, onCostClick }: { job: JobSummary; onCostClick?: () => v
             )}
             {job.totalTokens != null && job.inputTokens != null && job.outputTokens != null && (job.totalTokens - job.inputTokens - job.outputTokens) > 0 && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground" title="Tokens served from prompt cache — reused context billed at a reduced rate">Cache read ⓘ</span>
+                <span className="text-muted-foreground">Cache read <Tooltip content="Tokens served from prompt cache — reused context billed at a reduced rate"><span className="cursor-help">ⓘ</span></Tooltip></span>
                 <span>{formatTokens(job.totalTokens - job.inputTokens - job.outputTokens)}</span>
               </div>
             )}
@@ -137,9 +140,11 @@ export function MetadataChipStrip({ job, hasMergeConflict, className, onCostClic
       {job.model && <Chip>{job.model}</Chip>}
       <Chip>{timeAgo(job.createdAt)}</Chip>
       {job.prUrl && (
-        <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-muted text-primary hover:underline whitespace-nowrap">
-          <ExternalLink size={10} /> PR
-        </a>
+        <Tooltip content="Open the pull request on GitHub">
+          <a href={job.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-muted text-primary hover:underline whitespace-nowrap">
+            <ExternalLink size={10} /> PR
+          </a>
+        </Tooltip>
       )}
       {/* Cost / token chip */}
       {(job.totalCostUsd != null && job.totalCostUsd > 0) && (
@@ -147,14 +152,18 @@ export function MetadataChipStrip({ job, hasMergeConflict, className, onCostClic
       )}
       {/* Status chips */}
       {job.modelDowngraded && (
-        <Chip className="bg-amber-500/15 text-amber-500">
-          <ArrowDownCircle size={10} /> Downgraded
-        </Chip>
+        <Tooltip content={`Requested ${job.requestedModel ?? "model"} but received ${job.actualModel ?? "a different model"}`}>
+          <Chip className="bg-amber-500/15 text-amber-500">
+            <ArrowDownCircle size={10} /> Downgraded
+          </Chip>
+        </Tooltip>
       )}
       {hasMergeConflict && (
-        <Chip className="bg-amber-500/15 text-amber-500">
-          <AlertTriangle size={10} /> Conflict
-        </Chip>
+        <Tooltip content="Agent's changes conflict with the target branch — manual resolution needed">
+          <Chip className="bg-amber-500/15 text-amber-500">
+            <AlertTriangle size={10} /> Conflict
+          </Chip>
+        </Tooltip>
       )}
       {job.state === "failed" && (
         <Chip className="bg-red-500/15 text-red-500">

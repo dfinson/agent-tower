@@ -369,7 +369,9 @@ export function JobCreationScreen() {
           {showAdvanced && (
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label>Base Reference</Label>
+                <Tooltip content="The branch or commit to base the agent's work on (defaults to the repo's current HEAD)">
+                  <Label className="cursor-help w-fit">Base Reference</Label>
+                </Tooltip>
                 <Input
                   placeholder="e.g., main"
                   value={baseRef}
@@ -380,7 +382,9 @@ export function JobCreationScreen() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>Branch Name</Label>
+                <Tooltip content="Name for the working branch the agent creates — auto-generated from your prompt if left empty">
+                  <Label className="cursor-help w-fit">Branch Name</Label>
+                </Tooltip>
                 <div className="relative">
                   <Input
                     placeholder={branchSuggesting ? "Generating…" : "Auto-generated if empty"}

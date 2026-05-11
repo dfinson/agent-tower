@@ -1,6 +1,7 @@
 import { Brain } from "lucide-react";
 import { type CostDriversData } from "../MetricsPanelTypes";
 import { formatUsd } from "./helpers";
+import { Tooltip } from "../ui/tooltip";
 
 /**
  * Motivation-driven attribution breakdown (Item 17).
@@ -86,12 +87,12 @@ export function MotivationBreakdown({ data }: Props) {
             const pct = total > 0 ? (cost / total) * 100 : 0;
             const meta = MOTIVATION_META[bucket.bucket] || { bg: "bg-gray-400", label: bucket.bucket };
             return pct > 0 ? (
-              <div
-                key={bucket.bucket}
-                className={`${meta.bg} transition-all`}
-                style={{ width: `${pct}%` }}
-                title={`${meta.label}: ${formatUsd(cost)} (${pct.toFixed(1)}%)`}
-              />
+              <Tooltip key={bucket.bucket} content={`${meta.label}: ${formatUsd(cost)} (${pct.toFixed(1)}%)${"description" in meta ? ` — ${meta.description}` : ""}`}>
+                <div
+                  className={`${meta.bg} transition-all`}
+                  style={{ width: `${pct}%` }}
+                />
+              </Tooltip>
             ) : null;
           })}
       </div>

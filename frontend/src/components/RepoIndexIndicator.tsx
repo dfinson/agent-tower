@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Network, RotateCcw } from "lucide-react";
 import { useStore } from "../store";
 import { request } from "../api/client";
+import { Tooltip } from "./ui/tooltip";
 
 interface RepoHealth {
   repo: string;
@@ -72,20 +73,26 @@ export function RepoIndexIndicator({ repo }: { repo: string }) {
   if (health?.available) {
     return (
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-        <span title={`${health.symbolCount} symbols, ${health.fileCount} files`}>
-          {health.symbolCount > 0 ? `${health.symbolCount} sym` : "Indexed"}
-        </span>
-        {health.communityCount > 0 && (
-          <span className="flex items-center gap-0.5" title={`${health.communityCount} module communities`}>
-            <Network size={10} />
-            {health.communityCount}
+        <Tooltip content={`${health.symbolCount} symbols across ${health.fileCount} files in the code index`}>
+          <span className="cursor-help">
+            {health.symbolCount > 0 ? `${health.symbolCount} sym` : "Indexed"}
           </span>
+        </Tooltip>
+        {health.communityCount > 0 && (
+          <Tooltip content={`${health.communityCount} module communities — groups of tightly-coupled files`}>
+            <span className="flex items-center gap-0.5 cursor-help">
+              <Network size={10} />
+              {health.communityCount}
+            </span>
+          </Tooltip>
         )}
         {health.cycleCount > 0 && (
-          <span className="flex items-center gap-0.5 text-amber-400" title={`${health.cycleCount} dependency cycles`}>
-            <RotateCcw size={10} />
-            {health.cycleCount}
-          </span>
+          <Tooltip content={`${health.cycleCount} dependency cycles — circular imports that may cause issues`}>
+            <span className="flex items-center gap-0.5 text-amber-400 cursor-help">
+              <RotateCcw size={10} />
+              {health.cycleCount}
+            </span>
+          </Tooltip>
         )}
       </div>
     );

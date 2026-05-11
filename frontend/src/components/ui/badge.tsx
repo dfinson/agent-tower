@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
@@ -26,21 +27,21 @@ export interface BadgeProps
   extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof badgeVariants> {}
 
-export function Badge({ className, variant, ...props }: BadgeProps) {
-  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
-}
+export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
+  function Badge({ className, variant, ...props }, ref) {
+    return <span ref={ref} className={cn(badgeVariants({ variant }), className)} {...props} />;
+  },
+);
 
 /** Status dot badge — used for SSE connection indicator */
-export function DotBadge({
-  color,
-  children,
-  className,
-  ...rest
-}: {
-  color: "green" | "yellow" | "red";
-  children: React.ReactNode;
-  className?: string;
-} & React.HTMLAttributes<HTMLSpanElement>) {
+export const DotBadge = forwardRef<
+  HTMLSpanElement,
+  {
+    color: "green" | "yellow" | "red";
+    children: React.ReactNode;
+    className?: string;
+  } & React.HTMLAttributes<HTMLSpanElement>
+>(function DotBadge({ color, children, className, ...rest }, ref) {
   const dot: Record<string, string> = {
     green: "bg-green-500",
     yellow: "bg-yellow-500",
@@ -48,6 +49,7 @@ export function DotBadge({
   };
   return (
     <span
+      ref={ref}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground",
         className,
@@ -58,4 +60,4 @@ export function DotBadge({
       {children}
     </span>
   );
-}
+});
