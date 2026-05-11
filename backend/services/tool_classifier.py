@@ -128,7 +128,7 @@ _CATEGORY_TO_ACTIVITY: dict[str, str] = {
     "file_search": "investigation",
     "browser": "investigation",
     "shell": "investigation",
-    "agent": "delegation",
+    "agent": "investigation",
     "thinking": "reasoning",
     "bookkeeping": "overhead",
     "other": "overhead",

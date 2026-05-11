@@ -88,8 +88,15 @@ def test_classify_turn_intent_overhead() -> None:
     assert _classify_turn_intent(_ctx(cats=["bookkeeping", "bookkeeping"])) == "overhead"
 
 
-def test_classify_turn_intent_delegation() -> None:
-    assert _classify_turn_intent(_ctx(cats=["agent"])) == "delegation"
+def test_classify_turn_intent_subagents_are_investigation() -> None:
+    assert _classify_turn_intent(_ctx(cats=["agent"])) == "investigation"
+
+
+def test_classify_turn_intent_debugging_context() -> None:
+    # When is_debug_job=True, file writes become "debugging" instead of "implementation"
+    assert _classify_turn_intent(_ctx(cats=["file_write"]), is_debug_job=True) == "debugging"
+    # Non-file-write turns are unaffected
+    assert _classify_turn_intent(_ctx(cats=["file_read"]), is_debug_job=True) == "investigation"
 
 
 def test_classify_turn_intent_communication_and_reasoning() -> None:

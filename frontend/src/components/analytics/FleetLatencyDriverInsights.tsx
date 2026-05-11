@@ -16,19 +16,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   approval_wait: "bg-amber-500",
 };
 
-const TOOL_TYPE_LABELS: Record<string, string> = {
-  shell: "Shell",
-  agent: "Sub-agents",
-  browser: "Browser",
-  file_write: "File writes",
-  file_read: "File reads",
-  file_search: "Search",
-  git_write: "Git",
-  git_read: "Git (read)",
-  bookkeeping: "Bookkeeping",
-  thinking: "Thinking",
-};
-
 // ---------------------------------------------------------------------------
 // Fleet Latency Breakdown — mirrors FleetCostDriverInsights layout
 // ---------------------------------------------------------------------------
@@ -57,22 +44,6 @@ export function FleetLatencyDriverInsights({
     const summary = fleetLatency.summary ?? [];
     return summary
       .filter((row) => row.dimension === "activity")
-      .map((row) => ({
-        bucket: row.bucket,
-        avgWallClockMs: Number(row.avgWallClockMs ?? 0),
-        avgSumDurationMs: Number(row.avgSumDurationMs ?? 0),
-        totalSpanCount: Number(row.totalSpanCount ?? 0),
-        jobCount: Number(row.jobCount ?? 0),
-        avgPctOfTotal: Number(row.avgPctOfTotal ?? 0),
-      }))
-      .sort((a, b) => b.avgWallClockMs - a.avgWallClockMs);
-  }, [fleetLatency.summary]);
-
-  // Tool type breakdown (shell, agent, browser, etc.) for expanded detail
-  const toolTypeRows = useMemo<LatencyRow[]>(() => {
-    const summary = fleetLatency.summary ?? [];
-    return summary
-      .filter((row) => row.dimension === "tool_type")
       .map((row) => ({
         bucket: row.bucket,
         avgWallClockMs: Number(row.avgWallClockMs ?? 0),

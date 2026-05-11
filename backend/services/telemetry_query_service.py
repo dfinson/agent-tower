@@ -326,7 +326,6 @@ class TelemetryQueryService:
                 category=latency_grouped.get("category", []),
                 activity=latency_grouped.get("activity", []),
                 phase=latency_grouped.get("phase", []),
-                tool_type=latency_grouped.get("tool_type", []),
             ),
             turn_latency=TelemetryTurnLatency(
                 total_turns=int(summary.get("total_turns", 0)),
