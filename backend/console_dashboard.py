@@ -220,13 +220,11 @@ class ConsoleLog:
                 self._jobs[event.job_id] = _JobInfo(event.job_id)
 
         elif kind in (
-            DomainEventKind.job_review,
             DomainEventKind.job_completed,
             DomainEventKind.job_failed,
             DomainEventKind.job_canceled,
         ):
             new_state = {
-                DomainEventKind.job_review: "review",
                 DomainEventKind.job_completed: "completed",
                 DomainEventKind.job_failed: "failed",
                 DomainEventKind.job_canceled: "canceled",
@@ -244,13 +242,8 @@ class ConsoleLog:
                 self._jobs[event.job_id].title = updated_title
 
         elif kind == DomainEventKind.progress_headline:
-            headline = str(event.payload.get("headline") or "")
-            if headline:
-                line = Text()
-                line.append(ts, style="dim")
-                line.append("       ↳ ", style="dim")
-                line.append(headline)
-                self._console.print(line)
+            # Shown in the UI kanban board; suppress from terminal.
+            pass
 
         elif kind == DomainEventKind.approval_requested:
             desc = str(event.payload.get("description") or "approval needed")
