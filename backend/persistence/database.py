@@ -23,10 +23,12 @@ _SQLITE_BUSY_TIMEOUT_MS = 15_000
 
 # SQLAlchemy connection pool sizing for the async SQLite engine.
 # SQLite supports unlimited concurrent readers in WAL mode, but only one
-# writer. pool_size=5 is sufficient since writes are serialized through
-# the global write lock; max_overflow=5 handles read bursts.
+# writer.  Writes are serialized through the global write lock.
+# SQLite connections are cheap file handles — there is no reason to cap
+# overflow; max_overflow=-1 lets the pool grow on demand so background
+# recovery, event-bus subscribers, and API requests never starve each other.
 _POOL_SIZE = 5
-_POOL_MAX_OVERFLOW = 5
+_POOL_MAX_OVERFLOW = -1
 _POOL_TIMEOUT_S = 60
 
 
