@@ -748,3 +748,146 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
    time + duration; when the root `invoke_agent` span appears with a
    non-zero duration, the session is over). No idle timeout needed — the
    span's own duration field is the signal.
+
+---
+
+## 10. Claude CLI Redesign: File-Tailing (Supersedes §2.2 Hooks)
+
+The original hook-based architecture for Claude CLI (§2.2) is replaced
+entirely by a file-tailing approach that mirrors the Copilot
+`SessionStateWatcher`. Hooks are reduced to a single purpose: delivering
+operator messages to a running session.
+
+### 10.1 Local Session Files (Empirically Verified)
+
+Claude CLI writes full session transcripts to local JSONL files:
+
+```text
+~/.claude/projects/{encoded-cwd}/{session-id}.jsonl        # main session
+~/.claude/projects/{encoded-cwd}/{session-id}/subagents/agent-{hash}.jsonl  # child agents
+```
+
+Where `encoded-cwd` = the absolute repo path with `/` replaced by `-`
+(e.g., `/home/dave01/wsl-repos/codeplane` →
+`-home-dave01-wsl-repos-codeplane`).
+
+Files are appended in real time as the session runs. Each line is a
+JSON object with a `type` field:
+
+| `type` | Content |
+|--------|---------|
+| `queue-operation` | Internal bookkeeping (enqueue/dequeue). Skip. |
+| `user` (message.role=user) | User prompt. Contains `cwd`, `gitBranch`, `sessionId`, `version`, `entrypoint`. |
+| `assistant` (message.role=assistant) | Agent response. `message.content` is an array of blocks: `text`, `tool_use`, `thinking`. `message.usage` contains per-turn token counts. |
+| `attachment` | Context injection. Skip. |
+| `last-prompt` | Session ended cleanly. Deterministic end signal. |
+
+Assistant messages contain a `usage` field:
+
+```json
+{
+  "input_tokens": 10,
+  "output_tokens": 237,
+  "cache_read_input_tokens": 24867,
+  "cache_creation_input_tokens": 6823,
+  "service_tier": "standard"
+}
+```
+
+### 10.2 Architecture: `ClaudeSessionStateWatcher`
+
+Single service: `backend/services/claude_session_watcher.py`
+
+**Discovery** (polling every 2s):
+
+- For each repo in `config.repos`, compute watch path:
+  `~/.claude/projects/{repo_path.replace('/', '-')}/`
+- List `*.jsonl` files in that directory
+- New file → parse session ID from filename → create Job → start tail
+- On startup: check existing files — `last-prompt` present = dead (skip),
+  no `last-prompt` = scan `/proc` for matching claude process → alive =
+  tail, dead = skip
+
+**Tail loop** (polling every 300ms per session):
+
+- Read from last persisted offset to EOF
+- Parse JSONL lines, switch on type:
+  - `user` → transcript event (role=operator), extract prompt on first msg
+  - `assistant` → parse content blocks:
+    - `text` → transcript (role=agent)
+    - `tool_use` → transcript (role=tool_call, name, input)
+    - `thinking` → transcript (role=thinking)
+  - Next `user` turn with `tool_result` blocks → transcript (role=tool_result)
+  - `last-prompt` → finalize session
+- Extract telemetry from `message.usage` on every assistant turn
+- Accumulate per-job, flush atomically with tail offset
+- Emit `step_completed` per assistant turn (tool names + file paths)
+- Persist tail offset every 64KB of progress
+
+**Liveness detection** (deterministic, no heuristics):
+
+- Primary: `last-prompt` event → session over, finalize immediately
+- Crash: after N idle polls without `last-prompt`, scan
+  `/proc/*/cmdline` for `claude` process containing the session-id.
+  No match → finalize with error. Match → keep waiting.
+
+### 10.3 Operator Messages (Stop Hook)
+
+Claude CLI has no steer API equivalent. No sockets, no REST endpoint,
+no IPC. The only mechanism to inject a message into a running session
+the user started is the synchronous `Stop` hook response.
+
+`ClaudeSessionStateWatcher` owns a pending-message queue:
+`_pending_messages: dict[str, list[str]]` (job_id → messages).
+
+**Endpoint:** `POST /api/hooks/claude/stop`
+
+- Claude POSTs on every Stop event (end of agent turn)
+- Handler: lookup session → check pending messages → if any, return
+  `{"decision": "block", "reason": combined_messages}` → else return `{}`
+
+**Auto-configuration:** On startup, CodePlane writes to
+`~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [{"type": "http", "url": "http://localhost:{PORT}/api/hooks/claude/stop"}]
+  }
+}
+```
+
+Merges with existing user settings. Removes on shutdown.
+
+### 10.4 Job Creation
+
+When a new `.jsonl` file is discovered:
+
+1. Parse first `user` message for `cwd`, `gitBranch`, `sessionId`
+2. Resolve git root from `cwd`
+3. Resolve `base_ref` = current HEAD SHA
+4. Generate deterministic job ID: `{repo_slug}-{sha256(session_id)[:12]}`
+5. Persist Job with `source=claude_cli`, `state=running`
+6. Start tail from offset 0
+
+### 10.5 What Gets Deleted
+
+- `IngestService.ingest_claude_hook()` — all Claude hook handling
+- `IngestService._create_job_from_session()` for Claude
+- `IngestService` turn accumulators/counters for Claude
+- `IngestService._pending_messages` for Claude
+- Multi-hook config (SessionStart, PostToolUse, SessionEnd, SubagentStart, SubagentStop)
+- The catch-all `POST /api/hooks/claude` endpoint
+
+### 10.6 Comparison: Copilot vs Claude Watcher
+
+| Concern | Copilot (`SessionStateWatcher`) | Claude (`ClaudeSessionStateWatcher`) |
+|---------|------|--------|
+| Discovery source | `~/.copilot/session-store.db` (SQLite) | `~/.claude/projects/{cwd}/*.jsonl` (directory listing) |
+| Event stream | `~/.copilot/session-state/{id}/events.jsonl` | `~/.claude/projects/{cwd}/{id}.jsonl` |
+| Event format | Copilot SDK `SessionEvent` types | Raw Claude API messages (user/assistant/tool_use/tool_result) |
+| Token usage | `assistant.usage` event type | `message.usage` field on assistant turns |
+| Session end | `session.shutdown` event | `last-prompt` event |
+| Liveness probe | Steer API `GET /agents/tasks/{id}` → 404 | `/proc` scan for claude process |
+| Operator messaging | Steer API `POST` (real-time, any time) | Stop hook response (only at turn boundaries) |
+| Subagents | Not tracked | `{id}/subagents/agent-*.jsonl` files |
