@@ -434,6 +434,8 @@ class TestJobControl:
         fake_job.verify_prompt = None
         fake_job.self_review_prompt = None
         fake_job.parent_job_id = None
+        fake_job.source = "managed"
+        fake_job.external_session_id = None
         mock_runtime_service.resume_job.return_value = fake_job
 
         resp = await client.post(
@@ -505,6 +507,8 @@ class TestJobControl:
         fake_job.verify_prompt = None
         fake_job.self_review_prompt = None
         fake_job.parent_job_id = None
+        fake_job.source = "managed"
+        fake_job.external_session_id = None
         mock_runtime_service.resume_job.return_value = fake_job
 
         resp = await client.post(f"/api/jobs/{jid}/resume", json={})
