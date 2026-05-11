@@ -232,6 +232,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         self._finalizing: set[str] = set()
         # session_id → PID of the owning claude process (O(1) liveness)
         self._session_pids: dict[str, int] = {}
+        # Startup timestamp — sessions whose JSONL was last modified before
+        # this are ignored unless they already have a job in the DB (handled
+        # by _load_existing_sessions).
+        self._started_at: float = 0.0
 
     # ------------------------------------------------------------------
     # Public interface
@@ -246,6 +250,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             log.info("claude_watcher_no_projects_dir", path=str(_CLAUDE_PROJECTS_DIR))
             return
         self._running = True
+        self._started_at = datetime.now(UTC).timestamp()
 
         # Pre-populate tracked set from existing jobs
         await self._load_existing_sessions()
@@ -483,6 +488,13 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         continue
                     # Validate session ID chars (path traversal defense)
                     if not all(c in _SESSION_ID_PATTERN for c in session_id):
+                        continue
+                    # Skip session files last modified before this watcher
+                    # started — they are stale leftovers, not new sessions.
+                    try:
+                        if entry.stat().st_mtime < self._started_at:
+                            continue
+                    except OSError:
                         continue
                     results.append((session_id, entry, repo_path))
             except OSError:
