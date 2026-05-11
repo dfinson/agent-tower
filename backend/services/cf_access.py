@@ -56,12 +56,13 @@ class CfAccessConfigError(CodePlaneError):
     """Raised when CF Access configuration is invalid or unreachable."""
 
 
-def configure(*, team: str, aud: str) -> None:
-    """Set CF Access parameters and fetch the initial JWKS keyset.
+def configure(*, team: str, aud: str, eager: bool = True) -> None:
+    """Set CF Access parameters and optionally fetch the initial JWKS keyset.
 
-    Raises ``CfAccessConfigError`` if the JWKS endpoint is unreachable or
-    returns an invalid response — this intentionally prevents the server
-    from starting with a misconfigured CF Access gate.
+    When *eager* is True (default), raises ``CfAccessConfigError`` if the
+    JWKS endpoint is unreachable — preventing the server from starting with
+    a misconfigured gate.  When *eager* is False, configuration is stored
+    and the JWKS fetch is deferred to the first ``verify_token()`` call.
     """
     global _cf_team, _cf_aud, _certs_url  # noqa: PLW0603
 
@@ -69,14 +70,16 @@ def configure(*, team: str, aud: str) -> None:
     _cf_aud = aud
     _certs_url = f"https://{team}.cloudflareaccess.com/cdn-cgi/access/certs"
 
-    # Eagerly fetch keys — fail fast if the gate doesn't exist.
-    _refresh_jwks(force=True)
+    if eager:
+        # Eagerly fetch keys — fail fast if the gate doesn't exist.
+        _refresh_jwks(force=True)
 
     log.info(
         "cf_access_configured",
         team=team,
         certs_url=_certs_url,
         keys_loaded=len(_jwks_keys),
+        eager=eager,
     )
 
 

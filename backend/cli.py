@@ -276,24 +276,13 @@ def up(
 
     # --- Cloudflare Access JWT verification ---
     # When CPL_CF_ACCESS_TEAM and CPL_CF_ACCESS_AUD are set, CodePlane will
-    # verify the Cf-Access-Jwt-Assertion header on every request.  The JWKS
-    # fetch here doubles as a startup-time check that the Access gate exists.
+    # verify the Cf-Access-Jwt-Assertion header on every request.  JWKS keys
+    # are fetched lazily on the first verification request so that transient
+    # DNS failures at startup don't prevent the server from starting.
     if cf_access_team and cf_access_aud:
-        from backend.services.cf_access import CfAccessConfigError
         from backend.services.cf_access import configure as configure_cf_access
 
-        try:
-            configure_cf_access(team=cf_access_team, aud=cf_access_aud)
-        except CfAccessConfigError as exc:
-            click.secho(
-                f"ERROR: Cloudflare Access verification failed at startup:\n  {exc}\n\n"
-                "  Check CPL_CF_ACCESS_TEAM and CPL_CF_ACCESS_AUD in your .env file.\n"
-                "  The team name must match your Cloudflare Zero Trust organization and\n"
-                "  the AUD tag must match the Access application protecting this hostname.",
-                fg="red",
-                err=True,
-            )
-            raise SystemExit(1) from exc
+        configure_cf_access(team=cf_access_team, aud=cf_access_aud, eager=False)
     elif cf_access_team or cf_access_aud:
         click.secho(
             "WARNING: Both CPL_CF_ACCESS_TEAM and CPL_CF_ACCESS_AUD must be set to "
