@@ -97,6 +97,11 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         self._bg_tasks: set[asyncio.Task] = set()
         # Per-job accumulated telemetry deltas (flushed atomically with offset)
         self._pending_telemetry: dict[str, dict[str, float | int]] = {}
+        # ISO timestamp of when this watcher started — sessions created before
+        # this are ignored unless they already have a job in the DB (handled by
+        # _load_existing_sessions).  Prevents importing thousands of stale
+        # sessions from session-store.db on every restart.
+        self._started_at: str | None = None
 
     async def start(self) -> None:
         """Begin discovery polling. Called from lifespan startup."""
@@ -104,6 +109,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             log.info("session_state_watcher_no_store", path=str(_SESSION_STORE_PATH))
             return
         self._running = True
+        self._started_at = datetime.now(UTC).isoformat()
 
         # Pre-populate tracked set from existing jobs so we don't re-import
         await self._load_existing_sessions()
@@ -245,18 +251,6 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                     if sid in self._tracked_sessions:
                         continue
                     self._tracked_sessions.add(sid)
-
-                    # Skip sessions that are already dead — no point creating a
-                    # job just to immediately finalize it.
-                    if self._steer:
-                        alive = await self._steer.check_alive(sid)
-                        if not alive:
-                            log.debug(
-                                "session_state_watcher_skip_dead",
-                                session_id=sid,
-                            )
-                            continue
-
                     log.info(
                         "session_state_watcher_discovered",
                         session_id=sid,
@@ -288,10 +282,16 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             db = sqlite3.connect(str(_SESSION_STORE_PATH), timeout=2.0)
             db.execute("PRAGMA journal_mode=WAL")
             try:
-                # Query sessions with host_type='github' (--remote flag)
-                rows = db.execute(
-                    "SELECT id, cwd, summary FROM sessions WHERE host_type = 'github'"
-                ).fetchall()
+                # Query sessions with host_type='github' (--remote flag).
+                # Only consider sessions created after this watcher started —
+                # older sessions are either already tracked via _load_existing_sessions
+                # or are stale and should not be imported.
+                query = "SELECT id, cwd, summary FROM sessions WHERE host_type = 'github'"
+                params: tuple = ()
+                if self._started_at:
+                    query += " AND created_at >= ?"
+                    params = (self._started_at,)
+                rows = db.execute(query, params).fetchall()
                 for row in rows:
                     sid, cwd, summary = row[0], row[1] or "", row[2] or ""
                     if sid in self._tracked_sessions:
