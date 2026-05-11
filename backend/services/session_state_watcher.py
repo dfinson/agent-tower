@@ -536,9 +536,6 @@ class SessionStateWatcher:
 
             await asyncio.sleep(_TAIL_POLL_S)
 
-        # Persist final offset when session ends
-        self._schedule_offset_persist(job_id, offset)
-
     @staticmethod
     def _read_from(path: Path, offset: int) -> bytes:
         """Read file from byte offset, bounded to _MAX_READ_CHUNK (called in thread)."""
@@ -562,10 +559,6 @@ class SessionStateWatcher:
         produces, then feeds them through EventProcessor for diffs, steps, and
         domain event publishing.
         """
-        from copilot.generated.session_events import (
-            SessionEventType,
-        )
-
         kind_str = sdk_event.type.value if sdk_event.type else ""
         data = sdk_event.data
 
