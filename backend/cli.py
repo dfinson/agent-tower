@@ -330,6 +330,14 @@ def up(
         if _exit_signal_count == 1:
             if dashboard is not None:
                 dashboard.stop()
+            # Mute the event bus immediately to stop log spam from in-flight events.
+            _event_bus = getattr(app.state, "event_bus", None)
+            if _event_bus is not None:
+                _event_bus.mute()
+            # Raise the log level so only critical errors show during teardown.
+            import logging
+
+            logging.getLogger().setLevel(logging.CRITICAL)
             click.echo("\nShutting down…")
             _original_handle_exit(sig, frame)
         else:
@@ -344,8 +352,12 @@ def up(
 
     server.handle_exit = _handle_exit_patched  # type: ignore[method-assign]
 
+    # Suppress the KeyboardInterrupt that uvicorn re-raises after shutdown
+    # (it restores the default SIGINT handler then calls signal.raise_signal).
     try:
         server.run()
+    except (KeyboardInterrupt, SystemExit):
+        pass
     finally:
         if dashboard is not None:
             dashboard.stop()

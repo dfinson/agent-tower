@@ -27,6 +27,11 @@ class EventBus:
 
     def __init__(self) -> None:
         self._subscribers: list[Subscriber] = []
+        self._muted = False
+
+    def mute(self) -> None:
+        """Stop dispatching events (used during shutdown)."""
+        self._muted = True
 
     def subscribe(self, handler: Subscriber) -> None:
         self._subscribers.append(handler)
@@ -38,7 +43,7 @@ class EventBus:
 
     async def publish(self, event: DomainEvent) -> None:
         """Fan-out *event* to every subscriber concurrently."""
-        if not self._subscribers:
+        if self._muted or not self._subscribers:
             return
 
         results = await asyncio.gather(

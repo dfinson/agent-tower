@@ -596,6 +596,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     session_factory = create_session_factory(engine)
 
     event_bus, sse_manager, dead_letter_task = _init_event_infrastructure(session_factory)
+    app.state.event_bus = event_bus
 
     # Wire the console dashboard (present only when stderr is an interactive TTY)
     # to the event bus so job state and progress updates appear in the live panel.
