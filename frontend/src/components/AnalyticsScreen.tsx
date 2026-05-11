@@ -14,7 +14,6 @@ import {
   fetchYield,
   fetchCacheEfficiency,
   fetchModelEfficiency,
-  fetchFileCost,
   fetchOutcomeMatrix,
   fetchActivityPhaseMatrix,
   fetchActionPurposeMatrix,
@@ -30,7 +29,6 @@ import {
   type YieldResponse,
   type CacheEfficiencyResponse,
   type ModelEfficiencyResponse,
-  type FileCostResponse,
   type OutcomeMatrixResponse,
   type ActivityPhaseMatrixResponse,
   type ActionPurposeMatrixResponse,
@@ -55,7 +53,6 @@ import {
   CacheEfficiencyChart,
 } from "./AnalyticsWidgets";
 import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
-import { FileCostBreakdown } from "./analytics/FileCostBreakdown";
 import { OutcomeMatrix } from "./analytics/OutcomeMatrix";
 import { ActivityPhaseHeatmap } from "./analytics/ActivityPhaseHeatmap";
 import { ActionPurposeMatrix } from "./analytics/ActionPurposeMatrix";
@@ -123,7 +120,7 @@ export function AnalyticsScreen() {
   const [yieldData, setYieldData] = useState<YieldResponse | null>(null);
   const [cacheEfficiency, setCacheEfficiency] = useState<CacheEfficiencyResponse | null>(null);
   const [modelEfficiency, setModelEfficiency] = useState<ModelEfficiencyResponse | null>(null);
-  const [fileCost, setFileCost] = useState<FileCostResponse | null>(null);
+
   const [outcomeMatrix, setOutcomeMatrix] = useState<OutcomeMatrixResponse | null>(null);
   const [activityPhaseMatrix, setActivityPhaseMatrix] = useState<ActivityPhaseMatrixResponse | null>(null);
   const [executiveSummary, setExecutiveSummary] = useState<ExecutiveSummaryResponse | null>(null);
@@ -217,9 +214,7 @@ export function AnalyticsScreen() {
       .then(setModelEfficiency)
       .catch(() => setModelEfficiency(null));
 
-    fetchFileCost(Math.max(period, 30))
-      .then(setFileCost)
-      .catch(() => setFileCost(null));
+
 
     fetchOutcomeMatrix(Math.max(period, 30))
       .then(setOutcomeMatrix)
@@ -305,8 +300,7 @@ export function AnalyticsScreen() {
         <ActionPurposeMatrix data={actionPurposeMatrix} />
       </div>
 
-      {/* File-centric cost breakdown */}
-      <FileCostBreakdown data={fileCost} />
+
 
       {/* Outcome × Activity cross-tab */}
       <OutcomeMatrix data={outcomeMatrix} />
