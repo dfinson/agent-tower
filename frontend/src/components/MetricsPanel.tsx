@@ -503,14 +503,11 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                                         <div className="space-y-1">
                                           <div className="text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">Tools</div>
                                           <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                                            {tools.slice(0, 8).map((t) => (
+                                            {tools.map((t) => (
                                               <span key={t.name} className="text-[10px] text-muted-foreground">
                                                 {t.name} <span className="text-muted-foreground/50">×{t.count}</span>
                                               </span>
                                             ))}
-                                            {tools.length > 8 && (
-                                              <span className="text-[10px] text-muted-foreground/50">+{tools.length - 8} more</span>
-                                            )}
                                           </div>
                                         </div>
                                       );

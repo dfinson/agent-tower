@@ -1,10 +1,8 @@
 """Backfill: recompute the `activity` dimension for all jobs.
 
-Fixes misclassification of shell commands like sed/rm/mv that were
-incorrectly bucketed as "investigation" instead of "implementation".
-
-Re-runs _classify_turn_intent() for every turn using span data and
-rewrites the activity rows in job_cost_attribution.
+Uses per-tool classification with proportional cost splitting:
+each tool call in a turn is classified independently, and the turn's
+cost is distributed proportionally across the resulting activities.
 
 Usage:
     uv run python tools/backfill_activity.py [--dry-run] [--job-id JOB_ID]
@@ -17,7 +15,7 @@ import asyncio
 import json
 import os
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,7 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.services.cost_attribution import _classify_turn_intent
-from backend.services.tool_classifier import classify_tool
+from backend.services.tool_classifier import classify_tool, classify_tool_activity
 
 
 def _zero_bucket() -> dict:
@@ -82,7 +80,7 @@ def build_turn_data(spans: list[dict]) -> tuple[dict[int, dict], dict[int, dict]
     turn_contexts: dict[int, dict] = defaultdict(
         lambda: {"phase": None, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0,
                  "cache_read_tokens": 0, "cache_write_tokens": 0,
-                 "tool_categories": [], "shell_commands": []}
+                 "tool_categories": [], "shell_commands": [], "tool_activities": []}
     )
     turn_costs: dict[int, dict] = defaultdict(_zero_bucket)
 
@@ -98,15 +96,17 @@ def build_turn_data(spans: list[dict]) -> tuple[dict[int, dict], dict[int, dict]
             turn_costs[turn]["output_tokens"] += int(span.get("output_tokens") or 0)
             turn_costs[turn]["cache_read_tokens"] += int(span.get("cache_read_tokens") or 0)
             turn_costs[turn]["cache_write_tokens"] += int(span.get("cache_write_tokens") or 0)
-            # Also accumulate into context for _classify_turn_intent
             turn_contexts[turn]["output_tokens"] += int(span.get("output_tokens") or 0)
 
         if span.get("span_type") == "tool":
-            cat = span.get("tool_category") or classify_tool(span.get("name") or "")
+            tool_name = span.get("name") or ""
+            tool_args = span.get("tool_args_json")
+            cat = span.get("tool_category") or classify_tool(tool_name)
+            tool_activity = classify_tool_activity(tool_name, tool_args)
             turn_contexts[turn]["tool_categories"].append(cat)
+            turn_contexts[turn]["tool_activities"].append(tool_activity)
 
             if cat == "shell":
-                tool_args = span.get("tool_args_json")
                 cmd = ""
                 if isinstance(tool_args, str):
                     try:
@@ -134,13 +134,31 @@ async def backfill_job(session: AsyncSession, job_id: str, *, dry_run: bool = Fa
     if not turn_contexts:
         return {"turns": 0, "changed": 0}
 
-    # Classify each turn's activity
+    # Per-tool classification with proportional cost splitting
     by_activity: dict[str, dict] = defaultdict(_zero_bucket)
     for turn_num in sorted(turn_contexts.keys()):
         ctx = turn_contexts[turn_num]
-        activity = _classify_turn_intent(ctx)
         cost = turn_costs.get(turn_num, _zero_bucket())
-        _accumulate(by_activity[activity], cost)
+        tool_activities = ctx.get("tool_activities", [])
+
+        if tool_activities:
+            activity_counts = Counter(tool_activities)
+            total_tools = len(tool_activities)
+            for activity, count in activity_counts.items():
+                fraction = count / total_tools
+                fractional_cost = {
+                    "cost_usd": float(cost["cost_usd"]) * fraction,
+                    "input_tokens": int(int(cost["input_tokens"]) * fraction),
+                    "output_tokens": int(int(cost["output_tokens"]) * fraction),
+                    "cache_read_tokens": int(int(cost["cache_read_tokens"]) * fraction),
+                    "cache_write_tokens": int(int(cost["cache_write_tokens"]) * fraction),
+                }
+                _accumulate(by_activity[activity], fractional_cost)
+                by_activity[activity]["call_count"] += count - 1  # _accumulate adds 1
+        else:
+            # No tools — fallback to turn-level (reasoning / communication)
+            activity = _classify_turn_intent(ctx)
+            _accumulate(by_activity[activity], cost)
 
     if dry_run:
         return {"turns": len(turn_contexts), "changed": len(by_activity), "activities": dict(by_activity)}

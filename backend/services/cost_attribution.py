@@ -8,7 +8,7 @@ intent-refined activity classification, and edit one-shot rate).
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import structlog
@@ -19,6 +19,7 @@ from backend.services.tool_classifier import (
     classify_action_from_tools,
     classify_shell_command,
     classify_tool,
+    classify_tool_activity,
 )
 
 if TYPE_CHECKING:
@@ -299,12 +300,15 @@ async def _compute_attribution(
 
         if span.get("span_type") == "tool":
             cat = classify_tool(span.get("name") or "") or "other"
+            tool_args_raw = span.get("tool_args_json")
+            tool_activity = classify_tool_activity(span.get("name") or "", tool_args_raw)
             turn = span.get("turn_number")
             if turn is not None:
                 turn_contexts[int(turn)]["tool_categories"].append(cat)
+                turn_contexts[int(turn)].setdefault("tool_activities", []).append(tool_activity)
                 # Collect shell command text for intent classification
                 if cat == "shell":
-                    tool_args = span.get("tool_args_json")
+                    tool_args = tool_args_raw
                     if isinstance(tool_args, str):
                         try:
                             import json as _json
@@ -370,9 +374,6 @@ async def _compute_attribution(
             shell_commands=context.get("shell_commands") or None,
         )
 
-        # Semantic activity from intent classification (the user-facing breakdown)
-        activity = _classify_turn_intent(context, is_debug_job=is_debug_job)
-
         turn_cost = float(context.get("cost_usd", 0.0) or 0.0)
         turn_in = int(context.get("input_tokens", 0) or 0)
         turn_out = int(context.get("output_tokens", 0) or 0)
@@ -383,7 +384,26 @@ async def _compute_attribution(
         _accumulate(by_action[action], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
 
         # Activity dimension (user-facing cost breakdown)
-        _accumulate(by_activity[activity], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+        # Per-tool classification: split cost proportionally across activities
+        tool_activities = context.get("tool_activities", [])
+        if tool_activities:
+            activity_counts = Counter(tool_activities)
+            total_tools = len(tool_activities)
+            for activity, count in activity_counts.items():
+                fraction = count / total_tools
+                _accumulate(
+                    by_activity[activity],
+                    turn_cost * fraction,
+                    int(turn_in * fraction),
+                    int(turn_out * fraction),
+                    cache_read=int(turn_cache_r * fraction),
+                    cache_write=int(turn_cache_w * fraction),
+                    call_count=count,
+                )
+        else:
+            # No tools — use turn-level fallback (reasoning / communication)
+            activity = _classify_turn_intent(context, is_debug_job=is_debug_job)
+            _accumulate(by_activity[activity], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
 
         # Purpose dimension (nullable — only if enriched)
         purpose = turn_purpose.get(turn_num_a)
