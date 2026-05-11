@@ -222,10 +222,12 @@ class SummarizationService:
                 log.warning("session_snapshot_job_missing", job_id=job_id)
                 return
 
+            from backend.persistence.database import serialized_write
+
+            # Read phase: check existing log and build snapshot
             async with self._session_factory() as session:
                 artifact_svc = ArtifactService(ArtifactRepository(session))
 
-                # Check if this session is already captured in the unified log
                 existing = await artifact_svc.get_session_log(job_id)
                 if existing is not None:
                     try:
@@ -238,76 +240,82 @@ class SummarizationService:
                     except (json.JSONDecodeError, OSError):
                         log.warning("session_log_parse_failed", job_id=job_id, exc_info=True)
 
-                # Build snapshot from trail nodes
-                trail_repo = TrailNodeRepository(self._session_factory)
-                snapshot_nodes = await trail_repo.get_snapshot_turns(job_id)
-                changed_files = await trail_repo.get_all_changed_files(job_id)
+            # Build snapshot from trail nodes (read-only)
+            trail_repo = TrailNodeRepository(self._session_factory)
+            snapshot_nodes = await trail_repo.get_snapshot_turns(job_id)
+            changed_files = await trail_repo.get_all_changed_files(job_id)
 
-                # Build cleaned turns from trail nodes
-                turns: list[dict[str, Any]] = []
-                seen_assistant: set[str] = set()
-                for node in snapshot_nodes:
-                    ts = node.timestamp.isoformat() if node.timestamp else ""
+            # Build cleaned turns from trail nodes
+            turns: list[dict[str, Any]] = []
+            seen_assistant: set[str] = set()
+            for node in snapshot_nodes:
+                ts = node.timestamp.isoformat() if node.timestamp else ""
 
-                    if node.kind in ("modify", "shell", "explore") and node.agent_message:
-                        # Assistant turn — deduplicate by content
-                        content = node.agent_message.strip()
-                        if not content or content in seen_assistant:
-                            continue
-                        seen_assistant.add(content)
-                        turns.append(
-                            {
-                                "role": "assistant",
-                                "content": content,
-                                "timestamp": ts,
-                            }
-                        )
-                    elif node.kind == "request" and node.agent_message:
-                        # Operator turn
-                        content = node.agent_message.strip()
-                        if not content:
-                            continue
-                        turns.append(
-                            {
-                                "role": "operator",
-                                "content": content,
-                                "timestamp": ts,
-                            }
-                        )
-                    elif node.kind == "write" and node.tool_display:
-                        # Tool call turn from write sub-node with metadata
-                        turns.append(
-                            {
-                                "role": "tool_call",
-                                "tool_name": node.tool_name or "tool",
-                                "tool_display": node.tool_display or "",
-                                "tool_intent": node.tool_intent or "",
-                                "tool_success": node.tool_success if node.tool_success is not None else True,
-                                "timestamp": ts,
-                            }
-                        )
+                if node.kind in ("modify", "shell", "explore") and node.agent_message:
+                    content = node.agent_message.strip()
+                    if not content or content in seen_assistant:
+                        continue
+                    seen_assistant.add(content)
+                    turns.append(
+                        {
+                            "role": "assistant",
+                            "content": content,
+                            "timestamp": ts,
+                        }
+                    )
+                elif node.kind == "request" and node.agent_message:
+                    content = node.agent_message.strip()
+                    if not content:
+                        continue
+                    turns.append(
+                        {
+                            "role": "operator",
+                            "content": content,
+                            "timestamp": ts,
+                        }
+                    )
+                elif node.kind == "write" and node.tool_display:
+                    turns.append(
+                        {
+                            "role": "tool_call",
+                            "tool_name": node.tool_name or "tool",
+                            "tool_display": node.tool_display or "",
+                            "tool_intent": node.tool_intent or "",
+                            "tool_success": node.tool_success if node.tool_success is not None else True,
+                            "timestamp": ts,
+                        }
+                    )
 
-                session_data = {
-                    "original_task": job.prompt,
-                    "session_number": job.session_count,
-                    "transcript_turns": turns,
-                    "changed_files": changed_files,
-                }
+            session_data = {
+                "original_task": job.prompt,
+                "session_number": job.session_count,
+                "transcript_turns": turns,
+                "changed_files": changed_files,
+            }
 
-                slug = (job.worktree_name or job.title or "").strip()
+            slug = (job.worktree_name or job.title or "").strip()
+
+            # Collect workspace/session artifacts (I/O, no DB writes)
+            collected: list[Any] = []
+            md_collected: list[Any] = []
+            if job.worktree_path:
+                async with self._session_factory() as session:
+                    artifact_svc = ArtifactService(ArtifactRepository(session))
+                    collected = await artifact_svc.collect_from_workspace(job_id, job.worktree_path)
+            if job.sdk_session_id:
+                async with self._session_factory() as session:
+                    artifact_svc = ArtifactService(ArtifactRepository(session))
+                    md_collected = await artifact_svc.collect_from_session_storage(job_id, job.sdk_session_id)
+
+            # Write phase: persist everything through the global write lock
+            async with serialized_write(self._session_factory) as session:
+                artifact_svc = ArtifactService(ArtifactRepository(session))
                 await artifact_svc.upsert_session_log(job_id, session_data, slug=slug)
 
-                if job.worktree_path:
-                    collected = await artifact_svc.collect_from_workspace(job_id, job.worktree_path)
-                    if collected:
-                        log.info("workspace_artifacts_collected", job_id=job_id, count=len(collected))
-
-                if job.sdk_session_id:
-                    md_collected = await artifact_svc.collect_from_session_storage(job_id, job.sdk_session_id)
-                    if md_collected:
-                        log.info("session_storage_markdowns_collected", job_id=job_id, count=len(md_collected))
-
-                await session.commit()
+            if collected:
+                log.info("workspace_artifacts_collected", job_id=job_id, count=len(collected))
+            if md_collected:
+                log.info("session_storage_markdowns_collected", job_id=job_id, count=len(md_collected))
 
             log.info("session_log_stored", job_id=job_id, session=job.session_count, turns=len(turns))
         except Exception:
