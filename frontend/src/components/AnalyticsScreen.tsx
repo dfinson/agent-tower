@@ -41,7 +41,6 @@ import {
   ObservationsPanel,
   RepoBreakdown,
   ToolHealth,
-  ToolMix,
   FleetCostDriverInsights,
   FleetLatencyDriverInsights,
   JobsTable,
@@ -334,20 +333,6 @@ export function AnalyticsScreen() {
           </h2>
           <p className="text-xs text-muted-foreground mb-3">Where wall-clock time goes — by activity, with LLM vs tool split</p>
           <FleetLatencyDriverInsights fleetLatency={fleetLatency} />
-        </div>
-      )}
-
-      {/* Tool Mix — percentage breakdown by category */}
-      {!toolsLoading && tools?.toolMix && tools.toolMix.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-4 min-w-0">
-          <h2 className="text-sm font-medium text-foreground mb-1 flex items-center gap-2">
-            <Wrench size={14} />
-            Tool Mix
-          </h2>
-          <p className="text-xs text-muted-foreground mb-3">
-            Tool usage by activity across {tools.toolMixJobCount?.toLocaleString() ?? "all"} jobs
-          </p>
-          <ToolMix mix={tools.toolMix} />
         </div>
       )}
 
