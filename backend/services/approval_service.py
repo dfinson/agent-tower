@@ -76,10 +76,11 @@ class ApprovalService:
             requested_at=now,
             requires_explicit_approval=requires_explicit_approval,
         )
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as session:
             repo = self._make_repo(session)
             await repo.create(approval)
-            await session.commit()
 
         # Create a future the runtime can await
         loop = asyncio.get_running_loop()

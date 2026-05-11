@@ -202,7 +202,9 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         if action == "create":
             if not repo or not prompt:
                 return {"error": "repo and prompt are required for create"}
-            async with sf() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(sf) as session:
                 svc = _make_job_service(mcp_state, session, config)
                 try:
                     from backend.models.domain import JobSpec
@@ -219,7 +221,6 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                     return {"error": str(exc)}
                 except SDKModelMismatchError as exc:
                     return {"error": str(exc)}
-                await session.commit()
                 runtime = mcp_state.runtime_service
                 await runtime.start_or_enqueue(job)
                 job = await svc.get_job(job.id)
@@ -273,13 +274,14 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         if action == "rerun":
             if not job_id:
                 return {"error": "job_id is required for rerun"}
-            async with sf() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(sf) as session:
                 svc = _make_job_service(mcp_state, session, config)
                 try:
                     job = await svc.rerun_job(job_id)
                 except (JobNotFoundError, RepoNotAllowedError) as exc:
                     return {"error": str(exc)}
-                await session.commit()
             return CreateJobResponse(
                 id=job.id,
                 state=job.state,
@@ -508,7 +510,6 @@ def _register_artifact_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
             async with sf() as session:
                 svc = _make_artifact_service(session)
                 artifacts = await svc.list_for_job(job_id)
-                await session.commit()
             return {
                 "items": [
                     ArtifactResponse(
@@ -531,7 +532,6 @@ def _register_artifact_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
             async with sf() as session:
                 svc = _make_artifact_service(session)
                 artifact = await svc.get(artifact_id)
-                await session.commit()
             if artifact is None:
                 return {"error": "Artifact not found"}
             return ArtifactResponse(

@@ -633,14 +633,15 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             new_state = JobState.review
 
         try:
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
                 repo = JobRepository(session)
                 await repo.update_state(
                     job_id, new_state, updated_at=now, completed_at=now,
                     failure_reason=error_reason,
                 )
-                await session.commit()
         except Exception:
             log.warning("session_watcher_finalize_failed", job_id=job_id, exc_info=True)
             return

@@ -79,12 +79,13 @@ class RetentionService:
 
     async def _cleanup_artifacts(self, cutoff: datetime) -> int:
         """Delete artifact files and metadata older than cutoff."""
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as session:
             repo = ArtifactRepository(session)
             expired = await repo.delete_expired(cutoff)
             if not expired:
                 return 0
-            await session.commit()
 
             # Delete files from disk — only if under the expected artifacts directory
             artifacts_root = _artifacts_dir().resolve()
@@ -112,7 +113,9 @@ class RetentionService:
 
     async def _cleanup_diff_snapshots(self, cutoff: datetime) -> int:
         """Delete diff snapshots for terminal-state jobs older than cutoff."""
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as session:
             job_repo = JobRepository(session)
             terminal_jobs = await job_repo.list_terminal_before(cutoff)
             if not terminal_jobs:
@@ -120,7 +123,6 @@ class RetentionService:
 
             job_ids = [j.id for j in terminal_jobs]
             count = await job_repo.delete_diff_snapshots_for_jobs(job_ids)
-            await session.commit()
 
             log.info("retention_snapshots_cleaned", count=count)
             return count
@@ -154,7 +156,9 @@ class RetentionService:
 
     async def _auto_archive_resolved_jobs(self, cutoff: datetime) -> int:
         """Auto-archive resolved jobs older than the cutoff."""
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as session:
             job_repo = JobRepository(session)
             candidates = await job_repo.list_auto_archive_candidates(cutoff)
             if not candidates:
@@ -163,7 +167,6 @@ class RetentionService:
             now = datetime.now(UTC)
             job_ids = [j.id for j in candidates]
             count = await job_repo.bulk_archive(job_ids, now)
-            await session.commit()
 
             if count > 0:
                 log.info("auto_archived_resolved_jobs", count=count)

@@ -126,10 +126,13 @@ class RequestProvider(Provider):
         self,
         sf: async_sessionmaker[AsyncSession],
     ) -> AsyncIterator[AsyncSession]:
+        from backend.persistence.database import get_write_lock
+
         async with sf() as session:
             try:
                 yield session
-                await session.commit()
+                async with get_write_lock():
+                    await session.commit()
             except Exception:
                 await session.rollback()
                 raise
