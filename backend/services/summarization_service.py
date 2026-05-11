@@ -295,27 +295,20 @@ class SummarizationService:
 
             slug = (job.worktree_name or job.title or "").strip()
 
-            # Collect workspace/session artifacts (I/O, no DB writes)
-            collected: list[Any] = []
-            md_collected: list[Any] = []
-            if job.worktree_path:
-                async with self._session_factory() as session:
-                    artifact_svc = ArtifactService(ArtifactRepository(session))
-                    collected = await artifact_svc.collect_from_workspace(job_id, job.worktree_path)
-            if job.sdk_session_id:
-                async with self._session_factory() as session:
-                    artifact_svc = ArtifactService(ArtifactRepository(session))
-                    md_collected = await artifact_svc.collect_from_session_storage(job_id, job.sdk_session_id)
-
             # Write phase: persist everything through the global write lock
             async with serialized_write(self._session_factory) as session:
                 artifact_svc = ArtifactService(ArtifactRepository(session))
                 await artifact_svc.upsert_session_log(job_id, session_data, slug=slug)
 
-            if collected:
-                log.info("workspace_artifacts_collected", job_id=job_id, count=len(collected))
-            if md_collected:
-                log.info("session_storage_markdowns_collected", job_id=job_id, count=len(md_collected))
+                if job.worktree_path:
+                    collected = await artifact_svc.collect_from_workspace(job_id, job.worktree_path)
+                    if collected:
+                        log.info("workspace_artifacts_collected", job_id=job_id, count=len(collected))
+
+                if job.sdk_session_id:
+                    md_collected = await artifact_svc.collect_from_session_storage(job_id, job.sdk_session_id)
+                    if md_collected:
+                        log.info("session_storage_markdowns_collected", job_id=job_id, count=len(md_collected))
 
             log.info("session_log_stored", job_id=job_id, session=job.session_count, turns=len(turns))
         except Exception:
