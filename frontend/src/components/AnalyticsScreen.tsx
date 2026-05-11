@@ -124,6 +124,7 @@ export function AnalyticsScreen() {
   const [toolsLoading, setToolsLoading] = useState(true);
   const [reposLoading, setReposLoading] = useState(true);
   const [driversLoading, setDriversLoading] = useState(true);
+  const [purposeLoading, setPurposeLoading] = useState(true);
   const [latencyLoading, setLatencyLoading] = useState(true);
   const [obsLoading, setObsLoading] = useState(true);
   const [yieldLoading, setYieldLoading] = useState(true);
@@ -143,6 +144,7 @@ export function AnalyticsScreen() {
     setToolsLoading(true);
     setReposLoading(true);
     setDriversLoading(true);
+    setPurposeLoading(true);
     setLatencyLoading(true);
     setObsLoading(true);
     setYieldLoading(true);
@@ -175,9 +177,10 @@ export function AnalyticsScreen() {
       .catch(() => setFleetDrivers(null))
       .finally(() => setDriversLoading(false));
 
-    fetchFleetCostDrivers(Math.max(period, 30), "activity")
+    fetchFleetCostDrivers(Math.max(period, 30), "action_purpose")
       .then(setActivityDrivers)
-      .catch(() => setActivityDrivers(null));
+      .catch(() => setActivityDrivers(null))
+      .finally(() => setPurposeLoading(false));
 
     fetchActionPurposeMatrix(Math.max(period, 30))
       .then(setActionPurposeMatrix)
@@ -280,10 +283,12 @@ export function AnalyticsScreen() {
 
       {/* Hierarchical purpose breakdown + Action×Purpose matrix */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <HierarchicalBreakdown
-          data={activityDrivers?.buckets ? { activity: activityDrivers.buckets } as CostDriversData : null}
-          compactionCostUsd={scorecard?.compactionCostUsd}
-        />
+        {purposeLoading ? <SectionSkeleton height="h-48" /> : (
+          <HierarchicalBreakdown
+            data={activityDrivers?.buckets ? { actionPurpose: activityDrivers.buckets } as CostDriversData : null}
+            compactionCostUsd={scorecard?.compactionCostUsd}
+          />
+        )}
         <ActionPurposeMatrix data={actionPurposeMatrix} />
       </div>
 
