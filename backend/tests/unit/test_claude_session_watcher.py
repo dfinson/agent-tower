@@ -18,11 +18,14 @@ if TYPE_CHECKING:
 
 from backend.config import CPLConfig
 from backend.models.db import Base
+from backend.models.domain import SessionEventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.claude_session_watcher import (
     ClaudeSessionStateWatcher,
     _encode_cwd,
+    _find_claude_pids_at_cwd,
     _is_claude_process_alive,
+    _is_pid_alive,
     _SESSION_FILE_RE,
 )
 
@@ -592,3 +595,254 @@ class TestLivenessCheck:
         # Main goal: no exception raised.
         result = _is_claude_process_alive("nonexistent-session-id", None)
         assert isinstance(result, bool)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: cost calculation (RT-7)
+# ---------------------------------------------------------------------------
+
+
+class TestCostCalculation:
+    def test_compute_cost_known_model(self) -> None:
+        from backend.services.claude_session_watcher import _compute_cost
+
+        # Use a model that exists in pricing data
+        cost = _compute_cost(
+            "claude-sonnet-4-20250514",
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+        # Should be input_rate + output_rate ($/MTok applied to 1M tokens each)
+        assert cost > 0
+
+    def test_compute_cost_unknown_model(self) -> None:
+        from backend.services.claude_session_watcher import _compute_cost
+
+        cost = _compute_cost(
+            "totally-fake-model-xyz",
+            input_tokens=1000,
+            output_tokens=500,
+            cache_read_tokens=100,
+            cache_write_tokens=50,
+        )
+        assert cost == 0.0
+
+    def test_compute_cost_includes_cache(self) -> None:
+        from backend.services.claude_session_watcher import _compute_cost
+
+        cost_no_cache = _compute_cost(
+            "claude-sonnet-4-20250514",
+            input_tokens=1000,
+            output_tokens=500,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+        cost_with_cache = _compute_cost(
+            "claude-sonnet-4-20250514",
+            input_tokens=1000,
+            output_tokens=500,
+            cache_read_tokens=5000,
+            cache_write_tokens=2000,
+        )
+        assert cost_with_cache > cost_no_cache
+
+    @pytest.mark.anyio
+    async def test_telemetry_includes_cost(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        event_processor: MagicMock,
+    ) -> None:
+        """_extract_usage_telemetry should accumulate cost_usd in pending telemetry."""
+        watcher._session_to_job["sess-1"] = "job-cost"
+        watcher._job_to_session["job-cost"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "text", "text": "Done."}],
+                "usage": {
+                    "input_tokens": 10000,
+                    "output_tokens": 5000,
+                    "cache_read_input_tokens": 1000,
+                    "cache_creation_input_tokens": 500,
+                },
+                "model": "claude-sonnet-4-20250514",
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-cost")
+
+        # Check that pending telemetry has a non-zero cost
+        pending = watcher._pending_telemetry.get("job-cost", {})
+        assert pending.get("total_cost_usd", 0) > 0
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: file_changed emission on file-write tools (RT-9)
+# ---------------------------------------------------------------------------
+
+
+class TestFileChangedEmission:
+    @pytest.mark.anyio
+    async def test_file_write_tool_emits_file_changed(
+        self, watcher: ClaudeSessionStateWatcher, event_processor: MagicMock,
+    ) -> None:
+        """tool_use with a file_write tool should emit file_changed event."""
+        watcher._session_to_job["sess-1"] = "job-fc"
+        watcher._job_to_session["job-fc"] = "sess-1"
+        watcher._job_worktrees["job-fc"] = "/repo"
+        watcher._job_base_refs["job-fc"] = "abc123"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "edit_file",
+                        "input": {"path": "src/main.py", "content": "..."},
+                    },
+                ],
+                "usage": {"input_tokens": 50, "output_tokens": 20},
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-fc")
+
+        # Should have emitted: tool_running + file_changed
+        calls = event_processor.process_event.call_args_list
+        kinds = [c[0][1].kind for c in calls]
+        assert SessionEventKind.file_changed in kinds
+
+    @pytest.mark.anyio
+    async def test_non_write_tool_no_file_changed(
+        self, watcher: ClaudeSessionStateWatcher, event_processor: MagicMock,
+    ) -> None:
+        """tool_use with a read tool should NOT emit file_changed."""
+        watcher._session_to_job["sess-1"] = "job-nfc"
+        watcher._job_to_session["job-nfc"] = "sess-1"
+
+        raw = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "read_file",
+                        "input": {"path": "src/main.py"},
+                    },
+                ],
+                "usage": {"input_tokens": 50, "output_tokens": 20},
+            },
+        }
+
+        await watcher._process_jsonl_event(raw, "sess-1", "job-nfc")
+
+        calls = event_processor.process_event.call_args_list
+        kinds = [c[0][1].kind for c in calls]
+        assert SessionEventKind.file_changed not in kinds
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: PID-based liveness (RT2-1, RT2-2)
+# ---------------------------------------------------------------------------
+
+
+class TestPidLiveness:
+    def test_is_pid_alive_returns_false_for_nonexistent_pid(self) -> None:
+        """A PID that doesn't exist should return False."""
+        assert _is_pid_alive(999999999) is False
+
+    def test_find_claude_pids_at_nonexistent_cwd(self) -> None:
+        """No claude processes should be at a nonexistent path."""
+        pids = _find_claude_pids_at_cwd("/tmp/nonexistent-xyzzy-12345")
+        assert pids == []
+
+    def test_find_claude_pids_excludes_claimed(self) -> None:
+        """Exclude set should filter out already-claimed PIDs."""
+        # Even if by some miracle there's a match, exclude_pids filters it
+        pids = _find_claude_pids_at_cwd(
+            "/tmp/nonexistent-xyzzy-12345",
+            exclude_pids=frozenset({1, 2, 3}),
+        )
+        assert pids == []
+
+    @pytest.mark.anyio
+    async def test_session_pid_cached_on_attach(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+    ) -> None:
+        """_attach_session should attempt to cache a PID for the session."""
+        session_id = "test-pid-session"
+        jsonl_path = Path("/tmp/fake.jsonl")
+        repo_path = "/tmp/nonexistent-repo-xyz"
+
+        watcher._tracked_sessions.add(session_id)
+        with patch.object(watcher, "_create_job", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = None  # Job creation fails → no PID caching
+            await watcher._attach_session(session_id, jsonl_path, repo_path)
+
+        # session_id not in _session_pids because job creation returned None
+        assert session_id not in watcher._session_pids
+
+    @pytest.mark.anyio
+    async def test_session_pid_cleaned_on_finalize(
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        event_processor: MagicMock,
+    ) -> None:
+        """_finalize_session should remove the cached PID."""
+        watcher._session_to_job["sess-pid"] = "job-pid"
+        watcher._job_to_session["job-pid"] = "sess-pid"
+        watcher._session_pids["sess-pid"] = 12345
+        watcher._job_worktrees["job-pid"] = "/tmp/repo"
+
+        # Mock the DB update so we don't need a real Job row
+        with patch("backend.persistence.job_repo.JobRepository.update_state", new_callable=AsyncMock):
+            await watcher._finalize_session("job-pid")
+
+        assert "sess-pid" not in watcher._session_pids
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: pricing mtime reload (RT2-3)
+# ---------------------------------------------------------------------------
+
+
+class TestPricingReload:
+    def test_pricing_reloads_on_mtime_change(self, tmp_path: Path) -> None:
+        """_get_pricing should reload when file mtime changes."""
+        import backend.services.claude_session_watcher as mod
+
+        pricing_file = tmp_path / "model_pricing.json"
+        pricing_file.write_text(json.dumps({"model-a": {"input": 1.0, "output": 2.0}}))
+
+        # Patch the module-level state
+        orig_path = mod._PRICING_PATH
+        orig_pricing = mod._MODEL_PRICING
+        orig_mtime = mod._PRICING_MTIME
+        try:
+            mod._PRICING_PATH = pricing_file
+            mod._MODEL_PRICING = None
+            mod._PRICING_MTIME = 0.0
+
+            # First load
+            result = mod._get_pricing()
+            assert "model-a" in result
+            assert result["model-a"]["input"] == 1.0
+
+            # Update the file with different content and a new mtime
+            import time
+            time.sleep(0.05)  # ensure mtime differs
+            pricing_file.write_text(json.dumps({"model-b": {"input": 3.0, "output": 4.0}}))
+
+            # Should reload
+            result = mod._get_pricing()
+            assert "model-b" in result
+            assert "model-a" not in result
+        finally:
+            mod._PRICING_PATH = orig_path
+            mod._MODEL_PRICING = orig_pricing
+            mod._PRICING_MTIME = orig_mtime

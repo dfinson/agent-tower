@@ -57,22 +57,32 @@ _SESSION_ID_PATTERN = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU
 _SESSION_FILE_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$")
 
 # ---------------------------------------------------------------------------
-# Model pricing cache (loaded once from bundled JSON)
+# Model pricing cache (reloads automatically when file changes)
 # ---------------------------------------------------------------------------
 
 _MODEL_PRICING: dict[str, dict[str, float]] | None = None
+_PRICING_MTIME: float = 0.0
 _PRICING_PATH = Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
 
 
 def _get_pricing() -> dict[str, dict[str, float]]:
-    """Load model pricing data ($/MTok) from bundled JSON. Cached."""
-    global _MODEL_PRICING  # noqa: PLW0603
-    if _MODEL_PRICING is None:
+    """Load model pricing data ($/MTok) from bundled JSON. Reloads on file change."""
+    global _MODEL_PRICING, _PRICING_MTIME  # noqa: PLW0603
+    try:
+        current_mtime = _PRICING_PATH.stat().st_mtime
+    except OSError:
+        if _MODEL_PRICING is None:
+            _MODEL_PRICING = {}
+        return _MODEL_PRICING
+
+    if _MODEL_PRICING is None or current_mtime != _PRICING_MTIME:
         try:
             _MODEL_PRICING = json.loads(_PRICING_PATH.read_text())
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            _PRICING_MTIME = current_mtime
+        except (json.JSONDecodeError, OSError):
             log.debug("claude_watcher_pricing_unavailable")
-            _MODEL_PRICING = {}
+            if _MODEL_PRICING is None:
+                _MODEL_PRICING = {}
     return _MODEL_PRICING
 
 
@@ -115,37 +125,61 @@ def _encode_cwd(path: str) -> str:
     return path.replace("/", "-")
 
 
-def _is_claude_process_alive(session_id: str, repo_path: str | None = None) -> bool:
-    """Check if a Claude CLI process is still running for this session's workspace.
-
-    Claude CLI does NOT put the session_id in its argv, so we cannot match by
-    session_id alone. Instead we look for any ``claude`` process whose working
-    directory (``/proc/PID/cwd``) resolves to the session's repo path.
-    Falls back to checking if ANY claude process exists when repo_path is unknown.
-    """
+def _is_pid_alive(pid: int) -> bool:
+    """O(1) check: is this specific PID still a claude process?"""
     try:
-        repo_path_resolved = Path(repo_path).resolve() if repo_path else None
+        cmdline = (Path("/proc") / str(pid) / "cmdline").read_bytes()
+        return b"claude" in cmdline
+    except (OSError, PermissionError):
+        return False
+
+
+def _find_claude_pids_at_cwd(repo_path: str, exclude_pids: frozenset[int] = frozenset()) -> list[int]:
+    """Find all claude PIDs whose cwd matches repo_path, excluding already-claimed PIDs."""
+    results: list[int] = []
+    try:
+        repo_resolved = Path(repo_path).resolve()
         for pid_dir in Path("/proc").iterdir():
             if not pid_dir.name.isdigit():
                 continue
-            cmdline_path = pid_dir / "cmdline"
+            pid = int(pid_dir.name)
+            if pid in exclude_pids:
+                continue
             try:
-                cmdline = cmdline_path.read_bytes()
+                cmdline = (pid_dir / "cmdline").read_bytes()
                 if b"claude" not in cmdline:
                     continue
-                # If we have a repo_path, check if the process cwd matches
-                if repo_path_resolved is not None:
-                    proc_cwd = (pid_dir / "cwd").resolve()
-                    if proc_cwd == repo_path_resolved:
-                        return True
-                else:
-                    # No repo_path — any claude process counts
-                    return True
+                proc_cwd = (pid_dir / "cwd").resolve()
+                if proc_cwd == repo_resolved:
+                    results.append(pid)
             except (OSError, PermissionError):
                 continue
     except OSError:
         pass
-    return False
+    return results
+
+
+def _is_claude_process_alive(session_id: str, repo_path: str | None = None) -> bool:
+    """Fallback liveness check when no cached PID is available.
+
+    Scans /proc for any claude process whose cwd matches repo_path.
+    Used only during startup recovery when we don't have a PID yet.
+    """
+    if not repo_path:
+        try:
+            for pid_dir in Path("/proc").iterdir():
+                if not pid_dir.name.isdigit():
+                    continue
+                try:
+                    cmdline = (pid_dir / "cmdline").read_bytes()
+                    if b"claude" in cmdline:
+                        return True
+                except (OSError, PermissionError):
+                    continue
+        except OSError:
+            pass
+        return False
+    return len(_find_claude_pids_at_cwd(repo_path)) > 0
 
 
 class ClaudeSessionStateWatcher:
@@ -193,6 +227,8 @@ class ClaudeSessionStateWatcher:
         self._prompt_captured: set[str] = set()
         # Guard: jobs currently being finalized (prevent double finalization)
         self._finalizing: set[str] = set()
+        # session_id → PID of the owning claude process (O(1) liveness)
+        self._session_pids: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Public interface
@@ -468,6 +504,12 @@ class ClaudeSessionStateWatcher:
         self._job_worktrees[job_id] = job.worktree_path or repo_path
         self._job_base_refs[job_id] = job.base_ref or "HEAD"
 
+        # Discover and cache the owning Claude PID for O(1) liveness checks
+        claimed_pids = frozenset(self._session_pids.values())
+        pids = await asyncio.to_thread(_find_claude_pids_at_cwd, repo_path, claimed_pids)
+        if pids:
+            self._session_pids[session_id] = pids[0]
+
         # Register with event processor
         self._processor.register_worktree(job_id, self._job_worktrees[job_id])
 
@@ -626,10 +668,14 @@ class ClaudeSessionStateWatcher:
                     idle_polls += 1
                     if idle_polls >= _IDLE_POLLS_BEFORE_LIVENESS:
                         idle_polls = 0
-                        repo_path = self._job_worktrees.get(job_id)
-                        alive = await asyncio.to_thread(
-                            _is_claude_process_alive, session_id, repo_path,
-                        )
+                        cached_pid = self._session_pids.get(session_id)
+                        if cached_pid is not None:
+                            alive = await asyncio.to_thread(_is_pid_alive, cached_pid)
+                        else:
+                            repo_path = self._job_worktrees.get(job_id)
+                            alive = await asyncio.to_thread(
+                                _is_claude_process_alive, session_id, repo_path,
+                            )
                         if not alive:
                             self._schedule_offset_persist(job_id, offset)
                             await self._finalize_session(job_id, error_reason="session file disappeared")
@@ -647,10 +693,14 @@ class ClaudeSessionStateWatcher:
                     idle_polls += 1
                     if idle_polls >= _IDLE_POLLS_BEFORE_LIVENESS:
                         idle_polls = 0
-                        repo_path = self._job_worktrees.get(job_id)
-                        alive = await asyncio.to_thread(
-                            _is_claude_process_alive, session_id, repo_path,
-                        )
+                        cached_pid = self._session_pids.get(session_id)
+                        if cached_pid is not None:
+                            alive = await asyncio.to_thread(_is_pid_alive, cached_pid)
+                        else:
+                            repo_path = self._job_worktrees.get(job_id)
+                            alive = await asyncio.to_thread(
+                                _is_claude_process_alive, session_id, repo_path,
+                            )
                         if not alive:
                             self._schedule_offset_persist(job_id, offset)
                             await self._finalize_session(job_id)
@@ -783,6 +833,8 @@ class ClaudeSessionStateWatcher:
 
     async def _handle_assistant_event(self, raw: dict, session_id: str, job_id: str) -> None:
         """Handle an assistant-type JSONL event."""
+        from backend.services.tool_classifier import classify_tool, extract_file_paths
+
         message = raw.get("message", {})
         content_blocks = message.get("content", [])
         usage = message.get("usage")
@@ -839,10 +891,6 @@ class ClaudeSessionStateWatcher:
                     await self._feed_event(job_id, session_event)
 
                     # Emit file_changed for file-write tools to trigger diff
-                    from backend.services.tool_classifier import (
-                        classify_tool,
-                        extract_file_paths,
-                    )
                     if classify_tool(tool_name) == "file_write":
                         paths = extract_file_paths(tool_name, args_str)
                         for fpath in paths:
@@ -1043,6 +1091,7 @@ class ClaudeSessionStateWatcher:
             # Allow re-discovery if session is resumed later
             self._tracked_sessions.discard(sid_to_remove)
             self._tail_tasks.pop(sid_to_remove, None)
+            self._session_pids.pop(sid_to_remove, None)
 
         # Release sister session
         if self._sister_sessions:
