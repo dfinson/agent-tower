@@ -183,7 +183,9 @@ class RuntimeTelemetry:
                 if job is not None:
                     slug = (job.worktree_name or job.title or "").strip()
 
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.artifact_repo import ArtifactRepository
                 from backend.services.artifact_service import ArtifactService
 
@@ -244,7 +246,5 @@ class RuntimeTelemetry:
                             [dict(e.payload) for e in log_events],
                             slug=slug,
                         )
-
-                await session.commit()
         except DBAPIError:
             log.warning("post_completion_artifacts_failed", job_id=job_id, exc_info=True)

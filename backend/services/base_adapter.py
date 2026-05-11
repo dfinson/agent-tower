@@ -310,9 +310,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         """Yield a scoped DB session with commit and error handling."""
         if self._session_factory is None:
             raise _NoSessionFactory
-        async with self._session_factory() as session:
+        from backend.persistence.database import serialized_write
+
+        async with serialized_write(self._session_factory) as session:
             yield session
-            await session.commit()
 
     async def _db_write_increment(self, *, job_id: str, **counters: Any) -> None:
         """Increment telemetry summary counters."""
