@@ -55,7 +55,9 @@ class RuntimeTelemetry:
 
         assert isinstance(config, SessionConfig)
         try:
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                 repo_path = ""
@@ -77,7 +79,6 @@ class RuntimeTelemetry:
                     repo=repo_path,
                     branch=branch_name,
                 )
-                await session.commit()
         except (Exception, BaseException):
             log.warning("telemetry_init_failed", job_id=job_id, exc_info=True)
 
@@ -107,7 +108,9 @@ class RuntimeTelemetry:
 
         # Finalize the summary row with terminal status and duration.
         try:
-            async with self._session_factory() as session:
+            from backend.persistence.database import serialized_write
+
+            async with serialized_write(self._session_factory) as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                 _TELEMETRY_STATUS: dict[JobState, str] = {
@@ -128,31 +131,27 @@ class RuntimeTelemetry:
                     status=status,
                     duration_ms=duration,
                 )
-                await session.commit()
 
             # Run post-job cost attribution pipeline
             async with best_effort(log, "cost_attribution", level="warning", job_id=job_id):
-                async with self._session_factory() as session:
+                async with serialized_write(self._session_factory) as session:
                     from backend.services.cost_attribution import compute_attribution
 
                     await compute_attribution(session, job_id, session_factory=self._session_factory)
-                    await session.commit()
 
             # Run post-job latency attribution pipeline
             async with best_effort(log, "latency_attribution", level="warning", job_id=job_id):
-                async with self._session_factory() as session:
+                async with serialized_write(self._session_factory) as session:
                     from backend.services.latency_attribution import compute_latency_attribution
 
                     await compute_latency_attribution(session, job_id)
-                    await session.commit()
 
             # Run statistical analysis (fire-and-forget, non-blocking)
             async with best_effort(log, "statistical_analysis", job_id=job_id):
-                async with self._session_factory() as session:
+                async with serialized_write(self._session_factory) as session:
                     from backend.services.statistical_analysis import run_analysis
 
                     await run_analysis(session)
-                    await session.commit()
 
             # Signal clients that final telemetry is available
             await self._event_bus.publish(
