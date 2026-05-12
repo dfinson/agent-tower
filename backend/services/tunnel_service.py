@@ -362,7 +362,9 @@ def start_remote_access(
         )
         handle.watchdog.start()
         return handle
-    origin, cf_proc = _start_cloudflare(port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname)
+    origin, cf_proc = _start_cloudflare(
+        port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname
+    )
     externally_managed = cf_proc is None
     handle = TunnelHandle(provider=provider, origin=origin, proc=cf_proc, externally_managed=externally_managed)
     if cf_proc is not None:

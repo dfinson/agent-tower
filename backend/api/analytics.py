@@ -279,8 +279,8 @@ async def fleet_cost_drivers(
 
     if dimension:
         dim_rows = await svc.cost_by_dimension(dimension, period_days=period)
-        buckets = [CostDriverEntry(**r) for r in dim_rows]
-        return FleetCostDriversResponse(period=period, dimension=dimension, buckets=buckets)
+        dim_buckets = [CostDriverEntry(**r) for r in dim_rows]
+        return FleetCostDriversResponse(period=period, dimension=dimension, buckets=dim_buckets)
     summary = await svc.fleet_cost_summary(period_days=period)
     # Activity-dimension costs use an equal-weight heuristic per turn, flag them.
     enriched: list[dict[str, Any]] = [dict(r) for r in summary]

@@ -18,7 +18,7 @@ import math
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -365,6 +365,14 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     # Startup recovery
     # ------------------------------------------------------------------
 
+    def _make_pop_callback(self, sid: str):  # noqa: ANN202
+        """Create a done-callback that removes *sid* from tail_tasks."""
+
+        def _cb(_t: object) -> None:
+            self._tail_tasks.pop(sid, None)
+
+        return _cb
+
     async def _load_existing_sessions(self) -> None:
         """Load session IDs from existing claude_cli jobs to avoid re-import."""
         running_jobs: list[tuple[str, str, int, str | None, str | None, str | None]] = []
@@ -424,7 +432,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                             name=f"claude-tail-{ext_sid[:8]}",
                         )
                         self._tail_tasks[ext_sid] = task
-                        task.add_done_callback(lambda _t: self._tail_tasks.pop(ext_sid, None))
+                        task.add_done_callback(self._make_pop_callback(ext_sid))
                         log.info("claude_watcher_reattached", job_id=job_id, offset=offset)
         except Exception:
             log.warning("claude_watcher_load_existing_failed", exc_info=True)

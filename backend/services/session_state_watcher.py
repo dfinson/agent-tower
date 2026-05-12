@@ -121,6 +121,14 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         self._discovery_task = asyncio.create_task(self._discovery_loop(), name="session-state-discovery")
         log.info("session_state_watcher_started", repos=self._config.repos)
 
+    def _make_pop_callback(self, sid: str):  # noqa: ANN202
+        """Create a done-callback that removes *sid* from tail_tasks."""
+
+        def _cb(_t: object) -> None:
+            self._tail_tasks.pop(sid, None)
+
+        return _cb
+
     async def _load_existing_sessions(self) -> None:
         """Load session IDs from existing jobs to avoid re-import.
 
@@ -205,7 +213,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                         name=f"tail-{ext_sid[:8]}",
                     )
                     self._tail_tasks[ext_sid] = task
-                    task.add_done_callback(lambda _t: self._tail_tasks.pop(ext_sid, None))
+                    task.add_done_callback(self._make_pop_callback(ext_sid))
                     log.info("session_state_watcher_reattached", job_id=job_id, offset=offset)
         except Exception:
             log.warning("session_state_watcher_load_existing_failed", exc_info=True)
@@ -348,8 +356,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # Background: CodeRecon indexing
         coderecon = self._coderecon
         if coderecon:
+            _repo = job.repo
 
-            async def _index(repo: str = job.repo, jid: str = job_id) -> None:
+            async def _index(repo: str = _repo, jid: str = job_id) -> None:
                 try:
                     await coderecon.ensure_repo_indexed(repo)
                 except Exception:

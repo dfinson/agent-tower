@@ -738,7 +738,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             return
         if not coderecon_service.available:
             return
-        worktree_path = event.payload.get("worktree_path")
+        worktree_path = str(event.payload.get("worktree_path", ""))
         if not worktree_path:
             return
         job_id = event.job_id

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json as _json
 from collections import defaultdict
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -31,6 +30,8 @@ from backend.services.cost_attribution import (
 from backend.services.tool_classifier import classify_tool, refine_shell_category
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.persistence.latency_attribution_repo import LatencyAttributionRepository

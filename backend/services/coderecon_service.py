@@ -22,12 +22,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
+    from coderecon.index.diff.models import SemanticDiffResult
     from coderecon.review import (
         CommunitiesResult,
         CyclesResult,
         StructuralHealthResult,
     )
-    from coderecon.index.diff.models import SemanticDiffResult
 
     from backend.services.event_bus import EventBus
 

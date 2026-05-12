@@ -685,7 +685,8 @@ def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 if resp.status_code == 404:
                     return {"error": f"Repository '{repo_path}' is not registered."}
                 resp.raise_for_status()
-                return resp.json()
+                result = resp.json()
+                return result
 
             if action == "register":
                 if not source:
@@ -697,7 +698,8 @@ def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 if resp.status_code >= 400:
                     detail = resp.json().get("detail", resp.text)
                     return {"error": str(detail)}
-                return resp.json()
+                result = resp.json()
+                return result
 
             if action == "remove":
                 if not repo_path:

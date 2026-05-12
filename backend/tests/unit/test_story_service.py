@@ -445,7 +445,7 @@ class TestMultiPassGeneration:
         svc = StoryService(completer)
 
         # Directly test _generate_passes with a small token budget
-        from backend.services.story_service import StoryContext, StoryReference
+        from backend.services.story_service import StoryContext
 
         refs: list[StoryReference] = [
             _ref(span_id="s1", file="a.py", snippet="x" * 2000),
