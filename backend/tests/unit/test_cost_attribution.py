@@ -75,11 +75,12 @@ def test_classify_turn_intent_investigation() -> None:
     # Pure reading turns
     assert _classify_turn_intent(_ctx(cats=["file_read"])) == "investigation"
     assert _classify_turn_intent(_ctx(cats=["file_read", "file_read", "file_search"])) == "investigation"
-    assert _classify_turn_intent(_ctx(cats=["git_read"])) == "git_ops"
+    assert _classify_turn_intent(_ctx(cats=["git_read"])) == "investigation"
     assert _classify_turn_intent(_ctx(cats=["browser"])) == "investigation"
     # Shell commands that explore
     assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["find . -name '*.py'"])) == "investigation"
-    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["git diff HEAD~1"])) == "git_ops"
+    # Shell git reads are investigation, not git_ops
+    assert _classify_turn_intent(_ctx(cats=["shell"], cmds=["git diff HEAD~1"])) == "investigation"
 
 
 def test_classify_turn_intent_overhead() -> None:
@@ -112,7 +113,10 @@ def test_classify_shell_command() -> None:
     assert classify_shell_command("pytest tests/") == "verification"
     assert classify_shell_command("git commit -m 'fix'") == "git_ops"
     assert classify_shell_command("uv sync") == "setup"
-    assert classify_shell_command("git diff HEAD") == "git_ops"
+    # Git read commands are investigation, not git_ops
+    assert classify_shell_command("git diff HEAD") == "investigation"
+    assert classify_shell_command("git status") == "investigation"
+    assert classify_shell_command("git log --oneline") == "investigation"
     assert classify_shell_command("find . -name '*.py'") == "investigation"
     assert classify_shell_command("echo hello") == "shell_other"
 

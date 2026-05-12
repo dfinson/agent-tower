@@ -14,7 +14,7 @@ import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, 
 import { fetchReviewStory, fetchJobStory, type ReviewStoryResponse, type EdgeCaseBlock, type PatternGroup } from "../../api/client";
 import { useStore } from "../../store";
 import { selectReviewStory, selectJobStory } from "../../store/selectors";
-import type { StoryResponse, StoryBlock } from "../../api/types";
+import type { StoryBlock } from "../../api/types";
 import { Spinner } from "../ui/spinner";
 import { cn } from "../../lib/utils";
 
@@ -192,52 +192,75 @@ type Verbosity = "summary" | "standard" | "detailed";
 
 /** Trail-based story fallback when CodeRecon is unavailable. */
 function TrailStoryFallback({ jobId }: { jobId: string }) {
-  const cachedStory = useStore(selectJobStory(jobId));
   const setStory = useStore((s) => s.setStory);
 
-  const [story, setStoryLocal] = useState<StoryResponse | null>(cachedStory);
-  const [loading, setLoading] = useState(cachedStory == null);
-  const [error, setError] = useState<string | null>(null);
   const [verbosity, setVerbosity] = useState<Verbosity>("standard");
   const [regenerating, setRegenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(
-    async (regen = false, verb?: Verbosity) => {
-      const v = verb ?? verbosity;
+  // Per-verbosity cache from store
+  const cachedSummary = useStore(selectJobStory(jobId, "summary"));
+  const cachedStandard = useStore(selectJobStory(jobId, "standard"));
+  const cachedDetailed = useStore(selectJobStory(jobId, "detailed"));
+
+  const storyForVerbosity = (v: Verbosity) => {
+    if (v === "summary") return cachedSummary;
+    if (v === "detailed") return cachedDetailed;
+    return cachedStandard;
+  };
+
+  const story = storyForVerbosity(verbosity);
+
+  // Track which levels are being fetched
+  const [fetching, setFetching] = useState<Record<Verbosity, boolean>>({
+    summary: false, standard: false, detailed: false,
+  });
+
+  const fetchLevel = useCallback(
+    async (v: Verbosity, regen = false) => {
+      setFetching((prev) => ({ ...prev, [v]: true }));
       try {
-        if (regen) setRegenerating(true);
-        else setLoading(true);
-        setError(null);
         const res = await fetchJobStory(jobId, regen, v);
-        setStoryLocal(res);
         setStory(jobId, res);
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to load story";
-        setError(msg);
+        // Only set error for the active verbosity
+        if (v === verbosity) {
+          const msg = err instanceof Error ? err.message : "Failed to load story";
+          setError(msg);
+        }
       } finally {
-        setLoading(false);
-        setRegenerating(false);
+        setFetching((prev) => ({ ...prev, [v]: false }));
       }
     },
     [jobId, verbosity, setStory],
   );
 
+  // Eagerly fetch all verbosity levels on mount
   useEffect(() => {
-    if (cachedStory) {
-      setStoryLocal(cachedStory);
-      setLoading(false);
-      return;
+    const levels: Verbosity[] = ["summary", "standard", "detailed"];
+    for (const v of levels) {
+      if (!storyForVerbosity(v)) {
+        fetchLevel(v);
+      }
     }
-    load();
   }, [jobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleVerbosityChange = useCallback(
     (v: Verbosity) => {
       setVerbosity(v);
-      load(false, v);
+      setError(null);
     },
-    [load],
+    [],
   );
+
+  const handleRegenerate = useCallback(() => {
+    setRegenerating(true);
+    setError(null);
+    fetchLevel(verbosity, true).finally(() => setRegenerating(false));
+  }, [fetchLevel, verbosity]);
+
+  // Show loading only if the currently selected verbosity is being fetched
+  const loading = fetching[verbosity] && !story;
 
   if (loading) {
     return (
@@ -266,7 +289,7 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
 
   return (
     <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
-      <div className="max-w-prose mx-auto w-full rounded-lg border border-border bg-card p-4">
+      <div className="max-w-3xl mx-auto w-full rounded-lg border border-border bg-card p-4">
         <div className="flex items-center gap-2 mb-2">
           <BookOpen size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">Code Review Story</h3>
@@ -319,7 +342,7 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
           <button
             type="button"
             disabled={regenerating}
-            onClick={() => load(true)}
+            onClick={handleRegenerate}
             className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
           >
             <RefreshCw size={10} className={cn(regenerating && "animate-spin")} />
@@ -393,7 +416,7 @@ export function StorySubView({ jobId }: StorySubViewProps) {
   if (data.collapsed && data.verdict) {
     return (
       <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
-        <div className="max-w-prose mx-auto w-full flex flex-col gap-4">
+        <div className="max-w-3xl mx-auto w-full flex flex-col gap-4">
         {data.header && (
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="flex items-center justify-between mb-2">
@@ -423,7 +446,7 @@ export function StorySubView({ jobId }: StorySubViewProps) {
 
   return (
     <div className="flex flex-col gap-5 p-4 h-full overflow-y-auto">
-      <div className="max-w-prose mx-auto w-full flex flex-col gap-5">
+      <div className="max-w-3xl mx-auto w-full flex flex-col gap-5">
       {/* Header card */}
       {data.header && (
         <div className="rounded-lg border border-border bg-card p-4">

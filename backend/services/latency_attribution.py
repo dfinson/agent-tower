@@ -22,7 +22,7 @@ import structlog
 
 from backend.models.api_schemas import ExecutionPhase
 from backend.services.cost_attribution import TurnContext, _classify_turn_intent, _is_debugging_context
-from backend.services.tool_classifier import classify_tool
+from backend.services.tool_classifier import classify_tool, refine_shell_category
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -216,11 +216,18 @@ async def _compute_latency(
             tool_name = span.get("name") or ""
             tool_cat = classify_tool(tool_name) or "other"
 
+            # Promote shell git commands to git_read/git_write
+            if tool_cat == "shell":
+                tool_args = span.get("tool_args_json")
+                refined = refine_shell_category(tool_args if isinstance(tool_args, str) else None)
+                if refined:
+                    tool_cat = refined
+
             # Build turn context for intent classification
             if turn is not None:
                 turn_int = int(turn)
                 turn_contexts[turn_int]["tool_categories"].append(tool_cat)
-                # Collect shell command text
+                # Collect shell command text for non-git shell commands
                 if tool_cat == "shell":
                     tool_args = span.get("tool_args_json")
                     if isinstance(tool_args, str):

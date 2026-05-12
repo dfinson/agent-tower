@@ -561,25 +561,13 @@ class RuntimeService:
         if worktree_path and self._step_tracker is not None:
             self._step_tracker.register_worktree(job_id, worktree_path)
 
-        # Register worktree with CodeRecon for live structural reindexing (§5.7)
+        # Register worktree with coderecon-review for structural indexing
         if worktree_path and self._coderecon_service is not None and self._coderecon_service.available:
             try:
                 repo_name = await self._coderecon_service.ensure_repo_indexed(job.repo)
                 await self._coderecon_service.register_worktree(repo_name, worktree_path)
-
-                # Provision native CodeRecon tools for the agent (§8)
-                from backend.services.coderecon_tools import build_coderecon_tools
-
-                toolkit = build_coderecon_tools(
-                    self._coderecon_service,
-                    repo_name,
-                    worktree=worktree_path,
-                    tier="standard",
-                )
-                config = dataclass_replace(config, coderecon_tools=toolkit)
-                log.info("coderecon.tools_provisioned", job_id=job_id, tier="standard")
             except Exception:
-                log.debug("coderecon.worktree_register_failed", job_id=job_id, exc_info=True)
+                log.debug("coderecon_review.worktree_register_failed", job_id=job_id, exc_info=True)
 
         session_id: str | None = None
         error_reason: str | None = None
@@ -997,28 +985,8 @@ class RuntimeService:
         # handlers have run, force it to failed so it doesn't stay stuck.
         await self._ensure_terminal_state(job_id)
 
-        # Close CodeRecon session for this job's worktree
-        if self._coderecon_service is not None and self._coderecon_service.available:
-            try:
-                async with self._session_factory() as session:
-                    svc = self._make_job_service(session)
-                    job = await svc.get_job(job_id)
-                if job is not None and job.worktree_path and job.repo:
-                    # Look up repo name without triggering registration/indexing
-                    from pathlib import Path as _Path
-                    catalog = await self._coderecon_service.catalog()
-                    resolved = _Path(job.repo).resolve()
-                    repo_name = next(
-                        (e["name"] for e in catalog
-                         if _Path(e.get("git_dir", "")).resolve() in (resolved / ".git", resolved)),
-                        None,
-                    )
-                    if repo_name:
-                        await self._coderecon_service.close_session(
-                            repo_name, worktree=job.worktree_path,
-                        )
-            except Exception:
-                log.debug("coderecon.session_close_failed", job_id=job_id, exc_info=True)
+        # Close CodeRecon session for this job's worktree — no-op with ReviewKit
+        # (in-process kits are shared and closed on shutdown, not per-job)
 
         if self._trail_service is not None:
             self._trail_service.cleanup(job_id)

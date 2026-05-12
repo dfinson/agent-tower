@@ -45,8 +45,8 @@ export const selectJobDiffs = (jobId: string) => (state: AppState) =>
   state.diffs[jobId] ?? EMPTY_DIFFS;
 
 const EMPTY_STORY: StoryResponse | null = null;
-export const selectJobStory = (jobId: string) => (state: AppState) =>
-  state.stories[jobId] ?? EMPTY_STORY;
+export const selectJobStory = (jobId: string, verbosity: "summary" | "standard" | "detailed" = "standard") => (state: AppState) =>
+  state.stories[`${jobId}:${verbosity}`] ?? EMPTY_STORY;
 
 // Structural analysis selectors
 export const selectStructuralDiff = (jobId: string) => (state: AppState): StructuralDiffResponse | null =>
@@ -100,7 +100,7 @@ export const selectActiveJobs = (state: AppState): JobSummary[] =>
 /** Sign-off: everything that needs operator attention before archival.
  *  - waiting_for_approval
  *  - review (agent done, awaiting operator decision) — not archived
- *  - completed (finished but not yet archived)
+ *  - completed but still unresolved (operator hasn't decided yet)
  */
 export const selectSignoffJobs = (state: AppState): JobSummary[] =>
   sortByUpdatedDesc(
@@ -109,7 +109,7 @@ export const selectSignoffJobs = (state: AppState): JobSummary[] =>
         !j.archivedAt &&
         (j.state === "waiting_for_approval" ||
           j.state === "review" ||
-          j.state === "completed"),
+          (j.state === "completed" && (!j.resolution || j.resolution === "unresolved"))),
     ),
   );
 

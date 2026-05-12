@@ -32,7 +32,7 @@ from backend.models.api_schemas import (
     TelemetryTurnLatency,
     TurnAction,
 )
-from backend.services.tool_classifier import classify_tool, classify_tool_activity
+from backend.services.tool_classifier import classify_tool, classify_tool_activity, refine_shell_category
 
 if TYPE_CHECKING:
     from backend.models.domain import TelemetrySpanRow
@@ -91,6 +91,16 @@ def _shell_display_name(tool_name: str, tool_args_json: str | None) -> str:
 _LARGE_DIFF_LINES = 500
 _MANY_TURNS = 20
 _MANY_FILES = 15
+
+
+def _refine_tool_category(tool_name: str, tool_args_json: str | None) -> str:
+    """Return the tool category, promoting shell git commands to git_read/git_write."""
+    cat = classify_tool(tool_name)
+    if cat == "shell":
+        refined = refine_shell_category(tool_args_json)
+        if refined:
+            return refined
+    return cat
 
 
 class TelemetryQueryService:
@@ -167,7 +177,7 @@ class TelemetryQueryService:
                         name=tool_name,
                         display_label=display_label,
                         activity=classify_tool_activity(tool_name, tool_args),
-                        tool_category=classify_tool(tool_name),
+                        tool_category=_refine_tool_category(tool_name, tool_args),
                         duration_ms=float(span.get("duration_ms", 0)),
                         success=attrs.get("success", True),
                         offset_sec=float(span.get("started_at", 0)),
@@ -441,7 +451,7 @@ class TelemetryQueryService:
 
             for span in turn_spans:
                 name = span.get("name", "")
-                cat = classify_tool(name)
+                cat = _refine_tool_category(name, span.get("tool_args_json"))
                 args_raw = span.get("tool_args_json")
                 args: dict[str, Any] = {}
                 if args_raw:

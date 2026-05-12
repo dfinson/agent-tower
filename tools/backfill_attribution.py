@@ -39,7 +39,7 @@ import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.services.tool_classifier import classify_tool
+from backend.services.tool_classifier import classify_tool, refine_shell_category
 
 log = structlog.get_logger()
 
@@ -52,9 +52,12 @@ _RE_TEST = re.compile(
     r"cargo\s+test|go\s+test|rspec|phpunit|unittest|npm\s+run\s+test)\b",
     re.IGNORECASE,
 )
-_RE_GIT = re.compile(
-    r"\bgit\s+(add|commit|push|merge|rebase|checkout|cherry-pick|stash|tag|reset|"
-    r"diff|log|status|show|blame|branch)\b",
+_RE_GIT_WRITE = re.compile(
+    r"\bgit\s+(add|commit|push|merge|rebase|checkout|cherry-pick|stash|tag|reset)\b",
+    re.IGNORECASE,
+)
+_RE_GIT_READ = re.compile(
+    r"\bgit\s+(diff|log|status|show|blame|branch)\b",
     re.IGNORECASE,
 )
 _RE_READ_SHELL = re.compile(
@@ -70,8 +73,10 @@ def _shell_action(cmd: str) -> str:
     """Classify a shell command into an action bucket."""
     if _RE_TEST.search(cmd):
         return "test"
-    if _RE_GIT.search(cmd):
+    if _RE_GIT_WRITE.search(cmd):
         return "vcs"
+    if _RE_GIT_READ.search(cmd):
+        return "read"
     if _RE_READ_SHELL.search(cmd):
         return "read"
     return "execute"
@@ -82,6 +87,7 @@ def classify_action(tool_categories: list[str], shell_commands: list[str]) -> st
 
     Returns one of: write, test, read, execute, vcs, delegate, think.
     Uses a priority ladder — highest-value action wins the whole turn.
+    Git read operations (diff, log, status) map to 'read', not 'vcs'.
     """
     cats = set(tool_categories)
     shell_actions = {_shell_action(cmd) for cmd in shell_commands}
@@ -91,13 +97,13 @@ def classify_action(tool_categories: list[str], shell_commands: list[str]) -> st
         return "write"
     if "test" in shell_actions:
         return "test"
-    if "vcs" in shell_actions or cats & {"git_write", "git_read"}:
+    if "vcs" in shell_actions or cats & {"git_write"}:
         return "vcs"
     if "execute" in shell_actions:
         return "execute"
     if "agent" in cats:
         return "delegate"
-    if cats & {"file_read", "file_search", "browser"} or "read" in shell_actions:
+    if cats & {"file_read", "file_search", "browser", "git_read"} or "read" in shell_actions:
         return "read"
     if "thinking" in cats:
         return "think"
@@ -191,7 +197,7 @@ def classify_purpose_heuristic(
     # --- Signal 4: Git/housekeeping-only turns ---
     # If all shell commands are git writes and no non-housekeeping tool categories
     has_git_write = any(_RE_GIT_WRITE.search(cmd) for cmd in shells) or "git_write" in cats
-    all_shells_are_git = shells and all(_RE_GIT_WRITE.search(cmd) or _RE_GIT.search(cmd) for cmd in shells)
+    all_shells_are_git = shells and all(_RE_GIT_WRITE.search(cmd) or _RE_GIT_READ.search(cmd) for cmd in shells)
 
     # Categories that don't prevent housekeeping classification
     housekeeping_safe = _BOOKKEEPING_CATEGORIES | {"git_write", "git_read"}
@@ -481,9 +487,15 @@ def _build_turn_contexts(spans: list[dict]) -> tuple[dict[int, dict], dict[int, 
         # Collect tool categories
         if span.get("span_type") == "tool":
             cat = span.get("tool_category") or classify_tool(span.get("name") or "")
+            # Promote shell git commands to git_read/git_write
+            if cat == "shell":
+                tool_args = span.get("tool_args_json")
+                refined = refine_shell_category(tool_args if isinstance(tool_args, str) else None)
+                if refined:
+                    cat = refined
             turn_contexts[turn]["tool_categories"].append(cat)
 
-            # Extract shell command text
+            # Extract shell command text for non-git shell commands
             if cat == "shell":
                 tool_args = span.get("tool_args_json")
                 cmd = ""

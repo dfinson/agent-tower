@@ -240,7 +240,7 @@ export function formatActivityBucket(bucket: string): string {
     case "verification":
       return "Verification";
     case "git_ops":
-      return "Git & Commit";
+      return "Commit & Push";
     case "setup":
       return "Setup";
     case "overhead":
@@ -295,9 +295,9 @@ export const ACTIVITY_DESCRIPTIONS: Record<string, string> = {
   // 9 canonical categories
   implementation: "Turns where the agent edited or created files — the actual coding work",
   debugging: "Turns where the agent fixed bugs, errors, or failing tests",
-  investigation: "Turns where the agent read code, searched, browsed, or delegated to sub-agents",
+  investigation: "Turns where the agent read code, searched, browsed, checked diffs/status, or delegated to sub-agents",
   verification: "Turns where the agent ran tests to validate changes",
-  git_ops: "Turns where the agent committed, pushed, or managed git state",
+  git_ops: "Turns where the agent committed, pushed, merged, or managed branches",
   setup: "Turns where the agent installed dependencies or set up the environment",
   overhead: "Turns spent on internal housekeeping — todos, memory, intent tracking",
   reasoning: "Turns of explicit thinking with no user-facing output",

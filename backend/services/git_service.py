@@ -71,8 +71,8 @@ class GitService:
         except OSError as exc:
             raise GitError(f"git failed to start: {exc}") from exc
         stdout_bytes, stderr_bytes = await proc.communicate()
-        stdout = stdout_bytes.decode().strip()
-        stderr = stderr_bytes.decode().strip()
+        stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
+        stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
 
         if proc.returncode != 0:
             raise GitError(
@@ -547,7 +547,7 @@ class GitService:
         except (FileNotFoundError, OSError) as exc:
             raise GitError("git executable not found. Ensure Git is installed and available on PATH.") from exc
         _, stderr_bytes = await proc.communicate()
-        stderr = stderr_bytes.decode().strip()
+        stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
 
         if proc.returncode != 0:
             raise GitError(f"git clone failed: {stderr}", stderr=stderr)

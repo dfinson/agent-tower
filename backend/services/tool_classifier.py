@@ -123,7 +123,7 @@ TOOL_CATEGORIES: dict[str, str] = {
 _CATEGORY_TO_ACTIVITY: dict[str, str] = {
     "file_write": "implementation",
     "git_write": "git_ops",
-    "git_read": "git_ops",
+    "git_read": "investigation",
     "file_read": "investigation",
     "file_search": "investigation",
     "browser": "investigation",
@@ -174,6 +174,8 @@ def classify_shell_command(cmd: str) -> str:
     """Classify a shell command string into an activity.
 
     Returns one of: verification, git_ops, setup, implementation, investigation, shell_other.
+    Git write commands (commit, push, merge, etc.) → git_ops.
+    Git read commands (diff, log, status, etc.) → investigation.
     """
     if _RE_SHELL_TEST.search(cmd):
         return "verification"
@@ -182,7 +184,7 @@ def classify_shell_command(cmd: str) -> str:
     if _RE_SHELL_SETUP.search(cmd):
         return "setup"
     if _RE_SHELL_GIT_READ.search(cmd):
-        return "git_ops"
+        return "investigation"
     if _RE_SHELL_IMPLEMENT.search(cmd):
         return "implementation"
     if _RE_SHELL_INVESTIGATE.search(cmd):
@@ -210,14 +212,16 @@ _CATEGORY_TO_ACTION: dict[str, str] = {
 
 
 def shell_action(cmd: str) -> str:
-    """Map a shell command to an action bucket (test/vcs/read/execute).
+    """Map a shell command to an action bucket (test/vcs/vcs_read/read/execute).
 
-    Priority: test > vcs > read > execute.
+    Priority: test > vcs (write) > vcs_read > read > execute.
     """
     if _RE_SHELL_TEST.search(cmd):
         return "test"
-    if _RE_SHELL_GIT_WRITE.search(cmd) or _RE_SHELL_GIT_READ.search(cmd):
+    if _RE_SHELL_GIT_WRITE.search(cmd):
         return "vcs"
+    if _RE_SHELL_GIT_READ.search(cmd):
+        return "vcs_read"
     if _RE_SHELL_INVESTIGATE.search(cmd):
         return "read"
     return "execute"
@@ -230,6 +234,7 @@ def classify_action_from_tools(
     """Deterministic action classifier from tool categories.
 
     Priority ladder: write > test > vcs > execute > delegate > read > think.
+    Git read operations (diff, log, status) map to 'read', not 'vcs'.
     """
     has_write = "file_write" in tool_categories
     has_delegate = "agent" in tool_categories
@@ -244,13 +249,13 @@ def classify_action_from_tools(
         return "write"
     if "test" in shell_actions:
         return "test"
-    if "git_write" in tool_categories or "git_read" in tool_categories or "vcs" in shell_actions:
+    if "git_write" in tool_categories or "vcs" in shell_actions:
         return "vcs"
     if "shell" in tool_categories:
         return "execute"
     if has_delegate:
         return "delegate"
-    if any(c in tool_categories for c in ("file_read", "file_search", "browser")):
+    if any(c in tool_categories for c in ("file_read", "file_search", "browser", "git_read")) or "vcs_read" in shell_actions:
         return "read"
     return "think"
 
@@ -267,6 +272,28 @@ def classify_tool(tool_name: str) -> str:
     if "/" in tool_name:
         return TOOL_CATEGORIES.get(tool_name.rsplit("/", 1)[-1], "other")
     return "other"
+
+
+def refine_shell_category(tool_args_json: str | None) -> str | None:
+    """Inspect shell tool arguments and return a refined category if applicable.
+
+    When a shell tool (bash, run_in_terminal, etc.) executes a git command,
+    returns ``"git_read"`` or ``"git_write"`` instead of the generic ``"shell"``.
+    Returns ``None`` when the command is not a git command and should stay as ``"shell"``.
+    """
+    if not tool_args_json:
+        return None
+    parsed = ensure_dict(tool_args_json)
+    if not parsed:
+        return None
+    cmd = str(parsed.get("command", "") or parsed.get("cmd", "") or parsed.get("input", ""))
+    if not cmd:
+        return None
+    if _RE_SHELL_GIT_WRITE.search(cmd):
+        return "git_write"
+    if _RE_SHELL_GIT_READ.search(cmd):
+        return "git_read"
+    return None
 
 
 def classify_tool_activity(tool_name: str, tool_args_json: str | None = None) -> str:

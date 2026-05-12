@@ -98,18 +98,21 @@ TITLE rules:
 - Never repeat previous step titles
 - One thing per title, pick the most significant
 
-new_activity: true when the agent's INTENT shifted — it's now working toward a
-different sub-goal than the previous steps. Examples of shifts:
-- Was reading/exploring → now editing/fixing
-- Was working on module A → now working on unrelated module B
-- Was fixing bugs → now writing docs
-- Operator gave a new instruction
+new_activity: true ONLY for genuine intent shifts that are NOT already captured
+by plan step transitions (plan transitions are handled separately). Examples:
+- Operator gave a new instruction that redirects work mid-step
+- Agent abandoned current approach and started something entirely different
+- Agent switched from implementation to debugging a blocking issue
 
-NOT a shift: continuing the same logical task across multiple turns (even if
-touching different files), retrying, or verifying previous work.
+NOT a new_activity (these are already handled by plan step transitions):
+- Moving to the next plan step
+- Continuing the same logical task across multiple turns
+- Retrying or verifying previous work
+- Working on different files within the same plan item
 
 activity_label: short label for the new activity (only used when new_activity=true).
 3-6 words describing the sub-goal, e.g. "Fix inference bugs", "Clean up types".
+MUST be provided when new_activity=true. Be specific and concrete.
 
 merge_with_previous: true only for trivial retries of the exact same operation.
 """

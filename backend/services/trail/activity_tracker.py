@@ -59,6 +59,14 @@ class ActivityTracker:
         if not state:
             return
 
+        # Detect plan step transition (deterministic boundary signal).
+        prev_plan_step_id = state.last_classified_plan_item
+        plan_step_changed = bool(
+            assigned_plan_step_id
+            and prev_plan_step_id
+            and assigned_plan_step_id != prev_plan_step_id
+        )
+
         if assigned_plan_step_id:
             state.last_classified_plan_item = assigned_plan_step_id
 
@@ -78,9 +86,57 @@ class ActivityTracker:
         title = result.title
         merge_prev = result.merge_with_previous
         is_new_activity = result.new_activity
-        activity_label = result.activity_label or "Working"
+        llm_activity_label = result.activity_label  # May be None
+
+        # Resolve activity label: prefer LLM label, then plan step label.
+        # Never fall back to "Working" — no timeline is better than noise.
+        plan_step_label = self._plan_label_for(state, assigned_plan_step_id)
+
+        # Deterministic override: plan step transition always creates a new
+        # activity regardless of what the LLM decided.  This fixes the
+        # "stickiness" problem where the LLM considers iterative bug fixes
+        # within the same plan step as "continuing the same task".
+        if plan_step_changed:
+            is_new_activity = True
+            # Don't merge if we're starting a new plan step
+            merge_prev = False
+
+        # Resolve the label for any new activity.
+        # Priority: LLM-provided label > plan step label.
+        # If neither is available AND this would be a new activity from LLM
+        # (not deterministic), suppress the boundary — don't create garbage
+        # "Working" groups.
+        if is_new_activity:
+            if llm_activity_label:
+                activity_label = llm_activity_label
+            elif plan_step_label:
+                activity_label = plan_step_label
+            elif not plan_step_changed:
+                # LLM said new_activity but gave no label, and no plan step
+                # transition triggered it.  Suppress — append to current
+                # activity instead of creating a meaningless group.
+                is_new_activity = False
+                activity_label = ""  # unused
+                log.debug(
+                    "activity_boundary_suppressed",
+                    job_id=job_id,
+                    reason="llm_no_label",
+                    turn_id=turn_id,
+                )
+            else:
+                # Deterministic boundary but no labels at all (shouldn't
+                # happen if plan is established, but be safe).
+                activity_label = plan_step_label or "New task"
+        else:
+            activity_label = ""  # unused when not creating
 
         current_activity = state.activities[-1] if state.activities else None
+
+        # Bootstrap: first turn of a job needs a label for the initial activity.
+        # Resolve from available context since the label resolution above only
+        # runs when is_new_activity=True.
+        if current_activity is None and not is_new_activity and not activity_label:
+            activity_label = llm_activity_label or plan_step_label or state.job_prompt[:60] or "Started"
 
         # 2. Merge with previous step if indicated
         prev_step = state.activity_steps[-1] if state.activity_steps else None
@@ -110,14 +166,15 @@ class ActivityTracker:
                 node_id,
                 title=title,
                 plan_item_id=assigned_plan_step_id,
-                plan_item_label=self._plan_label_for(state, assigned_plan_step_id),
+                plan_item_label=plan_step_label,
                 plan_item_status=self._plan_status_for(state, assigned_plan_step_id),
                 activity_id=current_activity.activity_id,
                 activity_label=current_activity.label,
             )
             return
 
-        # 3. Handle activity boundary (LLM-driven)
+        # 3. Handle activity boundary (deterministic from plan step transition,
+        #    or LLM-driven only when a meaningful label was provided).
         if is_new_activity or current_activity is None:
             if current_activity is not None:
                 current_activity.status = "done"
@@ -162,7 +219,7 @@ class ActivityTracker:
             node_id,
             title=title,
             plan_item_id=assigned_plan_step_id,
-            plan_item_label=self._plan_label_for(state, assigned_plan_step_id),
+            plan_item_label=plan_step_label,
             plan_item_status=self._plan_status_for(state, assigned_plan_step_id),
             activity_id=current_activity.activity_id,
             activity_label=current_activity.label,

@@ -339,7 +339,7 @@ async def _wire_core_services(
     session_factory: async_sessionmaker[AsyncSession],
     event_bus: EventBus,
     config: CPLConfig,
-    coderecon_service: CodeReconService | None = None,
+    coderecon_service: CodeReconService,
 ) -> _CoreServices:
     """Instantiate and wire together the core application services."""
     approval_service = ApprovalService(session_factory=session_factory)
@@ -633,11 +633,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     config = load_config()
 
-    # --- CodeRecon structural analysis service ---
-    coderecon_service = CodeReconService(
-        binary=config.coderecon.binary,
-        home=config.coderecon.home,
-    )
+    # --- CodeRecon structural analysis service (always-on, in-process) ---
+    coderecon_service = CodeReconService()
     coderecon_service.set_event_bus(event_bus)
 
     services = await _wire_core_services(session_factory, event_bus, config, coderecon_service)
@@ -710,9 +707,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         trail_service.drain_loop(), name="trail-enrichment-drain"
     )
 
-    # --- CodeRecon start (instantiated earlier, before _wire_core_services) ---
-    if config.coderecon.enabled:
-        await coderecon_service.start()
+    # --- CodeRecon start (always-on, degrades gracefully if package missing) ---
+    await coderecon_service.start()
+
+    # Index all registered repos in the background (non-blocking)
+    if config.repos and coderecon_service.available:
+        _fire_and_forget(
+            coderecon_service.index_repos(config.repos),
+            name="coderecon-startup-index",
+        )
 
     # Structural health subscriber — emits warnings at step boundaries (§7.2)
     async def _structural_health_on_step(event: DomainEvent) -> None:
@@ -739,16 +742,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 if not repo_path:
                     return
 
-                # Resolve repo name via git_dir (same pattern as _cleanup_job_state)
-                catalog = await coderecon_service.catalog()
-                resolved = Path(repo_path).resolve()
-                repo_name = next(
-                    (e["name"] for e in catalog
-                     if Path(e.get("git_dir", "")).resolve() in (resolved / ".git", resolved)),
-                    None,
-                )
-                if not repo_name:
-                    return
+                repo_name = await coderecon_service.ensure_repo_indexed(repo_path)
                 warnings = await coderecon_service.check_step_structural_health(
                     repo_name, worktree=worktree_path
                 )

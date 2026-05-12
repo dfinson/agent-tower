@@ -990,9 +990,11 @@ class StoryService:
         self,
         completer: "Completable",
         coderecon: "CodeReconService | None" = None,
+        session_factory: Any | None = None,
     ) -> None:
         self._completer = completer
         self._coderecon = coderecon
+        self._session_factory = session_factory
         self._gen_locks: dict[str, asyncio.Lock] = {}
 
     async def get_or_generate(
@@ -1086,17 +1088,7 @@ class StoryService:
             return None
 
         try:
-            # Look up repo name without triggering registration/indexing
-            from pathlib import Path as _Path
-            catalog = await self._coderecon.catalog()
-            resolved = _Path(job_row["repo"]).resolve()
-            repo_name = next(
-                (e["name"] for e in catalog
-                 if _Path(e.get("git_dir", "")).resolve() in (resolved / ".git", resolved)),
-                None,
-            )
-            if not repo_name:
-                return None
+            repo_name = await self._coderecon.ensure_repo_indexed(job_row["repo"])
             diff_result = await self._coderecon.semantic_diff(
                 repo_name,
                 base=job_row["base_ref"] or "HEAD",
@@ -1244,6 +1236,10 @@ class StoryService:
                 {"jid": job_id, "story": json.dumps(payload)},
             )
             await session.commit()
+
+            # Pre-generate other verbosity levels in the background so
+            # switching verbosity in the UI is instant (no spinner).
+            self._prefetch_other_verbosities(job_id, verbosity)
         else:
             log.info(
                 "story_skip_cache",
@@ -1253,6 +1249,24 @@ class StoryService:
             )
 
         return payload
+
+    def _prefetch_other_verbosities(self, job_id: str, completed_verbosity: str) -> None:
+        """Fire-and-forget generation of the other two verbosity levels."""
+        if not self._session_factory:
+            return
+        all_levels = ["summary", "standard", "detailed"]
+        remaining = [v for v in all_levels if v != completed_verbosity]
+
+        for v in remaining:
+            asyncio.ensure_future(self._prefetch_one(job_id, v))
+
+    async def _prefetch_one(self, job_id: str, verbosity: str) -> None:
+        """Background task: generate and cache one verbosity level if not already cached."""
+        try:
+            async with self._session_factory() as session:
+                await self.get_or_generate(session, job_id, verbosity=verbosity)
+        except Exception:
+            log.debug("story_prefetch_failed", job_id=job_id, verbosity=verbosity, exc_info=True)
 
     async def _generate_passes(
         self,

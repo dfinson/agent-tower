@@ -1,251 +1,161 @@
-"""CodeRecon integration — structural analysis via the CodeRecon daemon.
+"""CodeRecon Review integration — lightweight structural analysis.
 
-Wraps the CodeRecon SDK. Manages daemon lifecycle and provides structural
-diff, reference analysis, and repository health queries for the review
-dashboard and agent tool provisioning.
+Wraps ``coderecon.review.ReviewKit`` for structural diff, cycle detection,
+community detection, and health scoring.  Runs in-process (no daemon, no
+network) and is always enabled.  All heavy work (tree-sitter parsing,
+graph building) happens in a thread pool so the async event loop is never
+blocked.
+
+Degrades gracefully: if the coderecon-review package is not installed, if
+tree-sitter grammars are missing, or if a repo fails to index, the
+``available`` property returns ``False`` and every public method returns a
+safe fallback.
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
-from datetime import UTC, datetime
-from enum import Enum
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 if TYPE_CHECKING:
-    from coderecon.sdk.client import CodeRecon
-    from coderecon.sdk.types import (
-        CommunitiesResult,
-        CyclesResult,
-        DiffResult,
-        Event,
-        ImpactResult,
-        MapResult,
-        ReconResult,
-        StatusResult,
-    )
-
     from backend.services.event_bus import EventBus
 
 log = structlog.get_logger(__name__)
 
-# Crash recovery constants (§4.3)
-_MAX_RESTART_BACKOFF_S = 30.0
-_DEGRADED_THRESHOLD = 3  # crashes within window → degraded
-_DEGRADED_WINDOW_S = 60.0
+
+# ---------------------------------------------------------------------------
+# Result dataclasses — lightweight stand-ins for the SDK types that callers
+# access via attribute/dict access.
+# ---------------------------------------------------------------------------
 
 
-class DaemonState(Enum):
-    """Daemon lifecycle state."""
+@dataclass
+class DiffResult:
+    summary: str = ""
+    structural_changes: list[dict[str, Any]] = field(default_factory=list)
 
-    STOPPED = "stopped"
-    STARTING = "starting"
-    READY = "ready"
-    DEGRADED = "degraded"
+
+@dataclass
+class CyclesResult:
+    cycles: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class CommunitiesResult:
+    communities: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class HealthResult:
+    score: float = 0.0
+    cycle_count: int = 0
+    community_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
 
 
 class CodeReconService:
-    """Wraps the CodeRecon SDK. Manages daemon lifecycle and repo handles.
+    """In-process structural analysis via coderecon-review's ReviewKit.
 
-    This is the single integration surface between CodePlane and CodeRecon.
-    No other service imports the SDK or speaks to the daemon directly.
+    Always-on, no config gating.  Indexes repos in the background on
+    startup.  Thread-offloads all blocking operations.
     """
 
-    def __init__(self, *, binary: str | None = None, home: str | Path | None = None) -> None:
-        self._binary = binary
-        self._home = home
-        self._sdk: CodeRecon | None = None
-        self._state = DaemonState.STOPPED
-        self._restart_count = 0
-        self._event_bus: EventBus | None = None
-        self._event_bridge_task: asyncio.Task[None] | None = None
-        self._crash_timestamps: list[float] = []
-        self._restart_task: asyncio.Task[None] | None = None
-        self._shutting_down = False
+    def __init__(self) -> None:
+        self._kits: dict[str, Any] = {}  # resolved_repo_path → ReviewKit
         self._index_locks: dict[str, asyncio.Lock] = {}
+        self._available = False
+        self._event_bus: EventBus | None = None
+        self._kit_class: type | None = None  # cached ReviewKit class ref
+        self._init_error: str | None = None
 
-    @property
-    def state(self) -> DaemonState:
-        return self._state
+    # ── Properties ──
 
     @property
     def available(self) -> bool:
-        return self._state == DaemonState.READY
+        return self._available
 
     def set_event_bus(self, event_bus: EventBus) -> None:
-        """Connect the event bus for forwarding index progress to SSE."""
         self._event_bus = event_bus
 
     # ── Lifecycle ──
 
     async def start(self) -> None:
-        """Spawn the daemon. Blocks until ready."""
-        from coderecon.sdk.client import CodeRecon
-
-        self._shutting_down = False
-        # Cancel any pending restart to prevent double-initialization
-        if self._restart_task is not None:
-            self._restart_task.cancel()
-            self._restart_task = None
-        # Cancel stale event bridge from a prior session
-        if self._event_bridge_task is not None:
-            self._event_bridge_task.cancel()
-            self._event_bridge_task = None
-        self._state = DaemonState.STARTING
+        """Validate that the coderecon-review package is importable."""
         try:
-            self._sdk = CodeRecon(binary=self._binary, home=self._home)
-            await self._sdk.start()
-            self._state = DaemonState.READY
-            self._restart_count = 0
-            self._crash_timestamps.clear()
-            self._event_bridge_task = asyncio.create_task(
-                self._bridge_events(), name="coderecon-event-bridge"
-            )
-            log.info("coderecon.daemon_started")
-        except Exception:
-            self._state = DaemonState.DEGRADED
-            log.warning("coderecon.start_failed", exc_info=True)
+            from coderecon.review import ReviewKit  # type: ignore[import-untyped]
+            self._kit_class = ReviewKit
+            self._available = True
+            log.info("coderecon_review.ready")
+        except ImportError as exc:
+            self._init_error = str(exc)
+            self._available = False
+            log.warning("coderecon_review.import_failed", error=str(exc))
 
     async def stop(self) -> None:
-        """Graceful shutdown of the daemon."""
-        self._shutting_down = True
-        if self._restart_task is not None:
-            self._restart_task.cancel()
-            self._restart_task = None
-        if self._event_bridge_task is not None:
-            self._event_bridge_task.cancel()
-            self._event_bridge_task = None
-        if self._sdk is not None:
+        """Close all ReviewKit instances."""
+        for repo_path, kit in list(self._kits.items()):
             try:
-                await self._sdk.stop()
+                await asyncio.to_thread(kit.close)
             except Exception:
-                log.debug("coderecon.stop_error", exc_info=True)
-            self._sdk = None
-        self._state = DaemonState.STOPPED
-        log.info("coderecon.daemon_stopped")
-
-    async def _handle_crash(self) -> None:
-        """Handle a daemon crash — schedule restart with backoff (§4.3).
-
-        If 3+ crashes within 60s, enter degraded mode permanently (until
-        manual restart via stop/start).
-        """
-        now = time.monotonic()
-        self._crash_timestamps.append(now)
-        # Prune timestamps outside the window
-        self._crash_timestamps = [
-            t for t in self._crash_timestamps if now - t < _DEGRADED_WINDOW_S
-        ]
-
-        if len(self._crash_timestamps) >= _DEGRADED_THRESHOLD:
-            self._state = DaemonState.DEGRADED
-            log.error(
-                "coderecon.degraded_mode",
-                crashes_in_window=len(self._crash_timestamps),
-            )
-            return
-
-        self._restart_count += 1
-        backoff = min(2 ** (self._restart_count - 1), _MAX_RESTART_BACKOFF_S)
-        log.warning(
-            "coderecon.scheduling_restart",
-            restart_count=self._restart_count,
-            backoff_s=backoff,
-        )
-        self._state = DaemonState.STARTING
-        self._restart_task = asyncio.create_task(
-            self._restart_after(backoff), name="coderecon-restart"
-        )
-
-    async def _restart_after(self, delay: float) -> None:
-        """Wait then restart the daemon."""
-        try:
-            await asyncio.sleep(delay)
-            if self._shutting_down:
-                return
-            await self.start()
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            self._state = DaemonState.DEGRADED
-            log.error("coderecon.restart_failed", exc_info=True)
-
-    async def _ensure_available(self) -> CodeRecon:
-        """Return the SDK handle or raise if unavailable."""
-        if self._sdk is None or self._state != DaemonState.READY:
-            raise CodeReconUnavailableError
-        return self._sdk
-
-    async def get_sdk(self) -> CodeRecon:
-        """Public accessor for the raw SDK handle. Raises if unavailable."""
-        return await self._ensure_available()
+                log.debug("coderecon_review.close_error", repo=repo_path, exc_info=True)
+        self._kits.clear()
+        self._available = False
+        log.info("coderecon_review.stopped")
 
     # ── Repository Management ──
 
-    async def register_repo(self, path: str | Path) -> dict[str, Any]:
-        """Register a repository for structural indexing.
-
-        Triggers a full index build. Progress events are forwarded to the
-        event bus as repo_index_progress SSE events so the frontend can
-        show progress UI during onboarding.
-        """
-        sdk = await self._ensure_available()
-        result = await sdk.register(str(path))
-        log.info("coderecon.repo_registered", repo=result.repo)
-        return {"repo": result.repo}
-
     async def ensure_repo_indexed(self, path: str | Path) -> str:
-        """Register a repo if not already known. Returns repo name.
+        """Index a repo if not already indexed.  Returns the resolved path string.
 
-        This is the primary hook for the repo-add flow. Onboarded repos
-        are always indexed — this is not optional.
-
-        Uses per-path locking to prevent concurrent duplicate registrations.
+        Uses per-path locking so concurrent callers don't duplicate work.
+        The indexing (tree-sitter parse) is offloaded to a thread.
         """
+        if not self._available or self._kit_class is None:
+            raise CodeReconUnavailableError
+
         resolved = str(Path(path).resolve())
-        # Per-path lock prevents two concurrent callers from both registering
+
         if resolved not in self._index_locks:
             self._index_locks[resolved] = asyncio.Lock()
+
         async with self._index_locks[resolved]:
-            sdk = await self._ensure_available()
-            # Check if already registered
-            entries = await sdk.catalog()
-            for entry in entries:
-                if Path(entry.git_dir).resolve() == Path(resolved) / ".git" or Path(entry.git_dir).resolve() == Path(resolved):
-                    return entry.name
-            # Not registered — register now (triggers indexing)
-            result = await sdk.register(resolved)
-            log.info("coderecon.repo_registered", repo=result.repo, path=resolved)
-            return result.repo
+            if resolved in self._kits:
+                return resolved
+
+            kit = self._kit_class(Path(resolved))
+            try:
+                await asyncio.to_thread(kit.ensure_indexed)
+            except Exception:
+                log.warning("coderecon_review.index_failed", repo=resolved, exc_info=True)
+                try:
+                    await asyncio.to_thread(kit.close)
+                except Exception:
+                    pass
+                raise
+
+            self._kits[resolved] = kit
+            log.info("coderecon_review.repo_indexed", repo=resolved)
+            return resolved
 
     async def register_worktree(self, repo: str, worktree_path: str | Path) -> None:
-        """Register a worktree with the daemon to activate live reindexing.
-
-        Called during job setup after the worktree is created. This tells
-        the daemon to watch the worktree for file changes and maintain a
-        live structural index as the agent writes code.
-
-        Uses `reindex(repo, worktree=path)` which activates the worktree
-        column key and triggers an initial index pass for the worktree state.
-        """
-        sdk = await self._ensure_available()
-        await sdk.reindex(repo, worktree=str(worktree_path))
-        log.info("coderecon.worktree_registered", repo=repo, worktree=str(worktree_path))
-
-    async def repo_status(self, repo: str) -> StatusResult:
-        """Get index status for a repo."""
-        sdk = await self._ensure_available()
-        return await sdk.status(repo)
-
-    async def catalog(self) -> list[dict[str, Any]]:
-        """List all registered repos."""
-        sdk = await self._ensure_available()
-        entries = await sdk.catalog()
-        return [{"name": e.name, "git_dir": e.git_dir, "worktrees": e.worktrees} for e in entries]
+        """Register a worktree with an already-indexed repo."""
+        kit = self._kits.get(repo)
+        if kit is None:
+            return
+        try:
+            wt = str(Path(worktree_path).resolve())
+            await asyncio.to_thread(kit.register_worktree, "worktree", Path(wt))
+            log.info("coderecon_review.worktree_registered", repo=repo, worktree=wt)
+        except Exception:
+            log.debug("coderecon_review.worktree_register_failed", repo=repo, exc_info=True)
 
     # ── Structural Analysis ──
 
@@ -255,82 +165,69 @@ class CodeReconService:
         *,
         base: str = "HEAD",
         target: str | None = None,
-        paths: list[str] | None = None,
         worktree: str | None = None,
-        format: str = "structured",
+        **_kwargs: Any,
     ) -> DiffResult:
-        """Run structural diff between two states.
-
-        Returns per-symbol change classification with impact data.
-        Uses format='structured' by default for programmatic access to
-        ref tiers, entity IDs, and impact metadata.
-        """
-        sdk = await self._ensure_available()
-        return await sdk.semantic_diff(
-            repo,
-            base=base,
-            target=target,
-            paths=paths,
-            worktree=worktree,
-            format=format,
-        )
-
-    async def recon(
-        self,
-        repo: str,
-        task: str,
-        *,
-        seeds: list[str] | None = None,
-        pins: list[str] | None = None,
-        worktree: str | None = None,
-    ) -> ReconResult:
-        """Task-aware context retrieval — ranked code spans."""
-        sdk = await self._ensure_available()
-        return await sdk.recon(repo, task, seeds=seeds, pins=pins, worktree=worktree)
-
-    async def recon_impact(
-        self,
-        repo: str,
-        target: str,
-        justification: str,
-        *,
-        worktree: str | None = None,
-    ) -> ImpactResult:
-        """Reference/caller analysis for a symbol."""
-        sdk = await self._ensure_available()
-        return await sdk.recon_impact(repo, target, justification, worktree=worktree)
-
-    async def recon_map(self, repo: str, *, worktree: str | None = None) -> MapResult:
-        """Repository structure map."""
-        sdk = await self._ensure_available()
-        return await sdk.recon_map(repo, worktree=worktree)
-
-    async def graph_communities(
-        self, repo: str, *, worktree: str | None = None,
-    ) -> CommunitiesResult:
-        """Module community detection."""
-        sdk = await self._ensure_available()
-        return await sdk.graph_communities(repo, worktree=worktree)
+        """Structural diff between two git states."""
+        kit = self._get_kit(repo)
+        try:
+            kwargs: dict[str, Any] = {"base": base}
+            if target is not None:
+                kwargs["target"] = target
+            raw = await asyncio.to_thread(kit.semantic_diff, **kwargs)
+            return DiffResult(
+                summary=getattr(raw, "summary", ""),
+                structural_changes=getattr(raw, "changes", []) or [],
+            )
+        except Exception:
+            log.debug("coderecon_review.semantic_diff_failed", repo=repo, exc_info=True)
+            return DiffResult()
 
     async def graph_cycles(
         self, repo: str, *, worktree: str | None = None,
     ) -> CyclesResult:
         """Circular dependency detection."""
-        sdk = await self._ensure_available()
-        return await sdk.graph_cycles(repo, worktree=worktree)
+        kit = self._get_kit(repo)
+        try:
+            raw = await asyncio.to_thread(kit.graph_cycles)
+            return CyclesResult(
+                cycles=getattr(raw, "cycles", []) or [],
+            )
+        except Exception:
+            log.debug("coderecon_review.graph_cycles_failed", repo=repo, exc_info=True)
+            return CyclesResult()
 
-    async def scaffold(
-        self,
-        repo: str,
-        *,
-        path: str,
-        worktree: str | None = None,
-    ) -> dict[str, Any]:
-        """File structural overview — imports + symbols without bodies."""
-        sdk = await self._ensure_available()
-        return await sdk.scaffold(repo, path=path, worktree=worktree)
+    async def graph_communities(
+        self, repo: str, *, worktree: str | None = None,
+    ) -> CommunitiesResult:
+        """Module community detection."""
+        kit = self._get_kit(repo)
+        try:
+            raw = await asyncio.to_thread(kit.graph_communities)
+            return CommunitiesResult(
+                communities=getattr(raw, "communities", []) or [],
+            )
+        except Exception:
+            log.debug("coderecon_review.graph_communities_failed", repo=repo, exc_info=True)
+            return CommunitiesResult()
 
-    # ── Structural Feedback (§7.2) ──
+    async def check_structural_health(
+        self, repo: str, *, worktree: str | None = None,
+    ) -> HealthResult:
+        """Composite structural health score."""
+        kit = self._get_kit(repo)
+        try:
+            raw = await asyncio.to_thread(kit.check_structural_health)
+            return HealthResult(
+                score=getattr(raw, "score", 0.0),
+                cycle_count=getattr(raw, "cycle_count", 0),
+                community_count=getattr(raw, "community_count", 0),
+            )
+        except Exception:
+            log.debug("coderecon_review.health_check_failed", repo=repo, exc_info=True)
+            return HealthResult()
+
+    # ── Step-Boundary Structural Feedback ──
 
     async def check_step_structural_health(
         self,
@@ -340,7 +237,7 @@ class CodeReconService:
     ) -> list[dict[str, Any]]:
         """Run lightweight structural checks at step boundary.
 
-        Returns a list of warnings (may be empty). Each warning has:
+        Returns a list of warnings (may be empty).  Each warning has:
         - type: "new_cycles" | "community_drift"
         - detail: human-readable description
         - data: machine-readable payload
@@ -368,10 +265,9 @@ class CodeReconService:
         # Check community drift — if worktree touches 3+ unrelated communities
         try:
             diff = await self.semantic_diff(repo, worktree=worktree)
-            touched_files = {c.get("file", "") for c in (diff.structural_changes or [])}
+            touched_files = {c.get("file", "") for c in diff.structural_changes}
             if len(touched_files) >= 3:
                 communities = await self.graph_communities(repo, worktree=worktree)
-                # Map files to communities
                 file_communities: set[str] = set()
                 for comm in communities.communities:
                     comm_name = comm.get("name", "")
@@ -389,128 +285,47 @@ class CodeReconService:
 
         return warnings
 
-    # ── Session Lifecycle ──
+    # ── Background Indexing ──
 
-    async def close_session(self, repo: str, worktree: str | None = None) -> None:
-        """Close the daemon session for a (repo, worktree) pair.
+    async def index_repos(self, repo_paths: list[str]) -> None:
+        """Index a list of repos in the background.
 
-        Called when a job completes to release session state in the daemon.
+        Errors are logged and swallowed — a failing repo doesn't block others.
         """
-        sdk = await self._ensure_available()
-        await sdk.close_session(repo, worktree=worktree)
-        log.info("coderecon.session_closed", repo=repo, worktree=worktree)
-
-    # ── Agent Tool Provisioning ──
-
-    # Tool tier definitions — which tools are included at each level.
-    _TIER_MINIMAL = frozenset({"recon", "recon_map", "scaffold"})
-    _TIER_STANDARD = _TIER_MINIMAL | frozenset({"checkpoint", "recon_impact"})
-    _TIER_FULL: frozenset[str] | None = None  # None = all tools, no filtering
-
-    def get_agent_tools(
-        self,
-        repo: str,
-        *,
-        worktree: str | None = None,
-        tier: str = "standard",
-        framework: str = "openai",
-    ) -> list[dict[str, Any]]:
-        """Return tool definitions for agent integration, filtered by tier.
-
-        Tiers:
-            minimal: recon + recon_map + scaffold (read-only context)
-            standard: minimal + checkpoint + recon_impact (structural awareness)
-            full: all 13 SDK tools (architectural work)
-        """
-        if self._sdk is None or self._state != DaemonState.READY:
-            return []
-        if framework == "langchain":
-            tools = self._sdk.as_langchain_tools(repo, worktree=worktree)
-        else:
-            tools = self._sdk.as_openai_tools(repo, worktree=worktree)
-
-        allowed = self._resolve_tier(tier)
-        if allowed is None:
-            return tools
-        return [t for t in tools if self._tool_name(t, framework) in allowed]
-
-    @staticmethod
-    def _tool_name(tool: Any, framework: str) -> str | None:
-        """Extract the tool name regardless of framework format."""
-        if framework == "langchain":
-            return getattr(tool, "name", None)
-        return tool.get("function", {}).get("name")
-
-    @classmethod
-    def _resolve_tier(cls, tier: str) -> frozenset[str] | None:
-        """Return allowed tool names for a tier, or None for full (no filter)."""
-        if tier == "minimal":
-            return cls._TIER_MINIMAL
-        if tier == "standard":
-            return cls._TIER_STANDARD
-        return cls._TIER_FULL  # "full" or unknown → all tools
+        if not self._available:
+            return
+        for repo_path in repo_paths:
+            try:
+                await self.ensure_repo_indexed(repo_path)
+            except Exception:
+                log.warning(
+                    "coderecon_review.startup_index_failed",
+                    repo=repo_path,
+                    exc_info=True,
+                )
 
     # ── Health ──
 
     async def daemon_health(self) -> dict[str, Any]:
-        """Return daemon health status."""
+        """Return service health status."""
         return {
-            "state": self._state.value,
-            "restart_count": self._restart_count,
+            "state": "ready" if self._available else "unavailable",
+            "indexed_repos": len(self._kits),
+            "init_error": self._init_error,
         }
 
-    # ── Event Bridge ──
+    # ── Internal ──
 
-    async def _bridge_events(self) -> None:
-        """Forward daemon index.progress events to CodePlane's event bus as SSE."""
-        from backend.models.events import DomainEvent, DomainEventKind
-
-        if self._sdk is None:
-            return
-        try:
-            async for event in self._sdk.events("index.*"):
-                if self._event_bus is None:
-                    continue
-                if event.type == "index.progress":
-                    await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=None,
-                            timestamp=datetime.now(UTC),
-                            kind=DomainEventKind.repo_index_progress,
-                            payload={
-                                "repo": event.data.get("repo", ""),
-                                "indexed": event.data.get("indexed", 0),
-                                "total": event.data.get("total", 0),
-                                "phase": event.data.get("phase", "indexing"),
-                            },
-                        )
-                    )
-                elif event.type == "index.complete":
-                    await self._event_bus.publish(
-                        DomainEvent(
-                            event_id=DomainEvent.make_event_id(),
-                            job_id=None,
-                            timestamp=datetime.now(UTC),
-                            kind=DomainEventKind.repo_index_complete,
-                            payload={
-                                "repo": event.data.get("repo", ""),
-                            },
-                        )
-                    )
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            log.warning("coderecon.event_bridge_crashed", exc_info=True)
-            if not self._shutting_down:
-                # Daemon likely crashed — trigger recovery
-                self._sdk = None
-                self._state = DaemonState.STARTING
-                await self._handle_crash()
+    def _get_kit(self, repo: str) -> Any:
+        """Return the ReviewKit for a repo or raise."""
+        kit = self._kits.get(repo)
+        if kit is None:
+            raise CodeReconUnavailableError
+        return kit
 
 
 class CodeReconUnavailableError(Exception):
-    """Raised when the CodeRecon daemon is not available."""
+    """Raised when coderecon-review is not available."""
 
     def __init__(self) -> None:
-        super().__init__("CodeRecon daemon is not available")
+        super().__init__("coderecon-review is not available")

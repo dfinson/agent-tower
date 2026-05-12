@@ -17,7 +17,6 @@ from backend.models.api_schemas import (
     DiffFileModel,
     DiffListResponse,
     ImpactGraphResponse,
-    ImpactReference,
     JobSnapshotResponse,
     LogLinePayload,
     LogListResponse,
@@ -938,61 +937,18 @@ async def get_impact_graph(
     job_id: str,
     symbol: str,
     svc: FromDishka[JobService],
-    coderecon: FromDishka[CodeReconService],
     step_repo: FromDishka[StepRepository],
 ) -> ImpactGraphResponse:
     """Return reference/caller graph for a symbol in the job's worktree.
 
-    Shows callers, their reference tiers, and whether they were also modified.
+    Not available with coderecon-review (requires full CodeRecon SDK).
+    Returns available=False so the frontend can hide the drill-down UI.
     """
     job = await svc.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    if not coderecon.available or not job.repo or not job.worktree_path:
-        return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
-
-    # Cache check — key includes symbol since this is per-symbol
-    sha = await _latest_end_sha(step_repo, job_id)
-    cached = _cache_get(job_id, f"impact-graph:{symbol}", sha)
-    if cached is not None:
-        return cached
-
-    try:
-        repo_name = await coderecon.ensure_repo_indexed(job.repo)
-        impact = await coderecon.recon_impact(
-            repo_name,
-            target=symbol,
-            justification="review-drill-down",
-            worktree=job.worktree_path,
-        )
-    except Exception:
-        log.warning("impact_graph_failed", job_id=job_id, symbol=symbol, exc_info=True)
-        return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
-
-    # Enrich references with tier labels
-    enriched_refs = []
-    for ref in impact.references:
-        tier_raw = ref.get("tier", "UNKNOWN")
-        enriched_refs.append(ImpactReference(
-            symbol=ref.get("symbol", ""),
-            file=ref.get("file", ""),
-            line=ref.get("line"),
-            tier=_TIER_LABEL.get(tier_raw, "unverified"),
-            is_test=ref.get("is_test", False),
-            raw_tier=tier_raw,
-        ))
-
-    result = ImpactGraphResponse(
-        job_id=job_id,
-        target=symbol,
-        total_references=impact.total_references,
-        files_affected=impact.files_affected,
-        summary=impact.summary,
-        references=enriched_refs,
-    )
-    _cache_put(job_id, f"impact-graph:{symbol}", sha, result)
-    return result
+    return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
 
 
 # -- Community clustering view (§9.7) -----------------------------------------

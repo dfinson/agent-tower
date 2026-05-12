@@ -243,7 +243,7 @@ class TrailNodeBuilder:
                 if act is None:
                     act = Activity(
                         activity_id=node.activity_id,
-                        label=node.activity_label or "Working",
+                        label=node.activity_label or node.plan_item_label or "Task",
                         status="active",
                     )
                     state.activities.append(act)

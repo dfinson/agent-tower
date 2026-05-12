@@ -98,7 +98,6 @@ def _make_coderecon(*, available: bool = True) -> SimpleNamespace:
     svc.semantic_diff = AsyncMock(return_value=FakeDiffResult())
     svc.graph_cycles = AsyncMock(return_value=FakeCyclesResult())
     svc.graph_communities = AsyncMock(return_value=FakeCommunitiesResult())
-    svc.recon_impact = AsyncMock(return_value=FakeImpactResult())
     return svc
 
 
@@ -318,40 +317,14 @@ async def test_structural_diff_with_new_cycles_lowers_confidence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_impact_graph_success() -> None:
-    """Returns enriched references with tier labels."""
+async def test_impact_graph_always_unavailable() -> None:
+    """Impact graph always returns available=False with coderecon-review."""
     job = _make_job()
     svc = _make_svc(job)
-    coderecon = _make_coderecon()
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
-    coderecon.recon_impact.return_value = FakeImpactResult(
-        references=[
-            {"symbol": "caller_a", "file": "src/a.py", "line": 42, "tier": "PROVEN", "is_test": False},
-            {"symbol": "test_b", "file": "tests/b.py", "line": 10, "tier": "UNKNOWN", "is_test": True},
-        ],
-        total_references=2,
-        files_affected=2,
-        summary="2 callers found",
-    )
-    result = await get_impact_graph("job-1", "target_fn", svc, coderecon, step_repo)
-    assert isinstance(result, ImpactGraphResponse)
-    assert result.total_references == 2
-    assert result.references[0].tier == "verified"
-    assert result.references[1].tier == "unverified"
-    assert result.references[1].is_test is True
-
-
-@pytest.mark.asyncio
-async def test_impact_graph_unavailable_returns_not_available() -> None:
-    """Returns available=False when CodeRecon is unavailable."""
-    job = _make_job()
-    svc = _make_svc(job)
-    coderecon = _make_coderecon(available=False)
-    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
-    result = await get_impact_graph("job-1", "target_fn", svc, coderecon, step_repo)
+    result = await get_impact_graph("job-1", "target_fn", svc, step_repo)
     assert isinstance(result, ImpactGraphResponse)
     assert result.available is False
-    assert result.references == []
 
 
 @pytest.mark.asyncio

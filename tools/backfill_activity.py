@@ -26,7 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.services.cost_attribution import _classify_turn_intent
-from backend.services.tool_classifier import classify_tool, classify_tool_activity
+from backend.services.tool_classifier import classify_tool, classify_tool_activity, refine_shell_category
 
 
 def _zero_bucket() -> dict:
@@ -102,6 +102,11 @@ def build_turn_data(spans: list[dict]) -> tuple[dict[int, dict], dict[int, dict]
             tool_name = span.get("name") or ""
             tool_args = span.get("tool_args_json")
             cat = span.get("tool_category") or classify_tool(tool_name)
+            # Promote shell git commands to git_read/git_write
+            if cat == "shell":
+                refined = refine_shell_category(tool_args if isinstance(tool_args, str) else None)
+                if refined:
+                    cat = refined
             tool_activity = classify_tool_activity(tool_name, tool_args)
             args_weight = len(tool_args) if isinstance(tool_args, str) else 1
             turn_contexts[turn]["tool_categories"].append(cat)

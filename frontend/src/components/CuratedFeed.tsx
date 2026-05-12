@@ -444,7 +444,7 @@ function AgentActivityBar({ jobId, sdk, jobState }: { jobId: string; sdk?: strin
   const hasStream = Object.keys(streamingMessages).some((k) => k.startsWith(`${jobId}:`));
   if (!isJobLive || hasStream) return null;
 
-  const headline = job?.progressHeadline || "Working\u2026";
+  const headline = job?.progressHeadline || null;
   const isApproval = jobState === "waiting_for_approval";
 
   return (
@@ -456,8 +456,10 @@ function AgentActivityBar({ jobId, sdk, jobState }: { jobId: string; sdk?: strin
           isApproval ? "bg-amber-400 animate-pulse" : "bg-emerald-400",
         )} style={{ animationDuration: "2s" }} />
       </div>
-      <span className="text-xs text-muted-foreground/70 truncate flex-1 min-w-0">{headline}</span>
-      <Clock size={10} className="text-muted-foreground/30 shrink-0" />
+      {headline && <span className="text-xs text-muted-foreground/70 truncate flex-1 min-w-0">{headline}</span>}
+      {!headline && <span className="flex-1" aria-hidden="true" />}
+      <Clock size={10} className="text-muted-foreground/30 shrink-0" aria-hidden="true" />
+      <span className="sr-only">{headline || "Agent is working"}</span>
     </div>
   );
 }

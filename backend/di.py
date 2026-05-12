@@ -95,8 +95,9 @@ class AppProvider(Provider):
     @provide
     def story_service(
         self, narrator: NarratorCompleter, coderecon: CodeReconService,
+        sf: async_sessionmaker[AsyncSession],
     ) -> StoryService:
-        return StoryService(completer=narrator, coderecon=coderecon)
+        return StoryService(completer=narrator, coderecon=coderecon, session_factory=sf)
 
     @provide
     def step_repo(self, sf: async_sessionmaker[AsyncSession]) -> StepRepository:

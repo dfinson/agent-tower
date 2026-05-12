@@ -672,7 +672,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         span insertion.
         """
         from backend.services import telemetry as tel
-        from backend.services.tool_classifier import classify_tool, extract_file_paths, extract_tool_target
+        from backend.services.tool_classifier import classify_tool, extract_file_paths, extract_tool_target, refine_shell_category
 
         attrs: dict[str, Any] = {
             "job_id": job_id,
@@ -683,6 +683,11 @@ class BaseAgentAdapter(AgentAdapterInterface):
         tel.tool_duration.record(duration_ms, attrs)
 
         category = classify_tool(tool_name)
+        # Promote shell commands to git_read/git_write when the actual command is git
+        if category == "shell":
+            refined = refine_shell_category(tool_args_str)
+            if refined:
+                category = refined
         target = extract_tool_target(tool_name, tool_args_str)
         current_phase = self._current_phases.get(job_id, "agent_reasoning")
         turn_num = self._turn_counters.get(job_id, 0)

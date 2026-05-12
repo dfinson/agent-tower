@@ -100,7 +100,8 @@ def _classify_turn_intent(
         shell_intents.add(classify_shell_command(cmd))
 
     has_writes = bool(cats & {"file_write"})
-    has_git = bool(cats & {"git_write", "git_read"})
+    has_git_write = bool(cats & {"git_write"})
+    has_git_read = bool(cats & {"git_read"})
     has_reads = bool(cats & {"file_read"})
     has_search = bool(cats & {"file_search", "browser"})
     has_bookkeeping = "bookkeeping" in cats
@@ -119,16 +120,16 @@ def _classify_turn_intent(
     if "verification" in shell_intents:
         return "verification"
 
-    # Priority 3: Git operations (commit, push, diff, status — dedicated tools or shell)
-    if "git_ops" in shell_intents or has_git:
+    # Priority 3: Git write operations (commit, push, merge — dedicated tools or shell)
+    if "git_ops" in shell_intents or has_git_write:
         return "git_ops"
 
     # Priority 4: Setup/install commands
     if "setup" in shell_intents:
         return "setup"
 
-    # Priority 5: Investigation — sub-agents, reading, searching, browsing
-    if has_agents or has_reads or has_search or "investigation" in shell_intents:
+    # Priority 5: Investigation — sub-agents, reading, searching, browsing, git reads
+    if has_agents or has_reads or has_search or has_git_read or "investigation" in shell_intents:
         return "investigation"
 
     # Priority 6: Unclassified shell commands (arbitrary bash)

@@ -501,7 +501,7 @@ export const useStore = create<AppState>((set, get) => ({
   setHoveredPlanItemId: (id) => set({ hoveredPlanItemId: id }),
 
   setStory: (jobId, story) => set((state) => ({
-    stories: { ...state.stories, [jobId]: story },
+    stories: { ...state.stories, [`${jobId}:${story.verbosity || "standard"}`]: story },
   })),
 
   // Structural review cache actions
