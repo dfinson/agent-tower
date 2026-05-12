@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Ansi from "ansi-to-react";
 import { useStore, selectStreamingToolOutput } from "../store";
+import { processTerminalOutput, stripAnsi } from "../lib/ansi";
 import { useShallow } from "zustand/react/shallow";
 import type { TranscriptEntry } from "../store";
 import { SdkIcon } from "./SdkBadge";
@@ -391,13 +392,13 @@ function CommandPreview({ entries }: { entries: TranscriptEntry[] }) {
           ref={outputRef}
           className="px-3 py-1.5 text-[12px] sm:text-[11px] text-muted-foreground/80 whitespace-pre-wrap break-words max-h-48 overflow-y-auto border-l-2 border-primary/30 bg-zinc-950/20"
         >
-          <Ansi>{liveOutput}</Ansi>
+          <Ansi>{processTerminalOutput(liveOutput)}</Ansi>
           <span className="inline-block w-1.5 h-3 bg-primary/70 animate-pulse rounded-sm align-middle ml-0.5" />
         </pre>
       )}
       {entry.toolResult && (
         <div className="px-3 py-1.5">
-          <SyntaxBlock content={trimWorktreePaths(entry.toolResult)} language="bash" maxLength={600} />
+          <SyntaxBlock content={stripAnsi(trimWorktreePaths(entry.toolResult))} language="bash" maxLength={600} />
         </div>
       )}
       {failed && entry.toolIssue && (

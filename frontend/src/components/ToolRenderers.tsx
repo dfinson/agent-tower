@@ -6,6 +6,7 @@ import { Codicon } from "./ui/codicon";
 import { resolveToolIcon, type ToolIconDef } from "../lib/toolIcons";
 import { detectLanguage } from "../lib/detectLanguage";
 import { SyntaxBlock } from "./SyntaxBlock";
+import { stripAnsi } from "../lib/ansi";
 import type { TranscriptEntry } from "../store";
 
 // ---------------------------------------------------------------------------
@@ -131,7 +132,7 @@ export function StructuredToolContent({ entry }: { entry: TranscriptEntry }) {
             <span className="text-foreground/90">{command}</span>
           </div>
           {entry.toolResult && (
-            <SyntaxBlock content={entry.toolResult} language="bash" maxLength={600} />
+            <SyntaxBlock content={stripAnsi(entry.toolResult)} language="bash" maxLength={600} />
           )}
         </div>
       );
