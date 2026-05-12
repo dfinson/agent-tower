@@ -43,7 +43,7 @@ A local server that launches agent jobs headless or mirrors the native CLI sessi
 <div class="workflow-step" markdown>
 <span class="step-index">A</span>
 ### Launch through CodePlane
-Write a prompt, pick a repo and model. The agent runs headless in an isolated worktree. Close your laptop — approve and review from your phone later.
+Write a prompt, pick a repo and model. The agent runs headless in an isolated worktree. Review the diff when it's done — approve from your phone or desktop.
 </div>
 
 <div class="workflow-step" markdown>
