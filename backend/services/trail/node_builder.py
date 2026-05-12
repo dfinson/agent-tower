@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import structlog
@@ -12,19 +11,21 @@ from sqlalchemy.exc import DBAPIError
 
 from backend.models.db import JobRow, TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.trail.models import (
+    MESSAGE_SIGNAL_BUFFER_SIZE,
     Activity,
     ActivityStep,
-    MESSAGE_SIGNAL_BUFFER_SIZE,
     PlanStep,
     TrailJobState,
     make_node_id,
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.persistence.trail_repo import TrailNodeRepository
     from backend.services.trail.activity_tracker import ActivityTracker
     from backend.services.trail.plan_manager import PlanManager
 
@@ -34,6 +35,7 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 # Snippet extraction (shared with StoryService — pure function)
 # ---------------------------------------------------------------------------
+
 
 def _extract_snippet(tool_args_json: str | None, tool_name: str | None) -> str:
     """Extract a compact code snippet from tool_args_json.
@@ -51,18 +53,8 @@ def _extract_snippet(tool_args_json: str | None, tool_name: str | None) -> str:
 
     max_lines = 8
 
-    old_str = str(
-        args.get("old_str", "")
-        or args.get("oldString", "")
-        or args.get("old_string", "")
-        or ""
-    )
-    new_str = str(
-        args.get("new_str", "")
-        or args.get("newString", "")
-        or args.get("new_string", "")
-        or ""
-    )
+    old_str = str(args.get("old_str", "") or args.get("oldString", "") or args.get("old_string", "") or "")
+    new_str = str(args.get("new_str", "") or args.get("newString", "") or args.get("new_string", "") or "")
     if old_str or new_str:
         old_lines = old_str.strip().splitlines()[:max_lines]
         new_lines = new_str.strip().splitlines()[:max_lines]
@@ -190,13 +182,16 @@ class TrailNodeBuilder:
 
         # Restore plan steps from persisted PlanStepUpdated events
         from backend.persistence.event_repo import EventRepository
+
         async with self._session_factory() as session:
             event_repo = EventRepository(session)
             # Agents produce ~5-20 plan steps with ~3 state transitions each
             # (pending → active → completed), yielding 15-60 events in practice.
             # 200 provides ~3× headroom over observed maximums.
             plan_events = await event_repo.list_by_job(
-                job_id, [DomainEventKind.plan_step_updated], limit=200,
+                job_id,
+                [DomainEventKind.plan_step_updated],
+                limit=200,
             )
         if plan_events:
             latest_by_id: dict[str, DomainEvent] = {}
@@ -224,15 +219,15 @@ class TrailNodeBuilder:
             steps.sort(key=lambda s: s.order)
             state.plan_steps = steps
             state.plan_established = bool(steps)
-            state.active_idx = next(
-                (i for i, s in enumerate(steps) if s.status == "active"), -1
-            )
+            state.active_idx = next((i for i, s in enumerate(steps) if s.status == "active"), -1)
 
         # Restore activity timeline from persisted trail nodes with titles.
         # Typical agent sessions produce 50-200 tool invocations (shell, file
         # edits, searches); 500 provides 2.5-10× headroom over observed runs.
         work_nodes = await self._repo.get_by_job(
-            job_id, kinds=["shell", "modify", "explore"], limit=500,
+            job_id,
+            kinds=["shell", "modify", "explore"],
+            limit=500,
         )
         for node in work_nodes:
             if node.turn_id and node.title and node.activity_id:
@@ -278,9 +273,7 @@ class TrailNodeBuilder:
         prompt = ""
         try:
             async with self._session_factory() as session:
-                result = await session.execute(
-                    sa_select(JobRow).where(JobRow.id == job_id)
-                )
+                result = await session.execute(sa_select(JobRow).where(JobRow.id == job_id))
                 row = result.scalar_one_or_none()
                 if row:
                     prompt = row.prompt or ""
@@ -430,7 +423,8 @@ class TrailNodeBuilder:
             async with self._session_factory() as session:
                 spans_repo = TelemetrySpansRepository(session)
                 spans = await spans_repo.file_write_spans_for_step(
-                    job_id=job_id, turn_id=turn_id,
+                    job_id=job_id,
+                    turn_id=turn_id,
                 )
 
             if not spans:
@@ -444,7 +438,8 @@ class TrailNodeBuilder:
 
                 file_path = span.get("tool_target") or ""
                 snippet = _extract_snippet(
-                    span.get("tool_args_json"), span.get("name"),
+                    span.get("tool_args_json"),
+                    span.get("name"),
                 )
 
                 write_nodes.append(
@@ -608,7 +603,9 @@ class TrailNodeBuilder:
             await self._handle_assistant_transcript(event, state)
 
     async def _handle_operator_transcript(
-        self, event: DomainEvent, state: TrailJobState,
+        self,
+        event: DomainEvent,
+        state: TrailJobState,
     ) -> None:
         """Create a request node for an operator/user transcript message."""
         job_id = event.job_id
@@ -644,7 +641,9 @@ class TrailNodeBuilder:
         log.debug("trail_operator_message_created", job_id=job_id, node_id=node_id)
 
     async def _handle_tool_call_transcript(
-        self, event: DomainEvent, state: TrailJobState,
+        self,
+        event: DomainEvent,
+        state: TrailJobState,
     ) -> None:
         """Update matching write sub-node with tool metadata (§13.3).
 
@@ -684,7 +683,9 @@ class TrailNodeBuilder:
             )
 
     async def _handle_assistant_transcript(
-        self, event: DomainEvent, state: TrailJobState,
+        self,
+        event: DomainEvent,
+        state: TrailJobState,
     ) -> None:
         """Track assistant message content for activity boundary detection.
 
@@ -810,12 +811,9 @@ class TrailNodeBuilder:
         try:
             snapshot_json = json.dumps(state.to_snapshot(), ensure_ascii=False)
             from sqlalchemy import update as sa_update
+
             async with self._session_factory() as session:
-                stmt = (
-                    sa_update(JobRow)
-                    .where(JobRow.id == job_id)
-                    .values(trail_state_snapshot=snapshot_json)
-                )
+                stmt = sa_update(JobRow).where(JobRow.id == job_id).values(trail_state_snapshot=snapshot_json)
                 await session.execute(stmt)
                 await session.commit()
         except Exception:
@@ -825,9 +823,7 @@ class TrailNodeBuilder:
         """Load TrailJobState from persisted snapshot, if available."""
         try:
             async with self._session_factory() as session:
-                result = await session.execute(
-                    sa_select(JobRow.trail_state_snapshot).where(JobRow.id == job_id)
-                )
+                result = await session.execute(sa_select(JobRow.trail_state_snapshot).where(JobRow.id == job_id))
                 raw = result.scalar_one_or_none()
                 if not raw:
                     return None

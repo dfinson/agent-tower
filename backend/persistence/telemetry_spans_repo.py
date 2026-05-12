@@ -364,7 +364,9 @@ class TelemetrySpansRepository(BaseRepository):
             """),
         )
         row = result.mappings().first()
-        return cast("RetryCostSummary", dict(row)) if row else {"retry_cost_usd": 0, "retry_count": 0, "total_spans": 0, "total_cost_usd": 0}
+        if row:
+            return cast("RetryCostSummary", dict(row))
+        return {"retry_cost_usd": 0, "retry_count": 0, "total_spans": 0, "total_cost_usd": 0}
 
     async def tool_failure_hotspots(self, *, period_days: int = 30) -> list[dict[str, Any]]:
         """Find tools with high failure rates (for statistical analysis)."""

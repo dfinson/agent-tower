@@ -345,14 +345,11 @@ class TelemetryQueryService:
                 peak_turn_ms=max((b.wall_clock_ms for b in latency_turn_curve), default=0),
                 avg_turn_ms=(
                     int(sum(b.wall_clock_ms for b in latency_turn_curve) / len(latency_turn_curve))
-                    if latency_turn_curve else 0
+                    if latency_turn_curve
+                    else 0
                 ),
-                first_half_ms=sum(
-                    b.wall_clock_ms for b in latency_turn_curve[: len(latency_turn_curve) // 2]
-                ),
-                second_half_ms=sum(
-                    b.wall_clock_ms for b in latency_turn_curve[len(latency_turn_curve) // 2:]
-                ),
+                first_half_ms=sum(b.wall_clock_ms for b in latency_turn_curve[: len(latency_turn_curve) // 2]),
+                second_half_ms=sum(b.wall_clock_ms for b in latency_turn_curve[len(latency_turn_curve) // 2 :]),
                 turn_curve=latency_turn_curve,
             ),
             parallelism_ratio=float(summary.get("parallelism_ratio", 0)),
@@ -386,7 +383,7 @@ class TelemetryQueryService:
         import json as _json
         from collections import Counter
 
-        from backend.services.tool_classifier import classify_tool, classify_tool_activity
+        from backend.services.tool_classifier import classify_tool_activity
 
         # Group tool spans by turn
         turns: dict[str, list[TelemetrySpanRow]] = {}
@@ -477,7 +474,9 @@ class TelemetryQueryService:
                     if short:
                         actions.append(TurnAction(text=f"read {short}", activity=tool_activity))
                 elif cat == "file_search":
-                    path = str(args.get("file_path", args.get("path", args.get("query", span.get("tool_target", "")))) or "")
+                    path = str(
+                        args.get("file_path", args.get("path", args.get("query", span.get("tool_target", "")))) or ""
+                    )
                     short = _short_path(path) if "/" in path or "." in path else path[:40]
                     if short:
                         actions.append(TurnAction(text=f"searched {short}", activity=tool_activity))

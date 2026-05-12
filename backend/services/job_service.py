@@ -15,7 +15,6 @@ from backend.config import load_config
 from backend.models.domain import (
     ACTIVE_STATES,
     TERMINAL_STATES,
-    CodePlaneError,
     InvalidStateTransitionError,
     Job,
     JobNotFoundError,
@@ -243,9 +242,7 @@ class JobService:
             # Still verify the pre-computed worktree_name doesn't collide
             assert worktree_name is not None
             existing_job_ids = await self._job_repo.list_ids()
-            if worktree_name in existing_job_ids or (
-                await self._job_repo.get(worktree_name) is not None
-            ):
+            if worktree_name in existing_job_ids or (await self._job_repo.get(worktree_name) is not None):
                 # Collision — fall through to LLM naming below
                 log.info("pre_named_collision", worktree_name=worktree_name)
                 pre_named = False
@@ -446,7 +443,7 @@ class JobService:
             await _emit_progress("failed")
             job = await self._job_repo.get(job_id)
             if job is None:
-                raise JobNotFoundError(f"Job {job_id} disappeared after state update")
+                raise JobNotFoundError(f"Job {job_id} disappeared after state update") from exc
             return job
 
         # Register worktree with CodeRecon for live reindexing
@@ -565,14 +562,16 @@ class JobService:
     async def rerun_job(self, job_id: str) -> Job:
         """Create a new job from an existing job's configuration."""
         original = await self.get_job(job_id)
-        return await self.create_job(JobSpec(
-            repo=original.repo,
-            prompt=original.prompt,
-            base_ref=original.base_ref,
-            preset=original.preset,
-            model=original.model,
-            sdk=original.sdk,
-        ))
+        return await self.create_job(
+            JobSpec(
+                repo=original.repo,
+                prompt=original.prompt,
+                base_ref=original.base_ref,
+                preset=original.preset,
+                model=original.model,
+                sdk=original.sdk,
+            )
+        )
 
     async def count_active_jobs(self) -> int:
         """Count currently active (non-terminal) jobs."""
@@ -660,13 +659,18 @@ class JobService:
         from backend.models.events import DomainEvent, DomainEventKind
 
         resolution, pr_url, conflict_files, error = await self.execute_resolve(
-            job=job, action=action, merge_service=merge_service,
+            job=job,
+            action=action,
+            merge_service=merge_service,
         )
 
         events: list[DomainEvent] = [
             self.build_job_resolved_event(
-                job.id, resolution, pr_url=pr_url,
-                conflict_files=conflict_files, error=error,
+                job.id,
+                resolution,
+                pr_url=pr_url,
+                conflict_files=conflict_files,
+                error=error,
             )
         ]
 
@@ -696,11 +700,12 @@ class JobService:
         from backend.models.events import DomainEventKind
 
         conflict_events = await self.list_events_by_job(
-            job_id, kinds=[DomainEventKind.merge_conflict],
+            job_id,
+            kinds=[DomainEventKind.merge_conflict],
         )
         conflict_files: list[str] = []
         if conflict_events:
-            conflict_files = cast(list[str], conflict_events[-1].payload.get("conflict_files", []))
+            conflict_files = cast("list[str]", conflict_events[-1].payload.get("conflict_files", []))
 
         job = await self.get_job(job_id)
         files_detail = (

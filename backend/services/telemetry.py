@@ -146,7 +146,7 @@ quota_remaining_gauge = meter.create_gauge("cp.quota.remaining_pct", unit="%", d
 # Per-job span tracking — root span per job for waterfall views
 # ---------------------------------------------------------------------------
 
-_job_spans: dict[str, "trace.Span"] = {}
+_job_spans: dict[str, trace.Span] = {}
 
 # Safety cap — prevent unbounded growth if end_job_span is never called
 _JOB_SPANS_MAX = 200

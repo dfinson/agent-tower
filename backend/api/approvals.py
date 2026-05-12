@@ -10,9 +10,9 @@ from fastapi import APIRouter, HTTPException
 from backend.models.api_schemas import (
     ApprovalListResponse,
     ApprovalResponse,
+    ResolveApprovalRequest,
     ResolveBatchRequest,
     ResolveBatchResponse,
-    ResolveApprovalRequest,
     SendMessageRequest,
     SendMessageResponse,
     TrustJobResponse,

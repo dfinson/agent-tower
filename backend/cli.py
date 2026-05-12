@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+import structlog
 
 from backend.config import load_config
 
@@ -69,7 +70,6 @@ def _build_frontend() -> bool:
         click.secho(f"Frontend build failed: {exc}", fg="yellow")
         click.echo("The API will still work, but there will be no web UI.")
         return False
-
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +263,7 @@ def up(
             raise SystemExit(1) from exc
         tunnel_origin = tunnel_handle.origin
 
-        if remote_provider is RemoteProvider.cloudflare and tunnel_origin:
+        if remote_provider is RemoteProvider.cloudflare and tunnel_origin:  # noqa: SIM102
             # Cloudflare Access check deferred to lifespan — requires the backend
             # to be listening first since the probe goes through the tunnel.
             # Disable password auth preemptively (Access will be verified once live).
@@ -420,7 +420,7 @@ def _print_connection_info(host: str, port: int, tunnel_url: str | None, passwor
             qr_section.append(Text(""))
             qr_section.append(Align.center(Text.from_markup(f"Scan to open: [bold]{url}[/bold]")))
         except ImportError:
-            log.debug("qrcode_not_installed", package="qrcode", exc_info=True)
+            structlog.get_logger().debug("qrcode_not_installed", package="qrcode", exc_info=True)
 
         body = Group(Text.from_markup("\n".join(lines)), *qr_section)  # type: ignore[arg-type]
         console.print(Panel(body, title="[bold cyan]CodePlane[/bold cyan]", border_style="cyan"))
@@ -775,7 +775,6 @@ def hook(port: int | None) -> None:
     the local server, and prints the response JSON to stdout (which
     Claude reads as additionalContext for SessionStart).
     """
-    import json
     import sys
     import urllib.error
     import urllib.request

@@ -15,13 +15,12 @@ from backend.models.db import TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.motivation_service import (
+    _EDIT_SYSTEM_PROMPT,
+    _SYSTEM_PROMPT,
     _build_edit_prompt,
     _build_user_prompt,
     _compute_edit_key,
-    _EDIT_SYSTEM_PROMPT,
-    _SYSTEM_PROMPT,
 )
-from backend.services.parsing_utils import ensure_dict
 from backend.services.trail.models import (
     ALL_KINDS,
     SEMANTIC_KINDS,
@@ -83,7 +82,8 @@ class TrailEnricher:
                 goal_intent = goal_nodes[0].intent if goal_nodes else None
 
                 recent_decisions = await self._repo.get_recent_decisions(
-                    job_id, limit=self._config.enrich_decisions_context,
+                    job_id,
+                    limit=self._config.enrich_decisions_context,
                 )
 
                 prompt = build_enrichment_prompt(job_nodes, goal_intent, recent_decisions)
@@ -106,10 +106,8 @@ class TrailEnricher:
                     source_node = node_map[nid]
                     new_kind = annotation.get("kind")
 
-                    if new_kind and new_kind != source_node.kind:
-                        if source_node.kind in ("modify", "explore"):
-                            new_kind = None
-                        elif new_kind not in ALL_KINDS:
+                    if new_kind and new_kind != source_node.kind:  # noqa: SIM102
+                        if source_node.kind in ("modify", "explore") or new_kind not in ALL_KINDS:
                             new_kind = None
 
                     sup = annotation.get("supersedes")
@@ -231,8 +229,13 @@ class TrailEnricher:
 
                 async with self._session_factory() as session:
                     from sqlalchemy import update as sa_update
-                    stmt = sa_update(TrailNodeRow).where(TrailNodeRow.id == node.id).values(
-                        title=title,
+
+                    stmt = (
+                        sa_update(TrailNodeRow)
+                        .where(TrailNodeRow.id == node.id)
+                        .values(
+                            title=title,
+                        )
                     )
                     await session.execute(stmt)
                     await session.commit()
@@ -376,8 +379,8 @@ class TrailEnricher:
                 # Build a synthetic parsed_args from the snippet for edit_key
                 # The snippet is pre-formatted as "- old\n+ new" or "+ content"
                 snippet_lines = node.snippet.splitlines()
-                old_lines = [l[2:] for l in snippet_lines if l.startswith("- ")]
-                new_lines = [l[2:] for l in snippet_lines if l.startswith("+ ")]
+                old_lines = [ln[2:] for ln in snippet_lines if ln.startswith("- ")]
+                new_lines = [ln[2:] for ln in snippet_lines if ln.startswith("+ ")]
                 parsed_args: dict[str, str] = {}
                 if old_lines or new_lines:
                     parsed_args["old_str"] = "\n".join(old_lines)

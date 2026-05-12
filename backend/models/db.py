@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 # All DateTime columns use timezone=True so timestamps are stored
 # and retrieved as timezone-aware UTC values, never naive.
@@ -129,7 +132,9 @@ class StepRow(Base):
     __tablename__ = "steps"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id", ondelete="CASCADE"), index=True, nullable=False)
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("jobs.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     step_number: Mapped[int] = mapped_column(Integer, nullable=False)
     turn_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     intent: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -439,6 +444,7 @@ class TrailNodeRow(Base):
 # ---------------------------------------------------------------------------
 # Action Policy tables
 # ---------------------------------------------------------------------------
+
 
 class PolicyConfigRow(Base):
     __tablename__ = "policy_config"

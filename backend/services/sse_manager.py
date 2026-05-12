@@ -252,26 +252,32 @@ def _build_plan_step_updated(event: DomainEvent) -> str:
 
 def _build_batch_approval_requested(event: DomainEvent) -> str:
     import json
+
     p = event.payload
-    return json.dumps({
-        "jobId": event.job_id,
-        "batch_id": p.get("batch_id", ""),
-        "batch_size": p.get("batch_size", 0),
-        "summary": p.get("summary", ""),
-        "actions": p.get("actions", []),
-        "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
-    })
+    return json.dumps(
+        {
+            "jobId": event.job_id,
+            "batch_id": p.get("batch_id", ""),
+            "batch_size": p.get("batch_size", 0),
+            "summary": p.get("summary", ""),
+            "actions": p.get("actions", []),
+            "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
+        }
+    )
 
 
 def _build_batch_approval_resolved(event: DomainEvent) -> str:
     import json
+
     p = event.payload
-    return json.dumps({
-        "jobId": event.job_id,
-        "batch_id": p.get("batch_id", ""),
-        "resolution": p.get("resolution", ""),
-        "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
-    })
+    return json.dumps(
+        {
+            "jobId": event.job_id,
+            "batch_id": p.get("batch_id", ""),
+            "resolution": p.get("resolution", ""),
+            "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, "isoformat") else str(event.timestamp),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

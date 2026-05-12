@@ -134,10 +134,7 @@ async def _compute_latency(
 
     # Load job metadata for debugging detection
     job_meta = await session.execute(
-        sa_text(
-            "SELECT j.description, j.prompt "
-            "FROM jobs j WHERE j.id = :jid"
-        ),
+        sa_text("SELECT j.description, j.prompt FROM jobs j WHERE j.id = :jid"),
         {"jid": job_id},
     )
     job_row = job_meta.mappings().first()
@@ -165,8 +162,12 @@ async def _compute_latency(
     # Build turn contexts for intent classification (mirrors cost attribution)
     turn_contexts: dict[int, TurnContext] = defaultdict(
         lambda: TurnContext(
-            phase=None, cost_usd=0.0, input_tokens=0, output_tokens=0,
-            tool_categories=[], shell_commands=[],
+            phase=None,
+            cost_usd=0.0,
+            input_tokens=0,
+            output_tokens=0,
+            tool_categories=[],
+            shell_commands=[],
         )
     )
 
@@ -281,23 +282,21 @@ async def _compute_latency(
         for bucket_key, durations in data.items():
             sorted_durs = sorted(durations)
             sum_ms = sum(durations)
-            wall_ms = (
-                _compute_wall_clock(intervals[bucket_key])
-                if intervals and bucket_key in intervals
-                else sum_ms
-            )
+            wall_ms = _compute_wall_clock(intervals[bucket_key]) if intervals and bucket_key in intervals else sum_ms
             pct = (wall_ms / total_duration_ms * 100) if total_duration_ms > 0 else 0.0
-            rows.append({
-                "dimension": dimension,
-                "bucket": str(bucket_key),
-                "wall_clock_ms": wall_ms,
-                "sum_duration_ms": sum_ms,
-                "span_count": len(durations),
-                "p50_ms": _percentile(sorted_durs, 0.5),
-                "p95_ms": _percentile(sorted_durs, 0.95),
-                "max_ms": sorted_durs[-1] if sorted_durs else 0,
-                "pct_of_total": round(pct, 2),
-            })
+            rows.append(
+                {
+                    "dimension": dimension,
+                    "bucket": str(bucket_key),
+                    "wall_clock_ms": wall_ms,
+                    "sum_duration_ms": sum_ms,
+                    "span_count": len(durations),
+                    "p50_ms": _percentile(sorted_durs, 0.5),
+                    "p95_ms": _percentile(sorted_durs, 0.95),
+                    "max_ms": sorted_durs[-1] if sorted_durs else 0,
+                    "pct_of_total": round(pct, 2),
+                }
+            )
 
     _build_rows("category", by_category, category_intervals)
     _build_rows("activity", by_activity, activity_intervals)
@@ -309,12 +308,8 @@ async def _compute_latency(
     # Compute summary-level latency fields
     llm_sum = sum(by_category.get("llm", []))
     tool_sum = sum(by_category.get("tool", []))
-    idle_ms = max(0, total_duration_ms - _compute_wall_clock(
-        [iv for ivs in category_intervals.values() for iv in ivs]
-    ))
-    parallelism_ratio = (
-        total_span_sum_ms / total_duration_ms if total_duration_ms > 0 else 0.0
-    )
+    idle_ms = max(0, total_duration_ms - _compute_wall_clock([iv for ivs in category_intervals.values() for iv in ivs]))
+    parallelism_ratio = total_span_sum_ms / total_duration_ms if total_duration_ms > 0 else 0.0
 
     # Update summary columns
     from sqlalchemy import text as sa_text

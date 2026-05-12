@@ -68,8 +68,8 @@ Task description:
 {prompt}
 """
 
-from backend.validators import BRANCH_RE as _BRANCH_RE
-from backend.validators import WORKTREE_RE as _WORKTREE_RE
+from backend.validators import BRANCH_RE as _BRANCH_RE  # noqa: E402
+from backend.validators import WORKTREE_RE as _WORKTREE_RE  # noqa: E402
 
 
 def _sanitize_branch(raw: str) -> str | None:

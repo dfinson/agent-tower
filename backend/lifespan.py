@@ -22,34 +22,32 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.config import MCP_PATH, VOICE_MAX_AUDIO_SIZE_MB, CPLConfig, get_codeplane_dir, load_config
 from backend.di import AppProvider, CachedModelsBySdk, RequestProvider, VoiceMaxBytes
-from backend.models.events import DomainEventKind
+from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.database import create_engine, create_session_factory, serialized_write
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
 from backend.services.adapter_registry import AdapterRegistry
 from backend.services.approval_service import ApprovalService
+from backend.services.coderecon_service import CodeReconService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
+from backend.services.memory_compacter import MemoryCompacter
 from backend.services.merge_service import MergeService
+from backend.services.narrator_completer import NarratorCompleter
 from backend.services.platform_adapter import PlatformRegistry
 from backend.services.push_service import PushService
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
-from backend.services.memory_compacter import MemoryCompacter
-from backend.services.narrator_completer import NarratorCompleter
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.step_persistence import StepPersistenceSubscriber
 from backend.services.step_tracker import StepTracker
 from backend.services.summarization_service import SummarizationService
+from backend.services.terminal_service import TerminalService
 from backend.services.vapid_keys import get_or_create_vapid_keys
 from backend.services.voice_service import VoiceService
-
-from backend.services.terminal_service import TerminalService
-
-from backend.services.coderecon_service import CodeReconService
 
 
 class _JobLike:
@@ -83,7 +81,6 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from backend.models.events import DomainEvent
 
 log = structlog.get_logger()
 
@@ -152,6 +149,7 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
     tunnel_handle.close()
     # Signal the server to shut down
     import signal
+
     os.kill(os.getpid(), signal.SIGTERM)
 
 
@@ -376,10 +374,12 @@ async def _wire_core_services(
 
     # --- Memory curator (pre-job memory selection) ---
     from backend.services.memory_curator import MemoryCurator
+
     memory_curator = MemoryCurator(adapter=utility_adapter)
 
     # --- Memory extractor (post-job knowledge extraction) ---
     from backend.services.memory_extractor import MemoryExtractor
+
     memory_extractor = MemoryExtractor(adapter=utility_adapter)
 
     # --- Narrator completer (dedicated long-form story generation) ---
@@ -707,9 +707,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         session_factory=session_factory,
         completer=services.sister_sessions,
     )
-    motivation_task = asyncio.create_task(
-        motivation_service.drain_loop(), name="motivation-drain"
-    )
+    motivation_task = asyncio.create_task(motivation_service.drain_loop(), name="motivation-drain")
 
     # --- Trail service (agent audit trail) ---
     from backend.services.trail import TrailService
@@ -722,9 +720,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     event_bus.subscribe(trail_service.handle_event)
     services.runtime_service.set_trail_service(trail_service)
-    trail_task = asyncio.create_task(
-        trail_service.drain_loop(), name="trail-enrichment-drain"
-    )
+    trail_task = asyncio.create_task(trail_service.drain_loop(), name="trail-enrichment-drain")
 
     # --- CodeRecon start (always-on, degrades gracefully if package missing) ---
     await coderecon_service.start()
@@ -762,9 +758,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     return
 
                 repo_name = await coderecon_service.ensure_repo_indexed(repo_path)
-                warnings = await coderecon_service.check_step_structural_health(
-                    repo_name, worktree=worktree_path
-                )
+                warnings = await coderecon_service.check_step_structural_health(repo_name, worktree=worktree_path)
                 for w in warnings:
                     await event_bus.publish(
                         DomainEvent(
@@ -794,7 +788,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         async def _run_prefetch() -> None:
             try:
-                from backend.api.job_artifacts import _generate_review_story, _cache_put
+                from backend.api.job_artifacts import _cache_put, _generate_review_story
 
                 async with session_factory() as session:
                     from sqlalchemy import text
@@ -863,10 +857,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
                 async with serialized_write(session_factory) as session:
                     await session.execute(
-                        text(
-                            "UPDATE jobs SET review_story_json = :story, review_story_hash = :hash "
-                            "WHERE id = :jid"
-                        ),
+                        text("UPDATE jobs SET review_story_json = :story, review_story_hash = :hash WHERE id = :jid"),
                         {"story": story_json, "hash": story_hash, "jid": job_id},
                     )
                 log.debug("review_story_persisted", job_id=job_id)
@@ -909,15 +900,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
                 # Structural diff for change count and confidence
                 diff_result = await coderecon_service.semantic_diff(
-                    repo_name, base=base_ref or "HEAD", worktree=worktree_path,
+                    repo_name,
+                    base=base_ref or "HEAD",
+                    worktree=worktree_path,
                 )
                 change_count = len(diff_result.structural_changes)
                 merge_confidence = getattr(diff_result, "merge_confidence", None)
 
                 # Did any structural changes touch test files?
                 changes_touch_tests = any(
-                    c.path.startswith("test") or "/test" in c.path
-                    for c in diff_result.structural_changes
+                    c.path.startswith("test") or "/test" in c.path for c in diff_result.structural_changes
                 )
 
                 # Cycle count in worktree
@@ -979,6 +971,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     copilot_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if copilot_token:
         from backend.services.copilot_steer import CopilotSteerClient
+
         steer_client = CopilotSteerClient(copilot_token)
 
     # EventProcessor — shared pipeline for imported sessions (diff, step tracking, trail)
@@ -1128,7 +1121,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     try:
         await asyncio.wait_for(_quiet_shutdown(), timeout=8.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("shutdown_timeout", msg="Shutdown timed out after 8s — forcing exit")
     except (asyncio.CancelledError, Exception) as exc:
         log.debug("shutdown_interrupted", error=str(exc))

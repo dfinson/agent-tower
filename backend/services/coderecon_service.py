@@ -14,6 +14,7 @@ and every public method returns a safe fallback.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -113,10 +114,8 @@ class CodeReconService:
                 await loop.run_in_executor(self._executor, kit.ensure_indexed)
             except Exception:
                 log.warning("coderecon_review.index_failed", repo=resolved, exc_info=True)
-                try:
+                with contextlib.suppress(Exception):
                     await loop.run_in_executor(self._executor, kit.close)
-                except Exception:
-                    pass
                 raise
 
             self._kits[resolved] = kit
@@ -132,9 +131,7 @@ class CodeReconService:
         try:
             wt_name = Path(worktree_path).name
             wt = str(Path(worktree_path).resolve())
-            await loop.run_in_executor(
-                self._executor, kit.register_worktree, wt_name, Path(wt)
-            )
+            await loop.run_in_executor(self._executor, kit.register_worktree, wt_name, Path(wt))
             log.info("coderecon_review.worktree_registered", repo=repo, worktree=wt)
         except Exception:
             log.debug("coderecon_review.worktree_register_failed", repo=repo, exc_info=True)
@@ -161,9 +158,7 @@ class CodeReconService:
             kwargs["target"] = target
         if worktree is not None:
             kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.semantic_diff(**kwargs)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.semantic_diff(**kwargs))
 
     async def graph_cycles(
         self,
@@ -177,9 +172,7 @@ class CodeReconService:
         kwargs: dict[str, Any] = {}
         if worktree is not None:
             kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.graph_cycles(**kwargs)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.graph_cycles(**kwargs))
 
     async def graph_communities(
         self,
@@ -193,9 +186,7 @@ class CodeReconService:
         kwargs: dict[str, Any] = {}
         if worktree is not None:
             kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.graph_communities(**kwargs)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.graph_communities(**kwargs))
 
     async def check_structural_health(
         self,
@@ -209,9 +200,7 @@ class CodeReconService:
         kwargs: dict[str, Any] = {}
         if worktree is not None:
             kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.check_structural_health(**kwargs)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.check_structural_health(**kwargs))
 
     async def impact(self, repo: str, target: str) -> Any:
         """Blast radius for a symbol or file path.
@@ -223,9 +212,7 @@ class CodeReconService:
         if not hasattr(kit, "impact"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.impact(target)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.impact(target))
 
     # ── Step-Boundary Structural Feedback ──
 
@@ -251,11 +238,13 @@ class CodeReconService:
             base_keys = {c.nodes for c in base_cycles.cycles}
             new_cycles = [c for c in worktree_cycles.cycles if c.nodes not in base_keys]
             if new_cycles:
-                warnings.append({
-                    "type": "new_cycles",
-                    "detail": f"{len(new_cycles)} new dependency cycle(s) introduced",
-                    "data": {"cycles": [sorted(c.nodes) for c in new_cycles]},
-                })
+                warnings.append(
+                    {
+                        "type": "new_cycles",
+                        "detail": f"{len(new_cycles)} new dependency cycle(s) introduced",
+                        "data": {"cycles": [sorted(c.nodes) for c in new_cycles]},
+                    }
+                )
         except Exception:
             pass  # non-critical
 
@@ -270,11 +259,13 @@ class CodeReconService:
                     if touched_files & set(comm.members):
                         file_communities.add(comm.community_id)
                 if len(file_communities) >= 3:
-                    warnings.append({
-                        "type": "community_drift",
-                        "detail": f"Changes span {len(file_communities)} unrelated module communities",
-                        "data": {"communities": sorted(file_communities)},
-                    })
+                    warnings.append(
+                        {
+                            "type": "community_drift",
+                            "detail": f"Changes span {len(file_communities)} unrelated module communities",
+                            "data": {"communities": sorted(file_communities)},
+                        }
+                    )
         except Exception:
             pass  # non-critical
 

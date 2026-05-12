@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -137,6 +136,7 @@ class TestClaudeAdapterPermissions:
     async def test_policy_router_allow(self, adapter) -> None:
         """When the policy router allows, the callback returns PermissionResultAllow."""
         from claude_code_sdk import PermissionResultAllow
+
         from backend.services.base_adapter import PermissionDecision
 
         adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.allow)
@@ -150,6 +150,7 @@ class TestClaudeAdapterPermissions:
     async def test_policy_router_deny(self, adapter) -> None:
         """When the policy router denies, the callback returns PermissionResultDeny."""
         from claude_code_sdk import PermissionResultDeny
+
         from backend.services.base_adapter import PermissionDecision
 
         adapter._evaluate_permission = AsyncMock(return_value=PermissionDecision.deny)
@@ -174,6 +175,7 @@ class TestClaudeAdapterPermissions:
     async def test_trusted_job_auto_approves(self, adapter) -> None:
         """Trusted jobs skip all permission checks."""
         from claude_code_sdk import PermissionResultAllow
+
         from backend.services.base_adapter import PermissionDecision
 
         # Trust bypass is checked inside _evaluate_permission, so mock it

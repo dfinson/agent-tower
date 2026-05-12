@@ -98,7 +98,6 @@ class EmptyPayloadDict(_BasePayload):
     """Payload for events that carry no data (e.g. job_archived)."""
 
 
-
 class LogLinePayloadDict(_BasePayload, total=False):
     seq: int
     timestamp: str

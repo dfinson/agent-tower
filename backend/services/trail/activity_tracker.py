@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -14,13 +14,13 @@ from backend.services.trail.models import (
     TrailJobState,
     make_activity_id,
 )
-from backend.services.trail.title_generator import TitleGenerator
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.event_bus import EventBus
     from backend.services.sister_session import SisterSession
+    from backend.services.trail.title_generator import TitleGenerator
 
 log = structlog.get_logger()
 
@@ -224,13 +224,17 @@ class ActivityTracker:
         from backend.models.db import TrailNodeRow
 
         async with self._session_factory() as session:
-            stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(
-                title=title,
-                plan_item_id=plan_item_id,
-                plan_item_label=plan_item_label,
-                plan_item_status=plan_item_status,
-                activity_id=activity_id,
-                activity_label=activity_label,
+            stmt = (
+                update(TrailNodeRow)
+                .where(TrailNodeRow.id == node_id)
+                .values(
+                    title=title,
+                    plan_item_id=plan_item_id,
+                    plan_item_label=plan_item_label,
+                    plan_item_status=plan_item_status,
+                    activity_id=activity_id,
+                    activity_label=activity_label,
+                )
             )
             await session.execute(stmt)
             await session.commit()

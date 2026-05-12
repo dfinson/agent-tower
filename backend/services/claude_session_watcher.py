@@ -11,13 +11,14 @@ endpoint polls get_pending_messages() and returns them in the hook response.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import math
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -258,9 +259,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         # Pre-populate tracked set from existing jobs
         await self._load_existing_sessions()
 
-        self._discovery_task = asyncio.create_task(
-            self._discovery_loop(), name="claude-session-discovery"
-        )
+        self._discovery_task = asyncio.create_task(self._discovery_loop(), name="claude-session-discovery")
         log.info("claude_watcher_started", repos=self._config.repos)
 
     async def stop(self) -> None:
@@ -268,10 +267,8 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         self._running = False
         if self._discovery_task:
             self._discovery_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._discovery_task
-            except asyncio.CancelledError:
-                pass
             self._discovery_task = None
         # Cancel all tail tasks
         for task in self._tail_tasks.values():
@@ -346,7 +343,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 stop_hooks.append(hook_url)
                 # Atomic write: write temp file in same dir, then rename
                 fd, tmp_path = tempfile.mkstemp(
-                    dir=str(settings_dir), suffix=".tmp", prefix=".settings-",
+                    dir=str(settings_dir),
+                    suffix=".tmp",
+                    prefix=".settings-",
                 )
                 try:
                     with open(fd, "w") as f:
@@ -361,8 +360,6 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 log.debug("claude_watcher_hook_already_present", url=hook_url)
         except Exception:
             log.warning("claude_watcher_hook_install_failed", exc_info=True)
-
-
 
     # ------------------------------------------------------------------
     # Startup recovery
@@ -384,7 +381,13 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 )
                 for row in result:
                     job_id, ext_sid, state, offset, wt, base, repo = (
-                        row[0], row[1], row[2], row[3] or 0, row[4], row[5], row[6],
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3] or 0,
+                        row[4],
+                        row[5],
+                        row[6],
                     )
                     self._tracked_sessions.add(ext_sid)
                     if state == "running":
@@ -396,13 +399,16 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             for job_id, ext_sid, offset, wt, base, repo in running_jobs:
                 repo_for_liveness = wt or repo or None
                 alive = await asyncio.to_thread(
-                    _is_claude_process_alive, ext_sid, repo_for_liveness,
+                    _is_claude_process_alive,
+                    ext_sid,
+                    repo_for_liveness,
                 )
 
                 if not alive:
                     log.info("claude_watcher_orphan_detected", job_id=job_id, session_id=ext_sid)
                     await self._finalize_session(
-                        job_id, error_reason="session ended while CodePlane was offline",
+                        job_id,
+                        error_reason="session ended while CodePlane was offline",
                     )
                 else:
                     # Re-attach and resume tailing
@@ -541,11 +547,13 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
         # Background: CodeRecon indexing
         if self._coderecon:
+
             async def _index(repo: str = repo_path, jid: str = job_id) -> None:
                 try:
                     await self._coderecon.ensure_repo_indexed(repo)
                 except Exception:
                     log.debug("claude_watcher_coderecon_failed", job_id=jid, exc_info=True)
+
             self._fire_bg(_index(), name=f"claude-coderecon-{job_id[:8]}")
 
     async def _create_job(self, session_id: str, repo_path: str) -> Job | None:
@@ -578,25 +586,31 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
+
                 repo = JobRepository(session)
                 existing = await repo.get(job_id)
                 if existing is not None:
                     # Re-activate the existing job — clear finalization guard
                     self._finalizing.discard(job_id)
                     await repo.update_state(
-                        job_id, JobState.running, updated_at=now,
+                        job_id,
+                        JobState.running,
+                        updated_at=now,
                     )
                     log.info(
                         "claude_watcher_job_reactivated",
-                        job_id=job_id, session_id=session_id,
-                    )
-                    await self._event_bus.publish(DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
                         job_id=job_id,
-                        timestamp=now,
-                        kind=DomainEventKind.job_state_changed,
-                        payload={"state": JobState.running, "new_state": JobState.running},
-                    ))
+                        session_id=session_id,
+                    )
+                    await self._event_bus.publish(
+                        DomainEvent(
+                            event_id=DomainEvent.make_event_id(),
+                            job_id=job_id,
+                            timestamp=now,
+                            kind=DomainEventKind.job_state_changed,
+                            payload={"state": JobState.running, "new_state": JobState.running},
+                        )
+                    )
                     return existing
         except Exception:
             log.debug("claude_watcher_job_check_failed", job_id=job_id, exc_info=True)
@@ -624,36 +638,44 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
                 repo = JobRepository(session)
                 await repo.create(job)
                 await TelemetrySummaryRepository(session).init_job(
-                    job_id, sdk="claude", repo=repo_path, branch=branch,
+                    job_id,
+                    sdk="claude",
+                    repo=repo_path,
+                    branch=branch,
                 )
         except Exception:
             log.warning("claude_watcher_job_create_failed", session_id=session_id, exc_info=True)
             return None
 
         # Publish creation events
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=now,
-            kind=DomainEventKind.job_created,
-            payload={
-                "repo": repo_path,
-                "branch": branch,
-                "base_ref": base_ref,
-                "source": JobSource.claude_cli,
-                "prompt": job.prompt,
-            },
-        ))
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=now,
-            kind=DomainEventKind.job_state_changed,
-            payload={"state": JobState.running, "new_state": JobState.running},
-        ))
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.job_created,
+                payload={
+                    "repo": repo_path,
+                    "branch": branch,
+                    "base_ref": base_ref,
+                    "source": JobSource.claude_cli,
+                    "prompt": job.prompt,
+                },
+            )
+        )
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.job_state_changed,
+                payload={"state": JobState.running, "new_state": JobState.running},
+            )
+        )
 
         # Sister session for title generation
         if self._sister_sessions:
@@ -673,7 +695,12 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     # ------------------------------------------------------------------
 
     async def _tail_events(
-        self, session_id: str, job_id: str, jsonl_path: Path, *, initial_offset: int = 0,
+        self,
+        session_id: str,
+        job_id: str,
+        jsonl_path: Path,
+        *,
+        initial_offset: int = 0,
     ) -> None:
         """Tail a Claude JSONL session file and process events."""
         offset = initial_offset
@@ -694,7 +721,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         else:
                             repo_path = self._job_worktrees.get(job_id)
                             alive = await asyncio.to_thread(
-                                _is_claude_process_alive, session_id, repo_path,
+                                _is_claude_process_alive,
+                                session_id,
+                                repo_path,
                             )
                         if not alive:
                             self._schedule_offset_persist(job_id, offset)
@@ -719,7 +748,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         else:
                             repo_path = self._job_worktrees.get(job_id)
                             alive = await asyncio.to_thread(
-                                _is_claude_process_alive, session_id, repo_path,
+                                _is_claude_process_alive,
+                                session_id,
+                                repo_path,
                             )
                         if not alive:
                             self._schedule_offset_persist(job_id, offset)
@@ -740,7 +771,8 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 if "\n" not in buffer and len(buffer) > _MAX_READ_CHUNK:
                     log.warning(
                         "claude_watcher_line_too_long",
-                        job_id=job_id, size=len(buffer),
+                        job_id=job_id,
+                        size=len(buffer),
                     )
                     buffer = ""
 
@@ -905,7 +937,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         enricher = ToolEventEnricher()
                         self._enrichers[job_id] = enricher
                     payload = enricher.on_tool_start(
-                        tool_id, tool_name, args_str, None,
+                        tool_id,
+                        tool_name,
+                        args_str,
+                        None,
                     )
                     session_event = SessionEvent(
                         kind=SessionEventKind.transcript,
@@ -917,10 +952,13 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                     if classify_tool(tool_name) == "file_write":
                         paths = extract_file_paths(tool_name, args_str)
                         for fpath in paths:
-                            await self._feed_event(job_id, SessionEvent(
-                                kind=SessionEventKind.file_changed,
-                                payload={"path": fpath},
-                            ))
+                            await self._feed_event(
+                                job_id,
+                                SessionEvent(
+                                    kind=SessionEventKind.file_changed,
+                                    payload={"path": fpath},
+                                ),
+                            )
 
                 elif block_type == "tool_result":
                     tool_use_id = block.get("tool_use_id", "")
@@ -939,7 +977,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         enricher = ToolEventEnricher()
                         self._enrichers[job_id] = enricher
                     payload = enricher.on_tool_complete(
-                        tool_use_id, str(result_content), not is_error,
+                        tool_use_id,
+                        str(result_content),
+                        not is_error,
                         tool_name_fallback=block.get("name", "tool"),
                     )
                     session_event = SessionEvent(
@@ -949,7 +989,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                     await self._feed_event(job_id, session_event)
 
     async def _extract_usage_telemetry(
-        self, usage: dict, job_id: str, message: dict,
+        self,
+        usage: dict,
+        job_id: str,
+        message: dict,
     ) -> None:
         """Extract token usage and cost telemetry from assistant message."""
         from backend.services import telemetry as tel
@@ -973,14 +1016,17 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             tel.cost_usd.add(cost_usd, attrs)
 
         # Accumulate for atomic flush with offset
-        self._accumulate_telemetry(job_id, {
-            "input_tokens": input_toks,
-            "output_tokens": output_toks,
-            "cache_read_tokens": cache_read,
-            "cache_write_tokens": cache_write,
-            "total_cost_usd": cost_usd,
-            "llm_call_count": 1,
-        })
+        self._accumulate_telemetry(
+            job_id,
+            {
+                "input_tokens": input_toks,
+                "output_tokens": output_toks,
+                "cache_read_tokens": cache_read,
+                "cache_write_tokens": cache_write,
+                "total_cost_usd": cost_usd,
+                "llm_call_count": 1,
+            },
+        )
         if model:
             self._schedule_model_update(job_id, model)
 
@@ -993,7 +1039,8 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         worktree = self._job_worktrees.get(job_id)
         base_ref = self._job_base_refs.get(job_id)
         await self._processor.process_event(
-            job_id, session_event,
+            job_id,
+            session_event,
             worktree_path=worktree,
             base_ref=base_ref,
         )
@@ -1005,6 +1052,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
+
                 repo = JobRepository(session)
                 job = await repo.get(job_id)
                 if job and job.prompt == "(discovered CLI session)":
@@ -1017,7 +1065,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     # ------------------------------------------------------------------
 
     async def _finalize_session(
-        self, job_id: str, *, error_reason: str | None = None,
+        self,
+        job_id: str,
+        *,
+        error_reason: str | None = None,
     ) -> None:
         """Transition job to review (clean) or failed (error/orphan)."""
         # Guard against double finalization (liveness + last-prompt race)
@@ -1033,31 +1084,39 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
+
                 repo = JobRepository(session)
                 await repo.update_state(
-                    job_id, new_state, updated_at=now, completed_at=now,
+                    job_id,
+                    new_state,
+                    updated_at=now,
+                    completed_at=now,
                     failure_reason=error_reason,
                 )
         except Exception:
             log.warning("claude_watcher_finalize_failed", job_id=job_id, exc_info=True)
             return
 
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=now,
-            kind=DomainEventKind.job_state_changed,
-            payload={"state": new_state, "new_state": new_state},
-        ))
-
-        if new_state == JobState.review:
-            await self._event_bus.publish(DomainEvent(
+        await self._event_bus.publish(
+            DomainEvent(
                 event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.job_review,
-                payload={"resolution": "unresolved"},
-            ))
+                kind=DomainEventKind.job_state_changed,
+                payload={"state": new_state, "new_state": new_state},
+            )
+        )
+
+        if new_state == JobState.review:
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=now,
+                    kind=DomainEventKind.job_review,
+                    payload={"resolution": "unresolved"},
+                )
+            )
 
         # Notify processor for step cleanup
         await self._processor.on_job_terminal(job_id, new_state)
@@ -1087,5 +1146,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
         log.info(
             "claude_watcher_session_finalized",
-            job_id=job_id, state=new_state, error_reason=error_reason,
+            job_id=job_id,
+            state=new_state,
+            error_reason=error_reason,
         )

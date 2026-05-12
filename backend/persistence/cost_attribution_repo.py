@@ -7,12 +7,14 @@ or other dimension — enabling cross-job analysis of what drives cost.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import text
 
-from backend.models.domain import CostAttributionRow, CostDimensionRow, FleetCostRow
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    from backend.models.domain import CostAttributionRow, CostDimensionRow, FleetCostRow
 
 
 class CostAttributionRepository(BaseRepository):
@@ -179,7 +181,8 @@ class CostAttributionRepository(BaseRepository):
         return cast("list[FleetCostRow]", [dict(r) for r in result.mappings().all()])
 
     async def edit_efficiency_by_model(
-        self, period_days: int,
+        self,
+        period_days: int,
     ) -> list[dict[str, Any]]:
         """Edit efficiency aggregated per model."""
         result = await self._session.execute(
@@ -209,7 +212,8 @@ class CostAttributionRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def cache_efficiency_by_phase(
-        self, period_days: int,
+        self,
+        period_days: int,
     ) -> list[dict[str, Any]]:
         """Cache hit rate aggregated by execution phase from spans."""
         result = await self._session.execute(
@@ -236,7 +240,8 @@ class CostAttributionRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def cache_efficiency_by_activity(
-        self, period_days: int,
+        self,
+        period_days: int,
     ) -> list[dict[str, Any]]:
         """Cache hit rate aggregated by activity bucket from attribution."""
         result = await self._session.execute(
@@ -262,7 +267,9 @@ class CostAttributionRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def by_dimension_per_repo(
-        self, dimension: str, period_days: int,
+        self,
+        dimension: str,
+        period_days: int,
     ) -> list[dict[str, Any]]:
         """Activity cost broken down by repo."""
         result = await self._session.execute(
@@ -289,7 +296,8 @@ class CostAttributionRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def communication_heavy_jobs(
-        self, period_days: int,
+        self,
+        period_days: int,
     ) -> list[dict[str, Any]]:
         """Jobs where communication + reasoning cost > threshold of total."""
         result = await self._session.execute(
@@ -316,7 +324,8 @@ class CostAttributionRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def unproductive_exploration_jobs(
-        self, period_days: int,
+        self,
+        period_days: int,
     ) -> list[dict[str, Any]]:
         """Jobs where investigation cost > 50% of total and outcome was
         discarded or failed, filtered to jobs above fleet median cost."""
@@ -366,7 +375,9 @@ class CostAttributionRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def cost_by_activity_and_resolution(
-        self, *, period_days: int = 30,
+        self,
+        *,
+        period_days: int = 30,
     ) -> list[dict[str, Any]]:
         """Cross-tab: cost by activity bucket × job resolution (Item 15)."""
         result = await self._session.execute(
@@ -390,7 +401,9 @@ class CostAttributionRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def fleet_activity_phase_matrix(
-        self, *, period_days: int = 30,
+        self,
+        *,
+        period_days: int = 30,
     ) -> list[dict[str, Any]]:
         """Aggregate activity×phase cost across all jobs (Item 16)."""
         result = await self._session.execute(

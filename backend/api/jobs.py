@@ -155,23 +155,25 @@ async def create_job(
     """
     import asyncio
 
-    job = await svc.create_job(JobSpec(
-        repo=body.repo,
-        prompt=body.prompt,
-        base_ref=body.base_ref,
-        branch=body.branch,
-        title=body.title,
-        description=body.description,
-        worktree_name=body.worktree_name,
-        preset=body.preset or Preset.supervised,
-        model=body.model,
-        sdk=body.sdk,
-        verify=body.verify,
-        self_review=body.self_review,
-        max_turns=body.max_turns,
-        verify_prompt=body.verify_prompt,
-        self_review_prompt=body.self_review_prompt,
-    ))
+    job = await svc.create_job(
+        JobSpec(
+            repo=body.repo,
+            prompt=body.prompt,
+            base_ref=body.base_ref,
+            branch=body.branch,
+            title=body.title,
+            description=body.description,
+            worktree_name=body.worktree_name,
+            preset=body.preset or Preset.supervised,
+            model=body.model,
+            sdk=body.sdk,
+            verify=body.verify,
+            self_review=body.self_review,
+            max_turns=body.max_turns,
+            verify_prompt=body.verify_prompt,
+            self_review_prompt=body.self_review_prompt,
+        )
+    )
 
     # Commit so the job row is visible to background tasks (separate sessions)
     await session.commit()
@@ -186,9 +188,7 @@ async def create_job(
                     session_token=body.session_token,
                 )
             except Exception:
-                log.error(
-                    "background_job_setup_failed", job_id=job.id, exc_info=True
-                )
+                log.error("background_job_setup_failed", job_id=job.id, exc_info=True)
 
         asyncio.create_task(_setup_and_start(), name=f"setup-{job.id}")
 
@@ -219,19 +219,22 @@ async def list_jobs(
     progress_by_job = await svc.list_latest_progress_previews(job_ids)
 
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
     cost_by_job = await TelemetrySummaryRepository(session).batch_cost_tokens(job_ids)
 
     items = []
     for j in jobs:
         ct = cost_by_job.get(j.id, {})
-        items.append(job_to_response(
-            j,
-            progress_by_job.get(j.id),
-            total_cost_usd=ct.get("total_cost_usd"),
-            total_tokens=ct.get("total_tokens"),
-            input_tokens=ct.get("input_tokens"),
-            output_tokens=ct.get("output_tokens"),
-        ))
+        items.append(
+            job_to_response(
+                j,
+                progress_by_job.get(j.id),
+                total_cost_usd=ct.get("total_cost_usd"),
+                total_tokens=ct.get("total_tokens"),
+                input_tokens=ct.get("input_tokens"),
+                output_tokens=ct.get("output_tokens"),
+            )
+        )
     return JobListResponse(items=items, cursor=next_cursor, has_more=has_more)
 
 
@@ -246,10 +249,12 @@ async def get_job(
     progress_preview = await svc.get_latest_progress_preview(job_id)
 
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
     ct = (await TelemetrySummaryRepository(session).batch_cost_tokens([job_id])).get(job_id, {})
 
     return job_to_response(
-        job, progress_preview,
+        job,
+        progress_preview,
         total_cost_usd=ct.get("total_cost_usd"),
         total_tokens=ct.get("total_tokens"),
         input_tokens=ct.get("input_tokens"),
@@ -378,5 +383,3 @@ async def list_models(
         except (ImportError, ConnectionError, TimeoutError, RuntimeError):
             log.debug("model_live_fetch_failed", sdk=resolved_sdk, exc_info=True)
     return ModelListResponse(items=[ModelInfoResponse.model_validate(m) for m in models])
-
-

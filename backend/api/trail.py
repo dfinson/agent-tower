@@ -63,7 +63,10 @@ async def get_job_trail(
     """Fetch the audit trail for a job."""
     kind_list = [k.strip() for k in kinds.split(",")] if kinds else None
     trail = await trail_service.get_trail(
-        job_id, kinds=kind_list, flat=flat, after_seq=after_seq,
+        job_id,
+        kinds=kind_list,
+        flat=flat,
+        after_seq=after_seq,
     )
     nodes = [_dict_to_node_response(n) for n in trail["nodes"]]
     return TrailResponse(

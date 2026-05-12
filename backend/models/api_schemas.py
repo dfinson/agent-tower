@@ -902,6 +902,7 @@ class StoryBlock(CamelModel):
         if v is None:
             return None
         return str(v)
+
     step_number: int | None = None
     step_title: str | None = None
     file: str | None = None

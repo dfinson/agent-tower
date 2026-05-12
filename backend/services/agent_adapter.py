@@ -6,12 +6,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from backend.models.api_schemas import ExecutionPhase
-from backend.models.domain import AgentSDK, CodePlaneError, SDKModelMismatchError
+from backend.models.domain import AgentSDK, SDKModelMismatchError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from backend.models.api_schemas import ExecutionPhase
     from backend.models.domain import SessionConfig, SessionEvent
 
 

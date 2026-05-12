@@ -8,62 +8,164 @@ from __future__ import annotations
 import re
 import shlex
 
-
 # ---------------------------------------------------------------------------
 # POSIX builtins
 # ---------------------------------------------------------------------------
 
-_POSIX_OBSERVE = frozenset({
-    "ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg",
-    "find", "wc", "echo", "pwd", "env", "printenv", "whoami", "date",
-    "file", "stat", "du", "tree", "sort", "diff", "more", "less",
-    "which", "type", "basename", "dirname", "realpath", "readlink",
-    "test", "true", "false", "tee",
-})
+_POSIX_OBSERVE = frozenset(
+    {
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "find",
+        "wc",
+        "echo",
+        "pwd",
+        "env",
+        "printenv",
+        "whoami",
+        "date",
+        "file",
+        "stat",
+        "du",
+        "tree",
+        "sort",
+        "diff",
+        "more",
+        "less",
+        "which",
+        "type",
+        "basename",
+        "dirname",
+        "realpath",
+        "readlink",
+        "test",
+        "true",
+        "false",
+        "tee",
+    }
+)
 
-_POSIX_UNCONTAINED = frozenset({
-    "curl", "wget", "ssh", "scp", "rsync", "nc", "ncat",
-    "telnet", "ftp", "sftp", "sendmail", "mail",
-})
+_POSIX_UNCONTAINED = frozenset(
+    {
+        "curl",
+        "wget",
+        "ssh",
+        "scp",
+        "rsync",
+        "nc",
+        "ncat",
+        "telnet",
+        "ftp",
+        "sftp",
+        "sendmail",
+        "mail",
+    }
+)
 
-_POSIX_IRREVERSIBLE = frozenset({
-    "rm", "shred", "dd", "mkfs", "fdisk",
-    "kill", "killall", "pkill", "shutdown", "reboot", "halt",
-})
+_POSIX_IRREVERSIBLE = frozenset(
+    {
+        "rm",
+        "shred",
+        "dd",
+        "mkfs",
+        "fdisk",
+        "kill",
+        "killall",
+        "pkill",
+        "shutdown",
+        "reboot",
+        "halt",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # PowerShell verb taxonomy
 # ---------------------------------------------------------------------------
 
-_PS_OBSERVE_VERBS = frozenset({
-    "Get", "Find", "Search", "Test", "Measure",
-    "Compare", "Select", "Format", "Out", "Show", "Read", "Watch",
-    "Write",
-})
+_PS_OBSERVE_VERBS = frozenset(
+    {
+        "Get",
+        "Find",
+        "Search",
+        "Test",
+        "Measure",
+        "Compare",
+        "Select",
+        "Format",
+        "Out",
+        "Show",
+        "Read",
+        "Watch",
+        "Write",
+    }
+)
 
-_PS_MUTATING_VERBS = frozenset({
-    "Set", "New", "Add", "Remove", "Clear",
-    "Move", "Rename", "Copy", "Update", "Reset", "Enable", "Disable",
-})
+_PS_MUTATING_VERBS = frozenset(
+    {
+        "Set",
+        "New",
+        "Add",
+        "Remove",
+        "Clear",
+        "Move",
+        "Rename",
+        "Copy",
+        "Update",
+        "Reset",
+        "Enable",
+        "Disable",
+    }
+)
 
-_PS_UNCONTAINED_VERBS = frozenset({
-    "Send", "Connect", "Disconnect", "Publish", "Push", "Invoke-Web",
-})
+_PS_UNCONTAINED_VERBS = frozenset(
+    {
+        "Send",
+        "Connect",
+        "Disconnect",
+        "Publish",
+        "Push",
+        "Invoke-Web",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # cmd.exe builtins
 # ---------------------------------------------------------------------------
 
-_CMD_OBSERVE = frozenset({
-    "dir", "type", "echo", "set", "ver", "where",
-    "findstr", "find", "more", "tree", "path", "vol",
-})
+_CMD_OBSERVE = frozenset(
+    {
+        "dir",
+        "type",
+        "echo",
+        "set",
+        "ver",
+        "where",
+        "findstr",
+        "find",
+        "more",
+        "tree",
+        "path",
+        "vol",
+    }
+)
 
-_CMD_IRREVERSIBLE = frozenset({
-    "del", "erase", "rmdir", "rd", "format",
-})
+_CMD_IRREVERSIBLE = frozenset(
+    {
+        "del",
+        "erase",
+        "rmdir",
+        "rd",
+        "format",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -71,88 +173,88 @@ _CMD_IRREVERSIBLE = frozenset({
 # ---------------------------------------------------------------------------
 
 _GIT_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "status":       (True,  True),
-    "log":          (True,  True),
-    "diff":         (True,  True),
-    "show":         (True,  True),
-    "branch":       (True,  True),
-    "stash":        (True,  True),
-    "add":          (True,  True),
-    "commit":       (True,  True),
-    "checkout":     (True,  True),
-    "switch":       (True,  True),
-    "restore":      (True,  True),
-    "revert":       (True,  True),
-    "tag":          (True,  True),
-    "fetch":        (True,  False),
-    "pull":         (True,  False),
-    "push":         (True,  False),
-    "force-push":   (False, False),
-    "reset":        (True,  True),   # default; --hard overridden below
-    "clean":        (False, True),
-    "clone":        (True,  False),
-    "remote":       (True,  True),
-    "merge":        (True,  True),
-    "rebase":       (True,  True),
-    "cherry-pick":  (True,  True),
+    "status": (True, True),
+    "log": (True, True),
+    "diff": (True, True),
+    "show": (True, True),
+    "branch": (True, True),
+    "stash": (True, True),
+    "add": (True, True),
+    "commit": (True, True),
+    "checkout": (True, True),
+    "switch": (True, True),
+    "restore": (True, True),
+    "revert": (True, True),
+    "tag": (True, True),
+    "fetch": (True, False),
+    "pull": (True, False),
+    "push": (True, False),
+    "force-push": (False, False),
+    "reset": (True, True),  # default; --hard overridden below
+    "clean": (False, True),
+    "clone": (True, False),
+    "remote": (True, True),
+    "merge": (True, True),
+    "rebase": (True, True),
+    "cherry-pick": (True, True),
 }
 
 _NPM_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "install":  (True,  True),
-    "ci":       (True,  True),
-    "test":     (True,  True),
-    "run":      (True,  True),
-    "start":    (True,  True),
-    "build":    (True,  True),
-    "publish":  (False, False),
+    "install": (True, True),
+    "ci": (True, True),
+    "test": (True, True),
+    "run": (True, True),
+    "start": (True, True),
+    "build": (True, True),
+    "publish": (False, False),
     "unpublish": (False, False),
-    "link":     (True,  True),
+    "link": (True, True),
     "uninstall": (True, True),
 }
 
 _CARGO_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "build":    (True,  True),
-    "test":     (True,  True),
-    "check":    (True,  True),
-    "run":      (True,  True),
-    "clippy":   (True,  True),
-    "fmt":      (True,  True),
-    "publish":  (False, False),
-    "install":  (True,  True),
+    "build": (True, True),
+    "test": (True, True),
+    "check": (True, True),
+    "run": (True, True),
+    "clippy": (True, True),
+    "fmt": (True, True),
+    "publish": (False, False),
+    "install": (True, True),
 }
 
 _DOCKER_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "build":    (True,  True),
-    "run":      (True,  True),
-    "exec":     (False, True),
-    "ps":       (True,  True),
-    "images":   (True,  True),
-    "logs":     (True,  True),
-    "pull":     (True,  False),
-    "push":     (False, False),
-    "rm":       (True,  True),
-    "rmi":      (True,  True),
-    "stop":     (True,  True),
-    "start":    (True,  True),
-    "compose":  (True,  True),
+    "build": (True, True),
+    "run": (True, True),
+    "exec": (False, True),
+    "ps": (True, True),
+    "images": (True, True),
+    "logs": (True, True),
+    "pull": (True, False),
+    "push": (False, False),
+    "rm": (True, True),
+    "rmi": (True, True),
+    "stop": (True, True),
+    "start": (True, True),
+    "compose": (True, True),
 }
 
 _PIP_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "install":  (True,  True),
+    "install": (True, True),
     "uninstall": (True, True),
-    "list":     (True,  True),
-    "show":     (True,  True),
-    "freeze":   (True,  True),
+    "list": (True, True),
+    "show": (True, True),
+    "freeze": (True, True),
 }
 
 _UV_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "sync":     (True,  True),
-    "add":      (True,  True),
-    "remove":   (True,  True),
-    "run":      (True,  True),
-    "lock":     (True,  True),
-    "pip":      (True,  True),
-    "publish":  (False, False),
+    "sync": (True, True),
+    "add": (True, True),
+    "remove": (True, True),
+    "run": (True, True),
+    "lock": (True, True),
+    "pip": (True, True),
+    "publish": (False, False),
 }
 
 _CROSS_PLATFORM_TOOLS: dict[str, dict[str, tuple[bool, bool]]] = {
@@ -196,6 +298,7 @@ def _extract_binary_and_sub(cmd: str) -> tuple[str, str | None]:
         return "", None
 
     import os
+
     binary = os.path.basename(parts[0]).lower()
 
     # Strip common suffixes

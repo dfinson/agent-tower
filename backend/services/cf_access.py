@@ -47,7 +47,7 @@ _certs_url: str | None = None
 # refresh can be triggered from any request thread).
 _jwks_lock = threading.Lock()
 _jwks_keys: list[dict[str, Any]] = []
-from backend.models.domain import CodePlaneError
+from backend.models.domain import CodePlaneError  # noqa: E402
 
 _jwks_fetched_at: float = 0
 

@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.models.schemas.base import CamelModel
 
-
 # ---------------------------------------------------------------------------
 # Cost attribution
 # ---------------------------------------------------------------------------

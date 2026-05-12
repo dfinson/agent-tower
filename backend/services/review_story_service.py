@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import re
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import structlog
@@ -28,7 +28,7 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 
-class DensityLevel(str, Enum):
+class DensityLevel(StrEnum):
     FULL = "full"
     SUMMARY = "summary"
     GROUPED = "grouped"
@@ -41,7 +41,7 @@ class DensityLevel(str, Enum):
 # ---------------------------------------------------------------------------
 
 
-class EdgeCaseKind(str, Enum):
+class EdgeCaseKind(StrEnum):
     DOCUMENTATION = "documentation"
     GENERATED = "generated"
     BULK_RENAME = "bulk_rename"
@@ -87,9 +87,15 @@ class PatternGroup(TypedDict, total=False):
 # File classification patterns
 # ---------------------------------------------------------------------------
 
-_DOC_EXTENSIONS = frozenset({
-    ".md", ".rst", ".txt", ".adoc", ".asciidoc",
-})
+_DOC_EXTENSIONS = frozenset(
+    {
+        ".md",
+        ".rst",
+        ".txt",
+        ".adoc",
+        ".asciidoc",
+    }
+)
 _DOC_PATHS = re.compile(r"(^docs?/|/docs?/|README|CHANGELOG|LICENSE|CONTRIBUTING)", re.IGNORECASE)
 
 _GENERATED_PATHS = re.compile(
@@ -97,11 +103,19 @@ _GENERATED_PATHS = re.compile(
     r"schema\.d\.ts$|openapi\.json$|openapi\.yaml$|\.pb\.go$|_pb2\.py$)",
     re.IGNORECASE,
 )
-_GENERATED_HEADERS = frozenset({
-    "# generated", "// generated", "/* generated", "# auto-generated",
-    "// auto-generated", "/* auto-generated", "# do not edit",
-    "// do not edit", "/* do not edit",
-})
+_GENERATED_HEADERS = frozenset(
+    {
+        "# generated",
+        "// generated",
+        "/* generated",
+        "# auto-generated",
+        "// auto-generated",
+        "/* auto-generated",
+        "# do not edit",
+        "// do not edit",
+        "/* do not edit",
+    }
+)
 
 _VENDOR_PATHS = re.compile(
     r"(^vendor/|/vendor/|node_modules/|\.lock$|lock\.json$|"
@@ -109,11 +123,19 @@ _VENDOR_PATHS = re.compile(
     re.IGNORECASE,
 )
 
-_LOCK_FILES = frozenset({
-    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-    "uv.lock", "poetry.lock", "Gemfile.lock", "Cargo.lock",
-    "go.sum", "composer.lock",
-})
+_LOCK_FILES = frozenset(
+    {
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "uv.lock",
+        "poetry.lock",
+        "Gemfile.lock",
+        "Cargo.lock",
+        "go.sum",
+        "composer.lock",
+    }
+)
 
 # Cognitive-load budget caps from §11.2.2
 _ATTENTION_CAP = 5
@@ -127,8 +149,8 @@ _ADDITIVE_CAP = 7
 
 
 def classify_density(
-    change: "StructuralChange",
-    all_changes: list["StructuralChange"],
+    change: StructuralChange,
+    all_changes: list[StructuralChange],
 ) -> DensityLevel:
     """Assign a density level to a single structural change per §11.4."""
     # Escalation rules (§11.4.2): always FULL
@@ -191,13 +213,13 @@ def _find_production_mirror(test_path: str, prod_files: set[str]) -> str | None:
     # test_foo.py → foo.py
     for prefix in ("test_",):
         if base.startswith(prefix):
-            candidate = base[len(prefix):]
+            candidate = base[len(prefix) :]
             if any(os.path.basename(f).lower() == candidate for f in prod_files):
                 return candidate
     # foo.test.ts → foo.ts
     for suffix in (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"):
         if base.endswith(suffix):
-            candidate = base[: -len(suffix)] + base[base.rfind("."):]
+            candidate = base[: -len(suffix)] + base[base.rfind(".") :]
             if any(os.path.basename(f).lower() == candidate for f in prod_files):
                 return candidate
     return None
@@ -209,8 +231,8 @@ def _find_production_mirror(test_path: str, prod_files: set[str]) -> str | None:
 
 
 def detect_edge_cases(
-    changes: list["StructuralChange"],
-) -> tuple[list[EdgeCaseBlock], list["StructuralChange"]]:
+    changes: list[StructuralChange],
+) -> tuple[list[EdgeCaseBlock], list[StructuralChange]]:
     """Detect and extract edge-case changes, returning blocks + remaining changes.
 
     Returns:
@@ -218,12 +240,12 @@ def detect_edge_cases(
         NOT absorbed into an edge-case block.
     """
     edge_blocks: list[EdgeCaseBlock] = []
-    remaining: list["StructuralChange"] = []
+    remaining: list[StructuralChange] = []
 
     doc_files: list[str] = []
     generated_files: list[str] = []
     vendor_files: list[str] = []
-    bulk_candidates: list["StructuralChange"] = []
+    bulk_candidates: list[StructuralChange] = []
 
     for ch in changes:
         filepath = ch.file
@@ -253,31 +275,40 @@ def detect_edge_cases(
 
     # Build edge-case blocks
     if doc_files:
-        edge_blocks.append(EdgeCaseBlock(
-            kind=EdgeCaseKind.DOCUMENTATION.value,
-            icon="📄",
-            title=f"Documentation ({len(doc_files)} file{'s' if len(doc_files) != 1 else ''})",
-            files=doc_files[:10],
-            detail="These files have no structural impact. Review for accuracy and completeness outside the structural story.",
-        ))
+        edge_blocks.append(
+            EdgeCaseBlock(
+                kind=EdgeCaseKind.DOCUMENTATION.value,
+                icon="📄",
+                title=f"Documentation ({len(doc_files)} file{'s' if len(doc_files) != 1 else ''})",
+                files=doc_files[:10],
+                detail=(
+                    "These files have no structural impact."
+                    " Review for accuracy and completeness outside the structural story."
+                ),
+            )
+        )
 
     if generated_files:
-        edge_blocks.append(EdgeCaseBlock(
-            kind=EdgeCaseKind.GENERATED.value,
-            icon="🔧",
-            title=f"Generated / Migrations ({len(generated_files)} file{'s' if len(generated_files) != 1 else ''})",
-            files=generated_files[:10],
-            detail="Generated content. Verify the source (schema/spec), not the output.",
-        ))
+        edge_blocks.append(
+            EdgeCaseBlock(
+                kind=EdgeCaseKind.GENERATED.value,
+                icon="🔧",
+                title=f"Generated / Migrations ({len(generated_files)} file{'s' if len(generated_files) != 1 else ''})",
+                files=generated_files[:10],
+                detail="Generated content. Verify the source (schema/spec), not the output.",
+            )
+        )
 
     if vendor_files:
-        edge_blocks.append(EdgeCaseBlock(
-            kind=EdgeCaseKind.VENDOR.value,
-            icon="📦",
-            title=f"Dependencies ({len(vendor_files)} file{'s' if len(vendor_files) != 1 else ''})",
-            files=vendor_files[:5],
-            detail="Dependency manifests. Verify version constraints are intentional.",
-        ))
+        edge_blocks.append(
+            EdgeCaseBlock(
+                kind=EdgeCaseKind.VENDOR.value,
+                icon="📦",
+                title=f"Dependencies ({len(vendor_files)} file{'s' if len(vendor_files) != 1 else ''})",
+                files=vendor_files[:5],
+                detail="Dependency manifests. Verify version constraints are intentional.",
+            )
+        )
 
     # Bulk rename detection (§11.5.3)
     bulk_group = _detect_bulk_rename(bulk_candidates)
@@ -291,20 +322,22 @@ def detect_edge_cases(
     deleted = [c for c in remaining if c.kind == "removed" and c.ref_count == 0]
     if len(deleted) >= 3:
         deleted_files = [c.file for c in deleted]
-        edge_blocks.append(EdgeCaseBlock(
-            kind=EdgeCaseKind.PURE_DELETION.value,
-            icon="🗑️",
-            title=f"Removed ({len(deleted)} unused symbol{'s' if len(deleted) != 1 else ''})",
-            files=deleted_files[:10],
-            detail=f"Removed {len(deleted)} symbol(s) with 0 external callers.",
-        ))
+        edge_blocks.append(
+            EdgeCaseBlock(
+                kind=EdgeCaseKind.PURE_DELETION.value,
+                icon="🗑️",
+                title=f"Removed ({len(deleted)} unused symbol{'s' if len(deleted) != 1 else ''})",
+                files=deleted_files[:10],
+                detail=f"Removed {len(deleted)} symbol(s) with 0 external callers.",
+            )
+        )
         deleted_set = {c.file for c in deleted}
         remaining = [c for c in remaining if c.file not in deleted_set or c.kind != "removed"]
 
     return edge_blocks, remaining
 
 
-def _detect_bulk_rename(changes: list["StructuralChange"]) -> EdgeCaseBlock | None:
+def _detect_bulk_rename(changes: list[StructuralChange]) -> EdgeCaseBlock | None:
     """Detect bulk rename/move patterns (§11.5.3).
 
     Heuristic: >10 files with the same kind ('moved') or many body changes
@@ -329,14 +362,14 @@ def _detect_bulk_rename(changes: list["StructuralChange"]) -> EdgeCaseBlock | No
 
 
 def aggregate_by_community(
-    changes: list["StructuralChange"],
+    changes: list[StructuralChange],
     file_to_community: dict[str, str],
 ) -> list[CommunityRollup]:
     """Group body changes by community into rollup summaries (§11.6.1).
 
     Used when body changes exceed the cognitive-load cap.
     """
-    grouped: dict[str, list["StructuralChange"]] = {}
+    grouped: dict[str, list[StructuralChange]] = {}
     for ch in changes:
         comm = file_to_community.get(ch.file, "unclustered")
         grouped.setdefault(comm, []).append(ch)
@@ -346,25 +379,23 @@ def aggregate_by_community(
         risks = [c.risk for c in members]
         avg_risk = sum(risks) / len(risks) if risks else 0.0
         highest = max(members, key=lambda c: c.risk)
-        rollups.append(CommunityRollup(
-            name=name,
-            change_count=len(members),
-            avg_risk=round(avg_risk, 2),
-            highest_risk_symbol=highest.symbol,
-            highest_risk=highest.risk,
-            summary=_community_summary(name, members),
-        ))
+        rollups.append(
+            CommunityRollup(
+                name=name,
+                change_count=len(members),
+                avg_risk=round(avg_risk, 2),
+                highest_risk_symbol=highest.symbol,
+                highest_risk=highest.risk,
+                summary=_community_summary(name, members),
+            )
+        )
 
     return rollups
 
 
-def _community_summary(name: str, members: list["StructuralChange"]) -> str:
+def _community_summary(name: str, members: list[StructuralChange]) -> str:
     """Build a one-line community rollup summary."""
-    all_verified = all(
-        c.ref_tiers.get("unverified", 0) == 0
-        for c in members
-        if c.ref_count > 0
-    )
+    all_verified = all(c.ref_tiers.get("unverified", 0) == 0 for c in members if c.ref_count > 0)
     high_caller = [c for c in members if c.ref_count > 10]
 
     parts: list[str] = []
@@ -379,7 +410,7 @@ def _community_summary(name: str, members: list["StructuralChange"]) -> str:
     return " ".join(parts) if parts else "Internal implementation changes."
 
 
-def detect_pattern_groups(changes: list["StructuralChange"]) -> list[PatternGroup]:
+def detect_pattern_groups(changes: list[StructuralChange]) -> list[PatternGroup]:
     """Detect repeated structural patterns across changes (§11.6.2).
 
     If multiple changes share the same summary pattern, group them.
@@ -388,7 +419,7 @@ def detect_pattern_groups(changes: list["StructuralChange"]) -> list[PatternGrou
         return []
 
     # Group by normalized summary
-    by_summary: dict[str, list["StructuralChange"]] = {}
+    by_summary: dict[str, list[StructuralChange]] = {}
     for ch in changes:
         key = _normalize_summary(ch.summary or "")
         if key:
@@ -397,12 +428,14 @@ def detect_pattern_groups(changes: list["StructuralChange"]) -> list[PatternGrou
     groups: list[PatternGroup] = []
     for pattern, members in by_summary.items():
         if len(members) >= 3:
-            groups.append(PatternGroup(
-                pattern=pattern,
-                count=len(members),
-                files=[c.file for c in members],
-                summary=f"{len(members)} changes share the pattern: {pattern}",
-            ))
+            groups.append(
+                PatternGroup(
+                    pattern=pattern,
+                    count=len(members),
+                    files=[c.file for c in members],
+                    summary=f"{len(members)} changes share the pattern: {pattern}",
+                )
+            )
 
     return groups
 
@@ -422,7 +455,7 @@ def _normalize_summary(summary: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def is_small_job(changes: list["StructuralChange"]) -> bool:
+def is_small_job(changes: list[StructuralChange]) -> bool:
     """Check if a job is small enough for collapsed single-paragraph verdict."""
     structural = [c for c in changes if c.category != "non-structural"]
     breaking = [c for c in changes if c.category == "breaking"]
@@ -445,7 +478,7 @@ class StoryClassification(TypedDict, total=False):
 
 
 def classify_story(
-    changes: list["StructuralChange"],
+    changes: list[StructuralChange],
     file_to_community: dict[str, str] | None = None,
 ) -> StoryClassification:
     """Full classification pipeline — density, edge cases, aggregation.

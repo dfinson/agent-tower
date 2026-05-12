@@ -17,11 +17,13 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from backend.services.event_bus import EventBus
     from backend.services.git_service import GitService
 
@@ -33,12 +35,8 @@ log = structlog.get_logger()
 
 _MAX_FILES_PER_STEP = 50
 
-_READ_TOOLS = frozenset(
-    name for name, cat in TOOL_CATEGORIES.items() if cat in ("file_read", "file_search")
-)
-_WRITE_TOOLS = frozenset(
-    name for name, cat in TOOL_CATEGORIES.items() if cat == "file_write"
-)
+_READ_TOOLS = frozenset(name for name, cat in TOOL_CATEGORIES.items() if cat in ("file_read", "file_search"))
+_WRITE_TOOLS = frozenset(name for name, cat in TOOL_CATEGORIES.items() if cat == "file_write")
 
 
 def _extract_file_path(tool_name: str, tool_args: str) -> str | None:
@@ -411,10 +409,7 @@ def hydrate_plan_steps(
     Returns:
         List of dicts suitable for constructing PlanStepPayload objects.
     """
-    if detect_generations:
-        allowed_ids = _detect_latest_generation(step_events)
-    else:
-        allowed_ids = None
+    allowed_ids = _detect_latest_generation(step_events) if detect_generations else None
 
     step_latest: dict[str, dict[str, Any]] = {}
     step_order: list[str] = []
@@ -434,19 +429,21 @@ def hydrate_plan_steps(
         p = step_latest[sid]
         if exclude_pending and p.get("status") == "pending":
             continue
-        result.append({
-            "job_id": job_id,
-            "plan_step_id": p.get("plan_step_id", ""),
-            "label": p.get("label", ""),
-            "summary": p.get("summary"),
-            "status": p.get("status", "pending"),
-            "order": p.get("order", 0),
-            "tool_count": p.get("tool_count", 0),
-            "files_written": p.get("files_written"),
-            "started_at": p.get("started_at"),
-            "completed_at": p.get("completed_at"),
-            "duration_ms": p.get("duration_ms"),
-            "start_sha": p.get("start_sha"),
-            "end_sha": p.get("end_sha"),
-        })
+        result.append(
+            {
+                "job_id": job_id,
+                "plan_step_id": p.get("plan_step_id", ""),
+                "label": p.get("label", ""),
+                "summary": p.get("summary"),
+                "status": p.get("status", "pending"),
+                "order": p.get("order", 0),
+                "tool_count": p.get("tool_count", 0),
+                "files_written": p.get("files_written"),
+                "started_at": p.get("started_at"),
+                "completed_at": p.get("completed_at"),
+                "duration_ms": p.get("duration_ms"),
+                "start_sha": p.get("start_sha"),
+                "end_sha": p.get("end_sha"),
+            }
+        )
     return result

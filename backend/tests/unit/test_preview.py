@@ -21,7 +21,7 @@ def preview_client() -> AsyncMock:
 @pytest.fixture()
 def app(preview_client: AsyncMock) -> FastAPI:
     """Minimal FastAPI app with the preview router and a mock DI override."""
-    from dishka import make_async_container, Provider, Scope, provide
+    from dishka import Provider, Scope, make_async_container, provide
     from dishka.integrations.fastapi import setup_dishka
 
     class TestProvider(Provider):

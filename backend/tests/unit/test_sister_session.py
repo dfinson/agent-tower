@@ -8,16 +8,15 @@ from __future__ import annotations
 
 import asyncio
 from collections import namedtuple
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from backend.services.sister_session import (
+    _UTILITY_SYSTEM_PROMPT,
     SisterSession,
     SisterSessionManager,
-    _UTILITY_SYSTEM_PROMPT,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -311,7 +310,7 @@ class TestShutdown:
         mgr._fast_completer.close = AsyncMock()
         mgr._fill_pool()
         mgr.create_for_job("j1")
-        token = mgr.warm()
+        _token = mgr.warm()
 
         await mgr.shutdown()
 

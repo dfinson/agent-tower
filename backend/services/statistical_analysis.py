@@ -20,21 +20,22 @@ import structlog
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.observations_repo import ObservationsRepository
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
 log = structlog.get_logger()
 
 
 async def run_analysis(session: AsyncSession) -> int:
     """Run all analysis passes. Returns the number of observations written."""
+    from backend.persistence.cost_attribution_repo import CostAttributionRepository
     from backend.persistence.file_access_repo import FileAccessRepository
     from backend.persistence.observations_repo import ObservationsRepository
-    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
     from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
+    from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
     obs_repo = ObservationsRepository(session)
     file_repo = FileAccessRepository(session)
@@ -158,7 +159,10 @@ async def _analyse_retry_waste(spans_repo: TelemetrySpansRepository, obs_repo: O
     return count
 
 
-async def _analyse_compaction_storms(summary_repo: TelemetryAnalyticsRepository, obs_repo: ObservationsRepository) -> int:
+async def _analyse_compaction_storms(
+    summary_repo: TelemetryAnalyticsRepository,
+    obs_repo: ObservationsRepository,
+) -> int:
     """Detect jobs with excessive context compactions."""
     rows = await summary_repo.compaction_storm_jobs()
     if len(rows) < 2:
@@ -193,7 +197,8 @@ async def _analyse_compaction_storms(summary_repo: TelemetryAnalyticsRepository,
 
 
 async def _analyse_cache_efficiency_regression(
-    summary_repo: TelemetryAnalyticsRepository, obs_repo: ObservationsRepository,
+    summary_repo: TelemetryAnalyticsRepository,
+    obs_repo: ObservationsRepository,
 ) -> int:
     """Detect drops in cache hit rate compared to the prior period."""
     row = await summary_repo.cache_efficiency_periods()
@@ -243,11 +248,10 @@ async def _analyse_cache_efficiency_regression(
 
 
 async def _analyse_communication_waste(
-    cost_repo: "CostAttributionRepository",
-    obs_repo: "ObservationsRepository",
+    cost_repo: CostAttributionRepository,
+    obs_repo: ObservationsRepository,
 ) -> int:
     """Flag jobs where communication + reasoning dominate cost."""
-    from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
     rows = await cost_repo.communication_heavy_jobs(period_days=14)
     if not rows:
@@ -293,8 +297,8 @@ async def _analyse_communication_waste(
 
 
 async def _analyse_unproductive_exploration(
-    cost_repo: "CostAttributionRepository",
-    obs_repo: "ObservationsRepository",
+    cost_repo: CostAttributionRepository,
+    obs_repo: ObservationsRepository,
 ) -> int:
     """Flag jobs where investigation dominated cost and no code landed."""
     rows = await cost_repo.unproductive_exploration_jobs(period_days=14)
@@ -305,10 +309,7 @@ async def _analyse_unproductive_exploration(
     await obs_repo.upsert(
         category="unproductive_exploration",
         severity="warning" if total_waste >= 5.0 else "info",
-        title=(
-            f"{len(rows)} jobs spent majority of cost investigating "
-            f"but produced no merged output"
-        ),
+        title=(f"{len(rows)} jobs spent majority of cost investigating but produced no merged output"),
         detail=(
             f"These jobs spent {total_waste:.2f} USD on investigation/exploration "
             f"turns and ended as discarded or failed. Consider more targeted "
@@ -341,23 +342,19 @@ async def _analyse_unproductive_exploration(
 
 
 async def _analyse_delegation_overhead(
-    summary_repo: "TelemetryAnalyticsRepository",
-    obs_repo: "ObservationsRepository",
+    summary_repo: TelemetryAnalyticsRepository,
+    obs_repo: ObservationsRepository,
 ) -> int:
     """Flag jobs where sub-agent cost exceeds parent direct cost."""
     rows = await summary_repo.high_delegation_jobs(period_days=14)
     if not rows:
         return 0
 
-    total_delegation_excess = sum(
-        float(r["subagent_cost_usd"]) - float(r["direct_cost_usd"]) for r in rows
-    )
+    total_delegation_excess = sum(float(r["subagent_cost_usd"]) - float(r["direct_cost_usd"]) for r in rows)
     await obs_repo.upsert(
         category="delegation_overhead",
         severity="warning" if total_delegation_excess >= 5.0 else "info",
-        title=(
-            f"{len(rows)} jobs spent more on sub-agents than on direct work"
-        ),
+        title=(f"{len(rows)} jobs spent more on sub-agents than on direct work"),
         detail=(
             f"These jobs delegated work to sub-agents that cost more than "
             f"the parent job's own LLM calls. Excess delegation cost: "
@@ -373,8 +370,11 @@ async def _analyse_delegation_overhead(
                     "direct_cost_usd": round(float(r["direct_cost_usd"]), 4),
                     "total_cost_usd": round(float(r["total_cost_usd"]), 4),
                     "delegation_pct": round(
-                        float(r["subagent_cost_usd"]) / float(r["total_cost_usd"]), 2,
-                    ) if float(r["total_cost_usd"]) > 0 else 0.0,
+                        float(r["subagent_cost_usd"]) / float(r["total_cost_usd"]),
+                        2,
+                    )
+                    if float(r["total_cost_usd"]) > 0
+                    else 0.0,
                 }
                 for r in rows[:10]
             ],

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -150,12 +149,10 @@ class TestMotivationServiceDrain:
         completer = AsyncMock()
         svc = MotivationService(session_factory=mock_session_factory, completer=completer)
 
-        with patch(
-            "backend.persistence.telemetry_spans_repo.TelemetrySpansRepository"
-        ) as MockRepo:
+        with patch("backend.persistence.telemetry_spans_repo.TelemetrySpansRepository") as mock_repo:
             repo_inst = AsyncMock()
             repo_inst.unsummarized_spans = AsyncMock(return_value=[])
-            MockRepo.return_value = repo_inst
+            mock_repo.return_value = repo_inst
 
             count = await svc.drain_unsummarized()
             assert count == 0
@@ -182,27 +179,21 @@ class TestMotivationServiceDrain:
         }
 
         with (
-            patch(
-                "backend.persistence.telemetry_spans_repo.TelemetrySpansRepository"
-            ) as MockRepo,
-            patch(
-                "backend.persistence.job_repo.JobRepository"
-            ) as MockJobRepo,
+            patch("backend.persistence.telemetry_spans_repo.TelemetrySpansRepository") as mock_repo,
+            patch("backend.persistence.job_repo.JobRepository") as mock_job_repo,
         ):
             repo_inst = AsyncMock()
             repo_inst.unsummarized_spans = AsyncMock(return_value=[span])
             repo_inst.set_motivation_summary = AsyncMock()
-            MockRepo.return_value = repo_inst
+            mock_repo.return_value = repo_inst
 
             job_repo_inst = AsyncMock()
             job_repo_inst.get = AsyncMock(return_value=None)
-            MockJobRepo.return_value = job_repo_inst
+            mock_job_repo.return_value = job_repo_inst
 
             count = await svc.drain_unsummarized()
             assert count == 1
-            repo_inst.set_motivation_summary.assert_called_once_with(
-                "span-1", "Title line\nExplanation line"
-            )
+            repo_inst.set_motivation_summary.assert_called_once_with("span-1", "Title line\nExplanation line")
 
 
 class TestEditMotivationDrain:
@@ -221,13 +212,11 @@ class TestEditMotivationDrain:
 
         span = {"id": "span-1", "name": "replace", "tool_args_json": None}
 
-        with patch(
-            "backend.persistence.telemetry_spans_repo.TelemetrySpansRepository"
-        ) as MockRepo:
+        with patch("backend.persistence.telemetry_spans_repo.TelemetrySpansRepository") as mock_repo:
             repo_inst = AsyncMock()
             repo_inst.unenriched_edit_spans = AsyncMock(return_value=[span])
             repo_inst.set_edit_motivations = AsyncMock()
-            MockRepo.return_value = repo_inst
+            mock_repo.return_value = repo_inst
 
             count = await svc.drain_edit_motivations()
             assert count == 1

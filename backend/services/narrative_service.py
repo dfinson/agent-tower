@@ -9,6 +9,7 @@ trail infrastructure (enriched semantic nodes, activity groups, plan steps).
 
 from __future__ import annotations
 
+import contextlib
 import json
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -104,10 +105,7 @@ _NARRATIVE_SYSTEM = (
 )
 
 _VERBOSITY_SUFFIX = {
-    "brief": (
-        "\n\nVERBOSITY=brief: Executive summary only. "
-        "Decisions and backtracks in single sentences."
-    ),
+    "brief": ("\n\nVERBOSITY=brief: Executive summary only. Decisions and backtracks in single sentences."),
     "standard": "",
     "detailed": (
         "\n\nVERBOSITY=detailed: Full arc with exploration details, "
@@ -143,10 +141,8 @@ async def _fetch_beats(session: AsyncSession, job_id: str) -> list[NarrativeBeat
     for node in nodes:
         files_list: list[str] = []
         if node.files:
-            try:
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
                 files_list = json.loads(node.files)
-            except (json.JSONDecodeError, TypeError):
-                pass
         beat: NarrativeBeat = {"kind": node.kind, "seq": node.seq}
         if node.intent:
             beat["intent"] = node.intent
@@ -181,9 +177,10 @@ async def _fetch_context(session: AsyncSession, job_id: str) -> dict[str, Any]:
         ctx["description"] = job["description"]
 
     # Activity groups
+    from sqlalchemy import func, select
+
     from backend.models.db import TrailNodeRow
 
-    from sqlalchemy import select, func
     stmt = (
         select(
             TrailNodeRow.activity_label,
@@ -264,7 +261,7 @@ def _parse_blocks(raw: str) -> list[NarrativeBlock]:
     raw = raw.strip()
 
     # Split on ---BLOCK--- markers
-    if "---BLOCK---" in raw:
+    if "---BLOCK---" in raw:  # noqa: SIM108
         segments = [s.strip() for s in raw.split("---BLOCK---") if s.strip()]
     else:
         # Fallback: treat as single prose block
@@ -280,7 +277,7 @@ def _parse_blocks(raw: str) -> list[NarrativeBlock]:
         for tag in ["[DECIDE]", "[BACKTRACK]", "[INSIGHT]", "[VERIFY]"]:
             if seg.startswith(tag):
                 beat_kind = tag[1:-1].lower()
-                seg = seg[len(tag):].strip()
+                seg = seg[len(tag) :].strip()
                 break
 
         if beat_kind:
@@ -365,11 +362,12 @@ def _beats_to_fallback_blocks(
     blocks: list[NarrativeBlock] = []
 
     title = context.get("title") or "this task"
-    blocks.append({
-        "type": "lede",
-        "text": f"The agent worked on {title}. "
-        f"During execution, {len(beats)} notable moments were recorded.",
-    })
+    blocks.append(
+        {
+            "type": "lede",
+            "text": f"The agent worked on {title}. During execution, {len(beats)} notable moments were recorded.",
+        }
+    )
 
     for beat in beats:
         kind = beat.get("kind", "unknown")
@@ -381,11 +379,13 @@ def _beats_to_fallback_blocks(
             text_parts.append(rationale)
         if outcome:
             text_parts.append(outcome)
-        blocks.append({
-            "type": "beat",
-            "text": " — ".join(p for p in text_parts if p),
-            "beat_kind": kind,
-            "files": beat.get("files", []),
-        })
+        blocks.append(
+            {
+                "type": "beat",
+                "text": " — ".join(p for p in text_parts if p),
+                "beat_kind": kind,
+                "files": beat.get("files", []),
+            }
+        )
 
     return blocks

@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from backend.models.db import TrailNodeRow
 from backend.persistence.trail_repo import TrailNodeRepository
-from backend.services.trail.models import TrailNodeDict, TrailResponse, TrailSummary, _BacktrackDict, _DecisionDict
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from backend.models.db import TrailNodeRow
+    from backend.services.trail.models import TrailNodeDict, TrailResponse, TrailSummary, _BacktrackDict, _DecisionDict
 
 
 class TrailQueryService:
@@ -72,16 +73,20 @@ class TrailQueryService:
             elif node.kind in ("plan", "modify") and node.intent:
                 approach_parts.append(node.intent)
             elif node.kind == "decide" and node.intent:
-                key_decisions.append({
-                    "decision": node.intent,
-                    "rationale": node.rationale,
-                })
+                key_decisions.append(
+                    {
+                        "decision": node.intent,
+                        "rationale": node.rationale,
+                    }
+                )
             elif node.kind == "backtrack" and node.intent:
-                backtracks.append({
-                    "original": node.supersedes or "(unknown)",
-                    "replacement": node.intent,
-                    "reason": node.rationale,
-                })
+                backtracks.append(
+                    {
+                        "original": node.supersedes or "(unknown)",
+                        "replacement": node.intent,
+                        "reason": node.rationale,
+                    }
+                )
             elif node.kind == "explore":
                 explore_files.update(files)
             elif node.kind == "verify":

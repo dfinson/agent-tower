@@ -255,7 +255,10 @@ def classify_action_from_tools(
         return "execute"
     if has_delegate:
         return "delegate"
-    if any(c in tool_categories for c in ("file_read", "file_search", "browser", "git_read")) or "vcs_read" in shell_actions:
+    if (
+        any(c in tool_categories for c in ("file_read", "file_search", "browser", "git_read"))
+        or "vcs_read" in shell_actions
+    ):
         return "read"
     return "think"
 

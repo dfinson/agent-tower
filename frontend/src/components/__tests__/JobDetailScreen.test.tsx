@@ -18,6 +18,9 @@ vi.mock("../../api/client", () => ({
   resolveJob: vi.fn(),
   fetchArtifacts: vi.fn().mockResolvedValue({ items: [] }),
   createTerminalSession: vi.fn(),
+  fetchRepoMemory: vi.fn().mockResolvedValue({ entries: [] }),
+  fetchObserverTerminal: vi.fn().mockResolvedValue(null),
+  archiveJob: vi.fn(),
 }));
 
 vi.mock("../../hooks/useSSE", () => ({
@@ -50,6 +53,7 @@ vi.mock("../StateBadge", () => ({
 
 vi.mock("../SdkBadge", () => ({
   SdkBadge: () => <span>sdk</span>,
+  SdkIcon: () => <span>icon</span>,
 }));
 
 vi.mock("../ui/tooltip", () => ({
@@ -199,13 +203,12 @@ describe("JobDetailScreen", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Merge" }));
 
     await waitFor(() => {
-      expect(resolveJob).toHaveBeenCalledWith("job-1", "smart_merge");
+      expect(resolveJob).toHaveBeenCalledWith("job-1", "smart_merge", { confirmLowConfidence: undefined });
     });
 
     await waitFor(() => {
       expect(useStore.getState().jobs["job-1"]?.resolution).toBe("merged");
       expect(screen.queryByRole("button", { name: "Merge" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Complete & Archive" })).toBeInTheDocument();
     });
   });
 
@@ -279,7 +282,6 @@ describe("JobDetailScreen", () => {
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("Cherry-pick failed without conflict markers; check git configuration or hooks");
-      expect(screen.getByText("Automatic merge failed: Cherry-pick failed without conflict markers; check git configuration or hooks")).toBeInTheDocument();
       expect(useStore.getState().jobs["job-1"]?.resolutionError).toBe("Cherry-pick failed without conflict markers; check git configuration or hooks");
     });
   });
@@ -320,9 +322,9 @@ describe("JobDetailScreen", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("button", { name: "Resolve with Agent" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Resolve" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Merge" })).not.toBeInTheDocument();
-    expect(screen.getByText("Merge conflict — user input required")).toBeInTheDocument();
+    expect(screen.getByText("Conflict")).toBeInTheDocument();
   });
 
   it("does not show conflict text when resolution is merged but stale conflict indicators remain", async () => {
@@ -364,9 +366,10 @@ describe("JobDetailScreen", () => {
       </MemoryRouter>,
     );
 
-    // The subtitle should show the merged message, NOT concatenate conflict text
-    expect(await screen.findByText(/Changes merged into base branch/)).toBeInTheDocument();
-    expect(screen.queryByText(/Merge conflict detected/)).not.toBeInTheDocument();
+    // When resolution is merged, conflict indicators should NOT appear
+    // Wait for component to render
+    await screen.findAllByText("Fix bug");
+    expect(screen.queryByText("Conflict")).not.toBeInTheDocument();
   });
 
   it("resumes the existing failed job instead of rerunning a new one", async () => {

@@ -210,7 +210,6 @@ def _make_config(**overrides: Any) -> SessionConfig:
         "workspace_path": "/tmp/workspace",
         "prompt": "hello world",
         "job_id": "job-1",
-    
     }
     defaults.update(overrides)
     return SessionConfig(**defaults)
@@ -219,6 +218,7 @@ def _make_config(**overrides: Any) -> SessionConfig:
 def _install_auto_approve_router(adapter: Any, job_id: str = "job-1") -> None:
     """Install a mock policy router that auto-approves everything."""
     from backend.services.base_adapter import PermissionDecision
+
     mock_router = MagicMock()
     adapter._policy_router[job_id] = mock_router
     adapter._repo_policies[job_id] = MagicMock()

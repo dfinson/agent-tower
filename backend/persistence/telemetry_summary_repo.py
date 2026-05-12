@@ -283,7 +283,6 @@ class TelemetrySummaryRepository(BaseRepository):
 
     async def get(self, job_id: str) -> TelemetrySummaryRow | None:
         """Load summary row.  Returns None if not found."""
-        from backend.models.domain import TelemetrySummaryRow
 
         result = await self._session.execute(
             text("SELECT * FROM job_telemetry_summary WHERE job_id = :job_id"),

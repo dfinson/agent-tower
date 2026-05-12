@@ -11,7 +11,6 @@ import time
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock
 
-import pytest
 from starlette.testclient import TestClient
 
 if TYPE_CHECKING:

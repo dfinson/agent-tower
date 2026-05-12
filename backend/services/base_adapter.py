@@ -11,17 +11,14 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator, Coroutine
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import structlog
-
 from sqlalchemy.exc import DBAPIError
 
-from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
     ApprovalResolution,
     SessionEvent,
@@ -35,8 +32,11 @@ from backend.services.permission_policy import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Coroutine
+
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.models.api_schemas import ExecutionPhase
     from backend.services.action_policy.classifier import CostContext
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
-class _NoSessionFactory(Exception):
+class _NoSessionFactoryError(Exception):
     """Sentinel raised when no DB session factory is configured."""
 
 
@@ -123,7 +123,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             q.put_nowait(event)
         # Buffer transcript events for motivation context capture
         if event.kind == SessionEventKind.transcript:
-            self._buffer_transcript(session_id, cast(dict[str, Any], event.payload))
+            self._buffer_transcript(session_id, cast("dict[str, Any]", event.payload))
 
     # ------------------------------------------------------------------
     # Transcript ring buffer for motivation context
@@ -140,14 +140,14 @@ class BaseAgentAdapter(AgentAdapterInterface):
         # Skip deltas — only buffer complete messages and tool calls
         if role in ("agent_delta", "reasoning_delta", "tool_output_delta", "tool_running"):
             return
-        content = str(payload.get("content", ""))[:self._TRANSCRIPT_CONTENT_MAX]
+        content = str(payload.get("content", ""))[: self._TRANSCRIPT_CONTENT_MAX]
         entry: dict[str, str] = {"role": role, "content": content}
         tool_name = payload.get("tool_name")
         if tool_name:
             entry["tool_name"] = str(tool_name)
             tool_args = payload.get("tool_args")
             if tool_args:
-                entry["tool_args"] = str(tool_args)[:self._TRANSCRIPT_CONTENT_MAX]
+                entry["tool_args"] = str(tool_args)[: self._TRANSCRIPT_CONTENT_MAX]
         buf = self._transcript_buffers.setdefault(job_id, [])
         buf.append(entry)
         # Trim to ring buffer size
@@ -165,18 +165,50 @@ class BaseAgentAdapter(AgentAdapterInterface):
     # Mutative shell command prefixes — commands that modify the filesystem,
     # repository, or environment.  Matched against the first token(s) of a
     # bash tool's command string.
-    _MUTATIVE_SHELL_PREFIXES: frozenset[str] = frozenset({
-        "git commit", "git add", "git push", "git checkout", "git merge",
-        "git rebase", "git reset", "git stash", "git cherry-pick", "git tag",
-        "git branch -d", "git branch -D", "git branch -m",
-        "mkdir", "mv", "rm", "cp", "ln", "chmod", "chown", "touch",
-        "pip install", "pip uninstall",
-        "uv add", "uv remove", "uv sync", "uv pip install",
-        "npm install", "npm uninstall", "npm ci", "yarn add", "yarn remove",
-        "pnpm add", "pnpm remove",
-        "docker build", "docker run", "docker compose up",
-        "make", "cargo build", "go build",
-    })
+    _MUTATIVE_SHELL_PREFIXES: frozenset[str] = frozenset(
+        {
+            "git commit",
+            "git add",
+            "git push",
+            "git checkout",
+            "git merge",
+            "git rebase",
+            "git reset",
+            "git stash",
+            "git cherry-pick",
+            "git tag",
+            "git branch -d",
+            "git branch -D",
+            "git branch -m",
+            "mkdir",
+            "mv",
+            "rm",
+            "cp",
+            "ln",
+            "chmod",
+            "chown",
+            "touch",
+            "pip install",
+            "pip uninstall",
+            "uv add",
+            "uv remove",
+            "uv sync",
+            "uv pip install",
+            "npm install",
+            "npm uninstall",
+            "npm ci",
+            "yarn add",
+            "yarn remove",
+            "pnpm add",
+            "pnpm remove",
+            "docker build",
+            "docker run",
+            "docker compose up",
+            "make",
+            "cargo build",
+            "go build",
+        }
+    )
 
     @classmethod
     def _is_mutative_shell(cls, tool_args_str: str | None) -> bool:
@@ -193,7 +225,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         return any(cmd_lower.startswith(prefix) for prefix in cls._MUTATIVE_SHELL_PREFIXES)
 
     def _maybe_capture_context(
-        self, job_id: str, category: str, tool_args_str: str | None,
+        self,
+        job_id: str,
+        category: str,
+        tool_args_str: str | None,
     ) -> str | None:
         """Capture preceding transcript context for mutative tool actions."""
         if category in {"file_write", "git_write"}:
@@ -304,7 +339,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
     async def _db_session(self) -> AsyncIterator[AsyncSession]:
         """Yield a scoped DB session with commit and error handling."""
         if self._session_factory is None:
-            raise _NoSessionFactory
+            raise _NoSessionFactoryError
         from backend.persistence.database import serialized_write
 
         async with serialized_write(self._session_factory) as session:
@@ -316,8 +351,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
                 totals = await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
-        except (_NoSessionFactory, DBAPIError, OSError):
+        except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="increment", exc_info=True)
             return
         await self._maybe_broadcast_telemetry(job_id, totals=totals)
@@ -327,8 +363,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+
                 await TelemetrySpansRepository(session).insert(job_id=job_id, **span_fields)
-        except (_NoSessionFactory, DBAPIError, OSError):
+        except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="insert_span", exc_info=True)
 
     async def _db_write_set_model(self, *, job_id: str, model: str) -> None:
@@ -336,23 +373,31 @@ class BaseAgentAdapter(AgentAdapterInterface):
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
                 await TelemetrySummaryRepository(session).set_model(job_id=job_id, model=model)
-        except (_NoSessionFactory, DBAPIError, OSError):
+        except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="set_model", exc_info=True)
             return
         await self._maybe_broadcast_telemetry(job_id)
 
     async def _db_write_set_context(
-        self, *, job_id: str, current_tokens: int | None = None, window_size: int | None = None,
+        self,
+        *,
+        job_id: str,
+        current_tokens: int | None = None,
+        window_size: int | None = None,
     ) -> None:
         """Record context window usage."""
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
                 await TelemetrySummaryRepository(session).set_context(
-                    job_id=job_id, current_tokens=current_tokens, window_size=window_size,
+                    job_id=job_id,
+                    current_tokens=current_tokens,
+                    window_size=window_size,
                 )
-        except (_NoSessionFactory, DBAPIError, OSError):
+        except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="set_context", exc_info=True)
             return
         await self._maybe_broadcast_telemetry(job_id)
@@ -362,27 +407,40 @@ class BaseAgentAdapter(AgentAdapterInterface):
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
                 await TelemetrySummaryRepository(session).set_quota(job_id=job_id, quota_json=quota_remaining)
-        except (_NoSessionFactory, DBAPIError, OSError):
+        except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="set_quota", exc_info=True)
             return
         await self._maybe_broadcast_telemetry(job_id)
 
     async def _db_write_record_file_access(
-        self, *, job_id: str, file_path: str, access_type: str, turn_number: int,
+        self,
+        *,
+        job_id: str,
+        file_path: str,
+        access_type: str,
+        turn_number: int,
     ) -> None:
         """Record a file read/write access."""
         try:
             async with self._db_session() as session:
                 from backend.persistence.file_access_repo import FileAccessRepository
+
                 await FileAccessRepository(session).record(
-                    job_id=job_id, file_path=file_path, access_type=access_type, turn_number=turn_number,
+                    job_id=job_id,
+                    file_path=file_path,
+                    access_type=access_type,
+                    turn_number=turn_number,
                 )
-        except (_NoSessionFactory, DBAPIError, OSError):
+        except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="record_file_access", exc_info=True)
 
     async def _maybe_broadcast_telemetry(
-        self, job_id: str, *, totals: dict[str, float | int] | None = None,
+        self,
+        job_id: str,
+        *,
+        totals: dict[str, float | int] | None = None,
     ) -> None:
         """Publish telemetry_updated if debounce interval has elapsed."""
         from backend.models.events import DomainEvent, DomainEventKind
@@ -431,7 +489,11 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._job_main_models[job_id] = actual_model
         self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=actual_model))
 
-        if requested_model and requested_model != "auto" and normalize_model_name(actual_model) != normalize_model_name(requested_model):
+        if (
+            requested_model
+            and requested_model != "auto"
+            and normalize_model_name(actual_model) != normalize_model_name(requested_model)
+        ):
             log.error(
                 "model_mismatch",
                 requested=requested_model,
@@ -574,7 +636,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
         from backend.services.event_enricher import build_tool_running_payload
 
         return build_tool_running_payload(
-            tool_name, tool_args, turn_id,
+            tool_name,
+            tool_args,
+            turn_id,
             tool_intent=tool_intent,
             tool_title=tool_title,
         )
@@ -598,7 +662,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         from backend.services.event_enricher import build_tool_call_payload
 
         return build_tool_call_payload(
-            tool_name, tool_args, result_text, sdk_success,
+            tool_name,
+            tool_args,
+            result_text,
+            sdk_success,
             turn_id=turn_id,
             duration_ms=duration_ms,
             tool_intent=tool_intent,
@@ -625,7 +692,12 @@ class BaseAgentAdapter(AgentAdapterInterface):
         span insertion.
         """
         from backend.services import telemetry as tel
-        from backend.services.tool_classifier import classify_tool, extract_file_paths, extract_tool_target, refine_shell_category
+        from backend.services.tool_classifier import (
+            classify_tool,
+            extract_file_paths,
+            extract_tool_target,
+            refine_shell_category,
+        )
 
         attrs: dict[str, Any] = {
             "job_id": job_id,
@@ -787,7 +859,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
         # Hard block: git reset --hard
         shell_cmd = self._resolve_shell_command(
-            request.kind, tool_name, tool_input, request.full_command_text,
+            request.kind,
+            tool_name,
+            tool_input,
+            request.full_command_text,
         )
         if shell_cmd and is_git_reset_hard(shell_cmd):
             resolution = await self._hard_block_approval(
@@ -801,7 +876,11 @@ class BaseAgentAdapter(AgentAdapterInterface):
         # --- Action policy router ---
         if job_id and job_id in self._policy_router:
             return await self._evaluate_with_policy_router(
-                session_id, job_id, request, tool_name=tool_name, tool_input=tool_input,
+                session_id,
+                job_id,
+                request,
+                tool_name=tool_name,
+                tool_input=tool_input,
             )
 
         log.error(
@@ -826,7 +905,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
         # Map SDK permission request kind to Action
         shell_cmd = self._resolve_shell_command(
-            request.kind, tool_name, tool_input, request.full_command_text,
+            request.kind,
+            tool_name,
+            tool_input,
+            request.full_command_text,
         )
         kind_map = {
             "read": ActionKind.sdk_tool,
@@ -887,17 +969,18 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return PermissionDecision.allow
         return PermissionDecision.deny
 
-    async def _get_cost_context(self, job_id: str) -> "CostContext | None":
+    async def _get_cost_context(self, job_id: str) -> CostContext | None:
         """Fetch current spend for a job to feed into cost rule evaluation."""
         from backend.services.action_policy.classifier import CostContext
 
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
                 summary = await TelemetrySummaryRepository(session).get(job_id)
                 if summary and summary["total_cost_usd"] is not None:
                     return CostContext(job_spend_usd=summary["total_cost_usd"])
-        except (_NoSessionFactory, DBAPIError, OSError):
+        except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("cost_context_fetch_failed", job_id=job_id, exc_info=True)
         return None
 
@@ -913,10 +996,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             log.error("git_reset_hard_blocked_no_infra", command=shell_cmd)
             return ApprovalResolution.rejected
 
-        description = (
-            "⚠️ git reset --hard — this will discard ALL uncommitted changes and "
-            f"move HEAD: {shell_cmd}"
-        )
+        description = f"⚠️ git reset --hard — this will discard ALL uncommitted changes and move HEAD: {shell_cmd}"
         proposed = json.dumps(tool_input, default=str) if tool_input else shell_cmd
         approval = await self._approval_service.create_request(
             job_id=job_id,
@@ -998,7 +1078,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             return ""
 
         # Dispatch table: (prefix, primary_field, fallback_field, truncate)
-        _RULES: dict[str, tuple[str, str, str | None]] = {
+        _RULES: dict[str, tuple[str, str, str | None]] = {  # noqa: N806
             "shell": ("Run shell:", "command", None),
             "Bash": ("Run shell:", "command", None),
             "write": ("Write file:", "file_path", "path"),

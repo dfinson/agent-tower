@@ -6,13 +6,8 @@ Sends steering commands (operator messages, abort) to a Copilot CLI
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import httpx
 import structlog
-
-if TYPE_CHECKING:
-    pass
 
 log = structlog.get_logger()
 

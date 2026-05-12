@@ -6,12 +6,14 @@ Records every file read/write by tool calls for redundant I/O analysis.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import text
 
-from backend.models.domain import FileAccessRow, FileAccessStatsRow
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    from backend.models.domain import FileAccessRow, FileAccessStatsRow
 
 
 class FileAccessRepository(BaseRepository):

@@ -17,11 +17,11 @@ import structlog
 from backend.models.domain import JobSource
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from backend.services.claude_session_watcher import ClaudeSessionStateWatcher
     from backend.services.copilot_steer import CopilotSteerClient
     from backend.services.session_state_watcher import SessionStateWatcher
-
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 log = structlog.get_logger()
 
@@ -92,5 +92,6 @@ class IngestService:
     async def _get_job(self, job_id: str):
         async with self._session_factory() as session:
             from backend.persistence.job_repo import JobRepository
+
             repo = JobRepository(session)
             return await repo.get(job_id)

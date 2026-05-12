@@ -64,7 +64,10 @@ class StepDiffService:
         changed_files = DiffService._parse_unified_diff(diff_text)
 
         step_context, file_motivations, hunk_motivations = await self._build_motivations(
-            job_id, step_id, step_row, changed_files,
+            job_id,
+            step_id,
+            step_row,
+            changed_files,
         )
 
         return StepDiffPayload(
@@ -78,7 +81,9 @@ class StepDiffService:
         )
 
     async def _resolve_shas(
-        self, job_id: str, step_id: str,
+        self,
+        job_id: str,
+        step_id: str,
     ) -> tuple[str | None, str | None, Any]:
         """Resolve start/end SHAs for a step via events, then StepRow fallbacks."""
         start_sha: str | None = None
@@ -87,7 +92,9 @@ class StepDiffService:
 
         # Try plan_step_updated events first (plan step IDs like ps-XXXX)
         events = await self._job_svc.list_events_by_job(
-            job_id, [DomainEventKind.plan_step_updated], limit=_EVENT_QUERY_CEILING,
+            job_id,
+            [DomainEventKind.plan_step_updated],
+            limit=_EVENT_QUERY_CEILING,
         )
         for ev in events:
             if ev.payload.get("plan_step_id") == step_id:
@@ -136,7 +143,8 @@ class StepDiffService:
 
         try:
             spans = await self._spans_repo.file_write_spans_for_step(
-                job_id=job_id, turn_id=turn_id_for_lookup,
+                job_id=job_id,
+                turn_id=turn_id_for_lookup,
             )
             if not spans:
                 all_spans = await self._spans_repo.motivated_spans_for_job(job_id=job_id)
@@ -154,7 +162,12 @@ class StepDiffService:
                 file_motivations[target] = FileMotivation(title=title, why=why)
 
                 self._extract_hunk_motivations(
-                    span, target, changed_files, file_motivations, hunk_motivations, job_id,
+                    span,
+                    target,
+                    changed_files,
+                    file_motivations,
+                    hunk_motivations,
+                    job_id,
                 )
         except (KeyError, ValueError, IndexError, TypeError):
             log.debug("motivation_annotation_failed", job_id=job_id, step_id=step_id, exc_info=True)
@@ -200,15 +213,11 @@ class StepDiffService:
             if cf.path != target:
                 continue
             if old_str and len(cf.hunks) > 1:
-                old_lines = [l.strip() for l in old_str.strip().splitlines() if l.strip()]
+                old_lines = [ln.strip() for ln in old_str.strip().splitlines() if ln.strip()]
                 if old_lines:
                     best_idx, best_ratio = 0, 0.0
                     for hi, hunk in enumerate(cf.hunks):
-                        del_content = " ".join(
-                            l.content.strip()
-                            for l in hunk.lines
-                            if l.type == "deletion"
-                        )
+                        del_content = " ".join(ln.content.strip() for ln in hunk.lines if ln.type == "deletion")
                         hits = sum(1 for ol in old_lines if ol in del_content)
                         ratio = hits / len(old_lines)
                         if ratio > best_ratio:
@@ -229,7 +238,9 @@ class StepDiffService:
 
         if matched_hunk_idx is not None:
             hunk_motivations[f"{target}:{matched_hunk_idx}"] = HunkMotivation(
-                edit_key=edit_key, title=em_title, why=em_why,
+                edit_key=edit_key,
+                title=em_title,
+                why=em_why,
             )
         else:
             if target in file_motivations:

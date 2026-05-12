@@ -11,6 +11,7 @@ parsed events through the existing CopilotAdapter telemetry + event pipeline.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import math
 import sqlite3
@@ -117,9 +118,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # Pre-populate tracked set from existing jobs so we don't re-import
         await self._load_existing_sessions()
 
-        self._discovery_task = asyncio.create_task(
-            self._discovery_loop(), name="session-state-discovery"
-        )
+        self._discovery_task = asyncio.create_task(self._discovery_loop(), name="session-state-discovery")
         log.info("session_state_watcher_started", repos=self._config.repos)
 
     async def _load_existing_sessions(self) -> None:
@@ -152,7 +151,13 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 )
                 for row in result_cli:
                     job_id, ext_sid, state, offset, wt, base, repo = (
-                        row[0], row[1], row[2], row[3] or 0, row[4], row[5], row[6],
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3] or 0,
+                        row[4],
+                        row[5],
+                        row[6],
                     )
                     self._tracked_sessions.add(ext_sid)
                     if state == "running":
@@ -181,10 +186,12 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                     # Session died while CodePlane was down — finalize as failed
                     log.info(
                         "session_state_watcher_orphan_detected",
-                        job_id=job_id, session_id=ext_sid,
+                        job_id=job_id,
+                        session_id=ext_sid,
                     )
                     await self._finalize_session(
-                        job_id, error_reason="session ended while CodePlane was offline",
+                        job_id,
+                        error_reason="session ended while CodePlane was offline",
                     )
                 else:
                     # Still alive — re-attach and resume tailing
@@ -208,10 +215,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         self._running = False
         if self._discovery_task:
             self._discovery_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._discovery_task
-            except asyncio.CancelledError:
-                pass
             self._discovery_task = None
         # Cancel all tail tasks
         for task in self._tail_tasks.values():
@@ -223,8 +228,6 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         if self._bg_tasks:
             await asyncio.gather(*self._bg_tasks, return_exceptions=True)
         log.info("session_state_watcher_stopped")
-
-
 
     async def send_message(self, session_id: str, message: str) -> None:
         """Send an operator message to a tracked session via steer API."""
@@ -344,11 +347,13 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         # Background: CodeRecon indexing
         if self._coderecon:
+
             async def _index(repo: str = job.repo, jid: str = job_id) -> None:
                 try:
                     await self._coderecon.ensure_repo_indexed(repo)
                 except Exception:
                     log.debug("session_watcher_coderecon_failed", job_id=jid, exc_info=True)
+
             self._fire_bg(_index(), name=f"watcher-coderecon-{job_id[:8]}")
 
     async def _create_job(self, session_id: str, cwd: str) -> Job | None:
@@ -362,7 +367,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # Resolve git root
         try:
             repo_root = await self._git._run_git(  # noqa: SLF001
-                "rev-parse", "--show-toplevel", cwd=cwd,
+                "rev-parse",
+                "--show-toplevel",
+                cwd=cwd,
             )
             repo_path = repo_root.strip()
         except Exception:
@@ -408,36 +415,44 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
                 repo = JobRepository(session)
                 await repo.create(job)
                 await TelemetrySummaryRepository(session).init_job(
-                    job_id, sdk="copilot", repo=repo_path, branch=branch,
+                    job_id,
+                    sdk="copilot",
+                    repo=repo_path,
+                    branch=branch,
                 )
         except Exception:
             log.warning("session_state_watcher_job_create_failed", session_id=session_id, exc_info=True)
             return None
 
         # Publish creation events
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=now,
-            kind=DomainEventKind.job_created,
-            payload={
-                "repo": repo_path,
-                "branch": branch,
-                "base_ref": base_ref,
-                "source": JobSource.copilot_cli,
-                "prompt": job.prompt,
-            },
-        ))
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=now,
-            kind=DomainEventKind.job_state_changed,
-            payload={"state": JobState.running, "new_state": JobState.running},
-        ))
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.job_created,
+                payload={
+                    "repo": repo_path,
+                    "branch": branch,
+                    "base_ref": base_ref,
+                    "source": JobSource.copilot_cli,
+                    "prompt": job.prompt,
+                },
+            )
+        )
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=now,
+                kind=DomainEventKind.job_state_changed,
+                payload={"state": JobState.running, "new_state": JobState.running},
+            )
+        )
 
         # Sister session for title generation
         if self._sister_sessions:
@@ -457,7 +472,12 @@ class SessionStateWatcher(WatcherTelemetryMixin):
     # ------------------------------------------------------------------
 
     async def _tail_events(
-        self, session_id: str, job_id: str, events_path: Path, *, initial_offset: int = 0,
+        self,
+        session_id: str,
+        job_id: str,
+        events_path: Path,
+        *,
+        initial_offset: int = 0,
     ) -> None:
         """Tail events.jsonl and process each event through the standard pipeline."""
         from copilot.generated.session_events import session_event_from_dict
@@ -479,7 +499,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                         if not alive:
                             self._schedule_offset_persist(job_id, offset)
                             await self._finalize_session(
-                                job_id, error_reason=error_reason or "session ended without clean shutdown",
+                                job_id,
+                                error_reason=error_reason or "session ended without clean shutdown",
                             )
                             shutdown_seen = True
                             break
@@ -499,7 +520,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                         if not alive:
                             self._schedule_offset_persist(job_id, offset)
                             await self._finalize_session(
-                                job_id, error_reason=error_reason or "session ended without clean shutdown",
+                                job_id,
+                                error_reason=error_reason or "session ended without clean shutdown",
                             )
                             shutdown_seen = True
                             break
@@ -526,7 +548,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                         if kind_str == "session.error":
                             # Capture error details for finalization (#7)
                             data = sdk_event.data
-                            error_reason = str(getattr(data, "message", None) or getattr(data, "error", None) or "session error")
+                            error_reason = str(
+                                getattr(data, "message", None) or getattr(data, "error", None) or "session error"
+                            )
                         elif kind_str == "session.shutdown":
                             shutdown_seen = True
                             self._schedule_offset_persist(job_id, offset)
@@ -584,7 +608,6 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         from backend.services.sdk_event_mapping import (
             emit_copilot_otel,
             extract_copilot_telemetry,
-            extract_result_text,
         )
 
         kind_str = sdk_event.type.value if sdk_event.type else ""
@@ -614,13 +637,17 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         worktree = self._job_worktrees.get(job_id)
         base_ref = self._job_base_refs.get(job_id)
         await self._processor.process_event(
-            job_id, session_event,
+            job_id,
+            session_event,
             worktree_path=worktree,
             base_ref=base_ref,
         )
 
     def _map_sdk_event_enriched(
-        self, kind_str: str, data: Any, job_id: str,
+        self,
+        kind_str: str,
+        data: Any,
+        job_id: str,
     ) -> SessionEvent | None:
         """Map a Copilot SDK event to a fully enriched SessionEvent.
 
@@ -685,7 +712,10 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 tool_id = getattr(data, "tool_call_id", "") or ""
                 enricher = self._get_enricher(job_id)
                 payload = enricher.on_tool_start(
-                    tool_id, tool_name, args_str, None,
+                    tool_id,
+                    tool_name,
+                    args_str,
+                    None,
                     tool_intent=tool_intent or None,
                     tool_title=tool_title or None,
                 )
@@ -698,6 +728,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 buffered = enricher.get_buffered(tool_id)
                 tool_name = buffered.get("tool_name", "tool")
                 from backend.services.tool_formatters import classify_tool_visibility
+
                 vis = classify_tool_visibility(tool_name, buffered.get("tool_args"))
                 if vis == "hidden":
                     return None
@@ -717,7 +748,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 result_text = extract_result_text(getattr(data, "result", None))
                 enricher = self._get_enricher(job_id)
                 payload = enricher.on_tool_complete(
-                    tool_id, result_text, success,
+                    tool_id,
+                    result_text,
+                    success,
                     tool_name_fallback=tool_name,
                 )
         elif kind == SessionEventKind.file_changed:
@@ -728,8 +761,6 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         return SessionEvent(kind=kind, payload=payload)
 
-
-
     def _schedule_context_update(self, job_id: str, current_tokens: int) -> None:
         """Schedule a context window update on the telemetry summary row."""
 
@@ -739,60 +770,68 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
                 async with serialized_write(self._session_factory) as session:
                     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
                     await TelemetrySummaryRepository(session).set_context(
-                        job_id=job_id, current_tokens=current_tokens,
+                        job_id=job_id,
+                        current_tokens=current_tokens,
                     )
             except Exception:
                 log.debug("session_watcher_context_update_failed", job_id=job_id, exc_info=True)
 
         self._fire_bg(_write(), name=f"watcher-ctx-{job_id[:8]}")
 
-
-
     # ------------------------------------------------------------------
     # Session finalization
     # ------------------------------------------------------------------
 
     async def _finalize_session(
-        self, job_id: str, *, error_reason: str | None = None,
+        self,
+        job_id: str,
+        *,
+        error_reason: str | None = None,
     ) -> None:
         """Transition job to review (clean shutdown) or failed (error/orphan)."""
         now = datetime.now(UTC)
-        if error_reason:
-            new_state = JobState.failed
-        else:
-            new_state = JobState.review
+        new_state = JobState.failed if error_reason else JobState.review
 
         try:
             from backend.persistence.database import serialized_write
 
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.job_repo import JobRepository
+
                 repo = JobRepository(session)
                 await repo.update_state(
-                    job_id, new_state, updated_at=now, completed_at=now,
+                    job_id,
+                    new_state,
+                    updated_at=now,
+                    completed_at=now,
                     failure_reason=error_reason,
                 )
         except Exception:
             log.warning("session_watcher_finalize_failed", job_id=job_id, exc_info=True)
             return
 
-        await self._event_bus.publish(DomainEvent(
-            event_id=DomainEvent.make_event_id(),
-            job_id=job_id,
-            timestamp=now,
-            kind=DomainEventKind.job_state_changed,
-            payload={"state": new_state, "new_state": new_state},
-        ))
-
-        if new_state == JobState.review:
-            await self._event_bus.publish(DomainEvent(
+        await self._event_bus.publish(
+            DomainEvent(
                 event_id=DomainEvent.make_event_id(),
                 job_id=job_id,
                 timestamp=now,
-                kind=DomainEventKind.job_review,
-                payload={"resolution": "unresolved"},
-            ))
+                kind=DomainEventKind.job_state_changed,
+                payload={"state": new_state, "new_state": new_state},
+            )
+        )
+
+        if new_state == JobState.review:
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=now,
+                    kind=DomainEventKind.job_review,
+                    payload={"resolution": "unresolved"},
+                )
+            )
 
         # Notify processor for step cleanup
         await self._processor.on_job_terminal(job_id, new_state)
@@ -815,5 +854,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         log.info(
             "session_state_watcher_session_finalized",
-            job_id=job_id, state=new_state, error_reason=error_reason,
+            job_id=job_id,
+            state=new_state,
+            error_reason=error_reason,
         )

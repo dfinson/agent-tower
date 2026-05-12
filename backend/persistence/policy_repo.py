@@ -6,7 +6,7 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, select, update
 
@@ -19,9 +19,6 @@ from backend.models.db import (
     TrustGrantRow,
 )
 from backend.persistence.repository import BaseRepository
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class PolicyRepository(BaseRepository):
@@ -44,26 +41,19 @@ class PolicyRepository(BaseRepository):
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return await self.get_config()
-        await self._session.execute(
-            update(PolicyConfigRow).where(PolicyConfigRow.id == 1).values(**updates)
-        )
+        await self._session.execute(update(PolicyConfigRow).where(PolicyConfigRow.id == 1).values(**updates))
         return await self.get_config()
 
     # --- Path rules ---
 
     async def list_path_rules(self) -> list[dict[str, Any]]:
-        result = await self._session.execute(
-            select(PathRuleRow).order_by(PathRuleRow.created_at)
-        )
+        result = await self._session.execute(select(PathRuleRow).order_by(PathRuleRow.created_at))
         return [
-            {"id": r.id, "path_pattern": r.path_pattern, "tier": r.tier,
-             "reason": r.reason, "created_at": r.created_at}
+            {"id": r.id, "path_pattern": r.path_pattern, "tier": r.tier, "reason": r.reason, "created_at": r.created_at}
             for r in result.scalars()
         ]
 
-    async def create_path_rule(
-        self, path_pattern: str, tier: str, reason: str
-    ) -> dict[str, Any]:
+    async def create_path_rule(self, path_pattern: str, tier: str, reason: str) -> dict[str, Any]:
         row = PathRuleRow(
             id=uuid.uuid4().hex,
             path_pattern=path_pattern,
@@ -72,25 +62,33 @@ class PolicyRepository(BaseRepository):
             created_at=datetime.now(UTC).isoformat(),
         )
         self._session.add(row)
-        return {"id": row.id, "path_pattern": row.path_pattern, "tier": row.tier,
-                "reason": row.reason, "created_at": row.created_at}
+        return {
+            "id": row.id,
+            "path_pattern": row.path_pattern,
+            "tier": row.tier,
+            "reason": row.reason,
+            "created_at": row.created_at,
+        }
 
     async def update_path_rule(self, rule_id: str, **kwargs: Any) -> dict[str, Any] | None:
-        result = await self._session.execute(
-            select(PathRuleRow).where(PathRuleRow.id == rule_id)
-        )
+        result = await self._session.execute(select(PathRuleRow).where(PathRuleRow.id == rule_id))
         row = result.scalar_one_or_none()
         if row is None:
             return None
         for k in ("path_pattern", "tier", "reason"):
             if k in kwargs:
                 setattr(row, k, kwargs[k])
-        return {"id": row.id, "path_pattern": row.path_pattern, "tier": row.tier,
-                "reason": row.reason, "created_at": row.created_at}
+        return {
+            "id": row.id,
+            "path_pattern": row.path_pattern,
+            "tier": row.tier,
+            "reason": row.reason,
+            "created_at": row.created_at,
+        }
 
     async def delete_path_rule(self, rule_id: str) -> bool:
         result = cast(
-            CursorResult[Any],
+            "CursorResult[Any]",
             await self._session.execute(delete(PathRuleRow).where(PathRuleRow.id == rule_id)),
         )
         return result.rowcount > 0
@@ -98,18 +96,19 @@ class PolicyRepository(BaseRepository):
     # --- Action rules ---
 
     async def list_action_rules(self) -> list[dict[str, Any]]:
-        result = await self._session.execute(
-            select(ActionRuleRow).order_by(ActionRuleRow.created_at)
-        )
+        result = await self._session.execute(select(ActionRuleRow).order_by(ActionRuleRow.created_at))
         return [
-            {"id": r.id, "match_pattern": r.match_pattern, "tier": r.tier,
-             "reason": r.reason, "created_at": r.created_at}
+            {
+                "id": r.id,
+                "match_pattern": r.match_pattern,
+                "tier": r.tier,
+                "reason": r.reason,
+                "created_at": r.created_at,
+            }
             for r in result.scalars()
         ]
 
-    async def create_action_rule(
-        self, match_pattern: str, tier: str, reason: str
-    ) -> dict[str, Any]:
+    async def create_action_rule(self, match_pattern: str, tier: str, reason: str) -> dict[str, Any]:
         row = ActionRuleRow(
             id=uuid.uuid4().hex,
             match_pattern=match_pattern,
@@ -118,25 +117,33 @@ class PolicyRepository(BaseRepository):
             created_at=datetime.now(UTC).isoformat(),
         )
         self._session.add(row)
-        return {"id": row.id, "match_pattern": row.match_pattern, "tier": row.tier,
-                "reason": row.reason, "created_at": row.created_at}
+        return {
+            "id": row.id,
+            "match_pattern": row.match_pattern,
+            "tier": row.tier,
+            "reason": row.reason,
+            "created_at": row.created_at,
+        }
 
     async def update_action_rule(self, rule_id: str, **kwargs: Any) -> dict[str, Any] | None:
-        result = await self._session.execute(
-            select(ActionRuleRow).where(ActionRuleRow.id == rule_id)
-        )
+        result = await self._session.execute(select(ActionRuleRow).where(ActionRuleRow.id == rule_id))
         row = result.scalar_one_or_none()
         if row is None:
             return None
         for k in ("match_pattern", "tier", "reason"):
             if k in kwargs:
                 setattr(row, k, kwargs[k])
-        return {"id": row.id, "match_pattern": row.match_pattern, "tier": row.tier,
-                "reason": row.reason, "created_at": row.created_at}
+        return {
+            "id": row.id,
+            "match_pattern": row.match_pattern,
+            "tier": row.tier,
+            "reason": row.reason,
+            "created_at": row.created_at,
+        }
 
     async def delete_action_rule(self, rule_id: str) -> bool:
         result = cast(
-            CursorResult[Any],
+            "CursorResult[Any]",
             await self._session.execute(delete(ActionRuleRow).where(ActionRuleRow.id == rule_id)),
         )
         return result.rowcount > 0
@@ -144,12 +151,16 @@ class PolicyRepository(BaseRepository):
     # --- Cost rules ---
 
     async def list_cost_rules(self) -> list[dict[str, Any]]:
-        result = await self._session.execute(
-            select(CostRuleRow).order_by(CostRuleRow.created_at)
-        )
+        result = await self._session.execute(select(CostRuleRow).order_by(CostRuleRow.created_at))
         return [
-            {"id": r.id, "condition": r.condition, "promote_to": r.promote_to,
-             "threshold_value": r.threshold_value, "reason": r.reason, "created_at": r.created_at}
+            {
+                "id": r.id,
+                "condition": r.condition,
+                "promote_to": r.promote_to,
+                "threshold_value": r.threshold_value,
+                "reason": r.reason,
+                "created_at": r.created_at,
+            }
             for r in result.scalars()
         ]
 
@@ -165,27 +176,35 @@ class PolicyRepository(BaseRepository):
             created_at=datetime.now(UTC).isoformat(),
         )
         self._session.add(row)
-        return {"id": row.id, "condition": row.condition, "promote_to": row.promote_to,
-                "threshold_value": row.threshold_value, "reason": row.reason,
-                "created_at": row.created_at}
+        return {
+            "id": row.id,
+            "condition": row.condition,
+            "promote_to": row.promote_to,
+            "threshold_value": row.threshold_value,
+            "reason": row.reason,
+            "created_at": row.created_at,
+        }
 
     async def update_cost_rule(self, rule_id: str, **kwargs: Any) -> dict[str, Any] | None:
-        result = await self._session.execute(
-            select(CostRuleRow).where(CostRuleRow.id == rule_id)
-        )
+        result = await self._session.execute(select(CostRuleRow).where(CostRuleRow.id == rule_id))
         row = result.scalar_one_or_none()
         if row is None:
             return None
         for k in ("condition", "promote_to", "threshold_value", "reason"):
             if k in kwargs:
                 setattr(row, k, kwargs[k])
-        return {"id": row.id, "condition": row.condition, "promote_to": row.promote_to,
-                "threshold_value": row.threshold_value, "reason": row.reason,
-                "created_at": row.created_at}
+        return {
+            "id": row.id,
+            "condition": row.condition,
+            "promote_to": row.promote_to,
+            "threshold_value": row.threshold_value,
+            "reason": row.reason,
+            "created_at": row.created_at,
+        }
 
     async def delete_cost_rule(self, rule_id: str) -> bool:
         result = cast(
-            CursorResult[Any],
+            "CursorResult[Any]",
             await self._session.execute(delete(CostRuleRow).where(CostRuleRow.id == rule_id)),
         )
         return result.rowcount > 0
@@ -193,22 +212,16 @@ class PolicyRepository(BaseRepository):
     # --- MCP server configs ---
 
     async def list_mcp_configs(self) -> list[dict[str, Any]]:
-        result = await self._session.execute(
-            select(MCPServerConfigRow).order_by(MCPServerConfigRow.name)
-        )
+        result = await self._session.execute(select(MCPServerConfigRow).order_by(MCPServerConfigRow.name))
         return [_mcp_row_to_dict(r) for r in result.scalars()]
 
     async def get_mcp_config(self, name: str) -> dict[str, Any] | None:
-        result = await self._session.execute(
-            select(MCPServerConfigRow).where(MCPServerConfigRow.name == name)
-        )
+        result = await self._session.execute(select(MCPServerConfigRow).where(MCPServerConfigRow.name == name))
         row = result.scalar_one_or_none()
         return _mcp_row_to_dict(row) if row else None
 
     async def upsert_mcp_config(self, name: str, **kwargs: Any) -> dict[str, Any]:
-        result = await self._session.execute(
-            select(MCPServerConfigRow).where(MCPServerConfigRow.name == name)
-        )
+        result = await self._session.execute(select(MCPServerConfigRow).where(MCPServerConfigRow.name == name))
         row = result.scalar_one_or_none()
         if row is None:
             row = MCPServerConfigRow(
@@ -237,7 +250,7 @@ class PolicyRepository(BaseRepository):
 
     async def delete_mcp_config(self, name: str) -> bool:
         result = cast(
-            CursorResult[Any],
+            "CursorResult[Any]",
             await self._session.execute(delete(MCPServerConfigRow).where(MCPServerConfigRow.name == name)),
         )
         return result.rowcount > 0
@@ -248,9 +261,7 @@ class PolicyRepository(BaseRepository):
         stmt = select(TrustGrantRow).order_by(TrustGrantRow.created_at.desc())
         if active_only:
             now = datetime.now(UTC).isoformat()
-            stmt = stmt.where(
-                (TrustGrantRow.expires_at.is_(None)) | (TrustGrantRow.expires_at > now)
-            )
+            stmt = stmt.where((TrustGrantRow.expires_at.is_(None)) | (TrustGrantRow.expires_at > now))
         result = await self._session.execute(stmt)
         return [_grant_row_to_dict(r) for r in result.scalars()]
 
@@ -272,7 +283,7 @@ class PolicyRepository(BaseRepository):
 
     async def delete_trust_grant(self, grant_id: str) -> bool:
         result = cast(
-            CursorResult[Any],
+            "CursorResult[Any]",
             await self._session.execute(delete(TrustGrantRow).where(TrustGrantRow.id == grant_id)),
         )
         return result.rowcount > 0
@@ -311,7 +322,9 @@ class PolicyRepository(BaseRepository):
             await self.create_action_rule(rule["match_pattern"], rule["tier"], rule["reason"])
         for rule in data.get("cost_rules", []):
             await self.create_cost_rule(
-                rule["condition"], rule["promote_to"], rule["reason"],
+                rule["condition"],
+                rule["promote_to"],
+                rule["reason"],
                 rule.get("threshold_value"),
             )
         for srv in data.get("mcp_servers", []):

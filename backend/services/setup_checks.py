@@ -25,8 +25,8 @@ from rich.console import Console
 from backend.config import get_codeplane_dir
 from backend.services.setup_dependencies import (  # noqa: F401 — re-exported
     DEPENDENCIES,
-    Dependency,
     HOST_PLATFORM,
+    Dependency,
 )
 
 __all__ = ["HOST_PLATFORM", "DEPENDENCIES", "Dependency"]
@@ -566,7 +566,13 @@ def verify_requirements(
             )
     except OSError:
         results.append(
-            CheckResult("Disk space", CheckStatus.warn, "Unable to check", hint="Could not read disk usage", category="env")
+            CheckResult(
+                "Disk space",
+                CheckStatus.warn,
+                "Unable to check",
+                hint="Could not read disk usage",
+                category="env",
+            )
         )
 
     return results

@@ -27,7 +27,6 @@ from backend.persistence.event_repo import EventRepository
 from backend.persistence.job_repo import JobRepository
 from backend.tests.unit.conftest import make_job
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -110,7 +109,6 @@ class TestSchemaReExports:
     def test_schemas_init_re_exports(self) -> None:
         """The schemas __init__.py also re-exports everything."""
         from backend.models.schemas import CamelModel, CostAttributionBucket
-
         from backend.models.schemas.base import CamelModel as Base
         from backend.models.schemas.telemetry import CostAttributionBucket as Tel
 
@@ -151,9 +149,9 @@ class TestCamelModelUTC:
         class Stamp(CamelModel):
             ts: datetime
 
-        eastern = timezone(offset=datetime.now(tz=UTC).utcoffset() or __import__("datetime").timedelta(hours=-5))
+        _eastern = timezone(offset=datetime.now(tz=UTC).utcoffset() or __import__("datetime").timedelta(hours=-5))
         # A datetime with *some* tzinfo should not be replaced
-        aware = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        aware = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         obj = Stamp(ts=aware)
         assert obj.ts.tzinfo is not None
 

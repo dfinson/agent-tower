@@ -19,7 +19,6 @@ import shutil
 import struct
 import subprocess  # noqa: S404
 import sys
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +27,8 @@ import structlog
 from backend.models.domain import ServiceInitError
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from fastapi import WebSocket
 
 log = structlog.get_logger()

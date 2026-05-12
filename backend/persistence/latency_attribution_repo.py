@@ -7,12 +7,14 @@ activity, phase, or turn — enabling cross-job analysis of time bottlenecks.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import text
 
-from backend.models.domain import FleetLatencyRow, LatencyAttributionRow
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    from backend.models.domain import FleetLatencyRow, LatencyAttributionRow
 
 
 class LatencyAttributionRepository(BaseRepository):
@@ -77,9 +79,7 @@ class LatencyAttributionRepository(BaseRepository):
         )
         return cast("list[LatencyAttributionRow]", [dict(r) for r in result.mappings().all()])
 
-    async def fleet_summary(
-        self, *, period_days: int = 30, dimension: str | None = None
-    ) -> list[FleetLatencyRow]:
+    async def fleet_summary(self, *, period_days: int = 30, dimension: str | None = None) -> list[FleetLatencyRow]:
         """Fleet-wide latency breakdown aggregated across jobs."""
         dim_filter = "AND dimension = :dimension" if dimension else ""
         params: dict[str, Any] = {"limit": 100, "period_days": f"-{int(period_days)} days"}

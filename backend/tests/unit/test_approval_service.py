@@ -11,8 +11,8 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.models.db import Base, JobRow
-from backend.persistence.database import _set_sqlite_pragmas
 from backend.models.domain import ApprovalAlreadyResolvedError, ApprovalNotFoundError
+from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.approval_service import ApprovalService
 
 if TYPE_CHECKING:
@@ -220,11 +220,11 @@ class TestConcurrentApprovals:
     @pytest.mark.asyncio
     async def test_concurrent_create_and_cleanup(self, svc: ApprovalService) -> None:
         """Create approvals while cleanup runs concurrently."""
-        a1 = await svc.create_request("job-1", "Action 1")
+        _a1 = await svc.create_request("job-1", "Action 1")
 
         async def create_another() -> str:
-            a = await svc.create_request("job-1", "Action 2")
-            return a.id
+            _a = await svc.create_request("job-1", "Action 2")
+            return _a.id
 
         async def cleanup() -> None:
             await svc.cleanup_job("job-1")
@@ -233,9 +233,7 @@ class TestConcurrentApprovals:
         new_id, _ = await asyncio.gather(create_another(), cleanup())
         # The new approval may or may not have been cleaned up depending on
         # scheduling, but the data structures must be consistent
-        remaining = {
-            aid for aid, jid in svc._approval_to_job.items() if jid == "job-1"
-        }
+        remaining = {aid for aid, jid in svc._approval_to_job.items() if jid == "job-1"}
         for aid in remaining:
             assert aid in svc._pending_futures
 

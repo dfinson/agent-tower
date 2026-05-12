@@ -156,8 +156,8 @@ describe("JobCreationScreen", () => {
 
   it("renders permission mode buttons", async () => {
     await renderScreen();
-    expect(screen.getByText("Full Auto")).toBeInTheDocument();
-    expect(screen.getByText("Review & Approve")).toBeInTheDocument();
+    expect(screen.getByText("Autonomous")).toBeInTheDocument();
+    expect(screen.getByText("Supervised")).toBeInTheDocument();
   });
 
   it("renders model selection in the main form", async () => {

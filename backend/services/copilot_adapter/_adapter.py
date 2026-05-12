@@ -34,21 +34,21 @@ if TYPE_CHECKING:
         AssistantReasoningData,
         AssistantReasoningDeltaData,
         AssistantUsageData,
-        Data as SdkEventData,
+        PermissionRequest,
         SessionCompactionCompleteData,
+        SessionEventData,
         SessionModelChangeData,
         SessionShutdownData,
         SessionTruncationData,
         SessionUsageInfoData,
-        SessionEvent as SdkSessionEvent,
-        SessionEventData,
         ToolExecutionCompleteData,
         ToolExecutionPartialResultData,
         ToolExecutionStartData,
         UserMessageData,
     )
-    from copilot._jsonrpc import ProcessExitedError
-    from copilot.generated.session_events import PermissionRequest
+    from copilot.generated.session_events import (
+        SessionEvent as SdkSessionEvent,
+    )
     from copilot.session import CopilotSession, PermissionRequestResult, SystemMessageAppendConfig
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -93,8 +93,7 @@ class CopilotAdapter(BaseAgentAdapter):
     @staticmethod
     async def _stop_client(client: CopilotClient) -> None:
         """Stop a CopilotClient, terminating its CLI server process."""
-        from copilot._jsonrpc import ProcessExitedError
-        from copilot._jsonrpc import JsonRpcError
+        from copilot._jsonrpc import JsonRpcError, ProcessExitedError
 
         try:
             await asyncio.wait_for(client.stop(), timeout=CLIENT_STOP_TIMEOUT_S)
@@ -593,7 +592,9 @@ class CopilotAdapter(BaseAgentAdapter):
                     result_text = ""
                     if tc:
                         result_obj = tc.result
-                        result_content: object = getattr(result_obj, "content", None) if result_obj is not None else None
+                        result_content: object = (
+                            getattr(result_obj, "content", None) if result_obj is not None else None
+                        )
                         if result_content:
                             result_text = self._extract_result_text(result_content)
 
@@ -625,8 +626,7 @@ class CopilotAdapter(BaseAgentAdapter):
 
     async def create_session(self, config: SessionConfig) -> str:
         from copilot import CopilotClient
-        from copilot._jsonrpc import JsonRpcError
-        from copilot._jsonrpc import ProcessExitedError
+        from copilot._jsonrpc import JsonRpcError, ProcessExitedError
 
         client = CopilotClient()
 
@@ -730,7 +730,10 @@ class CopilotAdapter(BaseAgentAdapter):
                 if kind_str == "assistant.usage":
                     self._handle_usage_event(
                         cast("AssistantUsageData", data),
-                        job_id, requested_model, _model_verified, queue,
+                        job_id,
+                        requested_model,
+                        _model_verified,
+                        queue,
                     )
                 elif kind_str == "tool.execution_start":
                     self._handle_tool_start(cast("ToolExecutionStartData", data), job_id)
@@ -760,7 +763,9 @@ class CopilotAdapter(BaseAgentAdapter):
                 elif kind_str == "session.shutdown":
                     sd = cast("SessionShutdownData", data)
                     if sd.total_premium_requests is not None:
-                        tel.premium_requests_counter.add(float(sd.total_premium_requests), {"job_id": job_id, "sdk": "copilot"})
+                        tel.premium_requests_counter.add(
+                            float(sd.total_premium_requests), {"job_id": job_id, "sdk": "copilot"}
+                        )
                         self._schedule_db_write(
                             self._db_write_increment(job_id=job_id, premium_requests=float(sd.total_premium_requests))
                         )
@@ -797,8 +802,7 @@ class CopilotAdapter(BaseAgentAdapter):
             self._cleanup_session(session_id)
 
     async def send_message(self, session_id: str, message: str) -> None:
-        from copilot._jsonrpc import JsonRpcError
-        from copilot._jsonrpc import ProcessExitedError
+        from copilot._jsonrpc import JsonRpcError, ProcessExitedError
 
         session = self._sessions.get(session_id)
         if session is None:
@@ -810,8 +814,7 @@ class CopilotAdapter(BaseAgentAdapter):
             log.warning("copilot_send_message_failed", session_id=session_id, exc_info=True)
 
     async def interrupt_session(self, session_id: str) -> None:
-        from copilot._jsonrpc import JsonRpcError
-        from copilot._jsonrpc import ProcessExitedError
+        from copilot._jsonrpc import JsonRpcError, ProcessExitedError
 
         session = self._sessions.get(session_id)
         if session is None:
@@ -823,8 +826,7 @@ class CopilotAdapter(BaseAgentAdapter):
             log.warning("copilot_interrupt_failed", session_id=session_id, exc_info=True)
 
     async def abort_session(self, session_id: str) -> None:
-        from copilot._jsonrpc import JsonRpcError
-        from copilot._jsonrpc import ProcessExitedError
+        from copilot._jsonrpc import JsonRpcError, ProcessExitedError
 
         session = self._sessions.get(session_id)
         if session is None:
@@ -839,8 +841,7 @@ class CopilotAdapter(BaseAgentAdapter):
     async def complete(self, prompt: str) -> CompletionResult:
         """Create a minimal session for single-turn completion, collect the response."""
         from copilot import CopilotClient
-        from copilot._jsonrpc import JsonRpcError
-        from copilot._jsonrpc import ProcessExitedError
+        from copilot._jsonrpc import JsonRpcError, ProcessExitedError
         from copilot.session import PermissionRequestResult as _Result
 
         from backend.services.agent_adapter import CompletionResult

@@ -102,14 +102,10 @@ class GitService:
             parts = line.split("\t", 2)
             if len(parts) >= 2:
                 # Binary files show "-" instead of numbers
-                try:
+                with contextlib.suppress(ValueError):
                     additions += int(parts[0])
-                except ValueError:
-                    pass
-                try:
+                with contextlib.suppress(ValueError):
                     deletions += int(parts[1])
-                except ValueError:
-                    pass
         return additions, deletions
 
     async def merge_base(self, ref1: str, ref2: str, *, cwd: str | Path) -> str:
@@ -393,9 +389,7 @@ class GitService:
         async def _resolve() -> str:
             return await self._resolve_ref(repo_path, base_ref)
 
-        _, _, resolved_base_ref = await asyncio.gather(
-            _prune(), _remove_stale_worktree(), _resolve()
-        )
+        _, _, resolved_base_ref = await asyncio.gather(_prune(), _remove_stale_worktree(), _resolve())
 
         # Now the branch should be detachable; delete it if it exists.
         with contextlib.suppress(GitError):

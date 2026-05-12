@@ -166,10 +166,12 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            job = await job_service.create_job(JobSpec(
-                repo="/repos/test",
-                prompt="Fix the bug",
-            ))
+            job = await job_service.create_job(
+                JobSpec(
+                    repo="/repos/test",
+                    prompt="Fix the bug",
+                )
+            )
             await session.commit()
 
         assert job.id != ""
@@ -185,10 +187,12 @@ class TestJobService:
         job_service: JobService,
     ) -> None:
         with pytest.raises(RepoNotAllowedError):
-            await job_service.create_job(JobSpec(
-                repo="/repos/not-allowed",
-                prompt="Fix it",
-            ))
+            await job_service.create_job(
+                JobSpec(
+                    repo="/repos/not-allowed",
+                    prompt="Fix it",
+                )
+            )
 
     @pytest.mark.asyncio
     async def test_get_job_found(
@@ -349,10 +353,12 @@ class TestJobService:
                 return_value="main",
             ),
         ):
-            original = await job_service.create_job(JobSpec(
-                repo="/repos/test",
-                prompt="Fix it",
-            ))
+            original = await job_service.create_job(
+                JobSpec(
+                    repo="/repos/test",
+                    prompt="Fix it",
+                )
+            )
             await session.commit()
 
         with (
@@ -406,10 +412,12 @@ class TestJobService:
                     return_value="main",
                 ),
             ):
-                job = await job_service.create_job(JobSpec(
-                    repo="/repos/test",
-                    prompt=prompt,
-                ))
+                job = await job_service.create_job(
+                    JobSpec(
+                        repo="/repos/test",
+                        prompt=prompt,
+                    )
+                )
                 await session.commit()
             assert not job.id.startswith("job-"), f"Expected no 'job-N' ID, got: {job.id}"
             assert job.id not in ids, "Duplicate job ID"
@@ -430,10 +438,12 @@ class TestJobService:
             new_callable=AsyncMock,
             return_value="main",
         ):
-            job = await job_service.create_job(JobSpec(
-                repo="/repos/test",
-                prompt="Fix it",
-            ))
+            job = await job_service.create_job(
+                JobSpec(
+                    repo="/repos/test",
+                    prompt="Fix it",
+                )
+            )
             await session.commit()
 
         assert job.state == JobState.preparing

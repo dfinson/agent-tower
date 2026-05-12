@@ -6,11 +6,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from backend.api.job_artifacts import (
+    _STRUCTURAL_CACHE,
     _build_structural_changes,
     _classify_category,
     _compute_merge_confidence,
@@ -33,10 +34,9 @@ from backend.models.api_schemas import (
 )
 from backend.models.domain import Job, JobState
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.api.job_artifacts import _STRUCTURAL_CACHE
-
 
 # -- Fixtures ------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _clear_cache() -> None:
@@ -247,8 +247,9 @@ class TestComputeRisk:
 class TestComputeMergeConfidence:
     def test_high_when_all_verified_with_tests(self) -> None:
         changes = [
-            StructuralChange(kind="modified", file="a.py", category="body",
-                             ref_tiers={"verified": 3}, test_files=["test_a.py"]),
+            StructuralChange(
+                kind="modified", file="a.py", category="body", ref_tiers={"verified": 3}, test_files=["test_a.py"]
+            ),
         ]
         assert _compute_merge_confidence(changes) == "HIGH"
 
@@ -260,22 +261,21 @@ class TestComputeMergeConfidence:
 
     def test_low_when_breaking_with_unverified(self) -> None:
         changes = [
-            StructuralChange(kind="modified", file="a.py", category="breaking",
-                             ref_tiers={"unverified": 2}),
+            StructuralChange(kind="modified", file="a.py", category="breaking", ref_tiers={"unverified": 2}),
         ]
         assert _compute_merge_confidence(changes) == "LOW"
 
     def test_medium_when_unverified_on_non_breaking(self) -> None:
         changes = [
-            StructuralChange(kind="modified", file="a.py", category="body",
-                             ref_tiers={"unverified": 1}),
+            StructuralChange(kind="modified", file="a.py", category="body", ref_tiers={"unverified": 1}),
         ]
         assert _compute_merge_confidence(changes) == "MEDIUM"
 
     def test_medium_when_breaking_without_tests(self) -> None:
         changes = [
-            StructuralChange(kind="modified", file="a.py", category="breaking",
-                             ref_tiers={"verified": 3}, test_files=[]),
+            StructuralChange(
+                kind="modified", file="a.py", category="breaking", ref_tiers={"verified": 3}, test_files=[]
+            ),
         ]
         assert _compute_merge_confidence(changes) == "MEDIUM"
 
@@ -310,12 +310,14 @@ class TestBuildStructuralChanges:
         assert ch.risk > 0
 
     def test_unclassified_refs_treated_as_unverified(self) -> None:
-        raw = [FakeStructuralChange(
-            change="removed",
-            name="x",
-            path="x.py",
-            impact=FakeImpact(reference_count=10, ref_tiers=FakeRefTiers(proven=3)),
-        )]
+        raw = [
+            FakeStructuralChange(
+                change="removed",
+                name="x",
+                path="x.py",
+                impact=FakeImpact(reference_count=10, ref_tiers=FakeRefTiers(proven=3)),
+            )
+        ]
         result = _build_structural_changes(raw)
         assert result[0].ref_tiers["unverified"] == 7
 
@@ -372,9 +374,14 @@ async def test_structural_diff_success() -> None:
         summary="3 changes",
         structural_changes=[
             FakeStructuralChange(change="added", name="new_fn", path="src/new.py"),
-            FakeStructuralChange(change="modified", name="old_fn", path="src/old.py",
-                                 old_sig="def old_fn()", new_sig="def old_fn()",
-                                 impact=FakeImpact(reference_count=2, ref_tiers=FakeRefTiers(proven=2))),
+            FakeStructuralChange(
+                change="modified",
+                name="old_fn",
+                path="src/old.py",
+                old_sig="def old_fn()",
+                new_sig="def old_fn()",
+                impact=FakeImpact(reference_count=2, ref_tiers=FakeRefTiers(proven=2)),
+            ),
         ],
     )
     result = await get_job_structural_diff("job-1", svc, coderecon, step_repo)
@@ -494,9 +501,14 @@ async def test_impact_graph_empty_result() -> None:
     svc = _make_svc(job)
     coderecon = _make_coderecon()
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
-    coderecon.impact = AsyncMock(return_value=SimpleNamespace(
-        definition_sites=[], references=[], import_sites=[], total_references=0,
-    ))
+    coderecon.impact = AsyncMock(
+        return_value=SimpleNamespace(
+            definition_sites=[],
+            references=[],
+            import_sites=[],
+            total_references=0,
+        )
+    )
     result = await get_impact_graph("job-1", "unknown_fn", svc, coderecon, step_repo)
     assert result.available is True
     assert result.total_references == 0
@@ -512,9 +524,14 @@ async def test_impact_graph_cached() -> None:
     coderecon = _make_coderecon()
     fake_step = SimpleNamespace(end_sha="abc123")
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[fake_step]))
-    coderecon.impact = AsyncMock(return_value=SimpleNamespace(
-        definition_sites=[], references=[], import_sites=[], total_references=0,
-    ))
+    coderecon.impact = AsyncMock(
+        return_value=SimpleNamespace(
+            definition_sites=[],
+            references=[],
+            import_sites=[],
+            total_references=0,
+        )
+    )
     r1 = await get_impact_graph("job-1", "fn", svc, coderecon, step_repo)
     r2 = await get_impact_graph("job-1", "fn", svc, coderecon, step_repo)
     assert r1 is r2
@@ -537,8 +554,18 @@ async def test_communities_success() -> None:
     )
     coderecon.graph_communities.return_value = FakeCommunitiesResult(
         communities=[
-            FakeCommunity(community_id=0, members=["src/auth/login.py", "src/auth/signup.py"], size=2, representative="auth"),
-            FakeCommunity(community_id=1, members=["src/db/query.py", "src/db/models.py"], size=2, representative="database"),
+            FakeCommunity(
+                community_id=0,
+                members=["src/auth/login.py", "src/auth/signup.py"],
+                size=2,
+                representative="auth",
+            ),
+            FakeCommunity(
+                community_id=1,
+                members=["src/db/query.py", "src/db/models.py"],
+                size=2,
+                representative="database",
+            ),
         ]
     )
     result = await get_job_communities("job-1", svc, coderecon, step_repo)
@@ -591,9 +618,14 @@ async def test_review_story_success() -> None:
     coderecon = _make_coderecon()
     coderecon.semantic_diff.return_value = FakeDiffResult(
         structural_changes=[
-            FakeStructuralChange(change="modified", name="auth_check", path="src/auth.py",
-                                 old_sig="def auth_check()", new_sig="def auth_check(token)",
-                                 impact=FakeImpact(reference_count=5, ref_tiers=FakeRefTiers(unknown=5))),
+            FakeStructuralChange(
+                change="modified",
+                name="auth_check",
+                path="src/auth.py",
+                old_sig="def auth_check()",
+                new_sig="def auth_check(token)",
+                impact=FakeImpact(reference_count=5, ref_tiers=FakeRefTiers(unknown=5)),
+            ),
             FakeStructuralChange(change="added", name="new_helper", path="src/util.py"),
         ],
     )
@@ -637,12 +669,14 @@ async def test_multi_session_partitions_by_event_boundaries() -> None:
     # Two steps: one before boundary, one after
     step1 = SimpleNamespace(
         started_at=base_time - timedelta(hours=1),
-        start_sha="aaa", end_sha="bbb",
+        start_sha="aaa",
+        end_sha="bbb",
         files_written=None,
     )
     step2 = SimpleNamespace(
         started_at=base_time + timedelta(minutes=5),
-        start_sha="ccc", end_sha="ddd",
+        start_sha="ccc",
+        end_sha="ddd",
         files_written=None,
     )
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[step1, step2]))
@@ -678,23 +712,29 @@ async def test_multi_session_direction_change_detection() -> None:
         nonlocal diff_call_count
         diff_call_count += 1
         if diff_call_count == 1:
-            return FakeDiffResult(structural_changes=[
-                FakeStructuralChange(change="added", name="new_fn", path="a.py"),
-            ])
-        return FakeDiffResult(structural_changes=[
-            FakeStructuralChange(change="modified", name="new_fn", path="a.py"),
-        ])
+            return FakeDiffResult(
+                structural_changes=[
+                    FakeStructuralChange(change="added", name="new_fn", path="a.py"),
+                ]
+            )
+        return FakeDiffResult(
+            structural_changes=[
+                FakeStructuralChange(change="modified", name="new_fn", path="a.py"),
+            ]
+        )
 
     coderecon.semantic_diff = AsyncMock(side_effect=_mock_diff)
 
     step1 = SimpleNamespace(
         started_at=base_time - timedelta(hours=1),
-        start_sha="aaa", end_sha="bbb",
+        start_sha="aaa",
+        end_sha="bbb",
         files_written=None,
     )
     step2 = SimpleNamespace(
         started_at=base_time + timedelta(minutes=5),
-        start_sha="ccc", end_sha="ddd",
+        start_sha="ccc",
+        end_sha="ddd",
         files_written=None,
     )
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[step1, step2]))

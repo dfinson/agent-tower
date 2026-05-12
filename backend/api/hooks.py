@@ -42,7 +42,9 @@ async def claude_stop_hook(
 
     # Return messages as the stop hook response — Claude injects these
     # into the agent's context as operator feedback
-    return JSONResponse(content={
-        "decision": "block",
-        "reason": "\n\n".join(messages),
-    })
+    return JSONResponse(
+        content={
+            "decision": "block",
+            "reason": "\n\n".join(messages),
+        }
+    )

@@ -172,7 +172,7 @@ class TestDeadLetterRetry:
                 raise OperationalError("", [], Exception("database is locked"))
             return await original_append(self, evt)
 
-        lock = asyncio.Lock()
+        _lock = asyncio.Lock()
 
         with patch.object(EventRepository, "append", flaky_append):
             await _persist_event_with_retry(

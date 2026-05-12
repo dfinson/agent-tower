@@ -47,11 +47,7 @@ class MemoryCompacter:
 
         Returns the summarized text. Raises on failure (caller handles).
         """
-        prompt = (
-            f"{_COMPACTION_SYSTEM_PROMPT}\n\n"
-            f"## Current Memory ({len(memory_content)} bytes)\n\n"
-            f"{memory_content}"
-        )
+        prompt = f"{_COMPACTION_SYSTEM_PROMPT}\n\n## Current Memory ({len(memory_content)} bytes)\n\n{memory_content}"
         t0 = time.monotonic()
         result = await self._adapter.complete(prompt)
         elapsed_ms = (time.monotonic() - t0) * 1000

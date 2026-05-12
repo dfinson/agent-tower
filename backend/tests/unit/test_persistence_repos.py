@@ -1,4 +1,8 @@
-"""Tests for persistence repos — CostAttributionRepository, FileAccessRepository, ObservationsRepository, StepRepository."""
+"""Tests for persistence repos.
+
+Covers CostAttributionRepository, FileAccessRepository,
+ObservationsRepository, StepRepository.
+"""
 
 from __future__ import annotations
 

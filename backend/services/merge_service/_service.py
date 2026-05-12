@@ -11,18 +11,17 @@ from typing import TYPE_CHECKING
 import structlog
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.models.domain import GitMergeOutcome, Resolution
+from backend.models.domain import GitMergeOutcome
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.git_service import GitError
 from backend.services.merge_service._types import (
-    MergeResult,
-    MergeStatus,
-    _CHERRY_PICK_ALREADY_APPLIED_PATTERNS,
-    _MergeOutcome,
     _NOT_MERGED,
     _PR_TITLE_MAX_PROMPT_LEN,
     _REF_PATTERN,
+    MergeResult,
+    MergeStatus,
     _classify_cherry_pick_failure,
+    _MergeOutcome,
 )
 
 if TYPE_CHECKING:
@@ -825,7 +824,11 @@ class MergeService:
             async with lock:
                 try:
                     ff_result = await self._try_ff_via_ref(
-                        job_id, repo_path, branch, base_ref, skip_cleanup=True,
+                        job_id,
+                        repo_path,
+                        branch,
+                        base_ref,
+                        skip_cleanup=True,
                     )
                     if ff_result is not None:
                         # Do NOT call _post_merge_cleanup — leave worktree and branch

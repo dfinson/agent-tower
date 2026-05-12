@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.services.trail.models import TrailJobState
 from backend.services.trail.prompts import TITLE_PROMPT, strip_code_fences
 
 if TYPE_CHECKING:
     from backend.services.sister_session import SisterSession
+    from backend.services.trail.models import TrailJobState
 
 log = structlog.get_logger()
 
@@ -67,8 +67,7 @@ class TitleGenerator:
         current_act = state.activities[-1] if state.activities else None
         current_label = current_act.label if current_act else state.job_prompt[:60] or "Started"
         steps_in_activity = [
-            s for s in state.activity_steps
-            if current_act and s.activity_id == current_act.activity_id
+            s for s in state.activity_steps if current_act and s.activity_id == current_act.activity_id
         ]
         turns_in_section = len(steps_in_activity)
 
@@ -76,8 +75,7 @@ class TitleGenerator:
         recent_titles = [s.title for s in steps_in_activity[-3:]]
         if recent_titles:
             recent_window = "\n".join(
-                f"  [{turns_in_section - len(recent_titles) + i + 1}] {t}"
-                for i, t in enumerate(recent_titles)
+                f"  [{turns_in_section - len(recent_titles) + i + 1}] {t}" for i, t in enumerate(recent_titles)
             )
         else:
             recent_window = "  (first turn)"

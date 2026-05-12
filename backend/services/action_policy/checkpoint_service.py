@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 import structlog
@@ -69,11 +70,15 @@ class CheckpointService:
 
             # Revert range: checkpoint..HEAD
             await self._git.run_git(
-                "revert", "--no-commit", f"{checkpoint_ref}..HEAD",
+                "revert",
+                "--no-commit",
+                f"{checkpoint_ref}..HEAD",
                 cwd=cwd,
             )
             await self._git.run_git(
-                "commit", "-m", f"Rollback to checkpoint {checkpoint_ref}",
+                "commit",
+                "-m",
+                f"Rollback to checkpoint {checkpoint_ref}",
                 cwd=cwd,
             )
             log.info("checkpoint_rollback_success", ref=checkpoint_ref)
@@ -81,10 +86,8 @@ class CheckpointService:
         except Exception:
             log.error("checkpoint_rollback_failed", ref=checkpoint_ref, exc_info=True)
             # Try to abort the revert if it's in progress
-            try:
+            with contextlib.suppress(Exception):
                 await self._git.run_git("revert", "--abort", cwd=cwd)
-            except Exception:
-                pass
             return False
 
     def cleanup_job(self, job_id: str) -> None:

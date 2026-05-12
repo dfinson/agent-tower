@@ -309,9 +309,7 @@ class TestCreateSession:
 
     @patch("backend.services.terminal_service.os.path.isdir", return_value=False)
     @patch("backend.services.terminal_service.os.path.isfile", return_value=True)
-    def test_create_session_cwd_not_found(
-        self, mock_isfile: MagicMock, mock_isdir: MagicMock
-    ) -> None:
+    def test_create_session_cwd_not_found(self, mock_isfile: MagicMock, mock_isdir: MagicMock) -> None:
         svc = TerminalService()
         with pytest.raises(ValueError, match="Working directory does not exist"):
             svc.create_session(cwd="/nonexistent")
@@ -602,9 +600,7 @@ class TestOnPtyReadable:
 
     @patch("backend.services.terminal_service.os.read", return_value=b"data")
     @patch("backend.services.terminal_service.asyncio.ensure_future")
-    def test_broadcasts_to_websocket_clients(
-        self, mock_ensure: MagicMock, mock_read: MagicMock
-    ) -> None:
+    def test_broadcasts_to_websocket_clients(self, mock_ensure: MagicMock, mock_read: MagicMock) -> None:
         svc = TerminalService()
         session = _make_session(session_id="s1")
         ws = AsyncMock()
@@ -926,9 +922,7 @@ class TestWindowsTerminalService:
         assert msg["code"] == 0
 
     @patch("backend.services.terminal_service.asyncio.create_task")
-    def test_create_session_windows_pwsh_prompt_injection(
-        self, mock_create_task: MagicMock
-    ) -> None:
+    def test_create_session_windows_pwsh_prompt_injection(self, mock_create_task: MagicMock) -> None:
         """create_session on Windows injects prompt via -NoExit -Command argv for pwsh."""
         mock_win_proc = _make_win_proc()
         mock_win_proc_class = MagicMock()

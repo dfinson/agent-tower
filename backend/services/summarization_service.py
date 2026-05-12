@@ -15,8 +15,6 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import structlog
 
-from backend.models.events import DomainEvent
-
 
 class TranscriptTurn(TypedDict):
     role: str
@@ -27,6 +25,7 @@ class TranscriptTurn(TypedDict):
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.models.events import DomainEvent
     from backend.services.naming_service import Completable
 
 log = structlog.get_logger()
@@ -155,10 +154,9 @@ class SummarizationService:
         of re-reading from the event store.
         """
         from backend.persistence.artifact_repo import ArtifactRepository
+        from backend.persistence.database import serialized_write
         from backend.persistence.trail_repo import TrailNodeRepository
         from backend.services.artifact_service import ArtifactService
-
-        from backend.persistence.database import serialized_write
 
         # --- Read phase (no write lock needed) ---
         trail_repo = TrailNodeRepository(self._session_factory)
@@ -403,7 +401,7 @@ def extract_changed_files(diff_events: list[DomainEvent]) -> list[str]:
     """Extract unique changed file paths from diff_updated events."""
     paths: set[str] = set()
     for ev in diff_events:
-        for f in cast(list[dict[str, Any]], ev.payload.get("changed_files", [])):
+        for f in cast("list[dict[str, Any]]", ev.payload.get("changed_files", [])):
             path = f.get("path") or f.get("new_path") or ""
             if path:
                 paths.add(path)

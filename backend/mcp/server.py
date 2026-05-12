@@ -9,11 +9,10 @@ single tool name, keeping the total tool count low for LLM clients.
 
 from __future__ import annotations
 
-import contextlib
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 from mcp.server.fastmcp import FastMCP
@@ -43,7 +42,6 @@ from backend.models.domain import JobNotFoundError, RepoNotAllowedError, SDKMode
 from backend.services.artifact_service import ArtifactService
 from backend.services.git_service import GitError, GitService
 from backend.services.job_service import JobService
-from backend.services.platform_adapter import detect_platform as _detect_platform
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -76,7 +74,7 @@ class McpErrorDict(TypedDict):
 # ``model_dump(mode="json")``.  The broad ``dict[str, Any]`` component
 # reflects Pydantic's own return signature; ``McpErrorDict`` captures the
 # error path so callers can narrow on the ``"error"`` key.
-McpToolResult: TypeAlias = McpErrorDict | dict[str, Any]
+type McpToolResult = McpErrorDict | dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -95,7 +93,11 @@ class MCPState:
 
 
 def _make_job_service(
-    state: MCPState, session: AsyncSession, config: CPLConfig, *, git: bool = True,
+    state: MCPState,
+    session: AsyncSession,
+    config: CPLConfig,
+    *,
+    git: bool = True,
 ) -> JobService:
     from backend.persistence.job_repo import JobRepository
     from backend.services.naming_service import NamingService
@@ -204,14 +206,16 @@ def _register_job_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
                 try:
                     from backend.models.domain import JobSpec
 
-                    job = await svc.create_job(JobSpec(
-                        repo=repo,
-                        prompt=prompt,
-                        base_ref=base_ref,
-                        branch=branch,
-                        model=model,
-                        sdk=sdk,
-                    ))
+                    job = await svc.create_job(
+                        JobSpec(
+                            repo=repo,
+                            prompt=prompt,
+                            base_ref=base_ref,
+                            branch=branch,
+                            model=model,
+                            sdk=sdk,
+                        )
+                    )
                 except RepoNotAllowedError as exc:
                     return {"error": str(exc)}
                 except SDKModelMismatchError as exc:
@@ -659,8 +663,9 @@ def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
         source: str | None = None,
         clone_to: str | None = None,
     ) -> McpToolResult:
-        import httpx
         import urllib.parse
+
+        import httpx
 
         config = load_config()
         base_url = f"http://{config.server.host}:{config.server.port}/api"

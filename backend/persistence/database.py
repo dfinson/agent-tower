@@ -51,7 +51,11 @@ def create_engine(db_path: Path | None = None) -> AsyncEngine:
     """Create an async SQLAlchemy engine."""
     url = get_database_url(db_path)
     engine = create_async_engine(
-        url, echo=False, pool_size=_POOL_SIZE, max_overflow=_POOL_MAX_OVERFLOW, pool_timeout=_POOL_TIMEOUT_S,
+        url,
+        echo=False,
+        pool_size=_POOL_SIZE,
+        max_overflow=_POOL_MAX_OVERFLOW,
+        pool_timeout=_POOL_TIMEOUT_S,
     )
     sa_event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
     return engine
@@ -85,21 +89,20 @@ def get_write_lock() -> asyncio.Lock:
 @asynccontextmanager
 async def serialized_write(
     session_factory: async_sessionmaker[AsyncSession],
-) -> "AsyncGenerator[AsyncSession, None]":
+) -> AsyncGenerator[AsyncSession, None]:
     """Acquire the global write lock and yield a session that commits on exit.
 
     All database writes should go through this context manager to avoid
     SQLite lock contention. The session is committed on clean exit and
     rolled back on exception.
     """
-    async with get_write_lock():
-        async with session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
+    async with get_write_lock(), session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
 
 async def get_session(

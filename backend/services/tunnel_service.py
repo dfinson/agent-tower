@@ -297,10 +297,8 @@ def _wait_for_startup(proc: subprocess.Popen[str], *, label: str = "tunnel", tim
         if proc.poll() is not None:
             output = ""
             if proc.stdout:
-                try:
+                with contextlib.suppress(OSError):
                     output = proc.stdout.read(64 * 1024).strip()
-                except OSError:
-                    pass
             raise TunnelStartError(output or f"{label} process exited during startup")
         time.sleep(0.5)
 

@@ -18,16 +18,16 @@ from backend.config import get_codeplane_dir, init_config, load_config, save_con
 
 # Re-export everything that external callers import from this module.
 from backend.services.setup_checks import (  # noqa: F401
-    HOST_PLATFORM,
     DEPENDENCIES,
+    HOST_PLATFORM,
     AgentAuthStatus,
     AgentCLIStatus,
     CheckResult,
     CheckStatus,
     Dependency,
-    check_agent_auth,
     _console,
     _render_check_line,
+    check_agent_auth,
     check_agent_cli,
     render_checks,
     render_summary,

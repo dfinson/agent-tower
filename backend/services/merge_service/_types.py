@@ -15,10 +15,13 @@ __all__ = [
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from backend.models.domain import GitMergeOutcome
-from backend.services.git_service import GitError
 from backend.validators import REF_PATTERN as _REF_PATTERN  # noqa: F401
+
+if TYPE_CHECKING:
+    from backend.services.git_service import GitError
 
 
 class _MergeOutcome(StrEnum):

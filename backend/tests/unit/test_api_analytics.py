@@ -20,6 +20,7 @@ def _mock_analytics_svc(**overrides: object) -> AnalyticsService:
         getattr(svc, name).return_value = value
     return svc
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

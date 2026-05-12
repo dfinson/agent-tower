@@ -292,7 +292,7 @@ describe("resumeJob", () => {
 describe("fetchJobLogs", () => {
   it("fetches logs for a job", async () => {
     const logs = [{ jobId: "j-1", seq: 1, level: "info", message: "Hello" }];
-    mockFetch.mockResolvedValueOnce(jsonResponse(logs));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: logs }));
     const result = await fetchJobLogs("j-1");
     expect(result).toEqual(logs);
     const url = getFirstFetchUrl();
@@ -301,7 +301,7 @@ describe("fetchJobLogs", () => {
   });
 
   it("respects level param", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse([]));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: [] }));
     await fetchJobLogs("j-1", "error");
     const url = getFirstFetchUrl();
     expect(url).toContain("level=error");
@@ -311,7 +311,7 @@ describe("fetchJobLogs", () => {
 describe("fetchJobTranscript", () => {
   it("fetches transcript", async () => {
     const entries = [{ seq: 1, role: "agent", content: "Done" }];
-    mockFetch.mockResolvedValueOnce(jsonResponse(entries));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: entries }));
     const result = await fetchJobTranscript("j-1");
     expect(result).toEqual(entries);
     expect(getFirstFetchUrl()).toContain("/api/jobs/j-1/transcript");
@@ -321,7 +321,7 @@ describe("fetchJobTranscript", () => {
 describe("fetchJobDiff", () => {
   it("fetches diff", async () => {
     const diff = [{ path: "a.ts", status: "modified", additions: 1, deletions: 0, hunks: [] }];
-    mockFetch.mockResolvedValueOnce(jsonResponse(diff));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: diff }));
     const result = await fetchJobDiff("j-1");
     expect(result).toEqual(diff);
     expect(getFirstFetchUrl()).toContain("/api/jobs/j-1/diff");
@@ -382,7 +382,7 @@ describe("unregisterRepo", () => {
 describe("fetchApprovals", () => {
   it("returns approvals for a job", async () => {
     const approvals = [{ id: "apr-1", jobId: "j-1", description: "Allow?" }];
-    mockFetch.mockResolvedValueOnce(jsonResponse(approvals));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: approvals }));
     const result = await fetchApprovals("j-1");
     expect(result).toEqual(approvals);
   });
@@ -492,7 +492,7 @@ describe("transcribeAudio", () => {
 
 describe("fetchModels", () => {
   it("returns model list", async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse([{ id: "gpt-4", name: "GPT-4" }]));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ items: [{ id: "gpt-4", name: "GPT-4" }] }));
     const result = await fetchModels();
     const firstModel = result[0];
     expect(firstModel).toBeDefined();

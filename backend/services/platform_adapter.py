@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-from backend.validators import REF_PATTERN as _REF_PATTERN
+from backend.validators import REF_PATTERN as _REF_PATTERN  # noqa: E402
 
 
 @dataclass

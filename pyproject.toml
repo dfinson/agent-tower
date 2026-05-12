@@ -98,6 +98,8 @@ runtime-evaluated-decorators = ["dishka.integrations.fastapi.FromDishka"]
 # runtime — imports for these types must stay outside TYPE_CHECKING blocks.
 "backend/api/*.py" = ["TC001", "TC002"]
 "backend/di.py" = ["TC001", "TC002", "TC003"]
+# api_schemas re-exports via star imports intentionally for backward compat.
+"backend/models/api_schemas.py" = ["F405"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -36,8 +36,8 @@ from backend.models.api_schemas import (
     SettingsResponse,
     UpdateSettingsRequest,
 )
-from backend.services.git_service import GitError, GitService
 from backend.services.coderecon_service import CodeReconService
+from backend.services.git_service import GitError, GitService
 from backend.services.platform_adapter import PlatformRegistry, detect_platform
 
 router = APIRouter(tags=["settings"], route_class=DishkaRoute)
@@ -77,7 +77,7 @@ def update_settings(
     updates = body.model_dump(exclude_none=True)
 
     # Declarative mapping: request field → (config section, config attribute)
-    _FIELD_MAP: dict[str, tuple[str, str]] = {
+    _FIELD_MAP: dict[str, tuple[str, str]] = {  # noqa: N806
         "max_concurrent_jobs": ("runtime", "max_concurrent_jobs"),
         "auto_push": ("completion", "auto_push"),
         "cleanup_worktree": ("completion", "cleanup_worktree"),

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -111,7 +110,7 @@ async def test_persist_event_does_not_retry_non_lock_errors(monkeypatch: pytest.
         async with sf() as session:
             yield session
 
-    with patch("backend.lifespan.serialized_write", _fake_serialized_write):
+    with patch("backend.lifespan.serialized_write", _fake_serialized_write):  # noqa: SIM117
         with pytest.raises(OperationalError, match="disk I/O error"):
             await _persist_event_with_retry(
                 event=_make_event(),

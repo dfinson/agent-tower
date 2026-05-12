@@ -56,7 +56,10 @@ class FileCostRepository(BaseRepository):
         return [dict(r) for r in result.mappings().all()]
 
     async def fleet_top_files(
-        self, *, period_days: int = 30, limit: int = 30,
+        self,
+        *,
+        period_days: int = 30,
+        limit: int = 30,
     ) -> list[dict[str, Any]]:
         """Most expensive files across all jobs in the period."""
         result = await self._session.execute(

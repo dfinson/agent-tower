@@ -32,15 +32,15 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 _PROMPT_BODY = (
-    "Write in abstract third person — no \"I\", "
-    "no \"the agent\", no \"this edit\", no \"this change\".\n\n"
+    'Write in abstract third person — no "I", '
+    'no "the agent", no "this edit", no "this change".\n\n'
     "Output exactly two lines of plain text (no markdown, no headers, no bullets):\n"
     "LINE 1: Title — ≤10 words. {title_instruction}. No filler words.\n"
     "LINE 2: WHY — 1-2 sentences. Only explain what isn't obvious from the diff. "
     "Reference the specific prior finding, bug, or upstream change that caused this. "
     "Cite concrete file paths, function names, finding IDs, or todo IDs from the context. "
-    "Never restate what the diff already shows. Never say \"aligns with\", \"ensures consistency\", "
-    "\"improves maintainability\", or similar filler.\n\n"
+    'Never restate what the diff already shows. Never say "aligns with", "ensures consistency", '
+    '"improves maintainability", or similar filler.\n\n'
     "Never fabricate references. Only cite what appears in the provided context."
 )
 
@@ -89,10 +89,7 @@ def _compute_edit_key(tool_name: str, parsed_args: dict[str, Any]) -> str:
         return f"create:{h}"
     # Replace/edit tools — fingerprint from old_str
     old_str = str(
-        parsed_args.get("old_str", "")
-        or parsed_args.get("oldString", "")
-        or parsed_args.get("old_string", "")
-        or ""
+        parsed_args.get("old_str", "") or parsed_args.get("oldString", "") or parsed_args.get("old_string", "") or ""
     )
     if old_str:
         h = hashlib.sha256(old_str.encode("utf-8", errors="replace")).hexdigest()[:12]
@@ -114,16 +111,10 @@ def _format_mini_diff(tool_name: str, parsed_args: dict[str, Any], file_path: st
         return f"{header}\nCREATED (new file):\n+ {preview}"
 
     old_str = str(
-        parsed_args.get("old_str", "")
-        or parsed_args.get("oldString", "")
-        or parsed_args.get("old_string", "")
-        or ""
+        parsed_args.get("old_str", "") or parsed_args.get("oldString", "") or parsed_args.get("old_string", "") or ""
     )
     new_str = str(
-        parsed_args.get("new_str", "")
-        or parsed_args.get("newString", "")
-        or parsed_args.get("new_string", "")
-        or ""
+        parsed_args.get("new_str", "") or parsed_args.get("newString", "") or parsed_args.get("new_string", "") or ""
     )
     if old_str or new_str:
         old_lines = "\n".join(f"- {line}" for line in old_str.splitlines()) if old_str else "- (empty)"

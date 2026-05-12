@@ -13,7 +13,6 @@ from backend.persistence.trail_repo import TrailNodeRepository
 from backend.services.parsing_utils import ensure_dict
 from backend.services.trail.activity_tracker import ActivityTracker
 from backend.services.trail.enricher import TrailEnricher
-from backend.services.trail.models import TrailJobState, TrailResponse, TrailSummary
 from backend.services.trail.node_builder import TrailNodeBuilder
 from backend.services.trail.plan_manager import PlanManager
 from backend.services.trail.query_service import TrailQueryService
@@ -24,6 +23,7 @@ if TYPE_CHECKING:
 
     from backend.services.event_bus import EventBus
     from backend.services.sister_session import SisterSessionManager
+    from backend.services.trail.models import TrailJobState, TrailResponse, TrailSummary
 
 log = structlog.get_logger()
 
@@ -131,7 +131,9 @@ class TrailService:
             await self._maybe_auto_title(job_id, content)
 
     async def _try_ingest_native_plan(
-        self, job_id: str, payload: dict[str, Any],
+        self,
+        job_id: str,
+        payload: dict[str, Any],
     ) -> None:
         """Extract plan steps from a manage_todo_list / TodoWrite tool call."""
         raw_args = payload.get("tool_args")
@@ -163,13 +165,14 @@ class TrailService:
             return
 
         try:
-            from backend.models.db import JobRow
             from sqlalchemy import select as sa_select
 
+            from backend.models.db import JobRow
+
             async with self._session_factory() as session:
-                title_val = (await session.execute(
-                    sa_select(JobRow.title).where(JobRow.id == job_id)
-                )).scalar_one_or_none()
+                title_val = (
+                    await session.execute(sa_select(JobRow.title).where(JobRow.id == job_id))
+                ).scalar_one_or_none()
                 if title_val is not None:
                     # Already has a title — nothing to do
                     return
@@ -188,18 +191,21 @@ class TrailService:
 
             # Persist and broadcast
             from backend.persistence.job_repo import JobRepository
+
             async with self._session_factory() as session:
                 repo = JobRepository(session)
                 await repo.update_title_and_branch(job_id, title=title)
                 await session.commit()
 
-            await self._event_bus.publish(DomainEvent(
-                event_id=DomainEvent.make_event_id(),
-                job_id=job_id,
-                timestamp=datetime.now(UTC),
-                kind=DomainEventKind.job_title_updated,
-                payload={"title": title},
-            ))
+            await self._event_bus.publish(
+                DomainEvent(
+                    event_id=DomainEvent.make_event_id(),
+                    job_id=job_id,
+                    timestamp=datetime.now(UTC),
+                    kind=DomainEventKind.job_title_updated,
+                    payload={"title": title},
+                )
+            )
             log.info("trail_auto_title_generated", job_id=job_id, title=title)
         except Exception:
             log.debug("trail_auto_title_failed", job_id=job_id, exc_info=True)
@@ -288,7 +294,10 @@ class TrailService:
         after_seq: int | None = None,
     ) -> TrailResponse:
         return await self._query.get_trail(
-            job_id, kinds=kinds, flat=flat, after_seq=after_seq,
+            job_id,
+            kinds=kinds,
+            flat=flat,
+            after_seq=after_seq,
         )
 
     async def get_summary(self, job_id: str) -> TrailSummary:

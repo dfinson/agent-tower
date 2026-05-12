@@ -10,7 +10,6 @@ from backend.models.api_schemas import (
     ScorecardResponse,
 )
 
-
 # ---------------------------------------------------------------------------
 # CostAttributionBucket.confidence
 # ---------------------------------------------------------------------------
@@ -22,9 +21,7 @@ def test_cost_attribution_bucket_confidence_default() -> None:
 
 
 def test_cost_attribution_bucket_confidence_approximate() -> None:
-    bucket = CostAttributionBucket(
-        dimension="activity", bucket="edit", confidence="approximate"
-    )
+    bucket = CostAttributionBucket(dimension="activity", bucket="edit", confidence="approximate")
     assert bucket.confidence == "approximate"
 
 

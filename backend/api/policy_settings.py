@@ -36,6 +36,7 @@ async def _notify_policy_changed(event_bus: EventBus) -> None:
 # Request / Response schemas
 # ---------------------------------------------------------------------------
 
+
 class PolicyConfigResponse(CamelModel):
     preset: str
     batch_window_seconds: float
@@ -173,6 +174,7 @@ class PolicyImportRequest(CamelModel):
 # Policy config
 # ---------------------------------------------------------------------------
 
+
 @router.get("", response_model=FullPolicyResponse)
 async def get_policy(sf: FromDishka[async_sessionmaker[AsyncSession]]) -> FullPolicyResponse:
     async with sf() as session:
@@ -220,6 +222,7 @@ async def update_config(
 # ---------------------------------------------------------------------------
 # Path rules
 # ---------------------------------------------------------------------------
+
 
 @router.get("/path-rules")
 async def list_path_rules(
@@ -282,6 +285,7 @@ async def delete_path_rule(
 # ---------------------------------------------------------------------------
 # Action rules
 # ---------------------------------------------------------------------------
+
 
 @router.get("/action-rules")
 async def list_action_rules(
@@ -353,6 +357,7 @@ async def delete_action_rule(
 # Cost rules
 # ---------------------------------------------------------------------------
 
+
 @router.get("/cost-rules")
 async def list_cost_rules(
     sf: FromDishka[async_sessionmaker[AsyncSession]],
@@ -370,9 +375,7 @@ async def create_cost_rule(
 ) -> dict[str, Any]:
     async with sf() as session:
         repo = PolicyRepository(session)
-        result = await repo.create_cost_rule(
-            body.condition, body.promote_to, body.reason, body.threshold_value
-        )
+        result = await repo.create_cost_rule(body.condition, body.promote_to, body.reason, body.threshold_value)
         await session.commit()
     await _notify_policy_changed(event_bus)
     return result
@@ -420,6 +423,7 @@ async def delete_cost_rule(
 # ---------------------------------------------------------------------------
 # MCP server configs
 # ---------------------------------------------------------------------------
+
 
 @router.get("/mcp-servers")
 async def list_mcp_servers(
@@ -501,6 +505,7 @@ async def delete_mcp_server(
 # Trust grants
 # ---------------------------------------------------------------------------
 
+
 @router.get("/trust-grants")
 async def list_trust_grants(
     sf: FromDishka[async_sessionmaker[AsyncSession]],
@@ -552,6 +557,7 @@ async def delete_trust_grant(
 # ---------------------------------------------------------------------------
 # Export / Import (Phase 13)
 # ---------------------------------------------------------------------------
+
 
 @router.get("/export")
 async def export_policy(

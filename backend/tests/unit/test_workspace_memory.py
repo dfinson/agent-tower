@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from backend.services.memory_extractor import _EXTRACTOR_CHUNK_CHARS, _split_decisions
 from backend.services.workspace_memory import (
-    _repo_slug,
+    _ARCHIVE_THRESHOLD_BYTES,
     _cap_archive,
+    _repo_slug,
     append_to_inbox,
     compact_decisions,
     format_entry,
@@ -20,10 +20,10 @@ from backend.services.workspace_memory import (
     read_memory_text,
     write_decisions,
     write_wisdom,
-    _ARCHIVE_THRESHOLD_BYTES,
-    _MAX_ARCHIVE_BYTES,
 )
-from backend.services.memory_extractor import _split_decisions, _EXTRACTOR_CHUNK_CHARS
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture()
@@ -149,7 +149,12 @@ class TestInbox:
         assert await merge_inbox(repo_path, mock_compacter) == 0
 
     @pytest.mark.asyncio
-    async def test_merge_appends_to_existing(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
+    async def test_merge_appends_to_existing(
+        self,
+        repo_path: str,
+        memory_root: Path,
+        mock_compacter: AsyncMock,
+    ) -> None:
         slug = _repo_slug(repo_path)
         mem_dir = memory_root / ".codeplane" / "memory" / slug
         mem_dir.mkdir(parents=True)
@@ -163,7 +168,12 @@ class TestInbox:
         assert "New" in decisions
 
     @pytest.mark.asyncio
-    async def test_merge_appends_all_without_dedup(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
+    async def test_merge_appends_all_without_dedup(
+        self,
+        repo_path: str,
+        memory_root: Path,
+        mock_compacter: AsyncMock,
+    ) -> None:
         """Merge appends unconditionally — LLM handles dedup during compaction."""
         slug = _repo_slug(repo_path)
         mem_dir = memory_root / ".codeplane" / "memory" / slug
@@ -182,7 +192,12 @@ class TestInbox:
 
 class TestCompaction:
     @pytest.mark.asyncio
-    async def test_no_compaction_under_threshold(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
+    async def test_no_compaction_under_threshold(
+        self,
+        repo_path: str,
+        memory_root: Path,
+        mock_compacter: AsyncMock,
+    ) -> None:
         slug = _repo_slug(repo_path)
         mem_dir = memory_root / ".codeplane" / "memory" / slug
         mem_dir.mkdir(parents=True)
@@ -190,7 +205,12 @@ class TestCompaction:
         assert await compact_decisions(repo_path, mock_compacter) is False
 
     @pytest.mark.asyncio
-    async def test_compaction_over_threshold(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
+    async def test_compaction_over_threshold(
+        self,
+        repo_path: str,
+        memory_root: Path,
+        mock_compacter: AsyncMock,
+    ) -> None:
         slug = _repo_slug(repo_path)
         mem_dir = memory_root / ".codeplane" / "memory" / slug
         mem_dir.mkdir(parents=True)

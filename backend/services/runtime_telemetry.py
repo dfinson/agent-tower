@@ -9,7 +9,7 @@ This module handles:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING
 
 import structlog
 from sqlalchemy.exc import DBAPIError
@@ -19,6 +19,8 @@ from backend.models.domain import JobState
 from backend.models.events import DomainEvent, DomainEventKind
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.agent_adapter import AgentAdapterInterface
@@ -113,7 +115,7 @@ class RuntimeTelemetry:
             async with serialized_write(self._session_factory) as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
-                _TELEMETRY_STATUS: dict[JobState, str] = {
+                _TELEMETRY_STATUS: dict[JobState, str] = {  # noqa: N806
                     JobState.failed: "failed",
                     JobState.canceled: "cancelled",
                     JobState.completed: "completed",
@@ -133,21 +135,21 @@ class RuntimeTelemetry:
                 )
 
             # Run post-job cost attribution pipeline
-            async with best_effort(log, "cost_attribution", level="warning", job_id=job_id):
+            async with best_effort(log, "cost_attribution", level="warning", job_id=job_id):  # noqa: SIM117
                 async with serialized_write(self._session_factory) as session:
                     from backend.services.cost_attribution import compute_attribution
 
                     await compute_attribution(session, job_id, session_factory=self._session_factory)
 
             # Run post-job latency attribution pipeline
-            async with best_effort(log, "latency_attribution", level="warning", job_id=job_id):
+            async with best_effort(log, "latency_attribution", level="warning", job_id=job_id):  # noqa: SIM117
                 async with serialized_write(self._session_factory) as session:
                     from backend.services.latency_attribution import compute_latency_attribution
 
                     await compute_latency_attribution(session, job_id)
 
             # Run statistical analysis (fire-and-forget, non-blocking)
-            async with best_effort(log, "statistical_analysis", job_id=job_id):
+            async with best_effort(log, "statistical_analysis", job_id=job_id):  # noqa: SIM117
                 async with serialized_write(self._session_factory) as session:
                     from backend.services.statistical_analysis import run_analysis
 

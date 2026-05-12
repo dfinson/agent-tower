@@ -11,8 +11,8 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import CPLConfig
-from backend.models.domain import JobSpec
 from backend.models.db import Base
+from backend.models.domain import JobSpec
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.persistence.job_repo import JobRepository
 from backend.services.approval_service import ApprovalService

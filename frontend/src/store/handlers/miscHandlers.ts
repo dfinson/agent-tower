@@ -114,6 +114,7 @@ export function handleTelemetryUpdated(state: AppState, payload: Record<string, 
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function handlePolicySettingsChanged(_state: AppState): Partial<AppState> | null {
   return {
     policySettingsVersion: Date.now(),

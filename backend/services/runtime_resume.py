@@ -31,8 +31,8 @@ from backend.persistence.job_repo import JobRepository
 if TYPE_CHECKING:
     from backend.models.domain import SessionConfig
     from backend.services.runtime_service import (
-        RuntimeService,
         RecoverySnapshot,
+        RuntimeService,
         SessionAttemptResult,
     )
 
@@ -68,8 +68,7 @@ async def ensure_resumable_worktree(host: RuntimeService, job_repo: JobRepositor
 
     if not job.branch:
         raise StateConflictError(
-            f"Job {job.id} cannot be resumed because its worktree is missing "
-            "and no branch is available to restore it."
+            f"Job {job.id} cannot be resumed because its worktree is missing and no branch is available to restore it."
         )
 
     git = GitService(host._config)
@@ -300,9 +299,7 @@ async def _build_resume_handoff_prompt(host: RuntimeService, job_id: str, instru
         job = await job_repo.get(job_id)
         if job is None:
             raise JobNotFoundError(f"Job {job_id} does not exist.")
-        return await host._build_resume_handoff_prompt_for_job(
-            session, job, instruction, job.session_count
-        )
+        return await host._build_resume_handoff_prompt_for_job(session, job, instruction, job.session_count)
 
 
 async def resume_job(host: RuntimeService, job_id: str, instruction: str | None = None) -> Job:
@@ -467,21 +464,23 @@ async def create_followup_job(host: RuntimeService, job_id: str, instruction: st
             original,
             normalized_instruction,
         )
-        followup = await svc.create_job(JobSpec(
-            repo=original.repo,
-            prompt=normalized_instruction,
-            base_ref=original.base_ref,
-            preset=original.preset,
-            model=original.model,
-            sdk=original.sdk,
-            verify=original.verify,
-            self_review=original.self_review,
-            max_turns=original.max_turns,
-            verify_prompt=original.verify_prompt,
-            self_review_prompt=original.self_review_prompt,
-            parent_job_id=original.id,
-            parent_job_context=parent_job_context,
-        ))
+        followup = await svc.create_job(
+            JobSpec(
+                repo=original.repo,
+                prompt=normalized_instruction,
+                base_ref=original.base_ref,
+                preset=original.preset,
+                model=original.model,
+                sdk=original.sdk,
+                verify=original.verify,
+                self_review=original.self_review,
+                max_turns=original.max_turns,
+                verify_prompt=original.verify_prompt,
+                self_review_prompt=original.self_review_prompt,
+                parent_job_id=original.id,
+                parent_job_context=parent_job_context,
+            )
+        )
         await session.commit()
 
     if followup.state != JobState.failed:

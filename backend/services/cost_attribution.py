@@ -155,7 +155,7 @@ def _classify_turn_intent(
 # Sub-classification: implementation → debugging (when job context suggests it)
 # ---------------------------------------------------------------------------
 
-import re as _re
+import re as _re  # noqa: E402
 
 _DEBUG_RE = _re.compile(
     r"\b(fix|bug|error|broken|failing|crash|debug|issue|wrong|incorrect)\b",
@@ -309,9 +309,7 @@ async def _compute_attribution(
             turn = span.get("turn_number")
             if turn is not None:
                 turn_contexts[int(turn)]["tool_categories"].append(cat)
-                turn_contexts[int(turn)].setdefault("tool_activity_weights", []).append(
-                    (tool_activity, args_weight)
-                )
+                turn_contexts[int(turn)].setdefault("tool_activity_weights", []).append((tool_activity, args_weight))
                 # Collect shell command text for intent classification
                 if cat == "shell":
                     tool_args = tool_args_raw
@@ -387,7 +385,15 @@ async def _compute_attribution(
         turn_cache_w = int(context.get("cache_write_tokens", 0) or 0)
 
         # Action dimension (internal — feeds edit efficiency and matrix views)
-        _accumulate(by_action[action], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+        _accumulate(
+            by_action[action],
+            turn_cost,
+            turn_in,
+            turn_out,
+            cache_read=turn_cache_r,
+            cache_write=turn_cache_w,
+            call_count=1,
+        )
 
         # Activity dimension (user-facing cost breakdown)
         # Per-tool classification: split cost weighted by tool_args_json length
@@ -416,20 +422,51 @@ async def _compute_attribution(
         else:
             # No tools — use turn-level fallback (reasoning / communication)
             activity = _classify_turn_intent(context, is_debug_job=is_debug_job)
-            _accumulate(by_activity[activity], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+            _accumulate(
+                by_activity[activity],
+                turn_cost,
+                turn_in,
+                turn_out,
+                cache_read=turn_cache_r,
+                cache_write=turn_cache_w,
+                call_count=1,
+            )
 
         # Purpose dimension (nullable — only if enriched)
         purpose = turn_purpose.get(turn_num_a)
         if purpose:
-            _accumulate(by_purpose[purpose], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+            _accumulate(
+                by_purpose[purpose],
+                turn_cost,
+                turn_in,
+                turn_out,
+                cache_read=turn_cache_r,
+                cache_write=turn_cache_w,
+                call_count=1,
+            )
             # Action×Purpose compound dimension
             compound = f"{action}:{purpose}"
-            _accumulate(by_action_purpose[compound], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w, call_count=1)
+            _accumulate(
+                by_action_purpose[compound],
+                turn_cost,
+                turn_in,
+                turn_out,
+                cache_read=turn_cache_r,
+                cache_write=turn_cache_w,
+                call_count=1,
+            )
 
         # Phase dimension — aggregate by execution phase
         phase = context.get("phase")
         if phase:
-            _accumulate(by_phase[phase], turn_cost, turn_in, turn_out, cache_read=turn_cache_r, cache_write=turn_cache_w)
+            _accumulate(
+                by_phase[phase],
+                turn_cost,
+                turn_in,
+                turn_out,
+                cache_read=turn_cache_r,
+                cache_write=turn_cache_w,
+            )
 
         # One-shot detection: does this turn have file_write tools?
         tool_cats = context.get("tool_categories", [])

@@ -9,9 +9,9 @@ from backend.services.tool_formatters import (
     _parse_args,
     _short_path,
     _trim_worktree_paths,
-    truncate,
     extract_tool_issue,
     format_tool_display,
+    truncate,
 )
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,8 @@ import asyncio
 import contextlib
 import enum
 import uuid
-from dataclasses import dataclass, replace as dataclass_replace
+from dataclasses import dataclass
+from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -38,7 +39,6 @@ from backend.models.domain import (
     SessionConfig,
     SessionEvent,
     SessionEventKind,
-    StateConflictError,
 )
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.job_repo import JobRepository
@@ -50,16 +50,30 @@ from backend.services.runtime_handoff import (
 )
 from backend.services.runtime_resume import (
     attempt_resume_fallback as _attempt_resume_fallback_impl,
+)
+from backend.services.runtime_resume import (
     create_followup_job as _create_followup_job_impl,
+)
+from backend.services.runtime_resume import (
     ensure_resumable_worktree as _ensure_resumable_worktree_impl,
+)
+from backend.services.runtime_resume import (
     recover_active_job as _recover_active_job_impl,
+)
+from backend.services.runtime_resume import (
     resume_job as _resume_job_impl,
+)
+from backend.services.runtime_resume import (
     resume_orphaned as _resume_orphaned_impl,
+)
+from backend.services.runtime_resume import (
     rollback_recovery as _rollback_recovery_impl,
 )
 from backend.services.runtime_telemetry import RuntimeTelemetry
 from backend.services.runtime_verify import (
     run_followup_turn as _run_followup_turn_impl,
+)
+from backend.services.runtime_verify import (
     run_verify_review as _run_verify_review_impl,
 )
 from backend.validators import REF_PATTERN
@@ -646,8 +660,13 @@ class RuntimeService:
                 return
 
             final_state = await self._handle_successful_completion(
-                job_id, config, session_id, worktree_path, base_ref,
-                post_conflict_merge_requested, session_number,
+                job_id,
+                config,
+                session_id,
+                worktree_path,
+                base_ref,
+                post_conflict_merge_requested,
+                session_number,
             )
         except asyncio.CancelledError:
             if self._shutting_down:
@@ -1162,7 +1181,12 @@ class RuntimeService:
     ) -> SessionAttemptResult:
         """Try a fresh session after a failed resume."""
         return await _attempt_resume_fallback_impl(
-            self, job_id, config, worktree_path, base_ref, session_number=session_number,
+            self,
+            job_id,
+            config,
+            worktree_path,
+            base_ref,
+            session_number=session_number,
         )
 
     async def _handle_job_canceled(
@@ -1398,8 +1422,14 @@ class RuntimeService:
     ) -> tuple[str | None, str | None]:
         """Run a single follow-up agent turn (verify or self-review)."""
         return await _run_followup_turn_impl(
-            self, job_id, prompt, base_config, resume_session_id,
-            worktree_path, base_ref, session_number=session_number,
+            self,
+            job_id,
+            prompt,
+            base_config,
+            resume_session_id,
+            worktree_path,
+            base_ref,
+            session_number=session_number,
         )
 
     async def _run_verify_review(
@@ -1413,8 +1443,13 @@ class RuntimeService:
     ) -> None:
         """Run optional verify and self-review turns after the main agent session."""
         await _run_verify_review_impl(
-            self, job_id, base_config, session_id,
-            worktree_path, base_ref, session_number=session_number,
+            self,
+            job_id,
+            base_config,
+            session_id,
+            worktree_path,
+            base_ref,
+            session_number=session_number,
         )
 
     async def _heartbeat_loop(self, job_id: str) -> None:
@@ -1480,10 +1515,16 @@ class RuntimeService:
     # ------------------------------------------------------------------
 
     # Tool names that represent shell execution across SDKs.
-    _SHELL_TOOL_NAMES: frozenset[str] = frozenset({
-        "bash", "Bash", "run_in_terminal", "execute_command",
-        "run_terminal_command", "shell",
-    })
+    _SHELL_TOOL_NAMES: frozenset[str] = frozenset(
+        {
+            "bash",
+            "Bash",
+            "run_in_terminal",
+            "execute_command",
+            "run_terminal_command",
+            "shell",
+        }
+    )
 
     def _forward_to_observer(self, job_id: str, event: SessionEvent) -> None:
         """Forward shell-tool transcript events to the observer terminal."""
@@ -1508,10 +1549,7 @@ class RuntimeService:
                 from backend.services.parsing_utils import ensure_dict
 
                 args = ensure_dict(raw_args)
-                if args is not None:
-                    cmd = args.get("command", "") or args.get("input", "")
-                else:
-                    cmd = str(raw_args)
+                cmd = args.get("command", "") or args.get("input", "") if args is not None else str(raw_args)
             if cmd:
                 self._terminal_service.write_observer_output(
                     terminal_id,
@@ -1769,9 +1807,7 @@ class RuntimeService:
         session: AsyncSession,
         job: Job,
     ) -> tuple[str | None, list[str]]:
-        return await load_handoff_context_for_job(
-            session, self._session_factory, job, self._summarization_service
-        )
+        return await load_handoff_context_for_job(session, self._session_factory, job, self._summarization_service)
 
     async def _build_resume_handoff_prompt_for_job(
         self,
@@ -1916,10 +1952,7 @@ class RuntimeService:
             # watchers handle re-attach or finalization on startup.
             for state in (JobState.running, JobState.waiting_for_approval):
                 jobs = await svc.list_all_jobs(state=state)
-                orphaned_jobs.extend(
-                    (job, state) for job in jobs
-                    if job.source == JobSource.managed
-                )
+                orphaned_jobs.extend((job, state) for job in jobs if job.source == JobSource.managed)
 
             # Re-enqueue queued jobs
             queued_jobs = await svc.list_all_jobs(state=JobState.queued)
@@ -1952,7 +1985,7 @@ class RuntimeService:
 
             async with serialized_write(self._session_factory) as session:
                 job_repo = JobRepository(session)
-                for job, state in unreachable:
+                for job, _state in unreachable:
                     await job_repo.update_state(
                         job.id,
                         new_state=JobState.failed,
@@ -2073,8 +2106,7 @@ class RuntimeService:
             return
 
         decisions_text = "\n".join(
-            f"- {d['decision']}" + (f" (reason: {d['rationale']})" if d.get("rationale") else "")
-            for d in decisions
+            f"- {d['decision']}" + (f" (reason: {d['rationale']})" if d.get("rationale") else "") for d in decisions
         )
 
         try:

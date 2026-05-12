@@ -24,6 +24,8 @@ log = structlog.get_logger()
 
 def _artifacts_dir() -> Path:
     return get_codeplane_dir() / "artifacts"
+
+
 CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60  # 24 hours
 
 

@@ -13,6 +13,7 @@ All files are plain markdown, human-editable.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fcntl
 import hashlib
 import os
@@ -118,10 +119,8 @@ def append_to_inbox(repo_path: str, job_id: str, entries: str) -> None:
     except BaseException:
         if fd >= 0:
             os.close(fd)
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
     log.info("workspace_memory.inbox_written", repo=_repo_slug(repo_path), job_id=job_id)
@@ -241,7 +240,7 @@ def _cap_archive(archive_path: Path, content: str, max_bytes: int) -> None:
 
     paragraphs = content.split("\n\n")
     # Pre-compute byte size of each paragraph (including the \n\n separator)
-    separator_bytes = len("\n\n".encode("utf-8"))
+    separator_bytes = len(b"\n\n")
     sizes = [len(p.encode("utf-8")) for p in paragraphs]
 
     total = sum(sizes) + separator_bytes * (len(sizes) - 1)

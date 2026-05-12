@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.models.db import Base, TrailNodeRow
 from backend.persistence.trail_repo import TrailNodeRepository
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -89,11 +88,13 @@ def _node(
 class TestGetTranscriptNodes:
     @pytest.mark.asyncio
     async def test_returns_nodes_with_agent_message(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", agent_message="I fixed it"),
-            _node(seq=2, kind="shell", agent_message=None),  # no message
-            _node(seq=3, kind="explore", agent_message="Reading file"),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", agent_message="I fixed it"),
+                _node(seq=2, kind="shell", agent_message=None),  # no message
+                _node(seq=3, kind="explore", agent_message="Reading file"),
+            ]
+        )
 
         nodes = await repo.get_transcript_nodes("job-1")
 
@@ -104,11 +105,13 @@ class TestGetTranscriptNodes:
     @pytest.mark.asyncio
     async def test_includes_request_nodes_with_intent(self, repo: TrailNodeRepository) -> None:
         """Request nodes (operator interactions) are included via intent field."""
-        await repo.create_many([
-            _node(seq=1, kind="modify", agent_message="Done"),
-            _node(seq=2, kind="request", intent="Please fix the tests"),
-            _node(seq=3, kind="request", intent=None),  # no intent — excluded
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", agent_message="Done"),
+                _node(seq=2, kind="request", intent="Please fix the tests"),
+                _node(seq=3, kind="request", intent=None),  # no intent — excluded
+            ]
+        )
 
         nodes = await repo.get_transcript_nodes("job-1")
 
@@ -119,10 +122,7 @@ class TestGetTranscriptNodes:
 
     @pytest.mark.asyncio
     async def test_respects_limit(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=i, kind="modify", agent_message=f"msg-{i}")
-            for i in range(1, 6)
-        ])
+        await repo.create_many([_node(seq=i, kind="modify", agent_message=f"msg-{i}") for i in range(1, 6)])
 
         nodes = await repo.get_transcript_nodes("job-1", limit=3)
         assert len(nodes) == 3
@@ -154,11 +154,13 @@ class TestGetTranscriptNodes:
 class TestGetFileChangesByStep:
     @pytest.mark.asyncio
     async def test_returns_nodes_with_files(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", files=["src/a.py"]),
-            _node(seq=2, kind="shell", files=None),  # no files
-            _node(seq=3, kind="explore", files=["src/b.py"]),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", files=["src/a.py"]),
+                _node(seq=2, kind="shell", files=None),  # no files
+                _node(seq=3, kind="explore", files=["src/b.py"]),
+            ]
+        )
 
         nodes = await repo.get_file_changes_by_step("job-1")
 
@@ -169,12 +171,14 @@ class TestGetFileChangesByStep:
     @pytest.mark.asyncio
     async def test_excludes_non_step_kinds(self, repo: TrailNodeRepository) -> None:
         """Only modify/shell/explore kinds are returned."""
-        await repo.create_many([
-            _node(seq=1, kind="modify", files=["a.py"]),
-            _node(seq=2, kind="goal", files=["b.py"]),  # goal — excluded
-            _node(seq=3, kind="request", files=["c.py"]),  # request — excluded
-            _node(seq=4, kind="summarize", files=["d.py"]),  # summarize — excluded
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", files=["a.py"]),
+                _node(seq=2, kind="goal", files=["b.py"]),  # goal — excluded
+                _node(seq=3, kind="request", files=["c.py"]),  # request — excluded
+                _node(seq=4, kind="summarize", files=["d.py"]),  # summarize — excluded
+            ]
+        )
 
         nodes = await repo.get_file_changes_by_step("job-1")
         assert len(nodes) == 1
@@ -194,11 +198,13 @@ class TestGetFileChangesByStep:
 class TestGetLatestStepBoundary:
     @pytest.mark.asyncio
     async def test_returns_most_recent(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", files=["a.py"]),
-            _node(seq=2, kind="modify", files=["b.py"]),
-            _node(seq=3, kind="shell", files=["c.py"]),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", files=["a.py"]),
+                _node(seq=2, kind="modify", files=["b.py"]),
+                _node(seq=3, kind="shell", files=["c.py"]),
+            ]
+        )
 
         node = await repo.get_latest_step_boundary("job-1")
 
@@ -207,10 +213,12 @@ class TestGetLatestStepBoundary:
 
     @pytest.mark.asyncio
     async def test_skips_nodes_without_files(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", files=["a.py"]),
-            _node(seq=2, kind="modify", files=None),  # no files
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", files=["a.py"]),
+                _node(seq=2, kind="modify", files=None),  # no files
+            ]
+        )
 
         node = await repo.get_latest_step_boundary("job-1")
         assert node is not None
@@ -230,10 +238,12 @@ class TestGetLatestStepBoundary:
 class TestGetAllChangedFiles:
     @pytest.mark.asyncio
     async def test_unions_files_across_steps(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", files=["src/a.py", "src/b.py"]),
-            _node(seq=2, kind="shell", files=["src/b.py", "src/c.py"]),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", files=["src/a.py", "src/b.py"]),
+                _node(seq=2, kind="shell", files=["src/b.py", "src/c.py"]),
+            ]
+        )
 
         result = await repo.get_all_changed_files("job-1")
 
@@ -242,12 +252,15 @@ class TestGetAllChangedFiles:
     @pytest.mark.asyncio
     async def test_handles_dict_format(self, repo: TrailNodeRepository) -> None:
         """Handles both string and dict file formats."""
-        await repo.create_many([
-            _node(seq=1, kind="modify", files=None),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", files=None),
+            ]
+        )
         # Manually set files to dict format
         async with repo._session_factory() as session:
             from sqlalchemy import update
+
             await session.execute(
                 update(TrailNodeRow)
                 .where(TrailNodeRow.id == "node-1")
@@ -265,9 +278,11 @@ class TestGetAllChangedFiles:
 
     @pytest.mark.asyncio
     async def test_sorted_output(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", files=["z.py", "a.py", "m.py"]),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", files=["z.py", "a.py", "m.py"]),
+            ]
+        )
 
         result = await repo.get_all_changed_files("job-1")
         assert result == ["a.py", "m.py", "z.py"]
@@ -281,11 +296,13 @@ class TestGetAllChangedFiles:
 class TestGetDiffLineCounts:
     @pytest.mark.asyncio
     async def test_sums_across_nodes(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", diff_additions=10, diff_deletions=3),
-            _node(seq=2, kind="modify", diff_additions=5, diff_deletions=7),
-            _node(seq=3, kind="shell", diff_additions=2, diff_deletions=0),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", diff_additions=10, diff_deletions=3),
+                _node(seq=2, kind="modify", diff_additions=5, diff_deletions=7),
+                _node(seq=3, kind="shell", diff_additions=2, diff_deletions=0),
+            ]
+        )
 
         added, removed = await repo.get_diff_line_counts("job-1")
 
@@ -294,10 +311,12 @@ class TestGetDiffLineCounts:
 
     @pytest.mark.asyncio
     async def test_ignores_nulls(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", diff_additions=10, diff_deletions=3),
-            _node(seq=2, kind="explore"),  # no diff data
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", diff_additions=10, diff_deletions=3),
+                _node(seq=2, kind="explore"),  # no diff data
+            ]
+        )
 
         added, removed = await repo.get_diff_line_counts("job-1")
 
@@ -320,13 +339,29 @@ class TestGetDiffLineCounts:
 class TestGetWriteNodesForStep:
     @pytest.mark.asyncio
     async def test_returns_write_nodes_by_turn(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", turn_id="turn-1", files=["a.py", "b.py"]),
-            _node(seq=2, kind="write", turn_id="turn-1", parent_id="node-1",
-                  files=["a.py"], tool_name="write_file", snippet="+ new code"),
-            _node(seq=3, kind="write", turn_id="turn-1", parent_id="node-1",
-                  files=["b.py"], tool_name="edit_file", snippet="- old\n+ new"),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", turn_id="turn-1", files=["a.py", "b.py"]),
+                _node(
+                    seq=2,
+                    kind="write",
+                    turn_id="turn-1",
+                    parent_id="node-1",
+                    files=["a.py"],
+                    tool_name="write_file",
+                    snippet="+ new code",
+                ),
+                _node(
+                    seq=3,
+                    kind="write",
+                    turn_id="turn-1",
+                    parent_id="node-1",
+                    files=["b.py"],
+                    tool_name="edit_file",
+                    snippet="- old\n+ new",
+                ),
+            ]
+        )
 
         nodes = await repo.get_write_nodes_for_step("job-1", "turn-1")
 
@@ -336,12 +371,12 @@ class TestGetWriteNodesForStep:
 
     @pytest.mark.asyncio
     async def test_excludes_other_turns(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="write", turn_id="turn-1", parent_id="p1",
-                  files=["a.py"], tool_name="write_file"),
-            _node(seq=2, kind="write", turn_id="turn-2", parent_id="p2",
-                  files=["b.py"], tool_name="write_file"),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="write", turn_id="turn-1", parent_id="p1", files=["a.py"], tool_name="write_file"),
+                _node(seq=2, kind="write", turn_id="turn-2", parent_id="p2", files=["b.py"], tool_name="write_file"),
+            ]
+        )
 
         nodes = await repo.get_write_nodes_for_step("job-1", "turn-1")
 
@@ -350,12 +385,15 @@ class TestGetWriteNodesForStep:
 
     @pytest.mark.asyncio
     async def test_excludes_non_write_kinds(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", turn_id="turn-1"),
-            _node(seq=2, kind="write", turn_id="turn-1", parent_id="node-1",
-                  files=["a.py"], tool_name="write_file"),
-            _node(seq=3, kind="explore", turn_id="turn-1"),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", turn_id="turn-1"),
+                _node(
+                    seq=2, kind="write", turn_id="turn-1", parent_id="node-1", files=["a.py"], tool_name="write_file"
+                ),
+                _node(seq=3, kind="explore", turn_id="turn-1"),
+            ]
+        )
 
         nodes = await repo.get_write_nodes_for_step("job-1", "turn-1")
 
@@ -370,14 +408,20 @@ class TestGetWriteNodesForStep:
     @pytest.mark.asyncio
     async def test_carries_motivation_data(self, repo: TrailNodeRepository) -> None:
         edit_mots = json.dumps([{"edit_key": "a.py:10", "summary": "added guard"}])
-        await repo.create(_node(
-            seq=1, kind="write", turn_id="turn-1", parent_id="p1",
-            files=["a.py"], tool_name="write_file",
-            write_summary="Fixing auth bypass",
-            edit_motivations=edit_mots,
-            is_retry=True,
-            error_kind="syntax_error",
-        ))
+        await repo.create(
+            _node(
+                seq=1,
+                kind="write",
+                turn_id="turn-1",
+                parent_id="p1",
+                files=["a.py"],
+                tool_name="write_file",
+                write_summary="Fixing auth bypass",
+                edit_motivations=edit_mots,
+                is_retry=True,
+                error_kind="syntax_error",
+            )
+        )
 
         nodes = await repo.get_write_nodes_for_step("job-1", "turn-1")
 
@@ -397,15 +441,17 @@ class TestGetWriteNodesForStep:
 class TestGetWriteNodesForJob:
     @pytest.mark.asyncio
     async def test_returns_all_write_nodes(self, repo: TrailNodeRepository) -> None:
-        await repo.create_many([
-            _node(seq=1, kind="modify", turn_id="turn-1"),
-            _node(seq=2, kind="write", turn_id="turn-1", parent_id="node-1",
-                  files=["a.py"], tool_name="write_file"),
-            _node(seq=3, kind="modify", turn_id="turn-2"),
-            _node(seq=4, kind="write", turn_id="turn-2", parent_id="node-3",
-                  files=["b.py"], tool_name="edit_file"),
-            _node(seq=5, kind="explore"),
-        ])
+        await repo.create_many(
+            [
+                _node(seq=1, kind="modify", turn_id="turn-1"),
+                _node(
+                    seq=2, kind="write", turn_id="turn-1", parent_id="node-1", files=["a.py"], tool_name="write_file"
+                ),
+                _node(seq=3, kind="modify", turn_id="turn-2"),
+                _node(seq=4, kind="write", turn_id="turn-2", parent_id="node-3", files=["b.py"], tool_name="edit_file"),
+                _node(seq=5, kind="explore"),
+            ]
+        )
 
         nodes = await repo.get_write_nodes_for_job("job-1")
 
@@ -415,11 +461,9 @@ class TestGetWriteNodesForJob:
 
     @pytest.mark.asyncio
     async def test_ordered_by_anchor_seq_then_seq(self, repo: TrailNodeRepository) -> None:
-        n1 = _node(seq=4, kind="write", turn_id="turn-2", parent_id="p2",
-                    files=["b.py"], tool_name="edit_file")
+        n1 = _node(seq=4, kind="write", turn_id="turn-2", parent_id="p2", files=["b.py"], tool_name="edit_file")
         n1.anchor_seq = 3
-        n2 = _node(seq=2, kind="write", turn_id="turn-1", parent_id="p1",
-                    files=["a.py"], tool_name="write_file")
+        n2 = _node(seq=2, kind="write", turn_id="turn-1", parent_id="p1", files=["a.py"], tool_name="write_file")
         n2.anchor_seq = 1
         await repo.create_many([n1, n2])
 
@@ -427,7 +471,7 @@ class TestGetWriteNodesForJob:
 
         assert len(nodes) == 2
         assert nodes[0].tool_name == "write_file"  # anchor_seq=1
-        assert nodes[1].tool_name == "edit_file"   # anchor_seq=3
+        assert nodes[1].tool_name == "edit_file"  # anchor_seq=3
 
     @pytest.mark.asyncio
     async def test_empty_job(self, repo: TrailNodeRepository) -> None:

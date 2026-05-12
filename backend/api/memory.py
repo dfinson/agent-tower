@@ -28,6 +28,7 @@ router = APIRouter(tags=["memory"], route_class=DishkaRoute)
 
 # -- Schemas ----------------------------------------------------------------
 
+
 class MemoryResponse(CamelModel):
     memory: str
     has_memory: bool
@@ -55,6 +56,7 @@ class CompactResponse(CamelModel):
 
 
 # -- Helpers ----------------------------------------------------------------
+
 
 def _validate_repo(repo_path: str) -> str:
     """Resolve and validate the repo path is in the allowlist."""

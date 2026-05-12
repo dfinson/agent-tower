@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy import event as sa_event, text
+from sqlalchemy import event as sa_event
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 if TYPE_CHECKING:
@@ -111,12 +112,10 @@ async def test_phase_imbalance_not_run(session: AsyncSession) -> None:
         )
     await session.commit()
 
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'phase_imbalance'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'phase_imbalance'"))
     assert result.scalar() == 0
 
 
@@ -137,12 +136,10 @@ async def test_file_reread_below_10kb_not_flagged(session: AsyncSession) -> None
             )
     await session.commit()
 
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'file_reread'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'file_reread'"))
     assert result.scalar() == 0
 
 
@@ -163,12 +160,10 @@ async def test_file_reread_above_10kb_flagged(session: AsyncSession) -> None:
             )
     await session.commit()
 
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'file_reread'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'file_reread'"))
     assert result.scalar() == 1
 
 
@@ -183,12 +178,10 @@ async def test_turn_escalation_below_050_not_flagged(session: AsyncSession) -> N
         await summary.finalize(jid, status="completed", duration_ms=10000)
     await session.commit()
 
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'turn_escalation'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'turn_escalation'"))
     assert result.scalar() == 0
 
 
@@ -203,12 +196,10 @@ async def test_turn_escalation_above_050_flagged(session: AsyncSession) -> None:
         await summary.finalize(jid, status="completed", duration_ms=10000)
     await session.commit()
 
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'turn_escalation'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'turn_escalation'"))
     assert result.scalar() == 1
 
 
@@ -228,12 +219,10 @@ async def test_tool_failures_high_rate_flagged(session: AsyncSession) -> None:
         )
     await session.commit()
 
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'tool_failure'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'tool_failure'"))
     assert result.scalar() == 1
 
 
@@ -253,12 +242,10 @@ async def test_retry_waste_flagged(session: AsyncSession) -> None:
         )
     await session.commit()
 
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'retry_waste'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'retry_waste'"))
     assert result.scalar() == 1
 
 
@@ -272,21 +259,17 @@ async def test_compaction_storms_flagged(session: AsyncSession) -> None:
         await summary.finalize(jid, status="completed", duration_ms=10000)
     await session.commit()
 
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'compaction_storm'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'compaction_storm'"))
     assert result.scalar() == 1
 
 
 @pytest.mark.asyncio
 async def test_cache_regression_not_triggered_without_enough_data(session: AsyncSession) -> None:
-    count = await run_analysis(session)
+    _count = await run_analysis(session)
     await session.commit()
 
-    result = await session.execute(
-        text("SELECT COUNT(*) FROM cost_observations WHERE category = 'cache_regression'")
-    )
+    result = await session.execute(text("SELECT COUNT(*) FROM cost_observations WHERE category = 'cache_regression'"))
     assert result.scalar() == 0

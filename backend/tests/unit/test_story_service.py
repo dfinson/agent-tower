@@ -12,16 +12,15 @@ from backend.services.story_service import (
     StoryService,
     _build_prompt,
     _estimate_tokens,
-    _get_model_max_input_tokens,
     _parse_blocks,
     _split_refs_into_chunks,
     _truncate,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _ref(
     span_id: str = "s1",
@@ -196,8 +195,12 @@ def _make_session_mock(
         if "FROM jobs WHERE" in sql:
             row = MagicMock()
             row.mappings.return_value.first.return_value = {
-                "id": "j1", "title": "Test", "description": "",
-                "prompt": "Fix it", "state": "completed", "model": "test",
+                "id": "j1",
+                "title": "Test",
+                "description": "",
+                "prompt": "Fix it",
+                "state": "completed",
+                "model": "test",
             }
             return row
         if "job_telemetry_summary" in sql:
@@ -351,10 +354,7 @@ class TestBuildReferencesDedup:
         ]:
             file_val = r["file"] or ""
             step_val = r["step_number"]
-            if not file_val or step_val is None:
-                key = f"__span_{r['span_id']}"
-            else:
-                key = f"{file_val}|{step_val}"
+            key = f"__span_{r['span_id']}" if not file_val or step_val is None else f"{file_val}|{step_val}"
             seen[key] = r
         assert len(seen) == 1  # Deduplicated
         assert seen["a.py|1"]["span_id"] == "s2"  # Latest wins
@@ -368,10 +368,7 @@ class TestBuildReferencesDedup:
         ]:
             file_val = r["file"] or ""
             step_val = r["step_number"]
-            if not file_val or step_val is None:
-                key = f"__span_{r['span_id']}"
-            else:
-                key = f"{file_val}|{step_val}"
+            key = f"__span_{r['span_id']}" if not file_val or step_val is None else f"{file_val}|{step_val}"
             seen[key] = r
         assert len(seen) == 2  # NOT merged — each gets unique key
 
@@ -403,10 +400,7 @@ class TestSplitRefsIntoChunks:
 
     def test_splits_when_budget_tight(self):
         # Create refs with large snippets that won't fit in a tiny window
-        refs = [
-            _ref(span_id=f"s{i}", snippet="x" * 500)
-            for i in range(10)
-        ]
+        refs = [_ref(span_id=f"s{i}", snippet="x" * 500) for i in range(10)]
         ctx = {"job": {"title": "test", "prompt": "do stuff"}}
         # Very small window — should force splitting
         chunks = _split_refs_into_chunks(refs, ctx, "sys", max_input_tokens=1000)
@@ -440,11 +434,13 @@ class TestMultiPassGeneration:
     async def test_multipass_generates_multiple_calls(self):
         """When prompt exceeds context, makes multiple LLM calls."""
         # Need enough responses for 2+ passes
-        completer = FakeCompleter([
-            "First I did [[1]].",
-            "Then I continued with [[2]].",
-            "And finished with [[3]].",
-        ])
+        completer = FakeCompleter(
+            [
+                "First I did [[1]].",
+                "Then I continued with [[2]].",
+                "And finished with [[3]].",
+            ]
+        )
         svc = StoryService(completer)
 
         # Directly test _generate_passes with a small token budget

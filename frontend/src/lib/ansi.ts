@@ -7,9 +7,11 @@
  */
 
 // All ANSI escape sequences (CSI, OSC, etc.)
+// eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|\([B0])/g;
 
 // Non-SGR escape sequences (cursor movement, clear line, etc.)
+// eslint-disable-next-line no-control-regex
 const NON_SGR_RE = /\x1b(?:\[[0-9;?]*[A-HJ-Za-ln-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|\([B0])/g;
 
 /**

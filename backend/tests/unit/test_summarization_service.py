@@ -11,11 +11,11 @@ import pytest
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.summarization_service import (
     SummarizationService,
-    build_resume_prompt,
     _clean_transcript,
-    extract_changed_files,
     _extract_json,
     _format_transcript,
+    build_resume_prompt,
+    extract_changed_files,
 )
 
 # ---------------------------------------------------------------------------
@@ -475,9 +475,7 @@ class TestSummarizeAndStore:
         mock_node_operator.timestamp = datetime.now(UTC)
 
         mock_trail_repo = AsyncMock()
-        mock_trail_repo.get_transcript_nodes = AsyncMock(
-            return_value=[mock_node_agent, mock_node_operator]
-        )
+        mock_trail_repo.get_transcript_nodes = AsyncMock(return_value=[mock_node_agent, mock_node_operator])
         mock_trail_repo.get_all_changed_files = AsyncMock(return_value=["src/a.py"])
 
         mock_artifact_svc = AsyncMock()

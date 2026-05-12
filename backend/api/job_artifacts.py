@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections import OrderedDict
+from datetime import datetime  # noqa: TC003 — used in type annotation
 from typing import Annotated, Any, cast
 
 import structlog
@@ -11,6 +13,7 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
 from backend.models.api_schemas import (
     CommunitiesResponse,
     CommunityGroup,
@@ -44,7 +47,6 @@ from backend.models.api_schemas import (
     TranscriptPayload,
     TranscriptSearchListResponse,
     TranscriptSearchResult,
-    TurnSummaryPayload,
 )
 from backend.models.domain import JobState, Resolution
 from backend.models.events import DomainEventKind
@@ -52,19 +54,16 @@ from backend.persistence.approval_repo import ApprovalRepository
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.step_repo import StepRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
+from backend.services.coderecon_service import CodeReconService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitError, GitService
-from backend.services.job_service import JobService, ProgressPreview
+from backend.services.job_service import JobService
 from backend.services.merge_service import MergeService
+from backend.services.review_story_service import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
 from backend.services.runtime_service import RuntimeService
 from backend.services.step_diff_service import StepDiffService
-from backend.services.step_tracker import hydrate_plan_steps
 from backend.services.story_service import StoryService
-from backend.services.coderecon_service import CodeReconService
-from backend.services.review_story_service import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
-from backend.services.tool_formatters import format_tool_display, format_tool_display_full
-from backend.api.jobs import job_to_response, resolve_tool_display, resolve_tool_display_full
 
 log = structlog.get_logger()
 
@@ -158,6 +157,7 @@ async def get_job_logs(
         )
     return LogListResponse(items=lines)
 
+
 @router.get("/jobs/{job_id}/diff", response_model=DiffListResponse)
 async def get_job_diff(
     job_id: str,
@@ -175,10 +175,7 @@ async def get_job_diff(
     files: list[DiffFileModel] = []
 
     # For active jobs with a worktree, calculate a fresh diff
-    if (
-        job.state in (JobState.running, JobState.waiting_for_approval)
-        and job.worktree_path
-    ):
+    if job.state in (JobState.running, JobState.waiting_for_approval) and job.worktree_path:
         try:
             files = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
         except (GitError, OSError):
@@ -222,36 +219,40 @@ async def get_job_transcript(
 
     # Build a turn_id → summary map from stored tool_group_summary events so
     # that restored transcripts include AI-generated group labels.
-    summary_events = await svc.list_events_by_job(job_id, [DomainEventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING)
+    summary_events = await svc.list_events_by_job(
+        job_id, [DomainEventKind.tool_group_summary], limit=_EVENT_QUERY_CEILING
+    )
     group_summary_by_turn: dict[str, str] = {
         str(ev.payload.get("turn_id")): str(ev.payload.get("summary"))
         for ev in summary_events
         if ev.payload.get("turn_id") and ev.payload.get("summary")
     }
 
-    return TranscriptListResponse(items=[
-        TranscriptPayload(
-            job_id=event.job_id,
-            seq=(p := cast("dict[str, Any]", event.payload)).get("seq", 0),
-            timestamp=p.get("timestamp", event.timestamp),
-            role=p.get("role", "agent"),
-            content=p.get("content", ""),
-            title=p.get("title"),
-            turn_id=p.get("turn_id"),
-            tool_name=p.get("tool_name"),
-            tool_args=p.get("tool_args"),
-            tool_result=p.get("tool_result"),
-            tool_success=p.get("tool_success"),
-            tool_issue=p.get("tool_issue"),
-            tool_intent=p.get("tool_intent"),
-            tool_title=p.get("tool_title"),
-            tool_display=resolve_tool_display(p),
-            tool_display_full=resolve_tool_display_full(p),
-            tool_duration_ms=p.get("tool_duration_ms"),
-            tool_group_summary=group_summary_by_turn.get(p.get("turn_id") or ""),
-        )
-        for event in events
-    ])
+    return TranscriptListResponse(
+        items=[
+            TranscriptPayload(
+                job_id=event.job_id,
+                seq=(p := cast("dict[str, Any]", event.payload)).get("seq", 0),
+                timestamp=p.get("timestamp", event.timestamp),
+                role=p.get("role", "agent"),
+                content=p.get("content", ""),
+                title=p.get("title"),
+                turn_id=p.get("turn_id"),
+                tool_name=p.get("tool_name"),
+                tool_args=p.get("tool_args"),
+                tool_result=p.get("tool_result"),
+                tool_success=p.get("tool_success"),
+                tool_issue=p.get("tool_issue"),
+                tool_intent=p.get("tool_intent"),
+                tool_title=p.get("tool_title"),
+                tool_display=resolve_tool_display(p),
+                tool_display_full=resolve_tool_display_full(p),
+                tool_duration_ms=p.get("tool_duration_ms"),
+                tool_group_summary=group_summary_by_turn.get(p.get("turn_id") or ""),
+            )
+            for event in events
+        ]
+    )
 
 
 @router.get("/jobs/{job_id}/steps", response_model=StepListResponse)
@@ -438,6 +439,7 @@ async def get_job_snapshot(
     progress_preview = await svc.get_latest_progress_preview(job_id)
 
     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
+
     ct = (await TelemetrySummaryRepository(session).batch_cost_tokens([job_id])).get(job_id, {})
 
     return await assemble_snapshot(
@@ -449,7 +451,8 @@ async def get_job_snapshot(
         resolve_display=resolve_tool_display,
         resolve_display_full=resolve_tool_display_full,
         job_to_response=lambda j, pp: job_to_response(
-            j, pp,
+            j,
+            pp,
             total_cost_usd=ct.get("total_cost_usd"),
             total_tokens=ct.get("total_tokens"),
             input_tokens=ct.get("input_tokens"),
@@ -727,10 +730,7 @@ def _build_structural_changes(raw_changes: list[Any]) -> list[StructuralChange]:
         ref_count = impact.reference_count if impact and impact.reference_count else 0
         test_files = impact.affected_test_files if impact and impact.affected_test_files else []
 
-        if impact and impact.ref_tiers:
-            ref_tiers = _translate_ref_tiers(impact.ref_tiers)
-        else:
-            ref_tiers = {}
+        ref_tiers = _translate_ref_tiers(impact.ref_tiers) if impact and impact.ref_tiers else {}
 
         # If reports callers but no tier breakdown, treat gap as unverified
         classified = sum(ref_tiers.values())
@@ -739,18 +739,20 @@ def _build_structural_changes(raw_changes: list[Any]) -> list[StructuralChange]:
 
         risk = _compute_risk(category, ref_tiers, test_files)
 
-        changes.append(StructuralChange(
-            kind=c.change,
-            symbol=c.qualified_name or c.name,
-            file=c.path,
-            summary=c.change_preview,
-            category=category,
-            ref_count=ref_count,
-            ref_tiers=ref_tiers,
-            test_files=test_files,
-            risk=risk,
-            line_range=[c.start_line, c.end_line] if c.start_line else None,
-        ))
+        changes.append(
+            StructuralChange(
+                kind=c.change,
+                symbol=c.qualified_name or c.name,
+                file=c.path,
+                summary=c.change_preview,
+                category=category,
+                ref_count=ref_count,
+                ref_tiers=ref_tiers,
+                test_files=test_files,
+                risk=risk,
+                line_range=[c.start_line, c.end_line] if c.start_line else None,
+            )
+        )
     return changes
 
 
@@ -833,7 +835,9 @@ async def get_job_multi_session(
     # Session 1 starts at job creation; session N starts at the (N-1)th
     # session_resumed event timestamp.
     resumed_events = await event_repo.list_by_job(
-        job_id, [DomainEventKind.session_resumed], limit=100,
+        job_id,
+        [DomainEventKind.session_resumed],
+        limit=100,
     )
     # Build boundary timestamps: session N starts at resumed_events[N-2].timestamp
     # (session 1 has no preceding event — it starts at epoch)
@@ -880,24 +884,26 @@ async def get_job_multi_session(
         current_modified = {c.symbol for c in changes if c.kind == "modified" and c.symbol}
         overlap = prev_added_symbols & current_modified
         if overlap and sess_num > 1:
-            direction_changes.append({
-                "session": sess_num,
-                "detail": f"Session {sess_num} modified {len(overlap)} symbol(s) added by Session {sess_num - 1}",
-                "symbols": sorted(overlap)[:10],
-            })
-            warnings.append({
-                "type": "direction_change",
-                "detail": f"Modified {len(overlap)} symbols from previous session",
-            })
+            direction_changes.append(
+                {
+                    "session": sess_num,
+                    "detail": f"Session {sess_num} modified {len(overlap)} symbol(s) added by Session {sess_num - 1}",
+                    "symbols": sorted(overlap)[:10],
+                }
+            )
+            warnings.append(
+                {
+                    "type": "direction_change",
+                    "detail": f"Modified {len(overlap)} symbols from previous session",
+                }
+            )
 
         # Messy session warning (§10.6) — touches 3+ communities
         files_written: set[str] = set()
         for step in sess_steps:
             if step.files_written:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     files_written.update(json.loads(step.files_written))
-                except (ValueError, TypeError):
-                    pass
         if len(files_written) >= 3:
             try:
                 communities = await coderecon.graph_communities(repo_name, worktree=job.worktree_path)
@@ -906,25 +912,29 @@ async def get_job_multi_session(
                     if files_written & set(comm.members):
                         file_communities.add(comm.community_id)
                 if len(file_communities) >= 3:
-                    warnings.append({
-                        "type": "messy_session",
-                        "detail": f"Session spans {len(file_communities)} unrelated module communities",
-                        "communities": sorted(file_communities),
-                    })
+                    warnings.append(
+                        {
+                            "type": "messy_session",
+                            "detail": f"Session spans {len(file_communities)} unrelated module communities",
+                            "communities": sorted(file_communities),
+                        }
+                    )
             except Exception:
                 pass
 
         # Compute session risk (average of change risks)
         risk = sum(c.risk for c in changes) / max(1, len(changes)) if changes else 0.0
 
-        segments.append(SessionSegment(
-            session_number=sess_num,
-            start_sha=start_sha,
-            end_sha=end_sha,
-            changes=changes,
-            risk=round(risk, 2),
-            warnings=warnings,
-        ))
+        segments.append(
+            SessionSegment(
+                session_number=sess_num,
+                start_sha=start_sha,
+                end_sha=end_sha,
+                changes=changes,
+                risk=round(risk, 2),
+                warnings=warnings,
+            )
+        )
 
         # Track added symbols for next session's direction change detection
         prev_added_symbols = current_added
@@ -979,32 +989,38 @@ async def get_impact_graph(
 
     refs: list[ImpactReference] = []
     for defn in getattr(result, "definition_sites", []):
-        refs.append(ImpactReference(
-            symbol=getattr(defn, "symbol", ""),
-            file=getattr(defn, "file", ""),
-            line=getattr(defn, "line", None),
-            tier="verified",
-            is_test="test" in getattr(defn, "file", "").lower(),
-            raw_tier="definition",
-        ))
+        refs.append(
+            ImpactReference(
+                symbol=getattr(defn, "symbol", ""),
+                file=getattr(defn, "file", ""),
+                line=getattr(defn, "line", None),
+                tier="verified",
+                is_test="test" in getattr(defn, "file", "").lower(),
+                raw_tier="definition",
+            )
+        )
     for ref in getattr(result, "references", []):
-        refs.append(ImpactReference(
-            symbol=getattr(ref, "symbol", ""),
-            file=getattr(ref, "file", ""),
-            line=getattr(ref, "line", None),
-            tier=_map_impact_tier(getattr(ref, "tier", "unknown")),
-            is_test="test" in getattr(ref, "file", "").lower(),
-            raw_tier=getattr(ref, "tier", "unknown"),
-        ))
+        refs.append(
+            ImpactReference(
+                symbol=getattr(ref, "symbol", ""),
+                file=getattr(ref, "file", ""),
+                line=getattr(ref, "line", None),
+                tier=_map_impact_tier(getattr(ref, "tier", "unknown")),
+                is_test="test" in getattr(ref, "file", "").lower(),
+                raw_tier=getattr(ref, "tier", "unknown"),
+            )
+        )
     for imp in getattr(result, "import_sites", []):
-        refs.append(ImpactReference(
-            symbol=getattr(imp, "symbol", ""),
-            file=getattr(imp, "file", ""),
-            line=getattr(imp, "line", None),
-            tier="inferred",
-            is_test="test" in getattr(imp, "file", "").lower(),
-            raw_tier="import",
-        ))
+        refs.append(
+            ImpactReference(
+                symbol=getattr(imp, "symbol", ""),
+                file=getattr(imp, "file", ""),
+                line=getattr(imp, "line", None),
+                tier="inferred",
+                is_test="test" in getattr(imp, "file", "").lower(),
+                raw_tier="import",
+            )
+        )
 
     files_affected = len({r.file for r in refs})
 
@@ -1133,8 +1149,8 @@ async def get_review_story(
 async def _generate_review_story(
     job_id: str,
     job: Any,
-    coderecon: "CodeReconService",
-) -> "ReviewStoryResponse":
+    coderecon: CodeReconService,
+) -> ReviewStoryResponse:
     """Core review story generation — reusable from endpoint and subscriber.
 
     Applies the full §11 pipeline: edge-case extraction, density classification,
@@ -1204,74 +1220,99 @@ async def _generate_review_story(
     # Attention required — breaking changes with full context (capped at 5)
     attention_items = []
     for ch in sorted(breaking, key=lambda c: -c.risk)[:_ATTENTION_CAP]:
-        attention_items.append({
-            "symbol": ch.symbol,
-            "file": ch.file,
-            "risk": ch.risk,
-            "refCount": ch.ref_count,
-            "refTiers": ch.ref_tiers,
-            "testFiles": ch.test_files,
-            "summary": ch.summary,
-            "density": density_map.get(ch.file + "::" + (ch.symbol or ""), "full"),
-        })
+        attention_items.append(
+            {
+                "symbol": ch.symbol,
+                "file": ch.file,
+                "risk": ch.risk,
+                "refCount": ch.ref_count,
+                "refTiers": ch.ref_tiers,
+                "testFiles": ch.test_files,
+                "summary": ch.summary,
+                "density": density_map.get(ch.file + "::" + (ch.symbol or ""), "full"),
+            }
+        )
     # If more breaking changes exist, note the overflow
     if len(breaking) > _ATTENTION_CAP:
-        attention_items.append({
-            "symbol": None,
-            "summary": f"+{len(breaking) - _ATTENTION_CAP} more breaking change(s)",
-            "overflow": True,
-        })
+        attention_items.append(
+            {
+                "symbol": None,
+                "summary": f"+{len(breaking) - _ATTENTION_CAP} more breaking change(s)",
+                "overflow": True,
+            }
+        )
 
     # Structural concerns — cycles, unknown refs
     concerns: list[dict[str, Any]] = []
     if has_new_cycles:
-        concerns.append({
-            "type": "new_cycles",
-            "detail": f"{len(new_cycles)} new dependency cycle(s) introduced",
-            "cycles": new_cycles[:3],
-        })
+        concerns.append(
+            {
+                "type": "new_cycles",
+                "detail": f"{len(new_cycles)} new dependency cycle(s) introduced",
+                "cycles": new_cycles[:3],
+            }
+        )
     unverified_count = sum(1 for c in remaining if c.ref_tiers.get("unverified", 0) > 0)
     if unverified_count:
-        concerns.append({
-            "type": "unverified_references",
-            "detail": f"{unverified_count} change(s) have unverified callers",
-        })
+        concerns.append(
+            {
+                "type": "unverified_references",
+                "detail": f"{unverified_count} change(s) have unverified callers",
+            }
+        )
 
     # What changed — body changes, use community rollup when over cap
     what_changed: list[dict[str, Any]]
     if community_rollups:
         # Over budget → show rollups instead of individual items
         what_changed = [
-            {"symbol": r["name"], "summary": r["summary"],
-             "risk": r["highest_risk"], "community": True,
-             "changeCount": r["change_count"]}
+            {
+                "symbol": r["name"],
+                "summary": r["summary"],
+                "risk": r["highest_risk"],
+                "community": True,
+                "changeCount": r["change_count"],
+            }
             for r in community_rollups
         ]
     else:
         what_changed = [
-            {"symbol": c.symbol, "file": c.file, "risk": c.risk, "summary": c.summary,
-             "density": density_map.get(c.file + "::" + (c.symbol or ""), "summary")}
+            {
+                "symbol": c.symbol,
+                "file": c.file,
+                "risk": c.risk,
+                "summary": c.summary,
+                "density": density_map.get(c.file + "::" + (c.symbol or ""), "summary"),
+            }
             for c in sorted(body, key=lambda c: -c.risk)[:_BODY_CAP]
         ]
         if len(body) > _BODY_CAP:
-            what_changed.append({
-                "symbol": None,
-                "summary": f"+{len(body) - _BODY_CAP} more body change(s)",
-                "overflow": True,
-            })
+            what_changed.append(
+                {
+                    "symbol": None,
+                    "summary": f"+{len(body) - _BODY_CAP} more body change(s)",
+                    "overflow": True,
+                }
+            )
 
     # What was added (capped at 7)
     what_added = [
-        {"symbol": c.symbol, "file": c.file, "summary": c.summary,
-         "density": density_map.get(c.file + "::" + (c.symbol or ""), "summary")}
+        {
+            "symbol": c.symbol,
+            "file": c.file,
+            "summary": c.summary,
+            "density": density_map.get(c.file + "::" + (c.symbol or ""), "summary"),
+        }
         for c in additive[:_ADDITIVE_CAP]
     ]
     if len(additive) > _ADDITIVE_CAP:
-        what_added.append({
-            "symbol": None,
-            "summary": f"+{len(additive) - _ADDITIVE_CAP} more addition(s)",
-            "overflow": True,
-        })
+        what_added.append(
+            {
+                "symbol": None,
+                "summary": f"+{len(additive) - _ADDITIVE_CAP} more addition(s)",
+                "overflow": True,
+            }
+        )
 
     # Verdict
     confidence = _compute_merge_confidence(changes, has_new_cycles=has_new_cycles)
@@ -1287,6 +1328,7 @@ async def _generate_review_story(
         EdgeCaseBlockSchema,
         PatternGroupSchema,
     )
+
     edge_schemas = [EdgeCaseBlockSchema(**e) for e in edge_cases]
     rollup_schemas = [CommunityRollupSchema(**r) for r in community_rollups]
     pattern_schemas = [PatternGroupSchema(**p) for p in pattern_groups]

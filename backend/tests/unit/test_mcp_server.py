@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.mcp.server import create_mcp_server
-from backend.services.git_service import GitService
 from backend.tests.unit.conftest import make_job
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -570,5 +569,3 @@ class TestHealthTool:
 
             result = await _tool(mcp_server, "codeplane_health")(action="cleanup")
             assert result["removed"] == 3
-
-

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,7 +22,6 @@ from backend.services.action_policy.classifier import (
     classify,
 )
 from backend.services.event_bus import EventBus
-
 
 # ---------------------------------------------------------------------------
 # _apply_cost_promotion
@@ -183,7 +181,6 @@ class TestGetCostContext:
 
     @pytest.mark.asyncio
     async def test_returns_cost_context_with_spend(self) -> None:
-        from backend.services.base_adapter import BaseAgentAdapter
 
         adapter = _make_adapter_with_db_session()
         summary = {"total_cost_usd": 12.5}
@@ -199,7 +196,6 @@ class TestGetCostContext:
 
     @pytest.mark.asyncio
     async def test_returns_cost_context_with_zero_spend(self) -> None:
-        from backend.services.base_adapter import BaseAgentAdapter
 
         adapter = _make_adapter_with_db_session()
         summary = {"total_cost_usd": 0.0}
@@ -216,7 +212,6 @@ class TestGetCostContext:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_summary(self) -> None:
-        from backend.services.base_adapter import BaseAgentAdapter
 
         adapter = _make_adapter_with_db_session()
 
@@ -231,8 +226,6 @@ class TestGetCostContext:
     @pytest.mark.asyncio
     async def test_returns_none_on_db_error(self) -> None:
         from sqlalchemy.exc import DBAPIError
-
-        from backend.services.base_adapter import BaseAgentAdapter
 
         adapter = _make_adapter_with_db_session()
 
@@ -304,8 +297,10 @@ class TestOnPolicySettingsChanged:
         mock_job_repo = MagicMock()
         mock_job_repo.get = AsyncMock(return_value=mock_job)
 
-        with patch("backend.persistence.policy_repo.PolicyRepository", return_value=mock_repo), \
-             patch("backend.persistence.job_repo.JobRepository", return_value=mock_job_repo):
+        with (
+            patch("backend.persistence.policy_repo.PolicyRepository", return_value=mock_repo),
+            patch("backend.persistence.job_repo.JobRepository", return_value=mock_job_repo),
+        ):
             svc._session_factory = _make_session_factory(mock_session)
             event = _make_policy_event()
             await svc._on_policy_settings_changed(event)
@@ -346,8 +341,10 @@ class TestOnPolicySettingsChanged:
         svc._policy_routers["job-1"] = MagicMock()
 
         mock_session = AsyncMock()
-        with patch("backend.persistence.policy_repo.PolicyRepository", return_value=mock_repo), \
-             patch("backend.persistence.job_repo.JobRepository", return_value=mock_job_repo):
+        with (
+            patch("backend.persistence.policy_repo.PolicyRepository", return_value=mock_repo),
+            patch("backend.persistence.job_repo.JobRepository", return_value=mock_job_repo),
+        ):
             svc._session_factory = _make_session_factory(mock_session)
             # ...but remove it before the per-job loop runs
             # We simulate by patching __contains__ to return False
@@ -381,6 +378,7 @@ def _make_session_factory(mock_session: AsyncMock) -> Any:
     class _FakeCtx:
         async def __aenter__(self):
             return mock_session
+
         async def __aexit__(self, *args):
             pass
 
@@ -411,6 +409,7 @@ def _make_adapter_with_db_session() -> Any:
             @asynccontextmanager
             async def _ctx():
                 yield MagicMock()
+
             return _ctx()
 
         async def create_session(self, *a: Any, **kw: Any) -> Any: ...

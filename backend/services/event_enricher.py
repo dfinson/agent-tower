@@ -89,12 +89,14 @@ def build_tool_call_payload(
         "tool_intent": tool_intent,
         "tool_title": tool_title,
         "tool_display": format_tool_display(
-            tool_name, tool_args,
+            tool_name,
+            tool_args,
             tool_result=result_text or None,
             tool_success=success,
         ),
         "tool_display_full": format_tool_display_full(
-            tool_name, tool_args,
+            tool_name,
+            tool_args,
             tool_result=result_text or None,
             tool_success=success,
         ),
@@ -135,7 +137,9 @@ class ToolEventEnricher:
             "tool_title": tool_title or "",
         }
         return build_tool_running_payload(
-            tool_name, tool_args, turn_id,
+            tool_name,
+            tool_args,
+            turn_id,
             tool_intent=tool_intent,
             tool_title=tool_title,
         )
@@ -160,7 +164,10 @@ class ToolEventEnricher:
         duration_ms = ((time.monotonic() - start) * 1000) if start is not None else None
 
         return build_tool_call_payload(
-            tool_name, tool_args, result_text, sdk_success,
+            tool_name,
+            tool_args,
+            result_text,
+            sdk_success,
             turn_id=turn_id,
             duration_ms=duration_ms,
             tool_intent=tool_intent,

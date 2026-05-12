@@ -8,7 +8,6 @@ import re
 
 from backend.services.tool_formatters._display import extract_issue_from_json, truncate
 
-
 # ---------------------------------------------------------------------------
 # Tool visibility classification
 # ---------------------------------------------------------------------------

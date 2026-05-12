@@ -15,12 +15,12 @@ import pathlib
 #
 # --- Provenance infrastructure (ingestion + rehydration) ---
 ALLOWED_EVENT_REPO_CONSUMERS = {
-    "backend/persistence/event_repo.py",          # self
-    "backend/services/trail/service.py",           # rehydration on session_resumed
-    "backend/services/trail/node_builder.py",      # rehydration on session_resumed
-    "backend/services/runtime_service.py",         # hot-path event translation
+    "backend/persistence/event_repo.py",  # self
+    "backend/services/trail/service.py",  # rehydration on session_resumed
+    "backend/services/trail/node_builder.py",  # rehydration on session_resumed
+    "backend/services/runtime_service.py",  # hot-path event translation
     # --- Infrastructure telemetry (not provenance — see §6.3) ---
-    "backend/services/runtime_telemetry.py",       # log_line_emitted only
+    "backend/services/runtime_telemetry.py",  # log_line_emitted only
     # --- Application wiring (DI, lifecycle, API plumbing) ---
     "backend/di.py",
     "backend/lifespan.py",
@@ -60,7 +60,6 @@ def test_event_repo_import_boundary():
                     if "event_repo" in alias.name:
                         violations.append(f"{rel}:{node.lineno}")
 
-    assert not violations, (
-        "EventRepository imported outside allowlist:\n"
-        + "\n".join(f"  {v}" for v in sorted(violations))
+    assert not violations, "EventRepository imported outside allowlist:\n" + "\n".join(
+        f"  {v}" for v in sorted(violations)
     )

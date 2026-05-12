@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import delete, select
 
@@ -10,6 +10,9 @@ from backend.models.api_schemas import ArtifactType, ExecutionPhase
 from backend.models.db import ArtifactRow
 from backend.models.domain import Artifact
 from backend.persistence.repository import BaseRepository
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class ArtifactRepository(BaseRepository):

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from backend.models.api_schemas import (
     ApprovalResponse,
@@ -23,11 +23,13 @@ from backend.models.api_schemas import (
 )
 from backend.models.domain import JobState
 from backend.models.events import DomainEventKind
-from backend.persistence.approval_repo import ApprovalRepository
-from backend.services.diff_service import DiffService
 from backend.services.git_service import GitError
-from backend.services.job_service import JobService, ProgressPreview
 from backend.services.step_tracker import hydrate_plan_steps
+
+if TYPE_CHECKING:
+    from backend.persistence.approval_repo import ApprovalRepository
+    from backend.services.diff_service import DiffService
+    from backend.services.job_service import JobService, ProgressPreview
 
 # Event query limits — bound the maximum rows returned from the event store.
 # Default (2000) covers a typical 1–2 hour session; ceiling (5000)
@@ -95,8 +97,7 @@ def _build_transcript(
             step_number=e.payload.get("step_number"),
         )
         for e in transcript_events
-        if not filter_deltas
-        or e.payload.get("role", "agent") not in ("tool_output_delta", "reasoning_delta")
+        if not filter_deltas or e.payload.get("role", "agent") not in ("tool_output_delta", "reasoning_delta")
     ]
     return result
 
@@ -148,18 +149,13 @@ async def _build_diff(
     diff_service: DiffService,
 ) -> list[DiffFileModel]:
     diff: list[DiffFileModel] = []
-    if (
-        job.state in (JobState.running, JobState.waiting_for_approval)
-        and job.worktree_path
-    ):
+    if job.state in (JobState.running, JobState.waiting_for_approval) and job.worktree_path:
         with contextlib.suppress(GitError, OSError):
             diff = await diff_service.calculate_diff(job.worktree_path, job.base_ref)
     if not diff:
-        diff_events = await svc.list_events_by_job(
-            job.id, [DomainEventKind.diff_updated]
-        )
+        diff_events = await svc.list_events_by_job(job.id, [DomainEventKind.diff_updated])
         if diff_events:
-            raw_files = cast(list[Any], diff_events[-1].payload.get("changed_files", []))
+            raw_files = cast("list[Any]", diff_events[-1].payload.get("changed_files", []))
             diff = [DiffFileModel.model_validate(f) for f in raw_files]
     return diff
 

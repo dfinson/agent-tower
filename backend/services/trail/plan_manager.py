@@ -81,9 +81,8 @@ class PlanManager:
         if not state:
             return
 
-        if tool_name not in state.recent_tool_names:
-            if len(state.recent_tool_names) < TOOL_NAME_VOCAB_CAP:
-                state.recent_tool_names.append(tool_name)
+        if tool_name not in state.recent_tool_names and len(state.recent_tool_names) < TOOL_NAME_VOCAB_CAP:
+            state.recent_tool_names.append(tool_name)
 
         state.tool_call_count += 1
         if state.tool_call_count == 3 and not state.plan_established:

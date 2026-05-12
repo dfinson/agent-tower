@@ -9,6 +9,7 @@ vi.mock("../../api/client", () => ({
   updateSettings: vi.fn(),
   fetchRepos: vi.fn(),
   unregisterRepo: vi.fn(),
+  request: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock sonner toast

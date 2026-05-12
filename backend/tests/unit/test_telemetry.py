@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from backend.services import telemetry
 
 # Ensure OTEL providers are initialised for all telemetry tests.
@@ -37,9 +35,7 @@ class TestJobSpanLifecycle:
         telemetry.end_job_span("nonexistent")
 
     def test_start_span_attributes(self) -> None:
-        telemetry.start_job_span(
-            "job-attr", sdk="copilot", model="gpt-4o", repo="my/repo", branch="main"
-        )
+        telemetry.start_job_span("job-attr", sdk="copilot", model="gpt-4o", repo="my/repo", branch="main")
         span = telemetry._job_spans["job-attr"]
         assert span is not None
         telemetry.end_job_span("job-attr")

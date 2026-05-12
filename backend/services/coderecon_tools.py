@@ -56,7 +56,9 @@ You have structural analysis tools for this repository. Use them.
    again. Do not try to manually run the failing test.
 """
 
-_TOOL_GUIDANCE_FULL = _TOOL_GUIDANCE_STANDARD + """\
+_TOOL_GUIDANCE_FULL = (
+    _TOOL_GUIDANCE_STANDARD
+    + """\
 
 ### Additional tools (full tier)
 
@@ -71,6 +73,7 @@ _TOOL_GUIDANCE_FULL = _TOOL_GUIDANCE_STANDARD + """\
 - **refactor_commit / refactor_cancel** — Apply or discard a previewed
   refactoring.
 """
+)
 
 
 # ── Tool schemas (JSON Schema for each tool) ──
@@ -326,12 +329,18 @@ def build_coderecon_tools(
                 return _serialize_result(result)
             if tool_name == "refactor_rename":
                 result = await sdk.refactor_rename(
-                    repo, args["target"], args["new_name"], worktree=worktree,
+                    repo,
+                    args["target"],
+                    args["new_name"],
+                    worktree=worktree,
                 )
                 return _serialize_result(result)
             if tool_name == "refactor_move":
                 result = await sdk.refactor_move(
-                    repo, args["source"], args["destination"], worktree=worktree,
+                    repo,
+                    args["source"],
+                    args["destination"],
+                    worktree=worktree,
                 )
                 return _serialize_result(result)
             if tool_name == "refactor_commit":
@@ -351,7 +360,8 @@ def build_coderecon_tools(
     claude_server = None
     claude_allowed: list[str] = []
     try:
-        from claude_code_sdk import create_sdk_mcp_server, tool as claude_tool
+        from claude_code_sdk import create_sdk_mcp_server
+        from claude_code_sdk import tool as claude_tool
 
         claude_tools = []
         for name in sorted(allowed_names & set(_TOOL_DEFS.keys())):
@@ -362,6 +372,7 @@ def build_coderecon_tools(
                 async def handler(args: dict[str, Any]) -> dict[str, Any]:
                     text = await _dispatch(tool_name, args)
                     return {"content": [{"type": "text", "text": text}]}
+
                 return handler
 
             t = claude_tool(name, defn["description"], defn["schema"])(_make_claude_handler(name))
@@ -392,6 +403,7 @@ def build_coderecon_tools(
                     args = invocation.arguments if isinstance(invocation.arguments, dict) else {}
                     text = await _dispatch(tool_name, args)
                     return ToolResult(text_result_for_llm=text)
+
                 return handler
 
             t = CopilotTool(
@@ -406,10 +418,7 @@ def build_coderecon_tools(
 
     # ── System prompt ──
 
-    if tier == "full":
-        prompt = _TOOL_GUIDANCE_FULL
-    else:
-        prompt = _TOOL_GUIDANCE_STANDARD
+    prompt = _TOOL_GUIDANCE_FULL if tier == "full" else _TOOL_GUIDANCE_STANDARD
 
     return CodeReconToolKit(
         claude_mcp_server=claude_server,

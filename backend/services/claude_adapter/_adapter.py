@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
-from backend.models.api_schemas import ExecutionPhase
 from backend.models.domain import (
     SessionConfig,
     SessionEvent,
@@ -37,6 +36,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from backend.models.api_schemas import ExecutionPhase
     from backend.services.approval_service import ApprovalService
     from backend.services.event_bus import EventBus
 
@@ -421,7 +421,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 session_id,
                 SessionEvent(
                     kind=SessionEventKind.transcript,
-                    payload=cast(SessionEventPayload, self._build_tool_running_payload(tool_name, args_str, turn_id)),
+                    payload=cast("SessionEventPayload", self._build_tool_running_payload(tool_name, args_str, turn_id)),
                 ),
             )
             self._enqueue_log(session_id, f"Tool started: {tool_name}", "debug", seq)
@@ -450,7 +450,9 @@ class ClaudeAdapter(BaseAgentAdapter):
 
         result_text = self._extract_result_text(content)
         payload = self._build_tool_call_payload(
-            tool_name, tool_args_str, result_text,
+            tool_name,
+            tool_args_str,
+            result_text,
             sdk_success=not is_error,
             turn_id=turn_id,
             duration_ms=duration_ms,
@@ -460,7 +462,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         if tool_name not in _HIDDEN_TOOLS:
             self._enqueue(
                 session_id,
-                SessionEvent(kind=SessionEventKind.transcript, payload=cast(SessionEventPayload, payload)),
+                SessionEvent(kind=SessionEventKind.transcript, payload=cast("SessionEventPayload", payload)),
             )
             self._enqueue_log(
                 session_id,

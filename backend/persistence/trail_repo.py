@@ -38,9 +38,7 @@ class TrailNodeRepository:
 
     async def get(self, node_id: str) -> TrailNodeRow | None:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(TrailNodeRow).where(TrailNodeRow.id == node_id)
-            )
+            result = await session.execute(select(TrailNodeRow).where(TrailNodeRow.id == node_id))
             return result.scalar_one_or_none()
 
     async def get_by_job(
@@ -72,9 +70,7 @@ class TrailNodeRepository:
     ) -> list[TrailNodeRow]:
         """Fetch nodes needing enrichment, oldest first."""
         async with self._session_factory() as session:
-            stmt = select(TrailNodeRow).where(
-                TrailNodeRow.enrichment.in_(["pending", "failed"])
-            )
+            stmt = select(TrailNodeRow).where(TrailNodeRow.enrichment.in_(["pending", "failed"]))
             if job_id:
                 stmt = stmt.where(TrailNodeRow.job_id == job_id)
             stmt = stmt.order_by(TrailNodeRow.seq).limit(limit)
@@ -124,9 +120,7 @@ class TrailNodeRepository:
         """Return the highest seq for a job, or 0 if no nodes exist."""
         async with self._session_factory() as session:
             result = await session.execute(
-                select(func.coalesce(func.max(TrailNodeRow.seq), 0)).where(
-                    TrailNodeRow.job_id == job_id
-                )
+                select(func.coalesce(func.max(TrailNodeRow.seq), 0)).where(TrailNodeRow.job_id == job_id)
             )
             return result.scalar_one()
 
@@ -152,12 +146,12 @@ class TrailNodeRepository:
         """Return (total_nodes, enriched_nodes) counts for a job."""
         async with self._session_factory() as session:
             total = await session.execute(
-                select(func.count()).select_from(TrailNodeRow).where(
-                    TrailNodeRow.job_id == job_id
-                )
+                select(func.count()).select_from(TrailNodeRow).where(TrailNodeRow.job_id == job_id)
             )
             enriched = await session.execute(
-                select(func.count()).select_from(TrailNodeRow).where(
+                select(func.count())
+                .select_from(TrailNodeRow)
+                .where(
                     TrailNodeRow.job_id == job_id,
                     TrailNodeRow.enrichment == "complete",
                 )
@@ -354,11 +348,7 @@ class TrailNodeRepository:
         from backend.persistence.database import serialized_write
 
         async with serialized_write(self._session_factory) as session:
-            stmt = (
-                update(TrailNodeRow)
-                .where(TrailNodeRow.id == node_id)
-                .values(write_summary=summary)
-            )
+            stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(write_summary=summary)
             await session.execute(stmt)
 
     async def set_edit_motivations(self, node_id: str, motivations_json: str) -> None:
@@ -366,11 +356,7 @@ class TrailNodeRepository:
         from backend.persistence.database import serialized_write
 
         async with serialized_write(self._session_factory) as session:
-            stmt = (
-                update(TrailNodeRow)
-                .where(TrailNodeRow.id == node_id)
-                .values(edit_motivations=motivations_json)
-            )
+            stmt = update(TrailNodeRow).where(TrailNodeRow.id == node_id).values(edit_motivations=motivations_json)
             await session.execute(stmt)
 
     async def update_tool_metadata(
@@ -410,7 +396,7 @@ class TrailNodeRepository:
                 .where(TrailNodeRow.tool_display.is_(None))
                 .values(**values)
             )
-            result = cast(CursorResult[Any], await session.execute(stmt))
+            result = cast("CursorResult[Any]", await session.execute(stmt))
             return (result.rowcount or 0) > 0
 
     async def get_snapshot_turns(self, job_id: str) -> list[TrailNodeRow]:

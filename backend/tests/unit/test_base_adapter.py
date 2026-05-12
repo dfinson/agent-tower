@@ -19,7 +19,6 @@ import pytest
 
 from backend.services.base_adapter import BaseAgentAdapter, PermissionDecision
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -118,60 +117,42 @@ class TestIsMutativeShell:
 
 class TestBuildPermissionDescription:
     def test_shell_with_command(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "shell", "Bash", {"command": "ls -la"}, "ls -la"
-        )
+        desc = BaseAgentAdapter._build_permission_description("shell", "Bash", {"command": "ls -la"}, "ls -la")
         assert desc.startswith("Run shell:")
         assert "ls -la" in desc
 
     def test_shell_no_input(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "shell", "Bash", None, "echo hi"
-        )
+        desc = BaseAgentAdapter._build_permission_description("shell", "Bash", None, "echo hi")
         assert "echo hi" in desc
 
     def test_write_file(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "write", "Edit", {"file_path": "/tmp/foo.py"}, None
-        )
+        desc = BaseAgentAdapter._build_permission_description("write", "Edit", {"file_path": "/tmp/foo.py"}, None)
         assert desc.startswith("Write file:")
         assert "/tmp/foo.py" in desc
 
     def test_web_search(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "search", "WebSearch", {"query": "python async"}, None
-        )
+        desc = BaseAgentAdapter._build_permission_description("search", "WebSearch", {"query": "python async"}, None)
         assert "Web search:" in desc
         assert "python async" in desc
 
     def test_web_fetch(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "url", "WebFetch", {"url": "https://example.com"}, None
-        )
+        desc = BaseAgentAdapter._build_permission_description("url", "WebFetch", {"url": "https://example.com"}, None)
         assert "Fetch URL:" in desc
 
     def test_read_file(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "read", "Read", {"file_path": "/etc/hosts"}, None
-        )
+        desc = BaseAgentAdapter._build_permission_description("read", "Read", {"file_path": "/etc/hosts"}, None)
         assert desc.startswith("Read file:")
 
     def test_generic_tool(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "custom", "MyTool", {"arg": "val"}, None
-        )
+        desc = BaseAgentAdapter._build_permission_description("custom", "MyTool", {"arg": "val"}, None)
         assert desc.startswith("MyTool:")
 
     def test_fallback_to_command_text(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "unknown", "", None, "some raw text"
-        )
+        desc = BaseAgentAdapter._build_permission_description("unknown", "", None, "some raw text")
         assert desc == "some raw text"
 
     def test_fallback_to_kind(self) -> None:
-        desc = BaseAgentAdapter._build_permission_description(
-            "unknown", "", None, None
-        )
+        desc = BaseAgentAdapter._build_permission_description("unknown", "", None, None)
         assert desc == "unknown"
 
 
@@ -184,10 +165,13 @@ class TestTranscriptBuffer:
     def test_buffer_and_snapshot(self) -> None:
         adapter = _make_adapter()
         adapter._session_to_job["s1"] = "j1"
-        adapter._buffer_transcript("s1", {
-            "role": "agent",
-            "content": "hello world",
-        })
+        adapter._buffer_transcript(
+            "s1",
+            {
+                "role": "agent",
+                "content": "hello world",
+            },
+        )
         snap = adapter._snapshot_preceding_context("j1")
         assert snap is not None
         parsed = json.loads(snap)
@@ -200,14 +184,17 @@ class TestTranscriptBuffer:
         adapter._session_to_job["s1"] = "j1"
         buf_size = adapter._TRANSCRIPT_BUFFER_SIZE
         for i in range(buf_size + 5):
-            adapter._buffer_transcript("s1", {
-                "role": "agent",
-                "content": f"msg-{i}",
-            })
+            adapter._buffer_transcript(
+                "s1",
+                {
+                    "role": "agent",
+                    "content": f"msg-{i}",
+                },
+            )
         buf = adapter._transcript_buffers["j1"]
         assert len(buf) == buf_size
         # Oldest entries should have been evicted
-        assert buf[0]["content"] == f"msg-5"
+        assert buf[0]["content"] == "msg-5"
 
     def test_skips_delta_roles(self) -> None:
         adapter = _make_adapter()
@@ -231,12 +218,15 @@ class TestTranscriptBuffer:
     def test_tool_name_captured(self) -> None:
         adapter = _make_adapter()
         adapter._session_to_job["s1"] = "j1"
-        adapter._buffer_transcript("s1", {
-            "role": "tool_result",
-            "content": "ok",
-            "tool_name": "read_file",
-            "tool_args": '{"path": "/foo"}',
-        })
+        adapter._buffer_transcript(
+            "s1",
+            {
+                "role": "tool_result",
+                "content": "ok",
+                "tool_name": "read_file",
+                "tool_args": '{"path": "/foo"}',
+            },
+        )
         buf = adapter._transcript_buffers["j1"]
         assert buf[0]["tool_name"] == "read_file"
         assert "tool_args" in buf[0]
@@ -412,8 +402,10 @@ class TestScheduleDbWrite:
         adapter = _make_adapter()
         # Fill with fake pending tasks that never complete
         for _ in range(adapter._MAX_PENDING_WRITES):
+
             async def _block() -> None:
                 await asyncio.sleep(999)
+
             task = asyncio.create_task(_block())
             adapter._write_tasks.append(task)
 
@@ -443,8 +435,10 @@ class TestEvaluatePermission:
         adapter = _make_adapter()
         adapter._paused_sessions.add("s1")
         from backend.services.permission_policy import PermissionRequest
+
         result = await adapter._evaluate_permission(
-            "s1", "j1",
+            "s1",
+            "j1",
             PermissionRequest(kind="shell", workspace_path=""),
             tool_name="Bash",
         )
@@ -456,18 +450,22 @@ class TestEvaluatePermission:
         adapter = _make_adapter()
 
         # Set up a policy router that always allows (simulating trust coverage)
-        from unittest.mock import AsyncMock as AM
+        from unittest.mock import AsyncMock
+
         from backend.services.action_policy.classifier import Tier
+
         mock_decision = MagicMock(proceed=True, tier=Tier.observe, checkpoint_ref=None, classification=None)
         mock_router = MagicMock()
-        mock_router.route = AM(return_value=mock_decision)
+        mock_router.route = AsyncMock(return_value=mock_decision)
         adapter._policy_router["j1"] = mock_router
         adapter._repo_policies["j1"] = MagicMock(cost_rules=[])
         adapter._worktree_paths["j1"] = "/tmp"
 
         from backend.services.permission_policy import PermissionRequest
+
         result = await adapter._evaluate_permission(
-            "s1", "j1",
+            "s1",
+            "j1",
             PermissionRequest(kind="read", workspace_path=""),
             tool_name="Read",
         )
@@ -482,8 +480,10 @@ class TestEvaluatePermission:
         adapter._queues["s1"] = asyncio.Queue()
 
         from backend.services.permission_policy import PermissionRequest
+
         result = await adapter._evaluate_permission(
-            "s1", "j1",
+            "s1",
+            "j1",
             PermissionRequest(kind="shell", workspace_path="", full_command_text="git reset --hard HEAD~1"),
             tool_name="Bash",
         )
@@ -498,8 +498,10 @@ class TestEvaluatePermission:
         adapter._queues["s1"] = asyncio.Queue()
 
         from backend.services.permission_policy import PermissionRequest
+
         result = await adapter._evaluate_permission(
-            "s1", "j1",
+            "s1",
+            "j1",
             PermissionRequest(kind="shell", workspace_path="", full_command_text="git reset --hard HEAD~1"),
             tool_name="Bash",
         )

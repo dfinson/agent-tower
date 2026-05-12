@@ -37,11 +37,14 @@ _BLOCKED_REQUEST_HEADERS = frozenset(
 )
 
 # Response headers stripped before forwarding back to the client.
-_BLOCKED_RESPONSE_HEADERS = frozenset(
-    {"transfer-encoding", "connection", "content-encoding", "content-length"}
-)
+_BLOCKED_RESPONSE_HEADERS = frozenset({"transfer-encoding", "connection", "content-encoding", "content-length"})
 
-@router.api_route("/preview/{port:int}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"], response_class=Response)
+
+@router.api_route(
+    "/preview/{port:int}/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
+    response_class=Response,
+)
 async def preview_proxy(port: int, path: str, request: Request, client: FromDishka[PreviewHttpClient]) -> Response:
     """Reverse-proxy a request to a local development server."""
     if port < 1024 or port > 65535:

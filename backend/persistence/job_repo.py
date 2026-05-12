@@ -10,7 +10,6 @@ from backend.models.db import DiffSnapshotRow, JobRow
 from backend.models.domain import GitMergeOutcome, Job, JobNotFoundError, JobState, Preset, Resolution
 from backend.persistence.repository import BaseRepository
 
-
 if TYPE_CHECKING:
     import builtins
     from datetime import datetime

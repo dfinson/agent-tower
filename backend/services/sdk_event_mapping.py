@@ -12,12 +12,9 @@ Event-to-SessionEvent mapping with full tool enrichment is handled by
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from backend.models.domain import SessionEventKind
-
-if TYPE_CHECKING:
-    pass
 
 # Canonical mapping from SDK event type strings to SessionEventKind.
 SDK_KIND_MAP: dict[str, SessionEventKind] = {

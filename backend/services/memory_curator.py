@@ -44,11 +44,7 @@ class MemoryCurator:
         Returns the curated subset (may be empty if nothing is relevant).
         Raises on failure (caller handles).
         """
-        prompt = (
-            f"{_CURATOR_SYSTEM_PROMPT}\n\n"
-            f"Given this task:\n{task}\n\n"
-            f"## Workspace Memory\n\n{memory}"
-        )
+        prompt = f"{_CURATOR_SYSTEM_PROMPT}\n\nGiven this task:\n{task}\n\n## Workspace Memory\n\n{memory}"
         t0 = time.monotonic()
         result = await self._adapter.complete(prompt)
         elapsed_ms = (time.monotonic() - t0) * 1000

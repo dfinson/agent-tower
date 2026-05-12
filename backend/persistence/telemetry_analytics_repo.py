@@ -460,7 +460,10 @@ class TelemetryAnalyticsRepository(BaseRepository):
         return dict(row) if row else {}
 
     async def yield_summary(
-        self, *, period_days: int, repo: str | None = None,
+        self,
+        *,
+        period_days: int,
+        repo: str | None = None,
     ) -> dict[str, Any]:
         """Yield/ROI: job cost by resolution outcome."""
         repo_filter = ""
@@ -550,9 +553,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 ) AS days_in_month
             """),
         )
-        days_in_month = float(
-            days_in_month_result.mappings().first()["days_in_month"]
-        )
+        days_in_month = float(days_in_month_result.mappings().first()["days_in_month"])
         daily_avg = month_spend / days_elapsed
         projected = daily_avg * days_in_month
 
@@ -565,7 +566,9 @@ class TelemetryAnalyticsRepository(BaseRepository):
         }
 
     async def high_delegation_jobs(
-        self, *, period_days: int = 14,
+        self,
+        *,
+        period_days: int = 14,
     ) -> list[dict[str, Any]]:
         """Jobs where sub-agent cost exceeds the parent's direct cost."""
         result = await self._session.execute(

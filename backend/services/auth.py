@@ -44,14 +44,17 @@ import json
 import secrets
 import time
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from string import Template
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import structlog
 from starlette.requests import Request  # noqa: TC002
 from starlette.responses import HTMLResponse, JSONResponse, Response  # noqa: TC002
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 log = structlog.get_logger()
 

@@ -320,9 +320,7 @@ def _col_for_verbosity(verbosity: str) -> str:
 # Token estimation and model-context lookup
 # ---------------------------------------------------------------------------
 
-_PRICING_PATH = (
-    __import__("pathlib").Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
-)
+_PRICING_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
 
 
 def _get_model_max_input_tokens(model: str) -> int | None:
@@ -354,7 +352,7 @@ def _estimate_tokens(text: str) -> int:
     tuning knob — the real safety margin comes from the 75% headroom
     factor applied by the caller.
     """
-    _CHARS_PER_TOKEN = 4  # industry-standard estimate (OpenAI tokenizer docs)
+    _CHARS_PER_TOKEN = 4  # noqa: N806  # industry-standard estimate (OpenAI tokenizer docs)
     return len(text) // _CHARS_PER_TOKEN
 
 
@@ -364,14 +362,14 @@ def _truncate(s: str | None, max_len: int) -> str:
     return s[:max_len] + ("…" if len(s) > max_len else "")
 
 
-
-
 # ---------------------------------------------------------------------------
 # Reference extraction — reads from trail write sub-nodes (§13.1)
 # ---------------------------------------------------------------------------
 
+
 async def _build_references(
-    session: "AsyncSession", job_id: str,
+    session: AsyncSession,
+    job_id: str,
 ) -> list[StoryReference]:
     """Build validated reference dicts from trail nodes, chronologically.
 
@@ -440,10 +438,7 @@ async def _build_references(
         is_write = node.kind == "write"
 
         if is_write:
-            if not file_val or step_number is None:
-                key = f"__node_{node.id}"
-            else:
-                key = f"{file_val}|{step_number}"
+            key = f"__node_{node.id}" if not file_val or step_number is None else f"{file_val}|{step_number}"
         else:
             # Non-write nodes: one entry per kind+seq
             key = f"__{node.kind}_{node.seq}"
@@ -473,9 +468,7 @@ async def _build_references(
                 if isinstance(edits, list) and edits:
                     ref["editCount"] = len(edits)
                     ref["editDetails"] = [
-                        {"title": e.get("title", ""), "why": e.get("why", "")}
-                        for e in edits
-                        if e.get("why")
+                        {"title": e.get("title", ""), "why": e.get("why", "")} for e in edits if e.get("why")
                     ]
             except (json.JSONDecodeError, TypeError):
                 pass
@@ -496,8 +489,10 @@ async def _build_references(
 # Trail beats extraction (semantic turning points)
 # ---------------------------------------------------------------------------
 
+
 async def _build_trail_beats(
-    session: "AsyncSession", job_id: str,
+    session: AsyncSession,
+    job_id: str,
 ) -> list[TrailBeat]:
     """Fetch enriched semantic trail nodes — decisions, backtracks, insights."""
     from sqlalchemy import select
@@ -548,9 +543,12 @@ async def _build_trail_beats(
 # Context collection (non-reference metadata for the prompt)
 # ---------------------------------------------------------------------------
 
+
 async def _collect_context(
-    session: "AsyncSession", job_id: str,
-    *, job_row: dict[str, Any] | None = None,
+    session: AsyncSession,
+    job_id: str,
+    *,
+    job_row: dict[str, Any] | None = None,
 ) -> StoryContext:
     """Gather lightweight context metadata (no file_write spans — those are
     handled by ``_build_references``)."""
@@ -608,8 +606,10 @@ async def _collect_context(
 # Prompt builder
 # ---------------------------------------------------------------------------
 
+
 def _build_prompt(
-    refs: list[StoryReference], ctx: StoryContext,
+    refs: list[StoryReference],
+    ctx: StoryContext,
 ) -> str:
     """Build the user prompt listing numbered changes + context."""
     parts: list[str] = []
@@ -706,12 +706,14 @@ def _build_prompt(
 _MARKER_RE = re.compile(r"\[\[(\d+)\]\]")
 _BEAT_RE = re.compile(r"\{\{(DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\}", re.IGNORECASE)
 _SPLIT_RE = re.compile(
-    r"(\[\[\d+\]\]|\{\{(?:DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\})", re.IGNORECASE,
+    r"(\[\[\d+\]\]|\{\{(?:DECIDE|BACKTRACK|INSIGHT|VERIFY)\}\})",
+    re.IGNORECASE,
 )
 
 
 def _parse_blocks(
-    raw: str, refs: list[StoryReference],
+    raw: str,
+    refs: list[StoryReference],
 ) -> list[StoryBlock]:
     """Split LLM output on ``[[N]]`` reference markers and ``{{BEAT}}``
     beat markers into narrative, reference, and beat blocks."""
@@ -734,11 +736,13 @@ def _parse_blocks(
         if ref_match:
             # Flush any pending beat before the reference (#6)
             if pending_beat:
-                blocks.append({
-                    "type": "beat",
-                    "text": "",
-                    "beatKind": pending_beat,
-                })
+                blocks.append(
+                    {
+                        "type": "beat",
+                        "text": "",
+                        "beatKind": pending_beat,
+                    }
+                )
                 pending_beat = None
             raw_idx = int(ref_match.group(1))
             idx = raw_idx - 1  # 1-based → 0-based
@@ -759,11 +763,13 @@ def _parse_blocks(
             continue
 
         if pending_beat:
-            blocks.append({
-                "type": "beat",
-                "text": text,
-                "beatKind": pending_beat,
-            })
+            blocks.append(
+                {
+                    "type": "beat",
+                    "text": text,
+                    "beatKind": pending_beat,
+                }
+            )
             pending_beat = None
         else:
             blocks.append({"type": "narrative", "text": text})
@@ -778,10 +784,7 @@ def _parse_blocks(
             blocks.append(cast("StoryBlock", {"type": "reference", **ref}))
 
     # Filter out any empty beat blocks that slipped through (#10)
-    blocks = [
-        b for b in blocks
-        if not (b.get("type") == "beat" and not b.get("text"))
-    ]
+    blocks = [b for b in blocks if not (b.get("type") == "beat" and not b.get("text"))]
 
     return blocks
 
@@ -821,9 +824,7 @@ def _split_refs_into_chunks(
     fixed_prompt = _build_prompt([], ctx)
     # Add the continuation suffix size (worst-case)
     continuation_overhead = len(_CONTINUATION_SYSTEM) + 100  # format placeholders
-    fixed_tokens = _estimate_tokens(system + fixed_prompt) + _estimate_tokens(
-        " " * continuation_overhead
-    )
+    fixed_tokens = _estimate_tokens(system + fixed_prompt) + _estimate_tokens(" " * continuation_overhead)
 
     # 75% of the model's max input tokens, minus the fixed overhead
     budget = int(max_input_tokens * 0.75) - fixed_tokens
@@ -933,10 +934,7 @@ def _build_prompt_for_chunk(
     last_idx = chunk[-1][0]
     has_files = any(ref.get("file") for _, ref in chunk)
     section_label = "CHANGES" if has_files else "SESSION EVENTS"
-    parts.append(
-        f"\n## {section_label} ({len(chunk)} of {total_refs}, "
-        f"items {first_idx}-{last_idx}, chronological)"
-    )
+    parts.append(f"\n## {section_label} ({len(chunk)} of {total_refs}, items {first_idx}-{last_idx}, chronological)")
 
     def _fmt_ref(idx: int, ref: StoryReference) -> list[str]:
         lines: list[str] = []
@@ -983,13 +981,14 @@ def _build_prompt_for_chunk(
 # Service
 # ---------------------------------------------------------------------------
 
+
 class StoryService:
     """Generates and caches structured code-review stories for jobs."""
 
     def __init__(
         self,
-        completer: "Completable",
-        coderecon: "CodeReconService | None" = None,
+        completer: Completable,
+        coderecon: CodeReconService | None = None,
         session_factory: Any | None = None,
     ) -> None:
         self._completer = completer
@@ -998,7 +997,11 @@ class StoryService:
         self._gen_locks: dict[str, asyncio.Lock] = {}
 
     async def get_or_generate(
-        self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
+        self,
+        session: AsyncSession,
+        job_id: str,
+        *,
+        verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         """Return cached story blocks, or generate and cache them."""
         from sqlalchemy import text
@@ -1043,7 +1046,11 @@ class StoryService:
                 self._gen_locks.pop(lock_key, None)
 
     async def regenerate(
-        self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
+        self,
+        session: AsyncSession,
+        job_id: str,
+        *,
+        verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         """Force regeneration, ignoring cache."""
         from sqlalchemy import text
@@ -1069,8 +1076,11 @@ class StoryService:
                 self._gen_locks.pop(lock_key, None)
 
     async def _fetch_structural_section(
-        self, session: "AsyncSession", job_id: str,
-        *, job_row: dict[str, Any] | None = None,
+        self,
+        session: AsyncSession,
+        job_id: str,
+        *,
+        job_row: dict[str, Any] | None = None,
     ) -> str | None:
         """Fetch structural diff from CodeRecon and format as prompt section."""
         if not self._coderecon or not self._coderecon.available:
@@ -1110,9 +1120,7 @@ class StoryService:
             preview = ch.change_preview or ""
             impact = ch.impact
             ref_count = impact.reference_count if impact and impact.reference_count else 0
-            sig_changed = (
-                ch.old_sig is not None and ch.new_sig is not None and ch.old_sig != ch.new_sig
-            )
+            sig_changed = ch.old_sig is not None and ch.new_sig is not None and ch.old_sig != ch.new_sig
 
             # Determine category inline (mirrors endpoint logic)
             if kind == "removed":
@@ -1139,7 +1147,11 @@ class StoryService:
         return "\n".join(lines)
 
     async def _generate(
-        self, session: "AsyncSession", job_id: str, *, verbosity: str = "standard",
+        self,
+        session: AsyncSession,
+        job_id: str,
+        *,
+        verbosity: str = "standard",
     ) -> dict[str, Any] | None:
         from sqlalchemy import text
 
@@ -1176,11 +1188,7 @@ class StoryService:
         # still missing their write_summary, skip caching so the next
         # request can pick up the complete data.
         unsummarized = await session.execute(
-            text(
-                "SELECT COUNT(*) FROM trail_nodes "
-                "WHERE job_id = :jid AND kind = 'write' "
-                "AND write_summary IS NULL"
-            ),
+            text("SELECT COUNT(*) FROM trail_nodes WHERE job_id = :jid AND kind = 'write' AND write_summary IS NULL"),
             {"jid": job_id},
         )
         pending_motivations = unsummarized.scalar() or 0
@@ -1188,17 +1196,16 @@ class StoryService:
         # Guard against trail enrichment staleness — trail beats need
         # enrichment to be complete before the narrative is meaningful.
         unenriched = await session.execute(
-            text(
-                "SELECT COUNT(*) FROM trail_nodes "
-                "WHERE job_id = :jid AND enrichment = 'pending'"
-            ),
+            text("SELECT COUNT(*) FROM trail_nodes WHERE job_id = :jid AND enrichment = 'pending'"),
             {"jid": job_id},
         )
         pending_enrichment = unenriched.scalar() or 0
 
         # Structural analysis enrichment from CodeRecon
         structural_section = await self._fetch_structural_section(
-            session, job_id, job_row=job_row,
+            session,
+            job_id,
+            job_row=job_row,
         )
 
         system = _STORY_SYSTEM + _STORY_VERBOSITY_SUFFIX.get(verbosity, "")
@@ -1316,7 +1323,10 @@ class StoryService:
         )
 
         chunks = _split_refs_into_chunks(
-            refs, ctx, system, max_input_tokens=max_input_tokens,
+            refs,
+            ctx,
+            system,
+            max_input_tokens=max_input_tokens,
         )
 
         all_blocks: list[StoryBlock] = []

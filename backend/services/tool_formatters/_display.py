@@ -204,7 +204,12 @@ _SIMPLE_SPECS: dict[str, _FormatSpec] = {
     "edit_file": _FormatSpec(("filePath", "file_path"), "Edit", "Edit file", use_path=True),
     "write_file": _FormatSpec(("filePath", "file_path", "path"), "Write", "Write file", use_path=True),
     "create": _FormatSpec(("path", "file_path"), "Create", "Create file", use_path=True),
-    "create_or_update_file": _FormatSpec(("path", "file_path"), "Create/update", "Create or update file", use_path=True),
+    "create_or_update_file": _FormatSpec(
+        ("path", "file_path"),
+        "Create/update",
+        "Create or update file",
+        use_path=True,
+    ),
     "apply_patch": _FormatSpec(("patch",), "Apply patch", "Apply patch", truncate=40),
     "view_image": _FormatSpec(("filePath", "file_path"), "View image", "View image", use_path=True),
     "run_vscode_command": _FormatSpec(("command",), "VS Code:", "VS Code command", truncate=40),
@@ -682,7 +687,11 @@ def format_tool_display(
     Falls back to the raw tool name if no formatter is registered.
     """
     return _format_tool_display_impl(
-        tool_name, tool_args, tool_result, tool_success, _FORMATTERS,
+        tool_name,
+        tool_args,
+        tool_result,
+        tool_success,
+        _FORMATTERS,
     )
 
 
@@ -699,6 +708,10 @@ def format_tool_display_full(
     responsive truncation that adapts to the available viewport width.
     """
     return _format_tool_display_impl(
-        tool_name, tool_args, tool_result, tool_success, _FORMATTERS_FULL,
+        tool_name,
+        tool_args,
+        tool_result,
+        tool_success,
+        _FORMATTERS_FULL,
         desc_max_len=200,
     )

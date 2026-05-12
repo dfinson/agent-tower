@@ -189,7 +189,7 @@ class ConsoleLog:
         if record.levelno < logging.ERROR:
             return
         msg = record.getMessage()
-        first_line = (msg.splitlines()[0] if msg else "(no message)")
+        first_line = msg.splitlines()[0] if msg else "(no message)"
         short_name = record.name
         for prefix in ("backend.services.", "backend.api.", "backend."):
             if short_name.startswith(prefix):

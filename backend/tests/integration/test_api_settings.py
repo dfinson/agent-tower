@@ -20,9 +20,8 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from backend.config import CPLConfig
+from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT, CPLConfig
 from backend.services.git_service import GitError
-from backend.config import DEFAULT_SELF_REVIEW_PROMPT, DEFAULT_VERIFY_PROMPT
 
 if TYPE_CHECKING:
     from pathlib import Path

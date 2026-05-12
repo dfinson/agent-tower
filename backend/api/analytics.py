@@ -15,19 +15,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.api_schemas import (
     ActionPurposeCell,
     ActionPurposeMatrixResponse,
+    ActivityPhaseCell,
+    ActivityPhaseMatrixResponse,
     AnalyticsJobsResponse,
     AnalyticsModelsResponse,
     AnalyticsOverviewResponse,
     AnalyticsPricingResponse,
     AnalyticsReposResponse,
     AnalyticsToolsResponse,
-    ActivityPhaseCell,
-    ActivityPhaseMatrixResponse,
     CacheEfficiencyResponse,
     CacheEfficiencyRow,
     CostAttributionBucket,
     CostDriversJobResponse,
-    CostTrendEntry,
     DismissResponse,
     EditEfficiencyCategory,
     EditEfficiencyResponse,
@@ -258,17 +257,23 @@ async def fleet_cost_drivers(
         rows = await svc.cost_by_repo_activity(period_days=period, dimension=dim)
         # Group by repo
         from collections import defaultdict
+
         repo_map: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for r in rows:
             repo_map[r.get("repo", "")].append(r)
         repos = []
         for repo_name, buckets in sorted(repo_map.items(), key=lambda x: -sum(b.get("cost_usd", 0) for b in x[1])):
             total = sum(b.get("cost_usd", 0) for b in buckets)
-            repos.append(RepoCostBreakdown(
-                repo=repo_name or "(unknown)",
-                total_cost_usd=total,
-                buckets=[CostAttributionBucket(dimension=dim, **{k: v for k, v in b.items() if k not in ("repo",)}) for b in buckets],
-            ))
+            repos.append(
+                RepoCostBreakdown(
+                    repo=repo_name or "(unknown)",
+                    total_cost_usd=total,
+                    buckets=[
+                        CostAttributionBucket(dimension=dim, **{k: v for k, v in b.items() if k not in ("repo",)})
+                        for b in buckets
+                    ],
+                )
+            )
         return RepoCostDriversResponse(period=period, dimension=dim, repos=repos)
 
     if dimension:
@@ -501,14 +506,16 @@ async def fleet_edit_efficiency(
         one_shot = int(row.get("input_tokens") or 0)
         retries = int(row.get("output_tokens") or 0)
         rate = round((one_shot / edit_turns * 100) if edit_turns > 0 else 0, 1)
-        categories.append(EditEfficiencyCategory(
-            activity=row.get("bucket", ""),
-            edit_turns=edit_turns,
-            one_shot_turns=one_shot,
-            retries=retries,
-            one_shot_rate=rate,
-            job_count=row.get("job_count", 0),
-        ))
+        categories.append(
+            EditEfficiencyCategory(
+                activity=row.get("bucket", ""),
+                edit_turns=edit_turns,
+                one_shot_turns=one_shot,
+                retries=retries,
+                one_shot_rate=rate,
+                job_count=row.get("job_count", 0),
+            )
+        )
     return EditEfficiencyResponse(period=period, categories=categories)
 
 
@@ -604,10 +611,7 @@ async def analytics_outcome_matrix(
 ) -> OutcomeMatrixResponse:
     """Cost breakdown by activity × job resolution."""
     cells = await svc.outcome_cost_matrix(period_days=period)
-    total_waste = sum(
-        c["cost_usd"] for c in cells
-        if c.get("resolution") in ("discarded", "failed")
-    )
+    total_waste = sum(c["cost_usd"] for c in cells if c.get("resolution") in ("discarded", "failed"))
     return OutcomeMatrixResponse(
         cells=[OutcomeMatrixCell(**c) for c in cells],
         period_days=period,
@@ -652,12 +656,14 @@ async def analytics_action_purpose_matrix(
     for row in rows:
         parts = row["bucket"].split(":", 1)
         if len(parts) == 2:
-            cells.append(ActionPurposeCell(
-                action=parts[0],
-                purpose=parts[1],
-                cost_usd=row["cost_usd"],
-                call_count=row.get("call_count", 0),
-            ))
+            cells.append(
+                ActionPurposeCell(
+                    action=parts[0],
+                    purpose=parts[1],
+                    cost_usd=row["cost_usd"],
+                    call_count=row.get("call_count", 0),
+                )
+            )
     return ActionPurposeMatrixResponse(cells=cells, period_days=period)
 
 

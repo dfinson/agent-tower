@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import fnmatch
-import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -156,10 +155,7 @@ class TrustStore:
     def list_active(self) -> list[TrustGrant]:
         """Return currently active grants."""
         now = datetime.now(UTC)
-        return [
-            g for g in self._grants.values()
-            if not g.expires_at or g.expires_at >= now
-        ]
+        return [g for g in self._grants.values() if not g.expires_at or g.expires_at >= now]
 
 
 def _grant_matches(grant: TrustGrant, action: Action) -> bool:
@@ -198,8 +194,7 @@ def _grant_matches(grant: TrustGrant, action: Action) -> bool:
             return False
 
     # MCP server scope
-    if grant.mcp_server:
-        if not action.mcp_server or grant.mcp_server != action.mcp_server:
-            return False
+    if grant.mcp_server and (not action.mcp_server or grant.mcp_server != action.mcp_server):  # noqa: SIM103
+        return False
 
     return True

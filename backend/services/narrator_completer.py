@@ -64,7 +64,7 @@ class NarratorCompleter:
 
     def __init__(
         self,
-        adapter: "AgentAdapterInterface",
+        adapter: AgentAdapterInterface,
         *,
         model: str = "claude-haiku-4-20250414",
     ) -> None:
@@ -154,7 +154,11 @@ class NarratorCompleter:
                     log.error("narrator_anthropic_auth_failed", status=exc.response.status_code)
                     self._provider = None
                 else:
-                    log.warning("narrator_anthropic_failed_falling_back", status=exc.response.status_code, exc_info=True)
+                    log.warning(
+                        "narrator_anthropic_failed_falling_back",
+                        status=exc.response.status_code,
+                        exc_info=True,
+                    )
             except (httpx.HTTPError, OSError, ValueError, KeyError):
                 log.warning("narrator_anthropic_failed_falling_back", exc_info=True)
 
@@ -175,7 +179,7 @@ class NarratorCompleter:
         result = await self._adapter.complete(prompt)
         return result.text or ""
 
-    async def _anthropic_complete(self, prompt: str) -> "CompletionResult":
+    async def _anthropic_complete(self, prompt: str) -> CompletionResult:
         from backend.services.agent_adapter import CompletionResult
 
         client = await self._get_client()
@@ -208,7 +212,7 @@ class NarratorCompleter:
             model=data.get("model", self._model),
         )
 
-    async def _openai_complete(self, prompt: str) -> "CompletionResult":
+    async def _openai_complete(self, prompt: str) -> CompletionResult:
         from backend.services.agent_adapter import CompletionResult
 
         client = await self._get_client()

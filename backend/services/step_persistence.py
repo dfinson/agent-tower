@@ -32,7 +32,7 @@ class StepPersistenceSubscriber:
         # All other event kinds: early return (no-op)
 
     async def _on_step_started(self, event: DomainEvent) -> None:
-        p = cast(StepStartedPayloadDict, event.payload)
+        p = cast("StepStartedPayloadDict", event.payload)
         row = StepRow(
             id=p["step_id"],
             job_id=event.job_id,
@@ -45,7 +45,7 @@ class StepPersistenceSubscriber:
         await self._step_repo.create(row)
 
     async def _on_step_completed(self, event: DomainEvent) -> None:
-        p = cast(StepCompletedPayloadDict, event.payload)
+        p = cast("StepCompletedPayloadDict", event.payload)
         step_id = p["step_id"]
         assert step_id is not None
         await self._step_repo.complete(

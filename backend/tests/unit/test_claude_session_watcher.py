@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,14 +20,13 @@ from backend.models.db import Base
 from backend.models.domain import SessionEventKind
 from backend.persistence.database import _set_sqlite_pragmas
 from backend.services.claude_session_watcher import (
+    _SESSION_FILE_RE,
     ClaudeSessionStateWatcher,
     _encode_cwd,
     _find_claude_pids_at_cwd,
     _is_claude_process_alive,
     _is_pid_alive,
-    _SESSION_FILE_RE,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -212,7 +210,9 @@ class TestHookInstallation:
 class TestJsonlEventProcessing:
     @pytest.mark.anyio
     async def test_user_event_emits_transcript(
-        self, watcher: ClaudeSessionStateWatcher, event_processor: MagicMock,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        event_processor: MagicMock,
     ) -> None:
         watcher._session_to_job["sess-1"] = "job-1"
         watcher._job_to_session["job-1"] = "sess-1"
@@ -234,7 +234,9 @@ class TestJsonlEventProcessing:
 
     @pytest.mark.anyio
     async def test_assistant_text_emits_transcript(
-        self, watcher: ClaudeSessionStateWatcher, event_processor: MagicMock,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        event_processor: MagicMock,
     ) -> None:
         watcher._session_to_job["sess-1"] = "job-1"
         watcher._job_to_session["job-1"] = "sess-1"
@@ -255,7 +257,9 @@ class TestJsonlEventProcessing:
 
     @pytest.mark.anyio
     async def test_assistant_tool_use_emits_tool_running(
-        self, watcher: ClaudeSessionStateWatcher, event_processor: MagicMock,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        event_processor: MagicMock,
     ) -> None:
         watcher._session_to_job["sess-1"] = "job-1"
         watcher._job_to_session["job-1"] = "sess-1"
@@ -283,7 +287,9 @@ class TestJsonlEventProcessing:
 
     @pytest.mark.anyio
     async def test_thinking_block_emits_reasoning(
-        self, watcher: ClaudeSessionStateWatcher, event_processor: MagicMock,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        event_processor: MagicMock,
     ) -> None:
         watcher._session_to_job["sess-1"] = "job-1"
         watcher._job_to_session["job-1"] = "sess-1"
@@ -331,7 +337,9 @@ class TestJsonlEventProcessing:
 
 class TestDiscoveryScan:
     def test_scan_finds_matching_sessions(
-        self, watcher: ClaudeSessionStateWatcher, tmp_path: Path,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        tmp_path: Path,
     ) -> None:
         # Create a project directory matching the config repo
         encoded = _encode_cwd("/home/user/repos/myproject")
@@ -352,7 +360,9 @@ class TestDiscoveryScan:
         assert repo == "/home/user/repos/myproject"
 
     def test_scan_ignores_non_uuid_files(
-        self, watcher: ClaudeSessionStateWatcher, tmp_path: Path,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        tmp_path: Path,
     ) -> None:
         encoded = _encode_cwd("/home/user/repos/myproject")
         project_dir = tmp_path / encoded
@@ -367,7 +377,9 @@ class TestDiscoveryScan:
         assert len(results) == 0
 
     def test_scan_ignores_already_tracked(
-        self, watcher: ClaudeSessionStateWatcher, tmp_path: Path,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        tmp_path: Path,
     ) -> None:
         encoded = _encode_cwd("/home/user/repos/myproject")
         project_dir = tmp_path / encoded
@@ -385,7 +397,9 @@ class TestDiscoveryScan:
         assert len(results) == 0
 
     def test_scan_ignores_unmanaged_repos(
-        self, watcher: ClaudeSessionStateWatcher, tmp_path: Path,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        tmp_path: Path,
     ) -> None:
         # Create project dir for a repo NOT in config
         encoded = _encode_cwd("/home/user/repos/otherproject")
@@ -407,7 +421,8 @@ class TestDiscoveryScan:
 class TestIngestServiceRouting:
     @pytest.mark.anyio
     async def test_send_message_routes_to_claude_watcher(
-        self, db_session: async_sessionmaker[AsyncSession],
+        self,
+        db_session: async_sessionmaker[AsyncSession],
     ) -> None:
         from backend.models.domain import Job, JobSource, JobState
         from backend.persistence.job_repo import JobRepository
@@ -445,7 +460,8 @@ class TestIngestServiceRouting:
 
     @pytest.mark.anyio
     async def test_abort_routes_to_claude_watcher(
-        self, db_session: async_sessionmaker[AsyncSession],
+        self,
+        db_session: async_sessionmaker[AsyncSession],
     ) -> None:
         from backend.models.domain import Job, JobSource, JobState
         from backend.persistence.job_repo import JobRepository
@@ -687,7 +703,9 @@ class TestCostCalculation:
 class TestFileChangedEmission:
     @pytest.mark.anyio
     async def test_file_write_tool_emits_file_changed(
-        self, watcher: ClaudeSessionStateWatcher, event_processor: MagicMock,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        event_processor: MagicMock,
     ) -> None:
         """tool_use with a file_write tool should emit file_changed event."""
         watcher._session_to_job["sess-1"] = "job-fc"
@@ -718,7 +736,9 @@ class TestFileChangedEmission:
 
     @pytest.mark.anyio
     async def test_non_write_tool_no_file_changed(
-        self, watcher: ClaudeSessionStateWatcher, event_processor: MagicMock,
+        self,
+        watcher: ClaudeSessionStateWatcher,
+        event_processor: MagicMock,
     ) -> None:
         """tool_use with a read tool should NOT emit file_changed."""
         watcher._session_to_job["sess-1"] = "job-nfc"
@@ -835,6 +855,7 @@ class TestPricingReload:
 
             # Update the file with different content and a new mtime
             import time
+
             time.sleep(0.05)  # ensure mtime differs
             pricing_file.write_text(json.dumps({"model-b": {"input": 3.0, "output": 4.0}}))
 

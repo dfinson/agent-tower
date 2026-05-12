@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from backend.models.domain import (
         AggregateStats,
         CostAttributionRow,
@@ -28,7 +30,6 @@ if TYPE_CHECKING:
         TelemetrySummaryRow,
         ToolStatsRow,
     )
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class AnalyticsService:
@@ -99,12 +100,16 @@ class AnalyticsService:
         return await TelemetryAnalyticsRepository(self._session).scorecard(period_days=period_days)
 
     async def model_comparison(
-        self, *, period_days: int, repo: str | None = None,
+        self,
+        *,
+        period_days: int,
+        repo: str | None = None,
     ) -> list[ModelComparisonRow]:
         from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
         return await TelemetryAnalyticsRepository(self._session).model_comparison(
-            period_days=period_days, repo=repo,
+            period_days=period_days,
+            repo=repo,
         )
 
     async def job_context(self, job_id: str) -> dict[str, Any] | None:
@@ -146,12 +151,16 @@ class AnalyticsService:
         return await CostAttributionRepository(self._session).for_job(job_id)
 
     async def cost_by_dimension(
-        self, dimension: str, *, period_days: int,
+        self,
+        dimension: str,
+        *,
+        period_days: int,
     ) -> list[CostDimensionRow]:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
         return await CostAttributionRepository(self._session).by_dimension(
-            dimension, period_days=period_days,
+            dimension,
+            period_days=period_days,
         )
 
     async def fleet_cost_summary(self, *, period_days: int) -> list[FleetCostRow]:
@@ -163,13 +172,12 @@ class AnalyticsService:
 
     # -- Latency attribution -------------------------------------------------
 
-    async def fleet_latency_summary(
-        self, *, period_days: int, dimension: str | None = None
-    ) -> list[dict[str, Any]]:
+    async def fleet_latency_summary(self, *, period_days: int, dimension: str | None = None) -> list[dict[str, Any]]:
         from backend.persistence.latency_attribution_repo import LatencyAttributionRepository
 
         rows = await LatencyAttributionRepository(self._session).fleet_summary(
-            period_days=period_days, dimension=dimension,
+            period_days=period_days,
+            dimension=dimension,
         )
         return [dict(r) for r in rows]
 
@@ -211,7 +219,8 @@ class AnalyticsService:
         from backend.persistence.observations_repo import ObservationsRepository
 
         return await ObservationsRepository(self._session).list_active(
-            category=category, severity=severity,
+            category=category,
+            severity=severity,
         )
 
     async def dismiss_observation(self, observation_id: int) -> None:
@@ -222,12 +231,16 @@ class AnalyticsService:
     # -- Yield / ROI (Item 2) -----------------------------------------------
 
     async def yield_summary(
-        self, *, period_days: int, repo: str | None = None,
+        self,
+        *,
+        period_days: int,
+        repo: str | None = None,
     ) -> dict[str, Any]:
         from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
 
         return await TelemetryAnalyticsRepository(self._session).yield_summary(
-            period_days=period_days, repo=repo,
+            period_days=period_days,
+            repo=repo,
         )
 
     # -- Model efficiency (Item 6) ------------------------------------------
@@ -240,7 +253,10 @@ class AnalyticsService:
     # -- Cache efficiency (Item 7) ------------------------------------------
 
     async def cache_efficiency(
-        self, *, period_days: int, dimension: str = "phase",
+        self,
+        *,
+        period_days: int,
+        dimension: str = "phase",
     ) -> list[dict[str, Any]]:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
@@ -252,12 +268,16 @@ class AnalyticsService:
     # -- Per-repo activity breakdown (Item 4) --------------------------------
 
     async def cost_by_repo_activity(
-        self, *, period_days: int, dimension: str = "activity",
+        self,
+        *,
+        period_days: int,
+        dimension: str = "activity",
     ) -> list[dict[str, Any]]:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
         return await CostAttributionRepository(self._session).by_dimension_per_repo(
-            dimension, period_days,
+            dimension,
+            period_days,
         )
 
     # -- Monthly budget tracking (Item 5) ------------------------------------
@@ -291,7 +311,9 @@ class AnalyticsService:
 
         # Cost-per-diff-line (Item 9)
         budget_rows = scorecard.get("budget", [])
-        period_total_cost = sum(b.get("total_cost_usd", 0) or 0 for b in budget_rows) if isinstance(budget_rows, list) else 0.0
+        period_total_cost = (
+            sum(b.get("total_cost_usd", 0) or 0 for b in budget_rows) if isinstance(budget_rows, list) else 0.0
+        )
         total_lines = await self.total_diff_lines(period_days=period_days)
         scorecard["cost_per_diff_line"] = period_total_cost / total_lines if total_lines > 0 else 0.0
         scorecard["total_diff_lines"] = total_lines
@@ -311,8 +333,7 @@ class AnalyticsService:
         grand_total_tokens = sum(r.get("total_tokens", 0) for r in model_rows)
         grand_total_cost = sum(r.get("total_cost_usd", 0) for r in model_rows)
         scorecard["avg_cost_per_mtok"] = (
-            grand_total_cost / (grand_total_tokens / 1_000_000)
-            if grand_total_tokens > 0 else 0.0
+            grand_total_cost / (grand_total_tokens / 1_000_000) if grand_total_tokens > 0 else 0.0
         )
         scorecard["model_cost_mix"] = [
             {
@@ -321,8 +342,7 @@ class AnalyticsService:
                 "total_tokens": r.get("total_tokens", 0),
                 "total_cost_usd": r.get("total_cost_usd", 0),
                 "pct_of_tokens": (
-                    r.get("total_tokens", 0) / grand_total_tokens * 100
-                    if grand_total_tokens > 0 else 0.0
+                    r.get("total_tokens", 0) / grand_total_tokens * 100 if grand_total_tokens > 0 else 0.0
                 ),
             }
             for r in model_rows[:3]
@@ -348,12 +368,16 @@ class AnalyticsService:
     # -- File cost (Item 14) -------------------------------------------------
 
     async def file_cost_fleet(
-        self, *, period_days: int = 30, limit: int = 30,
+        self,
+        *,
+        period_days: int = 30,
+        limit: int = 30,
     ) -> list[dict[str, Any]]:
         from backend.persistence.file_cost_repo import FileCostRepository
 
         return await FileCostRepository(self._session).fleet_top_files(
-            period_days=period_days, limit=limit,
+            period_days=period_days,
+            limit=limit,
         )
 
     async def file_cost_for_job(self, job_id: str) -> list[dict[str, Any]]:
@@ -364,7 +388,9 @@ class AnalyticsService:
     # -- Outcome matrix (Item 15) --------------------------------------------
 
     async def outcome_cost_matrix(
-        self, *, period_days: int = 30,
+        self,
+        *,
+        period_days: int = 30,
     ) -> list[dict[str, Any]]:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
@@ -375,7 +401,9 @@ class AnalyticsService:
     # -- Activity × phase matrix (Item 16) -----------------------------------
 
     async def activity_phase_matrix(
-        self, *, period_days: int = 30,
+        self,
+        *,
+        period_days: int = 30,
     ) -> list[dict[str, Any]]:
         from backend.persistence.cost_attribution_repo import CostAttributionRepository
 
@@ -421,9 +449,7 @@ class AnalyticsService:
 
                 if purpose in wasted_purposes:
                     pass  # counted in waste below
-                elif purpose == "building" and action in building_actions:
-                    building += cost
-                elif purpose == "verifying":
+                elif purpose == "building" and action in building_actions or purpose == "verifying":
                     building += cost
                 elif purpose in ("building", "orienting") and action in thinking_actions:
                     thinking += cost

@@ -69,10 +69,7 @@ class MemoryExtractor:
 
     async def _extract_chunk(self, chunk: str) -> str | None:
         """Extract from a single chunk of decisions text."""
-        prompt = (
-            f"{_EXTRACTOR_SYSTEM_PROMPT}\n\n"
-            f"## Key Decisions from Job\n{chunk}"
-        )
+        prompt = f"{_EXTRACTOR_SYSTEM_PROMPT}\n\n## Key Decisions from Job\n{chunk}"
         t0 = time.monotonic()
         result = await self._adapter.complete(prompt)
         elapsed_ms = (time.monotonic() - t0) * 1000
