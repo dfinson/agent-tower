@@ -7,7 +7,6 @@ entries relevant to this specific task. Uses the adapter's ``complete()``
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import TYPE_CHECKING
 
@@ -39,7 +38,7 @@ class MemoryCurator:
     def __init__(self, adapter: AgentAdapterInterface) -> None:
         self._adapter = adapter
 
-    async def curate(self, task: str, memory: str, timeout: float = 15.0) -> str:
+    async def curate(self, task: str, memory: str) -> str:
         """Select relevant memory entries for *task*.
 
         Returns the curated subset (may be empty if nothing is relevant).
@@ -51,10 +50,7 @@ class MemoryCurator:
             f"## Workspace Memory\n\n{memory}"
         )
         t0 = time.monotonic()
-        result = await asyncio.wait_for(
-            self._adapter.complete(prompt),
-            timeout=timeout,
-        )
+        result = await self._adapter.complete(prompt)
         elapsed_ms = (time.monotonic() - t0) * 1000
         log.debug(
             "memory_curator.completed",

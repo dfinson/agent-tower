@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import hashlib
+import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -54,11 +56,6 @@ def _ensure_dir(repo_path: str) -> Path:
     return d
 
 
-def _normalize(text: str) -> str:
-    """Normalize whitespace for dedup comparison."""
-    return " ".join(text.split())
-
-
 # ---------------------------------------------------------------------------
 # Read
 # ---------------------------------------------------------------------------
@@ -88,18 +85,40 @@ def load_workspace_memory(repo_path: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Write (inbox)
+# Write (inbox) — atomic via temp + rename
 # ---------------------------------------------------------------------------
 
 
 def append_to_inbox(repo_path: str, job_id: str, entries: str) -> None:
-    """Write extracted memory entries to ``inbox/<job_id>.md``."""
+    """Write extracted memory entries to ``inbox/<job_id>.md``.
+
+    Uses write-to-temp + os.rename for atomicity — a crash mid-write
+    leaves no partial file in the inbox.
+    """
     entries = entries.strip()
     if not entries:
         return
     d = _ensure_dir(repo_path)
-    inbox_file = d / "inbox" / f"{job_id}.md"
-    inbox_file.write_text(entries + "\n", encoding="utf-8")
+    inbox_dir = d / "inbox"
+    target = inbox_dir / f"{job_id}.md"
+
+    # Write to temp in same dir (same filesystem → rename is atomic on POSIX)
+    fd, tmp_path = tempfile.mkstemp(dir=str(inbox_dir), suffix=".tmp")
+    try:
+        os.write(fd, (entries + "\n").encode("utf-8"))
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.rename(tmp_path, str(target))
+    except BaseException:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
     log.info("workspace_memory.inbox_written", repo=_repo_slug(repo_path), job_id=job_id)
 
 
@@ -110,6 +129,9 @@ def append_to_inbox(repo_path: str, job_id: str, entries: str) -> None:
 
 def _locked_merge(repo_path: str) -> tuple[int, int]:
     """Synchronous file-locked merge of inbox → decisions.md.
+
+    Appends all inbox entries unconditionally — deduplication is handled
+    by the LLM during compaction (the compaction prompt removes duplicates).
 
     Returns (files_merged, new_entries_count). Runs in a thread via to_thread.
     """
@@ -130,17 +152,15 @@ def _locked_merge(repo_path: str) -> tuple[int, int]:
     with lock_path.open("w") as lock_fd:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         try:
-            # Read existing decisions for dedup
             existing = ""
             if decisions_path.is_file():
                 existing = decisions_path.read_text(encoding="utf-8")
-            existing_normalized = _normalize(existing)
 
-            # Collect new entries, deduplicating via normalized comparison
+            # Append all inbox entries (LLM handles dedup during compaction)
             new_entries: list[str] = []
             for f in inbox_files:
                 text = f.read_text(encoding="utf-8").strip()
-                if text and _normalize(text) not in existing_normalized:
+                if text:
                     new_entries.append(text)
 
             if new_entries:
@@ -204,18 +224,28 @@ def _locked_write_compaction(repo_path: str, original_content: str, summarized: 
 
 
 def _cap_archive(archive_path: Path, content: str, max_bytes: int) -> None:
-    """Write *content* to archive, trimming oldest paragraphs if over *max_bytes*."""
+    """Write *content* to archive, trimming oldest paragraphs if over *max_bytes*.
+
+    Linear scan: compute byte sizes per paragraph, drop from the front until
+    total fits within the budget.
+    """
     encoded = content.encode("utf-8")
     if len(encoded) <= max_bytes:
         archive_path.write_text(content, encoding="utf-8")
         return
 
-    # Drop paragraphs from the front (oldest) until under cap
     paragraphs = content.split("\n\n")
-    while len("\n\n".join(paragraphs).encode("utf-8")) > max_bytes and len(paragraphs) > 1:
-        paragraphs.pop(0)
+    # Pre-compute byte size of each paragraph (including the \n\n separator)
+    separator_bytes = len("\n\n".encode("utf-8"))
+    sizes = [len(p.encode("utf-8")) for p in paragraphs]
 
-    archive_path.write_text("\n\n".join(paragraphs) + "\n", encoding="utf-8")
+    total = sum(sizes) + separator_bytes * (len(sizes) - 1)
+    start = 0
+    while total > max_bytes and start < len(paragraphs) - 1:
+        total -= sizes[start] + separator_bytes
+        start += 1
+
+    archive_path.write_text("\n\n".join(paragraphs[start:]) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

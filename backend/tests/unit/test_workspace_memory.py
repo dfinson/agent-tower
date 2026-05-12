@@ -11,7 +11,6 @@ import pytest
 
 from backend.services.workspace_memory import (
     _repo_slug,
-    _normalize,
     _cap_archive,
     append_to_inbox,
     compact_decisions,
@@ -24,6 +23,7 @@ from backend.services.workspace_memory import (
     _ARCHIVE_THRESHOLD_BYTES,
     _MAX_ARCHIVE_BYTES,
 )
+from backend.services.memory_extractor import _split_decisions, _EXTRACTOR_CHUNK_CHARS
 
 
 @pytest.fixture()
@@ -66,16 +66,6 @@ class TestRepoSlug:
         slug1 = _repo_slug("/home/user/repos/my-project")
         slug2 = _repo_slug("/home/user/repos/my-project")
         assert slug1 == slug2
-
-
-class TestNormalize:
-    def test_collapses_whitespace(self) -> None:
-        assert _normalize("  foo   bar\n\nbaz  ") == "foo bar baz"
-
-    def test_identical_content_matches(self) -> None:
-        a = "### 2026-05-12: Title\nBody text."
-        b = "### 2026-05-12: Title\n Body  text."
-        assert _normalize(a) == _normalize(b)
 
 
 class TestLoadWorkspaceMemory:
@@ -144,6 +134,16 @@ class TestInbox:
         inbox = mem_dir / "inbox"
         assert not (inbox / "empty-job.md").exists()
 
+    def test_append_is_atomic(self, repo_path: str, memory_root: Path) -> None:
+        """Inbox files are written atomically — no .tmp files left behind."""
+        append_to_inbox(repo_path, "atomic-job", "### 2026-05-12: Test\nEntry.")
+        slug = _repo_slug(repo_path)
+        mem_dir = memory_root / ".codeplane" / "memory" / slug
+        inbox = mem_dir / "inbox"
+        # Only the final file exists, no .tmp remnants
+        assert (inbox / "atomic-job.md").is_file()
+        assert list(inbox.glob("*.tmp")) == []
+
     @pytest.mark.asyncio
     async def test_merge_no_inbox(self, repo_path: str, mock_compacter: AsyncMock) -> None:
         assert await merge_inbox(repo_path, mock_compacter) == 0
@@ -163,34 +163,21 @@ class TestInbox:
         assert "New" in decisions
 
     @pytest.mark.asyncio
-    async def test_merge_deduplicates_exact(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
+    async def test_merge_appends_all_without_dedup(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
+        """Merge appends unconditionally — LLM handles dedup during compaction."""
         slug = _repo_slug(repo_path)
         mem_dir = memory_root / ".codeplane" / "memory" / slug
         mem_dir.mkdir(parents=True)
         (mem_dir / "inbox").mkdir()
         existing_text = "### 2026-05-10: Existing\nOld entry."
         (mem_dir / "decisions.md").write_text(existing_text + "\n")
-        # Inbox contains same text as existing decisions
+        # Inbox contains same text — it still gets appended (dedup is LLM's job)
         (mem_dir / "inbox" / "dup-job.md").write_text(existing_text)
 
         await merge_inbox(repo_path, mock_compacter)
         decisions = (mem_dir / "decisions.md").read_text()
-        # Should only appear once
-        assert decisions.count("Existing") == 1
-
-    @pytest.mark.asyncio
-    async def test_merge_deduplicates_whitespace_variants(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
-        slug = _repo_slug(repo_path)
-        mem_dir = memory_root / ".codeplane" / "memory" / slug
-        mem_dir.mkdir(parents=True)
-        (mem_dir / "inbox").mkdir()
-        (mem_dir / "decisions.md").write_text("### 2026-05-10: Foo\nBar baz.\n")
-        # Same content with different whitespace
-        (mem_dir / "inbox" / "ws-job.md").write_text("### 2026-05-10: Foo\n Bar  baz.")
-
-        await merge_inbox(repo_path, mock_compacter)
-        decisions = (mem_dir / "decisions.md").read_text()
-        assert decisions.count("Foo") == 1
+        # Both instances present — LLM will deduplicate during compaction
+        assert decisions.count("Existing") == 2
 
 
 class TestCompaction:
@@ -289,6 +276,29 @@ class TestArchiveCap:
         assert "Paragraph 19" in result
         # First paragraph should be gone
         assert "Paragraph 0" not in result
+
+
+class TestExtractorChunking:
+    def test_small_text_no_split(self) -> None:
+        text = "- Decision A\n- Decision B"
+        chunks = _split_decisions(text)
+        assert len(chunks) == 1
+        assert chunks[0] == text
+
+    def test_large_text_splits_on_lines(self) -> None:
+        # Create text larger than chunk size
+        lines = [f"- Decision {i}: {'x' * 200}" for i in range(200)]
+        text = "\n".join(lines)
+        assert len(text) > _EXTRACTOR_CHUNK_CHARS
+
+        chunks = _split_decisions(text)
+        assert len(chunks) > 1
+        # Each chunk should be under the limit (or a single line that exceeds it)
+        for chunk in chunks[:-1]:
+            assert len(chunk) <= _EXTRACTOR_CHUNK_CHARS + 250  # line boundary tolerance
+        # All content preserved
+        reassembled = "\n".join(chunks)
+        assert reassembled == text
 
 
 class TestDirectReadWrite:

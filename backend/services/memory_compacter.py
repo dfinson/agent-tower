@@ -7,7 +7,6 @@ tailored for distilling accumulated workspace memory.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import TYPE_CHECKING
 
@@ -43,7 +42,7 @@ class MemoryCompacter:
     def __init__(self, adapter: AgentAdapterInterface) -> None:
         self._adapter = adapter
 
-    async def compact(self, memory_content: str, timeout: float = 60.0) -> str:
+    async def compact(self, memory_content: str) -> str:
         """Summarize *memory_content* into a condensed version.
 
         Returns the summarized text. Raises on failure (caller handles).
@@ -54,10 +53,7 @@ class MemoryCompacter:
             f"{memory_content}"
         )
         t0 = time.monotonic()
-        result = await asyncio.wait_for(
-            self._adapter.complete(prompt),
-            timeout=timeout,
-        )
+        result = await self._adapter.complete(prompt)
         elapsed_ms = (time.monotonic() - t0) * 1000
         log.debug(
             "memory_compacter.completed",
