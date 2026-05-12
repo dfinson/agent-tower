@@ -6,59 +6,31 @@ network) and is always enabled.  All heavy work (tree-sitter parsing,
 graph building) happens in a thread pool so the async event loop is never
 blocked.
 
-Degrades gracefully: if the coderecon-review package is not installed, if
-tree-sitter grammars are missing, or if a repo fails to index, the
-``available`` property returns ``False`` and every public method returns a
-safe fallback.
+Degrades gracefully: if the coderecon-review package is not installed or
+if a repo fails to index, the ``available`` property returns ``False``
+and every public method returns a safe fallback.
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 if TYPE_CHECKING:
+    from coderecon.review import (
+        CommunitiesResult,
+        CyclesResult,
+        StructuralHealthResult,
+    )
+    from coderecon.review.diff import SemanticDiffResult
+
     from backend.services.event_bus import EventBus
 
 log = structlog.get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Result dataclasses — lightweight stand-ins for the SDK types that callers
-# access via attribute/dict access.
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class DiffResult:
-    summary: str = ""
-    structural_changes: list[dict[str, Any]] = field(default_factory=list)
-
-
-@dataclass
-class CyclesResult:
-    cycles: list[dict[str, Any]] = field(default_factory=list)
-
-
-@dataclass
-class CommunitiesResult:
-    communities: list[dict[str, Any]] = field(default_factory=list)
-
-
-@dataclass
-class HealthResult:
-    score: float = 0.0
-    cycle_count: int = 0
-    community_count: int = 0
-
-
-# ---------------------------------------------------------------------------
-# Service
-# ---------------------------------------------------------------------------
 
 
 class CodeReconService:
@@ -73,8 +45,9 @@ class CodeReconService:
         self._index_locks: dict[str, asyncio.Lock] = {}
         self._available = False
         self._event_bus: EventBus | None = None
-        self._kit_class: type | None = None  # cached ReviewKit class ref
+        self._kit_class: type | None = None
         self._init_error: str | None = None
+        self._executor = ThreadPoolExecutor(thread_name_prefix="coderecon")
 
     # ── Properties ──
 
@@ -91,6 +64,7 @@ class CodeReconService:
         """Validate that the coderecon-review package is importable."""
         try:
             from coderecon.review import ReviewKit  # type: ignore[import-untyped]
+
             self._kit_class = ReviewKit
             self._available = True
             log.info("coderecon_review.ready")
@@ -100,13 +74,16 @@ class CodeReconService:
             log.warning("coderecon_review.import_failed", error=str(exc))
 
     async def stop(self) -> None:
-        """Close all ReviewKit instances."""
+        """Close all ReviewKit instances and release resources."""
+        loop = asyncio.get_running_loop()
         for repo_path, kit in list(self._kits.items()):
             try:
-                await asyncio.to_thread(kit.close)
+                await loop.run_in_executor(self._executor, kit.close)
             except Exception:
                 log.debug("coderecon_review.close_error", repo=repo_path, exc_info=True)
         self._kits.clear()
+        self._index_locks.clear()
+        self._executor.shutdown(wait=False)
         self._available = False
         log.info("coderecon_review.stopped")
 
@@ -122,6 +99,7 @@ class CodeReconService:
             raise CodeReconUnavailableError
 
         resolved = str(Path(path).resolve())
+        loop = asyncio.get_running_loop()
 
         if resolved not in self._index_locks:
             self._index_locks[resolved] = asyncio.Lock()
@@ -132,11 +110,11 @@ class CodeReconService:
 
             kit = self._kit_class(Path(resolved))
             try:
-                await asyncio.to_thread(kit.ensure_indexed)
+                await loop.run_in_executor(self._executor, kit.ensure_indexed)
             except Exception:
                 log.warning("coderecon_review.index_failed", repo=resolved, exc_info=True)
                 try:
-                    await asyncio.to_thread(kit.close)
+                    await loop.run_in_executor(self._executor, kit.close)
                 except Exception:
                     pass
                 raise
@@ -150,9 +128,13 @@ class CodeReconService:
         kit = self._kits.get(repo)
         if kit is None:
             return
+        loop = asyncio.get_running_loop()
         try:
+            wt_name = Path(worktree_path).name
             wt = str(Path(worktree_path).resolve())
-            await asyncio.to_thread(kit.register_worktree, "worktree", Path(wt))
+            await loop.run_in_executor(
+                self._executor, kit.register_worktree, wt_name, Path(wt)
+            )
             log.info("coderecon_review.worktree_registered", repo=repo, worktree=wt)
         except Exception:
             log.debug("coderecon_review.worktree_register_failed", repo=repo, exc_info=True)
@@ -167,65 +149,69 @@ class CodeReconService:
         target: str | None = None,
         worktree: str | None = None,
         **_kwargs: Any,
-    ) -> DiffResult:
-        """Structural diff between two git states."""
+    ) -> SemanticDiffResult:
+        """Structural diff between two git states.
+
+        Returns a SemanticDiffResult with typed StructuralChange objects.
+        """
         kit = self._get_kit(repo)
-        try:
-            kwargs: dict[str, Any] = {"base": base}
-            if target is not None:
-                kwargs["target"] = target
-            raw = await asyncio.to_thread(kit.semantic_diff, **kwargs)
-            return DiffResult(
-                summary=getattr(raw, "summary", ""),
-                structural_changes=getattr(raw, "changes", []) or [],
-            )
-        except Exception:
-            log.debug("coderecon_review.semantic_diff_failed", repo=repo, exc_info=True)
-            return DiffResult()
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {"base": base}
+        if target is not None:
+            kwargs["target"] = target
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.semantic_diff(**kwargs)
+        )
 
     async def graph_cycles(
-        self, repo: str, *, worktree: str | None = None,
+        self,
+        repo: str,
+        *,
+        worktree: str | None = None,
     ) -> CyclesResult:
         """Circular dependency detection."""
         kit = self._get_kit(repo)
-        try:
-            raw = await asyncio.to_thread(kit.graph_cycles)
-            return CyclesResult(
-                cycles=getattr(raw, "cycles", []) or [],
-            )
-        except Exception:
-            log.debug("coderecon_review.graph_cycles_failed", repo=repo, exc_info=True)
-            return CyclesResult()
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {}
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.graph_cycles(**kwargs)
+        )
 
     async def graph_communities(
-        self, repo: str, *, worktree: str | None = None,
+        self,
+        repo: str,
+        *,
+        worktree: str | None = None,
     ) -> CommunitiesResult:
         """Module community detection."""
         kit = self._get_kit(repo)
-        try:
-            raw = await asyncio.to_thread(kit.graph_communities)
-            return CommunitiesResult(
-                communities=getattr(raw, "communities", []) or [],
-            )
-        except Exception:
-            log.debug("coderecon_review.graph_communities_failed", repo=repo, exc_info=True)
-            return CommunitiesResult()
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {}
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.graph_communities(**kwargs)
+        )
 
     async def check_structural_health(
-        self, repo: str, *, worktree: str | None = None,
-    ) -> HealthResult:
-        """Composite structural health score."""
+        self,
+        repo: str,
+        *,
+        worktree: str | None = None,
+    ) -> StructuralHealthResult:
+        """Composite structural health assessment."""
         kit = self._get_kit(repo)
-        try:
-            raw = await asyncio.to_thread(kit.check_structural_health)
-            return HealthResult(
-                score=getattr(raw, "score", 0.0),
-                cycle_count=getattr(raw, "cycle_count", 0),
-                community_count=getattr(raw, "community_count", 0),
-            )
-        except Exception:
-            log.debug("coderecon_review.health_check_failed", repo=repo, exc_info=True)
-            return HealthResult()
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {}
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.check_structural_health(**kwargs)
+        )
 
     # ── Step-Boundary Structural Feedback ──
 
@@ -248,16 +234,13 @@ class CodeReconService:
         try:
             worktree_cycles = await self.graph_cycles(repo, worktree=worktree)
             base_cycles = await self.graph_cycles(repo)
-            base_keys = {frozenset(sorted(c.get("members", []))) for c in base_cycles.cycles}
-            new_cycles = [
-                c for c in worktree_cycles.cycles
-                if frozenset(sorted(c.get("members", []))) not in base_keys
-            ]
+            base_keys = {c.nodes for c in base_cycles.cycles}
+            new_cycles = [c for c in worktree_cycles.cycles if c.nodes not in base_keys]
             if new_cycles:
                 warnings.append({
                     "type": "new_cycles",
                     "detail": f"{len(new_cycles)} new dependency cycle(s) introduced",
-                    "data": {"cycles": new_cycles},
+                    "data": {"cycles": [sorted(c.nodes) for c in new_cycles]},
                 })
         except Exception:
             pass  # non-critical
@@ -265,15 +248,13 @@ class CodeReconService:
         # Check community drift — if worktree touches 3+ unrelated communities
         try:
             diff = await self.semantic_diff(repo, worktree=worktree)
-            touched_files = {c.get("file", "") for c in diff.structural_changes}
+            touched_files = {c.path for c in diff.structural_changes}
             if len(touched_files) >= 3:
                 communities = await self.graph_communities(repo, worktree=worktree)
-                file_communities: set[str] = set()
+                file_communities: set[int] = set()
                 for comm in communities.communities:
-                    comm_name = comm.get("name", "")
-                    members = set(comm.get("members", []))
-                    if touched_files & members:
-                        file_communities.add(comm_name)
+                    if touched_files & set(comm.members):
+                        file_communities.add(comm.community_id)
                 if len(file_communities) >= 3:
                     warnings.append({
                         "type": "community_drift",
@@ -318,14 +299,24 @@ class CodeReconService:
 
     def _get_kit(self, repo: str) -> Any:
         """Return the ReviewKit for a repo or raise."""
+        if not self._available:
+            raise CodeReconUnavailableError
         kit = self._kits.get(repo)
         if kit is None:
-            raise CodeReconUnavailableError
+            raise RepoNotIndexedError(repo)
         return kit
 
 
 class CodeReconUnavailableError(Exception):
-    """Raised when coderecon-review is not available."""
+    """Raised when the coderecon-review package is not installed/available."""
 
     def __init__(self) -> None:
         super().__init__("coderecon-review is not available")
+
+
+class RepoNotIndexedError(Exception):
+    """Raised when a repo has not been indexed yet."""
+
+    def __init__(self, repo: str) -> None:
+        super().__init__(f"Repository not indexed: {repo}")
+        self.repo = repo

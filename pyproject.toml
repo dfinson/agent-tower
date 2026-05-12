@@ -37,7 +37,7 @@ dependencies = [
     "pyjwt[crypto]>=2.12.0,<3",
     "cryptography>=46.0,<47",
     # Structural analysis (lightweight review-only subset)
-    "coderecon",
+    "coderecon-review @ git+https://github.com/dfinson/coderecon.git#subdirectory=packages/coderecon-review",
 ]
 
 [project.optional-dependencies]
@@ -58,6 +58,9 @@ cpl = "backend.main:cli"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build]
 artifacts = ["backend/web/**"]

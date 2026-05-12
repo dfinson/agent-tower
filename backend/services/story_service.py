@@ -1104,13 +1104,15 @@ class StoryService:
 
         lines = ["## STRUCTURAL ANALYSIS (semantic diff)"]
         for ch in changes:
-            kind = ch.get("kind", "unknown")
-            symbol = ch.get("symbol")
-            file = ch.get("file", "")
-            summary = ch.get("summary", "")
-            ref_count = ch.get("ref_count", 0)
-            ref_tiers = ch.get("ref_tiers", {})
-            sig_changed = ch.get("signature_changed", False)
+            kind = ch.change
+            symbol = ch.qualified_name or ch.name
+            file = ch.path
+            preview = ch.change_preview or ""
+            impact = ch.impact
+            ref_count = impact.reference_count if impact and impact.reference_count else 0
+            sig_changed = (
+                ch.old_sig is not None and ch.new_sig is not None and ch.old_sig != ch.new_sig
+            )
 
             # Determine category inline (mirrors endpoint logic)
             if kind == "removed":
@@ -1127,12 +1129,12 @@ class StoryService:
                 entry += f" :: {symbol}"
             if ref_count > 0:
                 entry += f" ({ref_count} callers"
-                unknown = ref_tiers.get("UNKNOWN", 0)
+                unknown = impact.ref_tiers.unknown if impact and impact.ref_tiers else 0
                 if unknown:
                     entry += f", {unknown} UNVERIFIED"
                 entry += ")"
-            if summary:
-                entry += f" — {summary}"
+            if preview:
+                entry += f" — {preview}"
             lines.append(entry)
         return "\n".join(lines)
 

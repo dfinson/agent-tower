@@ -897,7 +897,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
                 # Did any structural changes touch test files?
                 changes_touch_tests = any(
-                    c.get("file", "").startswith("test") or "/test" in c.get("file", "")
+                    c.path.startswith("test") or "/test" in c.path
                     for c in diff_result.structural_changes
                 )
 
@@ -913,12 +913,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 coupling_delta: float | None = None
                 try:
                     communities = await coderecon_service.graph_communities(repo_name, worktree=worktree_path)
-                    touched: set[str] = set()
+                    touched: set[int] = set()
                     for c in diff_result.structural_changes:
-                        file_path = c.get("file", "")
                         for comm in communities.communities:
-                            if file_path in comm.get("members", []):
-                                touched.add(comm.get("name", ""))
+                            if c.path in comm.members:
+                                touched.add(comm.community_id)
                     # Coupling delta = communities touched / total communities (0-1 scale)
                     total = len(communities.communities) if communities.communities else 1
                     coupling_delta = len(touched) / total

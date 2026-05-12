@@ -629,10 +629,9 @@ async def get_job_structural_diff(
         worktree_cycles = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
         if worktree_cycles.cycles:
             base_cycles = await coderecon.graph_cycles(repo_name)
-            base_keys = {frozenset(sorted(c.get("members", []))) for c in base_cycles.cycles}
+            base_keys = {c.nodes for c in base_cycles.cycles}
             for c in worktree_cycles.cycles:
-                key = frozenset(sorted(c.get("members", [])))
-                if key not in base_keys:
+                if c.nodes not in base_keys:
                     has_new_cycles = True
                     break
     except Exception:
@@ -655,15 +654,6 @@ async def get_job_structural_diff(
 
 # -- Structural diff helpers --------------------------------------------------
 
-# Ref tier mapping: daemon internal names → user-facing labels (§2.2)
-_TIER_LABEL = {
-    "PROVEN": "verified",
-    "STRONG": "inferred",
-    "ANCHORED": "inferred",
-    "SEMANTIC": "inferred",
-    "UNKNOWN": "unverified",
-}
-
 # Category severity for risk scoring (§9.4)
 _CATEGORY_SEVERITY = {
     "breaking": 1.0,
@@ -673,15 +663,16 @@ _CATEGORY_SEVERITY = {
 }
 
 
-def _classify_category(c: dict) -> str:
+def _classify_category(c: Any) -> str:
     """Classify a structural change into review categories (§9.2)."""
-    kind = c.get("kind", "")
+    kind = c.change  # StructuralChange.change: added/removed/modified/moved
     # Breaking: signature change or removal with callers
+    ref_count = c.impact.reference_count if c.impact and c.impact.reference_count else 0
     if kind == "removed":
-        return "breaking" if c.get("ref_count", 0) > 0 else "non-structural"
+        return "breaking" if ref_count > 0 else "non-structural"
     if kind == "modified":
-        # If signature changed (breaking), else body change
-        if c.get("signature_changed", False):
+        # If signature changed (old_sig != new_sig), it's breaking
+        if c.old_sig is not None and c.new_sig is not None and c.old_sig != c.new_sig:
             return "breaking"
         return "body"
     if kind == "added":
@@ -691,12 +682,23 @@ def _classify_category(c: dict) -> str:
     return "non-structural"
 
 
-def _translate_ref_tiers(raw_tiers: dict) -> dict[str, int]:
-    """Collapse daemon ref tiers into user-facing labels (§2.2)."""
+def _translate_ref_tiers(raw_tiers: Any) -> dict[str, int]:
+    """Collapse RefTierBreakdown into user-facing labels (§2.2).
+
+    RefTierBreakdown has: proven, strong, anchored, unknown (all int).
+    """
     result: dict[str, int] = {}
-    for tier, count in raw_tiers.items():
-        label = _TIER_LABEL.get(tier, "unverified")
-        result[label] = result.get(label, 0) + count
+    # Map coderecon tier fields to user-facing labels
+    proven = getattr(raw_tiers, "proven", 0) or 0
+    strong = getattr(raw_tiers, "strong", 0) or 0
+    anchored = getattr(raw_tiers, "anchored", 0) or 0
+    unknown = getattr(raw_tiers, "unknown", 0) or 0
+    if proven:
+        result["verified"] = proven
+    if strong or anchored:
+        result["inferred"] = strong + anchored
+    if unknown:
+        result["unverified"] = unknown
     return result
 
 
@@ -713,17 +715,23 @@ def _compute_risk(category: str, ref_tiers: dict[str, int], test_files: list) ->
     return round(risk, 2)
 
 
-def _build_structural_changes(raw_changes: list[dict]) -> list[StructuralChange]:
-    """Transform raw daemon data into enriched StructuralChange models."""
+def _build_structural_changes(raw_changes: list[Any]) -> list[StructuralChange]:
+    """Transform coderecon StructuralChange objects into API StructuralChange models."""
     changes = []
     for c in raw_changes:
         category = _classify_category(c)
-        raw_tiers = c.get("ref_tiers", {})
-        ref_tiers = _translate_ref_tiers(raw_tiers)
-        test_files = c.get("test_files", [])
-        ref_count = c.get("ref_count", 0)
 
-        # If daemon reports callers but no tier breakdown, treat gap as unverified
+        # Extract ref tiers from impact info
+        impact = c.impact
+        ref_count = impact.reference_count if impact and impact.reference_count else 0
+        test_files = impact.affected_test_files if impact and impact.affected_test_files else []
+
+        if impact and impact.ref_tiers:
+            ref_tiers = _translate_ref_tiers(impact.ref_tiers)
+        else:
+            ref_tiers = {}
+
+        # If reports callers but no tier breakdown, treat gap as unverified
         classified = sum(ref_tiers.values())
         if ref_count > classified:
             ref_tiers["unverified"] = ref_tiers.get("unverified", 0) + (ref_count - classified)
@@ -731,16 +739,16 @@ def _build_structural_changes(raw_changes: list[dict]) -> list[StructuralChange]
         risk = _compute_risk(category, ref_tiers, test_files)
 
         changes.append(StructuralChange(
-            kind=c.get("kind", "modified"),
-            symbol=c.get("symbol"),
-            file=c.get("file", ""),
-            summary=c.get("summary"),
+            kind=c.change,
+            symbol=c.qualified_name or c.name,
+            file=c.path,
+            summary=c.change_preview,
             category=category,
             ref_count=ref_count,
             ref_tiers=ref_tiers,
             test_files=test_files,
             risk=risk,
-            line_range=c.get("line_range"),
+            line_range=[c.start_line, c.end_line] if c.start_line else None,
         ))
     return changes
 
@@ -892,12 +900,10 @@ async def get_job_multi_session(
         if len(files_written) >= 3:
             try:
                 communities = await coderecon.graph_communities(repo_name, worktree=job.worktree_path)
-                file_communities: set[str] = set()
+                file_communities: set[int] = set()
                 for comm in communities.communities:
-                    comm_name = comm.get("name", "")
-                    members = set(comm.get("members", []))
-                    if files_written & members:
-                        file_communities.add(comm_name)
+                    if files_written & set(comm.members):
+                        file_communities.add(comm.community_id)
                 if len(file_communities) >= 3:
                     warnings.append({
                         "type": "messy_session",
@@ -996,8 +1002,8 @@ async def get_job_communities(
     # Map files to communities
     file_to_community: dict[str, str] = {}
     for comm in communities.communities:
-        comm_name = comm.get("name", "")
-        for member in comm.get("members", []):
+        comm_name = str(comm.community_id)
+        for member in comm.members:
             file_to_community[member] = comm_name
 
     # Group changes by community
@@ -1089,17 +1095,16 @@ async def _generate_review_story(
 
     # Check for cycles
     has_new_cycles = False
-    new_cycles: list[dict[str, Any]] = []
+    new_cycles: list[list[str]] = []
     try:
         worktree_cycles = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
         if worktree_cycles.cycles:
             base_cycles = await coderecon.graph_cycles(repo_name)
-            base_keys = {frozenset(sorted(c.get("members", []))) for c in base_cycles.cycles}
+            base_keys = {c.nodes for c in base_cycles.cycles}
             for c in worktree_cycles.cycles:
-                key = frozenset(sorted(c.get("members", [])))
-                if key not in base_keys:
+                if c.nodes not in base_keys:
                     has_new_cycles = True
-                    new_cycles.append(c)
+                    new_cycles.append(sorted(c.nodes))
     except Exception:
         pass
 
@@ -1108,8 +1113,8 @@ async def _generate_review_story(
     try:
         communities = await coderecon.graph_communities(repo_name, worktree=job.worktree_path)
         for comm in communities.communities:
-            comm_name = comm.get("name", "")
-            for member in comm.get("members", []):
+            comm_name = str(comm.community_id)
+            for member in comm.members:
                 file_to_community[member] = comm_name
     except Exception:
         pass

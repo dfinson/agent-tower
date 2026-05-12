@@ -68,27 +68,96 @@ def _make_job(job_id: str = "job-1", **overrides: Any) -> Job:
 
 
 @dataclass
+class FakeImpact:
+    reference_count: int | None = None
+    ref_tiers: Any = None
+    reference_basis: str = ""
+    referencing_files: list[str] | None = None
+    importing_files: list[str] | None = None
+    import_count: int | None = None
+    affected_test_files: list[str] | None = None
+    confidence: str = "high"
+    visibility: str | None = None
+    is_static: bool | None = None
+
+
+@dataclass
+class FakeRefTiers:
+    proven: int = 0
+    strong: int = 0
+    anchored: int = 0
+    unknown: int = 0
+
+
+@dataclass
+class FakeStructuralChange:
+    """Mirrors coderecon.index.diff.models.StructuralChange for testing."""
+
+    path: str = ""
+    kind: str = ""
+    name: str = ""
+    qualified_name: str | None = None
+    change: str = "modified"
+    structural_severity: str = ""
+    behavior_change_risk: str = ""
+    old_sig: str | None = None
+    new_sig: str | None = None
+    impact: FakeImpact | None = None
+    risk_basis: str | None = None
+    classification_confidence: str = ""
+    entity_id: str | None = None
+    previous_entity_id: str | None = None
+    old_name: str | None = None
+    start_line: int = 0
+    start_col: int = 0
+    end_line: int = 0
+    end_col: int = 0
+    lines_changed: int | None = None
+    nested_changes: list[Any] | None = None
+    delta_tags: list[str] = field(default_factory=list)
+    change_preview: str | None = None
+
+
+@dataclass
+class FakeCycleCluster:
+    nodes: frozenset[str] = field(default_factory=frozenset)
+    size: int = 0
+
+
+@dataclass
+class FakeCommunity:
+    community_id: int = 0
+    members: list[str] = field(default_factory=list)
+    size: int = 0
+    representative: str | None = None
+
+
+@dataclass
 class FakeDiffResult:
     summary: str = "Modified 3 symbols"
-    structural_changes: list[dict[str, Any]] = field(default_factory=list)
+    structural_changes: list[FakeStructuralChange] = field(default_factory=list)
+    non_structural_changes: list[Any] = field(default_factory=list)
+    breaking_summary: str | None = None
+    files_analyzed: int = 0
+    base_description: str = ""
+    target_description: str = ""
+    scope: Any = None
 
 
 @dataclass
 class FakeCyclesResult:
-    cycles: list[dict[str, Any]] = field(default_factory=list)
+    cycles: list[FakeCycleCluster] = field(default_factory=list)
+    level: str = "file"
+    node_count: int = 0
+    edge_count: int = 0
 
 
 @dataclass
 class FakeCommunitiesResult:
-    communities: list[dict[str, Any]] = field(default_factory=list)
-
-
-@dataclass
-class FakeImpactResult:
-    references: list[dict[str, Any]] = field(default_factory=list)
-    total_references: int = 0
-    files_affected: int = 0
-    summary: str = ""
+    communities: list[FakeCommunity] = field(default_factory=list)
+    level: str = "file"
+    node_count: int = 0
+    edge_count: int = 0
 
 
 def _make_coderecon(*, available: bool = True) -> SimpleNamespace:
@@ -112,40 +181,47 @@ def _make_svc(job: Job | None = None) -> SimpleNamespace:
 
 class TestClassifyCategory:
     def test_removed_with_callers_is_breaking(self) -> None:
-        assert _classify_category({"kind": "removed", "ref_count": 3}) == "breaking"
+        c = FakeStructuralChange(change="removed", impact=FakeImpact(reference_count=3))
+        assert _classify_category(c) == "breaking"
 
     def test_removed_no_callers_is_non_structural(self) -> None:
-        assert _classify_category({"kind": "removed", "ref_count": 0}) == "non-structural"
+        c = FakeStructuralChange(change="removed", impact=FakeImpact(reference_count=0))
+        assert _classify_category(c) == "non-structural"
 
     def test_modified_signature_change_is_breaking(self) -> None:
-        assert _classify_category({"kind": "modified", "signature_changed": True}) == "breaking"
+        c = FakeStructuralChange(change="modified", old_sig="def f(a)", new_sig="def f(a, b)")
+        assert _classify_category(c) == "breaking"
 
     def test_modified_body_only(self) -> None:
-        assert _classify_category({"kind": "modified", "signature_changed": False}) == "body"
+        c = FakeStructuralChange(change="modified", old_sig="def f(a)", new_sig="def f(a)")
+        assert _classify_category(c) == "body"
 
     def test_added_is_additive(self) -> None:
-        assert _classify_category({"kind": "added"}) == "additive"
+        c = FakeStructuralChange(change="added")
+        assert _classify_category(c) == "additive"
 
     def test_moved_is_body(self) -> None:
-        assert _classify_category({"kind": "moved"}) == "body"
+        c = FakeStructuralChange(change="moved")
+        assert _classify_category(c) == "body"
 
     def test_unknown_kind_is_non_structural(self) -> None:
-        assert _classify_category({"kind": "unknown"}) == "non-structural"
+        c = FakeStructuralChange(change="unknown")
+        assert _classify_category(c) == "non-structural"
 
 
 class TestTranslateRefTiers:
     def test_proven_maps_to_verified(self) -> None:
-        assert _translate_ref_tiers({"PROVEN": 5}) == {"verified": 5}
+        assert _translate_ref_tiers(FakeRefTiers(proven=5)) == {"verified": 5}
 
-    def test_strong_and_semantic_map_to_inferred(self) -> None:
-        result = _translate_ref_tiers({"STRONG": 2, "SEMANTIC": 3})
+    def test_strong_and_anchored_map_to_inferred(self) -> None:
+        result = _translate_ref_tiers(FakeRefTiers(strong=2, anchored=3))
         assert result == {"inferred": 5}
 
     def test_unknown_maps_to_unverified(self) -> None:
-        assert _translate_ref_tiers({"UNKNOWN": 4}) == {"unverified": 4}
+        assert _translate_ref_tiers(FakeRefTiers(unknown=4)) == {"unverified": 4}
 
     def test_mixed_tiers(self) -> None:
-        result = _translate_ref_tiers({"PROVEN": 1, "UNKNOWN": 2, "ANCHORED": 3})
+        result = _translate_ref_tiers(FakeRefTiers(proven=1, unknown=2, anchored=3))
         assert result == {"verified": 1, "unverified": 2, "inferred": 3}
 
 
@@ -207,17 +283,22 @@ class TestComputeMergeConfidence:
 class TestBuildStructuralChanges:
     def test_enriches_raw_changes(self) -> None:
         raw = [
-            {
-                "kind": "modified",
-                "symbol": "foo",
-                "file": "src/foo.py",
-                "summary": "Changed signature",
-                "signature_changed": True,
-                "ref_count": 5,
-                "ref_tiers": {"PROVEN": 3, "UNKNOWN": 2},
-                "test_files": ["tests/test_foo.py"],
-                "line_range": [10, 20],
-            }
+            FakeStructuralChange(
+                change="modified",
+                name="foo",
+                qualified_name="foo",
+                path="src/foo.py",
+                change_preview="Changed signature",
+                old_sig="def foo(a)",
+                new_sig="def foo(a, b)",
+                impact=FakeImpact(
+                    reference_count=5,
+                    ref_tiers=FakeRefTiers(proven=3, unknown=2),
+                    affected_test_files=["tests/test_foo.py"],
+                ),
+                start_line=10,
+                end_line=20,
+            )
         ]
         result = _build_structural_changes(raw)
         assert len(result) == 1
@@ -229,7 +310,12 @@ class TestBuildStructuralChanges:
         assert ch.risk > 0
 
     def test_unclassified_refs_treated_as_unverified(self) -> None:
-        raw = [{"kind": "removed", "file": "x.py", "ref_count": 10, "ref_tiers": {"PROVEN": 3}}]
+        raw = [FakeStructuralChange(
+            change="removed",
+            name="x",
+            path="x.py",
+            impact=FakeImpact(reference_count=10, ref_tiers=FakeRefTiers(proven=3)),
+        )]
         result = _build_structural_changes(raw)
         assert result[0].ref_tiers["unverified"] == 7
 
@@ -285,9 +371,10 @@ async def test_structural_diff_success() -> None:
     coderecon.semantic_diff.return_value = FakeDiffResult(
         summary="3 changes",
         structural_changes=[
-            {"kind": "added", "symbol": "new_fn", "file": "src/new.py", "ref_count": 0},
-            {"kind": "modified", "symbol": "old_fn", "file": "src/old.py", "ref_count": 2,
-             "ref_tiers": {"PROVEN": 2}, "signature_changed": False},
+            FakeStructuralChange(change="added", name="new_fn", path="src/new.py"),
+            FakeStructuralChange(change="modified", name="old_fn", path="src/old.py",
+                                 old_sig="def old_fn()", new_sig="def old_fn()",
+                                 impact=FakeImpact(reference_count=2, ref_tiers=FakeRefTiers(proven=2))),
         ],
     )
     result = await get_job_structural_diff("job-1", svc, coderecon, step_repo)
@@ -306,10 +393,10 @@ async def test_structural_diff_with_new_cycles_lowers_confidence() -> None:
     coderecon = _make_coderecon()
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
     coderecon.semantic_diff.return_value = FakeDiffResult(
-        structural_changes=[{"kind": "added", "symbol": "x", "file": "a.py"}],
+        structural_changes=[FakeStructuralChange(change="added", name="x", path="a.py")],
     )
     coderecon.graph_cycles.side_effect = [
-        FakeCyclesResult(cycles=[{"members": ["a.py", "b.py"]}]),  # worktree
+        FakeCyclesResult(cycles=[FakeCycleCluster(nodes=frozenset(["a.py", "b.py"]), size=2)]),  # worktree
         FakeCyclesResult(cycles=[]),  # base (no cycles)
     ]
     result = await get_job_structural_diff("job-1", svc, coderecon, step_repo)
@@ -336,23 +423,23 @@ async def test_communities_success() -> None:
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
     coderecon.semantic_diff.return_value = FakeDiffResult(
         structural_changes=[
-            {"kind": "modified", "symbol": "fn_a", "file": "src/auth/login.py", "ref_count": 0},
-            {"kind": "added", "symbol": "fn_b", "file": "src/auth/signup.py", "ref_count": 0},
-            {"kind": "modified", "symbol": "fn_c", "file": "src/db/query.py", "ref_count": 0},
+            FakeStructuralChange(change="modified", name="fn_a", path="src/auth/login.py"),
+            FakeStructuralChange(change="added", name="fn_b", path="src/auth/signup.py"),
+            FakeStructuralChange(change="modified", name="fn_c", path="src/db/query.py"),
         ],
     )
     coderecon.graph_communities.return_value = FakeCommunitiesResult(
         communities=[
-            {"name": "auth", "members": ["src/auth/login.py", "src/auth/signup.py"]},
-            {"name": "database", "members": ["src/db/query.py", "src/db/models.py"]},
+            FakeCommunity(community_id=0, members=["src/auth/login.py", "src/auth/signup.py"], size=2, representative="auth"),
+            FakeCommunity(community_id=1, members=["src/db/query.py", "src/db/models.py"], size=2, representative="database"),
         ]
     )
     result = await get_job_communities("job-1", svc, coderecon, step_repo)
     assert isinstance(result, CommunitiesResponse)
     assert len(result.communities) == 2
     names = {c.name for c in result.communities}
-    assert "auth" in names
-    assert "database" in names
+    assert "0" in names
+    assert "1" in names
     assert result.unclustered == []
 
 
@@ -365,11 +452,11 @@ async def test_communities_unclustered() -> None:
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
     coderecon.semantic_diff.return_value = FakeDiffResult(
         structural_changes=[
-            {"kind": "added", "symbol": "orphan", "file": "misc/util.py", "ref_count": 0},
+            FakeStructuralChange(change="added", name="orphan", path="misc/util.py"),
         ],
     )
     coderecon.graph_communities.return_value = FakeCommunitiesResult(
-        communities=[{"name": "core", "members": ["src/core.py"]}]
+        communities=[FakeCommunity(community_id=0, members=["src/core.py"], size=1, representative="core")]
     )
     result = await get_job_communities("job-1", svc, coderecon, step_repo)
     assert len(result.communities) == 0
@@ -397,9 +484,10 @@ async def test_review_story_success() -> None:
     coderecon = _make_coderecon()
     coderecon.semantic_diff.return_value = FakeDiffResult(
         structural_changes=[
-            {"kind": "modified", "symbol": "auth_check", "file": "src/auth.py",
-             "signature_changed": True, "ref_count": 5, "ref_tiers": {"UNKNOWN": 5}},
-            {"kind": "added", "symbol": "new_helper", "file": "src/util.py", "ref_count": 0},
+            FakeStructuralChange(change="modified", name="auth_check", path="src/auth.py",
+                                 old_sig="def auth_check()", new_sig="def auth_check(token)",
+                                 impact=FakeImpact(reference_count=5, ref_tiers=FakeRefTiers(unknown=5))),
+            FakeStructuralChange(change="added", name="new_helper", path="src/util.py"),
         ],
     )
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
@@ -436,7 +524,7 @@ async def test_multi_session_partitions_by_event_boundaries() -> None:
     svc = _make_svc(job)
     coderecon = _make_coderecon()
     coderecon.semantic_diff.return_value = FakeDiffResult(
-        structural_changes=[{"kind": "added", "symbol": "x", "file": "a.py"}],
+        structural_changes=[FakeStructuralChange(change="added", name="x", path="a.py")],
     )
 
     # Two steps: one before boundary, one after
@@ -484,10 +572,10 @@ async def test_multi_session_direction_change_detection() -> None:
         diff_call_count += 1
         if diff_call_count == 1:
             return FakeDiffResult(structural_changes=[
-                {"kind": "added", "symbol": "new_fn", "file": "a.py", "ref_count": 0},
+                FakeStructuralChange(change="added", name="new_fn", path="a.py"),
             ])
         return FakeDiffResult(structural_changes=[
-            {"kind": "modified", "symbol": "new_fn", "file": "a.py", "ref_count": 0},
+            FakeStructuralChange(change="modified", name="new_fn", path="a.py"),
         ])
 
     coderecon.semantic_diff = AsyncMock(side_effect=_mock_diff)
