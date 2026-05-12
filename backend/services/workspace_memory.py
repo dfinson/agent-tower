@@ -98,6 +98,11 @@ def append_to_inbox(repo_path: str, job_id: str, entries: str) -> None:
     entries = entries.strip()
     if not entries:
         return
+    # Validate job_id is safe for use as a filename (UUIDs always are,
+    # but guard against any future caller passing crafted values).
+    if "/" in job_id or "\\" in job_id or ".." in job_id:
+        log.warning("workspace_memory.invalid_job_id", job_id=job_id)
+        return
     d = _ensure_dir(repo_path)
     inbox_dir = d / "inbox"
     target = inbox_dir / f"{job_id}.md"
