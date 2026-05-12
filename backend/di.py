@@ -37,6 +37,7 @@ from backend.services.job_service import JobService
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
 from backend.services.platform_adapter import PlatformRegistry
+from backend.services.memory_compacter import MemoryCompacter
 from backend.services.push_service import PushService
 from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
@@ -81,6 +82,7 @@ class AppProvider(Provider):
     terminal_service = from_context(provides=TerminalService)
     coderecon_service = from_context(provides=CodeReconService)
     narrator_completer = from_context(provides=NarratorCompleter)
+    memory_compacter = from_context(provides=MemoryCompacter)
     ingest_service = from_context(provides=IngestService)
     claude_session_watcher = from_context(provides=ClaudeSessionStateWatcher)
 

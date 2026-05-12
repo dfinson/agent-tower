@@ -35,6 +35,7 @@ from backend.api import (
     job_artifacts,
     job_telemetry,
     jobs,
+    memory,
     notifications,
     policy_settings,
     preview,
@@ -217,6 +218,8 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(trail.router, prefix="/api")
     # Action policy settings
     app.include_router(policy_settings.router, prefix="/api")
+    # Workspace memory
+    app.include_router(memory.router, prefix="/api")
 
 
 def _register_domain_exception_handlers(app: FastAPI) -> None:

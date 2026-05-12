@@ -37,6 +37,7 @@ from backend.services.push_service import PushService
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
+from backend.services.memory_compacter import MemoryCompacter
 from backend.services.narrator_completer import NarratorCompleter
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
@@ -198,6 +199,7 @@ class _CoreServices:
     merge_service: MergeService
     sister_sessions: SisterSessionManager
     narrator_completer: NarratorCompleter
+    memory_compacter: MemoryCompacter
     runtime_service: RuntimeService
     git_service: GitService
     diff_service: DiffService
@@ -369,6 +371,17 @@ async def _wire_core_services(
     log.debug("sister_sessions_starting", model=config.runtime.utility_model, sdk=config.runtime.default_sdk)
     await sister_sessions.start()
 
+    # --- Memory compacter (dedicated workspace memory summarization) ---
+    memory_compacter = MemoryCompacter(adapter=utility_adapter)
+
+    # --- Memory curator (pre-job memory selection) ---
+    from backend.services.memory_curator import MemoryCurator
+    memory_curator = MemoryCurator(adapter=utility_adapter)
+
+    # --- Memory extractor (post-job knowledge extraction) ---
+    from backend.services.memory_extractor import MemoryExtractor
+    memory_extractor = MemoryExtractor(adapter=utility_adapter)
+
     # --- Narrator completer (dedicated long-form story generation) ---
     narrator_completer = NarratorCompleter(
         adapter=utility_adapter,
@@ -402,6 +415,11 @@ async def _wire_core_services(
         coderecon_service=coderecon_service,
     )
 
+    # Wire the memory sessions
+    runtime_service.set_memory_compacter(memory_compacter)
+    runtime_service.set_memory_curator(memory_curator)
+    runtime_service.set_memory_extractor(memory_extractor)
+
     # Recover orphaned jobs from a previous crash (background — don't block startup)
     asyncio.create_task(
         runtime_service.recover_on_startup(),
@@ -415,6 +433,7 @@ async def _wire_core_services(
         merge_service=merge_service,
         sister_sessions=sister_sessions,
         narrator_completer=narrator_completer,
+        memory_compacter=memory_compacter,
         runtime_service=runtime_service,
         git_service=git_service,
         diff_service=diff_service,
@@ -1027,6 +1046,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             PlatformRegistry: services.platform_registry,
             SisterSessionManager: services.sister_sessions,
             NarratorCompleter: services.narrator_completer,
+            MemoryCompacter: services.memory_compacter,
             VoiceService: optional.voice_service,
             CachedModelsBySdk: CachedModelsBySdk(optional.cached_models_by_sdk),
             VoiceMaxBytes: VoiceMaxBytes(optional.voice_max_bytes),

@@ -610,6 +610,8 @@ class SessionConfig:
     resume_sdk_session_id: str | None = None
     # CodeRecon native tool kit (§8) — built by RuntimeService at job start
     coderecon_tools: Any | None = None
+    # Workspace memory — curated context injected via system_message (hidden from transcript)
+    memory_context: str | None = None
 
 
 @dataclass

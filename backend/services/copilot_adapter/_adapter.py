@@ -650,6 +650,10 @@ class CopilotAdapter(BaseAgentAdapter):
         if config.coderecon_tools is not None and config.coderecon_tools.system_prompt:
             base_prompt = base_prompt + "\n\n" + config.coderecon_tools.system_prompt
 
+        # Workspace memory — curated context hidden from transcript
+        if config.memory_context:
+            base_prompt = base_prompt + "\n\n## Workspace Memory\n\n" + config.memory_context
+
         # Common session kwargs shared by create and resume
         system_message: SystemMessageAppendConfig = {
             "mode": "append",

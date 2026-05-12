@@ -661,6 +661,10 @@ class ClaudeAdapter(BaseAgentAdapter):
         if config.coderecon_tools is not None and config.coderecon_tools.system_prompt:
             system_prompt = system_prompt + "\n\n" + config.coderecon_tools.system_prompt
 
+        # Workspace memory — curated context hidden from transcript
+        if config.memory_context:
+            system_prompt = system_prompt + "\n\n## Workspace Memory\n\n" + config.memory_context
+
         # Build options
         options = ClaudeCodeOptions(
             cwd=config.workspace_path,

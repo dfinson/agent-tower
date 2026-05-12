@@ -68,6 +68,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.services.coderecon_service import CodeReconService
+    from backend.services.memory_compacter import MemoryCompacter
+    from backend.services.memory_curator import MemoryCurator
+    from backend.services.memory_extractor import MemoryExtractor
     from backend.services.step_tracker import StepTracker
     from backend.services.terminal_service import TerminalService
     from backend.services.trail import TrailService
@@ -233,6 +236,9 @@ class RuntimeService:
         self._shutting_down = False
         self._snapshot_tasks: dict[str, asyncio.Task[None]] = {}
         self._pending_starts: dict[str, tuple[str | None, str | None]] = {}
+        self._memory_compacter: MemoryCompacter | None = None
+        self._memory_curator: MemoryCurator | None = None
+        self._memory_extractor: MemoryExtractor | None = None
 
         # Subscribe to policy settings changes for mid-job reload
         self._event_bus.subscribe(self._on_policy_settings_changed)
@@ -265,6 +271,18 @@ class RuntimeService:
         """Wire the TerminalService for agent observer terminals."""
         self._terminal_service = svc
         svc.set_observer_interrupt_callback(self._handle_observer_interrupt)
+
+    def set_memory_compacter(self, compacter: MemoryCompacter) -> None:
+        """Wire the MemoryCompacter for workspace memory compaction."""
+        self._memory_compacter = compacter
+
+    def set_memory_curator(self, curator: MemoryCurator) -> None:
+        """Wire the MemoryCurator for pre-job memory selection."""
+        self._memory_curator = curator
+
+    def set_memory_extractor(self, extractor: MemoryExtractor) -> None:
+        """Wire the MemoryExtractor for post-job knowledge extraction."""
+        self._memory_extractor = extractor
 
     async def _handle_observer_interrupt(self, job_id: str) -> bool:
         """Callback from TerminalService when Ctrl+C is received on an observer terminal."""
@@ -427,6 +445,9 @@ class RuntimeService:
                 session_config = dataclass_replace(session_config, prompt=override_prompt)
             if resume_sdk_session_id is not None:
                 session_config = dataclass_replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
+
+            # Workspace memory — curate relevant entries via sister session
+            session_config = await self._curate_workspace_memory(job, session_config)
 
             task = asyncio.create_task(
                 self._run_job_guarded(job.id, agent_session, session_config, session_number=job.session_count),
@@ -652,6 +673,12 @@ class RuntimeService:
                 self._trail_service.stop_tracking(job_id)
                 succeeded = final_state in (JobState.completed, JobState.review)
                 await self._trail_service.finalize(job_id, succeeded=succeeded)
+            # Extract workspace memory before cleanup closes the sister session
+            if final_state in (JobState.completed, JobState.review) and job is not None:
+                try:
+                    await self._extract_workspace_memory(job_id, job.repo)
+                except Exception:
+                    log.debug("workspace_memory.post_job_failed", job_id=job_id, exc_info=True)
             await self._cleanup_job_state(job_id)
 
     async def _init_telemetry_row(self, job_id: str, config: SessionConfig) -> None:
@@ -1590,6 +1617,33 @@ class RuntimeService:
 
         return bool(resolved)
 
+    async def trust_job_policy(self, job_id: str) -> bool:
+        """Create a blanket trust grant for a job so all future actions auto-approve.
+
+        Also resolves any currently pending batch for the job.
+        Returns True if the trust grant was created (router exists for this job).
+        """
+        from backend.services.action_policy.batcher import BatchResolution
+
+        router = self._policy_routers.get(job_id)
+        if router is None:
+            return False
+
+        # Create a blanket trust grant scoped to this job
+        await router._trust.create(
+            kinds={"shell", "write", "sdk", "mcp"},
+            job_id=job_id,
+            reason="operator trusted session",
+        )
+
+        # Also resolve any pending batch so the currently-blocked action proceeds
+        batcher = self._policy_batchers.get(job_id)
+        if batcher:
+            for batch in batcher.get_pending_batches(job_id):
+                batcher.resolve_batch(batch.id, BatchResolution.approved)
+
+        return True
+
     async def _resume_orphaned(self, job_id: str, message: str) -> bool:
         """Auto-resume a job that has no live agent session."""
         return await _resume_orphaned_impl(self, job_id, message)
@@ -1947,6 +2001,93 @@ class RuntimeService:
         snapshot_tasks = list(self._snapshot_tasks.values())
         if snapshot_tasks:
             await asyncio.gather(*snapshot_tasks, return_exceptions=True)
+
+    # -- Workspace memory ----------------------------------------------------
+
+    async def _curate_workspace_memory(
+        self,
+        job: Job,
+        session_config: SessionConfig,
+    ) -> SessionConfig:
+        """Load workspace memory and curate it for this job.
+
+        Returns *session_config* with ``memory_context`` populated (or unchanged
+        if no memory exists or curation fails).
+        """
+        from backend.services.workspace_memory import load_workspace_memory
+
+        raw_memory = load_workspace_memory(job.repo)
+        if not raw_memory:
+            return session_config
+
+        if self._memory_curator is None:
+            log.debug("workspace_memory.no_curator", job_id=job.id)
+            return session_config
+
+        try:
+            curated = await self._memory_curator.curate(
+                task=session_config.prompt,
+                memory=raw_memory,
+            )
+            if curated and curated.strip():
+                log.info(
+                    "workspace_memory.curated",
+                    job_id=job.id,
+                    raw_len=len(raw_memory),
+                    curated_len=len(curated),
+                )
+                return dataclass_replace(session_config, memory_context=curated.strip())
+            log.debug("workspace_memory.nothing_relevant", job_id=job.id)
+        except Exception:
+            log.warning("workspace_memory.curation_failed", job_id=job.id, exc_info=True)
+
+        return session_config
+
+    async def _extract_workspace_memory(
+        self,
+        job_id: str,
+        repo_path: str,
+    ) -> None:
+        """Post-job: extract memory entries from trail and write to inbox."""
+        if self._shutting_down:
+            return
+
+        from backend.services.workspace_memory import (
+            append_to_inbox,
+            merge_inbox,
+        )
+
+        if self._memory_extractor is None or self._trail_service is None:
+            return
+        if self._memory_compacter is None:
+            return
+
+        try:
+            summary = await self._trail_service.get_summary(job_id)
+        except Exception:
+            log.debug("workspace_memory.trail_summary_failed", job_id=job_id, exc_info=True)
+            return
+
+        decisions = summary.get("key_decisions", [])
+        if not decisions:
+            return
+
+        decisions_text = "\n".join(
+            f"- {d['decision']}" + (f" (reason: {d['rationale']})" if d.get("rationale") else "")
+            for d in decisions
+        )
+
+        try:
+            extracted = await self._memory_extractor.extract(decisions_text)
+        except Exception:
+            log.warning("workspace_memory.extraction_failed", job_id=job_id, exc_info=True)
+            return
+
+        if not extracted:
+            return
+
+        append_to_inbox(repo_path, job_id, extracted)
+        await merge_inbox(repo_path, self._memory_compacter)
 
     @property
     def is_shutting_down(self) -> bool:
