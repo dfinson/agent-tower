@@ -37,6 +37,7 @@ from backend.services.push_service import PushService
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
+from backend.services.narrator_completer import NarratorCompleter
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.step_persistence import StepPersistenceSubscriber
@@ -123,16 +124,23 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
         req = urllib.request.Request(f"{tunnel_url}/api/health", method="HEAD")
         req.add_header("User-Agent", "cpl-preflight/1.0")
         resp = opener.open(req, timeout=10)  # noqa: S310
+        log.info("cf_access_probe_response", status=resp.status, headers=dict(resp.headers))
         if resp.headers.get("CF-Access-Domain"):
             log.info("cloudflare_access_verified", url=tunnel_url)
             return
     except urllib.error.HTTPError as exc:
         location = exc.headers.get("Location", "")
+        log.info(
+            "cf_access_probe_httperror",
+            status=exc.code,
+            location=location,
+            headers=dict(exc.headers) if exc.headers else {},
+        )
         if "cloudflareaccess.com" in location or exc.headers.get("CF-Access-Domain"):
             log.info("cloudflare_access_verified", url=tunnel_url)
             return
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("cf_access_probe_exception", error=str(exc), type=type(exc).__name__)
 
     # No Access gate detected — refuse to serve unprotected
     log.critical(
@@ -189,6 +197,7 @@ class _CoreServices:
     platform_registry: PlatformRegistry
     merge_service: MergeService
     sister_sessions: SisterSessionManager
+    narrator_completer: NarratorCompleter
     runtime_service: RuntimeService
     git_service: GitService
     diff_service: DiffService
@@ -360,6 +369,12 @@ async def _wire_core_services(
     log.debug("sister_sessions_starting", model=config.runtime.utility_model, sdk=config.runtime.default_sdk)
     await sister_sessions.start()
 
+    # --- Narrator completer (dedicated long-form story generation) ---
+    narrator_completer = NarratorCompleter(
+        adapter=utility_adapter,
+        model=config.runtime.utility_model,
+    )
+
     summarization_service = SummarizationService(
         session_factory=session_factory,
         adapter=sister_sessions,
@@ -399,6 +414,7 @@ async def _wire_core_services(
         platform_registry=platform_registry,
         merge_service=merge_service,
         sister_sessions=sister_sessions,
+        narrator_completer=narrator_completer,
         runtime_service=runtime_service,
         git_service=git_service,
         diff_service=diff_service,
@@ -1017,6 +1033,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             MergeService: services.merge_service,
             PlatformRegistry: services.platform_registry,
             SisterSessionManager: services.sister_sessions,
+            NarratorCompleter: services.narrator_completer,
             VoiceService: optional.voice_service,
             CachedModelsBySdk: CachedModelsBySdk(optional.cached_models_by_sdk),
             VoiceMaxBytes: VoiceMaxBytes(optional.voice_max_bytes),

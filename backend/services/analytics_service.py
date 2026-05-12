@@ -306,6 +306,28 @@ class AnalyticsService:
         scorecard["compaction_cost_usd"] = compaction_tokens * avg_input_rate
         scorecard["compaction_tokens"] = compaction_tokens
 
+        # Average cost per MTok + top model mix
+        model_rows = await ta_repo.cost_by_model(period_days=period_days)
+        grand_total_tokens = sum(r.get("total_tokens", 0) for r in model_rows)
+        grand_total_cost = sum(r.get("total_cost_usd", 0) for r in model_rows)
+        scorecard["avg_cost_per_mtok"] = (
+            grand_total_cost / (grand_total_tokens / 1_000_000)
+            if grand_total_tokens > 0 else 0.0
+        )
+        scorecard["model_cost_mix"] = [
+            {
+                "model": r.get("model", ""),
+                "cost_per_mtok": r.get("cost_per_mtok", 0),
+                "total_tokens": r.get("total_tokens", 0),
+                "total_cost_usd": r.get("total_cost_usd", 0),
+                "pct_of_tokens": (
+                    r.get("total_tokens", 0) / grand_total_tokens * 100
+                    if grand_total_tokens > 0 else 0.0
+                ),
+            }
+            for r in model_rows[:3]
+        ]
+
         return scorecard
 
     async def total_diff_lines(self, *, period_days: int) -> int:

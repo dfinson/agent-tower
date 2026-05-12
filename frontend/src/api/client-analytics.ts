@@ -375,6 +375,14 @@ export interface ScorecardActivity {
   cancelled: number;
 }
 
+export interface ModelCostMixEntry {
+  model: string;
+  costPerMtok: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  pctOfTokens: number;
+}
+
 export interface ScorecardResponse {
   period: number;
   activity: ScorecardActivity;
@@ -382,6 +390,9 @@ export interface ScorecardResponse {
   quotaJson: string | null;
   costTrend: { date: string; cost: number; jobs: number }[];
   dailySpendLimitUsd: number;
+  // Average cost per MTok + model mix
+  avgCostPerMtok: number;
+  modelCostMix: ModelCostMixEntry[];
   // Monthly budget (Item 5)
   monthlyBudgetUsd: number;
   monthSpendUsd: number;

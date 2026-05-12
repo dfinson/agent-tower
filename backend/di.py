@@ -40,6 +40,7 @@ from backend.services.platform_adapter import PlatformRegistry
 from backend.services.push_service import PushService
 from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
+from backend.services.narrator_completer import NarratorCompleter
 from backend.services.sister_session import SisterSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.step_diff_service import StepDiffService
@@ -79,6 +80,7 @@ class AppProvider(Provider):
     trail_service = from_context(provides=TrailService)
     terminal_service = from_context(provides=TerminalService)
     coderecon_service = from_context(provides=CodeReconService)
+    narrator_completer = from_context(provides=NarratorCompleter)
     ingest_service = from_context(provides=IngestService)
     claude_session_watcher = from_context(provides=ClaudeSessionStateWatcher)
 
@@ -92,9 +94,9 @@ class AppProvider(Provider):
 
     @provide
     def story_service(
-        self, sister_sessions: SisterSessionManager, coderecon: CodeReconService,
+        self, narrator: NarratorCompleter, coderecon: CodeReconService,
     ) -> StoryService:
-        return StoryService(completer=sister_sessions, coderecon=coderecon)
+        return StoryService(completer=narrator, coderecon=coderecon)
 
     @provide
     def step_repo(self, sf: async_sessionmaker[AsyncSession]) -> StepRepository:

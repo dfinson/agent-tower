@@ -45,6 +45,7 @@ import {
   FleetLatencyDriverInsights,
   YieldCard,
   CacheEfficiencyChart,
+  ModelCostCard,
 } from "./AnalyticsWidgets";
 import { RecentJobsPreview } from "./analytics/RecentJobsPreview";
 import { HierarchicalBreakdown } from "./analytics/HierarchicalBreakdown";
@@ -296,12 +297,13 @@ export function AnalyticsScreen() {
 
 
 
-      {/* Top row: Budget + Activity */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Top row: Budget + Activity + Model Cost */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {scorecardLoading ? <SectionSkeleton height="h-48" /> : scorecardError ? (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">{scorecardError}</div>
         ) : scorecard ? <BudgetCard scorecard={scorecard} /> : null}
         {scorecardLoading ? <SectionSkeleton height="h-48" /> : scorecard ? <ActivityCard scorecard={scorecard} /> : null}
+        {scorecardLoading ? <SectionSkeleton height="h-48" /> : scorecard ? <ModelCostCard scorecard={scorecard} /> : null}
       </div>
 
       {/* Yield / ROI + Cache Efficiency */}

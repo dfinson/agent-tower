@@ -16,4 +16,5 @@ export { LatencyBreakdown } from "./analytics/LatencyBreakdown";
 export { JobsTable, SortHeader } from "./analytics/JobsTable";
 export { YieldCard } from "./analytics/YieldCard";
 export { CacheEfficiencyChart } from "./analytics/CacheEfficiencyChart";
+export { ModelCostCard } from "./analytics/ModelCostCard";
 

@@ -9,14 +9,14 @@
  * - Pattern groups for repeated structural patterns
  * - Collapsed single-paragraph mode for small jobs
  */
-import { useState } from "react";
-import { useEffect } from "react";
-import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, ChevronDown, ChevronRight, BookOpen, Lightbulb, RotateCcw, GitBranch, CheckCircle2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { AlertTriangle, ShieldAlert, ShieldCheck, Shield, CheckCircle, XCircle, ChevronDown, ChevronRight, BookOpen, Lightbulb, RotateCcw, GitBranch, CheckCircle2, RefreshCw } from "lucide-react";
 import { fetchReviewStory, fetchJobStory, type ReviewStoryResponse, type EdgeCaseBlock, type PatternGroup } from "../../api/client";
 import { useStore } from "../../store";
 import { selectReviewStory, selectJobStory } from "../../store/selectors";
 import type { StoryResponse, StoryBlock } from "../../api/types";
 import { Spinner } from "../ui/spinner";
+import { cn } from "../../lib/utils";
 
 interface StorySubViewProps {
   jobId: string;
@@ -188,6 +188,8 @@ function BeatBlock({ kind, text }: { kind: string; text: string }) {
   );
 }
 
+type Verbosity = "summary" | "standard" | "detailed";
+
 /** Trail-based story fallback when CodeRecon is unavailable. */
 function TrailStoryFallback({ jobId }: { jobId: string }) {
   const cachedStory = useStore(selectJobStory(jobId));
@@ -196,6 +198,29 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
   const [story, setStoryLocal] = useState<StoryResponse | null>(cachedStory);
   const [loading, setLoading] = useState(cachedStory == null);
   const [error, setError] = useState<string | null>(null);
+  const [verbosity, setVerbosity] = useState<Verbosity>("standard");
+  const [regenerating, setRegenerating] = useState(false);
+
+  const load = useCallback(
+    async (regen = false, verb?: Verbosity) => {
+      const v = verb ?? verbosity;
+      try {
+        if (regen) setRegenerating(true);
+        else setLoading(true);
+        setError(null);
+        const res = await fetchJobStory(jobId, regen, v);
+        setStoryLocal(res);
+        setStory(jobId, res);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to load story";
+        setError(msg);
+      } finally {
+        setLoading(false);
+        setRegenerating(false);
+      }
+    },
+    [jobId, verbosity, setStory],
+  );
 
   useEffect(() => {
     if (cachedStory) {
@@ -203,23 +228,16 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
       setLoading(false);
       return;
     }
+    load();
+  }, [jobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    fetchJobStory(jobId)
-      .then((res) => {
-        if (!cancelled) {
-          setStoryLocal(res);
-          setStory(jobId, res);
-        }
-      })
-      .catch((err) => { if (!cancelled) setError(err?.message ?? "Failed to load story"); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
-    return () => { cancelled = true; };
-  }, [jobId, cachedStory, setStory]);
+  const handleVerbosityChange = useCallback(
+    (v: Verbosity) => {
+      setVerbosity(v);
+      load(false, v);
+    },
+    [load],
+  );
 
   if (loading) {
     return (
@@ -248,7 +266,7 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
 
   return (
     <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="max-w-prose mx-auto w-full rounded-lg border border-border bg-card p-4">
         <div className="flex items-center gap-2 mb-2">
           <BookOpen size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold">Code Review Story</h3>
@@ -278,6 +296,35 @@ function TrailStoryFallback({ jobId }: { jobId: string }) {
             }
             return null;
           })}
+        </div>
+        <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/30">
+          {/* Verbosity toggle */}
+          <div className="flex items-center gap-0.5 bg-muted/30 rounded p-0.5">
+            {(["summary", "standard", "detailed"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => handleVerbosityChange(v)}
+                className={cn(
+                  "px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors",
+                  verbosity === v
+                    ? "bg-primary/20 text-primary"
+                    : "text-muted-foreground/50 hover:text-muted-foreground",
+                )}
+              >
+                {v === "summary" ? "Brief" : v === "standard" ? "Standard" : "Detailed"}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={regenerating}
+            onClick={() => load(true)}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            <RefreshCw size={10} className={cn(regenerating && "animate-spin")} />
+            {regenerating ? "Regenerating…" : "Regenerate"}
+          </button>
         </div>
       </div>
     </div>
@@ -346,6 +393,7 @@ export function StorySubView({ jobId }: StorySubViewProps) {
   if (data.collapsed && data.verdict) {
     return (
       <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
+        <div className="max-w-prose mx-auto w-full flex flex-col gap-4">
         {data.header && (
           <div className="rounded-lg border border-border bg-card p-4">
             <div className="flex items-center justify-between mb-2">
@@ -368,12 +416,14 @@ export function StorySubView({ jobId }: StorySubViewProps) {
         </div>
         {/* Show edge cases even in collapsed mode */}
         <EdgeCaseSection blocks={data.edgeCases ?? []} />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-5 p-4 h-full overflow-y-auto">
+      <div className="max-w-prose mx-auto w-full flex flex-col gap-5">
       {/* Header card */}
       {data.header && (
         <div className="rounded-lg border border-border bg-card p-4">
@@ -456,6 +506,7 @@ export function StorySubView({ jobId }: StorySubViewProps) {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

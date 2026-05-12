@@ -104,10 +104,21 @@ class CostTrendEntry(CamelModel):
     jobs: int = 0
 
 
+class ModelCostMixEntry(CamelModel):
+    model: str
+    cost_per_mtok: float = 0.0
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
+    pct_of_tokens: float = 0.0
+
+
 class ScorecardResponse(CamelModel):
     period: int = 0
     activity: ScorecardActivity
     budget: list[ScorecardBudget] = []
+    # Average cost per million tokens + top model mix
+    avg_cost_per_mtok: float = 0.0
+    model_cost_mix: list[ModelCostMixEntry] = []
     quota_json: str | None = None
     cost_trend: list[CostTrendEntry] = []
     daily_spend_limit_usd: float = 0.0
