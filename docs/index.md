@@ -16,7 +16,7 @@ hide:
 
 **Keep using Claude Code or Copilot in your terminal. CodePlane watches, analyzes, and adds the layers they don't have.**
 
-CodePlane is a local server that either launches agent jobs for you (headless, fire-and-forget) or mirrors the native CLI sessions you're already running — same pipeline either way. You get a supervision dashboard, cost intelligence, structural code review, decision trails, and persistent workspace memory. The agents do the work; CodePlane makes the work reviewable.
+A local server that launches agent jobs headless or mirrors the native CLI sessions you already run. You get supervision, cost intelligence, structural review, decision trails, and workspace memory. The agents do the work; CodePlane makes it reviewable.
 
 <div class="hero-actions" markdown>
 [Quick Start](quick-start.md){ .md-button .md-button--primary }
@@ -62,44 +62,39 @@ Either way, you get the same intelligence: trail enrichment, cost attribution, s
 
 <div class="feature-card" markdown>
 ### :material-play-circle: Orchestration & Supervision
-Launch headless jobs, gate risky actions for approval, supervise from any browser (phone, tablet, desktop). Push notifications for approvals, completions, and failures.
+Launch headless jobs, gate risky actions for approval, supervise from any device. Push notifications for approvals and completions.
 </div>
 
 <div class="feature-card" markdown>
-### :material-graph: Semantic Trail
-Every agent decision is recorded and enriched — intent classification, backtrack detection, insight extraction. See not just what the agent did, but how it reasoned its way there.
+### :material-graph: Decision Trail
+What the agent did, why it did it, where it backtracked. Full reasoning history — not just a transcript.
 </div>
 
 <div class="feature-card" markdown>
-### :material-shield-check: Structural Code Review
-Tree-sitter diffs classify changes as breaking, body, additive, or non-structural. Community detection surfaces coupling risks. Merge confidence verdict (HIGH/MEDIUM/LOW) before you read a single line.
+### :material-shield-check: Structural Risk Scoring
+Breaking vs. additive changes, coupling risks, merge confidence verdict — before you read a single line of diff.
 </div>
 
 <div class="feature-card" markdown>
 ### :material-chart-line: Cost Intelligence
-Every turn classified by activity (implementation, debugging, investigation, overhead). Cross-job waste detection: file reread hotspots, retry waste, cost escalation, cache regression.
+Every turn classified by activity. Waste patterns surfaced across jobs — rework, rereads, cost escalation.
 </div>
 
 <div class="feature-card" markdown>
 ### :material-brain: Workspace Memory
-Persistent per-repo knowledge — decisions, wisdom, lessons — curated and injected into each new job by relevance. Job N+1 starts smarter than job N.
+Per-repo knowledge that carries forward. Each new job starts smarter than the last.
 </div>
 
 <div class="feature-card" markdown>
 ### :material-book-open-variant: Narrative Review
-Structured code-review stories with verified file references (never hallucinated) and LLM-generated prose. Answers "why was this change made?" at file and edit level.
+Answers "why was this change made?" with verified file references. No hallucinated summaries.
 </div>
 
 </div>
 
 ## Bring Your Own CLI
 
-CodePlane doesn't contain an AI model. It wraps the agent CLIs you already have installed and authenticated:
-
-- **Claude Code CLI** — sessions discovered via `~/.claude/projects/` JSONL files
-- **GitHub Copilot CLI** — sessions discovered via `~/.copilot/session-store.db`
-
-Install either CLI, authenticate it, and CodePlane handles the rest — whether you launch through the UI or just use your terminal.
+CodePlane doesn't contain an AI model. It wraps the agent CLIs you already have installed and authenticated — Claude Code and GitHub Copilot. Install, authenticate, and CodePlane handles the rest.
 
 ## Supported Agents
 

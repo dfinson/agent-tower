@@ -20,9 +20,9 @@
 
 > **Pre-alpha** — Under active development.
 
-CodePlane is an orchestration and observability layer for coding agents. It can launch agents headless for you, or it can mirror native CLI sessions you're already running in your terminal — same dashboard, same analytics, no workflow change required.
+CodePlane is an orchestration and observability layer for coding agents. It launches agents headless for you, or mirrors native CLI sessions you're already running — same dashboard either way.
 
-You bring your own CLI. CodePlane doesn't contain an AI model — it wraps the agent CLIs you already have installed (Claude Code, GitHub Copilot) and adds supervision, cost intelligence, structural review, and cross-job memory on top.
+You bring your own CLI. CodePlane wraps the agent CLIs you already have (Claude Code, Copilot) and adds supervision, cost intelligence, structural review, and cross-job memory on top.
 
 <p align="center"><img src="docs/images/screenshots/desktop/hero-dashboard.png" alt="CodePlane — dashboard with active jobs" width="800" /></p>
 
@@ -38,22 +38,19 @@ Keep using `claude` or `copilot` in your terminal exactly as you do now. CodePla
 
 ## What You Get
 
-**Orchestration & supervision** — the foundation:
+**Orchestration & supervision:**
 
-- Headless daemon — no IDE, no terminal babysitting. Start a task, walk away
-- Approval gates — risky actions pause for your review; one-tap approve from your phone
-- Remote access — Dev Tunnels or Cloudflare; supervise from mobile with push notifications
-- Diff review & merge — Monaco diffs, workspace browsing, merge/PR/discard controls
+- Start a task, walk away. Approve risky actions from your phone
+- Remote access via Dev Tunnels or Cloudflare — supervise from anywhere
+- Diff review with merge/PR/discard controls
 
-**Intelligence layer** — what makes it worth running:
+**Intelligence layer:**
 
-- **Semantic trail** — Records agent decisions, then enriches with intent classification, backtrack detection, and insight extraction
-- **Motivation provenance** — For every file write, captures *why* it was made — not from the diff, from the preceding reasoning
-- **Structural risk scoring** — Tree-sitter diffs classify changes as breaking/body/additive; community detection shows coupling risks
-- **Cost attribution** — Classifies every turn by activity (implementation, debugging, investigation, overhead) and surfaces waste patterns
-- **Workspace memory** — Persistent per-repo knowledge, curated and injected into each new job by relevance
-- **Narrative review** — Structured code-review stories with verified references (never hallucinated) and LLM-generated connective prose
-- **Cross-job analysis** — File reread hotspots, tool failure rates, cost escalation, cache efficiency regression
+- **Decision trail** — What the agent did, why it did it, where it backtracked
+- **Structural risk scoring** — Breaking vs. additive changes, coupling risks, merge confidence verdict
+- **Cost attribution** — Every turn classified by activity; waste patterns surfaced across jobs
+- **Workspace memory** — Per-repo knowledge that carries forward so each job starts smarter
+- **Narrative review** — Answers "why was this change made?" with verified references, not hallucinated summaries
 
 ## Quick Start
 
