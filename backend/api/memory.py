@@ -40,6 +40,11 @@ class MemoryDetailResponse(CamelModel):
     has_memory: bool
 
 
+# 512KB — generous limit for hand-edited text, prevents accidental or
+# malicious multi-MB payloads from hitting disk.
+_MAX_MEMORY_FIELD_BYTES = 512 * 1024
+
+
 class UpdateMemoryRequest(BaseModel):
     decisions: str | None = None
     wisdom: str | None = None
@@ -105,8 +110,12 @@ def update_memory(repo_path: str, body: UpdateMemoryRequest) -> MemoryResponse:
     """Update workspace memory (decisions and/or wisdom)."""
     resolved = _validate_repo(repo_path)
     if body.decisions is not None:
+        if len(body.decisions.encode("utf-8")) > _MAX_MEMORY_FIELD_BYTES:
+            raise HTTPException(status_code=413, detail="Decisions field exceeds size limit")
         write_decisions(resolved, body.decisions)
     if body.wisdom is not None:
+        if len(body.wisdom.encode("utf-8")) > _MAX_MEMORY_FIELD_BYTES:
+            raise HTTPException(status_code=413, detail="Wisdom field exceeds size limit")
         write_wisdom(resolved, body.wisdom)
     text = read_memory_text(resolved)
     return MemoryResponse(memory=text, has_memory=bool(text))

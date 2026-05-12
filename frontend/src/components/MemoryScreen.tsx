@@ -45,6 +45,14 @@ export function MemoryScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Warn before navigating away with unsaved changes
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
   const handleSave = async () => {
     setSaving(true);
     try {

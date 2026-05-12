@@ -367,16 +367,36 @@ def read_memory_detail(repo_path: str) -> dict[str, str]:
 
 
 def write_decisions(repo_path: str, content: str) -> None:
-    """Overwrite ``decisions.md`` with *content*."""
+    """Overwrite ``decisions.md`` with *content*.
+
+    Acquires the merge lock to prevent races with concurrent merge_inbox.
+    """
     d = _ensure_dir(repo_path)
-    (d / "decisions.md").write_text(content, encoding="utf-8")
+    lock_path = d / ".merge.lock"
+    lock_path.touch(exist_ok=True)
+    with lock_path.open("w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            (d / "decisions.md").write_text(content, encoding="utf-8")
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
     log.info("workspace_memory.decisions_written", repo=_repo_slug(repo_path))
 
 
 def write_wisdom(repo_path: str, content: str) -> None:
-    """Overwrite ``wisdom.md`` with *content*."""
+    """Overwrite ``wisdom.md`` with *content*.
+
+    Acquires the merge lock to prevent races with concurrent merge_inbox.
+    """
     d = _ensure_dir(repo_path)
-    (d / "wisdom.md").write_text(content, encoding="utf-8")
+    lock_path = d / ".merge.lock"
+    lock_path.touch(exist_ok=True)
+    with lock_path.open("w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            (d / "wisdom.md").write_text(content, encoding="utf-8")
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
     log.info("workspace_memory.wisdom_written", repo=_repo_slug(repo_path))
 
 
