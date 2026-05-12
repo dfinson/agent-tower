@@ -223,7 +223,7 @@ class CostAttributionRepository(BaseRepository):
                         THEN COALESCE(SUM(s.cache_read_tokens), 0) * 1.0 / SUM(s.input_tokens)
                         ELSE 0 END AS cache_hit_rate,
                     COUNT(DISTINCT s.job_id) AS job_count
-                FROM telemetry_spans s
+                FROM job_telemetry_spans s
                 JOIN jobs j ON j.id = s.job_id
                 WHERE s.span_type = 'llm'
                     AND j.created_at >= datetime('now', '-' || :days || ' days')

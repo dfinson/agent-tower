@@ -12,6 +12,7 @@ All files are plain markdown, human-editable.
 
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import hashlib
 from datetime import UTC, datetime
@@ -51,6 +52,11 @@ def _ensure_dir(repo_path: str) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     (d / "inbox").mkdir(exist_ok=True)
     return d
+
+
+def _normalize(text: str) -> str:
+    """Normalize whitespace for dedup comparison."""
+    return " ".join(text.split())
 
 
 # ---------------------------------------------------------------------------
@@ -98,66 +104,143 @@ def append_to_inbox(repo_path: str, job_id: str, entries: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Merge inbox → decisions (file-locked)
+# File locking helper
+# ---------------------------------------------------------------------------
+
+
+def _locked_merge(repo_path: str) -> tuple[int, int]:
+    """Synchronous file-locked merge of inbox → decisions.md.
+
+    Returns (files_merged, new_entries_count). Runs in a thread via to_thread.
+    """
+    d = _memory_dir(repo_path)
+    inbox = d / "inbox"
+    if not inbox.is_dir():
+        return 0, 0
+
+    inbox_files = sorted(inbox.glob("*.md"))
+    if not inbox_files:
+        return 0, 0
+
+    d.mkdir(parents=True, exist_ok=True)
+    decisions_path = d / "decisions.md"
+    lock_path = d / ".merge.lock"
+    lock_path.touch(exist_ok=True)
+
+    with lock_path.open("w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            # Read existing decisions for dedup
+            existing = ""
+            if decisions_path.is_file():
+                existing = decisions_path.read_text(encoding="utf-8")
+            existing_normalized = _normalize(existing)
+
+            # Collect new entries, deduplicating via normalized comparison
+            new_entries: list[str] = []
+            for f in inbox_files:
+                text = f.read_text(encoding="utf-8").strip()
+                if text and _normalize(text) not in existing_normalized:
+                    new_entries.append(text)
+
+            if new_entries:
+                combined = existing.rstrip() + "\n\n" + "\n\n".join(new_entries) + "\n"
+                decisions_path.write_text(combined.lstrip(), encoding="utf-8")
+
+            # Clean up inbox files regardless
+            for f in inbox_files:
+                f.unlink(missing_ok=True)
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+    return len(inbox_files), len(new_entries)
+
+
+def _locked_write_compaction(repo_path: str, original_content: str, summarized: str) -> bool:
+    """Synchronous file-locked CAS write for compaction.
+
+    Only writes if decisions.md still contains *original_content* (hasn't been
+    modified by a concurrent merge). Archives the original, writes the summary.
+
+    Returns True if write succeeded.
+    """
+    d = _memory_dir(repo_path)
+    decisions_path = d / "decisions.md"
+    lock_path = d / ".merge.lock"
+    lock_path.touch(exist_ok=True)
+
+    with lock_path.open("w") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            # CAS: verify content hasn't changed
+            if not decisions_path.is_file():
+                return False
+            current = decisions_path.read_text(encoding="utf-8").strip()
+            if current != original_content:
+                # Content changed during LLM call — abort
+                log.info("workspace_memory.compact_cas_failed", repo=_repo_slug(repo_path))
+                return False
+
+            # Write to archive (with LRU cap)
+            archive_path = d / "archive.md"
+            archive_existing = ""
+            if archive_path.is_file():
+                archive_existing = archive_path.read_text(encoding="utf-8")
+
+            archive_combined = archive_existing.rstrip() + "\n\n" + original_content + "\n"
+            archive_combined = archive_combined.lstrip()
+
+            # Cap archive: keep at most 5 compaction generations.
+            # Each generation is at most _ARCHIVE_THRESHOLD_BYTES (~20KB),
+            # so cap = 5 × 20KB = 100KB.
+            _cap_archive(archive_path, archive_combined, _MAX_ARCHIVE_BYTES)
+
+            # Replace decisions with the summarized version
+            decisions_path.write_text(summarized.strip() + "\n", encoding="utf-8")
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+    return True
+
+
+def _cap_archive(archive_path: Path, content: str, max_bytes: int) -> None:
+    """Write *content* to archive, trimming oldest paragraphs if over *max_bytes*."""
+    encoded = content.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        archive_path.write_text(content, encoding="utf-8")
+        return
+
+    # Drop paragraphs from the front (oldest) until under cap
+    paragraphs = content.split("\n\n")
+    while len("\n\n".join(paragraphs).encode("utf-8")) > max_bytes and len(paragraphs) > 1:
+        paragraphs.pop(0)
+
+    archive_path.write_text("\n\n".join(paragraphs) + "\n", encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Merge inbox → decisions (async, thread-offloaded locking)
 # ---------------------------------------------------------------------------
 
 
 async def merge_inbox(repo_path: str, compacter: MemoryCompacter) -> int:
     """Move inbox entries into ``decisions.md`` and delete inbox files.
 
-    Uses a file lock to prevent parallel jobs from corrupting decisions.md.
-    Deduplicates: skips inbox content already present in decisions.
+    File I/O with locking runs in a thread to avoid blocking the event loop.
+    After merge, triggers compaction if needed.
 
     Returns the number of inbox files merged.
     """
-    d = _memory_dir(repo_path)
-    inbox = d / "inbox"
-    if not inbox.is_dir():
+    merged_count, new_count = await asyncio.to_thread(_locked_merge, repo_path)
+
+    if merged_count == 0:
         return 0
 
-    inbox_files = sorted(inbox.glob("*.md"))
-    if not inbox_files:
-        return 0
-
-    d.mkdir(parents=True, exist_ok=True)
-    decisions_path = d / "decisions.md"
-    lock_path = d / ".merge.lock"
-
-    # Acquire exclusive lock
-    lock_path.touch(exist_ok=True)
-    lock_fd = lock_path.open("w")
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-
-        # Read existing decisions for dedup
-        existing = ""
-        if decisions_path.is_file():
-            existing = decisions_path.read_text(encoding="utf-8")
-
-        # Collect new entries, deduplicating
-        new_entries: list[str] = []
-        for f in inbox_files:
-            text = f.read_text(encoding="utf-8").strip()
-            if text and text not in existing:
-                new_entries.append(text)
-
-        if new_entries:
-            combined = existing.rstrip() + "\n\n" + "\n\n".join(new_entries) + "\n"
-            decisions_path.write_text(combined.lstrip(), encoding="utf-8")
-
-        # Clean up inbox files regardless
-        for f in inbox_files:
-            f.unlink(missing_ok=True)
-    finally:
-        fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        lock_fd.close()
-
-    merged_count = len(inbox_files)
     log.info(
         "workspace_memory.inbox_merged",
         repo=_repo_slug(repo_path),
         count=merged_count,
-        new_entries=len(new_entries) if new_entries else 0,
+        new_entries=new_count,
     )
 
     # Auto-compact after merge
@@ -167,19 +250,24 @@ async def merge_inbox(repo_path: str, compacter: MemoryCompacter) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Compact decisions → archive (LLM-summarized)
+# Compact decisions → archive (LLM-summarized, CAS write)
 # ---------------------------------------------------------------------------
 
 # 20 KB — derived from typical context-window budget for system prompts
 # (~4K tokens at ~5 bytes/token).
 _ARCHIVE_THRESHOLD_BYTES = 20 * 1024
 
+# Archive cap: 5 generations of compacted content (5 × 20KB).
+_MAX_ARCHIVE_BYTES = 5 * _ARCHIVE_THRESHOLD_BYTES
+
 
 async def compact_decisions(repo_path: str, compacter: MemoryCompacter) -> bool:
     """When ``decisions.md`` exceeds the threshold, use the LLM to summarize
     and move old content to ``archive.md``.
 
-    The compacter distills decisions down to the most valuable entries.
+    Uses a CAS pattern: reads content, calls LLM (no lock held), then
+    re-acquires lock and only writes if content hasn't changed.
+
     Returns ``True`` if compaction occurred.
     """
     d = _memory_dir(repo_path)
@@ -195,6 +283,7 @@ async def compact_decisions(repo_path: str, compacter: MemoryCompacter) -> bool:
     if not content:
         return False
 
+    # Call LLM without holding any lock
     try:
         summarized = await compacter.compact(content)
     except Exception:
@@ -204,25 +293,17 @@ async def compact_decisions(repo_path: str, compacter: MemoryCompacter) -> bool:
     if not summarized or not summarized.strip():
         return False
 
-    # Archive the original content
-    archive_path = d / "archive.md"
-    archive_existing = ""
-    if archive_path.is_file():
-        archive_existing = archive_path.read_text(encoding="utf-8")
+    # CAS write in a thread (re-acquires lock, verifies content unchanged)
+    written = await asyncio.to_thread(_locked_write_compaction, repo_path, content, summarized)
 
-    archive_combined = archive_existing.rstrip() + "\n\n" + content + "\n"
-    archive_path.write_text(archive_combined.lstrip(), encoding="utf-8")
-
-    # Replace decisions with the summarized version
-    decisions_path.write_text(summarized.strip() + "\n", encoding="utf-8")
-
-    log.info(
-        "workspace_memory.compacted",
-        repo=_repo_slug(repo_path),
-        original_bytes=size,
-        summarized_bytes=len(summarized.encode("utf-8")),
-    )
-    return True
+    if written:
+        log.info(
+            "workspace_memory.compacted",
+            repo=_repo_slug(repo_path),
+            original_bytes=size,
+            summarized_bytes=len(summarized.encode("utf-8")),
+        )
+    return written
 
 
 # ---------------------------------------------------------------------------

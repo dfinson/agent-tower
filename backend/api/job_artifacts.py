@@ -17,6 +17,7 @@ from backend.models.api_schemas import (
     DiffFileModel,
     DiffListResponse,
     ImpactGraphResponse,
+    ImpactReference,
     JobSnapshotResponse,
     LogLinePayload,
     LogListResponse,
@@ -937,24 +938,87 @@ async def get_job_multi_session(
 
 # -- Impact graph drill-down (§9.5) -------------------------------------------
 
+_IMPACT_TIER_MAP = {"proven": "verified", "strong": "verified", "anchored": "inferred", "unknown": "unverified"}
+
+
+def _map_impact_tier(raw: str) -> str:
+    return _IMPACT_TIER_MAP.get(raw, "unverified")
+
 
 @router.get("/jobs/{job_id}/impact-graph/{symbol}", response_model=ImpactGraphResponse)
 async def get_impact_graph(
     job_id: str,
     symbol: str,
     svc: FromDishka[JobService],
+    coderecon: FromDishka[CodeReconService],
     step_repo: FromDishka[StepRepository],
 ) -> ImpactGraphResponse:
     """Return reference/caller graph for a symbol in the job's worktree.
 
-    Not available with coderecon-review (requires full CodeRecon SDK).
-    Returns available=False so the frontend can hide the drill-down UI.
+    Uses ReviewKit.impact() when available; returns available=False otherwise.
     """
     job = await svc.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
+    if not coderecon.available or not job.repo:
+        return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
+
+    # Cache keyed on latest step SHA — invalidates when worktree advances.
+    sha = await _latest_end_sha(step_repo, job_id)
+    cache_key = f"impact:{symbol}"
+    cached = _cache_get(job_id, cache_key, sha)
+    if cached is not None:
+        return cached
+
+    try:
+        repo_name = await coderecon.ensure_repo_indexed(job.repo)
+        result = await coderecon.impact(repo_name, target=symbol)
+    except Exception:
+        return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
+
+    refs: list[ImpactReference] = []
+    for defn in getattr(result, "definition_sites", []):
+        refs.append(ImpactReference(
+            symbol=getattr(defn, "symbol", ""),
+            file=getattr(defn, "file", ""),
+            line=getattr(defn, "line", None),
+            tier="verified",
+            is_test="test" in getattr(defn, "file", "").lower(),
+            raw_tier="definition",
+        ))
+    for ref in getattr(result, "references", []):
+        refs.append(ImpactReference(
+            symbol=getattr(ref, "symbol", ""),
+            file=getattr(ref, "file", ""),
+            line=getattr(ref, "line", None),
+            tier=_map_impact_tier(getattr(ref, "tier", "unknown")),
+            is_test="test" in getattr(ref, "file", "").lower(),
+            raw_tier=getattr(ref, "tier", "unknown"),
+        ))
+    for imp in getattr(result, "import_sites", []):
+        refs.append(ImpactReference(
+            symbol=getattr(imp, "symbol", ""),
+            file=getattr(imp, "file", ""),
+            line=getattr(imp, "line", None),
+            tier="inferred",
+            is_test="test" in getattr(imp, "file", "").lower(),
+            raw_tier="import",
+        ))
+
+    files_affected = len({r.file for r in refs})
+
+    response = ImpactGraphResponse(
+        job_id=job_id,
+        target=symbol,
+        available=True,
+        total_references=len(refs),
+        files_affected=files_affected,
+        summary=f"{len(refs)} references across {files_affected} files",
+        references=refs,
+    )
+    _cache_put(job_id, cache_key, sha, response)
+    return response
 
 
 # -- Community clustering view (§9.7) -----------------------------------------

@@ -404,14 +404,121 @@ async def test_structural_diff_with_new_cycles_lowers_confidence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_impact_graph_always_unavailable() -> None:
-    """Impact graph always returns available=False with coderecon-review."""
+async def test_impact_graph_error_returns_unavailable() -> None:
+    """Impact graph returns available=False when impact() raises."""
     job = _make_job()
     svc = _make_svc(job)
+    coderecon = _make_coderecon()
+    coderecon.impact = AsyncMock(side_effect=Exception("unavailable"))
     step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
-    result = await get_impact_graph("job-1", "target_fn", svc, step_repo)
+    result = await get_impact_graph("job-1", "target_fn", svc, coderecon, step_repo)
     assert isinstance(result, ImpactGraphResponse)
     assert result.available is False
+
+
+@pytest.mark.asyncio
+async def test_impact_graph_not_available_when_coderecon_down() -> None:
+    """Returns available=False when coderecon service is unavailable."""
+    job = _make_job()
+    svc = _make_svc(job)
+    coderecon = _make_coderecon(available=False)
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+    result = await get_impact_graph("job-1", "target_fn", svc, coderecon, step_repo)
+    assert result.available is False
+
+
+@pytest.mark.asyncio
+async def test_impact_graph_job_not_found() -> None:
+    """Returns 404 when job doesn't exist."""
+    svc = _make_svc(None)
+    coderecon = _make_coderecon()
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+    with pytest.raises(Exception, match="Job not found"):
+        await get_impact_graph("nonexistent", "fn", svc, coderecon, step_repo)
+
+
+@pytest.mark.asyncio
+async def test_impact_graph_success() -> None:
+    """Maps all three ImpactResult categories into references."""
+    job = _make_job()
+    svc = _make_svc(job)
+    coderecon = _make_coderecon()
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+
+    fake_result = SimpleNamespace(
+        definition_sites=[
+            SimpleNamespace(symbol="login", file="src/auth.py", line=10),
+        ],
+        references=[
+            SimpleNamespace(symbol="call_login", file="src/main.py", line=42, tier="proven"),
+            SimpleNamespace(symbol="test_login", file="tests/test_auth.py", line=5, tier="strong"),
+        ],
+        import_sites=[
+            SimpleNamespace(symbol="login", file="src/routes.py", line=1),
+        ],
+        total_references=4,
+    )
+    coderecon.impact = AsyncMock(return_value=fake_result)
+
+    result = await get_impact_graph("job-1", "login", svc, coderecon, step_repo)
+    assert result.available is True
+    assert result.total_references == 4
+    assert result.files_affected == 4
+    assert len(result.references) == 4
+
+    # definition_sites → tier="verified", raw_tier="definition"
+    defn = result.references[0]
+    assert defn.symbol == "login"
+    assert defn.tier == "verified"
+    assert defn.raw_tier == "definition"
+
+    # references → tier mapped from SDK tier
+    ref1 = result.references[1]
+    assert ref1.tier == "verified"  # proven → verified
+    assert ref1.raw_tier == "proven"
+
+    ref2 = result.references[2]
+    assert ref2.tier == "verified"  # strong → verified
+    assert ref2.is_test is True
+
+    # import_sites → tier="inferred"
+    imp = result.references[3]
+    assert imp.tier == "inferred"
+    assert imp.raw_tier == "import"
+
+
+@pytest.mark.asyncio
+async def test_impact_graph_empty_result() -> None:
+    """Handles empty ImpactResult gracefully."""
+    job = _make_job()
+    svc = _make_svc(job)
+    coderecon = _make_coderecon()
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[]))
+    coderecon.impact = AsyncMock(return_value=SimpleNamespace(
+        definition_sites=[], references=[], import_sites=[], total_references=0,
+    ))
+    result = await get_impact_graph("job-1", "unknown_fn", svc, coderecon, step_repo)
+    assert result.available is True
+    assert result.total_references == 0
+    assert result.files_affected == 0
+    assert result.references == []
+
+
+@pytest.mark.asyncio
+async def test_impact_graph_cached() -> None:
+    """Second call for same symbol returns cached result without re-calling impact()."""
+    job = _make_job()
+    svc = _make_svc(job)
+    coderecon = _make_coderecon()
+    fake_step = SimpleNamespace(end_sha="abc123")
+    step_repo = SimpleNamespace(get_by_job=AsyncMock(return_value=[fake_step]))
+    coderecon.impact = AsyncMock(return_value=SimpleNamespace(
+        definition_sites=[], references=[], import_sites=[], total_references=0,
+    ))
+    r1 = await get_impact_graph("job-1", "fn", svc, coderecon, step_repo)
+    r2 = await get_impact_graph("job-1", "fn", svc, coderecon, step_repo)
+    assert r1 is r2
+    coderecon.impact.assert_awaited_once()
 
 
 @pytest.mark.asyncio

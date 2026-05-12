@@ -11,6 +11,8 @@ import pytest
 
 from backend.services.workspace_memory import (
     _repo_slug,
+    _normalize,
+    _cap_archive,
     append_to_inbox,
     compact_decisions,
     format_entry,
@@ -20,6 +22,7 @@ from backend.services.workspace_memory import (
     write_decisions,
     write_wisdom,
     _ARCHIVE_THRESHOLD_BYTES,
+    _MAX_ARCHIVE_BYTES,
 )
 
 
@@ -63,6 +66,16 @@ class TestRepoSlug:
         slug1 = _repo_slug("/home/user/repos/my-project")
         slug2 = _repo_slug("/home/user/repos/my-project")
         assert slug1 == slug2
+
+
+class TestNormalize:
+    def test_collapses_whitespace(self) -> None:
+        assert _normalize("  foo   bar\n\nbaz  ") == "foo bar baz"
+
+    def test_identical_content_matches(self) -> None:
+        a = "### 2026-05-12: Title\nBody text."
+        b = "### 2026-05-12: Title\n Body  text."
+        assert _normalize(a) == _normalize(b)
 
 
 class TestLoadWorkspaceMemory:
@@ -150,7 +163,7 @@ class TestInbox:
         assert "New" in decisions
 
     @pytest.mark.asyncio
-    async def test_merge_deduplicates(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
+    async def test_merge_deduplicates_exact(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
         slug = _repo_slug(repo_path)
         mem_dir = memory_root / ".codeplane" / "memory" / slug
         mem_dir.mkdir(parents=True)
@@ -164,6 +177,20 @@ class TestInbox:
         decisions = (mem_dir / "decisions.md").read_text()
         # Should only appear once
         assert decisions.count("Existing") == 1
+
+    @pytest.mark.asyncio
+    async def test_merge_deduplicates_whitespace_variants(self, repo_path: str, memory_root: Path, mock_compacter: AsyncMock) -> None:
+        slug = _repo_slug(repo_path)
+        mem_dir = memory_root / ".codeplane" / "memory" / slug
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "inbox").mkdir()
+        (mem_dir / "decisions.md").write_text("### 2026-05-10: Foo\nBar baz.\n")
+        # Same content with different whitespace
+        (mem_dir / "inbox" / "ws-job.md").write_text("### 2026-05-10: Foo\n Bar  baz.")
+
+        await merge_inbox(repo_path, mock_compacter)
+        decisions = (mem_dir / "decisions.md").read_text()
+        assert decisions.count("Foo") == 1
 
 
 class TestCompaction:
@@ -218,6 +245,50 @@ class TestCompaction:
 
         # Original content should be unchanged
         assert (mem_dir / "decisions.md").read_text() == content
+
+    @pytest.mark.asyncio
+    async def test_compaction_cas_fails_on_concurrent_modify(self, repo_path: str, memory_root: Path) -> None:
+        """If decisions.md changes during LLM call, compaction aborts."""
+        slug = _repo_slug(repo_path)
+        mem_dir = memory_root / ".codeplane" / "memory" / slug
+        mem_dir.mkdir(parents=True)
+
+        content = "x" * (_ARCHIVE_THRESHOLD_BYTES + 1000)
+        (mem_dir / "decisions.md").write_text(content)
+
+        async def modify_during_compact(text: str, **kwargs) -> str:
+            # Simulate concurrent modification
+            (mem_dir / "decisions.md").write_text("MODIFIED BY ANOTHER JOB")
+            return "### Summarized\nContent."
+
+        compacter = AsyncMock()
+        compacter.compact.side_effect = modify_during_compact
+
+        result = await compact_decisions(repo_path, compacter)
+        assert result is False
+
+        # The concurrent modification should remain
+        assert (mem_dir / "decisions.md").read_text() == "MODIFIED BY ANOTHER JOB"
+
+
+class TestArchiveCap:
+    def test_under_cap(self, tmp_path: Path) -> None:
+        archive = tmp_path / "archive.md"
+        _cap_archive(archive, "small content", 1024)
+        assert archive.read_text() == "small content"
+
+    def test_over_cap_trims_oldest(self, tmp_path: Path) -> None:
+        archive = tmp_path / "archive.md"
+        paragraphs = [f"Paragraph {i}: {'x' * 100}" for i in range(20)]
+        content = "\n\n".join(paragraphs)
+        # Cap at 500 bytes — should trim from front
+        _cap_archive(archive, content, 500)
+        result = archive.read_text()
+        assert len(result.encode("utf-8")) <= 500
+        # Last paragraph should survive
+        assert "Paragraph 19" in result
+        # First paragraph should be gone
+        assert "Paragraph 0" not in result
 
 
 class TestDirectReadWrite:

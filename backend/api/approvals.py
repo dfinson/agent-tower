@@ -66,9 +66,11 @@ async def resolve_approval(
 async def trust_job(
     job_id: str,
     approval_service: FromDishka[ApprovalService],
+    runtime_service: FromDishka[RuntimeService],
 ) -> TrustJobResponse:
     """Trust a job session — auto-approve all current and future permission requests."""
     count = await approval_service.trust_job(job_id)
+    await runtime_service.trust_job_policy(job_id)
     return TrustJobResponse(resolved=count)
 
 

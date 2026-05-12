@@ -20,8 +20,9 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from backend.models.domain import Job, JobSource, JobState
+from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.services.event_enricher import ToolEventEnricher
 from backend.services.watcher_telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
@@ -93,6 +94,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # Per-job context for event processor
         self._job_worktrees: dict[str, str] = {}  # job_id → worktree_path
         self._job_base_refs: dict[str, str] = {}  # job_id → base_ref
+        # Per-job tool event enricher (pairs start→complete with metadata)
+        self._enrichers: dict[str, ToolEventEnricher] = {}  # job_id → enricher
         # Instance-level background tasks (DB writes, coderecon indexing)
         self._bg_tasks: set[asyncio.Task] = set()
         # Per-job accumulated telemetry deltas (flushed atomically with offset)
@@ -558,36 +561,43 @@ class SessionStateWatcher(WatcherTelemetryMixin):
     # SDK event → telemetry + session queue
     # ------------------------------------------------------------------
 
+    def _get_enricher(self, job_id: str) -> ToolEventEnricher:
+        """Get or create the ToolEventEnricher for a job."""
+        enricher = self._enrichers.get(job_id)
+        if enricher is None:
+            enricher = ToolEventEnricher()
+            self._enrichers[job_id] = enricher
+        return enricher
+
     async def _process_sdk_event(
         self,
         sdk_event: Any,
         session_id: str,
         job_id: str,
     ) -> None:
-        """Process a single SDK SessionEvent through the telemetry + event pipeline.
+        """Process a single SDK event through the same pipeline as managed sessions.
 
-        Uses the shared ``sdk_event_mapping`` module for event mapping and
-        telemetry extraction — the canonical implementation for Copilot SDK events.
+        Uses the shared ToolEventEnricher for tool event enrichment (display
+        labels, visibility, duration, intent) so CLI sessions produce identical
+        transcript payloads to managed sessions.
         """
         from backend.services.sdk_event_mapping import (
             emit_copilot_otel,
             extract_copilot_telemetry,
-            map_sdk_event,
+            extract_result_text,
         )
 
         kind_str = sdk_event.type.value if sdk_event.type else ""
         data = sdk_event.data
 
-        # --- Telemetry extraction ---
+        # --- Telemetry extraction (unchanged) ---
         if data:
             counters = extract_copilot_telemetry(kind_str, data)
             if counters is not None:
                 emit_copilot_otel(kind_str, counters, job_id)
-                # Handle context_tokens (set, not accumulated)
                 ctx = counters.pop("_context_tokens", None)
                 if ctx is not None:
                     self._schedule_context_update(job_id, ctx)
-                # Strip internal keys before accumulation
                 db_counters = {k: v for k, v in counters.items() if not k.startswith("_")}
                 if db_counters:
                     self._accumulate_telemetry(job_id, db_counters)
@@ -595,8 +605,8 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 if model:
                     self._schedule_model_update(job_id, model)
 
-        # --- Map to SessionEvent for the EventProcessor ---
-        session_event = map_sdk_event(kind_str, data)
+        # --- Map to enriched SessionEvent (same logic as CopilotAdapter) ---
+        session_event = self._map_sdk_event_enriched(kind_str, data, job_id)
         if session_event is None:
             return
 
@@ -608,6 +618,115 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             worktree_path=worktree,
             base_ref=base_ref,
         )
+
+    def _map_sdk_event_enriched(
+        self, kind_str: str, data: Any, job_id: str,
+    ) -> SessionEvent | None:
+        """Map a Copilot SDK event to a fully enriched SessionEvent.
+
+        Mirrors CopilotAdapter._bridge_to_session_queue — produces identical
+        payloads including tool_display, tool_visibility, tool_intent, duration.
+        """
+        import json as _json
+
+        from backend.services.sdk_event_mapping import SDK_KIND_MAP, extract_result_text
+
+        kind = SDK_KIND_MAP.get(kind_str)
+        if kind is None:
+            return None
+
+        payload: dict[str, Any] = {}
+
+        if kind == SessionEventKind.transcript:
+            if kind_str == "assistant.message":
+                content = str(getattr(data, "content", "") or "")
+                if not content.strip():
+                    return None
+                payload = {"role": "agent", "content": content}
+            elif kind_str == "assistant.message_delta":
+                delta = str(getattr(data, "delta_content", "") or "")
+                if not delta:
+                    return None
+                payload = {"role": "agent_delta", "content": delta}
+            elif kind_str == "assistant.reasoning":
+                content = str(getattr(data, "content", "") or "")
+                payload = {"role": "reasoning", "content": content}
+            elif kind_str == "assistant.reasoning_delta":
+                delta = str(getattr(data, "delta_content", "") or "")
+                if not delta:
+                    return None
+                payload = {"role": "reasoning_delta", "content": delta}
+            elif kind_str == "user.message":
+                content = str(getattr(data, "content", "") or "")
+                if "<system_notification>" in content:
+                    return None
+                payload = {"role": "operator", "content": content}
+            elif kind_str == "tool.execution_start":
+                tool_name = getattr(data, "tool_name", None) or getattr(data, "mcp_tool_name", None) or "tool"
+                mcp_server = getattr(data, "mcp_server_name", None)
+                if mcp_server and getattr(data, "mcp_tool_name", None):
+                    tool_name = f"{mcp_server}/{data.mcp_tool_name}"
+                if tool_name == "report_intent":
+                    return None
+                # Serialize arguments
+                args_str: str | None = None
+                raw_args = getattr(data, "arguments", None)
+                if raw_args is not None:
+                    try:
+                        args_str = _json.dumps(raw_args) if not isinstance(raw_args, str) else raw_args
+                    except (TypeError, ValueError, OverflowError):
+                        args_str = str(raw_args)
+                # Extract intent/title from SDK data
+                tool_intent = getattr(data, "intention", None) or ""
+                tool_title = getattr(data, "tool_title", None) or ""
+                if not tool_intent and isinstance(raw_args, dict):
+                    tool_intent = str(raw_args.get("description", ""))
+                # Use tool_call_id for pairing start→complete
+                tool_id = getattr(data, "tool_call_id", "") or ""
+                enricher = self._get_enricher(job_id)
+                payload = enricher.on_tool_start(
+                    tool_id, tool_name, args_str, None,
+                    tool_intent=tool_intent or None,
+                    tool_title=tool_title or None,
+                )
+            elif kind_str == "tool.execution_partial_result":
+                chunk = str(getattr(data, "partial_output", "") or "")
+                if not chunk:
+                    return None
+                tool_id = getattr(data, "tool_call_id", "") or ""
+                enricher = self._get_enricher(job_id)
+                buffered = enricher.get_buffered(tool_id)
+                tool_name = buffered.get("tool_name", "tool")
+                from backend.services.tool_formatters import classify_tool_visibility
+                vis = classify_tool_visibility(tool_name, buffered.get("tool_args"))
+                if vis == "hidden":
+                    return None
+                payload = {
+                    "role": "tool_output_delta",
+                    "content": chunk,
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_id,
+                    "turn_id": buffered.get("turn_id"),
+                }
+            elif kind_str == "tool.execution_complete":
+                tool_name = str(getattr(data, "tool_name", None) or "tool")
+                if tool_name == "report_intent":
+                    return None
+                tool_id = getattr(data, "tool_call_id", "") or ""
+                success = bool(getattr(data, "success", True))
+                result_text = extract_result_text(getattr(data, "result", None))
+                enricher = self._get_enricher(job_id)
+                payload = enricher.on_tool_complete(
+                    tool_id, result_text, success,
+                    tool_name_fallback=tool_name,
+                )
+        elif kind == SessionEventKind.file_changed:
+            payload = {"file": str(getattr(data, "file_path", "") or "")}
+        else:
+            # done / error — pass through raw dict
+            payload = data.to_dict() if data and hasattr(data, "to_dict") else {}
+
+        return SessionEvent(kind=kind, payload=payload)
 
 
 
@@ -682,6 +801,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         self._job_worktrees.pop(job_id, None)
         self._job_base_refs.pop(job_id, None)
         self._pending_telemetry.pop(job_id, None)
+        enricher = self._enrichers.pop(job_id, None)
+        if enricher:
+            enricher.cleanup()
         # Find and remove session→job mapping
         sid_to_remove = None
         for sid, jid in self._session_to_job.items():

@@ -23,6 +23,7 @@ import structlog
 
 from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
+from backend.services.event_enricher import ToolEventEnricher
 from backend.services.watcher_telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
@@ -220,6 +221,8 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         # Per-job context for event processor
         self._job_worktrees: dict[str, str] = {}  # job_id → worktree_path
         self._job_base_refs: dict[str, str] = {}  # job_id → base_ref
+        # Per-job tool event enricher (pairs tool_use→tool_result with metadata)
+        self._enrichers: dict[str, ToolEventEnricher] = {}  # job_id → enricher
         # Instance-level background tasks (DB writes, coderecon indexing)
         self._bg_tasks: set[asyncio.Task] = set()
         # Per-job accumulated telemetry deltas (flushed atomically with offset)
@@ -887,6 +890,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "tool")
+                    tool_id = block.get("id", "")
                     tool_input = block.get("input")
                     args_str = None
                     if tool_input is not None:
@@ -895,15 +899,17 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                         except (TypeError, ValueError):
                             args_str = str(tool_input)
 
-                    # Emit tool_running event
+                    # Use enricher to produce enriched tool_running payload
+                    enricher = self._enrichers.get(job_id)
+                    if enricher is None:
+                        enricher = ToolEventEnricher()
+                        self._enrichers[job_id] = enricher
+                    payload = enricher.on_tool_start(
+                        tool_id, tool_name, args_str, None,
+                    )
                     session_event = SessionEvent(
                         kind=SessionEventKind.transcript,
-                        payload={
-                            "role": "tool_running",
-                            "tool_name": tool_name,
-                            "tool_args": args_str,
-                            "content": tool_name,
-                        },
+                        payload=payload,
                     )
                     await self._feed_event(job_id, session_event)
 
@@ -917,7 +923,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                             ))
 
                 elif block_type == "tool_result":
-                    tool_name = block.get("name", "tool")
+                    tool_use_id = block.get("tool_use_id", "")
                     result_content = block.get("content", "")
                     if isinstance(result_content, list):
                         parts = []
@@ -926,15 +932,19 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                                 parts.append(item.get("text", ""))
                         result_content = "\n".join(parts)
 
+                    is_error = block.get("is_error", False)
+                    # Use enricher to produce enriched tool_call payload
+                    enricher = self._enrichers.get(job_id)
+                    if enricher is None:
+                        enricher = ToolEventEnricher()
+                        self._enrichers[job_id] = enricher
+                    payload = enricher.on_tool_complete(
+                        tool_use_id, str(result_content), not is_error,
+                        tool_name_fallback=block.get("name", "tool"),
+                    )
                     session_event = SessionEvent(
                         kind=SessionEventKind.transcript,
-                        payload={
-                            "role": "tool_call",
-                            "tool_name": tool_name,
-                            "tool_result": str(result_content),
-                            "tool_success": not block.get("is_error", False),
-                            "content": tool_name,
-                        },
+                        payload=payload,
                     )
                     await self._feed_event(job_id, session_event)
 
@@ -1058,6 +1068,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         self._pending_telemetry.pop(job_id, None)
         self._pending_messages.pop(job_id, None)
         self._prompt_captured.discard(job_id)
+        enricher = self._enrichers.pop(job_id, None)
+        if enricher:
+            enricher.cleanup()
         # Note: do NOT remove from _finalizing here — the guard must persist
         # to prevent double-finalization from concurrent triggers.
         sid_to_remove = self._job_to_session.pop(job_id, None)

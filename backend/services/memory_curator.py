@@ -38,18 +38,6 @@ class MemoryCurator:
 
     def __init__(self, adapter: AgentAdapterInterface) -> None:
         self._adapter = adapter
-        self._primed = False
-
-    def _build_prompt(self, task: str, memory: str) -> str:
-        """Construct the curation prompt."""
-        user_part = (
-            f"Given this task:\n{task}\n\n"
-            f"## Workspace Memory\n\n{memory}"
-        )
-        if not self._primed:
-            self._primed = True
-            return f"{_CURATOR_SYSTEM_PROMPT}\n\n{user_part}"
-        return user_part
 
     async def curate(self, task: str, memory: str, timeout: float = 15.0) -> str:
         """Select relevant memory entries for *task*.
@@ -57,7 +45,11 @@ class MemoryCurator:
         Returns the curated subset (may be empty if nothing is relevant).
         Raises on failure (caller handles).
         """
-        prompt = self._build_prompt(task, memory)
+        prompt = (
+            f"{_CURATOR_SYSTEM_PROMPT}\n\n"
+            f"Given this task:\n{task}\n\n"
+            f"## Workspace Memory\n\n{memory}"
+        )
         t0 = time.monotonic()
         result = await asyncio.wait_for(
             self._adapter.complete(prompt),

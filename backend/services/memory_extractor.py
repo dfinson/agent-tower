@@ -40,15 +40,6 @@ class MemoryExtractor:
 
     def __init__(self, adapter: AgentAdapterInterface) -> None:
         self._adapter = adapter
-        self._primed = False
-
-    def _build_prompt(self, decisions_text: str) -> str:
-        """Construct the extraction prompt."""
-        user_part = f"## Key Decisions from Job\n{decisions_text}"
-        if not self._primed:
-            self._primed = True
-            return f"{_EXTRACTOR_SYSTEM_PROMPT}\n\n{user_part}"
-        return user_part
 
     async def extract(self, decisions_text: str, timeout: float = 15.0) -> str | None:
         """Extract memory entries from job decisions.
@@ -56,7 +47,10 @@ class MemoryExtractor:
         Returns extracted entries as markdown text, or None if nothing
         worth remembering. Raises on failure (caller handles).
         """
-        prompt = self._build_prompt(decisions_text)
+        prompt = (
+            f"{_EXTRACTOR_SYSTEM_PROMPT}\n\n"
+            f"## Key Decisions from Job\n{decisions_text}"
+        )
         t0 = time.monotonic()
         result = await asyncio.wait_for(
             self._adapter.complete(prompt),

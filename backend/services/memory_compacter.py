@@ -42,25 +42,17 @@ class MemoryCompacter:
 
     def __init__(self, adapter: AgentAdapterInterface) -> None:
         self._adapter = adapter
-        self._primed = False
-
-    def _build_prompt(self, memory_content: str) -> str:
-        """Construct the full prompt with system context on first call."""
-        user_part = (
-            f"## Current Memory ({len(memory_content)} bytes)\n\n"
-            f"{memory_content}"
-        )
-        if not self._primed:
-            self._primed = True
-            return f"{_COMPACTION_SYSTEM_PROMPT}\n\n{user_part}"
-        return user_part
 
     async def compact(self, memory_content: str, timeout: float = 60.0) -> str:
         """Summarize *memory_content* into a condensed version.
 
         Returns the summarized text. Raises on failure (caller handles).
         """
-        prompt = self._build_prompt(memory_content)
+        prompt = (
+            f"{_COMPACTION_SYSTEM_PROMPT}\n\n"
+            f"## Current Memory ({len(memory_content)} bytes)\n\n"
+            f"{memory_content}"
+        )
         t0 = time.monotonic()
         result = await asyncio.wait_for(
             self._adapter.complete(prompt),

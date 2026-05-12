@@ -6,7 +6,7 @@ import {
 import { Tooltip } from "./ui/tooltip";
 
 const STATE_CONFIG: Record<string, { bg: string; text: string; label: string; Icon: LucideIcon; tip: string }> = {
-  preparing: { bg: "bg-violet-900/30", text: "text-violet-400", label: "Preparing", Icon: Loader2, tip: "Setting up the workspace and cloning the repo" },
+  preparing: { bg: "bg-violet-900/30", text: "text-violet-400", label: "Preparing", Icon: Loader2, tip: "" },
   queued: { bg: "bg-yellow-900/30", text: "text-yellow-400", label: "Queued", Icon: Clock, tip: "Waiting in line to start" },
   running: { bg: "bg-blue-900/30", text: "text-blue-400", label: "Running", Icon: Loader2, tip: "Agent is actively working" },
   waiting_for_approval: { bg: "bg-orange-900/30", text: "text-orange-400", label: "Approval", Icon: ShieldQuestion, tip: "Agent paused — waiting for your approval to continue" },
@@ -20,12 +20,11 @@ const DEFAULT_CFG = { bg: "bg-gray-800/50", text: "text-gray-400", label: "Unkno
 
 export const StateBadge = memo(function StateBadge({ state }: { state: string }) {
   const cfg = STATE_CONFIG[state] ?? DEFAULT_CFG;
-  return (
-    <Tooltip content={cfg.tip}>
-      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${cfg.bg} ${cfg.text}`}>
-        <cfg.Icon size={12} aria-hidden="true" />
-        {cfg.label}
-      </span>
-    </Tooltip>
+  const badge = (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${cfg.bg} ${cfg.text}`}>
+      <cfg.Icon size={12} aria-hidden="true" />
+      {cfg.label}
+    </span>
   );
+  return cfg.tip ? <Tooltip content={cfg.tip}>{badge}</Tooltip> : badge;
 });

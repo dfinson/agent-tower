@@ -63,7 +63,7 @@ def _validate_repo(repo_path: str) -> str:
             allowed.add(str(expanded.resolve()))
 
     if resolved not in allowed:
-        raise HTTPException(status_code=403, detail=f"Repository not in allowlist: {repo_path}")
+        raise HTTPException(status_code=403, detail="Repository not in allowlist")
     return resolved
 
 

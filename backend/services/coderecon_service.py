@@ -213,6 +213,20 @@ class CodeReconService:
             self._executor, lambda: kit.check_structural_health(**kwargs)
         )
 
+    async def impact(self, repo: str, target: str) -> Any:
+        """Blast radius for a symbol or file path.
+
+        Returns an ImpactResult with definition_sites, references,
+        import_sites, and total_references.
+        """
+        kit = self._get_kit(repo)
+        if not hasattr(kit, "impact"):
+            raise CodeReconUnavailableError
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.impact(target)
+        )
+
     # ── Step-Boundary Structural Feedback ──
 
     async def check_step_structural_health(
