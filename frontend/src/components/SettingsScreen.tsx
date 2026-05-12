@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import { Trash2, Plus, Save, Bell } from "lucide-react";
+import { Trash2, Plus, Save, Bell, Brain } from "lucide-react";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 import {
   fetchSettings, updateSettings,
   fetchRepos, unregisterRepo,
@@ -237,16 +238,27 @@ export function SettingsScreen() {
                 <span className="text-sm font-mono text-muted-foreground truncate" title={r}>{r}</span>
                 <RepoIndexIndicator repo={r} />
               </div>
-                <Tooltip content="Remove this repository from CodePlane">
-                  <button
-                    type="button"
-                    onClick={() => setRemoveRepoTarget(r)}
-                    aria-label={`Remove repository ${r}`}
-                    className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-400/10"
-                  >
-                    <Trash2 size={14} aria-hidden="true" />
-                  </button>
-                </Tooltip>
+                <div className="flex items-center gap-1">
+                  <Tooltip content="View workspace memory">
+                    <Link
+                      to={`/repos/${encodeURIComponent(r)}/memory`}
+                      className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+                      aria-label={`View memory for ${r}`}
+                    >
+                      <Brain size={14} aria-hidden="true" />
+                    </Link>
+                  </Tooltip>
+                  <Tooltip content="Remove this repository from CodePlane">
+                    <button
+                      type="button"
+                      onClick={() => setRemoveRepoTarget(r)}
+                      aria-label={`Remove repository ${r}`}
+                      className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-400/10"
+                    >
+                      <Trash2 size={14} aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
             ))}
           </div>

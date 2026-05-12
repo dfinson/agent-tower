@@ -27,6 +27,9 @@ const HistoryScreen = lazyRetry(() =>
 const AnalyticsScreen = lazyRetry(() =>
   import("./components/AnalyticsScreen").then((module) => ({ default: module.AnalyticsScreen })),
 );
+const MemoryScreen = lazyRetry(() =>
+  import("./components/MemoryScreen").then((module) => ({ default: module.MemoryScreen })),
+);
 /* SharedJobView disabled — read-only view not useful yet
 const SharedJobView = lazyRetry(() =>
   import("./components/SharedJobView").then((module) => ({ default: module.SharedJobView })),
@@ -187,6 +190,7 @@ export function App() {
               <Route path="/jobs/:jobId" element={<JobDetailScreen />} />
               <Route path="/history" element={<HistoryScreen />} />
               <Route path="/analytics" element={<AnalyticsScreen />} />
+              <Route path="/repos/:repoPath/memory" element={<MemoryScreen />} />
               <Route path="/settings" element={<SettingsScreen />} />
               {/* Share disabled — read-only view not useful yet
               <Route path="/shared/:token" element={<SharedJobView />} />

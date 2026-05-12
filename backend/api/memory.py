@@ -15,6 +15,7 @@ from backend.models.schemas.base import CamelModel
 from backend.services.memory_compacter import MemoryCompacter
 from backend.services.workspace_memory import (
     compact_decisions,
+    read_memory_detail,
     read_memory_text,
     write_decisions,
     write_wisdom,
@@ -29,6 +30,13 @@ router = APIRouter(tags=["memory"], route_class=DishkaRoute)
 
 class MemoryResponse(CamelModel):
     memory: str
+    has_memory: bool
+
+
+class MemoryDetailResponse(CamelModel):
+    decisions: str
+    wisdom: str
+    archive: str
     has_memory: bool
 
 
@@ -76,6 +84,20 @@ def get_memory(repo_path: str) -> MemoryResponse:
     resolved = _validate_repo(repo_path)
     text = read_memory_text(resolved)
     return MemoryResponse(memory=text, has_memory=bool(text))
+
+
+@router.get("/repos/{repo_path:path}/memory/detail", response_model=MemoryDetailResponse)
+def get_memory_detail(repo_path: str) -> MemoryDetailResponse:
+    """Read workspace memory with decisions, wisdom, and archive separated."""
+    resolved = _validate_repo(repo_path)
+    detail = read_memory_detail(resolved)
+    has = bool(detail["decisions"] or detail["wisdom"] or detail["archive"])
+    return MemoryDetailResponse(
+        decisions=detail["decisions"],
+        wisdom=detail["wisdom"],
+        archive=detail["archive"],
+        has_memory=has,
+    )
 
 
 @router.put("/repos/{repo_path:path}/memory", response_model=MemoryResponse)

@@ -346,6 +346,26 @@ def read_memory_text(repo_path: str) -> str:
     return load_workspace_memory(repo_path) or ""
 
 
+def read_memory_detail(repo_path: str) -> dict[str, str]:
+    """Return decisions, wisdom, and archive as separate fields."""
+    d = _memory_dir(repo_path)
+    result: dict[str, str] = {"decisions": "", "wisdom": "", "archive": ""}
+
+    decisions = d / "decisions.md"
+    if decisions.is_file():
+        result["decisions"] = decisions.read_text(encoding="utf-8").strip()
+
+    wisdom = d / "wisdom.md"
+    if wisdom.is_file():
+        result["wisdom"] = wisdom.read_text(encoding="utf-8").strip()
+
+    archive = d / "archive.md"
+    if archive.is_file():
+        result["archive"] = archive.read_text(encoding="utf-8").strip()
+
+    return result
+
+
 def write_decisions(repo_path: str, content: str) -> None:
     """Overwrite ``decisions.md`` with *content*."""
     d = _ensure_dir(repo_path)

@@ -1,4 +1,4 @@
-import { Radio, TerminalSquare, FolderTree, BarChart3, Package, ScanSearch } from "lucide-react";
+import { Radio, TerminalSquare, FolderTree, BarChart3, Package, ScanSearch, Brain } from "lucide-react";
 import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 
@@ -8,6 +8,7 @@ const TAB_ITEMS = [
   { id: "review", icon: ScanSearch, label: "Review", tip: "Review code changes and structural analysis", conditional: true },
   { id: "metrics", icon: BarChart3, label: "Metrics", tip: "Cost, tokens, and performance metrics" },
   { id: "artifacts", icon: Package, label: "Artifacts", tip: "Checkpoints, logs, and exported files", conditional: true },
+  { id: "knowledge", icon: Brain, label: "Knowledge", tip: "Accumulated workspace memory and patterns", conditional: true },
 ] as const;
 
 interface ViewTabBarProps {
@@ -15,6 +16,7 @@ interface ViewTabBarProps {
   onTabChange: (tab: string) => void;
   hasChanges: boolean;
   hasArtifacts: boolean;
+  hasMemory: boolean;
   artifactCount: number;
   hasWorktree: boolean;
   jobTerminalCount: number;
@@ -28,6 +30,7 @@ export function ViewTabBar({
   onTabChange,
   hasChanges,
   hasArtifacts,
+  hasMemory,
   artifactCount,
   hasWorktree,
   jobTerminalCount,
@@ -38,6 +41,7 @@ export function ViewTabBar({
   const visibleTabs = TAB_ITEMS.filter((t) => {
     if (t.id === "review") return hasChanges;
     if (t.id === "artifacts") return hasArtifacts;
+    if (t.id === "knowledge") return hasMemory;
     return true;
   });
 
