@@ -21,7 +21,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from backend.models.api_schemas import ExecutionPhase
-from backend.services.cost_attribution import TurnContext, _classify_turn_intent, _is_debugging_context
+from backend.services.cost_attribution import (
+    TurnContext,
+    _classify_turn_intent,
+    _compute_subagent_distributions,
+    _is_debugging_context,
+)
 from backend.services.tool_classifier import classify_tool, refine_shell_category
 
 if TYPE_CHECKING:
@@ -44,7 +49,7 @@ _CATEGORY_TO_ACTIVITY: dict[str, str] = {
     "file_read": "investigation",
     "file_search": "investigation",
     "browser": "investigation",
-    "agent": "investigation",
+    "agent": "delegation",
     "bookkeeping": "overhead",
     "thinking": "reasoning",
 }
@@ -248,12 +253,43 @@ async def _compute_latency(
         if span_type == "llm" and turn is not None:
             out_tok = span.get("output_tokens") or 0
             turn_contexts[int(turn)]["output_tokens"] += int(out_tok or 0)
+            # Track sub-agent status from LLM span attrs
+            attrs = span.get("attrs") or {}
+            if isinstance(attrs, str):
+                try:
+                    attrs = _json.loads(attrs)
+                except (ValueError, TypeError):
+                    attrs = {}
+            if attrs.get("is_subagent"):
+                turn_contexts[int(turn)]["is_subagent"] = True
 
     # --- Activity dimension: classify each turn's activity, aggregate durations ---
+    # Compute sub-agent activity distributions for delegation propagation
+    subagent_distributions = _compute_subagent_distributions(turn_contexts, is_debug_job=is_debug_job)
+
     by_activity: dict[str, list[int]] = defaultdict(list)
     activity_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
 
     for turn_num, context in turn_contexts.items():
+        # For turns that invoked sub-agents, use the sub-agent's actual activity
+        if "agent" in (context.get("tool_categories") or []) and not context.get("is_subagent"):
+            dist = subagent_distributions.get(turn_num)
+            if dist:
+                # Distribute this turn's latency by sub-agent activity proportions
+                turn_durs = turn_durations.get(turn_num, [])
+                turn_ints = turn_span_intervals.get(turn_num, [])
+                total_dur = sum(turn_durs) if turn_durs else 0
+                for act, frac in dist.items():
+                    # Approximate: give each activity its fractional share of spans
+                    dur_share = int(total_dur * frac)
+                    if dur_share > 0:
+                        by_activity[act].append(dur_share)
+                # For intervals, attribute all intervals to dominant activity
+                if turn_ints:
+                    dominant = max(dist, key=lambda k: dist[k])
+                    activity_intervals[dominant].extend(turn_ints)
+                continue
+
         activity = _classify_turn_intent(context, is_debug_job=is_debug_job)
         by_activity[activity].extend(turn_durations.get(turn_num, []))
         activity_intervals[activity].extend(turn_span_intervals.get(turn_num, []))

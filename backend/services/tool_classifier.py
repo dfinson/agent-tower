@@ -305,8 +305,14 @@ def classify_tool_activity(tool_name: str, tool_args_json: str | None = None) ->
     For shell tools, inspects the actual command from tool_args_json to
     assign a precise activity (verification, git_ops, setup, etc.)
     instead of the generic 'investigation' fallback.
+
+    Agent/delegation tools return the sentinel ``"_delegation"`` so the
+    cost attribution pipeline can resolve them against the sub-agent's
+    actual activity breakdown rather than blindly calling them investigation.
     """
     category = classify_tool(tool_name)
+    if category == "agent":
+        return "_delegation"
     if category == "shell" and tool_args_json:
         parsed = ensure_dict(tool_args_json)
         if parsed:

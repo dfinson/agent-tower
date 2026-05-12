@@ -9,7 +9,7 @@ intent-refined activity classification, and edit one-shot rate).
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 import structlog
 from sqlalchemy.exc import DBAPIError
@@ -58,6 +58,8 @@ class TurnContext(TypedDict):
     cache_write_tokens: int
     tool_categories: list[str]
     shell_commands: list[str]
+    tool_activity_weights: NotRequired[list[tuple[str, int]]]
+    is_subagent: NotRequired[bool]
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +130,15 @@ def _classify_turn_intent(
     if "setup" in shell_intents:
         return "setup"
 
-    # Priority 5: Investigation — sub-agents, reading, searching, browsing, git reads
-    if has_agents or has_reads or has_search or has_git_read or "investigation" in shell_intents:
+    # Priority 5: Investigation — reading, searching, browsing, git reads
+    if has_reads or has_search or has_git_read or "investigation" in shell_intents:
         return "investigation"
+
+    # Priority 5b: Pure delegation — only agent tools, no other content tools.
+    # The per-tool weighted path resolves this to the sub-agent's actual activity;
+    # this fallback only fires when tool_activity_weights is empty.
+    if has_agents:
+        return "delegation"
 
     # Priority 6: Unclassified shell commands (arbitrary bash)
     if "shell_other" in shell_intents:
@@ -169,9 +177,98 @@ def _is_debugging_context(description: str | None, motivation: str | None) -> bo
     return bool(_DEBUG_RE.search(text))
 
 
+# ---------------------------------------------------------------------------
+# Sub-agent activity propagation
+#
+# Associates invoking turns (those with "agent" tool category) with the
+# sub-agent turns that follow them.  Computes the activity distribution
+# of the sub-agent turns so the invoking turn's cost can be attributed
+# to what the sub-agent actually did instead of a blanket "investigation".
+# ---------------------------------------------------------------------------
+
+
+def _compute_subagent_distributions(
+    turn_contexts: dict[int, TurnContext],
+    *,
+    is_debug_job: bool = False,
+) -> dict[int, dict[str, float]]:
+    """Map invoking turn numbers → activity distributions of their sub-agent turns.
+
+    Walks turns in order.  Sub-agent turns (is_subagent=True on their LLM span)
+    are grouped under the most recent preceding non-sub-agent turn that has an
+    "agent" tool category.  The activity distribution is derived from the
+    sub-agent turns' own tool classifications.
+
+    Returns {invoking_turn: {"implementation": 0.7, "investigation": 0.3, ...}}
+    """
+    sorted_turns = sorted(turn_contexts.keys())
+    if not sorted_turns:
+        return {}
+
+    # Identify invoking turns and sub-agent turns
+    invoking_turns: list[int] = []
+    subagent_turns: set[int] = set()
+    for t in sorted_turns:
+        ctx = turn_contexts[t]
+        if ctx.get("is_subagent"):
+            subagent_turns.add(t)
+        elif "agent" in (ctx.get("tool_categories") or []):
+            invoking_turns.append(t)
+
+    if not invoking_turns or not subagent_turns:
+        return {}
+
+    # Associate sub-agent turns with their closest preceding invoking turn
+    # Each sub-agent turn belongs to the most recent invoking turn before it
+    invoking_to_subagent: dict[int, list[int]] = defaultdict(list)
+    for sa_turn in sorted(subagent_turns):
+        # Find the closest invoking turn that precedes this sub-agent turn
+        owner = None
+        for inv_turn in reversed(invoking_turns):
+            if inv_turn < sa_turn:
+                owner = inv_turn
+                break
+        if owner is not None:
+            invoking_to_subagent[owner].append(sa_turn)
+
+    # For each invoking turn, compute the weighted activity distribution
+    # of its associated sub-agent turns
+    result: dict[int, dict[str, float]] = {}
+    for inv_turn, sa_turns in invoking_to_subagent.items():
+        activity_costs: dict[str, float] = defaultdict(float)
+        total_cost = 0.0
+
+        for sa_t in sa_turns:
+            sa_ctx = turn_contexts[sa_t]
+            sa_cost = float(sa_ctx.get("cost_usd", 0.0) or 0.0)
+            if sa_cost <= 0:
+                sa_cost = 1.0  # uniform weight if no cost info
+
+            # Classify the sub-agent turn by its own tools
+            sa_weights: list[tuple[str, int]] = sa_ctx.get("tool_activity_weights", [])
+            if sa_weights:
+                # Use per-tool activity classification (skip _delegation sentinels
+                # from nested sub-agent calls — fall back to investigation for those)
+                weight_total = sum(w for _, w in sa_weights)
+                for act, w in sa_weights:
+                    resolved_act = act if act != "_delegation" else "investigation"
+                    fraction = w / weight_total if weight_total > 0 else 1 / len(sa_weights)
+                    activity_costs[resolved_act] += sa_cost * fraction
+            else:
+                # No tools — use intent classifier
+                intent = _classify_turn_intent(sa_ctx, is_debug_job=is_debug_job)
+                activity_costs[intent] += sa_cost
+            total_cost += sa_cost
+
+        if total_cost > 0:
+            result[inv_turn] = {act: cost / total_cost for act, cost in activity_costs.items()}
+
+    return result
+
+
 def _classify_motivation(
     turn_num: int,
-    trail_nodes: list[dict],
+    trail_nodes: list[dict[str, Any]],
     turn_context: TurnContext,
 ) -> str:
     """Classify a turn's motivation from trail node metadata (Item 17)."""
@@ -272,9 +369,10 @@ async def _compute_attribution(
         {"jid": job_id},
     )
     job_row = job_meta.mappings().first()
-    job_model = (job_row or {}).get("model", "") or ""
-    job_description = (job_row or {}).get("description", "") or ""
-    job_prompt = (job_row or {}).get("prompt", "") or ""
+    job_row_dict: dict[str, Any] = dict(job_row) if job_row else {}
+    job_model = job_row_dict.get("model", "") or ""
+    job_description = job_row_dict.get("description", "") or ""
+    job_prompt = job_row_dict.get("prompt", "") or ""
     is_debug_job = _is_debugging_context(job_description, job_prompt)
 
     # --- Aggregate by dimension ---
@@ -337,6 +435,9 @@ async def _compute_attribution(
             turn_contexts[int(turn)]["output_tokens"] += int(out_tok or 0)
             turn_contexts[int(turn)]["cache_read_tokens"] += int(cache_r or 0)
             turn_contexts[int(turn)]["cache_write_tokens"] += int(cache_w or 0)
+            # Track sub-agent status from LLM span attrs
+            if attrs.get("is_subagent"):
+                turn_contexts[int(turn)]["is_subagent"] = True
 
     # --- One-shot rate tracking ---
     # Track edit→shell→edit retry patterns per turn, aggregated by action.
@@ -345,7 +446,7 @@ async def _compute_attribution(
     )
 
     # --- Load trail nodes for purpose attribution ---
-    trail_list: list[dict] = []
+    trail_list: list[dict[str, Any]] = []
     try:
         if trail_repo is not None:
             trail_nodes = await trail_repo.get_by_job(job_id, limit=1000)
@@ -370,6 +471,11 @@ async def _compute_attribution(
     by_activity: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_purpose: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
     by_action_purpose: dict[str, CostBucket] = defaultdict(lambda: _zero_bucket())
+
+    # --- Sub-agent activity propagation (Option 3) ---
+    # Compute what each sub-agent range actually did so we can attribute
+    # the invoking turn's delegation cost to the correct activities.
+    subagent_distributions = _compute_subagent_distributions(turn_contexts, is_debug_job=is_debug_job)
 
     for turn_num_a, context in turn_contexts.items():
         # Deterministic action from tool categories
@@ -408,6 +514,30 @@ async def _compute_attribution(
                 activity_weight_sums[activity] += weight
                 activity_call_counts[activity] += 1
                 total_weight += weight
+
+            # Resolve _delegation sentinel using sub-agent's actual activity
+            delegation_weight = activity_weight_sums.pop("_delegation", 0)
+            delegation_calls = activity_call_counts.pop("_delegation", 0)
+            if delegation_weight > 0:
+                dist = subagent_distributions.get(turn_num_a)
+                if dist:
+                    # Redistribute delegation weight proportionally to sub-agent activities
+                    for act, frac in dist.items():
+                        activity_weight_sums[act] += int(delegation_weight * frac)
+                        activity_call_counts[act] += max(1, int(delegation_calls * frac))
+                else:
+                    # No sub-agent turns found — redistribute to other tools in this turn,
+                    # or fall back to "delegation" if this is a pure delegation turn
+                    if activity_weight_sums:
+                        # Redistribute proportionally to existing activities
+                        existing_total = sum(activity_weight_sums.values())
+                        for act in list(activity_weight_sums.keys()):
+                            share = activity_weight_sums[act] / existing_total if existing_total > 0 else 1
+                            activity_weight_sums[act] += int(delegation_weight * share)
+                    else:
+                        activity_weight_sums["delegation"] = delegation_weight
+                        activity_call_counts["delegation"] = delegation_calls
+
             for activity, weight_sum in activity_weight_sums.items():
                 fraction = weight_sum / total_weight if total_weight > 0 else 1 / len(activity_weight_sums)
                 _accumulate(
@@ -417,7 +547,7 @@ async def _compute_attribution(
                     int(turn_out * fraction),
                     cache_read=int(turn_cache_r * fraction),
                     cache_write=int(turn_cache_w * fraction),
-                    call_count=activity_call_counts[activity],
+                    call_count=activity_call_counts.get(activity, 1),
                 )
         else:
             # No tools — use turn-level fallback (reasoning / communication)
@@ -510,13 +640,13 @@ async def _compute_attribution(
     try:
         file_access_rows = await file_repo.raw_accesses_for_job(job_id)
         if file_access_rows:
-            files_by_turn: dict[int, list[dict]] = defaultdict(list)
+            files_by_turn: dict[int, list[dict[str, Any]]] = defaultdict(list)
             for fa in file_access_rows:
                 turn = fa.get("turn_number")
                 if turn is not None:
                     files_by_turn[int(turn)].append(fa)
 
-            file_costs: dict[str, dict] = defaultdict(
+            file_costs: dict[str, dict[str, Any]] = defaultdict(
                 lambda: {"cost_usd": 0.0, "read_cost": 0.0, "write_cost": 0.0, "turn_count": 0}
             )
             for turn_num_f, turn_files in files_by_turn.items():

@@ -89,8 +89,10 @@ def test_classify_turn_intent_overhead() -> None:
     assert _classify_turn_intent(_ctx(cats=["bookkeeping", "bookkeeping"])) == "overhead"
 
 
-def test_classify_turn_intent_subagents_are_investigation() -> None:
-    assert _classify_turn_intent(_ctx(cats=["agent"])) == "investigation"
+def test_classify_turn_intent_subagents_are_delegation() -> None:
+    # Pure agent tool turns are classified as "delegation" — the per-tool
+    # weighted path resolves the actual activity from sub-agent turns.
+    assert _classify_turn_intent(_ctx(cats=["agent"])) == "delegation"
 
 
 def test_classify_turn_intent_debugging_context() -> None:
