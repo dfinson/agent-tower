@@ -1,5 +1,5 @@
 site_name: CodePlane
-site_description: Control plane for running and supervising coding agents
+site_description: Orchestration and observability for coding agents — bring your own CLI
 site_url: https://dfinson.github.io/codeplane
 repo_url: https://github.com/dfinson/codeplane
 repo_name: dfinson/codeplane

@@ -5,7 +5,7 @@
 <h1 align="center">CodePlane</h1>
 
 <p align="center">
-  <strong>A control plane for coding agents, your browser is the cockpit</strong>
+  <strong>Run and supervise coding agents — or just watch the ones you already use</strong>
 </p>
 
 <p align="center">
@@ -18,35 +18,53 @@
 
 ---
 
-> **Pre-alpha** — Under active development. Not yet usable.
+> **Pre-alpha** — Under active development.
 
-CodePlane orchestrates coding agents headless on your workstation — no IDE, no terminal session. Start work, talk through the diffs, and merge when you're ready.
+CodePlane is an orchestration and observability layer for coding agents. It can launch agents headless for you, or it can mirror native CLI sessions you're already running in your terminal — same dashboard, same analytics, no workflow change required.
+
+You bring your own CLI. CodePlane doesn't contain an AI model — it wraps the agent CLIs you already have installed (Claude Code, GitHub Copilot) and adds supervision, cost intelligence, structural review, and cross-job memory on top.
 
 <p align="center"><img src="docs/images/screenshots/desktop/hero-dashboard.png" alt="CodePlane — dashboard with active jobs" width="800" /></p>
 
+## Two Ways to Use It
+
+### 1. Launch jobs through CodePlane (headless orchestration)
+
+Write a prompt, pick a repo and model, hit go. The agent runs in an isolated worktree. Close your laptop — come back later, review the diff, merge or discard.
+
+### 2. Mirror your native CLI sessions (zero workflow change)
+
+Keep using `claude` or `copilot` in your terminal exactly as you do now. CodePlane auto-discovers running sessions via file-tailing, ingests them into the same pipeline, and gives you the full dashboard — cost tracking, trail, structural review — without you changing anything.
+
+## What You Get
+
+**Orchestration & supervision** — the foundation:
+
+- Headless daemon — no IDE, no terminal babysitting. Start a task, walk away
+- Approval gates — risky actions pause for your review; one-tap approve from your phone
+- Remote access — Dev Tunnels or Cloudflare; supervise from mobile with push notifications
+- Diff review & merge — Monaco diffs, workspace browsing, merge/PR/discard controls
+
+**Intelligence layer** — what makes it worth running:
+
+- **Semantic trail** — Records agent decisions, then enriches with intent classification, backtrack detection, and insight extraction
+- **Motivation provenance** — For every file write, captures *why* it was made — not from the diff, from the preceding reasoning
+- **Structural risk scoring** — Tree-sitter diffs classify changes as breaking/body/additive; community detection shows coupling risks
+- **Cost attribution** — Classifies every turn by activity (implementation, debugging, investigation, overhead) and surfaces waste patterns
+- **Workspace memory** — Persistent per-repo knowledge, curated and injected into each new job by relevance
+- **Narrative review** — Structured code-review stories with verified references (never hallucinated) and LLM-generated connective prose
+- **Cross-job analysis** — File reread hotspots, tool failure rates, cost escalation, cache efficiency regression
+
 ## Quick Start
 
-> Requires Python 3.11+ and Git. You also need at least one agent CLI installed and authenticated: [GitHub Copilot CLI](https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/using-github-copilot-in-the-cli) or [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code).
+> Requires Python 3.11+ and Git. Install and authenticate at least one agent CLI: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [GitHub Copilot CLI](https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/using-github-copilot-in-the-cli).
 
 ```bash
 pip install codeplane
 cpl up                        # start server on localhost:8080
 ```
 
-Open `http://localhost:8080`, register a repository in Settings, and create your first job.
-
-## What It Does
-
-- **Headless** — Runs as a standalone server, no editor session required. Start a task and close your laptop
-- **Remote & mobile** — Pick up from your phone via Dev Tunnels or Cloudflare Tunnels — approve, review, and steer from anywhere
-- **PWA & push notifications** — Install to your home screen; get notified when a job needs approval, completes, or fails
-- **Job sharing** — Generate read-only share links so team members can watch a job without the CodePlane password
-- **Deep visibility** — Watch agent reasoning, tool calls, plan progress, diffs, and costs streaming in real time — not a summary after the fact
-- **Approval gates** — Risky operations (file writes, shell commands) pause for your review
-- **Diff review & merge** — Syntax-highlighted diffs, workspace browsing, merge/PR/discard controls
-- **Cost analytics** — Track token usage, costs, and model performance across all jobs
-- **Multi-agent** — Works with GitHub Copilot CLI and Claude Code CLI
-- **MCP server** — Expose CodePlane as tools for agent-to-agent orchestration
+Open `http://localhost:8080`. Any native CLI sessions running in registered repos are picked up automatically. Or create a new job from the UI.
 
 ## CLI
 
@@ -63,6 +81,13 @@ cpl doctor                                   # diagnose environment issues
 cpl info                                     # show connection details and QR code
 cpl version                                  # show version
 ```
+
+## Who This Is For
+
+- **Solo devs using Claude Code or Copilot CLI** who want cost visibility and review tools without changing their workflow
+- **Teams running many agent sessions** who need cost forensics and behavioral pattern analysis, not just a billing page
+- **Reviewers of agent output** who need structural risk triage, not just a raw diff
+- **Regulated environments** where AI-generated code requires decision provenance
 
 ## Documentation
 

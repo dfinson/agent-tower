@@ -12,11 +12,11 @@ hide:
 
 # CodePlane
 
-<span class="eyebrow">Run coding agents. Supervise from anywhere.</span>
+<span class="eyebrow">Orchestration and observability for coding agents. Bring your own CLI.</span>
 
-**No IDE. No terminal. Just a prompt.**
+**Keep using Claude Code or Copilot in your terminal. CodePlane watches, analyzes, and adds the layers they don't have.**
 
-CodePlane runs Claude Code and GitHub Copilot on your workstation — supervise from any browser on your desktop, phone, or tablet. Review diffs, approve risky actions, track costs, and merge when you're ready.
+CodePlane is a local server that either launches agent jobs for you (headless, fire-and-forget) or mirrors the native CLI sessions you're already running — same pipeline either way. You get a supervision dashboard, cost intelligence, structural code review, decision trails, and persistent workspace memory. The agents do the work; CodePlane makes the work reviewable.
 
 <div class="hero-actions" markdown>
 [Quick Start](quick-start.md){ .md-button .md-button--primary }
@@ -36,20 +36,94 @@ CodePlane runs Claude Code and GitHub Copilot on your workstation — supervise 
 ![CodePlane Dashboard — Mobile](images/screenshots/mobile/hero-dashboard.png)
 </div>
 
+## Two Modes, One Pipeline
+
+<div class="workflow-grid" markdown>
+
+<div class="workflow-step" markdown>
+<span class="step-index">A</span>
+### Launch through CodePlane
+Write a prompt, pick a repo and model. The agent runs headless in an isolated worktree. Close your laptop — approve and review from your phone later.
+</div>
+
+<div class="workflow-step" markdown>
+<span class="step-index">B</span>
+### Mirror your native sessions
+Run `claude` or `copilot` in your terminal as usual. CodePlane auto-discovers the session via file-tailing and ingests it — full dashboard, cost tracking, and trail enrichment with zero workflow change.
+</div>
+
+</div>
+
+Either way, you get the same intelligence: trail enrichment, cost attribution, structural review, and workspace memory.
+
+## What You Get
+
+<div class="feature-grid" markdown>
+
+<div class="feature-card" markdown>
+### :material-play-circle: Orchestration & Supervision
+Launch headless jobs, gate risky actions for approval, supervise from any browser (phone, tablet, desktop). Push notifications for approvals, completions, and failures.
+</div>
+
+<div class="feature-card" markdown>
+### :material-graph: Semantic Trail
+Every agent decision is recorded and enriched — intent classification, backtrack detection, insight extraction. See not just what the agent did, but how it reasoned its way there.
+</div>
+
+<div class="feature-card" markdown>
+### :material-shield-check: Structural Code Review
+Tree-sitter diffs classify changes as breaking, body, additive, or non-structural. Community detection surfaces coupling risks. Merge confidence verdict (HIGH/MEDIUM/LOW) before you read a single line.
+</div>
+
+<div class="feature-card" markdown>
+### :material-chart-line: Cost Intelligence
+Every turn classified by activity (implementation, debugging, investigation, overhead). Cross-job waste detection: file reread hotspots, retry waste, cost escalation, cache regression.
+</div>
+
+<div class="feature-card" markdown>
+### :material-brain: Workspace Memory
+Persistent per-repo knowledge — decisions, wisdom, lessons — curated and injected into each new job by relevance. Job N+1 starts smarter than job N.
+</div>
+
+<div class="feature-card" markdown>
+### :material-book-open-variant: Narrative Review
+Structured code-review stories with verified file references (never hallucinated) and LLM-generated prose. Answers "why was this change made?" at file and edit level.
+</div>
+
+</div>
+
+## Bring Your Own CLI
+
+CodePlane doesn't contain an AI model. It wraps the agent CLIs you already have installed and authenticated:
+
+- **Claude Code CLI** — sessions discovered via `~/.claude/projects/` JSONL files
+- **GitHub Copilot CLI** — sessions discovered via `~/.copilot/session-store.db`
+
+Install either CLI, authenticate it, and CodePlane handles the rest — whether you launch through the UI or just use your terminal.
+
+## Supported Agents
+
+| Agent | Managed (headless) | Mirrored (native CLI) |
+|-------|-------------------|-----------------------|
+| Claude Code | Yes | Yes |
+| GitHub Copilot | Yes | Yes |
+
+External agents can also orchestrate CodePlane programmatically through its built-in [MCP server](mcp-server.md).
+
 ## The Core Loop
 
 <div class="workflow-grid" markdown>
 
 <div class="workflow-step" markdown>
 <span class="step-index">1</span>
-### Launch a task
-Pick a repository, write a prompt, choose an agent and model. The agent runs in an isolated Git worktree — your working directory is never touched.
+### Launch or discover
+Create a job from the UI, or just start a native CLI session in a registered repo. Either way it appears on your dashboard.
 </div>
 
 <div class="workflow-step" markdown>
 <span class="step-index">2</span>
-### Supervise the run
-Watch the transcript, logs, plan progress, and cost data while the agent works. Send messages to steer it if needed.
+### Supervise
+Watch the transcript, plan progress, and live cost while the agent works. Send messages to steer if needed.
 </div>
 
 <div class="workflow-step" markdown>
@@ -60,50 +134,14 @@ File writes, shell commands, and destructive operations can require your approva
 
 <div class="workflow-step" markdown>
 <span class="step-index">4</span>
+### Review with intelligence
+Structural risk scoring, narrative review, and motivation provenance — not just a diff.
+</div>
+
+<div class="workflow-step" markdown>
+<span class="step-index">5</span>
 ### Land or discard
-Review the diff, then merge, create a PR, or discard — based on what the agent actually produced.
-</div>
-
-</div>
-
-## Supported Agents
-
-CodePlane works with **GitHub Copilot CLI** and **Claude Code CLI**. Install and authenticate either CLI, select your agent and model per job — CodePlane manages the underlying SDKs and handles the rest.
-
-External agents can orchestrate CodePlane programmatically through its built-in [MCP server](mcp-server.md) — compatible with VS Code, Claude Desktop, Cursor, and any MCP-compatible client.
-
-## What You Get
-
-<div class="feature-grid" markdown>
-
-<div class="feature-card" markdown>
-### :material-play-circle: Task Orchestration
-Launch jobs with a prompt and model selection. Each job runs in its own Git worktree for safe, concurrent execution.
-</div>
-
-<div class="feature-card" markdown>
-### :material-cellphone-link: Mobile-First & Remote
-Run on your workstation, control from any browser — phone, tablet, or desktop. UI is touch-optimised. Remote access out of the box via Dev Tunnels or Cloudflare Tunnels.
-</div>
-
-<div class="feature-card" markdown>
-### :material-monitor-eye: Live Visibility
-Transcript, logs, timeline, plan steps, and token costs — all streaming in real time as the agent works.
-</div>
-
-<div class="feature-card" markdown>
-### :material-shield-check: Approval Gates
-Risky operations pause for your review. Approve, reject, or trust the session to auto-approve the rest.
-</div>
-
-<div class="feature-card" markdown>
-### :material-code-tags: Diff Review & Merge
-Syntax-highlighted diffs, workspace browsing, and merge/PR/discard controls — all built in.
-</div>
-
-<div class="feature-card" markdown>
-### :material-chart-line: Cost Analytics
-Track token usage, costs, model performance, and tool health across all jobs.
+Merge, create a PR, or discard — based on what the agent produced and what the review tells you.
 </div>
 
 </div>

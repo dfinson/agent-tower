@@ -5,20 +5,21 @@ hide:
 
 # How It Works
 
-CodePlane is an **orchestration layer** for coding agents. It does not contain its own AI — it manages the underlying SDKs so you don't have to. You install and authenticate the agent CLIs; CodePlane handles everything else.
+CodePlane is an **orchestration and observability layer** for coding agents. It does not contain its own AI — it wraps the agent CLIs you already use and adds supervision, cost intelligence, structural review, and cross-job memory.
 
 ## What CodePlane Is
 
-- A **control plane**, not an execution engine. It manages and supervises coding agents, but the agents themselves come from external CLIs (GitHub Copilot CLI, Claude Code CLI).
-- A **headless, local-first server** that runs on your workstation — no editor required. Access it from any browser at `http://localhost:8080`, or remotely from your phone via Dev Tunnels or Cloudflare Tunnels.
-- A **thin wrapper** around existing agent CLIs. CodePlane manages the SDKs internally and delegates to them for all AI reasoning and tool execution.
+- A **BYOCLI platform**. You install and authenticate agent CLIs (Claude Code, GitHub Copilot). CodePlane manages them — or simply observes them.
+- A **headless, local-first server** that runs on your workstation — no editor required. Access it from any browser, or remotely from your phone via tunnels.
+- An **intelligence layer** that enriches raw agent sessions with semantic trails, cost attribution, structural risk scoring, motivation provenance, and workspace memory.
+- **Zero workflow change** if you want it. Mirror native CLI sessions you're already running — no need to launch jobs through CodePlane's UI to get the value.
 
 ## What CodePlane Is Not
 
-- Not an AI model or agent. It orchestrates agents built by others.
-- Not a task decomposer — by design. One prompt, one agent, full transparency into every action it takes. The value is deep supervision of a single focused run, not multi-agent fan-out.
+- Not an AI model or agent. It orchestrates and observes agents built by others.
+- Not a task decomposer — by design. One prompt, one agent, full transparency into every action it takes.
 - Not a cloud service. It runs locally with optional remote access via tunnels.
-- Not a replacement for your existing tools. It uses your Git installation, your CLI credentials, and your repositories as-is.
+- Not a replacement for your existing tools. It uses your Git, your CLI credentials, and your repos as-is.
 
 ## Authentication
 
