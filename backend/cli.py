@@ -317,6 +317,7 @@ def up(
         host=host,
         port=port,
         log_level="warning" if dashboard else "info",
+        timeout_graceful_shutdown=5,
     )
     server = uvicorn.Server(uv_config)
 
@@ -340,6 +341,20 @@ def up(
             logging.getLogger().setLevel(logging.CRITICAL)
             click.echo("\nShutting down…")
             _original_handle_exit(sig, frame)
+
+            # Watchdog: if uvicorn hasn't exited within 10s, force-kill.
+            import threading
+
+            def _force_exit_watchdog() -> None:
+                import os as _os
+
+                if tunnel_handle is not None:
+                    tunnel_handle.close()
+                _os._exit(0)
+
+            _wd = threading.Timer(10.0, _force_exit_watchdog)
+            _wd.daemon = True
+            _wd.start()
         else:
             # Second signal: force immediate exit — no more teardown errors.
             if dashboard is not None:

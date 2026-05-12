@@ -52,35 +52,50 @@ class TitleGenerator:
                 activity_label=None,
             )
 
+        # Build plan step context
         steps = state.plan_steps
-        active_label = "Unknown"
+        plan_step_label = "Unknown"
         done_count = 0
         total_count = len(steps)
         if assigned_plan_step_id:
             for s in steps:
                 if s.plan_step_id == assigned_plan_step_id:
-                    active_label = s.label
+                    plan_step_label = s.label
                 if s.status == "done":
                     done_count += 1
 
-        current_act_id = state.activities[-1].activity_id if state.activities else None
-        recent_titles = [s.title for s in state.activity_steps if s.activity_id == current_act_id]
-        recent_block = "\n".join(f"  - {t}" for t in recent_titles) if recent_titles else "  (none yet)"
+        # Current activity label and turn count within it
+        current_act = state.activities[-1] if state.activities else None
+        current_label = current_act.label if current_act else state.job_prompt[:60] or "Started"
+        steps_in_activity = [
+            s for s in state.activity_steps
+            if current_act and s.activity_id == current_act.activity_id
+        ]
+        turns_in_section = len(steps_in_activity)
 
-        tools = ", ".join(state.recent_tool_names)
+        # Build 3-entry recent window from step titles in current activity
+        recent_titles = [s.title for s in steps_in_activity[-3:]]
+        if recent_titles:
+            recent_window = "\n".join(
+                f"  [{turns_in_section - len(recent_titles) + i + 1}] {t}"
+                for i, t in enumerate(recent_titles)
+            )
+        else:
+            recent_window = "  (first turn)"
+
+        # Build the NOW line: prefer agent message first-line, fall back to intent/tools
+        now_line = self._build_now_line(agent_msg, preceding_context, state.recent_tool_names)
 
         prompt = TITLE_PROMPT.format(
-            job_prompt=state.job_prompt or "(unknown)",
-            active_plan_label=active_label,
+            current_label=current_label,
+            turns_in_section=turns_in_section,
+            plan_step_label=plan_step_label,
             done_count=done_count,
             total_count=total_count,
-            files_read=", ".join(files_read) or "(none)",
-            files_written=", ".join(files_written) or "(none)",
-            tools=tools or "(none)",
-            duration_s=round(duration_ms / 1000, 1),
-            agent_msg=agent_msg or "(no message)",
-            recent_step_titles=recent_block,
-            preceding_context=preceding_context or "(none)",
+            recent_window=recent_window,
+            now_line=now_line,
+            files_written_count=len(files_written),
+            files_read_count=len(files_read),
         )
 
         title = "Work in progress"
@@ -98,10 +113,11 @@ class TitleGenerator:
             mp = parsed.get("merge_with_previous")
             if isinstance(mp, bool):
                 merge_prev = mp
-            na = parsed.get("new_activity")
-            if isinstance(na, bool):
-                new_activity = na
-            al = parsed.get("activity_label")
+            # Map "boundary": "shift" → new_activity=True
+            boundary = parsed.get("boundary", "same")
+            if boundary == "shift":
+                new_activity = True
+            al = parsed.get("label")
             if isinstance(al, str) and al.strip():
                 activity_label = al.strip()
             state.sister_consecutive_failures = 0
@@ -116,6 +132,22 @@ class TitleGenerator:
             new_activity=new_activity,
             activity_label=activity_label,
         )
+
+    @staticmethod
+    def _build_now_line(agent_msg: str, preceding_context: str | None, tool_names: list[str]) -> str:
+        """Build the NOW description line from available signals."""
+        if agent_msg:
+            first_line = agent_msg.split("\n")[0][:120]
+            return first_line
+        if preceding_context:
+            # Extract intent-like content from preceding context
+            for line in preceding_context.split("\n"):
+                line = line.strip()
+                if line and not line.startswith("("):
+                    return line[:120]
+        if tool_names:
+            return f"(tool-only turn: {', '.join(tool_names[-5:])})"
+        return "(no message)"
 
     @staticmethod
     def _fallback_title(agent_msg: str, files_written: list[str]) -> str:

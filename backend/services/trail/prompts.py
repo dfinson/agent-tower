@@ -70,50 +70,25 @@ RULES:
 """
 
 TITLE_PROMPT = """\
-You manage a progress timeline for a coding agent. Decide TWO things:
-1. A short title for this turn
-2. Whether this turn belongs to the current activity or starts a new one
+SECTION: "{current_label}" — {turns_in_section} turns so far
+PLAN: "{plan_step_label}" ({done_count}/{total_count} complete)
 
-Job task: {job_prompt}
-Active plan item: {active_plan_label} ({done_count}/{total_count} plan items done)
+RECENT (this section):
+{recent_window}
 
-Current activity and its steps so far:
-{recent_step_titles}
+NOW:
+  msg: {now_line}
+  wrote: {files_written_count} files | read: {files_read_count} files
 
-This turn:
-- Files read: {files_read}
-- Files written: {files_written}
-- Tools used: {tools}
-- Duration: {duration_s}s
-- Agent message: {agent_msg}
+Title this turn (3-8 words, verb-first, specific). Never repeat a RECENT title.
+Does this turn continue "{current_label}" or shift to something new?
 
-Context (recent transcript):
-{preceding_context}
+JSON: {{"title": "...", "merge_with_previous": <bool>, "boundary": "same"|"shift", "label": "..."}}
 
-Respond with JSON:
-{{"title": "...", "merge_with_previous": <bool>, "new_activity": <bool>, "activity_label": "..."}}
-
-TITLE rules:
-- 3-8 words, starts with action verb
-- Never repeat previous step titles
-- One thing per title, pick the most significant
-
-new_activity: true ONLY for genuine intent shifts that are NOT already captured
-by plan step transitions (plan transitions are handled separately). Examples:
-- Operator gave a new instruction that redirects work mid-step
-- Agent abandoned current approach and started something entirely different
-- Agent switched from implementation to debugging a blocking issue
-
-NOT a new_activity (these are already handled by plan step transitions):
-- Moving to the next plan step
-- Continuing the same logical task across multiple turns
-- Retrying or verifying previous work
-- Working on different files within the same plan item
-
-activity_label: short label for the new activity (only used when new_activity=true).
-3-6 words describing the sub-goal, e.g. "Fix inference bugs", "Clean up types".
-MUST be provided when new_activity=true. Be specific and concrete.
-
+boundary=shift ONLY when the agent's focus has clearly moved to a different \
+activity from what RECENT shows. Signals: explicit intent declaration, direction \
+reversal, first file writes after reading, new task announcement after shipping.
+label: 3-6 word description of the NEW focus (required when boundary=shift).
 merge_with_previous: true only for trivial retries of the exact same operation.
 """
 
