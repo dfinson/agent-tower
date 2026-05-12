@@ -30,7 +30,7 @@ You bring your own CLI. CodePlane wraps the agent CLIs you already have (Claude 
 
 ### 1. Launch jobs through CodePlane (headless orchestration)
 
-Write a prompt, pick a repo and model, hit go. The agent runs in an isolated worktree. Review the diff when it's done, merge or discard.
+Write a prompt, pick a repo and model, hit go. The agent runs in an isolated worktree. When it finishes, you get a structured review — merge or discard.
 
 ### 2. Mirror your native CLI sessions (zero workflow change)
 
