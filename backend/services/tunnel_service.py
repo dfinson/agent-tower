@@ -362,16 +362,16 @@ def start_remote_access(
         )
         handle.watchdog.start()
         return handle
-    origin, proc = _start_cloudflare(port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname)
-    externally_managed = proc is None
-    handle = TunnelHandle(provider=provider, origin=origin, proc=proc, externally_managed=externally_managed)
-    if proc is not None:
+    origin, cf_proc = _start_cloudflare(port, cloudflare_token=cloudflare_token, cloudflare_hostname=cloudflare_hostname)
+    externally_managed = cf_proc is None
+    handle = TunnelHandle(provider=provider, origin=origin, proc=cf_proc, externally_managed=externally_managed)
+    if cf_proc is not None:
         # We started our own process — attach a watchdog to keep it alive
         handle.watchdog = TunnelWatchdog(
             tunnel_url=origin,
             restart_command=["cloudflared", "tunnel", "--no-autoupdate", "run"],
             restart_env={"TUNNEL_TOKEN": cloudflare_token or ""},
-            proc=proc,
+            proc=cf_proc,
             label="cloudflare",
             local_port=port,
         )

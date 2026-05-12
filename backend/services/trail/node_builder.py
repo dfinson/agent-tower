@@ -147,6 +147,7 @@ class TrailNodeBuilder:
         Fall back to reconstruction from trail nodes (lossy).
         """
         job_id = event.job_id
+        assert job_id is not None
         if job_id in self._job_state:
             return
 
@@ -262,6 +263,7 @@ class TrailNodeBuilder:
     async def _on_job_started(self, event: DomainEvent) -> None:
         """Create the goal node for a new job."""
         job_id = event.job_id
+        assert job_id is not None
         state = TrailJobState()
         self._job_state[job_id] = state
 
@@ -307,13 +309,16 @@ class TrailNodeBuilder:
 
     def _on_step_started(self, event: DomainEvent) -> None:
         """Track the currently active step for approval anchoring."""
-        state = self._job_state.get(event.job_id)
+        job_id = event.job_id
+        assert job_id is not None
+        state = self._job_state.get(job_id)
         if state:
             state.active_step_id = event.payload.get("step_id")
 
     async def _on_step_completed(self, event: DomainEvent) -> None:
         """Create a deterministic trail node from step completion data."""
         job_id = event.job_id
+        assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -557,6 +562,7 @@ class TrailNodeBuilder:
     ) -> None:
         """Emit a deferred event (e.g. approval_requested before step_completed)."""
         job_id = event.job_id
+        assert job_id is not None
         node_id = make_node_id()
         seq = state.next_seq
         state.next_seq += 1
@@ -588,6 +594,7 @@ class TrailNodeBuilder:
         - agent/assistant: Updates step node agent_message if not already set.
         """
         job_id = event.job_id
+        assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -609,6 +616,7 @@ class TrailNodeBuilder:
     ) -> None:
         """Create a request node for an operator/user transcript message."""
         job_id = event.job_id
+        assert job_id is not None
         payload = event.payload or {}
         content = str(payload.get("content", "")).strip()
         if not content:
@@ -659,6 +667,8 @@ class TrailNodeBuilder:
         turn_id = payload.get("turn_id")
         if not turn_id:
             return
+        if not event.job_id:
+            return
 
         tool_display = payload.get("tool_display") or None
         tool_intent = payload.get("tool_intent") or None
@@ -708,6 +718,7 @@ class TrailNodeBuilder:
     async def _on_phase_changed(self, event: DomainEvent) -> None:
         """Create a summarize node for execution phase transitions."""
         job_id = event.job_id
+        assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -738,6 +749,7 @@ class TrailNodeBuilder:
     async def _on_approval_requested(self, event: DomainEvent) -> None:
         """Create a request node or defer if step hasn't completed yet."""
         job_id = event.job_id
+        assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
             return
@@ -769,6 +781,7 @@ class TrailNodeBuilder:
     async def _on_job_terminal(self, event: DomainEvent) -> None:
         """Create a terminal summarize node and clean up."""
         job_id = event.job_id
+        assert job_id is not None
         state = self._job_state.get(job_id)
         if not state:
             return

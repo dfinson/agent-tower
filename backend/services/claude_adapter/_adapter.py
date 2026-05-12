@@ -700,7 +700,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 options.allowed_tools = list(options.allowed_tools or []) + config.coderecon_tools.allowed_tool_names
 
         if mcp_config:
-            options.mcp_servers = mcp_config  # type: ignore[assignment]
+            options.mcp_servers = mcp_config
 
         # Resume support
         if config.resume_sdk_session_id:

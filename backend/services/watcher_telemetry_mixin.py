@@ -45,7 +45,7 @@ class WatcherTelemetryMixin:
         """Accumulate telemetry deltas in memory for atomic flush with offset."""
         pending = self._pending_telemetry.setdefault(job_id, {})
         for key, value in counters.items():
-            pending[key] = pending.get(key, 0) + value  # type: ignore[operator]
+            pending[key] = pending.get(key, 0) + value
 
     def _schedule_model_update(self, job_id: str, model: str) -> None:
         """Schedule a model update on the telemetry summary row."""
@@ -80,7 +80,7 @@ class WatcherTelemetryMixin:
                     from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
                     if counters:
-                        await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
+                        await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)  # type: ignore[arg-type]
                     await JobRepository(session).update_tail_offset(job_id, offset)
             except Exception:
                 log.debug(f"{self._watcher_log_prefix}_flush_failed", job_id=job_id, exc_info=True)

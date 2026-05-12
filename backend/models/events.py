@@ -78,6 +78,7 @@ class _BasePayload(TypedDict, total=False):
     step_id: str | None
     step_number: int | None
     session_number: int
+    turn_id: str | None
 
 
 class JobSetupProgressPayloadDict(_BasePayload, total=False):
@@ -89,7 +90,6 @@ class JobCanceledPayloadDict(_BasePayload, total=False):
 
 
 class StepEntriesReassignedPayloadDict(_BasePayload, total=False):
-    turn_id: str
     old_step_id: str
     new_step_id: str
 
@@ -112,7 +112,6 @@ class TranscriptPayloadDict(_BasePayload, total=False):
     role: str
     content: str
     title: str | None
-    turn_id: str | None
     tool_name: str | None
     tool_args: str | None
     tool_result: str | None
@@ -227,7 +226,6 @@ class ModelDowngradedPayloadDict(_BasePayload, total=False):
 
 
 class ToolGroupSummaryPayloadDict(_BasePayload, total=False):
-    turn_id: str
     summary: str
 
 
@@ -253,7 +251,6 @@ class TelemetryUpdatedPayloadDict(_BasePayload, total=False):
 
 
 class StepStartedPayloadDict(_BasePayload, total=False):
-    turn_id: str | None
     intent: str
     trigger: str
 
@@ -291,7 +288,6 @@ class PlanStepUpdatedPayloadDict(_BasePayload, total=False):
 
 
 class TurnSummaryPayloadDict(_BasePayload, total=False):
-    turn_id: str
     title: str
     activity_id: str
     activity_label: str

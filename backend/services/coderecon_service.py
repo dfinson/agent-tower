@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         CyclesResult,
         StructuralHealthResult,
     )
-    from coderecon.review.diff import SemanticDiffResult
+    from coderecon.index.diff.models import SemanticDiffResult
 
     from backend.services.event_bus import EventBus
 
@@ -64,7 +64,7 @@ class CodeReconService:
     async def start(self) -> None:
         """Validate that the coderecon-review package is importable."""
         try:
-            from coderecon.review import ReviewKit  # type: ignore[import-untyped]
+            from coderecon.review import ReviewKit
 
             self._kit_class = ReviewKit
             self._available = True
@@ -213,6 +213,77 @@ class CodeReconService:
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, lambda: kit.impact(target))
+
+    async def recon(
+        self,
+        repo: str,
+        task: str,
+        *,
+        seeds: Any = None,
+        pins: Any = None,
+        worktree: str | None = None,
+    ) -> Any:
+        """Run coderecon recon analysis."""
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {"task": task}
+        if seeds is not None:
+            kwargs["seeds"] = seeds
+        if pins is not None:
+            kwargs["pins"] = pins
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(self._executor, lambda: kit.recon(**kwargs))
+
+    async def recon_map(self, repo: str, *, worktree: str | None = None) -> Any:
+        """Run coderecon recon_map."""
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {}
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(self._executor, lambda: kit.recon_map(**kwargs))
+
+    async def recon_impact(
+        self,
+        repo: str,
+        target: str,
+        justification: str,
+        *,
+        worktree: str | None = None,
+    ) -> Any:
+        """Run coderecon recon_impact."""
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {"target": target, "justification": justification}
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(self._executor, lambda: kit.recon_impact(**kwargs))
+
+    async def scaffold(self, repo: str, *, path: str = "", worktree: str | None = None) -> Any:
+        """Run coderecon scaffold."""
+        kit = self._get_kit(repo)
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {"path": path}
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(self._executor, lambda: kit.scaffold(**kwargs))
+
+    async def get_sdk(self) -> Any:
+        """Return the raw coderecon SDK for direct access."""
+        if not self._available or self._kit_class is None:
+            raise CodeReconUnavailableError
+        return self._kit_class()
+
+    async def repo_status(self, repo: str) -> dict[str, Any] | None:
+        """Return indexing status for a repo."""
+        kit = self._kits.get(repo)
+        if kit is None:
+            return None
+        loop = asyncio.get_running_loop()
+        if hasattr(kit, "status"):
+            return await loop.run_in_executor(self._executor, kit.status)
+        return None
 
     # ── Step-Boundary Structural Feedback ──
 

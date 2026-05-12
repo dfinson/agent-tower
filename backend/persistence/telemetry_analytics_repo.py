@@ -553,7 +553,8 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 ) AS days_in_month
             """),
         )
-        days_in_month = float(days_in_month_result.mappings().first()["days_in_month"])
+        dim_row = days_in_month_result.mappings().first()
+        days_in_month = float(dim_row["days_in_month"]) if dim_row else 30.0
         daily_avg = month_spend / days_elapsed
         projected = daily_avg * days_in_month
 
@@ -624,7 +625,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
             """),
             {"offset": f"-{int(period_days)} days"},
         )
-        row = result.mappings().first() or {}
+        row: Any = result.mappings().first() or {}
         # Estimate compaction cost: re-ingesting tokens at conservative input rate
         compaction_tokens = int(row.get("total_tokens_compacted", 0))
         avg_input_rate = 0.000003  # ~$3/1M tokens — conservative Claude Sonnet-class rate

@@ -363,7 +363,7 @@ class AnalyticsService:
             {"days": int(period_days)},
         )
         row = result.mappings().first()
-        return int((row or {}).get("total_lines", 0))
+        return int(row["total_lines"]) if row else 0
 
     # -- File cost (Item 14) -------------------------------------------------
 

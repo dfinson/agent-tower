@@ -674,7 +674,8 @@ def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
             if action == "list":
                 resp = await client.get(f"{base_url}/settings/repos")
                 resp.raise_for_status()
-                return resp.json()
+                result: dict[str, Any] = resp.json()
+                return result
 
             if action == "get":
                 if not repo_path:

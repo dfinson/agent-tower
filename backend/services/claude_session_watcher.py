@@ -18,7 +18,7 @@ import math
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import structlog
 
@@ -215,9 +215,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         # job_id → session_id (reverse map)
         self._job_to_session: dict[str, str] = {}
         # session_id → tail task
-        self._tail_tasks: dict[str, asyncio.Task] = {}
+        self._tail_tasks: dict[str, asyncio.Task[Any]] = {}
         # Discovery loop task
-        self._discovery_task: asyncio.Task | None = None
+        self._discovery_task: asyncio.Task[Any] | None = None
         self._running = False
         # Per-job context for event processor
         self._job_worktrees: dict[str, str] = {}  # job_id → worktree_path
@@ -225,7 +225,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         # Per-job tool event enricher (pairs tool_use→tool_result with metadata)
         self._enrichers: dict[str, ToolEventEnricher] = {}  # job_id → enricher
         # Instance-level background tasks (DB writes, coderecon indexing)
-        self._bg_tasks: set[asyncio.Task] = set()
+        self._bg_tasks: set[asyncio.Task[Any]] = set()
         # Per-job accumulated telemetry deltas (flushed atomically with offset)
         self._pending_telemetry: dict[str, dict[str, float | int]] = {}
         # Operator message queue: job_id → list of messages
@@ -424,7 +424,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                             name=f"claude-tail-{ext_sid[:8]}",
                         )
                         self._tail_tasks[ext_sid] = task
-                        task.add_done_callback(lambda _t, sid=ext_sid: self._tail_tasks.pop(sid, None))
+                        task.add_done_callback(lambda _t: self._tail_tasks.pop(ext_sid, None))
                         log.info("claude_watcher_reattached", job_id=job_id, offset=offset)
         except Exception:
             log.warning("claude_watcher_load_existing_failed", exc_info=True)
@@ -543,14 +543,15 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             name=f"claude-tail-{session_id[:8]}",
         )
         self._tail_tasks[session_id] = task
-        task.add_done_callback(lambda _t, sid=session_id: self._tail_tasks.pop(sid, None))
+        task.add_done_callback(lambda _t: self._tail_tasks.pop(session_id, None))
 
         # Background: CodeRecon indexing
-        if self._coderecon:
+        coderecon = self._coderecon
+        if coderecon:
 
             async def _index(repo: str = repo_path, jid: str = job_id) -> None:
                 try:
-                    await self._coderecon.ensure_repo_indexed(repo)
+                    await coderecon.ensure_repo_indexed(repo)
                 except Exception:
                     log.debug("claude_watcher_coderecon_failed", job_id=jid, exc_info=True)
 
@@ -818,7 +819,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     # JSONL event processing
     # ------------------------------------------------------------------
 
-    async def _process_jsonl_event(self, raw: dict, session_id: str, job_id: str) -> bool:
+    async def _process_jsonl_event(self, raw: dict[str, Any], session_id: str, job_id: str) -> bool:
         """Process a single JSONL event. Returns True if session ended.
 
         Claude JSONL event types:
@@ -846,7 +847,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
         return False
 
-    async def _handle_user_event(self, raw: dict, session_id: str, job_id: str) -> None:
+    async def _handle_user_event(self, raw: dict[str, Any], session_id: str, job_id: str) -> None:
         """Handle a user-type JSONL event."""
         message = raw.get("message", {})
         content = message.get("content", "")
@@ -883,7 +884,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         if cwd and job_id not in self._job_worktrees:
             self._job_worktrees[job_id] = cwd
 
-    async def _handle_assistant_event(self, raw: dict, session_id: str, job_id: str) -> None:
+    async def _handle_assistant_event(self, raw: dict[str, Any], session_id: str, job_id: str) -> None:
         """Handle an assistant-type JSONL event."""
         from backend.services.tool_classifier import classify_tool, extract_file_paths
 
@@ -990,9 +991,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
 
     async def _extract_usage_telemetry(
         self,
-        usage: dict,
+        usage: dict[str, Any],
         job_id: str,
-        message: dict,
+        message: dict[str, Any],
     ) -> None:
         """Extract token usage and cost telemetry from assistant message."""
         from backend.services import telemetry as tel

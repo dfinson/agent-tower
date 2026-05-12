@@ -368,7 +368,7 @@ def build_coderecon_tools(
             defn = _TOOL_DEFS[name]
 
             # Create handler closure with captured tool name
-            def _make_claude_handler(tool_name: str):  # noqa: ANN202
+            def _make_claude_handler(tool_name: str) -> Any:  # noqa: ANN202
                 async def handler(args: dict[str, Any]) -> dict[str, Any]:
                     text = await _dispatch(tool_name, args)
                     return {"content": [{"type": "text", "text": text}]}
@@ -392,13 +392,13 @@ def build_coderecon_tools(
 
     copilot_tools_list: list[Any] = []
     try:
-        from copilot.session import Tool as CopilotTool
+        from copilot.session import Tool as CopilotTool  # type: ignore[attr-defined]
         from copilot.tools import ToolInvocation, ToolResult
 
         for name in sorted(allowed_names & set(_TOOL_DEFS.keys())):
             defn = _TOOL_DEFS[name]
 
-            def _make_copilot_handler(tool_name: str):  # noqa: ANN202
+            def _make_copilot_handler(tool_name: str) -> Any:  # noqa: ANN202
                 async def handler(invocation: ToolInvocation) -> ToolResult:
                     args = invocation.arguments if isinstance(invocation.arguments, dict) else {}
                     text = await _dispatch(tool_name, args)
@@ -406,13 +406,13 @@ def build_coderecon_tools(
 
                 return handler
 
-            t = CopilotTool(
+            copilot_tool = CopilotTool(
                 name=name,
                 description=defn["description"],
                 handler=_make_copilot_handler(name),
                 parameters=defn["schema"],
             )
-            copilot_tools_list.append(t)
+            copilot_tools_list.append(copilot_tool)
     except ImportError:
         log.debug("copilot SDK not available, skipping Copilot tool build")
 

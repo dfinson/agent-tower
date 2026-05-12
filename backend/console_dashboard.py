@@ -210,14 +210,17 @@ class ConsoleLog:
     def _apply_event(self, event: DomainEvent) -> None:
         ts = datetime.now(UTC).strftime("%H:%M:%S")
         kind = event.kind
+        job_id = event.job_id
+        if not job_id:
+            return
 
         if kind == DomainEventKind.job_created:
-            self._jobs[event.job_id] = _JobInfo(event.job_id)
+            self._jobs[job_id] = _JobInfo(job_id)
 
         elif kind == DomainEventKind.job_state_changed:
             new_state = str(event.payload.get("new_state", ""))
-            if event.job_id not in self._jobs:
-                self._jobs[event.job_id] = _JobInfo(event.job_id)
+            if job_id not in self._jobs:
+                self._jobs[job_id] = _JobInfo(job_id)
 
         elif kind in (
             DomainEventKind.job_completed,
@@ -229,17 +232,17 @@ class ConsoleLog:
                 DomainEventKind.job_failed: "failed",
                 DomainEventKind.job_canceled: "canceled",
             }[kind]
-            job = self._jobs.get(event.job_id)
+            job = self._jobs.get(job_id)
             elapsed = f"  ({job.elapsed()})" if job else ""
             title = f'  "{job.title}"' if job and job.title else ""
             icon = _STATE_ICON.get(new_state, "?")
-            self._print_event(ts, icon, new_state, event.job_id, new_state + elapsed + title)
-            self._jobs.pop(event.job_id, None)
+            self._print_event(ts, icon, new_state, job_id, new_state + elapsed + title)
+            self._jobs.pop(job_id, None)
 
         elif kind == DomainEventKind.job_title_updated:
             updated_title: str | None = str(event.payload.get("title")) if event.payload.get("title") else None
-            if updated_title and event.job_id in self._jobs:
-                self._jobs[event.job_id].title = updated_title
+            if updated_title and job_id in self._jobs:
+                self._jobs[job_id].title = updated_title
 
         elif kind == DomainEventKind.progress_headline:
             # Shown in the UI kanban board; suppress from terminal.
@@ -247,7 +250,7 @@ class ConsoleLog:
 
         elif kind == DomainEventKind.approval_requested:
             desc = str(event.payload.get("description") or "approval needed")
-            self._print_event(ts, "⏸", "waiting_for_approval", event.job_id, f"approval needed · {desc}")
+            self._print_event(ts, "⏸", "waiting_for_approval", job_id, f"approval needed · {desc}")
 
     def _print_event(self, ts: str, icon: str, state: str, job_id: str, message: str) -> None:
         style = _STATE_STYLE.get(state, "")

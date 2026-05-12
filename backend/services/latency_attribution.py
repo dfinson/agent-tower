@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json as _json
 from collections import defaultdict
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -55,7 +56,7 @@ _CATEGORY_TO_ACTIVITY: dict[str, str] = {
 }
 
 
-def _classify_turnless_span_activity(span: dict[str, Any], *, is_debug_job: bool = False) -> str:
+def _classify_turnless_span_activity(span: Mapping[str, Any], *, is_debug_job: bool = False) -> str:
     """Classify a span without a turn_number into an activity bucket."""
     span_type = span.get("span_type", "")
     if span_type == "llm":
@@ -143,8 +144,8 @@ async def _compute_latency(
         {"jid": job_id},
     )
     job_row = job_meta.mappings().first()
-    job_description = (job_row or {}).get("description", "") or ""
-    job_prompt = (job_row or {}).get("prompt", "") or ""
+    job_description: str = str(job_row["description"]) if job_row and "description" in job_row else ""
+    job_prompt: str = str(job_row["prompt"]) if job_row and "prompt" in job_row else ""
     is_debug_job = _is_debugging_context(job_description, job_prompt)
 
     # Get job total duration from summary
@@ -171,6 +172,8 @@ async def _compute_latency(
             cost_usd=0.0,
             input_tokens=0,
             output_tokens=0,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
             tool_categories=[],
             shell_commands=[],
         )

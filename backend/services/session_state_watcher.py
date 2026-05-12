@@ -88,9 +88,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # session_id → job_id
         self._session_to_job: dict[str, str] = {}
         # session_id → tail task
-        self._tail_tasks: dict[str, asyncio.Task] = {}
+        self._tail_tasks: dict[str, asyncio.Task[Any]] = {}
         # Discovery loop task
-        self._discovery_task: asyncio.Task | None = None
+        self._discovery_task: asyncio.Task[Any] | None = None
         self._running = False
         # Per-job context for event processor
         self._job_worktrees: dict[str, str] = {}  # job_id → worktree_path
@@ -98,7 +98,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         # Per-job tool event enricher (pairs start→complete with metadata)
         self._enrichers: dict[str, ToolEventEnricher] = {}  # job_id → enricher
         # Instance-level background tasks (DB writes, coderecon indexing)
-        self._bg_tasks: set[asyncio.Task] = set()
+        self._bg_tasks: set[asyncio.Task[Any]] = set()
         # Per-job accumulated telemetry deltas (flushed atomically with offset)
         self._pending_telemetry: dict[str, dict[str, float | int]] = {}
         # ISO timestamp of when this watcher started — sessions created before
@@ -205,7 +205,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                         name=f"tail-{ext_sid[:8]}",
                     )
                     self._tail_tasks[ext_sid] = task
-                    task.add_done_callback(lambda _t, sid=ext_sid: self._tail_tasks.pop(sid, None))
+                    task.add_done_callback(lambda _t: self._tail_tasks.pop(ext_sid, None))
                     log.info("session_state_watcher_reattached", job_id=job_id, offset=offset)
         except Exception:
             log.warning("session_state_watcher_load_existing_failed", exc_info=True)
@@ -293,7 +293,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 # older sessions are either already tracked via _load_existing_sessions
                 # or are stale and should not be imported.
                 query = "SELECT id, cwd, summary FROM sessions WHERE host_type = 'github'"
-                params: tuple = ()
+                params: tuple[Any, ...] = ()
                 if self._started_at:
                     query += " AND created_at >= ?"
                     params = (self._started_at,)
@@ -343,14 +343,15 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             name=f"tail-{session_id[:8]}",
         )
         self._tail_tasks[session_id] = task
-        task.add_done_callback(lambda _t, sid=session_id: self._tail_tasks.pop(sid, None))
+        task.add_done_callback(lambda _t: self._tail_tasks.pop(session_id, None))
 
         # Background: CodeRecon indexing
-        if self._coderecon:
+        coderecon = self._coderecon
+        if coderecon:
 
             async def _index(repo: str = job.repo, jid: str = job_id) -> None:
                 try:
-                    await self._coderecon.ensure_repo_indexed(repo)
+                    await coderecon.ensure_repo_indexed(repo)
                 except Exception:
                     log.debug("session_watcher_coderecon_failed", job_id=jid, exc_info=True)
 

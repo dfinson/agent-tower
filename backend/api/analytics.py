@@ -26,6 +26,7 @@ from backend.models.api_schemas import (
     CacheEfficiencyResponse,
     CacheEfficiencyRow,
     CostAttributionBucket,
+    CostDriverEntry,
     CostDriversJobResponse,
     DismissResponse,
     EditEfficiencyCategory,
@@ -277,8 +278,9 @@ async def fleet_cost_drivers(
         return RepoCostDriversResponse(period=period, dimension=dim, repos=repos)
 
     if dimension:
-        rows = await svc.cost_by_dimension(dimension, period_days=period)
-        return FleetCostDriversResponse(period=period, dimension=dimension, buckets=rows)
+        dim_rows = await svc.cost_by_dimension(dimension, period_days=period)
+        buckets = [CostDriverEntry(**r) for r in dim_rows]
+        return FleetCostDriversResponse(period=period, dimension=dimension, buckets=buckets)
     summary = await svc.fleet_cost_summary(period_days=period)
     # Activity-dimension costs use an equal-weight heuristic per turn, flag them.
     enriched: list[dict[str, Any]] = [dict(r) for r in summary]
@@ -719,7 +721,7 @@ async def analytics_export(
     if not requested:
         requested = {"overview", "models", "cost-drivers"}
 
-    combined: dict[str, list[dict]] = {}
+    combined: dict[str, list[Any]] = {}
 
     if "cost-drivers" in requested:
         summary = await svc.fleet_cost_summary(period_days=period)
@@ -749,7 +751,7 @@ async def analytics_export(
         )
 
     # CSV: flatten all sections
-    all_rows: list[dict] = []
+    all_rows: list[dict[str, Any]] = []
     for section_name, rows in combined.items():
         for row in rows:
             raw = dict(row) if isinstance(row, dict) else {}

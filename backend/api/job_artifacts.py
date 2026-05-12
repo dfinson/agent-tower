@@ -612,7 +612,7 @@ async def get_job_structural_diff(
 
     # Cache check — keyed on latest commit SHA in worktree
     sha = await _latest_end_sha(step_repo, job_id)
-    cached = _cache_get(job_id, "structural-diff", sha)
+    cached: StructuralDiffResponse | None = _cache_get(job_id, "structural-diff", sha)
     if cached is not None:
         return cached
 
@@ -706,7 +706,7 @@ def _translate_ref_tiers(raw_tiers: Any) -> dict[str, int]:
     return result
 
 
-def _compute_risk(category: str, ref_tiers: dict[str, int], test_files: list) -> float:
+def _compute_risk(category: str, ref_tiers: dict[str, int], test_files: list[Any]) -> float:
     """Composite risk score per §9.4."""
     severity = _CATEGORY_SEVERITY.get(category, 0.0)
 
@@ -846,7 +846,7 @@ async def get_job_multi_session(
         session_boundaries.append(ev.timestamp)
 
     # Assign each step to a session based on its started_at vs boundaries
-    session_steps: dict[int, list] = {}
+    session_steps: dict[int, list[Any]] = {}
     for step in steps:
         sess_num = 1
         for i, boundary in enumerate(session_boundaries):
@@ -977,7 +977,7 @@ async def get_impact_graph(
     # Cache keyed on latest step SHA — invalidates when worktree advances.
     sha = await _latest_end_sha(step_repo, job_id)
     cache_key = f"impact:{symbol}"
-    cached = _cache_get(job_id, cache_key, sha)
+    cached: ImpactGraphResponse | None = _cache_get(job_id, cache_key, sha)
     if cached is not None:
         return cached
 
@@ -1061,7 +1061,7 @@ async def get_job_communities(
 
     # Cache check
     sha = await _latest_end_sha(step_repo, job_id)
-    cached = _cache_get(job_id, "communities", sha)
+    cached: CommunitiesResponse | None = _cache_get(job_id, "communities", sha)
     if cached is not None:
         return cached
 
@@ -1082,9 +1082,9 @@ async def get_job_communities(
     # Map files to communities
     file_to_community: dict[str, str] = {}
     for comm in communities.communities:
-        comm_name = str(comm.community_id)
+        cname = str(comm.community_id)
         for member in comm.members:
-            file_to_community[member] = comm_name
+            file_to_community[member] = cname
 
     # Group changes by community
     grouped: dict[str, list[dict[str, Any]]] = {}
@@ -1137,7 +1137,7 @@ async def get_review_story(
         return ReviewStoryResponse(job_id=job_id, available=False)
 
     sha = await _latest_end_sha(step_repo, job_id)
-    cached = _cache_get(job_id, "review-story", sha)
+    cached: ReviewStoryResponse | None = _cache_get(job_id, "review-story", sha)
     if cached is not None:
         return cached
 

@@ -272,6 +272,7 @@ SessionEventPayload = (
     | ModelDowngradedPayload
     | DonePayload
     | ErrorPayload
+    | dict[str, Any]
 )
 
 
@@ -393,6 +394,9 @@ class TelemetrySummaryRow(TypedDict, total=False):
     agent_error_count: int
     # Added by 0017_add_subagent_cost
     subagent_cost_usd: float
+    # Latency attribution fields
+    parallelism_ratio: float
+    idle_ms: int
 
 
 # -- Analytics aggregation TypedDicts -----------------------------------------

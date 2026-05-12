@@ -113,6 +113,8 @@ class TrailService:
             return
 
         job_id = event.job_id
+        if not job_id:
+            return
         content = str(payload.get("content", ""))
         tool_intent = str(payload.get("tool_intent") or "")
 

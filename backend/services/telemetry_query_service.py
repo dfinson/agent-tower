@@ -225,19 +225,19 @@ class TelemetryQueryService:
         # Build latency drivers from latency attribution rows
         latency_grouped: dict[str, list[TelemetryLatencyBucket]] = {}
         latency_turn_curve: list[TelemetryLatencyBucket] = []
-        for row in latency_rows:
+        for lat_row in latency_rows:
             lb = TelemetryLatencyBucket(
-                dimension=row.get("dimension", "unknown"),
-                bucket=row.get("bucket", "unknown"),
-                wall_clock_ms=int(row.get("wall_clock_ms", 0)),
-                sum_duration_ms=int(row.get("sum_duration_ms", 0)),
-                span_count=int(row.get("span_count", 0)),
-                p50_ms=int(row.get("p50_ms", 0)),
-                p95_ms=int(row.get("p95_ms", 0)),
-                max_ms=int(row.get("max_ms", 0)),
-                pct_of_total=float(row.get("pct_of_total", 0)),
+                dimension=lat_row.get("dimension", "unknown"),
+                bucket=lat_row.get("bucket", "unknown"),
+                wall_clock_ms=int(lat_row.get("wall_clock_ms", 0)),
+                sum_duration_ms=int(lat_row.get("sum_duration_ms", 0)),
+                span_count=int(lat_row.get("span_count", 0)),
+                p50_ms=int(lat_row.get("p50_ms", 0)),
+                p95_ms=int(lat_row.get("p95_ms", 0)),
+                max_ms=int(lat_row.get("max_ms", 0)),
+                pct_of_total=float(lat_row.get("pct_of_total", 0)),
             )
-            dim = str(row.get("dimension", "unknown"))
+            dim = str(lat_row.get("dimension", "unknown"))
             latency_grouped.setdefault(dim, []).append(lb)
             if dim == "turn":
                 latency_turn_curve.append(lb)

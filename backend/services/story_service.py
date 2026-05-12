@@ -1271,6 +1271,8 @@ class StoryService:
 
     async def _prefetch_one(self, job_id: str, verbosity: str) -> None:
         """Background task: generate and cache one verbosity level if not already cached."""
+        if not self._session_factory:
+            return
         try:
             async with self._session_factory() as session:
                 await self.get_or_generate(session, job_id, verbosity=verbosity)

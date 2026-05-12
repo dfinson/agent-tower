@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from backend.models.domain import JobSource
+from backend.models.domain import Job, JobSource
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -89,7 +89,7 @@ class IngestService:
                 if ext_id:
                     await self._steer.abort(ext_id)
 
-    async def _get_job(self, job_id: str):
+    async def _get_job(self, job_id: str) -> Job | None:
         async with self._session_factory() as session:
             from backend.persistence.job_repo import JobRepository
 

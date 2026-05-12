@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.services.story_service import (
+    StoryReference,
     StoryService,
     _build_prompt,
     _estimate_tokens,
@@ -30,7 +31,7 @@ def _ref(
     step_title: str = "step-one",
     turn_id: str = "t1",
     **extra: Any,
-) -> dict[str, Any]:
+) -> StoryReference:
     return {
         "spanId": span_id,
         "file": file,

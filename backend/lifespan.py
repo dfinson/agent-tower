@@ -55,7 +55,7 @@ class _JobLike:
 
     __slots__ = ("repo", "worktree_path", "base_ref", "title", "prompt")
 
-    def __init__(self, row: tuple) -> None:
+    def __init__(self, row: tuple[Any, ...]) -> None:
         self.repo = row[0]
         self.worktree_path = row[1]
         self.base_ref = row[2]
@@ -64,12 +64,12 @@ class _JobLike:
 
 
 # Tracks fire-and-forget background tasks so they can be awaited on shutdown.
-_ephemeral_tasks: set[asyncio.Task] = set()  # noqa: WPS407
+_ephemeral_tasks: set[asyncio.Task[Any]] = set()  # noqa: WPS407
 
 
-def _fire_and_forget(coro, *, name: str) -> asyncio.Task:
+def _fire_and_forget(coro: Any, *, name: str) -> asyncio.Task[Any]:
     """Schedule a coroutine as a tracked background task."""
-    task = asyncio.create_task(coro, name=name)
+    task: asyncio.Task[Any] = asyncio.create_task(coro, name=name)
     _ephemeral_tasks.add(task)
     task.add_done_callback(_ephemeral_tasks.discard)
     return task
@@ -114,7 +114,7 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
     # instead of following it to the login page (which returns 200 with
     # no CF-Access-Domain header).
     class _NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: PLR0913
+        def redirect_request(self, req: Any, fp: Any, code: Any, msg: Any, headers: Any, newurl: Any) -> None:  # noqa: PLR0913
             return None
 
     opener = urllib.request.build_opener(_NoRedirect)
@@ -742,6 +742,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if not worktree_path:
             return
         job_id = event.job_id
+        if not job_id:
+            return
 
         async def _run_check() -> None:
             try:
@@ -785,6 +787,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if not coderecon_service.available:
             return
         job_id = event.job_id
+        if not job_id:
+            return
 
         async def _run_prefetch() -> None:
             try:
@@ -801,7 +805,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 if not job_row:
                     return
 
-                job_like = _JobLike(job_row)
+                job_like = _JobLike(tuple(job_row))
                 result = await _generate_review_story(job_id, job_like, coderecon_service)
 
                 # Cache the result using latest end_sha
@@ -831,6 +835,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if not coderecon_service.available:
             return
         job_id = event.job_id
+        if not job_id:
+            return
 
         async def _run_persist() -> None:
             try:
@@ -849,7 +855,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 if not job_row:
                     return
 
-                job_like = _JobLike(job_row)
+                job_like = _JobLike(tuple(job_row))
                 result = await _generate_review_story(job_id, job_like, coderecon_service)
 
                 story_json = result.model_dump_json()
@@ -878,6 +884,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if not coderecon_service.available:
             return
         job_id = event.job_id
+        if not job_id:
+            return
 
         async def _run_analytics() -> None:
             try:
