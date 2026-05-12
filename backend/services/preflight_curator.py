@@ -40,11 +40,14 @@ immediately without wasting time exploring.
 
 ## Rules
 
-- Be concise and direct — the agent reads this once at session start.
-- Omit anything unrelated to the specific task.
-- If a context source has nothing relevant, skip it entirely.
-- Do NOT reproduce raw structural data verbatim — synthesize and prioritize.
-- For memory entries, preserve them verbatim. For structural data, summarize freely.
+- Err on the side of INCLUSION. A few thousand extra tokens here saves tens of
+  thousands in wasted exploration during the session. When in doubt, keep it.
+- For memory entries, preserve them verbatim with their ### heading format.
+- For structural data, summarize freely but keep specifics: file paths, symbol
+  names, module relationships, cycle members. The agent needs concrete handles,
+  not vague descriptions.
+- You may omit things that are clearly irrelevant to the task, but do not
+  aggressively filter. Tangentially related context is better than missing context.
 - If nothing from any source is relevant, return an empty response.
 """
 
