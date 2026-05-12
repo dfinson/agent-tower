@@ -28,6 +28,8 @@ from backend.services.event_enricher import ToolEventEnricher
 from backend.services.watcher_telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.config import CPLConfig
@@ -365,7 +367,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     # Startup recovery
     # ------------------------------------------------------------------
 
-    def _make_pop_callback(self, sid: str):  # noqa: ANN202
+    def _make_pop_callback(self, sid: str) -> Callable[[object], None]:
         """Create a done-callback that removes *sid* from tail_tasks."""
 
         def _cb(_t: object) -> None:
