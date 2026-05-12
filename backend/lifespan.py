@@ -372,10 +372,10 @@ async def _wire_core_services(
     # --- Memory compacter (dedicated workspace memory summarization) ---
     memory_compacter = MemoryCompacter(adapter=utility_adapter)
 
-    # --- Memory curator (pre-job memory selection) ---
-    from backend.services.memory_curator import MemoryCurator
+    # --- Preflight curator (pre-job context curation: memory + structural) ---
+    from backend.services.preflight_curator import PreflightCurator
 
-    memory_curator = MemoryCurator(adapter=utility_adapter)
+    preflight_curator = PreflightCurator(adapter=utility_adapter)
 
     # --- Memory extractor (post-job knowledge extraction) ---
     from backend.services.memory_extractor import MemoryExtractor
@@ -417,7 +417,7 @@ async def _wire_core_services(
 
     # Wire the memory sessions
     runtime_service.set_memory_compacter(memory_compacter)
-    runtime_service.set_memory_curator(memory_curator)
+    runtime_service.set_preflight_curator(preflight_curator)
     runtime_service.set_memory_extractor(memory_extractor)
 
     # Recover orphaned jobs from a previous crash (background — don't block startup)

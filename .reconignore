@@ -8,6 +8,25 @@ backend/web/
 demo-video/
 .playwright-mcp/
 docs/images/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.svg
+*.mp4
+*.webm
+*.pdf
+*.whl
+*.zip
+*.tar.gz
+*.woff
+*.woff2
+*.ttf
+*.eot
+*.min.js
+*.min.css
+*.map
 
 # Vendored wheels
 vendor/

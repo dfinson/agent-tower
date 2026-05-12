@@ -1179,7 +1179,7 @@ async def _generate_review_story(
     try:
         worktree_cycles = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
         if worktree_cycles.cycles:
-            base_cycles = await coderecon.graph_cycles(repo_name)
+            base_cycles = await coderecon.graph_cycles(repo_name, worktree="main")
             base_keys = {c.nodes for c in base_cycles.cycles}
             for c in worktree_cycles.cycles:
                 if c.nodes not in base_keys:

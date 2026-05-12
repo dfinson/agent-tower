@@ -264,7 +264,7 @@ def _resolve_tier(tier: str) -> set[str]:
 def build_coderecon_tools(
     service: CodeReconService,
     repo: str,
-    worktree: str | None = None,
+    worktree: str,
     tier: str = "standard",
 ) -> CodeReconToolKit:
     """Build native tool wrappers for both Claude and Copilot SDKs.

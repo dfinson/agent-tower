@@ -83,7 +83,7 @@ if TYPE_CHECKING:
 
     from backend.services.coderecon_service import CodeReconService
     from backend.services.memory_compacter import MemoryCompacter
-    from backend.services.memory_curator import MemoryCurator
+    from backend.services.preflight_curator import PreflightCurator
     from backend.services.memory_extractor import MemoryExtractor
     from backend.services.step_tracker import StepTracker
     from backend.services.terminal_service import TerminalService
@@ -251,7 +251,7 @@ class RuntimeService:
         self._snapshot_tasks: dict[str, asyncio.Task[None]] = {}
         self._pending_starts: dict[str, tuple[str | None, str | None]] = {}
         self._memory_compacter: MemoryCompacter | None = None
-        self._memory_curator: MemoryCurator | None = None
+        self._preflight_curator: PreflightCurator | None = None
         self._memory_extractor: MemoryExtractor | None = None
 
         # Subscribe to policy settings changes for mid-job reload
@@ -290,9 +290,9 @@ class RuntimeService:
         """Wire the MemoryCompacter for workspace memory compaction."""
         self._memory_compacter = compacter
 
-    def set_memory_curator(self, curator: MemoryCurator) -> None:
-        """Wire the MemoryCurator for pre-job memory selection."""
-        self._memory_curator = curator
+    def set_preflight_curator(self, curator: PreflightCurator) -> None:
+        """Wire the PreflightCurator for pre-job context curation."""
+        self._preflight_curator = curator
 
     def set_memory_extractor(self, extractor: MemoryExtractor) -> None:
         """Wire the MemoryExtractor for post-job knowledge extraction."""
@@ -2035,44 +2035,58 @@ class RuntimeService:
         if snapshot_tasks:
             await asyncio.gather(*snapshot_tasks, return_exceptions=True)
 
-    # -- Workspace memory ----------------------------------------------------
+    # -- Preflight context curation ------------------------------------------
 
     async def _curate_workspace_memory(
         self,
         job: Job,
         session_config: SessionConfig,
     ) -> SessionConfig:
-        """Load workspace memory and curate it for this job.
+        """Load workspace memory + structural data and curate for this job.
 
         Returns *session_config* with ``memory_context`` populated (or unchanged
-        if no memory exists or curation fails).
+        on failure).
         """
         from backend.services.workspace_memory import load_workspace_memory
 
         raw_memory = load_workspace_memory(job.repo)
-        if not raw_memory:
+
+        # Gather structural understand data if coderecon is available
+        understand_result = None
+        worktree_path = job.worktree_path or job.repo
+        if self._coderecon_service is not None and self._coderecon_service.available:
+            try:
+                understand_result = await self._coderecon_service.understand(
+                    str(job.repo), worktree=worktree_path,
+                )
+            except Exception:
+                log.debug("preflight_curator.understand_failed", job_id=job.id, exc_info=True)
+
+        if not raw_memory and understand_result is None:
             return session_config
 
-        if self._memory_curator is None:
-            log.debug("workspace_memory.no_curator", job_id=job.id)
+        if self._preflight_curator is None:
+            log.debug("preflight_curator.not_configured", job_id=job.id)
             return session_config
 
         try:
-            curated = await self._memory_curator.curate(
+            curated = await self._preflight_curator.curate(
                 task=session_config.prompt,
-                memory=raw_memory,
+                memory=raw_memory or None,
+                understand_result=understand_result,
             )
             if curated and curated.strip():
                 log.info(
-                    "workspace_memory.curated",
+                    "preflight_curator.curated",
                     job_id=job.id,
-                    raw_len=len(raw_memory),
+                    had_memory=bool(raw_memory),
+                    had_structure=understand_result is not None,
                     curated_len=len(curated),
                 )
                 return dataclass_replace(session_config, memory_context=curated.strip())
-            log.debug("workspace_memory.nothing_relevant", job_id=job.id)
+            log.debug("preflight_curator.nothing_relevant", job_id=job.id)
         except Exception:
-            log.warning("workspace_memory.curation_failed", job_id=job.id, exc_info=True)
+            log.warning("preflight_curator.curation_failed", job_id=job.id, exc_info=True)
 
         return session_config
 

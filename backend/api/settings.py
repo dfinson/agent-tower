@@ -176,13 +176,13 @@ async def get_repo_health(
         pass
 
     try:
-        communities = await coderecon.graph_communities(repo_name)
+        communities = await coderecon.graph_communities(repo_name, worktree="main")
         community_count = len(communities.communities) if communities.communities else 0
     except Exception:
         pass
 
     try:
-        cycles = await coderecon.graph_cycles(repo_name)
+        cycles = await coderecon.graph_cycles(repo_name, worktree="main")
         cycle_count = len(cycles.cycles) if cycles.cycles else 0
     except Exception:
         pass

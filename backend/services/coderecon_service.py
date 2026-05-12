@@ -144,7 +144,7 @@ class CodeReconService:
         *,
         base: str = "HEAD",
         target: str | None = None,
-        worktree: str | None = None,
+        worktree: str,
         **_kwargs: Any,
     ) -> SemanticDiffResult:
         """Structural diff between two git states.
@@ -153,56 +153,51 @@ class CodeReconService:
         """
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {"base": base}
+        kwargs: dict[str, Any] = {"base": base, "worktree": Path(worktree).name}
         if target is not None:
             kwargs["target"] = target
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
         return await loop.run_in_executor(self._executor, lambda: kit.semantic_diff(**kwargs))
 
     async def graph_cycles(
         self,
         repo: str,
         *,
-        worktree: str | None = None,
+        worktree: str,
     ) -> CyclesResult:
         """Circular dependency detection."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {}
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(self._executor, lambda: kit.graph_cycles(**kwargs))
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.graph_cycles(worktree=Path(worktree).name)
+        )
 
     async def graph_communities(
         self,
         repo: str,
         *,
-        worktree: str | None = None,
+        worktree: str,
     ) -> CommunitiesResult:
         """Module community detection."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {}
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(self._executor, lambda: kit.graph_communities(**kwargs))
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.graph_communities(worktree=Path(worktree).name)
+        )
 
     async def check_structural_health(
         self,
         repo: str,
         *,
-        worktree: str | None = None,
+        worktree: str,
     ) -> StructuralHealthResult:
         """Composite structural health assessment."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {}
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(self._executor, lambda: kit.check_structural_health(**kwargs))
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.check_structural_health(worktree=Path(worktree).name)
+        )
 
-    async def impact(self, repo: str, target: str, *, worktree: str | None = None) -> Any:
+    async def impact(self, repo: str, target: str, *, worktree: str) -> Any:
         """Blast radius for a symbol or file path.
 
         Returns an ImpactResult with definition_sites, references,
@@ -212,17 +207,16 @@ class CodeReconService:
         if not hasattr(kit, "impact"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {}
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(self._executor, lambda: kit.impact(target, **kwargs))
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.impact(target, worktree=Path(worktree).name)
+        )
 
     async def understand(
         self,
         repo: str,
         *,
         scope: str | None = None,
-        worktree: str | None = None,
+        worktree: str,
     ) -> Any:
         """Codebase orientation — languages, top files, top symbols, cycles, communities.
 
@@ -232,11 +226,9 @@ class CodeReconService:
         if not hasattr(kit, "understand"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {"worktree": Path(worktree).name}
         if scope is not None:
             kwargs["scope"] = scope
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
         return await loop.run_in_executor(self._executor, lambda: kit.understand(**kwargs))
 
     async def reindex(
@@ -244,17 +236,16 @@ class CodeReconService:
         repo: str,
         changed_paths: list[str],
         *,
-        worktree: str | None = None,
+        worktree: str,
     ) -> int:
         """Re-index specific changed files. Returns count of files re-indexed."""
         kit = self._get_kit(repo)
         if not hasattr(kit, "reindex"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {"changed_paths": changed_paths}
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(self._executor, lambda: kit.reindex(**kwargs))
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.reindex(changed_paths, worktree=Path(worktree).name)
+        )
 
     async def recon(
         self,
@@ -263,28 +254,25 @@ class CodeReconService:
         *,
         seeds: Any = None,
         pins: Any = None,
-        worktree: str | None = None,
+        worktree: str,
     ) -> Any:
         """Run coderecon recon analysis."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {"task": task}
+        kwargs: dict[str, Any] = {"task": task, "worktree": Path(worktree).name}
         if seeds is not None:
             kwargs["seeds"] = seeds
         if pins is not None:
             kwargs["pins"] = pins
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
         return await loop.run_in_executor(self._executor, lambda: kit.recon(**kwargs))
 
-    async def recon_map(self, repo: str, *, worktree: str | None = None) -> Any:
+    async def recon_map(self, repo: str, *, worktree: str) -> Any:
         """Run coderecon recon_map."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {}
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(self._executor, lambda: kit.recon_map(**kwargs))
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.recon_map(worktree=Path(worktree).name)
+        )
 
     async def recon_impact(
         self,
@@ -292,24 +280,23 @@ class CodeReconService:
         target: str,
         justification: str,
         *,
-        worktree: str | None = None,
+        worktree: str,
     ) -> Any:
         """Run coderecon recon_impact."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {"target": target, "justification": justification}
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(self._executor, lambda: kit.recon_impact(**kwargs))
+        return await loop.run_in_executor(
+            self._executor,
+            lambda: kit.recon_impact(target=target, justification=justification, worktree=Path(worktree).name),
+        )
 
-    async def scaffold(self, repo: str, *, path: str = "", worktree: str | None = None) -> Any:
+    async def scaffold(self, repo: str, *, path: str = "", worktree: str) -> Any:
         """Run coderecon scaffold."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        kwargs: dict[str, Any] = {"path": path}
-        if worktree is not None:
-            kwargs["worktree"] = Path(worktree).name
-        return await loop.run_in_executor(self._executor, lambda: kit.scaffold(**kwargs))
+        return await loop.run_in_executor(
+            self._executor, lambda: kit.scaffold(path=path, worktree=Path(worktree).name)
+        )
 
     async def get_sdk(self) -> Any:
         """Return the raw coderecon SDK for direct access."""
@@ -333,7 +320,7 @@ class CodeReconService:
         self,
         repo: str,
         *,
-        worktree: str | None = None,
+        worktree: str,
     ) -> list[dict[str, Any]]:
         """Run lightweight structural checks at step boundary.
 
@@ -347,7 +334,7 @@ class CodeReconService:
         # Check for new cycles
         try:
             worktree_cycles = await self.graph_cycles(repo, worktree=worktree)
-            base_cycles = await self.graph_cycles(repo)
+            base_cycles = await self.graph_cycles(repo, worktree="main")
             base_keys = {c.nodes for c in base_cycles.cycles}
             new_cycles = [c for c in worktree_cycles.cycles if c.nodes not in base_keys]
             if new_cycles:
