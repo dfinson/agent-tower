@@ -59,11 +59,16 @@ class ActivityTracker:
         if not state:
             return
 
+        if not sister:
+            return
+
         # Track plan step for context (no longer forces boundaries).
         if assigned_plan_step_id:
             state.last_classified_plan_item = assigned_plan_step_id
 
-        # 1. Generate title + boundary decision (single LLM call)
+        # 1. Generate title + boundary decision (single LLM call).
+        #    Returns None on failure — skip this turn entirely rather than
+        #    emitting garbage placeholders.
         result = await self._title_gen.generate(
             job_id,
             state,
@@ -75,6 +80,8 @@ class ActivityTracker:
             assigned_plan_step_id=assigned_plan_step_id,
             preceding_context=preceding_context,
         )
+        if result is None:
+            return
 
         title = result.title
         merge_prev = result.merge_with_previous

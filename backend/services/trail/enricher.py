@@ -25,9 +25,7 @@ from backend.services.parsing_utils import ensure_dict
 from backend.services.trail.models import (
     ALL_KINDS,
     SEMANTIC_KINDS,
-    Activity,
     TrailJobState,
-    make_activity_id,
     make_node_id,
 )
 from backend.services.trail.prompts import (
@@ -198,7 +196,12 @@ class TrailEnricher:
         return processed
 
     async def drain_titles(self) -> int:
-        """Recover titles for trail nodes that were created but never got titles."""
+        """Recover titles for trail nodes that were created but never got titles.
+
+        Only emits a turn_summary when we can derive a meaningful title from
+        actual content (files written or agent message). Nodes with no signal
+        are skipped — silence is better than noise.
+        """
         nodes = await self._repo.get_untitled_work_nodes(limit=20)
         if not nodes:
             return 0
@@ -216,52 +219,45 @@ class TrailEnricher:
                 elif node.agent_message:
                     title = node.agent_message.split("\n")[0]
                 else:
-                    title = "Work in progress"
+                    # No meaningful signal — skip rather than emit garbage.
+                    continue
 
-                state = self._job_state.get(node.job_id)
-                activity_id = node.activity_id or make_activity_id()
-                activity_label = node.activity_label or "Working"
-
-                if state and not node.activity_id:
-                    if not state.activities:
-                        act = Activity(
-                            activity_id=activity_id,
-                            label=activity_label,
-                            status="active",
-                        )
-                        state.activities.append(act)
-                    current_act = state.activities[-1]
-                    activity_id = current_act.activity_id
-                    activity_label = current_act.label
+                # Only persist the title to DB. Do NOT touch in-memory state
+                # (state.activities) — that's the activity tracker's job.
+                # Mutating it here races with the live LLM path and poisons
+                # activity labels.
+                activity_id = node.activity_id or ""
+                activity_label = node.activity_label or ""
 
                 async with self._session_factory() as session:
                     from sqlalchemy import update as sa_update
                     stmt = sa_update(TrailNodeRow).where(TrailNodeRow.id == node.id).values(
                         title=title,
-                        activity_id=activity_id,
-                        activity_label=activity_label,
                     )
                     await session.execute(stmt)
                     await session.commit()
 
-                is_new_activity = node.activity_id is None
-                await self._event_bus.publish(
-                    DomainEvent(
-                        event_id=DomainEvent.make_event_id(),
-                        job_id=node.job_id,
-                        timestamp=node.timestamp,
-                        kind=DomainEventKind.turn_summary,
-                        payload={
-                            "turn_id": node.turn_id,
-                            "title": title,
-                            "activity_id": activity_id,
-                            "activity_label": activity_label,
-                            "activity_status": "active",
-                            "is_new_activity": is_new_activity,
-                            "plan_item_id": node.plan_item_id,
-                        },
+                # Only emit turn_summary if the activity tracker already
+                # assigned an activity (activity_id in the node). Otherwise
+                # the activity tracker will handle emission when it runs.
+                if activity_id:
+                    await self._event_bus.publish(
+                        DomainEvent(
+                            event_id=DomainEvent.make_event_id(),
+                            job_id=node.job_id,
+                            timestamp=node.timestamp,
+                            kind=DomainEventKind.turn_summary,
+                            payload={
+                                "turn_id": node.turn_id,
+                                "title": title,
+                                "activity_id": activity_id,
+                                "activity_label": activity_label,
+                                "activity_status": "active",
+                                "is_new_activity": False,
+                                "plan_item_id": node.plan_item_id,
+                            },
+                        )
                     )
-                )
                 processed += 1
             except (SQLAlchemyError, KeyError, ValueError, OSError):
                 log.debug("trail_title_recovery_failed", node_id=node.id, exc_info=True)

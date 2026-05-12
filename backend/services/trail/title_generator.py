@@ -42,15 +42,14 @@ class TitleGenerator:
         duration_ms: int,
         assigned_plan_step_id: str | None,
         preceding_context: str | None = None,
-    ) -> TitleResult:
-        """Generate a title and activity boundary decision for a completed turn."""
+    ) -> TitleResult | None:
+        """Generate a title and activity boundary decision for a completed turn.
+
+        Returns None if the LLM call fails or sister is unavailable — caller
+        should skip emitting a turn_summary rather than emitting garbage.
+        """
         if not sister:
-            return TitleResult(
-                title=self._fallback_title(agent_msg, files_written),
-                merge_with_previous=False,
-                new_activity=False,
-                activity_label=None,
-            )
+            return None
 
         # Build plan step context
         steps = state.plan_steps
@@ -98,25 +97,18 @@ class TitleGenerator:
             files_read_count=len(files_read),
         )
 
-        title = "Work in progress"
-        merge_prev = False
-        new_activity = False
-        activity_label: str | None = None
-
         try:
             raw = await sister.complete(prompt)
             raw = strip_code_fences(raw)
             parsed = json.loads(raw)
-            tt = parsed.get("title")
-            if isinstance(tt, str) and tt.strip():
-                title = tt.strip()
-            mp = parsed.get("merge_with_previous")
-            if isinstance(mp, bool):
-                merge_prev = mp
-            # Map "boundary": "shift" → new_activity=True
+            title = parsed.get("title", "").strip() or None
+            if not title:
+                log.warning("turn_title_empty_response", job_id=job_id)
+                return None
+            merge_prev = parsed.get("merge_with_previous") is True
             boundary = parsed.get("boundary", "same")
-            if boundary == "shift":
-                new_activity = True
+            new_activity = boundary == "shift"
+            activity_label: str | None = None
             al = parsed.get("label")
             if isinstance(al, str) and al.strip():
                 activity_label = al.strip()
@@ -124,7 +116,7 @@ class TitleGenerator:
         except (OSError, ValueError, KeyError):
             state.sister_consecutive_failures += 1
             log.warning("turn_title_generation_failed", job_id=job_id, exc_info=True)
-            title = self._fallback_title(agent_msg, files_written)
+            return None
 
         return TitleResult(
             title=title,
@@ -148,11 +140,3 @@ class TitleGenerator:
         if tool_names:
             return f"(tool-only turn: {', '.join(tool_names[-5:])})"
         return "(no message)"
-
-    @staticmethod
-    def _fallback_title(agent_msg: str, files_written: list[str]) -> str:
-        if files_written:
-            return f"Edited {', '.join(files_written[:3])}"
-        if agent_msg:
-            return agent_msg.split("\n")[0]
-        return "Work in progress"

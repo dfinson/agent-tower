@@ -294,7 +294,7 @@ class TrailJobState:
         state.activities = [
             Activity(
                 activity_id=a["activity_id"],
-                label=a.get("label", "Working"),
+                label=a.get("label", ""),
                 status=a.get("status", "active"),
             )
             for a in data.get("activities", [])
