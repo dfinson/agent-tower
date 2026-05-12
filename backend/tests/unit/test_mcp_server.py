@@ -436,30 +436,47 @@ class TestRepoTool:
     async def test_list(self, mcp_server) -> None:
         with patch("backend.mcp.server.load_config") as mock_cfg:
             cfg = MagicMock()
-            cfg.repos = ["/test/repo"]
+            cfg.server.host = "127.0.0.1"
+            cfg.server.port = 8080
             mock_cfg.return_value = cfg
 
-            result = await _tool(mcp_server, "codeplane_repo")(action="list")
-            assert result["items"] == ["/test/repo"]
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"items": ["/test/repo"]}
+            mock_response.raise_for_status = MagicMock()
+
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                client = AsyncMock()
+                client.get = AsyncMock(return_value=mock_response)
+                client.__aenter__ = AsyncMock(return_value=client)
+                client.__aexit__ = AsyncMock(return_value=False)
+                mock_client_cls.return_value = client
+
+                result = await _tool(mcp_server, "codeplane_repo")(action="list")
+                assert result["items"] == ["/test/repo"]
 
     @pytest.mark.asyncio
     async def test_get(self, mcp_server) -> None:
-        with (
-            patch("backend.mcp.server.load_config") as mock_cfg,
-            patch("backend.mcp.server.GitService") as mock_git_cls,
-        ):
+        with patch("backend.mcp.server.load_config") as mock_cfg:
             cfg = MagicMock()
-            cfg.repos = ["/test/repo"]
+            cfg.server.host = "127.0.0.1"
+            cfg.server.port = 8080
             mock_cfg.return_value = cfg
-            git = AsyncMock()
-            git.get_origin_url = AsyncMock(return_value="https://github.com/test/repo.git")
-            git.get_default_branch = AsyncMock(return_value="main")
-            mock_git_cls.return_value = git
-            mock_git_cls.strip_url_credentials = GitService.strip_url_credentials
 
-            result = await _tool(mcp_server, "codeplane_repo")(action="get", repo_path="/test/repo")
-            assert result["path"] == "/test/repo"
-            assert result["base_branch"] == "main"
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"path": "/test/repo", "baseBranch": "main"}
+            mock_response.raise_for_status = MagicMock()
+
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                client = AsyncMock()
+                client.get = AsyncMock(return_value=mock_response)
+                client.__aenter__ = AsyncMock(return_value=client)
+                client.__aexit__ = AsyncMock(return_value=False)
+                mock_client_cls.return_value = client
+
+                result = await _tool(mcp_server, "codeplane_repo")(action="get", repo_path="/test/repo")
+                assert result["path"] == "/test/repo"
 
     @pytest.mark.asyncio
     async def test_get_missing_path(self, mcp_server) -> None:
@@ -470,30 +487,47 @@ class TestRepoTool:
     async def test_register_local(self, mcp_server, tmp_path) -> None:
         repo_dir = tmp_path / "myrepo"
         repo_dir.mkdir()
-        with (
-            patch("backend.mcp.server.load_config") as mock_cfg,
-            patch("backend.mcp.server.GitService") as mock_git_cls,
-            patch("backend.mcp.server.register_repo"),
-        ):
+        with patch("backend.mcp.server.load_config") as mock_cfg:
             cfg = MagicMock()
-            cfg.repos = []
+            cfg.server.host = "127.0.0.1"
+            cfg.server.port = 8080
             mock_cfg.return_value = cfg
-            git = AsyncMock()
-            git.validate_repo = AsyncMock(return_value=True)
-            mock_git_cls.return_value = git
-            mock_git_cls.is_remote_url = MagicMock(return_value=False)
 
-            result = await _tool(mcp_server, "codeplane_repo")(action="register", source=str(repo_dir))
-            assert result["cloned"] is False
+            mock_response = MagicMock()
+            mock_response.status_code = 201
+            mock_response.json.return_value = {"path": str(repo_dir), "source": str(repo_dir), "cloned": False}
+
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                client = AsyncMock()
+                client.post = AsyncMock(return_value=mock_response)
+                client.__aenter__ = AsyncMock(return_value=client)
+                client.__aexit__ = AsyncMock(return_value=False)
+                mock_client_cls.return_value = client
+
+                result = await _tool(mcp_server, "codeplane_repo")(action="register", source=str(repo_dir))
+                assert result["cloned"] is False
 
     @pytest.mark.asyncio
     async def test_remove(self, mcp_server) -> None:
-        with (
-            patch("backend.mcp.server.load_config"),
-            patch("backend.mcp.server.unregister_repo"),
-        ):
-            result = await _tool(mcp_server, "codeplane_repo")(action="remove", repo_path="/test/repo")
-            assert result["status"] == "removed"
+        with patch("backend.mcp.server.load_config") as mock_cfg:
+            cfg = MagicMock()
+            cfg.server.host = "127.0.0.1"
+            cfg.server.port = 8080
+            mock_cfg.return_value = cfg
+
+            mock_response = MagicMock()
+            mock_response.status_code = 204
+            mock_response.raise_for_status = MagicMock()
+
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                client = AsyncMock()
+                client.delete = AsyncMock(return_value=mock_response)
+                client.__aenter__ = AsyncMock(return_value=client)
+                client.__aexit__ = AsyncMock(return_value=False)
+                mock_client_cls.return_value = client
+
+                result = await _tool(mcp_server, "codeplane_repo")(action="remove", repo_path="/test/repo")
+                assert result["status"] == "removed"
 
     @pytest.mark.asyncio
     async def test_remove_missing_path(self, mcp_server) -> None:

@@ -23,8 +23,6 @@ from typing_extensions import TypedDict
 from backend import __version__
 from backend.config import (
     load_config,
-    register_repo,
-    unregister_repo,
 )
 from backend.models.api_schemas import (  # type: ignore[attr-defined]
     ApprovalResolution,
@@ -35,9 +33,6 @@ from backend.models.api_schemas import (  # type: ignore[attr-defined]
     HealthStatus,
     JobListResponse,
     JobResponse,
-    RegisterRepoResponse,
-    RepoDetailResponse,
-    RepoListResponse,
     SendMessageResponse,
     SettingsResponse,
     WorkspaceEntry,
@@ -155,7 +150,7 @@ def create_mcp_server(
     _register_workspace_tool(mcp, state)
     _register_artifact_tool(mcp, state)
     _register_settings_tool(mcp)
-    _register_repo_tool(mcp)
+    _register_repo_tool(mcp, state)
     _register_health_tool(mcp, state)
 
     return mcp
@@ -644,7 +639,7 @@ def _register_settings_tool(mcp: FastMCP) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _register_repo_tool(mcp: FastMCP) -> None:
+def _register_repo_tool(mcp: FastMCP, mcp_state: MCPState) -> None:
     @mcp.tool(
         name="codeplane_repo",
         title="Manage Repositories",
@@ -664,72 +659,49 @@ def _register_repo_tool(mcp: FastMCP) -> None:
         source: str | None = None,
         clone_to: str | None = None,
     ) -> McpToolResult:
+        import httpx
+        import urllib.parse
+
         config = load_config()
+        base_url = f"http://{config.server.host}:{config.server.port}/api"
 
-        if action == "list":
-            return RepoListResponse(items=config.repos).model_dump(mode="json")
+        async with httpx.AsyncClient(timeout=120) as client:
+            if action == "list":
+                resp = await client.get(f"{base_url}/settings/repos")
+                resp.raise_for_status()
+                return resp.json()
 
-        if action == "get":
-            if not repo_path:
-                return {"error": "repo_path is required for get"}
-            resolved = str(Path(repo_path).expanduser().resolve())
-            if resolved not in config.repos:
-                return {"error": f"Repository '{repo_path}' is not registered."}
-            git = GitService(config)
-            origin_url: str | None = None
-            base_branch: str | None = None
-            with contextlib.suppress(GitError):
-                raw_url = await git.get_origin_url(resolved)
-                if raw_url:
-                    origin_url = GitService.strip_url_credentials(raw_url)
-            with contextlib.suppress(GitError):
-                base_branch = await git.get_default_branch(resolved)
-            return RepoDetailResponse(
-                path=resolved,
-                origin_url=origin_url,
-                base_branch=base_branch,
-                platform=_detect_platform(origin_url),
-            ).model_dump(mode="json")
+            if action == "get":
+                if not repo_path:
+                    return {"error": "repo_path is required for get"}
+                encoded = urllib.parse.quote(repo_path, safe="")
+                resp = await client.get(f"{base_url}/settings/repos/{encoded}")
+                if resp.status_code == 404:
+                    return {"error": f"Repository '{repo_path}' is not registered."}
+                resp.raise_for_status()
+                return resp.json()
 
-        if action == "register":
-            if not source:
-                return {"error": "source is required for register"}
-            git = GitService(config)
-            if GitService.is_remote_url(source):
-                if not clone_to:
-                    return {"error": "clone_to is required when registering a remote URL"}
-                clone_dir = str(Path(clone_to).expanduser().resolve())
-                if Path(clone_dir).exists():
-                    return {"error": f"Clone directory already exists: {clone_dir}"}
-                try:
-                    cloned_path = await git.clone_repo(source, clone_dir)
-                except GitError as exc:
-                    return {"error": f"Clone failed: {exc}"}
-                register_repo(config, cloned_path)
-                return RegisterRepoResponse(
-                    path=cloned_path,
-                    source=source,
-                    cloned=True,
-                ).model_dump(mode="json")
-            resolved = str(Path(source).expanduser().resolve())
-            is_valid = await git.validate_repo(resolved)
-            if not is_valid:
-                return {"error": f"Not a valid git repository: {source}"}
-            register_repo(config, resolved)
-            return RegisterRepoResponse(
-                path=resolved,
-                source=source,
-                cloned=False,
-            ).model_dump(mode="json")
+            if action == "register":
+                if not source:
+                    return {"error": "source is required for register"}
+                body: dict[str, Any] = {"source": source}
+                if clone_to:
+                    body["cloneTo"] = clone_to
+                resp = await client.post(f"{base_url}/settings/repos", json=body)
+                if resp.status_code >= 400:
+                    detail = resp.json().get("detail", resp.text)
+                    return {"error": str(detail)}
+                return resp.json()
 
-        if action == "remove":
-            if not repo_path:
-                return {"error": "repo_path is required for remove"}
-            try:
-                unregister_repo(config, repo_path)
-            except ValueError as exc:
-                return {"error": str(exc)}
-            return {"status": "removed", "path": repo_path}
+            if action == "remove":
+                if not repo_path:
+                    return {"error": "repo_path is required for remove"}
+                encoded = urllib.parse.quote(repo_path, safe="")
+                resp = await client.delete(f"{base_url}/settings/repos/{encoded}")
+                if resp.status_code == 404:
+                    return {"error": f"Repository '{repo_path}' not found in allowlist"}
+                resp.raise_for_status()
+                return {"status": "removed", "path": repo_path}
 
 
 # ---------------------------------------------------------------------------

@@ -902,18 +902,19 @@ class TestStreamEvents:
         assert collected[0].kind == SessionEventKind.error
 
     @pytest.mark.asyncio
-    async def test_timeout_yields_error(self, adapter: ClaudeAdapter) -> None:
+    async def test_sentinel_terminates_stream(self, adapter: ClaudeAdapter) -> None:
         sid = "sess-1"
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
 
-        # Patch wait_for to immediately timeout
-        with patch("asyncio.wait_for", side_effect=TimeoutError):
-            collected = []
-            async for event in adapter.stream_events(sid):
-                collected.append(event)
+        # Only sentinel — simulates process exit with no prior events
+        q.put_nowait(None)
 
-            assert any(e.kind == SessionEventKind.error for e in collected)
+        collected = []
+        async for event in adapter.stream_events(sid):
+            collected.append(event)
+
+        assert len(collected) == 0
 
 
 # ---------------------------------------------------------------------------

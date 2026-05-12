@@ -290,21 +290,21 @@ class TestStreamEvents:
         assert collected[0].kind == SessionEventKind.error
 
     @pytest.mark.asyncio
-    async def test_timeout_propagates_and_cleans_up(self, adapter: CopilotAdapter) -> None:
-        """When queue.get() times out, an error event is yielded and cleanup runs."""
+    async def test_sentinel_terminates_and_cleans_up(self, adapter: CopilotAdapter) -> None:
+        """When None sentinel arrives (process exit), stream ends and cleanup runs."""
         sid = "sess-1"
         q: asyncio.Queue[SessionEvent | None] = asyncio.Queue()
         adapter._queues[sid] = q
         adapter._sessions[sid] = MagicMock()
 
-        events: list[SessionEvent] = []
-        with patch("asyncio.wait_for", side_effect=TimeoutError):
-            async for event in adapter.stream_events(sid):
-                events.append(event)
+        # Only a sentinel — simulates process exiting with no prior events
+        q.put_nowait(None)
 
-        assert len(events) == 1
-        assert events[0].kind == SessionEventKind.error
-        assert "timed out" in events[0].payload.get("message", "")
+        events: list[SessionEvent] = []
+        async for event in adapter.stream_events(sid):
+            events.append(event)
+
+        assert len(events) == 0
         # Cleanup still runs via finally
         assert sid not in adapter._sessions
 

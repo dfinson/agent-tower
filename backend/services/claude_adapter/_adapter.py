@@ -23,7 +23,6 @@ from backend.models.domain import (
 from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionResult
 from backend.services.base_adapter import (
     COMPLETION_TIMEOUT_S,
-    STREAM_EVENT_TIMEOUT_S,
     BaseAgentAdapter,
     PermissionDecision,
 )
@@ -750,19 +749,7 @@ class ClaudeAdapter(BaseAgentAdapter):
             return
         try:
             while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=STREAM_EVENT_TIMEOUT_S)
-                except TimeoutError:
-                    # Consumer hung or sentinel was lost — treat as stream end.
-                    log.error(
-                        "claude_stream_queue_timeout",
-                        session_id=session_id,
-                    )
-                    yield SessionEvent(
-                        kind=SessionEventKind.error,
-                        payload={"message": "Claude SDK stream timed out (no events for 330s)"},
-                    )
-                    return
+                event = await queue.get()
                 if event is None:
                     return
                 yield event

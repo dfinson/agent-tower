@@ -53,11 +53,6 @@ class _NoSessionFactory(Exception):
 # Shared adapter constants
 # ---------------------------------------------------------------------------
 
-# SDK event stream queue timeout: if no event arrives within this window the
-# stream is considered stale.  330s accommodates long LLM generations plus a
-# safety margin over the typical ~300s provider timeout.
-STREAM_EVENT_TIMEOUT_S = 330
-
 # Single-turn completion timeout used by the `complete()` helper.
 COMPLETION_TIMEOUT_S = 180
 

@@ -19,7 +19,6 @@ from backend.services.agent_adapter import CODEPLANE_SYSTEM_PROMPT, CompletionRe
 from backend.services.base_adapter import (
     CLIENT_STOP_TIMEOUT_S,
     COMPLETION_TIMEOUT_S,
-    STREAM_EVENT_TIMEOUT_S,
     BaseAgentAdapter,
     PermissionDecision,
 )
@@ -786,15 +785,7 @@ class CopilotAdapter(BaseAgentAdapter):
             return
         try:
             while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=STREAM_EVENT_TIMEOUT_S)
-                except TimeoutError:
-                    log.error("copilot_stream_queue_timeout", session_id=session_id)
-                    yield SessionEvent(
-                        kind=SessionEventKind.error,
-                        payload={"message": f"Copilot SDK stream timed out (no events for {STREAM_EVENT_TIMEOUT_S}s)"},
-                    )
-                    return
+                event = await queue.get()
                 if event is None:
                     return
                 yield event
