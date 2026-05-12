@@ -948,7 +948,7 @@ async def get_job_multi_session(
 
 # -- Impact graph drill-down (§9.5) -------------------------------------------
 
-_IMPACT_TIER_MAP = {"proven": "verified", "strong": "verified", "anchored": "inferred", "unknown": "unverified"}
+_IMPACT_TIER_MAP = {"high": "verified", "medium": "inferred", "unknown": "unverified"}
 
 
 def _map_impact_tier(raw: str) -> str:
@@ -983,7 +983,7 @@ async def get_impact_graph(
 
     try:
         repo_name = await coderecon.ensure_repo_indexed(job.repo)
-        result = await coderecon.impact(repo_name, target=symbol)
+        result = await coderecon.impact(repo_name, target=symbol, worktree=job.worktree_path)
     except Exception:
         return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
 
@@ -991,7 +991,7 @@ async def get_impact_graph(
     for defn in getattr(result, "definition_sites", []):
         refs.append(
             ImpactReference(
-                symbol=getattr(defn, "symbol", ""),
+                symbol=getattr(defn, "name", ""),
                 file=getattr(defn, "file", ""),
                 line=getattr(defn, "line", None),
                 tier="verified",
@@ -1002,18 +1002,18 @@ async def get_impact_graph(
     for ref in getattr(result, "references", []):
         refs.append(
             ImpactReference(
-                symbol=getattr(ref, "symbol", ""),
+                symbol=getattr(ref, "name", ""),
                 file=getattr(ref, "file", ""),
                 line=getattr(ref, "line", None),
-                tier=_map_impact_tier(getattr(ref, "tier", "unknown")),
+                tier=_map_impact_tier(getattr(ref, "certainty", "unknown")),
                 is_test="test" in getattr(ref, "file", "").lower(),
-                raw_tier=getattr(ref, "tier", "unknown"),
+                raw_tier=getattr(ref, "certainty", "unknown"),
             )
         )
     for imp in getattr(result, "import_sites", []):
         refs.append(
             ImpactReference(
-                symbol=getattr(imp, "symbol", ""),
+                symbol=getattr(imp, "name", ""),
                 file=getattr(imp, "file", ""),
                 line=getattr(imp, "line", None),
                 tier="inferred",

@@ -454,14 +454,14 @@ async def test_impact_graph_success() -> None:
 
     fake_result = SimpleNamespace(
         definition_sites=[
-            SimpleNamespace(symbol="login", file="src/auth.py", line=10),
+            SimpleNamespace(name="login", file="src/auth.py", line=10),
         ],
         references=[
-            SimpleNamespace(symbol="call_login", file="src/main.py", line=42, tier="proven"),
-            SimpleNamespace(symbol="test_login", file="tests/test_auth.py", line=5, tier="strong"),
+            SimpleNamespace(name="call_login", file="src/main.py", line=42, certainty="high"),
+            SimpleNamespace(name="test_login", file="tests/test_auth.py", line=5, certainty="high"),
         ],
         import_sites=[
-            SimpleNamespace(symbol="login", file="src/routes.py", line=1),
+            SimpleNamespace(name="login", file="src/routes.py", line=1),
         ],
         total_references=4,
     )
@@ -479,13 +479,13 @@ async def test_impact_graph_success() -> None:
     assert defn.tier == "verified"
     assert defn.raw_tier == "definition"
 
-    # references → tier mapped from SDK tier
+    # references → tier mapped from SDK certainty
     ref1 = result.references[1]
-    assert ref1.tier == "verified"  # proven → verified
-    assert ref1.raw_tier == "proven"
+    assert ref1.tier == "verified"  # high → verified
+    assert ref1.raw_tier == "high"
 
     ref2 = result.references[2]
-    assert ref2.tier == "verified"  # strong → verified
+    assert ref2.tier == "verified"  # high → verified
     assert ref2.is_test is True
 
     # import_sites → tier="inferred"

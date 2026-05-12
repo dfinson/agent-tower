@@ -202,7 +202,7 @@ class CodeReconService:
             kwargs["worktree"] = Path(worktree).name
         return await loop.run_in_executor(self._executor, lambda: kit.check_structural_health(**kwargs))
 
-    async def impact(self, repo: str, target: str) -> Any:
+    async def impact(self, repo: str, target: str, *, worktree: str | None = None) -> Any:
         """Blast radius for a symbol or file path.
 
         Returns an ImpactResult with definition_sites, references,
@@ -212,7 +212,49 @@ class CodeReconService:
         if not hasattr(kit, "impact"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: kit.impact(target))
+        kwargs: dict[str, Any] = {}
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(self._executor, lambda: kit.impact(target, **kwargs))
+
+    async def understand(
+        self,
+        repo: str,
+        *,
+        scope: str | None = None,
+        worktree: str | None = None,
+    ) -> Any:
+        """Codebase orientation — languages, top files, top symbols, cycles, communities.
+
+        Returns an UnderstandResult.
+        """
+        kit = self._get_kit(repo)
+        if not hasattr(kit, "understand"):
+            raise CodeReconUnavailableError
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {}
+        if scope is not None:
+            kwargs["scope"] = scope
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(self._executor, lambda: kit.understand(**kwargs))
+
+    async def reindex(
+        self,
+        repo: str,
+        changed_paths: list[str],
+        *,
+        worktree: str | None = None,
+    ) -> int:
+        """Re-index specific changed files. Returns count of files re-indexed."""
+        kit = self._get_kit(repo)
+        if not hasattr(kit, "reindex"):
+            raise CodeReconUnavailableError
+        loop = asyncio.get_running_loop()
+        kwargs: dict[str, Any] = {"changed_paths": changed_paths}
+        if worktree is not None:
+            kwargs["worktree"] = Path(worktree).name
+        return await loop.run_in_executor(self._executor, lambda: kit.reindex(**kwargs))
 
     async def recon(
         self,

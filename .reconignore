@@ -1,0 +1,39 @@
+# Build outputs
+site/
+frontend/coverage/
+frontend/dist/
+backend/web/
+
+# Binary assets & media
+demo-video/
+.playwright-mcp/
+docs/images/
+
+# Vendored wheels
+vendor/
+
+# Generated / lock files
+uv.lock
+frontend/package-lock.json
+
+# Test artifacts
+test-results/
+frontend/test-results/
+e2e/
+
+# Caches & runtime
+__pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.pyc
+*.pyo
+*.so
+*.db
+*.db-journal
+
+# Node
+node_modules/
+
+# Alembic pycache
+alembic/versions/__pycache__/

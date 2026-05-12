@@ -961,13 +961,22 @@ class TestResumeFallback:
         assert "Fix session pool scaling for naming service" in adapter.configs[1].prompt
         assert "continue" in adapter.configs[1].prompt
 
+        async def _check_review() -> bool:
+            async with session_factory() as session:
+                from backend.persistence.job_repo import JobRepository
+
+                repo = JobRepository(session)
+                row = await repo.get(job.id)
+                return row is not None and row.state == JobState.review
+
+        await _wait_until(_check_review, msg="job state not review in DB")
+
         async with session_factory() as session:
             from backend.persistence.job_repo import JobRepository
 
             repo = JobRepository(session)
             row = await repo.get(job.id)
             assert row is not None
-            assert row.state == JobState.review
             assert row.sdk_session_id == "resume-2"
 
         await runtime.shutdown()
@@ -1623,11 +1632,14 @@ class TestErrorEventCausesFailure:
         # DB state should be failed
         from backend.models.db import JobRow
 
-        async with session_factory() as session:
-            from sqlalchemy import select
+        async def _check_failed() -> bool:
+            async with session_factory() as session:
+                from sqlalchemy import select
 
-            row = (await session.execute(select(JobRow).where(JobRow.id == job.id))).scalar_one()
-            assert row.state == JobState.failed
+                row = (await session.execute(select(JobRow).where(JobRow.id == job.id))).scalar_one()
+                return row.state == "failed"
+
+        await _wait_until(_check_failed, msg="job state not failed in DB")
 
         await runtime.shutdown()
 
