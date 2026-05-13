@@ -128,6 +128,7 @@ disable_error_code = ["arg-type", "no-untyped-def", "no-untyped-call", "attr-def
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 asyncio_mode = "auto"
+timeout = 60
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::pytest.PytestUnraisableExceptionWarning",
@@ -158,6 +159,7 @@ dev = [
     "ruff>=0.8,<1",
     "pre-commit>=4.0,<5",
     "pip-audit>=2.10.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [tool.uv.sources]
