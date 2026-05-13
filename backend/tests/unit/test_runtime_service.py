@@ -191,7 +191,17 @@ async def runtime(
         config=config,
     )
     yield service
-    await service.shutdown()
+    # Force-cancel all tasks then wait briefly — avoid slow teardown on CI.
+    for task in list(service._tasks.values()):
+        task.cancel()
+    for task in list(service._heartbeat_tasks.values()):
+        task.cancel()
+    all_tasks = list(service._tasks.values()) + list(service._heartbeat_tasks.values())
+    if all_tasks:
+        await asyncio.gather(*all_tasks, return_exceptions=True)
+    snapshot_tasks = list(service._snapshot_tasks.values())
+    if snapshot_tasks:
+        await asyncio.gather(*snapshot_tasks, return_exceptions=True)
     # Allow aiosqlite background threads to drain so they don't
     # encounter a closed event-loop after the engine is disposed.
     await asyncio.sleep(0.05)
@@ -970,6 +980,16 @@ class TestResumeFallback:
                 return row is not None and row.state == JobState.review
 
         await _wait_until(_check_review, msg="job state not review in DB")
+
+        async def _check_sdk_session_id() -> bool:
+            async with session_factory() as session:
+                from backend.persistence.job_repo import JobRepository
+
+                repo = JobRepository(session)
+                row = await repo.get(job.id)
+                return row is not None and row.sdk_session_id == "resume-2"
+
+        await _wait_until(_check_sdk_session_id, msg="sdk_session_id not set to resume-2")
 
         async with session_factory() as session:
             from backend.persistence.job_repo import JobRepository

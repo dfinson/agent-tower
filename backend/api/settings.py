@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from pathlib import Path
 
@@ -228,7 +229,7 @@ async def register_repo_endpoint(
             raise HTTPException(status_code=400, detail="Clone failed") from exc
         register_repo(config, cloned_path)
         if coderecon.available:
-            await coderecon.ensure_repo_indexed(cloned_path)
+            asyncio.create_task(coderecon.ensure_repo_indexed(cloned_path))
         return RegisterRepoResponse(path=cloned_path, source=source, cloned=True)
 
     # Local path
@@ -241,7 +242,7 @@ async def register_repo_endpoint(
         )
     register_repo(config, resolved)
     if coderecon.available:
-        await coderecon.ensure_repo_indexed(resolved)
+        asyncio.create_task(coderecon.ensure_repo_indexed(resolved))
     return RegisterRepoResponse(path=resolved, source=source, cloned=False)
 
 
@@ -268,7 +269,7 @@ async def create_repo_endpoint(
 
     register_repo(config, repo_path)
     if coderecon.available:
-        await coderecon.ensure_repo_indexed(repo_path)
+        asyncio.create_task(coderecon.ensure_repo_indexed(repo_path))
     return CreateRepoResponse(path=repo_path, name=resolved.name)
 
 
