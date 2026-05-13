@@ -750,36 +750,48 @@ async def analytics_export(
             headers={"Content-Disposition": f'attachment; filename="codeplane-analytics-{period}d.json"'},
         )
 
-    # CSV: flatten all sections
-    all_rows: list[dict[str, Any]] = []
+    # CSV: write each section as its own block with per-section headers
+    output = io.StringIO()
+    first_section = True
+
     for section_name, rows in combined.items():
+        # Flatten rows for this section, filtering out nested structures
+        section_rows: list[dict[str, Any]] = []
         for row in rows:
             raw = dict(row) if isinstance(row, dict) else {}
-            flat = {"_section": section_name, **{k: v for k, v in raw.items() if not isinstance(v, (list, dict))}}
-            all_rows.append(flat)
+            flat = {k: v for k, v in raw.items() if not isinstance(v, (list, dict))}
+            if flat:
+                section_rows.append(flat)
 
-    if not all_rows:
-        return Response(
-            content="",
-            media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="codeplane-analytics-{period}d.csv"'},
-        )
+        if not section_rows:
+            continue
 
-    # Collect all fieldnames across rows
-    all_keys: list[str] = []
-    seen: set[str] = set()
-    for row in all_rows:
-        for k in row:
-            if k not in seen:
-                all_keys.append(k)
-                seen.add(k)
+        # Collect fieldnames for this section only
+        section_keys: list[str] = []
+        seen: set[str] = set()
+        for row in section_rows:
+            for k in row:
+                if k not in seen:
+                    section_keys.append(k)
+                    seen.add(k)
 
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=all_keys)
-    writer.writeheader()
-    writer.writerows(all_rows)
+        if not first_section:
+            output.write("\r\n")
+        first_section = False
+
+        # Section label row
+        output.write(f"# {section_name}\r\n")
+
+        writer = csv.DictWriter(output, fieldnames=section_keys)
+        writer.writeheader()
+        writer.writerows(section_rows)
+
+    content = output.getvalue()
+    if not content:
+        content = ""
+
     return Response(
-        content=output.getvalue(),
+        content=content,
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="codeplane-analytics-{period}d.csv"'},
     )
