@@ -81,7 +81,7 @@ export interface BatchApprovalRequest {
 
 export interface ResolveBatchRequest {
   batchId: string;
-  resolution: "approved" | "rejected" | "partial" | "rollback";
+  resolution: "approved" | "rejected" | "partial";
   approvedIds?: string[];
   trustGrantId?: string;
 }

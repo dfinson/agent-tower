@@ -22,7 +22,6 @@ class BatchResolution(StrEnum):
     approved = "approved"
     rejected = "rejected"
     partial = "partial"
-    rollback = "rollback"
 
 
 @dataclass

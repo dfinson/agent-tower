@@ -299,7 +299,7 @@ const TIER_ICON: Record<string, string> = {
 function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
   const [resolving, setResolving] = useState<string | null>(null);
 
-  const handleResolve = async (resolution: "approved" | "rejected" | "rollback") => {
+  const handleResolve = async (resolution: "approved" | "rejected") => {
     setResolving(resolution);
     try {
       await resolveBatch(batch.jobId, batch.batchId, resolution);
@@ -355,9 +355,7 @@ function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground/50">
               {batch.resolution === "approved"
                 ? <><CheckCircle2 size={12} className="text-emerald-400/60" /> Approved</>
-                : batch.resolution === "rollback"
-                  ? <><XCircleIcon size={12} className="text-amber-400/60" /> Rolled back</>
-                  : <><XCircleIcon size={12} className="text-red-400/60" /> Rejected</>
+                : <><XCircleIcon size={12} className="text-red-400/60" /> Rejected</>
               }
             </div>
           ) : (
@@ -389,17 +387,6 @@ function InlineBatchApprovalCard({ batch }: { batch: BatchApproval }) {
               >
                 {resolving === "rejected" ? <Spinner className="w-3 h-3" /> : "Reject"}
               </Button>
-              {batch.actions.some((a) => a.checkpointRef) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleResolve("rollback")}
-                  disabled={!!resolving}
-                  className="text-xs h-7 sm:h-7 min-h-[44px] sm:min-h-0 border-amber-700/40 text-amber-400 hover:bg-amber-950/30"
-                >
-                  {resolving === "rollback" ? <Spinner className="w-3 h-3" /> : "Rollback"}
-                </Button>
-              )}
             </div>
           )}
         </div>

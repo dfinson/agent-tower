@@ -517,7 +517,7 @@ export function trustJob(jobId: string): Promise<{ resolved: number }> {
 export function resolveBatch(
   jobId: string,
   batchId: string,
-  resolution: "approved" | "rejected" | "partial" | "rollback",
+  resolution: "approved" | "rejected" | "partial",
   approvedIds?: string[],
   trustGrantId?: string,
 ): Promise<{ resolved: boolean }> {

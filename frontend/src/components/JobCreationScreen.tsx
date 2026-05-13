@@ -42,7 +42,7 @@ export function JobCreationScreen() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [addRepoOpen, setAddRepoOpen] = useState(false);
-  const [preset, setPreset] = useState<"autonomous" | "supervised" | "strict">("supervised");
+  const [preset, setPreset] = useState<"autonomous" | "supervised" | "locked">("supervised");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [sdk, setSdk] = useState<string | null>(null);
   const [branchSuggesting, setBranchSuggesting] = useState(false);
@@ -96,7 +96,7 @@ export function JobCreationScreen() {
     fetchPolicySettings()
       .then((policy) => {
         const p = policy.config.preset;
-        if (p === "autonomous" || p === "supervised" || p === "strict") {
+        if (p === "autonomous" || p === "supervised" || p === "locked") {
           setPreset(p);
         }
         setSettingsLoaded(true);
@@ -295,9 +295,9 @@ export function JobCreationScreen() {
             <div className={`flex gap-2 transition-opacity ${!settingsLoaded ? "opacity-50 pointer-events-none" : ""}`}>
               {(
                 [
-                  { value: "autonomous" as const, label: "Autonomous", tip: "Agent works freely on your code. Only asks before network access or actions outside the project." },
-                  { value: "supervised" as const, label: "Supervised", tip: "Agent can edit files and run safe commands. Asks before anything irreversible or external." },
-                  { value: "strict" as const, label: "Strict", tip: "Agent creates a restore point before every edit. Asks permission for commands and external actions." },
+                  { value: "autonomous" as const, label: "Autonomous", tip: "Agent runs freely. Monitor handles approvals. You'll rarely be asked." },
+                  { value: "supervised" as const, label: "Supervised", tip: "Agent works locally without interruption. Monitor approves known externals. You decide the rest." },
+                  { value: "locked" as const, label: "Locked", tip: "Every action outside the worktree needs your approval." },
                 ]
               ).map(({ value, label, tip }) => (
                 <Tooltip key={value} content={tip}>
@@ -316,9 +316,9 @@ export function JobCreationScreen() {
               ))}
             </div>
             <p className="text-xs text-muted-foreground leading-snug">
-              {preset === "autonomous" && "Agent works freely on your code. Only asks before network access or actions outside the project."}
-              {preset === "supervised" && "Agent can edit files and run safe commands. Asks before anything irreversible or external."}
-              {preset === "strict" && "Agent creates a restore point before every edit. Asks permission for commands and external actions."}
+              {preset === "autonomous" && "Agent runs freely. Monitor handles approvals. You'll rarely be asked."}
+              {preset === "supervised" && "Agent works locally without interruption. Monitor approves known externals. You decide the rest."}
+              {preset === "locked" && "Every action outside the worktree needs your approval."}
             </p>
           </div>
 

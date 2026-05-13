@@ -61,7 +61,7 @@ class Tier(StrEnum):
 class Preset(StrEnum):
     autonomous = "autonomous"
     supervised = "supervised"
-    strict = "strict"
+    locked = "locked"
 
 
 class ActionKind(StrEnum):
@@ -229,7 +229,7 @@ def resolve_tier(
         if not contained or not reversible:
             return Tier.gate
         return Tier.observe
-    # strict
+    # locked
     if reversible and contained:
         return Tier.checkpoint
     return Tier.gate

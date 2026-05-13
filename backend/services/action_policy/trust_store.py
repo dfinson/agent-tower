@@ -28,6 +28,7 @@ class TrustGrant:
     excludes: list[str] = field(default_factory=list)
     command_pattern: str | None = None
     mcp_server: str | None = None
+    mcp_tool: str | None = None
     job_id: str | None = None
     expires_at: datetime | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -157,6 +158,59 @@ class TrustStore:
         now = datetime.now(UTC)
         return [g for g in self._grants.values() if not g.expires_at or g.expires_at >= now]
 
+    async def create_from_action(
+        self,
+        action: Action,
+        *,
+        reason: str = "",
+        job_scoped: bool = True,
+    ) -> TrustGrant:
+        """Create a trust grant that covers this action's pattern.
+
+        When ``job_scoped`` is True (monitor-generated), the grant is
+        limited to this job.  When False (human-generated), it persists
+        across jobs (repo-scoped).
+        """
+        from backend.services.action_policy.classifier import ActionKind
+
+        kind_map = {
+            ActionKind.file: "write",
+            ActionKind.shell: "shell",
+            ActionKind.mcp_tool: "mcp",
+            ActionKind.sdk_tool: "sdk",
+        }
+
+        kinds = {kind_map.get(action.kind, str(action.kind))}
+        command_pattern: str | None = None
+        mcp_server: str | None = None
+        path_pattern: str | None = None
+
+        mcp_tool: str | None = None
+
+        if action.kind == ActionKind.shell and action.command:
+            # Anchor the pattern so it only matches the exact command,
+            # not a prefix of a longer chained command
+            import re
+
+            command_pattern = "^" + re.escape(action.command) + "$"
+        elif action.kind == ActionKind.mcp_tool:
+            mcp_server = action.mcp_server
+            mcp_tool = action.mcp_tool
+        elif action.kind == ActionKind.file and action.path:
+            path_pattern = action.path
+
+        grant = await self.create(
+            kinds=kinds,
+            command_pattern=command_pattern,
+            mcp_server=mcp_server,
+            path_pattern=path_pattern,
+            job_id=action.job_id if job_scoped else None,
+            reason=reason,
+        )
+        # Store mcp_tool in-memory for tool-scoped matching
+        grant.mcp_tool = mcp_tool
+        return grant
+
 
 def _grant_matches(grant: TrustGrant, action: Action) -> bool:
     """Check if a single grant covers the given action."""
@@ -194,7 +248,11 @@ def _grant_matches(grant: TrustGrant, action: Action) -> bool:
             return False
 
     # MCP server scope
-    if grant.mcp_server and (not action.mcp_server or grant.mcp_server != action.mcp_server):  # noqa: SIM103
+    if grant.mcp_server and (not action.mcp_server or grant.mcp_server != action.mcp_server):
+        return False
+
+    # MCP tool scope — when set, only covers the specific tool
+    if grant.mcp_tool and (not action.mcp_tool or grant.mcp_tool != action.mcp_tool):
         return False
 
     return True

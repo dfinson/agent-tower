@@ -285,7 +285,7 @@ class TestOnPolicySettingsChanged:
         # Mock DB calls
         mock_session = AsyncMock()
         mock_repo = MagicMock()
-        mock_repo.get_config = AsyncMock(return_value={"preset": "strict", "batch_window_seconds": 3.0})
+        mock_repo.get_config = AsyncMock(return_value={"preset": "locked", "batch_window_seconds": 3.0})
         mock_repo.list_path_rules = AsyncMock(return_value=[])
         mock_repo.list_action_rules = AsyncMock(return_value=[])
         mock_repo.list_cost_rules = AsyncMock(return_value=[])
@@ -293,7 +293,7 @@ class TestOnPolicySettingsChanged:
 
         # Mock JobRepository for per-job preset lookup
         mock_job = MagicMock()
-        mock_job.preset = "strict"
+        mock_job.preset = "locked"
         mock_job_repo = MagicMock()
         mock_job_repo.get = AsyncMock(return_value=mock_job)
 
@@ -314,7 +314,7 @@ class TestOnPolicySettingsChanged:
         call_args = mock_adapter.update_repo_policy.call_args
         assert call_args[0][0] == "job-1"  # job_id
         policy = call_args[0][1]
-        assert policy.preset == Preset.strict
+        assert policy.preset == Preset.locked
 
     @pytest.mark.asyncio
     async def test_skips_finished_jobs(self) -> None:

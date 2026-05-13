@@ -91,7 +91,7 @@ class ResolveBatchRequest(CamelModel):
     """Resolve a pending action policy batch."""
 
     batch_id: str
-    resolution: str  # approved / rejected / partial / rollback
+    resolution: str  # approved / rejected / partial
     approved_ids: list[str] | None = None
     trust_grant_id: str | None = None
 

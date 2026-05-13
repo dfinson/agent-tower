@@ -628,7 +628,14 @@ class RuntimeService:
 
             # --- Wire action policy router (mandatory) ---
             job_preset = job.preset if job is not None else "supervised"
-            await self._setup_action_policy(job_id, config, worktree_path, job_preset=job_preset)
+            await self._setup_action_policy(
+                job_id,
+                config,
+                worktree_path,
+                job_preset=job_preset,
+                job_prompt=job.prompt if job is not None else "",
+                repo=job.repo if job is not None else None,
+            )
 
             result = await self._execute_session_attempt(
                 job_id,
@@ -897,6 +904,8 @@ class RuntimeService:
         config: SessionConfig,
         worktree_path: str | None,
         job_preset: str = "supervised",
+        job_prompt: str = "",
+        repo: str | None = None,
     ) -> None:
         """Load action policy from DB and wire the PolicyRouter into the adapter.
 
@@ -907,6 +916,7 @@ class RuntimeService:
         from backend.services.action_policy.batcher import ApprovalBatcher
         from backend.services.action_policy.checkpoint_service import CheckpointService
         from backend.services.action_policy.classifier import Preset, RepoPolicy
+        from backend.services.action_policy.monitor import MonitorSession
         from backend.services.action_policy.router import PolicyRouter
         from backend.services.action_policy.trust_store import TrustStore
 
@@ -945,10 +955,31 @@ class RuntimeService:
             batch_window_seconds=db_config["batch_window_seconds"],
         )
 
+        # Create monitor for non-locked presets
+        monitor: MonitorSession | None = None
+        if effective_preset != "locked" and worktree_path:
+            from backend.persistence.trail_repo import TrailNodeRepository
+
+            trail_repo = TrailNodeRepository(self._session_factory)
+            adapter = self._resolve_adapter(config.sdk)
+            from backend.services.lightweight_completer import LightweightCompleter
+
+            completer = LightweightCompleter(adapter, model=self._config.runtime.utility_model)
+            monitor = MonitorSession(
+                job_id=job_id,
+                job_prompt=job_prompt,
+                worktree=worktree_path,
+                repo=repo,
+                completer=completer,
+                trail_repo=trail_repo,
+                coderecon=self._coderecon_service,
+            )
+
         router = PolicyRouter(
             checkpoint_service=checkpoint_svc,
             trust_store=trust_store,
             batcher=batcher,
+            monitor=monitor,
         )
 
         # Wire into adapter

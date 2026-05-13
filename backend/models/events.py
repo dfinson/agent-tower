@@ -61,6 +61,9 @@ class DomainEventKind(StrEnum):
     repo_index_complete = "RepoIndexComplete"
     structural_warning = "StructuralWarning"
     stall_detected = "StallDetected"
+    monitor_approved = "MonitorApproved"
+    monitor_rejected = "MonitorRejected"
+    monitor_escalated = "MonitorEscalated"
 
 
 # ---------------------------------------------------------------------------

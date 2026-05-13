@@ -190,14 +190,16 @@ class Preset(StrEnum):
     """Action policy preset — controls how the policy router classifies agent actions.
 
     autonomous — Contained actions auto-approved. Non-contained actions gated.
+                 Monitor handles gate-tier decisions.
     supervised — Reversible + contained auto-approved. Irreversible or
-                 non-contained actions gated.
-    strict     — Reversible + contained get checkpointed. Everything else gated.
+                 non-contained actions gated. Monitor handles gate-tier decisions.
+    locked     — Reversible + contained get checkpointed. Everything else gated.
+                 Monitor disabled — all gates go directly to human.
     """
 
     autonomous = "autonomous"
     supervised = "supervised"
-    strict = "strict"
+    locked = "locked"
 
 
 class SessionEventKind(StrEnum):

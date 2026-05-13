@@ -277,6 +277,57 @@ _QUOTED_STRING_RE = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"|\'[^\'\\]*(?:\\.[^\'\\
 # PowerShell cmdlet pattern: Verb-Noun
 _PS_CMDLET_RE = re.compile(r"^([A-Z][a-z]+)-", re.IGNORECASE)
 
+# Localhost detection — loopback traffic never leaves the machine
+_LOCALHOST_RE = re.compile(
+    r"(?:localhost|127\.0\.0\.1|::1|\[::1\]|0\.0\.0\.0)"
+    r"(?::\d+)?",  # optional port
+    re.IGNORECASE,
+)
+
+# Mutating HTTP method flags for curl/wget
+_CURL_MUTATING_RE = re.compile(
+    r"""
+    -X\s*(?:POST|PUT|DELETE|PATCH)  # explicit method
+    | --request\s+(?:POST|PUT|DELETE|PATCH)
+    | --data(?:-\w+)?\b             # -d / --data / --data-raw / --data-binary
+    | -d\s                          # short -d flag
+    | --upload-file\b
+    | -T\s                          # upload shorthand
+    | -F\s                          # form upload
+    | --form\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Test runners — local process execution with no external side effects
+_TEST_RUNNERS = frozenset(
+    {
+        "pytest",
+        "jest",
+        "vitest",
+        "mocha",
+        "ava",
+        "tap",
+        "bats",
+        "phpunit",
+        "rspec",
+        "minitest",
+    }
+)
+
+# Binaries that are test runners when invoked with a "test" subcommand
+# (handled in _CROSS_PLATFORM_TOOLS already for cargo/npm/etc.
+# This covers: `go test`, `dotnet test`, `swift test`, `mix test`)
+_TEST_SUBCOMMAND_BINARIES = frozenset(
+    {
+        "go",
+        "dotnet",
+        "swift",
+        "mix",
+        "elixir",
+    }
+)
+
 
 def _strip_quotes(cmd: str) -> str:
     return _QUOTED_STRING_RE.sub('""', cmd)
@@ -378,9 +429,26 @@ def classify_shell(command: str) -> tuple[bool, bool]:
     if binary in _POSIX_OBSERVE:
         return True, True
     if binary in _POSIX_UNCONTAINED:
+        # Localhost targets are contained — loopback never leaves the machine
+        if _LOCALHOST_RE.search(command):
+            # Read-only (GET) requests are also reversible
+            if not _CURL_MUTATING_RE.search(command):
+                return True, True
+            return False, True
+        # Non-localhost: uncontained.  Read-only GETs are still reversible.
+        if not _CURL_MUTATING_RE.search(command):
+            return True, False
         return False, False
     if binary in _POSIX_IRREVERSIBLE:
         return False, True
+
+    # --- Test runners (standalone binaries) ---
+    if binary in _TEST_RUNNERS:
+        return True, True
+
+    # --- Test subcommand binaries (e.g. `go test`, `dotnet test`) ---
+    if binary in _TEST_SUBCOMMAND_BINARIES and subcmd == "test":
+        return True, True
 
     # --- cmd.exe ---
     if binary in _CMD_OBSERVE:

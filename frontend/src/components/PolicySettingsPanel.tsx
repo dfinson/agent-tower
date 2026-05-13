@@ -23,9 +23,9 @@ import { ConfirmDialog } from "./ui/confirm-dialog";
 import { useStore } from "../store";
 
 const PRESETS = [
-  { value: "autonomous", label: "Autonomous", description: "Agent runs freely — observe and checkpoint only" },
-  { value: "supervised", label: "Supervised", description: "Default — gates irreversible or uncontained actions" },
-  { value: "strict", label: "Strict", description: "All mutations require approval" },
+  { value: "autonomous", label: "Autonomous", description: "Agent runs freely — monitor handles gate-tier approvals" },
+  { value: "supervised", label: "Supervised", description: "Default — monitor approves known externals, human decides the rest" },
+  { value: "locked", label: "Locked", description: "Every action outside the worktree requires human approval" },
 ];
 
 const TIERS = [
