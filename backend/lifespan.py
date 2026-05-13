@@ -117,13 +117,15 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
                 apps = await client.zero_trust.access.applications.list(account_id=account_id)
                 for access_app in apps:
                     # Check if any Access application covers this hostname
-                    if access_app.domain and access_app.domain == hostname:
-                        log.info("cloudflare_access_verified", url=tunnel_url, method="sdk", app_name=access_app.name)
+                    app_domain = getattr(access_app, "domain", None)
+                    app_name = getattr(access_app, "name", "")
+                    if app_domain and app_domain == hostname:
+                        log.info("cloudflare_access_verified", url=tunnel_url, method="sdk", app_name=app_name)
                         return
                     # Also check self_hosted_domains for multi-domain apps
                     self_hosted = getattr(access_app, "self_hosted_domains", None) or []
                     if hostname in self_hosted:
-                        log.info("cloudflare_access_verified", url=tunnel_url, method="sdk", app_name=access_app.name)
+                        log.info("cloudflare_access_verified", url=tunnel_url, method="sdk", app_name=app_name)
                         return
                 log.warning(
                     "cf_access_sdk_no_match",
@@ -220,7 +222,8 @@ def _extract_account_id_from_tunnel_token() -> str | None:
         # Token is base64-encoded JSON: {"a": "<account_id>", "t": "<tunnel_id>", "s": "..."}
         decoded = base64.b64decode(token + "==")
         data = json.loads(decoded)
-        return data.get("a")
+        account_id: str | None = data.get("a")
+        return account_id
     except Exception:
         return None
 

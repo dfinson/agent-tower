@@ -6,7 +6,7 @@
  */
 
 import { test, expect } from "@playwright/test";
-import { setupBaseMocks, NOW } from "./helpers";
+import { setupBaseMocks } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // Fixtures

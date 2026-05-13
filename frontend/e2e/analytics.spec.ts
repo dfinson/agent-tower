@@ -6,7 +6,7 @@
  */
 
 import { test, expect } from "@playwright/test";
-import { setupBaseMocks, sseBody } from "./helpers";
+import { setupBaseMocks } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // Fixtures
