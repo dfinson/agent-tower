@@ -26,7 +26,7 @@ _POSIX_OBSERVE = frozenset(
         "wc",
         "echo",
         "pwd",
-        "env",
+        # env is NOT here — it can execute arbitrary commands (env curl ...)
         "printenv",
         "whoami",
         "date",
@@ -47,6 +47,31 @@ _POSIX_OBSERVE = frozenset(
         "true",
         "false",
     }
+)
+
+# Transparent wrapper commands that pass through to a wrapped command.
+# When encountered, we skip the wrapper and classify the inner command.
+# env: can set variables then execute a command (env FOO=bar curl evil)
+# nice/timeout/stdbuf/nohup: run a command with modified scheduling/io/signals
+# command: bypass shell aliases, execute actual binary
+_TRANSPARENT_WRAPPERS = frozenset(
+    {"env", "nice", "timeout", "stdbuf", "nohup", "command"}
+)
+
+# Detect bash /dev/tcp or /dev/udp network socket redirects.
+# These turn observe-tier commands (echo, cat, ls) into exfil channels.
+_DEV_TCP_RE = re.compile(r"/dev/(?:tcp|udp)/", re.IGNORECASE)
+
+# Proxy environment variable names — setting these routes all traffic
+# through the specified host, enabling silent MitM.
+_PROXY_ENV_VARS = frozenset(
+    {"http_proxy", "https_proxy", "all_proxy", "ftp_proxy"}
+)
+
+# pip install from remote URLs — setup.py executes arbitrary code
+_PIP_REMOTE_RE = re.compile(
+    r"(?:git\+https?://|https?://\S+\.(?:tar\.gz|whl|zip))",
+    re.IGNORECASE,
 )
 
 # Commands that are observational by default but have destructive flags.
@@ -278,7 +303,7 @@ _UV_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
     "sync": (True, True),
     "add": (True, True),
     "remove": (True, True),
-    "run": (True, True),
+    "run": (False, False),  # Turing-complete: uv run python/curl/bash
     "lock": (True, True),
     "pip": (True, True),
     "publish": (False, False),
@@ -501,6 +526,70 @@ def classify_shell(command: str) -> tuple[bool, bool]:
     if not binary:
         return True, True
 
+    # --- Fix F2: reject path-qualified binaries that shadow OBSERVE tools ---
+    # ./cat, /tmp/evil/echo, ../grep etc. can be trojan scripts that get
+    # classified as safe observe commands via os.path.basename().
+    # If the command path is relative or absolute, don't trust safe tables.
+    raw_binary_token = command.strip().split()[0] if command.strip().split() else ""
+    # Skip env-var assignments to find actual binary token
+    _tok = raw_binary_token
+    while "=" in _tok and _tok.split("=", 1)[0].replace("_", "").isalnum():
+        rest = command.strip().split(None, 1)
+        if len(rest) > 1:
+            _tok = rest[1].split()[0] if rest[1].strip() else ""
+        else:
+            _tok = ""
+        break
+    is_path_binary = "/" in _tok or _tok.startswith("./") or _tok.startswith("../")
+
+    # --- Fix F1 + F8: Transparent wrappers (env, nice, timeout, etc.) ---
+    # Re-classify the wrapped command instead of the wrapper itself.
+    if binary in _TRANSPARENT_WRAPPERS:
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            parts = command.split()
+        # Skip binary + any flags/env-var assignments to find wrapped command
+        inner_parts: list[str] = []
+        skip_next_positional = binary == "timeout"  # timeout's 1st positional = duration
+        for i, tok in enumerate(parts[1:], 1):
+            # Skip wrapper flags (e.g. env -i, nice -n 5, timeout 30)
+            if tok.startswith("-"):
+                # Some flags take arguments (nice -n, timeout value)
+                continue
+            if "=" in tok and binary == "env":
+                continue  # env var assignment
+            if skip_next_positional:
+                skip_next_positional = False
+                continue  # skip timeout duration value
+            # Found the inner command
+            inner_parts = parts[i:]
+            break
+        if inner_parts:
+            inner_cmd = " ".join(inner_parts)
+            return classify_shell(inner_cmd)
+        # Bare wrapper with no command (e.g. `env` alone = print env)
+        return True, True
+
+    # --- Fix F5: /dev/tcp and /dev/udp redirect exfiltration ---
+    # Bash treats /dev/tcp/HOST/PORT as a network socket in redirects.
+    # This turns observe-tier commands (echo, cat, ls) into exfil channels.
+    if _DEV_TCP_RE.search(command):
+        return False, False
+
+    # --- Fix F6: Proxy environment variables → silent MitM ---
+    # Detect leading env-var assignments that set HTTP_PROXY etc.
+    _stripped_for_proxy = command.strip()
+    while _stripped_for_proxy:
+        first_tok = _stripped_for_proxy.split()[0] if _stripped_for_proxy.split() else ""
+        if "=" in first_tok:
+            var_name = first_tok.split("=", 1)[0].lower()
+            if var_name in _PROXY_ENV_VARS:
+                return False, False  # uncontained: all traffic routed through attacker
+            _stripped_for_proxy = _stripped_for_proxy.split(None, 1)[1] if " " in _stripped_for_proxy else ""
+        else:
+            break
+
     # --- Cross-platform tools first ---
     tool_table = _CROSS_PLATFORM_TOOLS.get(binary)
     if tool_table is not None:
@@ -513,9 +602,17 @@ def classify_shell(command: str) -> tuple[bool, bool]:
             if _DOCKER_ESCAPE_RE.search(command):
                 return False, False  # uncontained: host access
 
+        # Special case: pip/pip3 install from remote URL (setup.py ACE)
+        if binary in ("pip", "pip3") and subcmd == "install":
+            if _PIP_REMOTE_RE.search(command):
+                return False, False  # uncontained: arbitrary code from URL
+
         if subcmd:
             result = tool_table.get(subcmd)
             if result is not None:
+                # Fix F2: Don't trust OBSERVE classification for path-qualified binaries
+                if is_path_binary and result == (True, True):
+                    return False, True
                 return result
         # Unknown subcommand for known tool: conservative
         return False, True
@@ -546,6 +643,9 @@ def classify_shell(command: str) -> tuple[bool, bool]:
 
     # --- POSIX ---
     if binary in _POSIX_OBSERVE:
+        # Fix F2: Don't trust OBSERVE for path-qualified binaries
+        if is_path_binary:
+            return False, True
         return True, True
     if binary in _POSIX_TEE:
         # tee writes to files/pseudo-devices — irreversible but contained
@@ -599,6 +699,10 @@ def classify_shell(command: str) -> tuple[bool, bool]:
     # --- Python/Node/Ruby interpreters: uncontained — Turing-complete,
     # can perform arbitrary network I/O via standard library ---
     if binary in ("python", "python3", "node", "ruby", "perl", "bash", "sh", "zsh"):
+        return False, False
+
+    # --- Build tools: execute arbitrary recipes with full shell + network ---
+    if binary in ("make", "cmake", "gradle", "mvn", "ant"):
         return False, False
 
     # --- Default: irreversible, contained ---

@@ -304,9 +304,13 @@ class MonitorSession:
             log.warning("monitor_llm_error", job_id=self._job_id, exc_info=True)
             return MonitorVerdict.escalate, "LLM call failed — escalating to human"
 
-        if verdict_text.startswith("approve"):
+        # Extract the first word only — prevents injection via
+        # "approved: actually do something else" payloads.
+        first_word = verdict_text.split()[0] if verdict_text else ""
+
+        if first_word in ("approve", "approved"):
             return MonitorVerdict.approve, "Monitor approved based on evidence analysis"
-        if verdict_text.startswith("reject"):
+        if first_word in ("reject", "rejected"):
             return MonitorVerdict.reject, "Monitor rejected — action contradicts job context"
 
         # Anything else (including "escalate" or garbled output) → escalate
