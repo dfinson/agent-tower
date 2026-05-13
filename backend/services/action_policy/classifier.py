@@ -315,8 +315,10 @@ def _classify_mcp_tool(action: Action, policy: RepoPolicy) -> tuple[bool, bool, 
     reversible = tool_config.get("reversible", srv_reversible) or srv_reversible
     contained = tool_config.get("contained", srv_contained) or srv_contained
 
-    # readOnlyHint from MCP protocol relaxes to observe
-    if action.mcp_read_only:
+    # readOnlyHint from MCP protocol can relax to observe, but only
+    # for servers explicitly trusted in config.  A malicious/misconfigured
+    # MCP server can self-declare readOnlyHint on destructive tools.
+    if action.mcp_read_only and server_config.get("trust_read_only_hint", False):
         reversible = True
 
     reason = f"MCP {server_name}/{tool_name}"
@@ -353,8 +355,17 @@ def _match_explicit_rule(action: Action, policy: RepoPolicy) -> Tier | None:
 
     if identifier:
         for rule in policy.action_rules:
-            if _safe_regex_search(rule["match_pattern"], identifier):
-                return Tier(rule["tier"])
+            rule_tier = Tier(rule["tier"])
+            # For rules that reduce tier (observe/checkpoint), a regex
+            # timeout must NOT cause a match — otherwise an agent can
+            # craft ReDoS input to downgrade gate-tier actions.
+            # For rules that increase tier (gate), timeout → match is
+            # safe (fail-closed: escalate to human).
+            safe_on_timeout = rule_tier == Tier.gate
+            if _safe_regex_search(
+                rule["match_pattern"], identifier, on_timeout=safe_on_timeout,
+            ):
+                return rule_tier
 
     return None
 

@@ -5,6 +5,7 @@ Parses a shell command string and returns (reversible, contained) booleans.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 
@@ -47,9 +48,12 @@ _POSIX_OBSERVE = frozenset(
         "test",
         "true",
         "false",
-        "tee",
     }
 )
+
+# tee: can write to arbitrary paths including pseudo-devices (/dev/tcp);
+# classified as irreversible + contained, not observe.
+_POSIX_TEE = frozenset({"tee"})
 
 _POSIX_UNCONTAINED = frozenset(
     {
@@ -284,6 +288,15 @@ _LOCALHOST_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Command/process substitution patterns — these can execute arbitrary
+# commands invisibly inside an otherwise-safe outer command.
+_SUBSHELL_RE = re.compile(
+    r"\$\("         # $(...)
+    r"|`"           # backtick substitution
+    r"|<\("         # process substitution <(...)
+    r"|>\(",        # process substitution >(...)
+)
+
 # Mutating HTTP method flags for curl/wget
 _CURL_MUTATING_RE = re.compile(
     r"""
@@ -333,6 +346,50 @@ def _strip_quotes(cmd: str) -> str:
     return _QUOTED_STRING_RE.sub('""', cmd)
 
 
+# Regex to extract the host from a URL (scheme://host or //host)
+_URL_HOST_RE = re.compile(
+    r"(?:https?://|//)([a-zA-Z0-9._-]+(?::\d+)?)",
+)
+
+
+def _extract_target_host(command: str) -> str | None:
+    """Extract the target host from a curl/wget command.
+
+    Parses positional arguments (URLs) rather than matching the word
+    'localhost' anywhere in the command string, which would match
+    inside headers, query params, or comments.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+
+    # Find URL-like positional args (not flags)
+    skip_next = False
+    for token in tokens[1:]:  # skip the binary itself
+        if skip_next:
+            skip_next = False
+            continue
+        if token.startswith("-"):
+            # Flags that take an argument — skip the next token
+            if token in ("-X", "--request", "-o", "--output", "-H",
+                         "--header", "-u", "--user", "-A", "--user-agent",
+                         "-e", "--referer", "--url"):
+                if token == "--url":
+                    # --url <url> is the explicit target
+                    skip_next = False  # handled below
+                else:
+                    skip_next = True
+                continue
+            continue
+        # Looks like a positional arg — check if it's a URL
+        m = _URL_HOST_RE.search(token)
+        if m:
+            return m.group(1).lower()
+
+    return None
+
+
 def _extract_binary_and_sub(cmd: str) -> tuple[str, str | None]:
     """Extract the binary name and first subcommand from a command string."""
     stripped = cmd.strip()
@@ -347,8 +404,6 @@ def _extract_binary_and_sub(cmd: str) -> tuple[str, str | None]:
 
     if not parts:
         return "", None
-
-    import os
 
     binary = os.path.basename(parts[0]).lower()
 
@@ -371,12 +426,18 @@ def classify_shell(command: str) -> tuple[bool, bool]:
         return True, True
 
     # Handle compound commands: classify each part, return the worst case
-    # Split on &&, ||, ;, and | (pipes) but not inside quotes.
-    # Pipes are included because `cat /etc/passwd | curl -X POST …`
-    # should classify based on the most dangerous stage (curl), not
-    # just the first binary (cat).
+    # Split on &&, ||, ;, | (pipes), and \n (shell line separator)
+    # but not inside quotes.
     clean = _strip_quotes(command)
-    parts = re.split(r"\s*(?:&&|\|\||;|\|)\s*", clean)
+
+    # Detect command substitution / process substitution in the cleaned
+    # command (after quote removal).  These can execute arbitrary
+    # commands invisibly inside an otherwise-safe outer command.
+    # Conservative: (False, False) — irreversible and uncontained.
+    if _SUBSHELL_RE.search(clean):
+        return False, False
+
+    parts = re.split(r"\s*(?:&&|\|\||;|\||\n)\s*", clean)
     if len(parts) > 1:
         results = [classify_shell(p) for p in parts if p.strip()]
         if not results:
@@ -431,10 +492,15 @@ def classify_shell(command: str) -> tuple[bool, bool]:
     # --- POSIX ---
     if binary in _POSIX_OBSERVE:
         return True, True
+    if binary in _POSIX_TEE:
+        # tee writes to files/pseudo-devices — irreversible but contained
+        return False, True
     if binary in _POSIX_UNCONTAINED:
-        # Localhost targets are contained — loopback never leaves the machine
-        if _LOCALHOST_RE.search(command):
-            # Read-only (GET) requests are also reversible
+        # Check if the *target URL* is localhost, not just if "localhost"
+        # appears anywhere in the command (headers, comments, etc.)
+        target_host = _extract_target_host(command)
+        if target_host and _LOCALHOST_RE.fullmatch(target_host):
+            # Loopback never leaves the machine
             if not _CURL_MUTATING_RE.search(command):
                 return True, True
             return False, True
@@ -459,9 +525,10 @@ def classify_shell(command: str) -> tuple[bool, bool]:
     if binary in _CMD_IRREVERSIBLE:
         return False, True
 
-    # --- Python/Node/Ruby interpreters: contained but irreversible ---
+    # --- Python/Node/Ruby interpreters: uncontained — Turing-complete,
+    # can perform arbitrary network I/O via standard library ---
     if binary in ("python", "python3", "node", "ruby", "perl", "bash", "sh", "zsh"):
-        return False, True
+        return False, False
 
     # --- Default: irreversible, contained ---
     return False, True

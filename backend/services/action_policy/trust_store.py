@@ -72,6 +72,7 @@ class TrustStore:
                 excludes=row.get("excludes", []),
                 command_pattern=row.get("command_pattern"),
                 mcp_server=row.get("mcp_server"),
+                mcp_tool=row.get("mcp_tool"),
                 job_id=row.get("job_id"),
                 expires_at=expires,
                 reason=row.get("reason", ""),
@@ -103,6 +104,7 @@ class TrustStore:
         excludes: list[str] | None = None,
         command_pattern: str | None = None,
         mcp_server: str | None = None,
+        mcp_tool: str | None = None,
         job_id: str | None = None,
         expires_at: datetime | None = None,
         reason: str = "",
@@ -117,6 +119,7 @@ class TrustStore:
             excludes=excludes or [],
             command_pattern=command_pattern,
             mcp_server=mcp_server,
+            mcp_tool=mcp_tool,
             job_id=job_id,
             expires_at=expires_at,
             reason=reason,
@@ -131,6 +134,7 @@ class TrustStore:
                 excludes=grant.excludes,
                 command_pattern=grant.command_pattern,
                 mcp_server=grant.mcp_server,
+                mcp_tool=grant.mcp_tool,
                 job_id=grant.job_id,
                 expires_at=grant.expires_at,
                 reason=grant.reason,
@@ -183,12 +187,14 @@ class TrustStore:
         *,
         reason: str = "",
         job_scoped: bool = True,
+        ttl_hours: int | None = None,
     ) -> TrustGrant:
         """Create a trust grant that covers this action's pattern.
 
         When ``job_scoped`` is True (monitor-generated), the grant is
         limited to this job.  When False (human-generated), it persists
-        across jobs (repo-scoped).
+        across jobs (repo-scoped) but with a TTL to prevent permanent
+        escalation.
         """
         from backend.services.action_policy.classifier import ActionKind
 
@@ -224,16 +230,22 @@ class TrustStore:
                 escaped = escaped.replace(ch, f"[{ch}]")
             path_pattern = escaped
 
+        from datetime import timedelta
+
+        expires_at: datetime | None = None
+        if ttl_hours is not None:
+            expires_at = datetime.now(UTC) + timedelta(hours=ttl_hours)
+
         grant = await self.create(
             kinds=kinds,
             command_pattern=command_pattern,
             mcp_server=mcp_server,
+            mcp_tool=mcp_tool,
             path_pattern=path_pattern,
             job_id=action.job_id if job_scoped else None,
+            expires_at=expires_at,
             reason=reason,
         )
-        # Store mcp_tool in-memory for tool-scoped matching
-        grant.mcp_tool = mcp_tool
         return grant
 
 

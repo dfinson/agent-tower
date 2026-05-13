@@ -506,6 +506,7 @@ class TrustGrantRow(Base):
     excludes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     command_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
     mcp_server: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mcp_tool: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)

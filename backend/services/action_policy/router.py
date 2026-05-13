@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
+# Human-approved grants are repo-scoped (persist across jobs).
+# A TTL prevents permanent escalation — the operator must re-approve
+# after the grant expires.  24 hours aligns with a working day.
+_HUMAN_GRANT_TTL_HOURS = 24
+
 
 @dataclass(frozen=True, slots=True)
 class Decision:
@@ -184,12 +189,13 @@ class PolicyRouter:
 
         proceed = result.resolution in (BatchResolution.approved, BatchResolution.partial)
 
-        # Human approved — create a repo-scoped trust grant (persistent)
+        # Human approved — create a repo-scoped trust grant with TTL
         if proceed and result.resolution == BatchResolution.approved:
             await self._trust.create_from_action(
                 action,
                 reason="human approved",
                 job_scoped=False,
+                ttl_hours=_HUMAN_GRANT_TTL_HOURS,
             )
 
         return Decision(
