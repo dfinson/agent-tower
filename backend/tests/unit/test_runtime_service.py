@@ -523,7 +523,7 @@ class TestJobLifecycle:
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
         # Use slow adapter to keep job running
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         job = _make_job(repo=config.repos[0])
@@ -540,7 +540,7 @@ class TestJobLifecycle:
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
         """cancel() for a non-running job is a no-op (state change is the API layer's job)."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         # Fill capacity
@@ -570,7 +570,7 @@ class TestJobLifecycle:
     async def test_send_message_delegates_to_session(
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         job = _make_job(repo=config.repos[0])
@@ -686,7 +686,7 @@ class TestJobLifecycle:
         config: CPLConfig,
     ) -> None:
         """pause_job blocks tools, interrupts the session, and sends the pause message."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         job = _make_job(repo=config.repos[0])
@@ -714,7 +714,7 @@ class TestJobLifecycle:
         config: CPLConfig,
     ) -> None:
         """Sending a follow-up message after pause lifts the tool block."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         job = _make_job(repo=config.repos[0])
@@ -1402,7 +1402,7 @@ class TestConcurrencyGuards:
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
         """_start_job should no-op if a task for the job already exists."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         job = _make_job(repo=config.repos[0])
@@ -1421,7 +1421,7 @@ class TestConcurrencyGuards:
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
         """_dequeue_next under the lock should not exceed max_concurrent."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         # Create 3 queued jobs
@@ -1446,7 +1446,7 @@ class TestConcurrencyGuards:
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
         """CancelledError handler should not fail if job is already canceled."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         job = _make_job(repo=config.repos[0])
@@ -1476,7 +1476,7 @@ class TestRecoveryCapacity:
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
         """recover_on_startup uses start_or_enqueue, respecting max_concurrent."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         # Create 3 queued jobs
@@ -1494,7 +1494,7 @@ class TestRecoveryCapacity:
         self, runtime: RuntimeService, session_factory: async_sessionmaker[AsyncSession], config: CPLConfig
     ) -> None:
         """Active jobs recovered under capacity pressure should keep their resume context while waiting for capacity."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime._adapter_registry._fake = slow_adapter
 
         for job_id in ("active-1", "active-2", "active-3"):
@@ -1657,7 +1657,7 @@ class TestStartOrEnqueueCapacitySafety:
         config: CPLConfig,
     ) -> None:
         """Multiple concurrent start_or_enqueue calls should not exceed max_concurrent."""
-        slow_adapter = FakeAgentAdapter(delay=5.0)
+        slow_adapter = FakeAgentAdapter(delay=1.0)
         runtime = RuntimeService(
             session_factory=session_factory,
             event_bus=event_bus,
