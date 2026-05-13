@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -25,6 +26,10 @@ _ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata"]
 
 # Trigger conditions available to custom sidecars.
 _ALLOWED_CONDITIONS = ["event", "threshold", "manual"]
+
+# Allowed phases and lifetimes.
+_ALLOWED_PHASES = ["preflight", "midflight", "postflight"]
+_ALLOWED_LIFETIMES = ["ephemeral", "windowed", "persistent"]
 
 _GENERATE_SYSTEM_PROMPT = """\
 You are a sidecar definition generator for CodePlane, a coding agent control plane.
@@ -99,6 +104,9 @@ class SidecarTemplateService:
     ) -> SidecarTemplate:
         """Create and save a new sidecar template."""
         _validate_definition(definition_json)
+        existing = await self._repo.get_by_name(name)
+        if existing:
+            raise ValueError(f"A template named {name!r} already exists")
         template = SidecarTemplate(
             id=str(uuid.uuid4()),
             name=name,
@@ -119,6 +127,10 @@ class SidecarTemplateService:
         """Update an existing template. Returns None if not found."""
         if definition_json is not None:
             _validate_definition(definition_json)
+        if name is not None:
+            existing = await self._repo.get_by_name(name)
+            if existing and existing.id != template_id:
+                raise ValueError(f"A template named {name!r} already exists")
         return await self._repo.update(
             template_id,
             name=name,
@@ -148,18 +160,13 @@ class SidecarTemplateService:
         if not raw:
             raise ValueError("Empty response from LLM")
 
-        # Strip markdown fences if the model wraps the JSON
-        text = raw.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            lines = [ln for ln in lines if not ln.strip().startswith("```")]
-            text = "\n".join(lines)
+        text = _strip_markdown_fences(raw.strip())
 
         try:
             definition = json.loads(text)
         except json.JSONDecodeError as exc:
-            log.warning("sidecar_generate_invalid_json", raw=text[:500], exc_info=exc)
-            raise ValueError(f"LLM returned invalid JSON: {text[:200]}") from exc
+            log.warning("sidecar_generate_invalid_json", response_length=len(text))
+            raise ValueError("LLM returned invalid JSON") from exc
 
         if not isinstance(definition, dict):
             raise ValueError("LLM returned non-object JSON")
@@ -175,9 +182,22 @@ class SidecarTemplateService:
         log.info(
             "sidecar_definition_generated",
             name=definition.get("name"),
-            description=definition.get("description", "")[:100],
         )
         return definition
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Extract JSON from markdown code fences if present."""
+    if not text.startswith("```"):
+        return text
+    # Find content between first ``` line and last ```
+    first_newline = text.find("\n")
+    if first_newline == -1:
+        return text
+    last_fence = text.rfind("```", first_newline)
+    if last_fence <= first_newline:
+        return text[first_newline + 1 :].strip()
+    return text[first_newline + 1 : last_fence].strip()
 
 
 def _validate_definition(definition_json: str) -> None:
@@ -193,8 +213,31 @@ def _validate_definition(definition_json: str) -> None:
     if not isinstance(defn, dict):
         raise ValueError("Definition must be a JSON object")
 
-    # Validate context sources
-    for trigger in defn.get("triggers", []):
+    # Required top-level fields
+    for field in ("phase", "lifetime", "systemPrompt", "triggers"):
+        if field not in defn:
+            raise ValueError(f"Missing required field: {field!r}")
+
+    if defn["phase"] not in _ALLOWED_PHASES:
+        raise ValueError(
+            f"Invalid phase {defn['phase']!r}. Allowed: {_ALLOWED_PHASES}"
+        )
+    if defn["lifetime"] not in _ALLOWED_LIFETIMES:
+        raise ValueError(
+            f"Invalid lifetime {defn['lifetime']!r}. Allowed: {_ALLOWED_LIFETIMES}"
+        )
+    if not isinstance(defn["systemPrompt"], str) or not defn["systemPrompt"].strip():
+        raise ValueError("systemPrompt must be a non-empty string")
+
+    triggers = defn["triggers"]
+    if not isinstance(triggers, list) or len(triggers) == 0:
+        raise ValueError("triggers must be a non-empty array")
+
+    for i, trigger in enumerate(triggers):
+        if not isinstance(trigger, dict):
+            raise ValueError(f"triggers[{i}] must be an object")
+
+        # Validate context sources
         for source in trigger.get("contextSources", []):
             if source not in _ALLOWED_CONTEXT_SOURCES:
                 raise ValueError(

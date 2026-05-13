@@ -112,7 +112,11 @@ export function SidecarPicker({
       {/* Inline definitions (created in this session, not yet saved) */}
       {inlineDefinitions.map((defJson, i) => {
         let parsed: { name?: string; description?: string } = {};
-        try { parsed = JSON.parse(defJson); } catch { /* ignore */ }
+        try {
+          parsed = JSON.parse(defJson);
+        } catch {
+          parsed = { name: `Inline sidecar ${i + 1} (corrupted)`, description: "Failed to parse definition" };
+        }
         return (
           <div key={i} className="rounded border border-dashed border-border px-2.5 py-2">
             <div className="flex items-center justify-between">

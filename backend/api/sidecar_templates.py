@@ -5,6 +5,7 @@ from __future__ import annotations
 import structlog
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from backend.models.api_schemas import (
     CreateSidecarTemplateRequest,
@@ -66,7 +67,10 @@ async def create_sidecar_template(
             definition_json=body.definition_json,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        status = 409 if "already exists" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="A template with this name already exists") from exc
     return _to_response(template)
 
 
@@ -85,7 +89,10 @@ async def update_sidecar_template(
             definition_json=body.definition_json,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        status = 409 if "already exists" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="A template with this name already exists") from exc
     if template is None:
         raise HTTPException(status_code=404, detail="Sidecar template not found")
     return _to_response(template)

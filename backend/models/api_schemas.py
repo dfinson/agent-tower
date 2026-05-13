@@ -1282,6 +1282,12 @@ class UpdateSidecarTemplateRequest(CamelModel):
     description: str | None = Field(None, min_length=1, max_length=500)
     definition_json: str | None = Field(None, min_length=2, max_length=50_000)
 
+    @model_validator(mode="after")
+    def _at_least_one_field(self) -> UpdateSidecarTemplateRequest:
+        if all(v is None for v in (self.name, self.description, self.definition_json)):
+            raise ValueError("At least one field must be provided")
+        return self
+
 
 class SidecarTemplateResponse(CamelModel):
     id: str
