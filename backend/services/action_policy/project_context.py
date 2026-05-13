@@ -68,6 +68,14 @@ class ProjectContext:
         self.services: set[str] = set()
         self.narrative: str = ""
         self._built = False
+        # Snapshot of initial context at job start.  Only entries that
+        # existed before the agent touched anything are trusted for
+        # structural auto-approval.  Entries added after a context
+        # rebuild (triggered by the agent modifying a manifest) are
+        # tracked for LLM prompts but cannot bypass the gate on their own.
+        self._initial_dependencies: set[str] | None = None
+        self._initial_hosts: set[str] | None = None
+        self._initial_services: set[str] | None = None
 
     @property
     def built(self) -> bool:
@@ -112,6 +120,13 @@ class ProjectContext:
                 log.debug("project_context_recon_error", exc_info=True)
 
         self._built = True
+
+        # Freeze the initial snapshot on first build only
+        if self._initial_dependencies is None:
+            self._initial_dependencies = frozenset(self.dependencies)
+            self._initial_hosts = frozenset(self.configured_hosts)
+            self._initial_services = frozenset(self.services)
+
         log.info(
             "project_context_built",
             dependencies=len(self.dependencies),
@@ -124,9 +139,26 @@ class ProjectContext:
         """Check if a dependency name (case-insensitive) is in the project."""
         return name.lower() in self.dependencies
 
+    def has_initial_dependency(self, name: str) -> bool:
+        """Check against the pre-agent snapshot only (safe for auto-approval)."""
+        if self._initial_dependencies is None:
+            return False
+        return name.lower() in self._initial_dependencies
+
     def has_host(self, host: str) -> bool:
         """Check if a hostname is referenced in config files."""
         return host.lower() in self.configured_hosts
+
+    def has_initial_host(self, host: str) -> bool:
+        """Check against the pre-agent snapshot only (safe for auto-approval)."""
+        if self._initial_hosts is None:
+            return False
+        return host.lower() in self._initial_hosts
+
+    @property
+    def initial_services(self) -> frozenset[str]:
+        """Return pre-agent service names (safe for auto-approval)."""
+        return self._initial_services or frozenset()
 
     def invalidate(self) -> None:
         """Mark context as needing rebuild (manifest file was modified)."""

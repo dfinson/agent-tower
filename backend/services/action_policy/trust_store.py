@@ -216,7 +216,13 @@ class TrustStore:
             mcp_server = action.mcp_server
             mcp_tool = action.mcp_tool
         elif action.kind == ActionKind.file and action.path:
-            path_pattern = action.path
+            # Escape glob metacharacters so fnmatch treats the path
+            # as a literal string, not a pattern.  Without this, a
+            # path containing *, ?, or [...] would match unintended files.
+            escaped = action.path
+            for ch in ("[", "]", "*", "?"):
+                escaped = escaped.replace(ch, f"[{ch}]")
+            path_pattern = escaped
 
         grant = await self.create(
             kinds=kinds,

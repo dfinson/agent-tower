@@ -371,9 +371,12 @@ def classify_shell(command: str) -> tuple[bool, bool]:
         return True, True
 
     # Handle compound commands: classify each part, return the worst case
-    # Split on &&, ||, ; but not inside quotes
+    # Split on &&, ||, ;, and | (pipes) but not inside quotes.
+    # Pipes are included because `cat /etc/passwd | curl -X POST …`
+    # should classify based on the most dangerous stage (curl), not
+    # just the first binary (cat).
     clean = _strip_quotes(command)
-    parts = re.split(r"\s*(?:&&|\|\||;)\s*", clean)
+    parts = re.split(r"\s*(?:&&|\|\||;|\|)\s*", clean)
     if len(parts) > 1:
         results = [classify_shell(p) for p in parts if p.strip()]
         if not results:
