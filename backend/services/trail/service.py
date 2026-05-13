@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.event_bus import EventBus
-    from backend.services.sister_session import SisterSessionManager
+    from backend.services.sidecar_session import SidecarSessionManager
     from backend.services.trail.models import TrailJobState, TrailResponse, TrailSummary
 
 log = structlog.get_logger()
@@ -40,12 +40,12 @@ class TrailService:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         event_bus: EventBus,
-        sister_sessions: SisterSessionManager | None = None,
+        sidecar_sessions: SidecarSessionManager | None = None,
         config: TrailConfig | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
-        self._sister_sessions = sister_sessions
+        self._sidecar_sessions = sidecar_sessions
         self._config = config or TrailConfig()
 
         # Shared state
@@ -58,7 +58,7 @@ class TrailService:
         self._plan_manager = PlanManager(
             event_bus=event_bus,
             job_state=self._job_state,
-            sister_sessions=sister_sessions,
+            sidecar_sessions=sidecar_sessions,
         )
 
         self._activity_tracker = ActivityTracker(
@@ -79,12 +79,23 @@ class TrailService:
         self._enricher = TrailEnricher(
             session_factory=session_factory,
             event_bus=event_bus,
-            sister_sessions=sister_sessions,
+            sidecar_sessions=sidecar_sessions,
             config=self._config,
             job_state=self._job_state,
         )
 
         self._query = TrailQueryService(session_factory)
+
+        # Per-job feature gates
+        self._plan_tracking_disabled: set[str] = set()
+
+    # ==================================================================
+    # Feature gates
+    # ==================================================================
+
+    def disable_plan_tracking(self, job_id: str) -> None:
+        """Opt a job out of plan inference and native-plan capture."""
+        self._plan_tracking_disabled.add(job_id)
 
     # ==================================================================
     # Event handling (delegate to node builder + plan feed)
@@ -118,14 +129,16 @@ class TrailService:
         content = str(payload.get("content", ""))
         tool_intent = str(payload.get("tool_intent") or "")
 
-        await self._plan_manager.feed_transcript(job_id, role, content, tool_intent)
+        plan_disabled = job_id in self._plan_tracking_disabled
+        if not plan_disabled:
+            await self._plan_manager.feed_transcript(job_id, role, content, tool_intent)
 
         if role == "tool_call":
             tool_name = str(payload.get("tool_name", ""))
-            if tool_name:
+            if tool_name and not plan_disabled:
                 await self._plan_manager.feed_tool_name(job_id, tool_name)
             # Native plan capture from the agent's own todo tool
-            if tool_name in ("manage_todo_list", "TodoWrite"):
+            if not plan_disabled and tool_name in ("manage_todo_list", "TodoWrite"):
                 await self._try_ingest_native_plan(job_id, payload)
 
         # Auto-generate a title for jobs that don't have one yet
@@ -163,7 +176,7 @@ class TrailService:
             return
         state._title_attempted = True  # type: ignore[attr-defined]
 
-        if not self._sister_sessions:
+        if not self._sidecar_sessions:
             return
 
         try:
@@ -179,14 +192,14 @@ class TrailService:
                     # Already has a title — nothing to do
                     return
 
-            # Generate title via one-shot sister session
+            # Generate title via one-shot sidecar session
             prompt = (
                 "Given this agent's first message, generate a concise 3-8 word title "
                 "for the coding task.  Respond with ONLY the title text, no quotes, "
                 "no punctuation at the end.\n\n"
                 f"Agent message:\n{first_content[:2000]}"
             )
-            title = await self._sister_sessions.complete(prompt, timeout=10.0)
+            title = await self._sidecar_sessions.complete(prompt, timeout=10.0)
             title = str(title).strip().strip('"').strip("'")
             if not title or len(title) < 3:
                 return
@@ -233,6 +246,7 @@ class TrailService:
     def cleanup(self, job_id: str) -> None:
         """Remove all in-memory state for a job."""
         self._job_state.pop(job_id, None)
+        self._plan_tracking_disabled.discard(job_id)
 
     async def feed_transcript(
         self,
@@ -242,15 +256,18 @@ class TrailService:
         tool_intent: str = "",
     ) -> None:
         """Buffer transcript data."""
-        await self._plan_manager.feed_transcript(job_id, role, content, tool_intent)
+        if job_id not in self._plan_tracking_disabled:
+            await self._plan_manager.feed_transcript(job_id, role, content, tool_intent)
 
     async def feed_tool_name(self, job_id: str, tool_name: str) -> None:
         """Track tool usage."""
-        await self._plan_manager.feed_tool_name(job_id, tool_name)
+        if job_id not in self._plan_tracking_disabled:
+            await self._plan_manager.feed_tool_name(job_id, tool_name)
 
     async def feed_native_plan(self, job_id: str, items: list[dict[str, str]]) -> None:
         """Create/update plan steps from the agent's native todo tool."""
-        await self._plan_manager.feed_native_plan(job_id, items)
+        if job_id not in self._plan_tracking_disabled:
+            await self._plan_manager.feed_native_plan(job_id, items)
 
     # ==================================================================
     # Plan queries (delegate to plan manager)
@@ -268,7 +285,8 @@ class TrailService:
 
     async def finalize(self, job_id: str, succeeded: bool) -> None:
         """Finalize plan steps on job completion."""
-        await self._plan_manager.finalize(job_id, succeeded)
+        if job_id not in self._plan_tracking_disabled:
+            await self._plan_manager.finalize(job_id, succeeded)
 
     # ==================================================================
     # Enrichment drain (delegate to enricher)

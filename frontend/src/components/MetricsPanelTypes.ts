@@ -25,6 +25,15 @@ export interface LLMCall {
   callCount?: number;
 }
 
+export interface SidecarSession {
+  sessionKind: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalCostUsd: number;
+  llmCallCount: number;
+  toolCallCount: number;
+}
+
 export interface TelemetryData {
   available: boolean;
   sdk?: string;
@@ -63,6 +72,7 @@ export interface TelemetryData {
   fileAccess?: FileAccessData;
   reviewComplexity?: { tier: string; signals: string[] };
   reviewSignals?: { testCoModifications: unknown[] };
+  sidecarSessions?: SidecarSession[];
 }
 
 export interface TurnAction {

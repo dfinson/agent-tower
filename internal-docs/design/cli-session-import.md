@@ -581,7 +581,7 @@ OTEL OTLP metrics (`claude_code.cost.usage`, `claude_code.token.usage`)
 | `EventRepository` | Persists events identically regardless of source |
 | `TrailService` | Consumes `DomainEvent`s — source-agnostic |
 | `StepTracker` | Driven by `DomainEvent`s — source-agnostic |
-| `SisterSessionManager` | Not applicable (no managed sister sessions) |
+| `SidecarSessionManager` | Not applicable (no managed sidecar sessions) |
 | `DiffService` | Works — `worktree_path` points to CLI's `cwd`. For Copilot: depends on resolving `cwd` (see §13.5) |
 | `MergeService` | Needs a new `_resolve_imported()` path. Existing local merge/checkout/stash logic assumes CodePlane owns the worktree — for imported sessions it must push + remote-merge instead. See §4.1 "No destructive operations" |
 | `CodeReconService` | Works — `IngestService` fires background indexing task at session start. Structural features become available when indexing completes. If the repo was already indexed (e.g. previously added via settings), structural features are immediate |

@@ -534,7 +534,7 @@ class TrailNodeBuilder:
         # Delegate activity step to ActivityTracker
         turn_id = payload.get("turn_id")
         if turn_id and self._activity_tracker:
-            sister = self._plan_manager.get_sister(job_id) if self._plan_manager else None
+            sidecar = self._plan_manager.get_sidecar(job_id) if self._plan_manager else None
             files_read = payload.get("files_read") or []
             files_written = payload.get("files_written") or []
             agent_msg = payload.get("agent_message", "") or ""
@@ -544,7 +544,7 @@ class TrailNodeBuilder:
             await self._activity_tracker.emit_activity_step(
                 job_id,
                 node_id=node_id,
-                sister=sister,
+                sidecar=sidecar,
                 turn_id=turn_id,
                 agent_msg=agent_msg,
                 files_read=files_read,

@@ -1,5 +1,5 @@
 """
-Sister session latency evaluation — haiku-only, filtered from main agent calls.
+Sidecar session latency evaluation — haiku-only, filtered from main agent calls.
 
 Questions:
   1. What's the actual haiku latency distribution?
@@ -8,7 +8,7 @@ Questions:
   4. Would retry help — are failures transient?
 
 Usage:
-    python tools/sister_session_latency_eval.py
+    python tools/sidecar_session_latency_eval.py
 """
 
 import sqlite3
@@ -47,7 +47,7 @@ def run():
         durations.sort()
         n = len(durations)
         is_haiku = "haiku" in model.lower()
-        tag = " ← sister session model" if is_haiku else ""
+        tag = " ← sidecar session model" if is_haiku else ""
 
         print(f"{model}{tag}: {n} calls")
         print(f"  P50: {durations[n//2]:,}ms ({durations[n//2]/1000:.1f}s)")

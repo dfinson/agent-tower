@@ -177,7 +177,7 @@ if TYPE_CHECKING:
     from backend.services.git_service import GitService
     from backend.services.merge_service import MergeService
     from backend.services.platform_adapter import PlatformRegistry
-    from backend.services.sister_session import SisterSessionManager
+    from backend.services.sidecar_session import SidecarSessionManager
     from backend.services.summarization_service import SummarizationService
 
 log = structlog.get_logger()
@@ -191,10 +191,10 @@ _SERVER_RESTART_RECOVERY_INSTRUCTION = (
 # Heartbeat configuration
 _HEARTBEAT_INTERVAL_S = 30
 
-# Stall detection — after this many seconds of tool inactivity, ask the sister
+# Stall detection — after this many seconds of tool inactivity, ask the sidecar
 # session whether the tool is likely stuck or legitimately slow.
 _STALL_CHECK_THRESHOLD_S = 120  # 2 minutes before first check
-_STALL_RECHECK_INTERVAL_S = 120  # re-ask every 2 minutes if sister says wait
+_STALL_RECHECK_INTERVAL_S = 120  # re-ask every 2 minutes if sidecar says wait
 
 _STALL_ARBITER_PROMPT = """\
 A coding agent is running tool `{tool_name}` which has been active for {elapsed}.
@@ -237,7 +237,7 @@ class RuntimeService:
         merge_service: MergeService | None = None,
         summarization_service: SummarizationService | None = None,
         platform_registry: PlatformRegistry | None = None,
-        sister_sessions: SisterSessionManager | None = None,
+        sidecar_sessions: SidecarSessionManager | None = None,
         step_tracker: StepTracker | None = None,
         trail_service: TrailService | None = None,
         coderecon_service: CodeReconService | None = None,
@@ -252,7 +252,7 @@ class RuntimeService:
         self._merge_service = merge_service
         self._summarization_service = summarization_service
         self._platform_registry = platform_registry
-        self._sister_sessions = sister_sessions
+        self._sidecar_sessions = sidecar_sessions
         self._step_tracker = step_tracker
         self._coderecon_service = coderecon_service
         self._tasks: dict[str, asyncio.Task[None]] = {}
@@ -262,6 +262,7 @@ class RuntimeService:
         self._active_tool: dict[str, tuple[str, str, str]] = {}  # job_id → (tool_name, started_iso, tool_args)
         self._stall_check_pending: set[str] = set()  # job_ids currently being checked
         self._last_stall_check: dict[str, float] = {}  # job_id → monotonic time of last check
+        self._stall_detection_disabled: set[str] = set()  # jobs with stall detection explicitly off
         self._waiting_for_approval: set[str] = set()
         self._session_ids: dict[str, str] = {}
         self._policy_routers: dict[str, Any] = {}  # job_id → PolicyRouter
@@ -392,15 +393,14 @@ class RuntimeService:
     ) -> None:
         """Start the job if capacity allows, otherwise keep it queued."""
 
-        # Adopt or create the sister session for this job
-        if self._sister_sessions is not None:
+        # Open the built-in sidecar sessions for this job
+        if self._sidecar_sessions is not None:
+            from backend.models.domain import SIDECAR_ARBITER, SIDECAR_ENRICHER, SIDECAR_PLANNER
             try:
-                if session_token:
-                    self._sister_sessions.adopt(session_token, job.id)
-                else:
-                    self._sister_sessions.create_for_job(job.id)
+                for name in (SIDECAR_ARBITER, SIDECAR_PLANNER, SIDECAR_ENRICHER):
+                    self._sidecar_sessions.open(job.id, name, token=session_token if name == SIDECAR_ARBITER else None)
             except Exception:
-                log.warning("sister_session_setup_failed", job_id=job.id, exc_info=True)
+                log.warning("sidecar_session_setup_failed", job_id=job.id, exc_info=True)
 
         if self._shutting_down:
             log.warning("job_rejected_shutting_down", job_id=job.id)
@@ -474,7 +474,7 @@ class RuntimeService:
             if resume_sdk_session_id is not None:
                 session_config = dataclass_replace(session_config, resume_sdk_session_id=resume_sdk_session_id)
 
-            # Workspace memory — curate relevant entries via sister session
+            # Workspace memory — curate relevant entries via sidecar session
             session_config = await self._curate_workspace_memory(job, session_config)
 
             task = asyncio.create_task(
@@ -492,6 +492,11 @@ class RuntimeService:
                 await session.commit()
             raise
         self._tasks[job.id] = task
+        # Cache per-job behavior toggles
+        if job.enable_stall_detection is False:
+            self._stall_detection_disabled.add(job.id)
+        if job.enable_plan_tracking is False and self._trail_service is not None:
+            self._trail_service.disable_plan_tracking(job.id)
         # Pre-register prompt for echo suppression so the SDK user.message
         # echo of the initial prompt is discarded (shown via the synthetic entry).
         self._echo_suppress.setdefault(job.id, set()).add(session_config.prompt)
@@ -705,7 +710,7 @@ class RuntimeService:
                 self._trail_service.stop_tracking(job_id)
                 succeeded = final_state in (JobState.completed, JobState.review)
                 await self._trail_service.finalize(job_id, succeeded=succeeded)
-            # Extract workspace memory before cleanup closes the sister session
+            # Extract workspace memory before cleanup closes the sidecar session
             if final_state in (JobState.completed, JobState.review) and job is not None:
                 try:
                     await self._extract_workspace_memory(job_id, job.repo)
@@ -1087,6 +1092,7 @@ class RuntimeService:
         self._active_tool.pop(job_id, None)
         self._stall_check_pending.discard(job_id)
         self._last_stall_check.pop(job_id, None)
+        self._stall_detection_disabled.discard(job_id)
         self._waiting_for_approval.discard(job_id)
         self._session_ids.pop(job_id, None)
         # Clean up action policy router state
@@ -1104,11 +1110,11 @@ class RuntimeService:
         self._pending_starts.pop(job_id, None)
         self._queued_override_prompts.pop(job_id, None)
         self._queued_resume_session_ids.pop(job_id, None)
-        if self._sister_sessions is not None:
+        if self._sidecar_sessions is not None:
             try:
-                self._sister_sessions.close_job(job_id)
+                self._sidecar_sessions.close_job(job_id)
             except (OSError, RuntimeError):
-                log.warning("sister_session_close_failed", job_id=job_id, exc_info=True)
+                log.warning("sidecar_session_close_failed", job_id=job_id, exc_info=True)
         if self._approval_service is not None:
             await self._approval_service.cleanup_job(job_id)
         if self._diff_service is not None:
@@ -1290,19 +1296,21 @@ class RuntimeService:
         """Register an externally-managed session for full pipeline processing.
 
         Gives imported sessions the same infrastructure as managed sessions:
-        sister session binding, heartbeat loop (with stall detection), step
+        sidecar session binding, heartbeat loop (with stall detection), step
         tracker registration, and diff service worktree registration.
 
         Called by watchers after job creation or re-attachment.
         """
         self._last_activity[job_id] = time.monotonic()
 
-        # Ensure a sister session exists for plan inference / classification
-        if self._sister_sessions is not None and self._sister_sessions.get(job_id) is None:
+        # Open built-in sidecar sessions for external jobs
+        if self._sidecar_sessions is not None:
+            from backend.models.domain import SIDECAR_ARBITER, SIDECAR_ENRICHER, SIDECAR_PLANNER
             try:
-                self._sister_sessions.create_for_job(job_id)
+                for name in (SIDECAR_ARBITER, SIDECAR_PLANNER, SIDECAR_ENRICHER):
+                    self._sidecar_sessions.open(job_id, name)
             except Exception:
-                log.warning("external_sister_session_setup_failed", job_id=job_id, exc_info=True)
+                log.warning("external_sidecar_session_setup_failed", job_id=job_id, exc_info=True)
 
         # Step tracker
         if worktree_path and self._step_tracker is not None:
@@ -1377,7 +1385,7 @@ class RuntimeService:
         """Clean up an externally-managed session through the main pipeline.
 
         Mirrors ``_cleanup_job_state`` for the subset of state that external
-        sessions use: heartbeat, sister session, step tracker, trail service,
+        sessions use: heartbeat, sidecar session, step tracker, trail service,
         diff service, stall detection, and trail snapshot.
 
         The watcher remains responsible for DB state transitions and publishing
@@ -1402,7 +1410,7 @@ class RuntimeService:
             await self._trail_service.finalize(job_id, succeeded=error_reason is None)
             self._trail_service.cleanup(job_id)
 
-        # Extract workspace memory before closing the sister session
+        # Extract workspace memory before closing the sidecar session
         # (the extractor uses it for LLM calls).  Look up the canonical repo
         # path from the DB — worktree_path can differ from the repo root.
         if error_reason is None:
@@ -1414,12 +1422,12 @@ class RuntimeService:
             except Exception:
                 log.debug("workspace_memory.post_job_failed", job_id=job_id, exc_info=True)
 
-        # Sister session cleanup (metrics snapshot + pool return)
-        if self._sister_sessions is not None:
+        # Sidecar session cleanup (metrics snapshot + pool return)
+        if self._sidecar_sessions is not None:
             try:
-                self._sister_sessions.close_job(job_id)
+                self._sidecar_sessions.close_job(job_id)
             except (OSError, RuntimeError):
-                log.warning("sister_session_close_failed", job_id=job_id, exc_info=True)
+                log.warning("sidecar_session_close_failed", job_id=job_id, exc_info=True)
 
         # Step tracker + diff cleanup
         if self._step_tracker is not None:
@@ -1716,18 +1724,20 @@ class RuntimeService:
                     )
                 )
 
-                # --- Stall detection via sister session ---
+                # --- Stall detection via sidecar session ---
                 await self._check_stall(job_id)
 
         except asyncio.CancelledError:
             log.debug("heartbeat_loop_cancelled", job_id=job_id)
 
     async def _check_stall(self, job_id: str) -> None:
-        """Ask the sister session whether the active tool is stuck."""
+        """Ask the sidecar session whether the active tool is stuck."""
+        if job_id in self._stall_detection_disabled:
+            return
         active = self._active_tool.get(job_id)
         if not active:
             return
-        if self._sister_sessions is None:
+        if self._sidecar_sessions is None:
             return
         if job_id in self._stall_check_pending:
             return  # already checking
@@ -1752,9 +1762,10 @@ class RuntimeService:
         if (time.monotonic() - last_check) < _STALL_RECHECK_INTERVAL_S:
             return
 
-        # Ask the sister session
-        sister = self._sister_sessions.get(job_id)
-        if sister is None:
+        # Ask the arbiter sidecar
+        from backend.models.domain import SIDECAR_ARBITER
+        sidecar = self._sidecar_sessions.get(job_id, SIDECAR_ARBITER)
+        if sidecar is None:
             return
 
         self._stall_check_pending.add(job_id)
@@ -1765,7 +1776,7 @@ class RuntimeService:
                 elapsed=elapsed_human,
                 tool_args=tool_args[:300],
             )
-            response = await sister.complete(prompt, timeout=15.0)
+            response = await sidecar.complete(prompt, timeout=15.0)
             self._last_stall_check[job_id] = time.monotonic()
 
             # Parse response

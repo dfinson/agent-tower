@@ -32,7 +32,7 @@ def service(event_bus: AsyncMock) -> TrailService:
     svc = TrailService.__new__(TrailService)
     svc._session_factory = None
     svc._event_bus = event_bus
-    svc._sister_sessions = None
+    svc._sidecar_sessions = None
     svc._config = MagicMock()
     svc._repo = None
     svc._job_state = {}

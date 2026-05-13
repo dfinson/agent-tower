@@ -18,7 +18,7 @@ from backend.models.api_schemas import (
     TerminalSessionListResponse,
 )
 from backend.services.auth import LOCALHOST_ADDRS, check_websocket_auth
-from backend.services.sister_session import SisterSessionManager
+from backend.services.sidecar_session import SidecarSessionManager
 from backend.services.terminal_service import TerminalService
 
 log = structlog.get_logger()
@@ -84,11 +84,11 @@ async def delete_session(session_id: str, svc: FromDishka[TerminalService]) -> N
 @router.post("/terminal/ask", response_model=TerminalAskResponse)
 async def ask_ai(
     req: TerminalAskRequest,
-    sister_sessions: FromDishka[SisterSessionManager],
+    sidecar_sessions: FromDishka[SidecarSessionManager],
 ) -> TerminalAskResponse:
     """Translate natural language to a shell command using the utility model."""
     try:
-        if sister_sessions is None:
+        if sidecar_sessions is None:
             return TerminalAskResponse(command="", explanation="AI assistant not available")
 
         prompt = f"""Translate this natural language request into a single shell command.
@@ -101,7 +101,7 @@ Terminal context (recent output):
 
 User request: {req.prompt}"""
 
-        result = await sister_sessions.complete(prompt, timeout=10.0)
+        result = await sidecar_sessions.complete(prompt, timeout=10.0)
         try:
             parsed = json.loads(result.strip().removeprefix("```json").removesuffix("```").strip())
             return TerminalAskResponse(command=parsed["command"], explanation=parsed.get("explanation", ""))

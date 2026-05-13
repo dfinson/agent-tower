@@ -86,7 +86,7 @@ Set at creation time, never mutated. No LLM involved.
 
 ### 3.2 Semantic Enrichment (Asynchronous)
 
-Filled by the enrichment drain loop via sister session LLM calls. Initially NULL.
+Filled by the enrichment drain loop via sidecar session LLM calls. Initially NULL.
 
 | Field | Source |
 |-------|--------|
@@ -159,14 +159,14 @@ Inflection point: marginal gains drop below 1–2% per additional entry beyond 1
 TrailService runs a background `drain_loop()` that processes pending trail nodes:
 
 ```
-drain_loop() (every 10s) → drain_enrichment() → SisterSessionManager (gpt-4o-mini)
+drain_loop() (every 10s) → drain_enrichment() → SidecarSessionManager (gpt-4o-mini)
                                                    │
                                                    ├── _generate_turn_title()
                                                    ├── _resolve_activity_boundary()
                                                    └── _classify_and_emit()
 ```
 
-**Sister sessions** are per-job cheap LLM sessions. Each enrichment request is self-contained: the target node plus its preceding context snapshot (8 entries) plus the last 5 decisions. No conversational state across calls — each batch is independently processable.
+**Sidecar sessions** are per-job cheap LLM sessions. Each enrichment request is self-contained: the target node plus its preceding context snapshot (8 entries) plus the last 5 decisions. No conversational state across calls — each batch is independently processable.
 
 Nodes flow through states: `pending` → `complete` (or `failed`).
 
@@ -431,7 +431,7 @@ A **structural pre-processor**. Operates on already-translated DomainEvents — 
 
 The **distribution fabric**. TrailService publishes domain events; subscribers receive adapted projections. Stateless notification channel.
 
-### SisterSessionManager
+### SidecarSessionManager
 
 The **enrichment substrate**. Provides per-job cheap LLM sessions (gpt-4o-mini) that TrailService uses for semantic inference. No independent knowledge of the trail.
 
@@ -442,7 +442,7 @@ The **enrichment substrate**. Provides per-job cheap LLM sessions (gpt-4o-mini) 
 ### 9.1 Wiring (lifespan.py)
 
 ```python
-trail_service = TrailService(session_factory, event_bus, sister_sessions, config)
+trail_service = TrailService(session_factory, event_bus, sidecar_sessions, config)
 event_bus.subscribe(trail_service.handle_event)
 asyncio.create_task(trail_service.drain_loop())
 ```
@@ -454,9 +454,9 @@ On crash recovery (`session_resumed`):
 - Nodes with `enrichment='failed'` are eligible for retry by the drain loop
 - Drain loop resumes and resubmits pending nodes
 - StepTracker starts fresh (forward-only state)
-- Sister sessions are stateless per-batch — no conversational context to lose
+- Sidecar sessions are stateless per-batch — no conversational context to lose
 
-**Lossy recovery**: Reconstruction from trail nodes is incomplete. The following transient state is lost on crash: `recent_messages`, `recent_tool_intents`, `recent_tool_names`, `tool_call_count`, `current_phase`, `last_classified_plan_item`, and `sister_consecutive_failures`. Post-recovery, plan classification and activity boundary detection degrade because these context buffers are empty. This is a known gap (see §13.5).
+**Lossy recovery**: Reconstruction from trail nodes is incomplete. The following transient state is lost on crash: `recent_messages`, `recent_tool_intents`, `recent_tool_names`, `tool_call_count`, `current_phase`, `last_classified_plan_item`, and `sidecar_consecutive_failures`. Post-recovery, plan classification and activity boundary detection degrade because these context buffers are empty. This is a known gap (see §13.5).
 
 ---
 
@@ -485,7 +485,7 @@ On crash recovery (`session_resumed`):
 | Event Processor | `TrailService.handle_event()` |
 | Complete Rebuild | Replay from trail nodes on `session_resumed` |
 | Temporal Query | Query trail nodes by timestamp/seq range |
-| External Gateway | SisterSessionManager (stateless per-batch, safe for replay) |
+| External Gateway | SidecarSessionManager (stateless per-batch, safe for replay) |
 | Snapshot | Latest `step_completed` node as implicit checkpoint |
 | CQRS Read Model | `steps` table, Zustand store, TrailRepository queries |
 | CQRS Write Model | TrailService command handlers (`feed_*`, `handle_event`) |
@@ -548,7 +548,7 @@ New repo method: `update_tool_metadata(job_id, turn_id, tool_name, ...)` — upd
 
 ### 13.5 Split-Brain Recovery — ✅ IMPLEMENTED
 
-`TrailJobState` is reconstructed from persisted trail nodes on `session_resumed`, but recovery is lossy. The following transient state cannot be recovered: `recent_messages`, `recent_tool_intents`, `recent_tool_names`, `tool_call_count`, `current_phase`, `last_classified_plan_item`, `sister_consecutive_failures`.
+`TrailJobState` is reconstructed from persisted trail nodes on `session_resumed`, but recovery is lossy. The following transient state cannot be recovered: `recent_messages`, `recent_tool_intents`, `recent_tool_names`, `tool_call_count`, `current_phase`, `last_classified_plan_item`, `sidecar_consecutive_failures`.
 
 **Implementation**: Added `trail_state_snapshot` TEXT column to `jobs` table (migration 0030). `TrailJobState.to_snapshot()` / `from_snapshot()` serialize/deserialize all transient state including context buffers. Snapshot saved on every `step_completed` and on terminal events. On `session_resumed`, snapshot is loaded first (lossless) with fallback to lossy reconstruction.
 

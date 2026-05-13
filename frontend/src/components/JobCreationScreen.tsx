@@ -53,7 +53,7 @@ export function JobCreationScreen() {
   const sessionTokenRef = useRef<string | null>(null);
   const jobCreatedRef = useRef(false);
 
-  // Pre-warm a sister session when the panel mounts; release on unmount if unused
+  // Pre-warm a sidecar session when the panel mounts; release on unmount if unused
   useEffect(() => {
     let canceled = false;
     warmUtilitySession()

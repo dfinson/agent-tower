@@ -124,7 +124,7 @@ export function fetchHealth(): Promise<HealthResponse> {
   return request("/health");
 }
 
-export interface SisterSessionMetrics {
+export interface SidecarSessionMetrics {
   global: {
     totalCalls: number;
     avgLatencyMs: number;
@@ -142,8 +142,8 @@ export interface SisterSessionMetrics {
   }>;
 }
 
-export function fetchSisterSessionMetrics(): Promise<SisterSessionMetrics> {
-  return request("/sister-sessions/metrics");
+export function fetchSidecarSessionMetrics(): Promise<SidecarSessionMetrics> {
+  return request("/sidecar-sessions/metrics");
 }
 
 // --- Jobs ---

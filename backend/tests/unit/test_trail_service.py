@@ -1025,7 +1025,7 @@ class TestTrailJobStateSnapshot:
             ActivityStep(turn_id="t1", title="Read code", activity_id="act-1"),
             ActivityStep(turn_id="t2", title="Edit file", activity_id="act-2"),
         ]
-        state.sister_consecutive_failures = 2
+        state.sidecar_consecutive_failures = 2
 
         data = state.to_snapshot()
         restored = TrailJobState.from_snapshot(data)
@@ -1043,7 +1043,7 @@ class TestTrailJobStateSnapshot:
         assert len(restored.activities) == 2
         assert restored.activities[1].label == "Fixing"
         assert len(restored.activity_steps) == 2
-        assert restored.sister_consecutive_failures == 2
+        assert restored.sidecar_consecutive_failures == 2
 
 
 # ---------------------------------------------------------------------------

@@ -544,7 +544,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             self._session_pids[session_id] = pids[0]
 
         # Register with RuntimeService for full pipeline processing
-        # (sister session, heartbeat, stall detection, step tracking)
+        # (sidecar session, heartbeat, stall detection, step tracking)
         await self._runtime.register_external_session(
             job_id, self._job_worktrees[job_id], self._job_base_refs[job_id]
         )
@@ -690,7 +690,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             )
         )
 
-        # Sister session creation is handled by RuntimeService.register_external_session()
+        # Sidecar session creation is handled by RuntimeService.register_external_session()
 
         log.info(
             "claude_watcher_job_created",
@@ -1129,7 +1129,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 )
             )
 
-        # Delegate cleanup to RuntimeService (sister session, heartbeat,
+        # Delegate cleanup to RuntimeService (sidecar session, heartbeat,
         # stall detection, trail service, step tracker, diff service)
         await self._runtime.finalize_external_session(
             job_id,

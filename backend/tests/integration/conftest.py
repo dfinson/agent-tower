@@ -40,7 +40,7 @@ from backend.services.ingest_service import IngestService
 from backend.services.merge_service import MergeService
 from backend.services.platform_adapter import PlatformRegistry
 from backend.services.runtime_service import RuntimeService
-from backend.services.sister_session import SisterSessionManager
+from backend.services.sidecar_session import SidecarSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.terminal_service import TerminalService
 from backend.services.voice_service import VoiceService
@@ -141,7 +141,7 @@ def mock_platform_registry() -> Mock:
 
 @pytest.fixture
 def mock_utility_session() -> AsyncMock:
-    svc = AsyncMock(spec=SisterSessionManager)
+    svc = AsyncMock(spec=SidecarSessionManager)
     # Return valid naming JSON so NamingService succeeds in tests
     svc.complete.return_value = '{"title": "Test Task", "branch_name": "fix/test-task", "worktree_name": "task-test"}'
     return svc
@@ -242,7 +242,7 @@ async def app(
             MergeService: mock_merge_service,
             GitService: mock_git_service,
             PlatformRegistry: mock_platform_registry,
-            SisterSessionManager: mock_utility_session,
+            SidecarSessionManager: mock_utility_session,
             VoiceService: mock_voice_service,
             CachedModelsBySdk: CachedModelsBySdk({}),
             VoiceMaxBytes: VoiceMaxBytes(voice_max_bytes_value),

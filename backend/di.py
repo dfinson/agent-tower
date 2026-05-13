@@ -42,7 +42,7 @@ from backend.services.platform_adapter import PlatformRegistry
 from backend.services.push_service import PushService
 from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
-from backend.services.sister_session import SisterSessionManager
+from backend.services.sidecar_session import SidecarSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.step_diff_service import StepDiffService
 from backend.services.story_service import StoryService
@@ -72,7 +72,7 @@ class AppProvider(Provider):
     runtime_service = from_context(provides=RuntimeService)
     merge_service = from_context(provides=MergeService)
     platform_registry = from_context(provides=PlatformRegistry)
-    sister_sessions = from_context(provides=SisterSessionManager)
+    sidecar_sessions = from_context(provides=SidecarSessionManager)
     voice_service = from_context(provides=VoiceService)
     cached_models = from_context(provides=CachedModelsBySdk)
     voice_max_bytes = from_context(provides=VoiceMaxBytes)
@@ -141,8 +141,8 @@ class RequestProvider(Provider):
                 raise
 
     @provide
-    def naming_service(self, sister_sessions: SisterSessionManager) -> NamingService:
-        return NamingService(sister_sessions)
+    def naming_service(self, sidecar_sessions: SidecarSessionManager) -> NamingService:
+        return NamingService(sidecar_sessions)
 
     @provide
     def job_service(

@@ -1,7 +1,7 @@
 """Memory compacter session — dedicated session for workspace memory compaction.
 
 A single-purpose session that uses the agent adapter's ``complete()`` method
-(same underlying mechanism as sister sessions) but with a system prompt
+(same underlying mechanism as sidecar sessions) but with a system prompt
 tailored for distilling accumulated workspace memory.
 """
 
@@ -36,7 +36,7 @@ class MemoryCompacter:
     """Dedicated session for workspace memory compaction.
 
     Uses the adapter's ``complete()`` — same session mechanism as
-    SisterSession — but with a compaction-specific system prompt.
+    SidecarSession — but with a compaction-specific system prompt.
     """
 
     def __init__(self, adapter: AgentAdapterInterface) -> None:

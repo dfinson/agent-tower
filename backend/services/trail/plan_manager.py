@@ -12,7 +12,7 @@ from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.trail.models import (
     CONTEXT_WINDOW_SIZE,
     MESSAGE_SIGNAL_BUFFER_SIZE,
-    SISTER_FAILURE_THRESHOLD,
+    SIDECAR_FAILURE_THRESHOLD,
     TOOL_NAME_VOCAB_CAP,
     PlanStep,
     TrailJobState,
@@ -26,7 +26,9 @@ from backend.services.trail.prompts import (
 
 if TYPE_CHECKING:
     from backend.services.event_bus import EventBus
-    from backend.services.sister_session import SisterSession, SisterSessionManager
+    from backend.services.sidecar_session import SidecarSession, SidecarSessionManager
+
+from backend.models.domain import SIDECAR_PLANNER
 
 log = structlog.get_logger()
 
@@ -40,11 +42,11 @@ class PlanManager:
         self,
         event_bus: EventBus,
         job_state: dict[str, TrailJobState],
-        sister_sessions: SisterSessionManager | None = None,
+        sidecar_sessions: SidecarSessionManager | None = None,
     ) -> None:
         self._event_bus = event_bus
         self._job_state = job_state
-        self._sister_sessions = sister_sessions
+        self._sidecar_sessions = sidecar_sessions
 
     # ------------------------------------------------------------------
     # Transcript ingestion
@@ -90,13 +92,13 @@ class PlanManager:
 
     async def _try_early_plan(self, job_id: str) -> None:
         """Infer plan from the first agent message."""
-        if not self._sister_sessions:
+        if not self._sidecar_sessions:
             return
-        sister = self._sister_sessions.get(job_id)
-        if sister is None:
+        sidecar = self._sidecar_sessions.get(job_id, SIDECAR_PLANNER)
+        if sidecar is None:
             return
         try:
-            await self.infer_plan(job_id, sister)
+            await self.infer_plan(job_id, sidecar)
         except (OSError, ValueError, KeyError):
             log.warning("early_plan_inference_failed", job_id=job_id, exc_info=True)
 
@@ -104,7 +106,7 @@ class PlanManager:
     # Plan inference (no native plan)
     # ------------------------------------------------------------------
 
-    async def infer_plan(self, job_id: str, sister: SisterSession) -> None:
+    async def infer_plan(self, job_id: str, sidecar: SidecarSession) -> None:
         """Infer plan steps from the job prompt and first agent message."""
         state = self._job_state.get(job_id)
         if not state:
@@ -119,7 +121,7 @@ class PlanManager:
         prompt = INFER_PLAN_PROMPT.format(task=task, first_msg=first_msg)
 
         try:
-            raw = await sister.complete(prompt)
+            raw = await sidecar.complete(prompt)
             raw = strip_code_fences(raw)
             parsed = json.loads(raw)
             labels = parsed.get("items", [])
@@ -157,7 +159,7 @@ class PlanManager:
     async def classify_and_update_plan(
         self,
         job_id: str,
-        sister: SisterSession,
+        sidecar: SidecarSession,
         steps: list[PlanStep],
         *,
         agent_msg: str,
@@ -194,7 +196,7 @@ class PlanManager:
         updated_label: str | None = None
         target_idx = active_idx
         try:
-            raw = await sister.complete(prompt)
+            raw = await sidecar.complete(prompt)
             raw = strip_code_fences(raw)
             parsed = json.loads(raw)
             summary = str(parsed.get("summary", ""))
@@ -210,9 +212,9 @@ class PlanManager:
                 candidate = raw_assign - 1
                 if steps[candidate].status != "skipped" or candidate == active_idx:
                     target_idx = candidate
-            state.sister_consecutive_failures = 0
+            state.sidecar_consecutive_failures = 0
         except (OSError, ValueError, KeyError):
-            state.sister_consecutive_failures += 1
+            state.sidecar_consecutive_failures += 1
             log.warning("turn_classification_failed", job_id=job_id, exc_info=True)
 
         now = datetime.now(UTC)
@@ -459,20 +461,20 @@ class PlanManager:
         if not state:
             return None
 
-        sister = self._sister_sessions.get(job_id) if self._sister_sessions else None
+        sidecar = self._sidecar_sessions.get(job_id, SIDECAR_PLANNER) if self._sidecar_sessions else None
 
-        if sister and state.sister_consecutive_failures >= SISTER_FAILURE_THRESHOLD:
-            sister = None
+        if sidecar and state.sidecar_consecutive_failures >= SIDECAR_FAILURE_THRESHOLD:
+            sidecar = None
 
         # Infer plan if needed
-        if sister and not state.plan_established and not state._inferring_plan:
+        if sidecar and not state.plan_established and not state._inferring_plan:
             state._inferring_plan = True
             try:
-                await self.infer_plan(job_id, sister)
-                state.sister_consecutive_failures = 0
+                await self.infer_plan(job_id, sidecar)
+                state.sidecar_consecutive_failures = 0
             except (OSError, ValueError, KeyError):
-                state.sister_consecutive_failures += 1
-                log.warning("plan_inference_failed_circuit", job_id=job_id, failures=state.sister_consecutive_failures)
+                state.sidecar_consecutive_failures += 1
+                log.warning("plan_inference_failed_circuit", job_id=job_id, failures=state.sidecar_consecutive_failures)
             finally:
                 state._inferring_plan = False
 
@@ -487,10 +489,10 @@ class PlanManager:
         steps = state.plan_steps
         assigned_plan_step_id: str | None = None
 
-        if sister and steps:
+        if sidecar and steps:
             assigned_plan_step_id = await self.classify_and_update_plan(
                 job_id,
-                sister,
+                sidecar,
                 steps,
                 agent_msg=agent_msg,
                 tool_count=tool_count,
@@ -519,15 +521,15 @@ class PlanManager:
 
         return assigned_plan_step_id
 
-    def get_sister(self, job_id: str) -> SisterSession | None:
-        """Get the sister session for a job (with circuit breaker)."""
+    def get_sidecar(self, job_id: str) -> SidecarSession | None:
+        """Get the sidecar session for a job (with circuit breaker)."""
         state = self._job_state.get(job_id)
         if not state:
             return None
-        sister = self._sister_sessions.get(job_id) if self._sister_sessions else None
-        if sister and state.sister_consecutive_failures >= SISTER_FAILURE_THRESHOLD:
+        sidecar = self._sidecar_sessions.get(job_id, SIDECAR_PLANNER) if self._sidecar_sessions else None
+        if sidecar and state.sidecar_consecutive_failures >= SIDECAR_FAILURE_THRESHOLD:
             return None
-        return sister
+        return sidecar
 
     # ------------------------------------------------------------------
     # SSE emission helpers

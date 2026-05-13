@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 # Eval-backed: context_window_eval.py shows marginal gains < 1-2% beyond 10
 # entries for file coverage and motivation context.  Used by StepTracker and
-# the classify/title prompts that feed tool intents to a sister LLM.
+# the classify/title prompts that feed tool intents to a sidecar LLM.
 CONTEXT_WINDOW_SIZE: int = 10
 
 # recent_messages is a signal buffer, not a context window.  Consumers read
@@ -186,7 +186,7 @@ class TrailJobState:
     # redirect detection ([-1]).  Capped to preserve those two positions
     # while bounding memory; the size itself is not load-bearing.
     #
-    # recent_tool_intents: ring buffer fed into the sister-LLM classify
+    # recent_tool_intents: ring buffer fed into the sidecar-LLM classify
     # prompt.  Uses the eval-backed context_window_eval.py inflection
     # point (same reasoning as StepTracker._BUFFER_SIZE).
     #
@@ -202,8 +202,8 @@ class TrailJobState:
     activity_steps: list[ActivityStep] = field(default_factory=list)
     last_classified_plan_item: str = ""
 
-    # Sister session circuit breaker
-    sister_consecutive_failures: int = 0
+    # Sidecar session circuit breaker
+    sidecar_consecutive_failures: int = 0
     _inferring_plan: bool = False
 
     def to_snapshot(self) -> dict[str, Any]:
@@ -222,7 +222,7 @@ class TrailJobState:
             "recent_tool_names": list(self.recent_tool_names),
             "tool_call_count": self.tool_call_count,
             "last_classified_plan_item": self.last_classified_plan_item,
-            "sister_consecutive_failures": self.sister_consecutive_failures,
+            "sidecar_consecutive_failures": self.sidecar_consecutive_failures,
             "plan_steps": [
                 {
                     "plan_step_id": s.plan_step_id,
@@ -274,7 +274,7 @@ class TrailJobState:
         state.recent_tool_names = data.get("recent_tool_names", [])
         state.tool_call_count = data.get("tool_call_count", 0)
         state.last_classified_plan_item = data.get("last_classified_plan_item", "")
-        state.sister_consecutive_failures = data.get("sister_consecutive_failures", 0)
+        state.sidecar_consecutive_failures = data.get("sidecar_consecutive_failures", 0)
         state.plan_steps = [
             PlanStep(
                 plan_step_id=s["plan_step_id"],
@@ -335,4 +335,4 @@ DETERMINISTIC_KINDS = frozenset({"goal", "explore", "modify", "request", "summar
 SEMANTIC_KINDS = frozenset({"plan", "insight", "decide", "backtrack", "verify"})
 ALL_KINDS = DETERMINISTIC_KINDS | SEMANTIC_KINDS
 
-SISTER_FAILURE_THRESHOLD = 5
+SIDECAR_FAILURE_THRESHOLD = 5

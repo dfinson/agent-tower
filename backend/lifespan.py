@@ -40,7 +40,7 @@ from backend.services.push_service import PushService
 from backend.services.retention_service import RetentionService
 from backend.services.runtime_service import RuntimeService
 from backend.services.share_service import ShareService
-from backend.services.sister_session import SisterSessionManager
+from backend.services.sidecar_session import SidecarSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.step_persistence import StepPersistenceSubscriber
 from backend.services.step_tracker import StepTracker
@@ -270,7 +270,7 @@ class _CoreServices:
     adapter_registry: AdapterRegistry
     platform_registry: PlatformRegistry
     merge_service: MergeService
-    sister_sessions: SisterSessionManager
+    sidecar_sessions: SidecarSessionManager
     narrator_completer: NarratorCompleter
     memory_compacter: MemoryCompacter
     runtime_service: RuntimeService
@@ -435,14 +435,14 @@ async def _wire_core_services(
         diff_service=diff_service,
     )
 
-    # --- Sister session manager (per-job dedicated utility sessions) ---
+    # --- Sidecar session manager (per-job dedicated utility sessions) ---
     utility_adapter = adapter_registry.get_adapter(config.runtime.default_sdk)
-    sister_sessions = SisterSessionManager(
+    sidecar_sessions = SidecarSessionManager(
         adapter=utility_adapter,
         model=config.runtime.utility_model,
     )
-    log.debug("sister_sessions_starting", model=config.runtime.utility_model, sdk=config.runtime.default_sdk)
-    await sister_sessions.start()
+    log.debug("sidecar_sessions_starting", model=config.runtime.utility_model, sdk=config.runtime.default_sdk)
+    await sidecar_sessions.start()
 
     # --- Memory compacter (dedicated workspace memory summarization) ---
     memory_compacter = MemoryCompacter(adapter=utility_adapter)
@@ -465,7 +465,7 @@ async def _wire_core_services(
 
     summarization_service = SummarizationService(
         session_factory=session_factory,
-        adapter=sister_sessions,
+        adapter=sidecar_sessions,
     )
 
     # Plan-step orchestration is now handled by TrailService (unified timeline)
@@ -482,7 +482,7 @@ async def _wire_core_services(
         merge_service=merge_service,
         summarization_service=summarization_service,
         platform_registry=platform_registry,
-        sister_sessions=sister_sessions,
+        sidecar_sessions=sidecar_sessions,
         step_tracker=StepTracker(
             event_bus=event_bus,
             git_service=git_service,
@@ -506,7 +506,7 @@ async def _wire_core_services(
         adapter_registry=adapter_registry,
         platform_registry=platform_registry,
         merge_service=merge_service,
-        sister_sessions=sister_sessions,
+        sidecar_sessions=sidecar_sessions,
         narrator_completer=narrator_completer,
         memory_compacter=memory_compacter,
         runtime_service=runtime_service,
@@ -629,7 +629,7 @@ async def _init_optional_services(
         session_factory=session_factory,
         runtime_service=services.runtime_service,
         approval_service=services.approval_service,
-        sister_sessions=services.sister_sessions,
+        sidecar_sessions=services.sidecar_sessions,
     )
     mcp_app = mcp_server.streamable_http_app()
 
@@ -780,7 +780,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     motivation_service = MotivationService(
         session_factory=session_factory,
-        completer=services.sister_sessions,
+        completer=services.sidecar_sessions,
     )
     motivation_task = asyncio.create_task(motivation_service.drain_loop(), name="motivation-drain")
 
@@ -790,7 +790,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     trail_service = TrailService(
         session_factory=session_factory,
         event_bus=event_bus,
-        sister_sessions=services.sister_sessions,
+        sidecar_sessions=services.sidecar_sessions,
         config=config.trail,
     )
     event_bus.subscribe(trail_service.handle_event)
@@ -1058,7 +1058,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # --- SessionStateWatcher (auto-discover Copilot --remote sessions) ---
     # Watchers feed events through RuntimeService so imported sessions get the
-    # full pipeline: sister sessions, heartbeat, stall detection, plan
+    # full pipeline: sidecar sessions, heartbeat, stall detection, plan
     # inference, turn classification, and trail enrichment.
     from backend.services.session_state_watcher import SessionStateWatcher
 
@@ -1109,7 +1109,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             RuntimeService: services.runtime_service,
             MergeService: services.merge_service,
             PlatformRegistry: services.platform_registry,
-            SisterSessionManager: services.sister_sessions,
+            SidecarSessionManager: services.sidecar_sessions,
             NarratorCompleter: services.narrator_completer,
             MemoryCompacter: services.memory_compacter,
             VoiceService: optional.voice_service,
@@ -1186,7 +1186,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if _ephemeral_tasks:
             await asyncio.gather(*_ephemeral_tasks, return_exceptions=True)
         await coderecon_service.stop()
-        await services.sister_sessions.shutdown()
+        await services.sidecar_sessions.shutdown()
         await services.runtime_service.shutdown()
         sse_manager.close_all()
         await engine.dispose()

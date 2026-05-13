@@ -89,8 +89,8 @@ test.describe("Metrics Tab — Data Display", () => {
       });
     });
 
-    // Mock sister session metrics
-    await page.route("**/api/sister-sessions/metrics*", async (route) => {
+    // Mock sidecar session metrics
+    await page.route("**/api/sidecar-sessions/metrics*", async (route) => {
       await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
     });
 

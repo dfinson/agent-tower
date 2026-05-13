@@ -11,10 +11,10 @@ from backend import __version__
 from backend.models.api_schemas import (
     HealthResponse,
     HealthStatus,
-    SisterSessionMetricsResponse,
+    SidecarSessionMetricsResponse,
 )
 from backend.services.job_service import JobService
-from backend.services.sister_session import SisterSessionManager
+from backend.services.sidecar_session import SidecarSessionManager
 
 router = APIRouter(tags=["health"], route_class=DishkaRoute)
 
@@ -40,9 +40,9 @@ async def health(
     )
 
 
-@router.get("/sister-sessions/metrics", response_model=SisterSessionMetricsResponse)
-def sister_session_metrics(
-    sister_sessions: FromDishka[SisterSessionManager],
-) -> SisterSessionMetricsResponse:
-    """Return sister session metrics (global + per-job)."""
-    return SisterSessionMetricsResponse.model_validate(sister_sessions.get_metrics())
+@router.get("/sidecar-sessions/metrics", response_model=SidecarSessionMetricsResponse)
+def sidecar_session_metrics(
+    sidecar_sessions: FromDishka[SidecarSessionManager],
+) -> SidecarSessionMetricsResponse:
+    """Return sidecar session metrics (global + per-job)."""
+    return SidecarSessionMetricsResponse.model_validate(sidecar_sessions.get_metrics())

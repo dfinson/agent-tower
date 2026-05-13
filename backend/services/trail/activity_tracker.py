@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.event_bus import EventBus
-    from backend.services.sister_session import SisterSession
+    from backend.services.sidecar_session import SidecarSession
     from backend.services.trail.title_generator import TitleGenerator
 
 log = structlog.get_logger()
@@ -45,7 +45,7 @@ class ActivityTracker:
         job_id: str,
         *,
         node_id: str,
-        sister: SisterSession | None,
+        sidecar: SidecarSession | None,
         turn_id: str,
         agent_msg: str,
         files_read: list[str],
@@ -59,7 +59,7 @@ class ActivityTracker:
         if not state:
             return
 
-        if not sister:
+        if not sidecar:
             return
 
         # Track plan step for context (no longer forces boundaries).
@@ -72,7 +72,7 @@ class ActivityTracker:
         result = await self._title_gen.generate(
             job_id,
             state,
-            sister,
+            sidecar,
             agent_msg=agent_msg,
             files_read=files_read,
             files_written=files_written,

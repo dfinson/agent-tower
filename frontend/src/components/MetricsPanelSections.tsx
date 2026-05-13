@@ -3,13 +3,13 @@ import {
   ChevronDown, ChevronRight, Brain, BarChart3,
   BookOpen, Zap,
 } from "lucide-react";
-import { fetchModelPricing, fetchSisterSessionMetrics, type ModelPricing, type SisterSessionMetrics } from "../api/client";
+import { fetchModelPricing, fetchSidecarSessionMetrics, type ModelPricing, type SidecarSessionMetrics } from "../api/client";
 import { Progress } from "./ui/progress";
 import { Tooltip } from "./ui/tooltip";
 import { cn } from "../lib/utils";
 import { useStore } from "../store";
 import type {
-  TelemetryData, FileAccessData, LLMCall, SortField, SortDir,
+  TelemetryData, FileAccessData, LLMCall, SortField, SortDir, SidecarSession,
 } from "./MetricsPanelTypes";
 import {
   formatDuration, formatTokens, formatUsd, estimateCostWithoutCache,
@@ -377,15 +377,86 @@ export function FileAccessSection({ fileAccess }: { fileAccess: FileAccessData }
 }
 
 // ---------------------------------------------------------------------------
-// SisterSessionJobMetrics
+// SidecarSessionsSection — per-session-kind cost breakdown from telemetry
 // ---------------------------------------------------------------------------
 
-export function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
-  const [metrics, setMetrics] = useState<SisterSessionMetrics | null>(null);
+const _SESSION_KIND_LABELS: Record<string, string> = {
+  preflight: "Preflight Curator",
+  memory_extraction: "Memory Extraction",
+  memory_compaction: "Memory Compaction",
+  narrator: "Narrator",
+  sidecar: "Sidecar Session",
+};
+
+export function SidecarSessionsSection({ sessions }: { sessions: SidecarSession[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!sessions || sessions.length === 0) return null;
+
+  const totalCost = sessions.reduce((s, r) => s + r.totalCostUsd, 0);
+  const totalCalls = sessions.reduce((s, r) => s + r.llmCallCount, 0);
+  const totalTokens = sessions.reduce((s, r) => s + r.inputTokens + r.outputTokens, 0);
+
+  return (
+    <div className="rounded-md border border-border overflow-hidden">
+      <button
+        className="flex w-full items-center gap-2 px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+        onClick={() => setExpanded((c) => !c)}
+      >
+        {expanded ? <ChevronDown size={11} className="text-muted-foreground shrink-0" /> : <ChevronRight size={11} className="text-muted-foreground shrink-0" />}
+        <Zap size={12} className="text-amber-400 shrink-0" />
+        <span className="text-xs font-medium text-foreground">Sidecar Sessions</span>
+        <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
+          <span>{sessions.length} types</span>
+          <span>{totalCalls} calls</span>
+          {totalTokens > 0 && <span>{formatTokens(totalTokens)} tok</span>}
+          {totalCost > 0 && <span className="text-green-400">{formatUsd(totalCost)}</span>}
+        </span>
+      </button>
+      {expanded && (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-muted/20 text-muted-foreground">
+              <th className="px-3 py-1.5 text-left font-medium">Session</th>
+              <th className="px-3 py-1.5 text-right font-medium">LLM Calls</th>
+              <th className="px-3 py-1.5 text-right font-medium">Tool Calls</th>
+              <th className="px-3 py-1.5 text-right font-medium">Input</th>
+              <th className="px-3 py-1.5 text-right font-medium">Output</th>
+              <th className="px-3 py-1.5 text-right font-medium">Cost</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {sessions.map((s) => (
+              <tr key={s.sessionKind} className="hover:bg-accent/30">
+                <td className="px-3 py-1.5 font-medium">
+                  {_SESSION_KIND_LABELS[s.sessionKind] ?? s.sessionKind}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{s.llmCallCount}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{s.toolCallCount}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{formatTokens(s.inputTokens)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{formatTokens(s.outputTokens)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-green-400">
+                  {s.totalCostUsd > 0 ? formatUsd(s.totalCostUsd) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SidecarSessionJobMetrics (legacy — kept for backward compat, delegates to SidecarSessionsSection)
+// ---------------------------------------------------------------------------
+
+export function SidecarSessionJobMetrics({ jobId }: { jobId: string }) {
+  const [metrics, setMetrics] = useState<SidecarSessionMetrics | null>(null);
   const [expanded, setExpanded] = useState(false);
   const telemetryVersion = useStore((s) => s.telemetryVersions[jobId] ?? 0);
   useEffect(() => {
-    fetchSisterSessionMetrics()
+    fetchSidecarSessionMetrics()
       .then(setMetrics)
       .catch(() => {});
   }, [jobId, telemetryVersion]);
@@ -409,7 +480,7 @@ export function SisterSessionJobMetrics({ jobId }: { jobId: string }) {
       >
         {expanded ? <ChevronDown size={11} className="text-muted-foreground shrink-0" /> : <ChevronRight size={11} className="text-muted-foreground shrink-0" />}
         <Brain size={12} className="text-purple-400 shrink-0" />
-        <span className="text-xs font-medium text-foreground">Sister Session</span>
+        <span className="text-xs font-medium text-foreground">Sidecar Session</span>
         <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground tabular-nums">
           <span>{jobMetrics.callCount} calls</span>
           {hasTokens && <span>{formatTokens(jobMetrics.inputTokens + jobMetrics.outputTokens)} tok</span>}

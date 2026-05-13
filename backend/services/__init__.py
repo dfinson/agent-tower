@@ -20,7 +20,7 @@ Conceptual groups:
   ``retention_service``, ``setup_service``, ``setup_checks``,
   ``setup_dependencies``, ``setup_wizard``.
 * **Utilities** — ``git_service``, ``naming_service``, ``summarization_service``,
-  ``sister_session``, ``tool_formatters``, ``tool_classifier``,
+  ``sidecar_session``, ``tool_formatters``, ``tool_classifier``,
   ``voice_service``, ``terminal_service``, ``tunnel_service``,
   ``platform_adapter``, ``parsing_utils``, ``snapshot_helpers``.
 * **Auth & sharing** — ``auth``, ``cf_access``, ``share_service``,
@@ -55,7 +55,7 @@ __all__ = [
     "runtime_service",
     "setup_service",
     "share_service",
-    "sister_session",
+    "sidecar_session",
     "sse_manager",
     "statistical_analysis",
     "step_persistence",

@@ -24,7 +24,8 @@ import {
   DEFAULT_COST_CONFIG,
   SortHeader,
   FileAccessSection,
-  SisterSessionJobMetrics,
+  SidecarSessionsSection,
+  SidecarSessionJobMetrics,
   StatCard,
   CompactStat,
   SubAgentGroup,
@@ -833,8 +834,12 @@ export function MetricsPanel({ jobId, isRunning = false }: { jobId: string; isRu
                 <FileAccessSection fileAccess={data.fileAccess} />
               )}
 
-              {/* Sister session (utility LLM) metrics for this job */}
-              <SisterSessionJobMetrics jobId={jobId} />
+              {/* Sidecar session cost breakdown (preflight, memory, etc.) */}
+              {data.sidecarSessions && data.sidecarSessions.length > 0 ? (
+                <SidecarSessionsSection sessions={data.sidecarSessions} />
+              ) : (
+                <SidecarSessionJobMetrics jobId={jobId} />
+              )}
               </SectionGroup>
             </>
           )}

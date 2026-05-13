@@ -11,7 +11,7 @@ import structlog
 from backend.services.trail.prompts import TITLE_PROMPT, strip_code_fences
 
 if TYPE_CHECKING:
-    from backend.services.sister_session import SisterSession
+    from backend.services.sidecar_session import SidecarSession
     from backend.services.trail.models import TrailJobState
 
 log = structlog.get_logger()
@@ -34,7 +34,7 @@ class TitleGenerator:
         self,
         job_id: str,
         state: TrailJobState,
-        sister: SisterSession | None,
+        sidecar: SidecarSession | None,
         *,
         agent_msg: str,
         files_read: list[str],
@@ -45,10 +45,10 @@ class TitleGenerator:
     ) -> TitleResult | None:
         """Generate a title and activity boundary decision for a completed turn.
 
-        Returns None if the LLM call fails or sister is unavailable — caller
+        Returns None if the LLM call fails or sidecar is unavailable — caller
         should skip emitting a turn_summary rather than emitting garbage.
         """
-        if not sister:
+        if not sidecar:
             return None
 
         # Build plan step context
@@ -96,7 +96,7 @@ class TitleGenerator:
         )
 
         try:
-            raw = await sister.complete(prompt)
+            raw = await sidecar.complete(prompt)
             raw = strip_code_fences(raw)
             parsed = json.loads(raw)
             title = parsed.get("title", "").strip() or None
@@ -110,9 +110,9 @@ class TitleGenerator:
             al = parsed.get("label")
             if isinstance(al, str) and al.strip():
                 activity_label = al.strip()
-            state.sister_consecutive_failures = 0
+            state.sidecar_consecutive_failures = 0
         except (OSError, ValueError, KeyError):
-            state.sister_consecutive_failures += 1
+            state.sidecar_consecutive_failures += 1
             log.warning("turn_title_generation_failed", job_id=job_id, exc_info=True)
             return None
 

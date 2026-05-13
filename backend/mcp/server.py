@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from backend.models.domain import Job
     from backend.services.approval_service import ApprovalService
     from backend.services.runtime_service import RuntimeService
-    from backend.services.sister_session import SisterSessionManager
+    from backend.services.sidecar_session import SidecarSessionManager
 
 log = structlog.get_logger()
 
@@ -84,7 +84,7 @@ class MCPState:
     session_factory: async_sessionmaker[AsyncSession]
     runtime_service: RuntimeService
     approval_service: ApprovalService
-    sister_sessions: SisterSessionManager | None = None
+    sidecar_sessions: SidecarSessionManager | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +103,8 @@ def _make_job_service(
     from backend.services.naming_service import NamingService
 
     naming: NamingService | None = None
-    if state.sister_sessions is not None:
-        naming = NamingService(state.sister_sessions)
+    if state.sidecar_sessions is not None:
+        naming = NamingService(state.sidecar_sessions)
     return JobService(
         job_repo=JobRepository(session),
         git_service=GitService(config) if git else None,
@@ -130,14 +130,14 @@ def create_mcp_server(
     session_factory: async_sessionmaker[AsyncSession],
     runtime_service: RuntimeService,
     approval_service: ApprovalService,
-    sister_sessions: SisterSessionManager | None = None,
+    sidecar_sessions: SidecarSessionManager | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server with all CodePlane tools."""
     state = MCPState(
         session_factory=session_factory,
         runtime_service=runtime_service,
         approval_service=approval_service,
-        sister_sessions=sister_sessions,
+        sidecar_sessions=sidecar_sessions,
     )
 
     mcp = FastMCP(

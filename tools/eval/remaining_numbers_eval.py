@@ -240,14 +240,14 @@ def run():
     print()
 
     # =====================================================================
-    # 4. LLM response times (sister session)
+    # 4. LLM response times (sidecar session)
     # =====================================================================
     print("=" * 80)
     print("4. LLM RESPONSE TIMES (are timeout=10/15 ever hit?)")
     print("=" * 80)
     print()
 
-    # Sister session calls are LLM spans with specific patterns
+    # Sidecar session calls are LLM spans with specific patterns
     llm_rows = conn.execute("""
         SELECT name, duration_ms FROM job_telemetry_spans
         WHERE span_type = 'llm' AND duration_ms IS NOT NULL
@@ -269,14 +269,14 @@ def run():
             over = sum(1 for d in durations if d > threshold_ms)
             print(f"  >{threshold_s}s: {over}/{n} ({over/n*100:.2f}%)")
 
-        # Sister session calls specifically (sister sessions use utility model)
+        # Sidecar session calls specifically (sidecar sessions use utility model)
         # These are the ones the 10/15s timeouts apply to
         print()
-        print("  Note: sister session calls (plan inference, title generation)")
+        print("  Note: sidecar session calls (plan inference, title generation)")
         print("  use a small/fast model. Main agent LLM calls use the primary model.")
-        print("  The timeout values apply to sister session calls only.")
+        print("  The timeout values apply to sidecar session calls only.")
 
-        # Check by model to separate sister session from main agent
+        # Check by model to separate sidecar session from main agent
         model_rows = conn.execute("""
             SELECT model, COUNT(*) as cnt,
                    AVG(duration_ms) as avg_ms,

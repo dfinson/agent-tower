@@ -95,8 +95,8 @@ For the "NOW" line, use:
 
 **What stays:**
 - `TitleResult` dataclass (same fields: `title`, `merge_with_previous`, `new_activity`, `activity_label`)
-- Sister session call mechanism (1 call per turn, same cost)
-- Fallback path when sister is None
+- Sidecar session call mechanism (1 call per turn, same cost)
+- Fallback path when sidecar is None
 - `merge_with_previous` for trivial retries
 
 **What's removed:**
@@ -128,7 +128,7 @@ Expected label examples:
 
 ### Cost
 
-**Same as current**: 1 sister session call per turn. The prompt is actually *shorter* than the current `TITLE_PROMPT` because:
+**Same as current**: 1 sidecar session call per turn. The prompt is actually *shorter* than the current `TITLE_PROMPT` because:
 - No long "rules about when to fire new_activity" section
 - No list of "NOT a shift" examples
 - Context window is 3 lines, not a growing list of all step titles

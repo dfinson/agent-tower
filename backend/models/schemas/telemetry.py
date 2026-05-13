@@ -415,6 +415,17 @@ class TelemetryReviewComplexity(CamelModel):
     signal_details: dict[str, dict[str, int | float]] = {}
 
 
+class SidecarSessionSummary(CamelModel):
+    """Per-session-kind cost/token summary for sidecar sessions within a job."""
+
+    session_kind: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_cost_usd: float = 0
+    llm_call_count: int = 0
+    tool_call_count: int = 0
+
+
 class JobTelemetryResponse(CamelModel):
     available: bool = False
     job_id: str = ""
@@ -454,11 +465,24 @@ class JobTelemetryResponse(CamelModel):
     quota_snapshots: dict[str, TelemetryQuotaSnapshot] | None = None
     review_signals: TelemetryReviewSignals = TelemetryReviewSignals()
     review_complexity: TelemetryReviewComplexity = TelemetryReviewComplexity()
+    sidecar_sessions: list[SidecarSessionSummary] = []
 
 
 # ---------------------------------------------------------------------------
 # Fleet-level analytics
 # ---------------------------------------------------------------------------
+
+
+class SidecarCostEntry(CamelModel):
+    """Fleet-level cost breakdown for a single sidecar session kind."""
+
+    session_kind: str = ""
+    session_count: int = 0
+    total_cost_usd: float = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    llm_call_count: int = 0
+    tool_call_count: int = 0
 
 
 class ModelStatsEntry(CamelModel, extra="allow"):
@@ -767,7 +791,7 @@ class JobTelemetryReport(CamelModel):
     completed_at: datetime | None = None
 
 
-class SisterSessionGlobalMetrics(CamelModel):
+class SidecarSessionGlobalMetrics(CamelModel):
     total_calls: int
     avg_latency_ms: float
     active_jobs: int
@@ -775,7 +799,7 @@ class SisterSessionGlobalMetrics(CamelModel):
     warm_tokens: int
 
 
-class SisterSessionJobMetrics(CamelModel):
+class SidecarSessionJobMetrics(CamelModel):
     call_count: int
     avg_latency_ms: float
     total_latency_ms: float
@@ -784,9 +808,9 @@ class SisterSessionJobMetrics(CamelModel):
     cost_usd: float
 
 
-class SisterSessionMetricsResponse(CamelModel):
-    global_metrics: SisterSessionGlobalMetrics = Field(alias="global")
-    jobs: dict[str, SisterSessionJobMetrics]
+class SidecarSessionMetricsResponse(CamelModel):
+    global_metrics: SidecarSessionGlobalMetrics = Field(alias="global")
+    jobs: dict[str, SidecarSessionJobMetrics]
 
 
 # ---------------------------------------------------------------------------

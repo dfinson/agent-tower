@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.event_bus import EventBus
-    from backend.services.sister_session import SisterSessionManager
+    from backend.services.sidecar_session import SidecarSessionManager
 
 log = structlog.get_logger()
 
@@ -50,21 +50,21 @@ class TrailEnricher:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         event_bus: EventBus,
-        sister_sessions: SisterSessionManager | None = None,
+        sidecar_sessions: SidecarSessionManager | None = None,
         config: TrailConfig | None = None,
         *,
         job_state: dict[str, TrailJobState] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._event_bus = event_bus
-        self._sister_sessions = sister_sessions
+        self._sidecar_sessions = sidecar_sessions
         self._config = config or TrailConfig()
         self._repo = TrailNodeRepository(session_factory)
         self._job_state = job_state if job_state is not None else {}
 
     async def drain_enrichment(self) -> int:
         """Process a batch of nodes needing enrichment. Returns count processed."""
-        if not self._sister_sessions:
+        if not self._sidecar_sessions:
             return 0
 
         nodes = await self._repo.get_pending_enrichment(limit=self._config.enrich_batch_size)
@@ -88,7 +88,7 @@ class TrailEnricher:
 
                 prompt = build_enrichment_prompt(job_nodes, goal_intent, recent_decisions)
                 full_prompt = f"SYSTEM:\n{ENRICH_SYSTEM_PROMPT}\n\nUSER:\n{prompt}"
-                result = await self._sister_sessions.complete(full_prompt)
+                result = await self._sidecar_sessions.complete(full_prompt)
                 result_text = result if isinstance(result, str) else str(result)
 
                 enrichment_data = parse_enrichment_response(result_text)
@@ -273,7 +273,7 @@ class TrailEnricher:
 
     async def drain_write_summaries(self) -> int:
         """Pass 1: Generate write_summary for write sub-nodes using parent's preceding_context."""
-        if not self._sister_sessions:
+        if not self._sidecar_sessions:
             return 0
 
         nodes = await self._repo.get_unsummarized_write_nodes(
@@ -334,7 +334,7 @@ class TrailEnricher:
                     prompt += f"\nFILE: {file_path}"
 
                 full_prompt = f"SYSTEM:\n{_SYSTEM_PROMPT}\n\nUSER:\n{prompt}"
-                result = await self._sister_sessions.complete(full_prompt)
+                result = await self._sidecar_sessions.complete(full_prompt)
                 summary = result if isinstance(result, str) else str(result)
                 summary = summary.strip()
 
@@ -347,7 +347,7 @@ class TrailEnricher:
 
     async def drain_edit_motivations(self) -> int:
         """Pass 2: Generate per-edit motivations for write sub-nodes."""
-        if not self._sister_sessions:
+        if not self._sidecar_sessions:
             return 0
 
         nodes = await self._repo.get_unenriched_edit_write_nodes(
@@ -407,7 +407,7 @@ class TrailEnricher:
                     file_level_summary=node.write_summary,
                 )
                 full_prompt = f"SYSTEM:\n{_EDIT_SYSTEM_PROMPT}\n\nUSER:\n{prompt}"
-                result = await self._sister_sessions.complete(full_prompt)
+                result = await self._sidecar_sessions.complete(full_prompt)
                 summary = result if isinstance(result, str) else str(result)
                 summary = summary.strip()
 
