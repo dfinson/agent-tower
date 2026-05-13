@@ -87,6 +87,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._queues: dict[str, asyncio.Queue[SessionEvent | None]] = {}
         self._clients: dict[str, Any] = {}  # SDK client type varies by adapter subclass
         self._session_to_job: dict[str, str] = {}
+        self._session_kinds: dict[str, str] = {}  # session_id → session_kind for telemetry
         self._paused_sessions: set[str] = set()
         self._tool_start_times: dict[str, float] = {}
         self._pending_tool_metadata: dict[str, dict[str, str]] = {}
@@ -273,6 +274,14 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._session_to_job[session_id] = job_id
         self._job_start_times.setdefault(job_id, time.monotonic())
 
+    def set_session_kind(self, session_id: str, kind: str) -> None:
+        """Tag a session with its kind for telemetry dimension tracking."""
+        self._session_kinds[session_id] = kind
+
+    def get_session_kind(self, session_id: str) -> str:
+        """Return the session_kind for a session (defaults to 'job')."""
+        return self._session_kinds.get(session_id, "job")
+
     def set_execution_phase(self, job_id: str, phase: ExecutionPhase) -> None:
         """Update the current execution phase for cost analytics span tagging."""
         self._current_phases[job_id] = phase
@@ -304,6 +313,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         own ``_cleanup_session`` after doing SDK-specific teardown.
         """
         self._paused_sessions.discard(session_id)
+        self._session_kinds.pop(session_id, None)
         job_id = self._session_to_job.pop(session_id, None)
         self._clients.pop(session_id, None)
         self._queues.pop(session_id, None)
@@ -345,26 +355,44 @@ class BaseAgentAdapter(AgentAdapterInterface):
         async with serialized_write(self._session_factory) as session:
             yield session
 
-    async def _db_write_increment(self, *, job_id: str, **counters: Any) -> None:
-        """Increment telemetry summary counters."""
+    async def _db_write_increment(self, *, job_id: str, session_kind: str = "job", **counters: Any) -> None:
+        """Increment telemetry summary counters.
+
+        For sidecar sessions (session_kind != "job"), auto-initializes the
+        summary row on first write since RuntimeTelemetry.init_telemetry_row
+        is only called for main job sessions.
+        """
         totals: dict[str, float | int] = {}
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 
-                totals = await TelemetrySummaryRepository(session).increment(job_id=job_id, **counters)
+                repo = TelemetrySummaryRepository(session)
+                totals = await repo.increment(
+                    job_id=job_id, session_kind=session_kind, **counters,
+                )
+                # increment() returns zeroed dict when no row matched the WHERE.
+                # For sidecars this means the row doesn't exist yet — create it
+                # and retry.
+                if session_kind != "job" and not totals.get("_row_found") and counters:
+                    await repo.init_job(job_id, sdk="unknown", session_kind=session_kind)
+                    totals = await repo.increment(
+                        job_id=job_id, session_kind=session_kind, **counters,
+                    )
         except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="increment", exc_info=True)
             return
         await self._maybe_broadcast_telemetry(job_id, totals=totals)
 
-    async def _db_write_insert_span(self, *, job_id: str, **span_fields: Any) -> None:
+    async def _db_write_insert_span(self, *, job_id: str, session_kind: str = "job", **span_fields: Any) -> None:
         """Insert a telemetry span row."""
         try:
             async with self._db_session() as session:
                 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
-                await TelemetrySpansRepository(session).insert(job_id=job_id, **span_fields)
+                await TelemetrySpansRepository(session).insert(
+                    job_id=job_id, session_kind=session_kind, **span_fields,
+                )
         except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="insert_span", exc_info=True)
 
@@ -531,11 +559,14 @@ class BaseAgentAdapter(AgentAdapterInterface):
         duration_ms: float,
         is_subagent: bool = False,
         num_turns: int = 1,
+        session_kind: str = "job",
     ) -> None:
         """Record OTEL counters + DB summary increment for an LLM call."""
         from backend.services import telemetry as tel
 
-        attrs: dict[str, Any] = {"job_id": job_id, "sdk": sdk_name, "model": model}
+        attrs: dict[str, Any] = {
+            "job_id": job_id, "sdk": sdk_name, "model": model, "session_kind": session_kind,
+        }
         tel.tokens_input.add(input_tokens, attrs)
         tel.tokens_output.add(output_tokens, attrs)
         tel.tokens_cache_read.add(cache_read, attrs)
@@ -546,6 +577,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._schedule_db_write(
             self._db_write_increment(
                 job_id=job_id,
+                session_kind=session_kind,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cache_read_tokens=cache_read,
@@ -572,6 +604,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         is_subagent: bool = False,
         num_turns: int = 1,
         turn_id: str | None = None,
+        session_kind: str = "job",
     ) -> None:
         """Insert an LLM span into the telemetry_spans table."""
         turn_num = self._turn_counters.get(job_id, 0)
@@ -582,6 +615,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._schedule_db_write(
             self._db_write_insert_span(
                 job_id=job_id,
+                session_kind=session_kind,
                 span_type="llm",
                 name=model or "unknown",
                 started_at=round(offset, 2),
@@ -684,6 +718,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         duration_ms: float,
         result_text: str,
         turn_id: str | None = None,
+        session_kind: str = "job",
     ) -> None:
         """Record OTEL + DB metrics for a tool execution.
 
@@ -704,6 +739,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
             "sdk": sdk_name,
             "tool_name": tool_name,
             "success": bool(success),
+            "session_kind": session_kind,
         }
         tel.tool_duration.record(duration_ms, attrs)
 
@@ -761,6 +797,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._schedule_db_write(
             self._db_write_increment(
                 job_id=job_id,
+                session_kind=session_kind,
                 tool_call_count=1,
                 tool_failure_count=0 if success else 1,
                 total_tool_duration_ms=int(duration_ms),
@@ -779,6 +816,7 @@ class BaseAgentAdapter(AgentAdapterInterface):
         self._schedule_db_write(
             self._db_write_insert_span(
                 job_id=job_id,
+                session_kind=session_kind,
                 span_type="tool",
                 name=tool_name,
                 started_at=round(offset, 2),

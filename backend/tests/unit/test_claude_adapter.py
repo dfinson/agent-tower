@@ -683,7 +683,7 @@ class TestProcessResultMessage:
         ):
             adapter._process_result_message(sid, msg, [0])
 
-            attrs = {"job_id": "job-1", "sdk": "claude", "model": ""}
+            attrs = {"job_id": "job-1", "sdk": "claude", "model": "", "session_kind": "job"}
             mock_in.add.assert_called_once_with(10, attrs)
             mock_out.add.assert_called_once_with(5, attrs)
             mock_cr.add.assert_called_once_with(2, attrs)

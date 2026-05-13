@@ -154,11 +154,16 @@ class StepRow(Base):
 
 
 class JobTelemetrySummaryRow(Base):
-    """Denormalized per-job telemetry — upserted on every telemetry event."""
+    """Denormalized per-job telemetry — upserted on every telemetry event.
+
+    The composite PK ``(job_id, session_kind)`` allows a single job to have
+    multiple telemetry rows — one per session kind (job, preflight, etc.).
+    """
 
     __tablename__ = "job_telemetry_summary"
 
     job_id: Mapped[str] = mapped_column(String, ForeignKey("jobs.id"), primary_key=True)
+    session_kind: Mapped[str] = mapped_column(String, nullable=False, default="job", server_default="job", primary_key=True)
     sdk: Mapped[str] = mapped_column(String, nullable=False)
     model: Mapped[str] = mapped_column(String, nullable=False, default="")
     repo: Mapped[str] = mapped_column(String, nullable=False, default="")
@@ -241,6 +246,7 @@ class JobTelemetrySpanRow(Base):
     motivation_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Per-edit motivations with edit keys (migration 0021)
     edit_motivations: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    session_kind: Mapped[str] = mapped_column(String, nullable=False, default="job", server_default="job")
 
     __table_args__ = (
         Index("idx_spans_job", "job_id"),

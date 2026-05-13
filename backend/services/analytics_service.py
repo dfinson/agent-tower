@@ -494,3 +494,11 @@ class AnalyticsService:
             },
             "period_days": period_days,
         }
+
+    async def sidecar_cost_breakdown(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+        """Cost breakdown by session_kind for sidecar sessions."""
+        from backend.persistence.telemetry_analytics_repo import TelemetryAnalyticsRepository
+
+        return await TelemetryAnalyticsRepository(self._session).sidecar_cost_breakdown(
+            period_days=period_days,
+        )

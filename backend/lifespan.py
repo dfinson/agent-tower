@@ -450,7 +450,7 @@ async def _wire_core_services(
     # --- Preflight curator (pre-job context curation: memory + structural) ---
     from backend.services.preflight_curator import PreflightCurator
 
-    preflight_curator = PreflightCurator(adapter=utility_adapter)
+    preflight_curator = PreflightCurator(adapter=utility_adapter, coderecon=coderecon_service)
 
     # --- Memory extractor (post-job knowledge extraction) ---
     from backend.services.memory_extractor import MemoryExtractor
@@ -1047,7 +1047,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(_persist_structural_analytics)
 
     # --- IngestService (operator message routing) ---
-    from backend.services.event_processor import EventProcessor
     from backend.services.ingest_service import IngestService
 
     steer_client = None
@@ -1057,29 +1056,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         steer_client = CopilotSteerClient(copilot_token)
 
-    # EventProcessor — shared pipeline for imported sessions (diff, step tracking, trail)
-    ingest_event_processor = EventProcessor(
-        event_bus=event_bus,
-        diff_service=services.diff_service,
-        step_tracker=StepTracker(
-            event_bus=event_bus,
-            git_service=services.git_service,
-        ),
-        trail_service=trail_service,
-    )
-
     # --- SessionStateWatcher (auto-discover Copilot --remote sessions) ---
+    # Watchers feed events through RuntimeService so imported sessions get the
+    # full pipeline: sister sessions, heartbeat, stall detection, plan
+    # inference, turn classification, and trail enrichment.
     from backend.services.session_state_watcher import SessionStateWatcher
 
     session_state_watcher = SessionStateWatcher(
         event_bus=event_bus,
-        event_processor=ingest_event_processor,
+        runtime_service=services.runtime_service,
         session_factory=session_factory,
         config=config,
         git_service=services.git_service,
         coderecon_service=coderecon_service,
         steer_client=steer_client,
-        sister_sessions=services.sister_sessions,
     )
     await session_state_watcher.start()
 
@@ -1088,12 +1078,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     claude_session_watcher = ClaudeSessionStateWatcher(
         event_bus=event_bus,
-        event_processor=ingest_event_processor,
+        runtime_service=services.runtime_service,
         session_factory=session_factory,
         config=config,
         git_service=services.git_service,
         coderecon_service=coderecon_service,
-        sister_sessions=services.sister_sessions,
     )
     await claude_session_watcher.start()
 

@@ -299,8 +299,13 @@ class ClaudeAdapter(BaseAgentAdapter):
             # Human / operator follow-up message
             from backend.services import telemetry as tel
 
-            tel.messages_counter.add(1, {"job_id": job_id, "sdk": "claude", "role": "operator"})
-            self._schedule_db_write(self._db_write_increment(job_id=job_id, operator_messages=1))
+            session_kind = self.get_session_kind(session_id)
+            tel.messages_counter.add(
+                1, {"job_id": job_id, "sdk": "claude", "role": "operator", "session_kind": session_kind},
+            )
+            self._schedule_db_write(
+                self._db_write_increment(job_id=job_id, session_kind=session_kind, operator_messages=1),
+            )
 
     def _process_assistant_message(
         self,
@@ -314,6 +319,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         content_blocks = getattr(message, "content", []) or []
         model = getattr(message, "model", "") or ""
         job_id = self._session_to_job.get(session_id)
+        session_kind = self.get_session_kind(session_id)
 
         # Each AssistantMessage starts a new turn for grouping
         self._current_turn_ids[session_id] = str(uuid.uuid4())
@@ -339,10 +345,13 @@ class ClaudeAdapter(BaseAgentAdapter):
                 if job_id:
                     from backend.services import telemetry as tel
 
-                    tel.messages_counter.add(1, {"job_id": job_id, "sdk": "claude", "role": "agent"})
+                    tel.messages_counter.add(
+                        1, {"job_id": job_id, "sdk": "claude", "role": "agent", "session_kind": session_kind},
+                    )
                     self._schedule_db_write(
                         self._db_write_increment(
                             job_id=job_id,
+                            session_kind=session_kind,
                             agent_messages=1,
                         )
                     )
@@ -483,6 +492,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 duration_ms=duration_ms,
                 result_text=result_text,
                 turn_id=turn_id,
+                session_kind=self.get_session_kind(session_id),
             )
 
     def _process_result_message(
@@ -507,6 +517,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         # Telemetry — note: model is not on ResultMessage, so we use the main model.
         if job_id:
             model = self._job_main_models.get(job_id, "")
+            session_kind = self.get_session_kind(session_id)
 
             num_turns = getattr(message, "num_turns", 0) or 1
             self._record_llm_telemetry(
@@ -521,6 +532,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 duration_ms=float(duration_ms),
                 is_subagent=False,
                 num_turns=int(num_turns),
+                session_kind=session_kind,
             )
             self._record_llm_span(
                 job_id,
@@ -534,6 +546,7 @@ class ClaudeAdapter(BaseAgentAdapter):
                 is_subagent=False,
                 num_turns=int(num_turns),
                 turn_id=self._current_turn_ids.get(session_id),
+                session_kind=session_kind,
             )
 
         self._enqueue_log(
@@ -651,6 +664,8 @@ class ClaudeAdapter(BaseAgentAdapter):
             self.set_job_id(session_id, config.job_id)
             if config.model:
                 self._requested_models[config.job_id] = config.model
+        if config.session_kind != "job":
+            self.set_session_kind(session_id, config.session_kind)
 
         # Capture Claude subprocess stderr for diagnostics on failure
         stderr_fd, stderr_path = tempfile.mkstemp(prefix="claude_stderr_", suffix=".log")
@@ -678,6 +693,12 @@ class ClaudeAdapter(BaseAgentAdapter):
             debug_stderr=stderr_file,
             include_partial_messages=True,
         )
+
+        # Session-level constraints
+        if config.max_turns is not None:
+            options.max_turns = config.max_turns
+        if config.disallowed_tools:
+            options.disallowed_tools = list(config.disallowed_tools)
 
         # MCP servers from CodePlane config
         mcp_config: dict[str, Any] = {}

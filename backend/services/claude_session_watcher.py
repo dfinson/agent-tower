@@ -2,7 +2,7 @@
 
 Polls ``~/.claude/projects/{encoded-cwd}/`` for JSONL session files matching
 CodePlane-managed workspaces. For each discovered session, tails the JSONL
-file and feeds parsed events through the standard EventProcessor pipeline.
+file and feeds parsed events through RuntimeService's full processing pipeline.
 
 Operator messaging is handled via a pending-message queue: the Stop hook
 endpoint polls get_pending_messages() and returns them in the hook response.
@@ -35,9 +35,8 @@ if TYPE_CHECKING:
     from backend.config import CPLConfig
     from backend.services.coderecon_service import CodeReconService
     from backend.services.event_bus import EventBus
-    from backend.services.event_processor import EventProcessor
     from backend.services.git_service import GitService
-    from backend.services.sister_session import SisterSessionManager
+    from backend.services.runtime_service import RuntimeService
 
 log = structlog.get_logger()
 
@@ -195,20 +194,18 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     def __init__(
         self,
         event_bus: EventBus,
-        event_processor: EventProcessor,
+        runtime_service: RuntimeService,
         session_factory: async_sessionmaker[AsyncSession],
         config: CPLConfig,
         git_service: GitService | None = None,
         coderecon_service: CodeReconService | None = None,
-        sister_sessions: SisterSessionManager | None = None,
     ) -> None:
         self._event_bus = event_bus
-        self._processor = event_processor
+        self._runtime = runtime_service
         self._session_factory = session_factory
         self._config = config
         self._git = git_service
         self._coderecon = coderecon_service
-        self._sister_sessions = sister_sessions
 
         # Track which session IDs we're already tailing
         self._tracked_sessions: set[str] = set()
@@ -426,7 +423,9 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                     self._job_to_session[job_id] = ext_sid
                     self._job_worktrees[job_id] = wt or repo or ""
                     self._job_base_refs[job_id] = base or "HEAD"
-                    self._processor.register_worktree(job_id, self._job_worktrees[job_id])
+                    await self._runtime.register_external_session(
+                        job_id, self._job_worktrees[job_id], self._job_base_refs[job_id]
+                    )
                     jsonl_path = self._find_session_file(ext_sid)
                     if jsonl_path:
                         task = asyncio.create_task(
@@ -544,8 +543,11 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
         if pids:
             self._session_pids[session_id] = pids[0]
 
-        # Register with event processor
-        self._processor.register_worktree(job_id, self._job_worktrees[job_id])
+        # Register with RuntimeService for full pipeline processing
+        # (sister session, heartbeat, stall detection, step tracking)
+        await self._runtime.register_external_session(
+            job_id, self._job_worktrees[job_id], self._job_base_refs[job_id]
+        )
 
         # Start tailing
         task = asyncio.create_task(
@@ -688,9 +690,7 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             )
         )
 
-        # Sister session for title generation
-        if self._sister_sessions:
-            self._sister_sessions.create_for_job(job_id)
+        # Sister session creation is handled by RuntimeService.register_external_session()
 
         log.info(
             "claude_watcher_job_created",
@@ -1046,10 +1046,10 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
     # ------------------------------------------------------------------
 
     async def _feed_event(self, job_id: str, session_event: SessionEvent) -> None:
-        """Feed a SessionEvent through the standard EventProcessor pipeline."""
+        """Feed a SessionEvent through RuntimeService's full processing pipeline."""
         worktree = self._job_worktrees.get(job_id)
         base_ref = self._job_base_refs.get(job_id)
-        await self._processor.process_event(
+        await self._runtime.feed_external_event(
             job_id,
             session_event,
             worktree_path=worktree,
@@ -1129,10 +1129,16 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
                 )
             )
 
-        # Notify processor for step cleanup
-        await self._processor.on_job_terminal(job_id, new_state)
+        # Delegate cleanup to RuntimeService (sister session, heartbeat,
+        # stall detection, trail service, step tracker, diff service)
+        await self._runtime.finalize_external_session(
+            job_id,
+            worktree_path=self._job_worktrees.get(job_id),
+            base_ref=self._job_base_refs.get(job_id),
+            error_reason=error_reason,
+        )
 
-        # Clean up internal state
+        # Clean up watcher-local state
         self._job_worktrees.pop(job_id, None)
         self._job_base_refs.pop(job_id, None)
         self._pending_telemetry.pop(job_id, None)
@@ -1150,10 +1156,6 @@ class ClaudeSessionStateWatcher(WatcherTelemetryMixin):
             self._tracked_sessions.discard(sid_to_remove)
             self._tail_tasks.pop(sid_to_remove, None)
             self._session_pids.pop(sid_to_remove, None)
-
-        # Release sister session
-        if self._sister_sessions:
-            self._sister_sessions.close_job(job_id)
 
         log.info(
             "claude_watcher_session_finalized",

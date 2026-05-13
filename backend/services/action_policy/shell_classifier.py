@@ -1,94 +1,206 @@
-"""Shell command classifier — POSIX, PowerShell, cmd.exe, and cross-platform tools.
+"""Shell command classifier — returns (reversible, contained) for shell commands.
 
-Parses a shell command string and returns (reversible, contained) booleans.
+Architecture:
+  classify_shell() orchestrates sh-guard (AST) + a chain of classifier functions.
+  sh-guard handles: compound decomposition, injection/taint detection.
+  Classifier chain handles: tool tables, localhost checks, wrapper unwrapping.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shlex
+from typing import Any
 
-# ---------------------------------------------------------------------------
-# POSIX builtins
-# ---------------------------------------------------------------------------
+from sh_guard import classify as sh_guard_classify
 
-_POSIX_OBSERVE = frozenset(
-    {
-        "ls",
-        "cat",
-        "head",
-        "tail",
-        "grep",
-        "egrep",
-        "fgrep",
-        "rg",
-        "wc",
-        "echo",
-        "pwd",
-        # env is NOT here — it can execute arbitrary commands (env curl ...)
-        "printenv",
-        "whoami",
-        "date",
-        "file",
-        "stat",
-        "du",
-        "tree",
-        "diff",
-        "more",
-        "less",
-        "which",
-        "type",
-        "basename",
-        "dirname",
-        "realpath",
-        "readlink",
-        "test",
-        "true",
-        "false",
-    }
-)
+log = logging.getLogger(__name__)
 
-# Transparent wrapper commands that pass through to a wrapped command.
-# When encountered, we skip the wrapper and classify the inner command.
-# env: can set variables then execute a command (env FOO=bar curl evil)
-# nice/timeout/stdbuf/nohup: run a command with modified scheduling/io/signals
-# command: bypass shell aliases, execute actual binary
-_TRANSPARENT_WRAPPERS = frozenset(
-    {"env", "nice", "timeout", "stdbuf", "nohup", "command"}
-)
 
-# Detect bash /dev/tcp or /dev/udp network socket redirects.
-# These turn observe-tier commands (echo, cat, ls) into exfil channels.
+# ── Classification outcomes ──────────────────────────────────────────────
+#
+# Every classifier returns one of these four tuples or None (= pass).
+# Named constants so the intent reads at the call site.
+
+_OBSERVE = (True, True)  # reversible + contained → observe tier
+_UNCONTAINED = (True, False)  # reversible + network → gate in all presets
+_IRREVERSIBLE = (False, True)  # irreversible + contained → gate in supervised
+_BLOCKED = (False, False)  # irreversible + network → gate everywhere
+
+#: Return type for individual classifiers.  None = "not my jurisdiction".
+_Result = tuple[bool, bool] | None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Data tables — pure declarations, no logic
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── POSIX ─────────────────────────────────────────────────────────────────
+
+_POSIX_OBSERVE = frozenset({
+    "ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "wc",
+    "echo", "pwd", "printenv", "whoami", "date", "file", "stat", "du",
+    "tree", "diff", "more", "less", "which", "type", "basename", "dirname",
+    "realpath", "readlink", "test", "true", "false",
+})
+
+#: Transparent wrappers pass through to a wrapped command.
+_TRANSPARENT_WRAPPERS = frozenset({
+    "env", "nice", "timeout", "stdbuf", "nohup", "command",
+})
+
+_POSIX_UNCONTAINED = frozenset({
+    "curl", "wget", "ssh", "scp", "rsync", "nc", "ncat", "telnet",
+    "ftp", "sftp", "sendmail", "mail", "socat", "nmap", "dig",
+    "nslookup", "host",
+})
+
+_POSIX_IRREVERSIBLE = frozenset({
+    "rm", "shred", "dd", "mkfs", "fdisk", "kill", "killall", "pkill",
+    "shutdown", "reboot", "halt",
+})
+
+_POSIX_TEE = frozenset({"tee"})
+
+_POSIX_CONDITIONALLY_SAFE = frozenset({"find", "sort"})
+
+_TEST_RUNNERS = frozenset({
+    "pytest", "jest", "vitest", "mocha", "ava", "tap", "bats",
+    "phpunit", "rspec", "minitest",
+})
+
+_TEST_SUBCOMMAND_BINARIES = frozenset({
+    "go", "dotnet", "swift", "mix", "elixir",
+})
+
+_INTERPRETERS = frozenset({
+    "python", "python3", "node", "ruby", "perl", "bash", "sh", "zsh",
+})
+
+_CODE_EXEC_PRIMITIVES = frozenset({
+    "eval", "exec", "source", ".",
+})
+
+_BUILD_TOOLS = frozenset({
+    "make", "cmake", "gradle", "mvn", "ant",
+})
+
+_PROXY_ENV_VARS = frozenset({
+    "http_proxy", "https_proxy", "all_proxy", "ftp_proxy",
+})
+
+# ── PowerShell ────────────────────────────────────────────────────────────
+
+_PS_OBSERVE_VERBS = frozenset({
+    "Get", "Find", "Search", "Test", "Measure", "Compare", "Select",
+    "Format", "Out", "Show", "Read", "Watch", "Write",
+})
+
+_PS_MUTATING_VERBS = frozenset({
+    "Set", "New", "Add", "Remove", "Clear", "Move", "Rename", "Copy",
+    "Update", "Reset", "Enable", "Disable",
+})
+
+_PS_UNCONTAINED_VERBS = frozenset({
+    "Send", "Connect", "Disconnect", "Publish", "Push", "Invoke-Web",
+})
+
+# ── cmd.exe ───────────────────────────────────────────────────────────────
+
+_CMD_OBSERVE = frozenset({
+    "dir", "type", "echo", "set", "ver", "where", "findstr", "find",
+    "more", "tree", "path", "vol",
+})
+
+_CMD_IRREVERSIBLE = frozenset({
+    "del", "erase", "rmdir", "rd", "format",
+})
+
+# ── Cross-platform tool subcommand tables ─────────────────────────────────
+#
+# Each entry maps subcommand → (reversible, contained).
+
+_GIT_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
+    "status": _OBSERVE, "log": _OBSERVE, "diff": _OBSERVE,
+    "show": _OBSERVE, "branch": _OBSERVE, "stash": _OBSERVE,
+    "add": _OBSERVE, "commit": _OBSERVE, "checkout": _OBSERVE,
+    "switch": _OBSERVE, "restore": _OBSERVE, "revert": _OBSERVE,
+    "tag": _OBSERVE, "remote": _OBSERVE, "merge": _OBSERVE,
+    "rebase": _OBSERVE, "cherry-pick": _OBSERVE,
+    "reset": _OBSERVE,  # default; --hard overridden by flag check
+    "fetch": _UNCONTAINED, "pull": _UNCONTAINED,
+    "push": _UNCONTAINED, "clone": _UNCONTAINED,
+    "force-push": _BLOCKED,
+    "clean": _IRREVERSIBLE,
+}
+
+_NPM_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
+    "install": _OBSERVE, "ci": _OBSERVE, "test": _OBSERVE,
+    "build": _OBSERVE, "link": _OBSERVE, "uninstall": _OBSERVE,
+    "run": _IRREVERSIBLE,    # executes arbitrary scripts from package.json
+    "start": _IRREVERSIBLE,  # delegates to scripts.start
+    "publish": _BLOCKED, "unpublish": _BLOCKED,
+}
+
+_CARGO_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
+    "build": _OBSERVE, "test": _OBSERVE, "check": _OBSERVE,
+    "clippy": _OBSERVE, "fmt": _OBSERVE, "install": _OBSERVE,
+    "run": _IRREVERSIBLE,  # compiles + runs arbitrary code
+    "publish": _BLOCKED,
+}
+
+_DOCKER_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
+    "build": _OBSERVE, "ps": _OBSERVE, "images": _OBSERVE,
+    "logs": _OBSERVE, "rm": _OBSERVE, "rmi": _OBSERVE,
+    "stop": _OBSERVE, "start": _OBSERVE, "compose": _OBSERVE,
+    "run": _IRREVERSIBLE,   # default; flag inspection may escalate
+    "exec": _IRREVERSIBLE,
+    "pull": _UNCONTAINED, "push": _BLOCKED,
+}
+
+_PIP_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
+    "install": _OBSERVE, "uninstall": _OBSERVE, "list": _OBSERVE,
+    "show": _OBSERVE, "freeze": _OBSERVE,
+}
+
+_UV_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
+    "sync": _OBSERVE, "add": _OBSERVE, "remove": _OBSERVE,
+    "lock": _OBSERVE, "pip": _OBSERVE,
+    "run": _BLOCKED,      # Turing-complete: uv run python/curl/bash
+    "publish": _BLOCKED,
+}
+
+_CROSS_PLATFORM_TOOLS: dict[str, dict[str, tuple[bool, bool]]] = {
+    "git": _GIT_SUBCOMMANDS,
+    "npm": _NPM_SUBCOMMANDS,
+    "npx": dict(_NPM_SUBCOMMANDS),
+    "yarn": _NPM_SUBCOMMANDS,
+    "pnpm": _NPM_SUBCOMMANDS,
+    "cargo": _CARGO_SUBCOMMANDS,
+    "docker": _DOCKER_SUBCOMMANDS,
+    "pip": _PIP_SUBCOMMANDS,
+    "pip3": _PIP_SUBCOMMANDS,
+    "uv": _UV_SUBCOMMANDS,
+}
+
+
+# ── Regex patterns ────────────────────────────────────────────────────────
+
 _DEV_TCP_RE = re.compile(r"/dev/(?:tcp|udp)/", re.IGNORECASE)
 
-# Proxy environment variable names — setting these routes all traffic
-# through the specified host, enabling silent MitM.
-_PROXY_ENV_VARS = frozenset(
-    {"http_proxy", "https_proxy", "all_proxy", "ftp_proxy"}
-)
-
-# pip install from remote URLs — setup.py executes arbitrary code
 _PIP_REMOTE_RE = re.compile(
     r"(?:git\+https?://|https?://\S+\.(?:tar\.gz|whl|zip))",
     re.IGNORECASE,
 )
 
-# Commands that are observational by default but have destructive flags.
-# Handled with flag-specific checks below.
-_POSIX_CONDITIONALLY_SAFE = frozenset({"find", "sort"})
+_FIND_DANGEROUS_RE = re.compile(
+    r"(?:^|\s)(?:-exec|-execdir|-delete|-ok|-okdir)\b",
+)
 
-# find flags that make it destructive or capable of running arbitrary commands.
-# Cannot use \b before the hyphen — both space and hyphen are \W, so no
-# word boundary exists between them.
-_FIND_DANGEROUS_RE = re.compile(r"(?:^|\s)(?:-exec|-execdir|-delete|-ok|-okdir)\b")
-# sort -o overwrites the target file
 _SORT_OUTPUT_RE = re.compile(r"(?:^|\s)-o\b|(?:^|\s)--output(?:=|\s)")
 
-# docker run/exec flags that grant host-level access: container escape
-# risk via --privileged, host networking via --net=host/--network=host,
-# host PID namespace via --pid=host, and host filesystem mount via
-# -v /:/... or --volume /:/...  (mount source starting with /)
 _DOCKER_ESCAPE_RE = re.compile(
     r"--privileged\b"
     r"|--net(?:work)?[= ]host\b"
@@ -99,388 +211,75 @@ _DOCKER_ESCAPE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# tee: can write to arbitrary paths including pseudo-devices (/dev/tcp);
-# classified as irreversible + contained, not observe.
-_POSIX_TEE = frozenset({"tee"})
-
-_POSIX_UNCONTAINED = frozenset(
-    {
-        "curl",
-        "wget",
-        "ssh",
-        "scp",
-        "rsync",
-        "nc",
-        "ncat",
-        "telnet",
-        "ftp",
-        "sftp",
-        "sendmail",
-        "mail",
-    }
+_GIT_RESET_HARD_RE = re.compile(
+    r"\bgit\s+reset\b[^|;&\n]*?\s--hard\b", re.IGNORECASE,
 )
 
-_POSIX_IRREVERSIBLE = frozenset(
-    {
-        "rm",
-        "shred",
-        "dd",
-        "mkfs",
-        "fdisk",
-        "kill",
-        "killall",
-        "pkill",
-        "shutdown",
-        "reboot",
-        "halt",
-    }
-)
-
-
-# ---------------------------------------------------------------------------
-# PowerShell verb taxonomy
-# ---------------------------------------------------------------------------
-
-_PS_OBSERVE_VERBS = frozenset(
-    {
-        "Get",
-        "Find",
-        "Search",
-        "Test",
-        "Measure",
-        "Compare",
-        "Select",
-        "Format",
-        "Out",
-        "Show",
-        "Read",
-        "Watch",
-        "Write",
-    }
-)
-
-_PS_MUTATING_VERBS = frozenset(
-    {
-        "Set",
-        "New",
-        "Add",
-        "Remove",
-        "Clear",
-        "Move",
-        "Rename",
-        "Copy",
-        "Update",
-        "Reset",
-        "Enable",
-        "Disable",
-    }
-)
-
-_PS_UNCONTAINED_VERBS = frozenset(
-    {
-        "Send",
-        "Connect",
-        "Disconnect",
-        "Publish",
-        "Push",
-        "Invoke-Web",
-    }
-)
-
-
-# ---------------------------------------------------------------------------
-# cmd.exe builtins
-# ---------------------------------------------------------------------------
-
-_CMD_OBSERVE = frozenset(
-    {
-        "dir",
-        "type",
-        "echo",
-        "set",
-        "ver",
-        "where",
-        "findstr",
-        "find",
-        "more",
-        "tree",
-        "path",
-        "vol",
-    }
-)
-
-_CMD_IRREVERSIBLE = frozenset(
-    {
-        "del",
-        "erase",
-        "rmdir",
-        "rd",
-        "format",
-    }
-)
-
-
-# ---------------------------------------------------------------------------
-# Cross-platform tool subcommand tables
-# ---------------------------------------------------------------------------
-
-_GIT_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "status": (True, True),
-    "log": (True, True),
-    "diff": (True, True),
-    "show": (True, True),
-    "branch": (True, True),
-    "stash": (True, True),
-    "add": (True, True),
-    "commit": (True, True),
-    "checkout": (True, True),
-    "switch": (True, True),
-    "restore": (True, True),
-    "revert": (True, True),
-    "tag": (True, True),
-    "fetch": (True, False),
-    "pull": (True, False),
-    "push": (True, False),
-    "force-push": (False, False),
-    "reset": (True, True),  # default; --hard overridden below
-    "clean": (False, True),
-    "clone": (True, False),
-    "remote": (True, True),
-    "merge": (True, True),
-    "rebase": (True, True),
-    "cherry-pick": (True, True),
-}
-
-_NPM_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "install": (True, True),
-    "ci": (True, True),
-    "test": (True, True),
-    "run": (False, True),  # executes arbitrary scripts from package.json
-    "start": (False, True),  # delegates to scripts.start
-    "build": (True, True),
-    "publish": (False, False),
-    "unpublish": (False, False),
-    "link": (True, True),
-    "uninstall": (True, True),
-}
-
-_CARGO_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "build": (True, True),
-    "test": (True, True),
-    "check": (True, True),
-    "run": (False, True),  # compiles + runs arbitrary code
-    "clippy": (True, True),
-    "fmt": (True, True),
-    "publish": (False, False),
-    "install": (True, True),
-}
-
-_DOCKER_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "build": (True, True),
-    "run": (False, True),  # default; flag inspection below
-    "exec": (False, True),
-    "ps": (True, True),
-    "images": (True, True),
-    "logs": (True, True),
-    "pull": (True, False),
-    "push": (False, False),
-    "rm": (True, True),
-    "rmi": (True, True),
-    "stop": (True, True),
-    "start": (True, True),
-    "compose": (True, True),
-}
-
-_PIP_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "install": (True, True),
-    "uninstall": (True, True),
-    "list": (True, True),
-    "show": (True, True),
-    "freeze": (True, True),
-}
-
-_UV_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "sync": (True, True),
-    "add": (True, True),
-    "remove": (True, True),
-    "run": (False, False),  # Turing-complete: uv run python/curl/bash
-    "lock": (True, True),
-    "pip": (True, True),
-    "publish": (False, False),
-}
-
-_CROSS_PLATFORM_TOOLS: dict[str, dict[str, tuple[bool, bool]]] = {
-    "git": _GIT_SUBCOMMANDS,
-    "npm": _NPM_SUBCOMMANDS,
-    "npx": {k: v for k, v in _NPM_SUBCOMMANDS.items()},
-    "yarn": _NPM_SUBCOMMANDS,
-    "pnpm": _NPM_SUBCOMMANDS,
-    "cargo": _CARGO_SUBCOMMANDS,
-    "docker": _DOCKER_SUBCOMMANDS,
-    "pip": _PIP_SUBCOMMANDS,
-    "pip3": _PIP_SUBCOMMANDS,
-    "uv": _UV_SUBCOMMANDS,
-}
-
-# Regex to detect git reset --hard
-_GIT_RESET_HARD_RE = re.compile(r"\bgit\s+reset\b[^|;&\n]*?\s--hard\b", re.IGNORECASE)
-_QUOTED_STRING_RE = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"|\'[^\'\\]*(?:\\.[^\'\\]*)*\'', re.DOTALL)
-
-# PowerShell cmdlet pattern: Verb-Noun
-_PS_CMDLET_RE = re.compile(r"^([A-Z][a-z]+)-", re.IGNORECASE)
-
-# Localhost detection — loopback traffic never leaves the machine
-_LOCALHOST_RE = re.compile(
-    r"(?:localhost|127\.0\.0\.1|::1|\[::1\]|0\.0\.0\.0)"
-    r"(?::\d+)?",  # optional port
+_GIT_PUSH_FORCE_RE = re.compile(
+    r"\bgit\s+push\b[^|;&\n]*?\s(?:--force\b|-f\b|--force-with-lease\b)",
     re.IGNORECASE,
 )
 
-# Command/process substitution patterns — these can execute arbitrary
-# commands invisibly inside an otherwise-safe outer command.
-_SUBSHELL_RE = re.compile(
-    r"\$\("         # $(...)
-    r"|`"           # backtick substitution
-    r"|<\("         # process substitution <(...)
-    r"|>\(",        # process substitution >(...)
+_PS_CMDLET_RE = re.compile(r"^([A-Z][a-z]+)-", re.IGNORECASE)
+
+_LOCALHOST_RE = re.compile(
+    r"(?:localhost|127\.0\.0\.1|::1|\[::1\]|0\.0\.0\.0)(?::\d+)?",
+    re.IGNORECASE,
 )
 
-# Mutating HTTP method flags for curl/wget
 _CURL_MUTATING_RE = re.compile(
     r"""
-    -X\s*(?:POST|PUT|DELETE|PATCH)  # explicit method
+    -X\s*(?:POST|PUT|DELETE|PATCH)
     | --request\s+(?:POST|PUT|DELETE|PATCH)
-    | --data(?:-\w+)?\b             # -d / --data / --data-raw / --data-binary
-    | -d\s                          # short -d flag
+    | --data(?:-\w+)?\b
+    | -d\s
     | --upload-file\b
-    | -T\s                          # upload shorthand
-    | -F\s                          # form upload
+    | -T\s
+    | -F\s
     | --form\b
     """,
     re.IGNORECASE | re.VERBOSE,
 )
 
-# Test runners — local process execution with no external side effects
-_TEST_RUNNERS = frozenset(
-    {
-        "pytest",
-        "jest",
-        "vitest",
-        "mocha",
-        "ava",
-        "tap",
-        "bats",
-        "phpunit",
-        "rspec",
-        "minitest",
-    }
-)
-
-# Binaries that are test runners when invoked with a "test" subcommand
-# (handled in _CROSS_PLATFORM_TOOLS already for cargo/npm/etc.
-# This covers: `go test`, `dotnet test`, `swift test`, `mix test`)
-_TEST_SUBCOMMAND_BINARIES = frozenset(
-    {
-        "go",
-        "dotnet",
-        "swift",
-        "mix",
-        "elixir",
-    }
-)
-
-
-# Single-quote regex: in bash, single quotes suppress ALL expansion
-# including $() and backticks.  Double quotes do NOT suppress them.
-_SINGLE_QUOTE_RE = re.compile(r"'[^']*'")
-
-
-def _strip_quotes(cmd: str) -> str:
-    """Strip both single- and double-quoted strings for compound splitting."""
-    return _QUOTED_STRING_RE.sub('""', cmd)
-
-
-def _strip_single_quotes_only(cmd: str) -> str:
-    """Strip only single-quoted strings for subshell detection.
-
-    In bash, command substitution ($(), backticks) and process substitution
-    (<(), >()) are expanded inside double quotes but NOT inside single quotes.
-    So for subshell detection we must preserve double-quoted content.
-    """
-    return _SINGLE_QUOTE_RE.sub('""', cmd)
-
-
-# Regex to extract the host from a URL (scheme://host or //host)
 _URL_HOST_RE = re.compile(
     r"(?:https?://|//)([a-zA-Z0-9._-]+(?::\d+)?)",
 )
 
+# sh-guard risk factors that indicate injection/exfiltration — fail-closed.
+_INJECTION_RISKS = frozenset({
+    "command_substitution",   # $(cmd) / `cmd`
+    "network_exfiltration",   # pipeline taint to network
+    "process_substitution",   # <(cmd) as FD source
+    "path_injection",         # PATH= shadows safe binaries
+    "obfuscated_command",     # $'\x24(...)' encoding tricks
+    "command_execution",      # eval/source
+})
 
-def _extract_target_hosts(command: str) -> list[str]:
-    """Extract ALL target hosts from a curl/wget command.
 
-    Parses positional arguments (URLs) rather than matching the word
-    'localhost' anywhere in the command string, which would match
-    inside headers, query params, or comments.
+# ═══════════════════════════════════════════════════════════════════════════
+# Parsing utilities
+# ═══════════════════════════════════════════════════════════════════════════
 
-    Returns all hosts found — the caller must verify that ALL targets
-    are localhost, not just the first (curl fetches multiple URLs).
-    """
+def _shlex_split(command: str) -> list[str]:
+    """shlex.split with fallback to naive split on parse errors."""
     try:
-        tokens = shlex.split(command)
+        return shlex.split(command)
     except ValueError:
-        tokens = command.split()
-
-    hosts: list[str] = []
-    skip_next = False
-    for token in tokens[1:]:  # skip the binary itself
-        if skip_next:
-            skip_next = False
-            continue
-        if token.startswith("-"):
-            # Flags that take an argument — skip the next token
-            if token in ("-X", "--request", "-o", "--output", "-H",
-                         "--header", "-u", "--user", "-A", "--user-agent",
-                         "-e", "--referer"):
-                skip_next = True
-                continue
-            # --url <url> is an explicit target URL
-            if token == "--url":
-                skip_next = False  # next token processed normally
-                continue
-            continue
-        # Positional arg — check if it's a URL
-        m = _URL_HOST_RE.search(token)
-        if m:
-            hosts.append(m.group(1).lower())
-
-    return hosts
-
-
-def _extract_target_host(command: str) -> str | None:
-    """Legacy single-host wrapper (returns first host found)."""
-    hosts = _extract_target_hosts(command)
-    return hosts[0] if hosts else None
+        return command.split()
 
 
 def _extract_binary_and_sub(cmd: str) -> tuple[str, str | None]:
-    """Extract the binary name and first subcommand from a command string."""
+    """Extract the binary name (lowercased, no path) and first subcommand."""
     stripped = cmd.strip()
     # Skip leading environment variable assignments (FOO=bar cmd ...)
-    while "=" in stripped.split()[0] if stripped.split() else False:
+    while stripped.split() and "=" in stripped.split()[0]:
         stripped = stripped.split(None, 1)[1] if " " in stripped else ""
 
-    try:
-        parts = shlex.split(stripped)
-    except ValueError:
-        parts = stripped.split()
-
+    parts = _shlex_split(stripped)
     if not parts:
         return "", None
 
     binary = os.path.basename(parts[0]).lower()
-
-    # Strip common suffixes
     for suffix in (".exe", ".cmd", ".bat", ".ps1", ".sh"):
         if binary.endswith(suffix):
             binary = binary[: -len(suffix)]
@@ -489,221 +288,327 @@ def _extract_binary_and_sub(cmd: str) -> tuple[str, str | None]:
     return binary, subcmd
 
 
+def _is_path_qualified(command: str) -> bool:
+    """Check if the binary is path-qualified (./cmd, /path/to/cmd, ../cmd).
+
+    Path-qualified binaries can shadow safe OBSERVE tools with trojans.
+    Skips all leading environment variable assignments to find the actual binary.
+    """
+    for tok in command.strip().split():
+        if "=" in tok and tok.split("=", 1)[0].replace("_", "").isalnum():
+            continue
+        return "/" in tok or tok.startswith("./") or tok.startswith("../")
+    return False
+
+
+def _extract_target_hosts(command: str) -> list[str]:
+    """Extract ALL target hosts from a curl/wget command.
+
+    Parses positional arguments (URLs) rather than matching 'localhost'
+    anywhere in the command string (which would match inside headers,
+    query params, or comments).
+    """
+    tokens = _shlex_split(command)
+    hosts: list[str] = []
+    skip_next = False
+    for token in tokens[1:]:  # skip the binary itself
+        if skip_next:
+            skip_next = False
+            continue
+        if token.startswith("-"):
+            if token in (
+                "-X", "--request", "-o", "--output", "-H", "--header",
+                "-u", "--user", "-A", "--user-agent", "-e", "--referer",
+            ):
+                skip_next = True
+                continue
+            if token == "--url":
+                skip_next = False
+                continue
+            continue
+        m = _URL_HOST_RE.search(token)
+        if m:
+            hosts.append(m.group(1).lower())
+    return hosts
+
+
+def _has_proxy_env(command: str) -> bool:
+    """Check if command has leading proxy environment variable assignments."""
+    for tok in command.strip().split():
+        if "=" not in tok:
+            break
+        var_name = tok.split("=", 1)[0].lower()
+        if var_name in _PROXY_ENV_VARS:
+            return True
+    return False
+
+
+def _unwrap_transparent(command: str, binary: str) -> str | None:
+    """If command starts with a transparent wrapper, return the inner command.
+
+    Returns None if there is no inner command (bare wrapper like ``env``).
+    """
+    parts = _shlex_split(command)
+    i = 1
+    while i < len(parts):
+        tok = parts[i]
+        if tok == "--":
+            i += 1
+            break
+        if tok.startswith("-"):
+            i += 1
+            # Short flags with separate value arg (nice -n 5, stdbuf -o L)
+            if len(tok) == 2 and i < len(parts) and not parts[i].startswith("-"):
+                i += 1
+            continue
+        if "=" in tok and binary == "env":
+            i += 1
+            continue
+        # Skip numeric tokens — flag values (nice -n 5) or positional
+        # args like timeout duration (timeout 30).
+        try:
+            float(tok)
+            i += 1
+            continue
+        except ValueError:
+            pass
+        break
+
+    if i < len(parts):
+        return " ".join(parts[i:])
+    return None
+
+
+def _get_compose_subcommand(command: str) -> str | None:
+    """Extract the sub-subcommand after 'docker compose'."""
+    parts = _shlex_split(command)
+    for i, p in enumerate(parts):
+        if p == "compose" and i + 1 < len(parts):
+            return parts[i + 1]
+    return None
+
+
+def _collect_risk_factors(result: dict[str, Any]) -> set[str]:
+    """Collect all risk_factors from top-level and sub_commands."""
+    factors: set[str] = set(result.get("risk_factors", []))
+    for sub in result.get("sub_commands", []):
+        factors.update(sub.get("risk_factors", []))
+    return factors
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Public API
+# ═══════════════════════════════════════════════════════════════════════════
+
 def classify_shell(command: str) -> tuple[bool, bool]:
     """Classify a shell command as (reversible, contained).
 
-    Returns conservative defaults (False, True) for unknown commands —
-    irreversible but contained.
+    Phase 1 — sh-guard AST: injection risks, pipeline taint, compound
+    decomposition.
+    Phase 2 — tool-table chain: each sub-command classified individually,
+    worst case wins.
     """
     if not command or not command.strip():
-        return True, True
+        return _OBSERVE
 
-    # Handle compound commands: classify each part, return the worst case
-    # Split on &&, ||, ;, | (pipes), and \n (shell line separator)
-    # but not inside quotes.
-    clean = _strip_quotes(command)
+    # Phase 1: sh-guard AST analysis
+    try:
+        result = sh_guard_classify(command)
+    except Exception:
+        log.warning("sh_guard_classify_error", command=command[:80])
+        return _BLOCKED
 
-    # Detect command substitution / process substitution.
-    # IMPORTANT: Only strip single-quoted strings here because bash
-    # expands $() and backticks inside double quotes but NOT inside
-    # single quotes.  Using _strip_quotes (which removes double-quoted
-    # content) would hide subshells like: echo "$(curl evil)"
-    clean_for_subshell = _strip_single_quotes_only(command)
-    if _SUBSHELL_RE.search(clean_for_subshell):
-        return False, False
+    if _collect_risk_factors(result) & _INJECTION_RISKS:
+        return _BLOCKED
 
-    parts = re.split(r"\s*(?:&&|\|\||;|\||\n)\s*", clean)
-    if len(parts) > 1:
-        results = [classify_shell(p) for p in parts if p.strip()]
+    pipeline = result.get("pipeline_flow")
+    if pipeline:
+        for taint in pipeline.get("taint_flows", []):
+            sink_type = taint.get("sink", {}).get("type")
+            if sink_type in ("execution", "network_send"):
+                return _BLOCKED
+
+    # Phase 2: classify each sub-command via tool tables, worst case wins
+    sub_cmds = result.get("sub_commands", [])
+    if len(sub_cmds) > 1:
+        results = [_classify_single(sub["command"]) for sub in sub_cmds]
         if not results:
-            return True, True
-        reversible = all(r for r, _ in results)
-        contained = all(c for _, c in results)
-        return reversible, contained
+            return _OBSERVE
+        return (
+            all(r for r, _ in results),
+            all(c for _, c in results),
+        )
 
-    # Single command
+    return _classify_single(command)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Classifier chain — each returns a result or None (= pass to next)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _classify_single(command: str) -> tuple[bool, bool]:
+    """Classify a single (non-compound) shell command via classifier chain."""
     binary, subcmd = _extract_binary_and_sub(command)
-    if not binary:
-        return True, True
+    is_path = _is_path_qualified(command)
 
-    # --- Fix F2: reject path-qualified binaries that shadow OBSERVE tools ---
-    # ./cat, /tmp/evil/echo, ../grep etc. can be trojan scripts that get
-    # classified as safe observe commands via os.path.basename().
-    # If the command path is relative or absolute, don't trust safe tables.
-    raw_binary_token = command.strip().split()[0] if command.strip().split() else ""
-    # Skip env-var assignments to find actual binary token
-    _tok = raw_binary_token
-    while "=" in _tok and _tok.split("=", 1)[0].replace("_", "").isalnum():
-        rest = command.strip().split(None, 1)
-        if len(rest) > 1:
-            _tok = rest[1].split()[0] if rest[1].strip() else ""
-        else:
-            _tok = ""
-        break
-    is_path_binary = "/" in _tok or _tok.startswith("./") or _tok.startswith("../")
-
-    # --- Fix F1 + F8: Transparent wrappers (env, nice, timeout, etc.) ---
-    # Re-classify the wrapped command instead of the wrapper itself.
+    # Pre-checks that short-circuit before the main chain
     if binary in _TRANSPARENT_WRAPPERS:
-        try:
-            parts = shlex.split(command)
-        except ValueError:
-            parts = command.split()
-        # Skip binary + any flags/env-var assignments to find wrapped command
-        inner_parts: list[str] = []
-        skip_next_positional = binary == "timeout"  # timeout's 1st positional = duration
-        for i, tok in enumerate(parts[1:], 1):
-            # Skip wrapper flags (e.g. env -i, nice -n 5, timeout 30)
-            if tok.startswith("-"):
-                # Some flags take arguments (nice -n, timeout value)
-                continue
-            if "=" in tok and binary == "env":
-                continue  # env var assignment
-            if skip_next_positional:
-                skip_next_positional = False
-                continue  # skip timeout duration value
-            # Found the inner command
-            inner_parts = parts[i:]
-            break
-        if inner_parts:
-            inner_cmd = " ".join(inner_parts)
-            return classify_shell(inner_cmd)
-        # Bare wrapper with no command (e.g. `env` alone = print env)
-        return True, True
+        inner = _unwrap_transparent(command, binary)
+        if inner is not None:
+            return _classify_single(inner)
+        return _OBSERVE  # bare wrapper (e.g. `env` alone = print env)
 
-    # --- Fix F5: /dev/tcp and /dev/udp redirect exfiltration ---
-    # Bash treats /dev/tcp/HOST/PORT as a network socket in redirects.
-    # This turns observe-tier commands (echo, cat, ls) into exfil channels.
     if _DEV_TCP_RE.search(command):
-        return False, False
+        return _BLOCKED
 
-    # --- Fix F6: Proxy environment variables → silent MitM ---
-    # Detect leading env-var assignments that set HTTP_PROXY etc.
-    _stripped_for_proxy = command.strip()
-    while _stripped_for_proxy:
-        first_tok = _stripped_for_proxy.split()[0] if _stripped_for_proxy.split() else ""
-        if "=" in first_tok:
-            var_name = first_tok.split("=", 1)[0].lower()
-            if var_name in _PROXY_ENV_VARS:
-                return False, False  # uncontained: all traffic routed through attacker
-            _stripped_for_proxy = _stripped_for_proxy.split(None, 1)[1] if " " in _stripped_for_proxy else ""
-        else:
-            break
+    if _has_proxy_env(command):
+        return _BLOCKED
 
-    # --- Cross-platform tools first ---
-    tool_table = _CROSS_PLATFORM_TOOLS.get(binary)
-    if tool_table is not None:
-        # Special case: git reset --hard
-        if binary == "git" and _GIT_RESET_HARD_RE.search(_strip_quotes(command)):
-            return False, True
+    if not binary:
+        return _OBSERVE
 
-        # Special case: docker run/exec with host-escape flags
-        if binary == "docker" and subcmd in ("run", "exec"):
-            if _DOCKER_ESCAPE_RE.search(command):
-                return False, False  # uncontained: host access
+    # Main classifier chain — first match wins
+    for classifier in _CLASSIFIER_CHAIN:
+        result = classifier(command, binary, subcmd, is_path)
+        if result is not None:
+            return result
 
-        # Special case: pip/pip3 install from remote URL (setup.py ACE)
-        if binary in ("pip", "pip3") and subcmd == "install":
-            if _PIP_REMOTE_RE.search(command):
-                return False, False  # uncontained: arbitrary code from URL
+    return _IRREVERSIBLE  # unknown command → conservative default
 
-        if subcmd:
-            result = tool_table.get(subcmd)
-            if result is not None:
-                # Fix F2: Don't trust OBSERVE classification for path-qualified binaries
-                if is_path_binary and result == (True, True):
-                    return False, True
-                return result
-        # Unknown subcommand for known tool: conservative
-        return False, True
 
-    # --- PowerShell cmdlets ---
-    ps_match = _PS_CMDLET_RE.match(binary)
-    if ps_match:
-        verb = ps_match.group(1).title()
-        if verb in _PS_OBSERVE_VERBS:
-            return True, True
-        if verb in _PS_UNCONTAINED_VERBS:
-            return False, False
-        if verb in _PS_MUTATING_VERBS:
-            return False, True
-        return False, True
+# ── Individual classifiers ────────────────────────────────────────────────
 
-    # Also check if the full first token is a PS cmdlet (e.g. Get-ChildItem)
-    first_token = command.strip().split()[0] if command.strip().split() else ""
-    ps_match2 = _PS_CMDLET_RE.match(first_token)
-    if ps_match2:
-        verb = ps_match2.group(1).title()
-        if verb in _PS_OBSERVE_VERBS:
-            return True, True
-        if verb in _PS_UNCONTAINED_VERBS:
-            return False, False
-        if verb in _PS_MUTATING_VERBS:
-            return False, True
+def _classify_cross_platform_tool(
+    command: str, binary: str, subcmd: str | None, is_path: bool,
+) -> _Result:
+    """git, npm, docker, pip, uv, cargo, etc."""
+    table = _CROSS_PLATFORM_TOOLS.get(binary)
+    if table is None:
+        return None
 
-    # --- POSIX ---
+    # Flag overrides — checked before table lookup
+    if binary == "git":
+        if _GIT_RESET_HARD_RE.search(command):
+            return _IRREVERSIBLE
+        if _GIT_PUSH_FORCE_RE.search(command):
+            return _BLOCKED
+
+    if binary == "docker":
+        if subcmd in ("run", "exec") and _DOCKER_ESCAPE_RE.search(command):
+            return _BLOCKED
+        if subcmd == "compose" and _get_compose_subcommand(command) in ("exec", "run"):
+            return _BLOCKED
+
+    if binary in ("pip", "pip3") and subcmd == "install":
+        if _PIP_REMOTE_RE.search(command):
+            return _BLOCKED
+
+    # Table lookup
+    if subcmd:
+        result = table.get(subcmd)
+        if result is not None:
+            if is_path and result == _OBSERVE:
+                return _IRREVERSIBLE  # path-qualified binary → don't trust observe
+            return result
+
+    return _IRREVERSIBLE  # unknown subcommand → conservative
+
+
+def _classify_powershell(
+    command: str, binary: str, subcmd: str | None, is_path: bool,
+) -> _Result:
+    """PowerShell Verb-Noun cmdlets."""
+    m = _PS_CMDLET_RE.match(binary)
+    if not m:
+        return None
+    verb = m.group(1).title()
+    if verb in _PS_OBSERVE_VERBS:
+        return _OBSERVE
+    if verb in _PS_UNCONTAINED_VERBS:
+        return _BLOCKED
+    if verb in _PS_MUTATING_VERBS:
+        return _IRREVERSIBLE
+    return _IRREVERSIBLE
+
+
+def _classify_posix(
+    command: str, binary: str, subcmd: str | None, is_path: bool,
+) -> _Result:
+    """POSIX builtins: observe, uncontained, irreversible, conditionally-safe."""
     if binary in _POSIX_OBSERVE:
-        # Fix F2: Don't trust OBSERVE for path-qualified binaries
-        if is_path_binary:
-            return False, True
-        return True, True
+        return _IRREVERSIBLE if is_path else _OBSERVE
+
     if binary in _POSIX_TEE:
-        # tee writes to files/pseudo-devices — irreversible but contained
-        return False, True
+        return _IRREVERSIBLE
+
     if binary in _POSIX_UNCONTAINED:
-        # Check if ALL target URLs are localhost.  curl/wget fetch
-        # every positional URL — if even one is external, the command
-        # is uncontained.
         hosts = _extract_target_hosts(command)
-        if hosts and all(_LOCALHOST_RE.fullmatch(h) for h in hosts):
-            # All targets are loopback — never leaves the machine
-            if not _CURL_MUTATING_RE.search(command):
-                return True, True
-            return False, True
-        # Non-localhost (or no URL found): uncontained.
-        # Read-only GETs are still reversible.
-        if not _CURL_MUTATING_RE.search(command):
-            return True, False
-        return False, False
+        all_localhost = hosts and all(_LOCALHOST_RE.fullmatch(h) for h in hosts)
+        is_mutating = bool(_CURL_MUTATING_RE.search(command))
+        if all_localhost:
+            return _IRREVERSIBLE if is_mutating else _OBSERVE
+        return _BLOCKED if is_mutating else _UNCONTAINED
+
     if binary in _POSIX_IRREVERSIBLE:
-        return False, True
+        return _IRREVERSIBLE
 
-    # --- Conditionally-safe POSIX commands (need flag inspection) ---
     if binary in _POSIX_CONDITIONALLY_SAFE:
-        if binary == "find":
-            # find with -exec, -execdir, -delete, -ok can run arbitrary
-            # commands or destroy files
-            if _FIND_DANGEROUS_RE.search(command):
-                return False, True
-            return True, True
-        if binary == "sort":
-            # sort -o overwrites the output file
-            if _SORT_OUTPUT_RE.search(command):
-                return False, True
-            return True, True
+        if binary == "find" and _FIND_DANGEROUS_RE.search(command):
+            return _IRREVERSIBLE
+        if binary == "sort" and _SORT_OUTPUT_RE.search(command):
+            return _IRREVERSIBLE
+        return _OBSERVE
 
-    # --- Test runners (standalone binaries) ---
+    return None
+
+
+def _classify_test_runner(
+    command: str, binary: str, subcmd: str | None, is_path: bool,
+) -> _Result:
+    """Standalone test runners and test subcommands."""
     if binary in _TEST_RUNNERS:
-        return True, True
-
-    # --- Test subcommand binaries (e.g. `go test`, `dotnet test`) ---
+        return _OBSERVE
     if binary in _TEST_SUBCOMMAND_BINARIES and subcmd == "test":
-        return True, True
+        return _OBSERVE
+    return None
 
-    # --- cmd.exe ---
+
+def _classify_cmd_exe(
+    command: str, binary: str, subcmd: str | None, is_path: bool,
+) -> _Result:
+    """Windows cmd.exe builtins."""
     if binary in _CMD_OBSERVE:
-        return True, True
+        return _OBSERVE
     if binary in _CMD_IRREVERSIBLE:
-        return False, True
+        return _IRREVERSIBLE
+    return None
 
-    # --- Python/Node/Ruby interpreters: uncontained — Turing-complete,
-    # can perform arbitrary network I/O via standard library ---
-    if binary in ("python", "python3", "node", "ruby", "perl", "bash", "sh", "zsh"):
-        return False, False
 
-    # --- Build tools: execute arbitrary recipes with full shell + network ---
-    if binary in ("make", "cmake", "gradle", "mvn", "ant"):
-        return False, False
+def _classify_interpreter(
+    command: str, binary: str, subcmd: str | None, is_path: bool,
+) -> _Result:
+    """Turing-complete interpreters and code-execution primitives."""
+    if binary in _INTERPRETERS or binary in _CODE_EXEC_PRIMITIVES:
+        return _BLOCKED
+    return None
 
-    # --- Default: irreversible, contained ---
-    return False, True
+
+def _classify_build_tool(
+    command: str, binary: str, subcmd: str | None, is_path: bool,
+) -> _Result:
+    """Build tools that execute arbitrary recipes with full shell + network."""
+    if binary in _BUILD_TOOLS:
+        return _BLOCKED
+    return None
+
+
+#: Ordered chain of classifiers. First non-None result wins.
+_CLASSIFIER_CHAIN = [
+    _classify_cross_platform_tool,
+    _classify_powershell,
+    _classify_posix,
+    _classify_test_runner,
+    _classify_cmd_exe,
+    _classify_interpreter,
+    _classify_build_tool,
+]

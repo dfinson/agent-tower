@@ -22,12 +22,21 @@ from backend.persistence.repository import BaseRepository
 
 
 class TelemetryAnalyticsRepository(BaseRepository):
-    """Read-only analytics queries on job_telemetry_summary."""
+    """Read-only analytics queries on job_telemetry_summary.
+
+    Fleet-level analytics filter to ``session_kind = 'job'`` by default
+    so sidecar session costs (preflight, memory, etc.) don't inflate
+    job-level metrics.  Use ``session_kind=None`` to query all kinds.
+    """
+
+    # Base filter applied to fleet-level aggregates.  Single-job lookups
+    # by job_id don't need this because a job's main row always has 'job'.
+    _JOB_ONLY = "session_kind = 'job'"
 
     async def get(self, job_id: str) -> TelemetrySummaryRow | None:
         """Load summary row as a plain dict.  Returns None if not found."""
         result = await self._session.execute(
-            text("SELECT * FROM job_telemetry_summary WHERE job_id = :job_id"),
+            text("SELECT * FROM job_telemetry_summary WHERE job_id = :job_id AND session_kind = 'job'"),
             {"job_id": job_id},
         )
         row = result.mappings().first()
@@ -49,7 +58,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
         offset: int = 0,
     ) -> list[TelemetrySummaryRow]:
         """Query summary rows with optional filters."""
-        conditions: list[str] = []
+        conditions: list[str] = [self._JOB_ONLY]
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if period_days is not None:
             conditions.append(f"created_at >= datetime('now', '-{int(period_days)} days')")
@@ -106,6 +115,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     COALESCE(SUM(retry_count), 0) as total_retry_count
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', '-{int(period_days)} days')
+                    AND session_kind = 'job'
             """),
         )
         row = result.mappings().first()
@@ -124,6 +134,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     COUNT(*) as jobs
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', '-{int(period_days)} days')
+                    AND session_kind = 'job'
                 GROUP BY date(created_at)
                 ORDER BY date(created_at)
             """),
@@ -146,6 +157,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     COALESCE(SUM(premium_requests), 0) as premium_requests
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', '-{int(period_days)} days')
+                    AND session_kind = 'job'
                 GROUP BY repo
                 ORDER BY total_cost_usd DESC
             """),
@@ -195,6 +207,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', '-{int(period_days)} days')
                     AND model != ''
+                    AND session_kind = 'job'
                 GROUP BY model, sdk
                 ORDER BY total_cost_usd DESC
             """),
@@ -238,6 +251,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     COALESCE(AVG(t.duration_ms), 0) as avg_duration_ms
                 FROM job_telemetry_summary t
                 WHERE t.created_at >= datetime('now', '-{int(period_days)} days')
+                    AND t.session_kind = 'job'
                 GROUP BY t.sdk
             """),
         )
@@ -248,6 +262,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 SELECT quota_json
                 FROM job_telemetry_summary
                 WHERE sdk = 'copilot' AND quota_json IS NOT NULL AND quota_json != ''
+                    AND session_kind = 'job'
                 ORDER BY updated_at DESC
                 LIMIT 1
             """),
@@ -313,6 +328,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 JOIN jobs j ON j.id = t.job_id
                 WHERE t.created_at >= datetime('now', '-{int(period_days)} days')
                     AND t.model != ''
+                    AND t.session_kind = 'job'
                     {repo_filter}
                 GROUP BY t.model, t.sdk
                 ORDER BY COUNT(*) DESC
@@ -339,6 +355,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 WHERE repo = :repo
                     AND job_id != :job_id
                     AND status = 'completed'
+                    AND session_kind = 'job'
             """),
             {"repo": repo, "job_id": job_id},
         )
@@ -406,6 +423,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     AND cost_second_half_usd >= 0.50
                     AND (cost_second_half_usd / cost_first_half_usd) >= 2.0
                     AND created_at >= datetime('now', '-{int(period_days)} days')
+                    AND session_kind = 'job'
                 ORDER BY (cost_second_half_usd - cost_first_half_usd) DESC
                 LIMIT 20
             """)
@@ -426,6 +444,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 WHERE compactions >= 5
                     AND created_at >= datetime('now', '-{int(period_days)} days')
                     AND status IN ('completed', 'failed')
+                    AND session_kind = 'job'
                 ORDER BY compactions DESC
                 LIMIT 20
             """)
@@ -454,6 +473,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                         THEN 1 END) as prior_jobs
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', '-14 days')
+                    AND session_kind = 'job'
             """)
         )
         row = result.mappings().first()
@@ -488,6 +508,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 JOIN job_telemetry_summary t ON t.job_id = j.id
                 WHERE j.created_at >= datetime('now', :offset)
                     AND j.state IN ('completed', 'failed', 'canceled')
+                    AND t.session_kind = 'job'
                     {repo_filter}
                 GROUP BY category
             """),
@@ -530,6 +551,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     ) + 1 AS days_elapsed
                 FROM job_telemetry_summary
                 WHERE created_at >= strftime('%Y-%m-01', 'now')
+                    AND session_kind = 'job'
             """),
         )
         row = result.mappings().first()
@@ -585,6 +607,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                     AND t.subagent_cost_usd > 0
                     AND t.subagent_cost_usd
                         > t.total_cost_usd - t.subagent_cost_usd
+                    AND t.session_kind = 'job'
                 ORDER BY t.subagent_cost_usd DESC
             """),
             {"days": int(period_days)},
@@ -599,6 +622,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 FROM job_telemetry_summary t
                 JOIN jobs j ON j.id = t.job_id
                 WHERE j.created_at >= datetime('now', :offset)
+                    AND t.session_kind = 'job'
             """),
             {"offset": f"-{int(period_days)} days"},
         )
@@ -622,6 +646,7 @@ class TelemetryAnalyticsRepository(BaseRepository):
                 FROM job_telemetry_summary t
                 JOIN jobs j ON j.id = t.job_id
                 WHERE j.created_at >= datetime('now', :offset)
+                    AND t.session_kind = 'job'
             """),
             {"offset": f"-{int(period_days)} days"},
         )
@@ -640,3 +665,28 @@ class TelemetryAnalyticsRepository(BaseRepository):
             "compaction_cost_estimate_usd": compaction_cost,
             "reread_cost_estimate_usd": reread_cost,
         }
+
+    async def sidecar_cost_breakdown(self, *, period_days: int = 30) -> list[dict[str, Any]]:
+        """Cost breakdown by session_kind for sidecar sessions.
+
+        Returns one row per session_kind (excluding 'job') with totals.
+        """
+        result = await self._session.execute(
+            text("""
+                SELECT
+                    session_kind,
+                    COUNT(*) AS session_count,
+                    COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,
+                    COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                    COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                    COALESCE(SUM(llm_call_count), 0) AS llm_call_count,
+                    COALESCE(SUM(tool_call_count), 0) AS tool_call_count
+                FROM job_telemetry_summary
+                WHERE session_kind != 'job'
+                    AND created_at >= datetime('now', :offset)
+                GROUP BY session_kind
+                ORDER BY total_cost_usd DESC
+            """),
+            {"offset": f"-{int(period_days)} days"},
+        )
+        return [dict(r) for r in result.mappings().all()]

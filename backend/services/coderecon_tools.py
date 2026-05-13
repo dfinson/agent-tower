@@ -115,8 +115,16 @@ _TOOL_DEFS: dict[str, dict[str, Any]] = {
         },
     },
     "recon_understand": {
-        "description": "Full codebase narrative briefing — structure, PageRank, communities.",
-        "schema": {"type": "object", "properties": {}},
+        "description": "Full codebase narrative briefing — structure, PageRank, communities. Use scope to zoom into a specific module/directory.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "description": "Optional directory or module path (relative to repo root) to zoom into, e.g. 'backend/services'.",
+                },
+            },
+        },
     },
     "scaffold": {
         "description": "File structural overview — imports + symbol hierarchy without bodies.",
@@ -253,10 +261,14 @@ def _resolve_tier(tier: str) -> set[str]:
     """Return tool names allowed for a tier."""
     minimal = {"recon", "recon_map", "scaffold"}
     standard = minimal | {"checkpoint", "recon_impact"}
+    # Read-only structural tools for the preflight curator agent
+    preflight = {"recon", "recon_map", "recon_understand", "recon_impact", "scaffold"}
     if tier == "minimal":
         return minimal
     if tier == "standard":
         return standard
+    if tier == "preflight":
+        return preflight
     # full — all tools
     return set(_TOOL_DEFS.keys())
 
@@ -303,6 +315,13 @@ def build_coderecon_tools(
             if tool_name == "scaffold":
                 result = await service.scaffold(repo, path=args.get("path", ""), worktree=worktree)
                 return _serialize_result(result)
+            if tool_name == "recon_understand":
+                result = await service.understand(
+                    repo,
+                    scope=args.get("scope"),
+                    worktree=worktree,
+                )
+                return _serialize_result(result)
             if tool_name == "graph_communities":
                 result = await service.graph_communities(repo, worktree=worktree)
                 return _serialize_result(result)
@@ -323,9 +342,6 @@ def build_coderecon_tools(
             sdk = await service.get_sdk()
             if tool_name == "checkpoint":
                 result = await sdk.checkpoint(repo, message=args.get("message"), worktree=worktree)
-                return _serialize_result(result)
-            if tool_name == "recon_understand":
-                result = await sdk.recon_understand(repo, worktree=worktree)
                 return _serialize_result(result)
             if tool_name == "refactor_rename":
                 result = await sdk.refactor_rename(
@@ -418,7 +434,12 @@ def build_coderecon_tools(
 
     # ── System prompt ──
 
-    prompt = _TOOL_GUIDANCE_FULL if tier == "full" else _TOOL_GUIDANCE_STANDARD
+    if tier == "preflight":
+        prompt = ""  # Preflight curator has its own system prompt
+    elif tier == "full":
+        prompt = _TOOL_GUIDANCE_FULL
+    else:
+        prompt = _TOOL_GUIDANCE_STANDARD
 
     return CodeReconToolKit(
         claude_mcp_server=claude_server,

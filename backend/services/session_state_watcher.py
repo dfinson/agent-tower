@@ -35,9 +35,8 @@ if TYPE_CHECKING:
     from backend.services.coderecon_service import CodeReconService
     from backend.services.copilot_steer import CopilotSteerClient
     from backend.services.event_bus import EventBus
-    from backend.services.event_processor import EventProcessor
     from backend.services.git_service import GitService
-    from backend.services.sister_session import SisterSessionManager
+    from backend.services.runtime_service import RuntimeService
 
 log = structlog.get_logger()
 
@@ -68,22 +67,20 @@ class SessionStateWatcher(WatcherTelemetryMixin):
     def __init__(
         self,
         event_bus: EventBus,
-        event_processor: EventProcessor,
+        runtime_service: RuntimeService,
         session_factory: async_sessionmaker[AsyncSession],
         config: CPLConfig,
         git_service: GitService | None = None,
         coderecon_service: CodeReconService | None = None,
         steer_client: CopilotSteerClient | None = None,
-        sister_sessions: SisterSessionManager | None = None,
     ) -> None:
         self._event_bus = event_bus
-        self._processor = event_processor
+        self._runtime = runtime_service
         self._session_factory = session_factory
         self._config = config
         self._git = git_service
         self._coderecon = coderecon_service
         self._steer = steer_client
-        self._sister_sessions = sister_sessions
 
         # Track which session IDs we're already tailing
         self._tracked_sessions: set[str] = set()
@@ -208,7 +205,9 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                     self._session_to_job[ext_sid] = job_id
                     self._job_worktrees[job_id] = wt or repo or ""
                     self._job_base_refs[job_id] = base or "HEAD"
-                    self._processor.register_worktree(job_id, self._job_worktrees[job_id])
+                    await self._runtime.register_external_session(
+                        job_id, self._job_worktrees[job_id], self._job_base_refs[job_id]
+                    )
                     events_path = _SESSION_STATE_DIR / ext_sid / "events.jsonl"
                     task = asyncio.create_task(
                         self._tail_events(ext_sid, job_id, events_path, initial_offset=offset),
@@ -343,8 +342,11 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         self._job_worktrees[job_id] = job.worktree_path or cwd
         self._job_base_refs[job_id] = job.base_ref or "HEAD"
 
-        # Register with event processor for diff/step tracking
-        self._processor.register_worktree(job_id, self._job_worktrees[job_id])
+        # Register with RuntimeService for full pipeline processing
+        # (sister session, heartbeat, stall detection, step tracking)
+        await self._runtime.register_external_session(
+            job_id, self._job_worktrees[job_id], self._job_base_refs[job_id]
+        )
 
         # Start tailing events.jsonl
         events_path = _SESSION_STATE_DIR / session_id / "events.jsonl"
@@ -466,9 +468,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
             )
         )
 
-        # Sister session for title generation
-        if self._sister_sessions:
-            self._sister_sessions.create_for_job(job_id)
+        # Sister session creation is handled by RuntimeService.register_external_session()
 
         log.info(
             "session_state_watcher_job_created",
@@ -645,10 +645,10 @@ class SessionStateWatcher(WatcherTelemetryMixin):
         if session_event is None:
             return
 
-        # Feed through the standard processing pipeline
+        # Feed through RuntimeService's full processing pipeline
         worktree = self._job_worktrees.get(job_id)
         base_ref = self._job_base_refs.get(job_id)
-        await self._processor.process_event(
+        await self._runtime.feed_external_event(
             job_id,
             session_event,
             worktree_path=worktree,
@@ -845,10 +845,16 @@ class SessionStateWatcher(WatcherTelemetryMixin):
                 )
             )
 
-        # Notify processor for step cleanup
-        await self._processor.on_job_terminal(job_id, new_state)
+        # Delegate cleanup to RuntimeService (sister session, heartbeat,
+        # stall detection, trail service, step tracker, diff service)
+        await self._runtime.finalize_external_session(
+            job_id,
+            worktree_path=self._job_worktrees.get(job_id),
+            base_ref=self._job_base_refs.get(job_id),
+            error_reason=error_reason,
+        )
 
-        # Clean up internal state maps
+        # Clean up watcher-local state maps
         self._job_worktrees.pop(job_id, None)
         self._job_base_refs.pop(job_id, None)
         self._pending_telemetry.pop(job_id, None)

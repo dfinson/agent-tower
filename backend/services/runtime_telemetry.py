@@ -80,6 +80,7 @@ class RuntimeTelemetry:
                     model=config.model or "",
                     repo=repo_path,
                     branch=branch_name,
+                    session_kind=config.session_kind,
                 )
         except (Exception, BaseException):
             log.warning("telemetry_init_failed", job_id=job_id, exc_info=True)

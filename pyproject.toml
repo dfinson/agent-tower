@@ -39,6 +39,7 @@ dependencies = [
     # Structural analysis (lightweight review-only subset)
     "coderecon-review @ git+https://github.com/dfinson/coderecon.git#subdirectory=packages/coderecon-review",
     "cloudflare>=5.1.0",
+    "sh-guard>=0.1.10",
 ]
 
 [project.optional-dependencies]

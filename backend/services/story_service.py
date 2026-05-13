@@ -573,7 +573,7 @@ async def _collect_context(
         text("""
             SELECT duration_ms, total_cost_usd, tool_call_count,
                    tool_failure_count, retry_count
-            FROM job_telemetry_summary WHERE job_id = :jid
+            FROM job_telemetry_summary WHERE job_id = :jid AND session_kind = 'job'
         """),
         {"jid": job_id},
     )

@@ -121,6 +121,7 @@ class LatencyAttributionRepository(BaseRepository):
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', :period_days)
                     AND duration_ms > 0
+                    AND session_kind = 'job'
             """),
             {"period_days": period_param},
         )
@@ -139,6 +140,7 @@ class LatencyAttributionRepository(BaseRepository):
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', :period_days)
                     AND duration_ms > 0
+                    AND session_kind = 'job'
                 ORDER BY duration_ms
                 LIMIT 1 OFFSET :offset
             """),
@@ -152,6 +154,7 @@ class LatencyAttributionRepository(BaseRepository):
                 FROM job_telemetry_summary
                 WHERE created_at >= datetime('now', :period_days)
                     AND duration_ms > 0
+                    AND session_kind = 'job'
                 ORDER BY duration_ms
                 LIMIT 1 OFFSET :offset
             """),

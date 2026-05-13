@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -212,6 +212,10 @@ class SessionEventKind(StrEnum):
     error = "error"
 
 
+# Valid values for SessionConfig.session_kind — used for telemetry grouping.
+SessionKind = Literal["job", "preflight", "memory_extraction", "memory_compaction", "narrator", "sister"]
+
+
 # -- Payload TypedDicts per SessionEventKind ----------------------------------
 
 
@@ -287,6 +291,7 @@ class TelemetrySpanRow(TypedDict, total=False):
 
     id: int
     job_id: str
+    session_kind: str
     span_type: str  # "tool" | "llm"
     name: str
     started_at: float
@@ -349,6 +354,7 @@ class TelemetrySummaryRow(TypedDict, total=False):
     """Shape of a row returned by TelemetrySummaryRepository.get()."""
 
     job_id: str
+    session_kind: str
     sdk: str
     model: str
     repo: str
@@ -618,6 +624,14 @@ class SessionConfig:
     coderecon_tools: Any | None = None
     # Workspace memory — curated context injected via system_message (hidden from transcript)
     memory_context: str | None = None
+    # Maximum agent turns before the session is forcibly ended (None = SDK default)
+    max_turns: int | None = None
+    # Built-in tools to block (e.g. ["Bash", "Write", "Edit"] for read-only sessions)
+    disallowed_tools: list[str] = field(default_factory=list)
+    # Telemetry dimension — classifies this session for cost tracking.
+    # "job" for main agent sessions, or "preflight", "memory_extraction",
+    # "memory_compaction", "narrator", "sister" for sidecar sessions.
+    session_kind: SessionKind = "job"
 
 
 @dataclass

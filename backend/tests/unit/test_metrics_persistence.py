@@ -229,3 +229,99 @@ async def test_spans_tool_stats(session: AsyncSession) -> None:
     assert float(stats[0]["p50_duration_ms"]) == pytest.approx(120.0)
     assert float(stats[0]["p95_duration_ms"]) == pytest.approx(140.0)
     assert float(stats[0]["p99_duration_ms"]) == pytest.approx(140.0)
+
+
+# ---------------------------------------------------------------------------
+# Sidecar session_kind isolation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sidecar_rows_isolated_from_job_row(session: AsyncSession) -> None:
+    """A preflight session_kind row must be separate from the job row."""
+    repo = TelemetrySummaryRepository(session)
+
+    # Init main job row
+    await repo.init_job("job-1", sdk="copilot", model="gpt-4o", session_kind="job")
+    await session.commit()
+
+    # Init preflight sidecar row for the same job_id
+    await repo.init_job("job-1", sdk="copilot", model="gpt-4o", session_kind="preflight")
+    await session.commit()
+
+    # Both rows exist independently
+    job_row = await repo.get("job-1", session_kind="job")
+    preflight_row = await repo.get("job-1", session_kind="preflight")
+    assert job_row is not None
+    assert preflight_row is not None
+    assert job_row["session_kind"] == "job"
+    assert preflight_row["session_kind"] == "preflight"
+
+
+@pytest.mark.asyncio
+async def test_sidecar_increment_does_not_affect_job_row(session: AsyncSession) -> None:
+    """Incrementing a sidecar row must not touch the job row's counters."""
+    repo = TelemetrySummaryRepository(session)
+
+    await repo.init_job("job-1", sdk="copilot", model="gpt-4o", session_kind="job")
+    await repo.init_job("job-1", sdk="copilot", model="gpt-4o", session_kind="preflight")
+    await session.commit()
+
+    # Increment only the preflight row
+    await repo.increment("job-1", session_kind="preflight", input_tokens=1000, total_cost_usd=0.05)
+    await session.commit()
+
+    # Job row should be untouched
+    job_row = await repo.get("job-1", session_kind="job")
+    assert job_row is not None
+    assert job_row["input_tokens"] == 0
+    assert job_row["total_cost_usd"] == 0.0
+
+    # Preflight row should have the incremented values
+    pf_row = await repo.get("job-1", session_kind="preflight")
+    assert pf_row is not None
+    assert pf_row["input_tokens"] == 1000
+    assert pf_row["total_cost_usd"] == pytest.approx(0.05)
+
+
+@pytest.mark.asyncio
+async def test_finalize_only_affects_job_row(session: AsyncSession) -> None:
+    """finalize() should only update the job row, not sidecar rows."""
+    repo = TelemetrySummaryRepository(session)
+
+    await repo.init_job("job-1", sdk="copilot", session_kind="job")
+    await repo.init_job("job-1", sdk="copilot", session_kind="preflight")
+    await session.commit()
+
+    await repo.finalize("job-1", status="completed", duration_ms=5000)
+    await session.commit()
+
+    job_row = await repo.get("job-1", session_kind="job")
+    assert job_row is not None
+    assert job_row["status"] == "completed"
+    assert job_row["duration_ms"] == 5000
+
+    # Preflight row should still be 'running'
+    pf_row = await repo.get("job-1", session_kind="preflight")
+    assert pf_row is not None
+    assert pf_row["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_sidecar_cost_breakdown_excludes_jobs(session: AsyncSession) -> None:
+    """sidecar_cost_breakdown should only return non-job session kinds."""
+    repo = TelemetrySummaryRepository(session)
+    analytics = TelemetryAnalyticsRepository(session)
+
+    await repo.init_job("job-1", sdk="copilot", model="gpt-4o", session_kind="job")
+    await repo.init_job("job-1", sdk="copilot", model="gpt-4o", session_kind="preflight")
+    await session.commit()
+
+    await repo.increment("job-1", session_kind="job", total_cost_usd=1.00)
+    await repo.increment("job-1", session_kind="preflight", total_cost_usd=0.10)
+    await session.commit()
+
+    breakdown = await analytics.sidecar_cost_breakdown(period_days=30)
+    assert len(breakdown) == 1
+    assert breakdown[0]["session_kind"] == "preflight"
+    assert breakdown[0]["total_cost_usd"] == pytest.approx(0.10)

@@ -346,7 +346,7 @@ async def _compute_latency(
                 tool_exec_ms = :tool_exec_ms,
                 idle_ms = :idle_ms,
                 parallelism_ratio = :parallelism_ratio
-            WHERE job_id = :job_id
+            WHERE job_id = :job_id AND session_kind = 'job'
         """),
         {
             "job_id": job_id,

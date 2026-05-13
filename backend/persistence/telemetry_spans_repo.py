@@ -32,6 +32,7 @@ class TelemetrySpansRepository(BaseRepository):
         self,
         *,
         job_id: str,
+        session_kind: str = "job",
         span_type: str,
         name: str,
         started_at: float,
@@ -61,14 +62,14 @@ class TelemetrySpansRepository(BaseRepository):
         result = await self._session.execute(
             text("""
                 INSERT INTO job_telemetry_spans
-                    (job_id, span_type, name, started_at, duration_ms, attrs_json,
+                    (job_id, session_kind, span_type, name, started_at, duration_ms, attrs_json,
                      tool_category, tool_target, turn_number, execution_phase,
                      is_retry, retries_span_id,
                      input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                      cost_usd, tool_args_json, result_size_bytes, error_kind,
                      turn_id, preceding_context, motivation_summary, created_at)
                 VALUES
-                    (:job_id, :span_type, :name, :started_at, :duration_ms, :attrs_json,
+                    (:job_id, :session_kind, :span_type, :name, :started_at, :duration_ms, :attrs_json,
                      :tool_category, :tool_target, :turn_number, :execution_phase,
                      :is_retry, :retries_span_id,
                      :input_tokens, :output_tokens, :cache_read_tokens, :cache_write_tokens,
@@ -77,6 +78,7 @@ class TelemetrySpansRepository(BaseRepository):
             """),
             {
                 "job_id": job_id,
+                "session_kind": session_kind,
                 "span_type": span_type,
                 "name": name,
                 "started_at": started_at,

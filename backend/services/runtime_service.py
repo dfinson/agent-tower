@@ -1278,6 +1278,167 @@ class RuntimeService:
             log.warning("job_cancel_transition_failed", job_id=job_id, exc_info=True)
 
     # ------------------------------------------------------------------
+    # External (imported) session pipeline
+    # ------------------------------------------------------------------
+
+    async def register_external_session(
+        self,
+        job_id: str,
+        worktree_path: str,
+        base_ref: str,
+    ) -> None:
+        """Register an externally-managed session for full pipeline processing.
+
+        Gives imported sessions the same infrastructure as managed sessions:
+        sister session binding, heartbeat loop (with stall detection), step
+        tracker registration, and diff service worktree registration.
+
+        Called by watchers after job creation or re-attachment.
+        """
+        self._last_activity[job_id] = time.monotonic()
+
+        # Ensure a sister session exists for plan inference / classification
+        if self._sister_sessions is not None and self._sister_sessions.get(job_id) is None:
+            try:
+                self._sister_sessions.create_for_job(job_id)
+            except Exception:
+                log.warning("external_sister_session_setup_failed", job_id=job_id, exc_info=True)
+
+        # Step tracker
+        if worktree_path and self._step_tracker is not None:
+            self._step_tracker.register_worktree(job_id, worktree_path)
+
+        # Diff service
+        # (EventProcessor registered worktrees for diff triggers; we do the
+        # same via _process_agent_event which checks _diff_service directly.)
+
+        # Start heartbeat → stall detection, health reporting
+        if job_id not in self._heartbeat_tasks:
+            task = asyncio.create_task(
+                self._heartbeat_loop(job_id),
+                name=f"heartbeat-ext-{job_id[:8]}",
+            )
+            self._heartbeat_tasks[job_id] = task
+        log.debug("external_session_registered", job_id=job_id)
+
+    async def feed_external_event(
+        self,
+        job_id: str,
+        session_event: SessionEvent,
+        worktree_path: str | None = None,
+        base_ref: str | None = None,
+    ) -> DomainEvent | None:
+        """Process a single event from an externally-managed session.
+
+        Applies the full managed-session pipeline: tool tracking, diff
+        triggering, event translation, turn_id synthesis, step annotation,
+        and EventBus publishing.  Approval events are published for UI
+        visibility but not blocked on (the external agent handles its own
+        approval flow).
+
+        Returns the published DomainEvent, or ``None`` if consumed internally.
+        """
+        action, domain_event, _error_reason = await self._process_agent_event(
+            job_id,
+            session_event,
+            agent_session=None,
+            worktree_path=worktree_path,
+            base_ref=base_ref,
+            rejection_message="",
+        )
+
+        if action == EventAction.skip or domain_event is None:
+            return None
+
+        # Step tracking — annotate transcript events with step boundaries
+        if domain_event.kind == DomainEventKind.transcript_updated and self._step_tracker is not None:
+            role = str(domain_event.payload.get("role", ""))
+            if role != "agent_delta":
+                await self._step_tracker.on_transcript_event(job_id, domain_event)
+                current = self._step_tracker.current_step(job_id)
+                if current:
+                    domain_event.payload["step_number"] = current.step_number
+                if self._trail_service is not None:
+                    plan_step_id = self._trail_service.get_active_plan_step_id(job_id)
+                    if plan_step_id:
+                        domain_event.payload["step_id"] = plan_step_id
+
+        await self._event_bus.publish(domain_event)
+        return domain_event
+
+    async def finalize_external_session(
+        self,
+        job_id: str,
+        *,
+        worktree_path: str | None = None,
+        base_ref: str | None = None,
+        error_reason: str | None = None,
+    ) -> None:
+        """Clean up an externally-managed session through the main pipeline.
+
+        Mirrors ``_cleanup_job_state`` for the subset of state that external
+        sessions use: heartbeat, sister session, step tracker, trail service,
+        diff service, stall detection, and trail snapshot.
+
+        The watcher remains responsible for DB state transitions and publishing
+        ``job_state_changed`` events (it is the authority on session liveness).
+        """
+        # Cancel heartbeat
+        heartbeat = self._heartbeat_tasks.pop(job_id, None)
+        if heartbeat:
+            heartbeat.cancel()
+
+        # Step tracker terminal notification
+        outcome = "failed" if error_reason else "review"
+        if self._step_tracker is not None:
+            await self._step_tracker.on_job_terminal(job_id, outcome)
+
+        # Final diff snapshot — capture the worktree end-state before cleanup
+        await self._finalize_diff_safe(job_id, worktree_path, base_ref)
+
+        # TrailService finalize + cleanup
+        if self._trail_service is not None:
+            self._trail_service.stop_tracking(job_id)
+            await self._trail_service.finalize(job_id, succeeded=error_reason is None)
+            self._trail_service.cleanup(job_id)
+
+        # Extract workspace memory before closing the sister session
+        # (the extractor uses it for LLM calls).  Look up the canonical repo
+        # path from the DB — worktree_path can differ from the repo root.
+        if error_reason is None:
+            try:
+                async with self._session_factory() as session:
+                    job = await JobRepository(session).get(job_id)
+                if job is not None and job.repo:
+                    await self._extract_workspace_memory(job_id, job.repo)
+            except Exception:
+                log.debug("workspace_memory.post_job_failed", job_id=job_id, exc_info=True)
+
+        # Sister session cleanup (metrics snapshot + pool return)
+        if self._sister_sessions is not None:
+            try:
+                self._sister_sessions.close_job(job_id)
+            except (OSError, RuntimeError):
+                log.warning("sister_session_close_failed", job_id=job_id, exc_info=True)
+
+        # Step tracker + diff cleanup
+        if self._step_tracker is not None:
+            self._step_tracker.cleanup(job_id)
+        if self._diff_service is not None:
+            self._diff_service.cleanup(job_id)
+
+        # Clean up in-memory state
+        self._last_activity.pop(job_id, None)
+        self._active_tool.pop(job_id, None)
+        self._stall_check_pending.discard(job_id)
+        self._last_stall_check.pop(job_id, None)
+        self._turn_ids.pop(job_id, None)
+
+        # Persist trail snapshot to disk
+        self._start_snapshot_task(job_id)
+        log.debug("external_session_finalized", job_id=job_id, outcome=outcome)
+
+    # ------------------------------------------------------------------
     # Shared event processing
     # ------------------------------------------------------------------
 
@@ -1285,12 +1446,16 @@ class RuntimeService:
         self,
         job_id: str,
         session_event: SessionEvent,
-        agent_session: AgentSession,
+        agent_session: AgentSession | None,
         worktree_path: str | None,
         base_ref: str | None,
         rejection_message: str,
     ) -> tuple[EventAction, DomainEvent | None, str | None]:
         """Process a single agent session event (shared by main + follow-up loops).
+
+        When *agent_session* is ``None`` (external/imported sessions), approval
+        events are published for UI visibility but not blocked on, and echo
+        suppression is skipped (external events are never echoes).
 
         Returns ``(action, domain_event, error_reason)``:
 
@@ -1364,8 +1529,13 @@ class RuntimeService:
                 self._echo_suppress[job_id].discard(content)
                 return EventAction.skip, None, None
 
-        # Handle approval requests
-        if domain_event.kind == DomainEventKind.approval_requested and self._approval_service is not None:
+        # Handle approval requests (managed sessions only — external sessions
+        # handle their own approvals; we just publish for UI visibility).
+        if (
+            domain_event.kind == DomainEventKind.approval_requested
+            and self._approval_service is not None
+            and agent_session is not None
+        ):
             resolution = await self._handle_approval_request(
                 job_id,
                 domain_event,
@@ -2168,28 +2338,19 @@ class RuntimeService:
         job: Job,
         session_config: SessionConfig,
     ) -> SessionConfig:
-        """Load workspace memory + structural data and curate for this job.
+        """Run the preflight curator agent to produce curated context.
 
-        Returns *session_config* with ``memory_context`` populated (or unchanged
+        The curator agent explores the repository structure via CodeRecon
+        tools and selects relevant workspace memory entries.  Returns
+        *session_config* with ``memory_context`` populated (or unchanged
         on failure).
         """
         from backend.services.workspace_memory import load_workspace_memory
 
         raw_memory = load_workspace_memory(job.repo)
-
-        # Gather structural understand data if coderecon is available
-        understand_result = None
         worktree_path = job.worktree_path or job.repo
-        if self._coderecon_service is not None and self._coderecon_service.available:
-            try:
-                understand_result = await self._coderecon_service.understand(
-                    str(job.repo),
-                    worktree=worktree_path,
-                )
-            except Exception:
-                log.debug("preflight_curator.understand_failed", job_id=job.id, exc_info=True)
 
-        if not raw_memory and understand_result is None:
+        if not raw_memory and (self._coderecon_service is None or not self._coderecon_service.available):
             return session_config
 
         if self._preflight_curator is None:
@@ -2200,14 +2361,15 @@ class RuntimeService:
             curated = await self._preflight_curator.curate(
                 task=session_config.prompt,
                 memory=raw_memory or None,
-                understand_result=understand_result,
+                repo=str(job.repo),
+                worktree=worktree_path,
+                job_id=job.id,
             )
             if curated and curated.strip():
                 log.info(
                     "preflight_curator.curated",
                     job_id=job.id,
                     had_memory=bool(raw_memory),
-                    had_structure=understand_result is not None,
                     curated_len=len(curated),
                 )
                 return dataclass_replace(session_config, memory_context=curated.strip())

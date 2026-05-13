@@ -57,12 +57,12 @@ def event_bus() -> AsyncMock:
 
 
 @pytest.fixture
-def event_processor() -> MagicMock:
-    proc = MagicMock()
-    proc.process_event = AsyncMock()
-    proc.on_job_terminal = AsyncMock()
-    proc.register_worktree = MagicMock()
-    return proc
+def runtime_service() -> MagicMock:
+    svc = MagicMock()
+    svc.register_external_session = AsyncMock()
+    svc.feed_external_event = AsyncMock(return_value=None)
+    svc.finalize_external_session = AsyncMock()
+    return svc
 
 
 @pytest.fixture
@@ -78,12 +78,12 @@ def watcher(
     db_session: async_sessionmaker[AsyncSession],
     config: CPLConfig,
     event_bus: AsyncMock,
-    event_processor: MagicMock,
+    runtime_service: MagicMock,
     git_service: AsyncMock,
 ) -> ClaudeSessionStateWatcher:
     return ClaudeSessionStateWatcher(
         event_bus=event_bus,
-        event_processor=event_processor,
+        runtime_service=runtime_service,
         session_factory=db_session,
         config=config,
         git_service=git_service,
@@ -212,7 +212,7 @@ class TestJsonlEventProcessing:
     async def test_user_event_emits_transcript(
         self,
         watcher: ClaudeSessionStateWatcher,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         watcher._session_to_job["sess-1"] = "job-1"
         watcher._job_to_session["job-1"] = "sess-1"
@@ -225,8 +225,8 @@ class TestJsonlEventProcessing:
 
         ended = await watcher._process_jsonl_event(raw, "sess-1", "job-1")
         assert ended is False
-        event_processor.process_event.assert_called()
-        call_args = event_processor.process_event.call_args
+        runtime_service.feed_external_event.assert_called()
+        call_args = runtime_service.feed_external_event.call_args
         session_event = call_args[0][1]
         assert session_event.kind.value == "transcript"
         assert session_event.payload["role"] == "operator"
@@ -236,7 +236,7 @@ class TestJsonlEventProcessing:
     async def test_assistant_text_emits_transcript(
         self,
         watcher: ClaudeSessionStateWatcher,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         watcher._session_to_job["sess-1"] = "job-1"
         watcher._job_to_session["job-1"] = "sess-1"
@@ -253,13 +253,13 @@ class TestJsonlEventProcessing:
         ended = await watcher._process_jsonl_event(raw, "sess-1", "job-1")
         assert ended is False
         # Should have called process_event for the text transcript
-        assert event_processor.process_event.called
+        assert runtime_service.feed_external_event.called
 
     @pytest.mark.anyio
     async def test_assistant_tool_use_emits_tool_running(
         self,
         watcher: ClaudeSessionStateWatcher,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         watcher._session_to_job["sess-1"] = "job-1"
         watcher._job_to_session["job-1"] = "sess-1"
@@ -275,9 +275,9 @@ class TestJsonlEventProcessing:
         }
 
         await watcher._process_jsonl_event(raw, "sess-1", "job-1")
-        assert event_processor.process_event.called
+        assert runtime_service.feed_external_event.called
         # Find the tool_running call
-        for call in event_processor.process_event.call_args_list:
+        for call in runtime_service.feed_external_event.call_args_list:
             evt = call[0][1]
             if evt.payload.get("role") == "tool_running":
                 assert evt.payload["tool_name"] == "edit_file"
@@ -289,7 +289,7 @@ class TestJsonlEventProcessing:
     async def test_thinking_block_emits_reasoning(
         self,
         watcher: ClaudeSessionStateWatcher,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         watcher._session_to_job["sess-1"] = "job-1"
         watcher._job_to_session["job-1"] = "sess-1"
@@ -303,7 +303,7 @@ class TestJsonlEventProcessing:
         }
 
         await watcher._process_jsonl_event(raw, "sess-1", "job-1")
-        for call in event_processor.process_event.call_args_list:
+        for call in runtime_service.feed_external_event.call_args_list:
             evt = call[0][1]
             if evt.payload.get("role") == "reasoning":
                 assert "analyze" in evt.payload["content"]
@@ -509,7 +509,7 @@ class TestDoubleFinalizationGuard:
         watcher: ClaudeSessionStateWatcher,
         db_session: async_sessionmaker[AsyncSession],
         event_bus: AsyncMock,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         """Second call to _finalize_session should be a no-op."""
         from backend.models.domain import Job, JobSource, JobState
@@ -668,7 +668,7 @@ class TestCostCalculation:
     async def test_telemetry_includes_cost(
         self,
         watcher: ClaudeSessionStateWatcher,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         """_extract_usage_telemetry should accumulate cost_usd in pending telemetry."""
         watcher._session_to_job["sess-1"] = "job-cost"
@@ -705,7 +705,7 @@ class TestFileChangedEmission:
     async def test_file_write_tool_emits_file_changed(
         self,
         watcher: ClaudeSessionStateWatcher,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         """tool_use with a file_write tool should emit file_changed event."""
         watcher._session_to_job["sess-1"] = "job-fc"
@@ -730,7 +730,7 @@ class TestFileChangedEmission:
         await watcher._process_jsonl_event(raw, "sess-1", "job-fc")
 
         # Should have emitted: tool_running + file_changed
-        calls = event_processor.process_event.call_args_list
+        calls = runtime_service.feed_external_event.call_args_list
         kinds = [c[0][1].kind for c in calls]
         assert SessionEventKind.file_changed in kinds
 
@@ -738,7 +738,7 @@ class TestFileChangedEmission:
     async def test_non_write_tool_no_file_changed(
         self,
         watcher: ClaudeSessionStateWatcher,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         """tool_use with a read tool should NOT emit file_changed."""
         watcher._session_to_job["sess-1"] = "job-nfc"
@@ -760,7 +760,7 @@ class TestFileChangedEmission:
 
         await watcher._process_jsonl_event(raw, "sess-1", "job-nfc")
 
-        calls = event_processor.process_event.call_args_list
+        calls = runtime_service.feed_external_event.call_args_list
         kinds = [c[0][1].kind for c in calls]
         assert SessionEventKind.file_changed not in kinds
 
@@ -811,7 +811,7 @@ class TestPidLiveness:
     async def test_session_pid_cleaned_on_finalize(
         self,
         watcher: ClaudeSessionStateWatcher,
-        event_processor: MagicMock,
+        runtime_service: MagicMock,
     ) -> None:
         """_finalize_session should remove the cached PID."""
         watcher._session_to_job["sess-pid"] = "job-pid"

@@ -795,3 +795,12 @@ async def analytics_export(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="codeplane-analytics-{period}d.csv"'},
     )
+
+
+@router.get("/analytics/sidecar-costs")
+async def analytics_sidecar_costs(
+    svc: FromDishka[AnalyticsService],
+    period: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> list[dict[str, Any]]:
+    """Cost breakdown by session kind for sidecar sessions (preflight, memory, etc)."""
+    return await svc.sidecar_cost_breakdown(period_days=period)

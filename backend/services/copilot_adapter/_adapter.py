@@ -170,6 +170,8 @@ class CopilotAdapter(BaseAgentAdapter):
         requested_model: str,
         model_verified: list[bool],
         queue: asyncio.Queue[SessionEvent | None],
+        *,
+        session_kind: str = "job",
     ) -> None:
 
         from backend.services import telemetry as tel
@@ -209,6 +211,7 @@ class CopilotAdapter(BaseAgentAdapter):
             duration_ms=duration_ms,
             is_subagent=is_subagent,
             num_turns=1,
+            session_kind=session_kind,
         )
 
         # Advance turn counter for this job
@@ -227,6 +230,7 @@ class CopilotAdapter(BaseAgentAdapter):
             cost_usd=cost,
             is_subagent=is_subagent,
             turn_id=None,
+            session_kind=session_kind,
         )
 
         # Capture Copilot quota snapshots if present
@@ -248,9 +252,15 @@ class CopilotAdapter(BaseAgentAdapter):
                     "reset_date": str(snap.reset_date or ""),
                 }
                 # OTEL gauges
-                tel.quota_used_gauge.set(used, {"job_id": job_id, "sdk": "copilot", "resource": key})
-                tel.quota_entitlement_gauge.set(entitlement, {"job_id": job_id, "sdk": "copilot", "resource": key})
-                tel.quota_remaining_gauge.set(remaining, {"job_id": job_id, "sdk": "copilot", "resource": key})
+                tel.quota_used_gauge.set(
+                    used, {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
+                )
+                tel.quota_entitlement_gauge.set(
+                    entitlement, {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
+                )
+                tel.quota_remaining_gauge.set(
+                    remaining, {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
+                )
 
             self._schedule_db_write(
                 self._db_write_set_quota(
@@ -292,7 +302,7 @@ class CopilotAdapter(BaseAgentAdapter):
             "tool_title": tool_title,
         }
 
-    def _handle_tool_end(self, data: ToolExecutionCompleteData, job_id: str) -> None:
+    def _handle_tool_end(self, data: ToolExecutionCompleteData, job_id: str, *, session_kind: str = "job") -> None:
         tool_id = data.tool_call_id or ""
         import time as _time
 
@@ -335,13 +345,16 @@ class CopilotAdapter(BaseAgentAdapter):
             duration_ms=dur,
             result_text=result_text,
             turn_id=buffered.get("turn_id"),
+            session_kind=session_kind,
         )
 
-    def _handle_context_changed(self, data: SessionUsageInfoData, job_id: str) -> None:
+    def _handle_context_changed(
+        self, data: SessionUsageInfoData, job_id: str, *, session_kind: str = "job",
+    ) -> None:
         from backend.services import telemetry as tel
 
         current = int(data.current_tokens or 0)
-        attrs = {"job_id": job_id, "sdk": "copilot"}
+        attrs = {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind}
         tel.context_tokens_gauge.set(current, attrs)
 
         self._schedule_db_write(
@@ -351,18 +364,21 @@ class CopilotAdapter(BaseAgentAdapter):
             )
         )
 
-    def _handle_compaction(self, data: SessionCompactionCompleteData, job_id: str) -> None:
+    def _handle_compaction(
+        self, data: SessionCompactionCompleteData, job_id: str, *, session_kind: str = "job",
+    ) -> None:
         from backend.services import telemetry as tel
 
         pre = int(data.pre_compaction_tokens or 0)
         post = int(data.post_compaction_tokens or 0)
-        attrs = {"job_id": job_id, "sdk": "copilot"}
+        attrs = {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind}
         tel.compactions_counter.add(1, attrs)
         tel.tokens_compacted.add(max(0, pre - post), attrs)
 
         self._schedule_db_write(
             self._db_write_increment(
                 job_id=job_id,
+                session_kind=session_kind,
                 compactions=1,
                 tokens_compacted=max(0, pre - post),
             )
@@ -708,6 +724,8 @@ class CopilotAdapter(BaseAgentAdapter):
         # no early SDK events are lost.
         if config.job_id:
             self.set_job_id(session_id, config.job_id)
+        if config.session_kind != "job":
+            self.set_session_kind(session_id, config.session_kind)
 
         # Sequence counter for log events emitted from this session.
         log_seq = [0]
@@ -724,6 +742,7 @@ class CopilotAdapter(BaseAgentAdapter):
 
             # --- Copilot SDK → OTEL telemetry + SQLite ---
             job_id = self._session_to_job.get(session_id)
+            session_kind = self.get_session_kind(session_id)
             if job_id and data:
                 from backend.services import telemetry as tel
 
@@ -734,20 +753,29 @@ class CopilotAdapter(BaseAgentAdapter):
                         requested_model,
                         _model_verified,
                         queue,
+                        session_kind=session_kind,
                     )
                 elif kind_str == "tool.execution_start":
                     self._handle_tool_start(cast("ToolExecutionStartData", data), job_id)
                 elif kind_str == "tool.execution_complete":
-                    self._handle_tool_end(cast("ToolExecutionCompleteData", data), job_id)
+                    self._handle_tool_end(
+                        cast("ToolExecutionCompleteData", data), job_id, session_kind=session_kind,
+                    )
                 elif kind_str == "session.usage_info":
-                    self._handle_context_changed(cast("SessionUsageInfoData", data), job_id)
+                    self._handle_context_changed(
+                        cast("SessionUsageInfoData", data), job_id, session_kind=session_kind,
+                    )
                 elif kind_str == "session.compaction_complete":
-                    self._handle_compaction(cast("SessionCompactionCompleteData", data), job_id)
+                    self._handle_compaction(
+                        cast("SessionCompactionCompleteData", data), job_id, session_kind=session_kind,
+                    )
                 elif kind_str == "session.truncation":
                     trunc = cast("SessionTruncationData", data)
                     if trunc.token_limit:
                         window = int(trunc.token_limit)
-                        tel.context_window_gauge.set(window, {"job_id": job_id, "sdk": "copilot"})
+                        tel.context_window_gauge.set(
+                            window, {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind},
+                        )
                         self._schedule_db_write(self._db_write_set_context(job_id=job_id, window_size=window))
                 elif kind_str == "session.model_change":
                     mc = cast("SessionModelChangeData", data)
@@ -755,19 +783,32 @@ class CopilotAdapter(BaseAgentAdapter):
                         self._job_main_models[job_id] = mc.new_model
                         self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=mc.new_model))
                 elif kind_str == "assistant.message":
-                    tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "agent"})
-                    self._schedule_db_write(self._db_write_increment(job_id=job_id, agent_messages=1))
+                    tel.messages_counter.add(
+                        1, {"job_id": job_id, "sdk": "copilot", "role": "agent", "session_kind": session_kind},
+                    )
+                    self._schedule_db_write(
+                        self._db_write_increment(job_id=job_id, session_kind=session_kind, agent_messages=1),
+                    )
                 elif kind_str == "user.message":
-                    tel.messages_counter.add(1, {"job_id": job_id, "sdk": "copilot", "role": "operator"})
-                    self._schedule_db_write(self._db_write_increment(job_id=job_id, operator_messages=1))
+                    tel.messages_counter.add(
+                        1, {"job_id": job_id, "sdk": "copilot", "role": "operator", "session_kind": session_kind},
+                    )
+                    self._schedule_db_write(
+                        self._db_write_increment(job_id=job_id, session_kind=session_kind, operator_messages=1),
+                    )
                 elif kind_str == "session.shutdown":
                     sd = cast("SessionShutdownData", data)
                     if sd.total_premium_requests is not None:
                         tel.premium_requests_counter.add(
-                            float(sd.total_premium_requests), {"job_id": job_id, "sdk": "copilot"}
+                            float(sd.total_premium_requests),
+                            {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind},
                         )
                         self._schedule_db_write(
-                            self._db_write_increment(job_id=job_id, premium_requests=float(sd.total_premium_requests))
+                            self._db_write_increment(
+                                job_id=job_id,
+                                session_kind=session_kind,
+                                premium_requests=float(sd.total_premium_requests),
+                            )
                         )
 
             # --- Emit log events for operational SDK events ---

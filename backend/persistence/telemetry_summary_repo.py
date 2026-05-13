@@ -28,13 +28,14 @@ class TelemetrySummaryRepository(BaseRepository):
         model: str = "",
         repo: str = "",
         branch: str = "",
+        session_kind: str = "job",
     ) -> None:
         """Insert the initial summary row when a job starts running."""
         now = datetime.now(UTC).isoformat()
         await self._session.execute(
             text("""
                 INSERT INTO job_telemetry_summary
-                    (job_id, sdk, model, repo, branch, status, duration_ms,
+                    (job_id, session_kind, sdk, model, repo, branch, status, duration_ms,
                      input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                      total_cost_usd, premium_requests,
                      llm_call_count, total_llm_duration_ms,
@@ -45,7 +46,7 @@ class TelemetrySummaryRepository(BaseRepository):
                      context_window_size, current_context_tokens,
                      created_at, updated_at)
                 VALUES
-                    (:job_id, :sdk, :model, :repo, :branch, 'running', 0,
+                    (:job_id, :session_kind, :sdk, :model, :repo, :branch, 'running', 0,
                      0, 0, 0, 0,
                      0.0, 0.0,
                      0, 0,
@@ -55,11 +56,14 @@ class TelemetrySummaryRepository(BaseRepository):
                      0, 0,
                      0, 0,
                      :now, :now)
-                ON CONFLICT(job_id) DO UPDATE SET
+                ON CONFLICT(job_id, session_kind) DO UPDATE SET
                     model = CASE WHEN excluded.model != '' THEN excluded.model ELSE job_telemetry_summary.model END,
                     updated_at = excluded.updated_at
             """),
-            {"job_id": job_id, "sdk": sdk, "model": model, "repo": repo, "branch": branch, "now": now},
+            {
+                "job_id": job_id, "session_kind": session_kind, "sdk": sdk,
+                "model": model, "repo": repo, "branch": branch, "now": now,
+            },
         )
         await self._session.flush()
 
@@ -67,6 +71,7 @@ class TelemetrySummaryRepository(BaseRepository):
         self,
         job_id: str,
         *,
+        session_kind: str = "job",
         input_tokens: int = 0,
         output_tokens: int = 0,
         cache_read_tokens: int = 0,
@@ -126,12 +131,13 @@ class TelemetrySummaryRepository(BaseRepository):
                     agent_error_count     = agent_error_count + :agent_error_count,
                     subagent_cost_usd     = subagent_cost_usd + :subagent_cost_usd,
                     updated_at            = :now
-                WHERE job_id = :job_id
+                WHERE job_id = :job_id AND session_kind = :session_kind
                 RETURNING total_cost_usd, input_tokens, output_tokens,
                           cache_read_tokens, cache_write_tokens
             """),
             {
                 "job_id": job_id,
+                "session_kind": session_kind,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "cache_read_tokens": cache_read_tokens,
@@ -173,8 +179,9 @@ class TelemetrySummaryRepository(BaseRepository):
                 "total_tokens": total_tokens,
                 "input_tokens": int(row["input_tokens"]),
                 "output_tokens": int(row["output_tokens"]),
+                "_row_found": 1,
             }
-        return {"total_cost_usd": 0.0, "total_tokens": 0, "input_tokens": 0, "output_tokens": 0}
+        return {"total_cost_usd": 0.0, "total_tokens": 0, "input_tokens": 0, "output_tokens": 0, "_row_found": 0}
 
     async def set_model(self, job_id: str, model: str) -> None:
         """Update the model once confirmed by the SDK."""
@@ -183,7 +190,7 @@ class TelemetrySummaryRepository(BaseRepository):
             text("""
                 UPDATE job_telemetry_summary
                 SET model = :model, updated_at = :now
-                WHERE job_id = :job_id
+                WHERE job_id = :job_id AND session_kind = 'job'
             """),
             {"job_id": job_id, "model": model, "now": now},
         )
@@ -206,7 +213,7 @@ class TelemetrySummaryRepository(BaseRepository):
         parts.append("updated_at = :now")
         set_clause = ", ".join(parts)
         await self._session.execute(
-            text(f"UPDATE job_telemetry_summary SET {set_clause} WHERE job_id = :job_id"),  # noqa: S608
+            text(f"UPDATE job_telemetry_summary SET {set_clause} WHERE job_id = :job_id AND session_kind = 'job'"),  # noqa: S608
             params,
         )
         await self._session.flush()
@@ -218,7 +225,7 @@ class TelemetrySummaryRepository(BaseRepository):
             text("""
                 UPDATE job_telemetry_summary
                 SET quota_json = :quota_json, updated_at = :now
-                WHERE job_id = :job_id
+                WHERE job_id = :job_id AND session_kind = 'job'
             """),
             {"job_id": job_id, "quota_json": quota_json, "now": now},
         )
@@ -231,7 +238,7 @@ class TelemetrySummaryRepository(BaseRepository):
             text("""
                 UPDATE job_telemetry_summary
                 SET status = :status, completed_at = :now, duration_ms = :duration_ms, updated_at = :now
-                WHERE job_id = :job_id
+                WHERE job_id = :job_id AND session_kind = 'job'
             """),
             {"job_id": job_id, "status": status, "duration_ms": duration_ms, "now": now},
         )
@@ -264,7 +271,7 @@ class TelemetrySummaryRepository(BaseRepository):
                     diff_lines_added    = :diff_lines_added,
                     diff_lines_removed  = :diff_lines_removed,
                     updated_at          = :now
-                WHERE job_id = :job_id
+                WHERE job_id = :job_id AND session_kind = 'job'
             """),
             {
                 "job_id": job_id,
@@ -281,12 +288,12 @@ class TelemetrySummaryRepository(BaseRepository):
         )
         await self._session.flush()
 
-    async def get(self, job_id: str) -> TelemetrySummaryRow | None:
+    async def get(self, job_id: str, *, session_kind: str = "job") -> TelemetrySummaryRow | None:
         """Load summary row.  Returns None if not found."""
 
         result = await self._session.execute(
-            text("SELECT * FROM job_telemetry_summary WHERE job_id = :job_id"),
-            {"job_id": job_id},
+            text("SELECT * FROM job_telemetry_summary WHERE job_id = :job_id AND session_kind = :session_kind"),
+            {"job_id": job_id, "session_kind": session_kind},
         )
         row = result.mappings().first()
         if row is None:
@@ -307,7 +314,7 @@ class TelemetrySummaryRepository(BaseRepository):
             text(
                 f"SELECT job_id, total_cost_usd, input_tokens, output_tokens, "
                 f"cache_read_tokens, cache_write_tokens "
-                f"FROM job_telemetry_summary WHERE job_id IN ({placeholders})"
+                f"FROM job_telemetry_summary WHERE job_id IN ({placeholders}) AND session_kind = 'job'"
             ),
             params,
         )

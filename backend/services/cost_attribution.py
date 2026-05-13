@@ -342,7 +342,7 @@ async def _compute_attribution(
             "SELECT j.description, j.prompt, "
             "COALESCE(t.model, '') AS model "
             "FROM jobs j "
-            "LEFT JOIN job_telemetry_summary t ON t.job_id = j.id "
+            "LEFT JOIN job_telemetry_summary t ON t.job_id = j.id AND t.session_kind = 'job' "
             "WHERE j.id = :jid"
         ),
         {"jid": job_id},
