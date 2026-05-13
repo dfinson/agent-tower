@@ -629,10 +629,11 @@ async def get_job_structural_diff(
 
     # Check for NEW dependency cycles (§7.4) — compare worktree vs base
     has_new_cycles = False
+    wt = job.worktree_path or job.repo
     try:
-        worktree_cycles = await coderecon.graph_cycles(repo_name, worktree=job.worktree_path)
+        worktree_cycles = await coderecon.graph_cycles(repo_name, worktree=wt)
         if worktree_cycles.cycles:
-            base_cycles = await coderecon.graph_cycles(repo_name)
+            base_cycles = await coderecon.graph_cycles(repo_name, worktree=job.repo)
             base_keys = {c.nodes for c in base_cycles.cycles}
             for c in worktree_cycles.cycles:
                 if c.nodes not in base_keys:
@@ -983,7 +984,7 @@ async def get_impact_graph(
 
     try:
         repo_name = await coderecon.ensure_repo_indexed(job.repo)
-        result = await coderecon.impact(repo_name, target=symbol, worktree=job.worktree_path)
+        result = await coderecon.impact(repo_name, target=symbol, worktree=job.worktree_path or job.repo)
     except Exception:
         return ImpactGraphResponse(job_id=job_id, target=symbol, available=False)
 
