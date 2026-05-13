@@ -1259,6 +1259,44 @@ class CreateShareRequest(CamelModel):
 
 
 # ---------------------------------------------------------------------------
+# Sidecar template schemas
+# ---------------------------------------------------------------------------
+
+
+class GenerateSidecarRequest(CamelModel):
+    description: str = Field(min_length=1, max_length=5000)
+
+
+class GenerateSidecarResponse(CamelModel):
+    definition: dict
+
+
+class CreateSidecarTemplateRequest(CamelModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=500)
+    definition_json: str = Field(min_length=2, max_length=50_000)
+
+
+class UpdateSidecarTemplateRequest(CamelModel):
+    name: str | None = Field(None, min_length=1, max_length=200)
+    description: str | None = Field(None, min_length=1, max_length=500)
+    definition_json: str | None = Field(None, min_length=2, max_length=50_000)
+
+
+class SidecarTemplateResponse(CamelModel):
+    id: str
+    name: str
+    description: str
+    definition_json: str
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+class SidecarTemplateListResponse(CamelModel):
+    items: list[SidecarTemplateResponse]
+
+
+# ---------------------------------------------------------------------------
 # Utility / operational responses
 # ---------------------------------------------------------------------------
 

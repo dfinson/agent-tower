@@ -36,6 +36,7 @@ def service(event_bus: AsyncMock) -> TrailService:
     svc._config = MagicMock()
     svc._repo = None
     svc._job_state = {}
+    svc._plan_tracking_disabled = set()
     svc._plan_manager = PlanManager(
         event_bus=event_bus,
         job_state=svc._job_state,

@@ -41,6 +41,7 @@ from backend.api import (
     preview,
     settings,
     share,
+    sidecar_templates,
     terminal,
     trail,
     utility_sessions,
@@ -220,6 +221,7 @@ def _register_routes(app: FastAPI) -> None:
     app.include_router(policy_settings.router, prefix="/api")
     # Workspace memory
     app.include_router(memory.router, prefix="/api")
+    app.include_router(sidecar_templates.router, prefix="/api")
 
 
 def _register_domain_exception_handlers(app: FastAPI) -> None:

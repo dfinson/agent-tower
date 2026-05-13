@@ -504,6 +504,17 @@ class MCPServerConfigRow(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class SidecarTemplateRow(Base):
+    __tablename__ = "sidecar_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    definition_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+
+
 class TrustGrantRow(Base):
     __tablename__ = "trust_grants"
 

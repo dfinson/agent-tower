@@ -253,6 +253,18 @@ SIDECAR_PLANNER = "planner"        # plan inference + turn classification
 SIDECAR_ENRICHER = "enricher"      # trail enrichment + activity titles
 
 
+@dataclass
+class SidecarTemplate:
+    """A saved sidecar definition in the user's library."""
+
+    id: str
+    name: str
+    description: str
+    definition_json: str  # serialized SidecarDefinition JSON
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+
 # -- Payload TypedDicts per SessionEventKind ----------------------------------
 
 

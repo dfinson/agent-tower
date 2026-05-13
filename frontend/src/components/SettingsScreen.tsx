@@ -11,6 +11,7 @@ import type { Settings } from "../api/types";
 import { AddRepoModal } from "./AddRepoModal";
 import { PolicySettingsPanel } from "./PolicySettingsPanel";
 import { RepoIndexIndicator } from "./RepoIndexIndicator";
+import { SidecarLibraryPanel } from "./SidecarLibraryPanel";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -355,6 +356,11 @@ export function SettingsScreen() {
           </p>
         </div>
       )}
+
+      {/* Sidecar Templates */}
+      <div className="rounded-lg border border-border bg-card p-5">
+        <SidecarLibraryPanel />
+      </div>
 
       <ConfirmDialog
         open={!!removeRepoTarget}

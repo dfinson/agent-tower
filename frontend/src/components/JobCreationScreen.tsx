@@ -7,6 +7,7 @@ import type { SDKInfo } from "../api/types";
 import { useStore } from "../store";
 import { PromptWithVoice } from "./VoiceButton";
 import { AddRepoModal } from "./AddRepoModal";
+import { SidecarPicker } from "./SidecarPicker";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -48,6 +49,8 @@ export function JobCreationScreen() {
   const [branchSuggesting, setBranchSuggesting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [selectedSidecars, setSelectedSidecars] = useState<string[]>([]);
+  const [inlineSidecars, setInlineSidecars] = useState<string[]>([]);
   const branchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestedNamesRef = useRef<{ title: string; description: string; worktreeName: string } | null>(null);
   const sessionTokenRef = useRef<string | null>(null);
@@ -396,6 +399,15 @@ export function JobCreationScreen() {
                   />
                 </div>
               </div>
+
+              <hr className="border-border" />
+
+              <SidecarPicker
+                selected={selectedSidecars}
+                onSelectionChange={setSelectedSidecars}
+                onInlineDefinitions={setInlineSidecars}
+                inlineDefinitions={inlineSidecars}
+              />
 
             </div>
           )}

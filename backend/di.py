@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.config import CPLConfig
 from backend.persistence.approval_repo import ApprovalRepository
 from backend.persistence.cost_attribution_repo import CostAttributionRepository
+from backend.persistence.sidecar_template_repo import SidecarTemplateRepository
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.file_access_repo import FileAccessRepository
 from backend.persistence.job_repo import JobRepository
@@ -37,6 +38,7 @@ from backend.services.job_service import JobService
 from backend.services.memory_compacter import MemoryCompacter
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
+from backend.services.sidecar_template_service import SidecarTemplateService
 from backend.services.narrator_completer import NarratorCompleter
 from backend.services.platform_adapter import PlatformRegistry
 from backend.services.push_service import PushService
@@ -143,6 +145,18 @@ class RequestProvider(Provider):
     @provide
     def naming_service(self, sidecar_sessions: SidecarSessionManager) -> NamingService:
         return NamingService(sidecar_sessions)
+
+    @provide
+    def sidecar_template_repo(self, session: AsyncSession) -> SidecarTemplateRepository:
+        return SidecarTemplateRepository(session)
+
+    @provide
+    def sidecar_template_service(
+        self,
+        repo: SidecarTemplateRepository,
+        sidecar_sessions: SidecarSessionManager,
+    ) -> SidecarTemplateService:
+        return SidecarTemplateService(repo=repo, sidecar_sessions=sidecar_sessions)
 
     @provide
     def job_service(

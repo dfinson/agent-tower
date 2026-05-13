@@ -18,6 +18,14 @@ export type RepoListResponse = components["schemas"]["RepoListResponse"];
 export type RepoDetailResponse = components["schemas"]["RepoDetailResponse"];
 export type CompletionStrategy = "auto_merge" | "pr_only" | "manual";
 
+// Sidecar template types
+export type SidecarTemplate = components["schemas"]["SidecarTemplateResponse"];
+export type SidecarTemplateListResponse = components["schemas"]["SidecarTemplateListResponse"];
+export type CreateSidecarTemplateRequest = components["schemas"]["CreateSidecarTemplateRequest"];
+export type UpdateSidecarTemplateRequest = components["schemas"]["UpdateSidecarTemplateRequest"];
+export type GenerateSidecarRequest = components["schemas"]["GenerateSidecarRequest"];
+export type GenerateSidecarResponse = components["schemas"]["GenerateSidecarResponse"];
+
 export interface Settings {
   maxConcurrentJobs: number;
   autoPush: boolean;

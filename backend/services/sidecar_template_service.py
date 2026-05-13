@@ -1,0 +1,221 @@
+"""Sidecar template service — CRUD and LLM-assisted generation."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+import structlog
+
+if TYPE_CHECKING:
+    from backend.persistence.sidecar_template_repo import SidecarTemplateRepository
+    from backend.services.sidecar_session import SidecarSessionManager
+
+from backend.models.domain import SidecarTemplate
+
+log = structlog.get_logger()
+
+# Context sources available to custom sidecars (safe subset).
+_ALLOWED_CONTEXT_SOURCES = ["trigger_event", "job_diff", "job_prompt", "recent_messages"]
+
+# Output routes available to custom sidecars.
+_ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata"]
+
+# Trigger conditions available to custom sidecars.
+_ALLOWED_CONDITIONS = ["event", "threshold", "manual"]
+
+_GENERATE_SYSTEM_PROMPT = """\
+You are a sidecar definition generator for CodePlane, a coding agent control plane.
+
+A sidecar is an autonomous LLM session that runs alongside a coding agent job.
+Given a natural-language description of what the user wants the sidecar to do,
+produce a valid sidecar definition as a JSON object.
+
+Available fields:
+- "name": kebab-case identifier (e.g. "security-reviewer"). Required.
+- "description": Short human-readable summary, 1-2 sentences. Required.
+- "phase": When the sidecar runs. One of: "preflight", "midflight", "postflight". Required.
+- "lifetime": How long the session lives. One of: "ephemeral", "windowed", "persistent". Required.
+- "model": LLM model to use. Default: "claude-sonnet-4-20250514". Optional.
+- "systemPrompt": The system prompt for the sidecar LLM session. Required.
+- "triggers": Array of trigger pipeline objects. Required, at least one.
+
+Each trigger object has:
+- "condition": {"kind": "<kind>"} where kind is one of: "event", "threshold", "manual".
+  - event conditions: {"kind": "event", "eventKind": "<event_type>"}
+  - threshold conditions: {"kind": "threshold", "metric": "messages"|"tool_calls", "value": <int>}
+  - manual conditions: {"kind": "manual"}
+- "contextSources": Array of context provider names. Available: "trigger_event", "job_diff", "job_prompt", "recent_messages".
+- "promptTemplate": Jinja-style template string with {variable} placeholders matching context source keys.
+- "outputParser": {"kind": "plain_text"} or {"kind": "json_object"} or {"kind": "json_array"}.
+- "outputRoutes": Array of route objects:
+  - {"kind": "event_bus", "eventKind": "<custom_event_name>"}
+  - {"kind": "job_metadata", "field": "<metadata_field_name>"}
+
+Guidelines:
+- For code review tasks, use phase "postflight" with manual trigger and "job_diff" context.
+- For monitoring tasks (watching progress), use phase "midflight" with threshold triggers.
+- For one-shot analysis, use lifetime "ephemeral". For ongoing monitoring, use "persistent".
+- Keep system prompts focused and actionable.
+- Generate a descriptive but concise name in kebab-case.
+
+Respond with ONLY a valid JSON object, no markdown fences, no explanation.
+"""
+
+_GENERATE_USER_PROMPT = """\
+Create a sidecar definition for the following request:
+
+{description}
+"""
+
+
+class SidecarTemplateService:
+    """Manages the sidecar template library and LLM-assisted generation."""
+
+    def __init__(
+        self,
+        repo: SidecarTemplateRepository,
+        sidecar_sessions: SidecarSessionManager,
+    ) -> None:
+        self._repo = repo
+        self._sidecar_sessions = sidecar_sessions
+
+    async def list_templates(self) -> list[SidecarTemplate]:
+        """List all saved sidecar templates."""
+        return await self._repo.list_all()
+
+    async def get_template(self, template_id: str) -> SidecarTemplate | None:
+        """Get a single template by ID."""
+        return await self._repo.get(template_id)
+
+    async def create_template(
+        self,
+        *,
+        name: str,
+        description: str,
+        definition_json: str,
+    ) -> SidecarTemplate:
+        """Create and save a new sidecar template."""
+        _validate_definition(definition_json)
+        template = SidecarTemplate(
+            id=str(uuid.uuid4()),
+            name=name,
+            description=description,
+            definition_json=definition_json,
+            created_at=datetime.now(UTC),
+        )
+        return await self._repo.create(template)
+
+    async def update_template(
+        self,
+        template_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        definition_json: str | None = None,
+    ) -> SidecarTemplate | None:
+        """Update an existing template. Returns None if not found."""
+        if definition_json is not None:
+            _validate_definition(definition_json)
+        return await self._repo.update(
+            template_id,
+            name=name,
+            description=description,
+            definition_json=definition_json,
+        )
+
+    async def delete_template(self, template_id: str) -> bool:
+        """Delete a template. Returns True if removed."""
+        return await self._repo.delete(template_id)
+
+    async def touch_last_used(self, template_id: str) -> None:
+        """Mark a template as recently used."""
+        await self._repo.touch_last_used(template_id, datetime.now(UTC))
+
+    async def generate_definition(self, description: str) -> dict:
+        """Use an LLM to generate a sidecar definition from a natural language description.
+
+        Returns the parsed JSON definition dict.
+        """
+        prompt = (
+            _GENERATE_SYSTEM_PROMPT
+            + "\n\n"
+            + _GENERATE_USER_PROMPT.format(description=description)
+        )
+        raw = await self._sidecar_sessions.complete(prompt)
+        if not raw:
+            raise ValueError("Empty response from LLM")
+
+        # Strip markdown fences if the model wraps the JSON
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            lines = [ln for ln in lines if not ln.strip().startswith("```")]
+            text = "\n".join(lines)
+
+        try:
+            definition = json.loads(text)
+        except json.JSONDecodeError as exc:
+            log.warning("sidecar_generate_invalid_json", raw=text[:500], exc_info=exc)
+            raise ValueError(f"LLM returned invalid JSON: {text[:200]}") from exc
+
+        if not isinstance(definition, dict):
+            raise ValueError("LLM returned non-object JSON")
+
+        # Ensure required fields exist
+        if "name" not in definition:
+            raise ValueError("Generated definition missing 'name'")
+        if "description" not in definition:
+            definition["description"] = description[:200]
+
+        _validate_definition(json.dumps(definition))
+
+        log.info(
+            "sidecar_definition_generated",
+            name=definition.get("name"),
+            description=definition.get("description", "")[:100],
+        )
+        return definition
+
+
+def _validate_definition(definition_json: str) -> None:
+    """Validate a sidecar definition JSON string.
+
+    Raises ValueError on invalid structure or disallowed values.
+    """
+    try:
+        defn = json.loads(definition_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Invalid JSON in definition") from exc
+
+    if not isinstance(defn, dict):
+        raise ValueError("Definition must be a JSON object")
+
+    # Validate context sources
+    for trigger in defn.get("triggers", []):
+        for source in trigger.get("contextSources", []):
+            if source not in _ALLOWED_CONTEXT_SOURCES:
+                raise ValueError(
+                    f"Context source {source!r} is not allowed for custom sidecars. "
+                    f"Allowed: {_ALLOWED_CONTEXT_SOURCES}"
+                )
+
+        # Validate output routes
+        for route in trigger.get("outputRoutes", []):
+            kind = route.get("kind")
+            if kind not in _ALLOWED_OUTPUT_ROUTES:
+                raise ValueError(
+                    f"Output route kind {kind!r} is not allowed for custom sidecars. "
+                    f"Allowed: {_ALLOWED_OUTPUT_ROUTES}"
+                )
+
+        # Validate trigger conditions
+        condition = trigger.get("condition", {})
+        cond_kind = condition.get("kind")
+        if cond_kind and cond_kind not in _ALLOWED_CONDITIONS:
+            raise ValueError(
+                f"Trigger condition {cond_kind!r} is not allowed for custom sidecars. "
+                f"Allowed: {_ALLOWED_CONDITIONS}"
+            )

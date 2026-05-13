@@ -9,8 +9,10 @@ import type {
   ArtifactListResponse,
   CreateJobRequest,
   CreateJobResponse,
+  CreateSidecarTemplateRequest,
   ApprovalRequest,
   DiffFileModel,
+  GenerateSidecarResponse,
   HealthResponse,
   Job,
   JobListResponse,
@@ -18,6 +20,9 @@ import type {
   RepoListResponse,
   SDKListResponse,
   Settings,
+  SidecarTemplate,
+  SidecarTemplateListResponse,
+  UpdateSidecarTemplateRequest,
   WorkspaceListResponse,
 } from "./types";
 
@@ -1025,4 +1030,30 @@ export interface RepoSummaryResponse {
 
 export function fetchRepoSummary(repoPath: string): Promise<RepoSummaryResponse> {
   return request(`/settings/repos/${encodeURIComponent(repoPath)}/summary`);
+}
+
+// --- Sidecar Templates ---
+
+export function fetchSidecarTemplates(): Promise<SidecarTemplateListResponse> {
+  return request("/sidecar-templates");
+}
+
+export function fetchSidecarTemplate(id: string): Promise<SidecarTemplate> {
+  return request(`/sidecar-templates/${encodeURIComponent(id)}`);
+}
+
+export function createSidecarTemplate(req: CreateSidecarTemplateRequest): Promise<SidecarTemplate> {
+  return request("/sidecar-templates", { method: "POST", body: JSON.stringify(req) });
+}
+
+export function updateSidecarTemplate(id: string, req: UpdateSidecarTemplateRequest): Promise<SidecarTemplate> {
+  return request(`/sidecar-templates/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(req) });
+}
+
+export function deleteSidecarTemplate(id: string): Promise<void> {
+  return request(`/sidecar-templates/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function generateSidecarDefinition(description: string): Promise<GenerateSidecarResponse> {
+  return request("/sidecar-templates/generate", { method: "POST", body: JSON.stringify({ description }) });
 }

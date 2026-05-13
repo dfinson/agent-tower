@@ -5099,6 +5099,60 @@ export interface components {
             /** Publickey */
             publicKey: string;
         };
+        /** GenerateSidecarRequest */
+        GenerateSidecarRequest: {
+            /** Description */
+            description: string;
+        };
+        /** GenerateSidecarResponse */
+        GenerateSidecarResponse: {
+            /** Definition */
+            definition: Record<string, unknown>;
+        };
+        /** CreateSidecarTemplateRequest */
+        CreateSidecarTemplateRequest: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Definitionjson */
+            definitionJson: string;
+        };
+        /** UpdateSidecarTemplateRequest */
+        UpdateSidecarTemplateRequest: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Definitionjson */
+            definitionJson?: string | null;
+        };
+        /** SidecarTemplateResponse */
+        SidecarTemplateResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Definitionjson */
+            definitionJson: string;
+            /**
+             * Createdat
+             * Format: date-time
+             */
+            createdAt: string;
+            /**
+             * Lastusedat
+             * Format: date-time
+             */
+            lastUsedAt?: string | null;
+        };
+        /** SidecarTemplateListResponse */
+        SidecarTemplateListResponse: {
+            /** Items */
+            items: components["schemas"]["SidecarTemplateResponse"][];
+        };
         /** WarmSessionResponse */
         WarmSessionResponse: {
             /** Sessiontoken */
