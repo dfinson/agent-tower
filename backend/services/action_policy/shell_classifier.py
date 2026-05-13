@@ -23,7 +23,6 @@ _POSIX_OBSERVE = frozenset(
         "egrep",
         "fgrep",
         "rg",
-        "find",
         "wc",
         "echo",
         "pwd",
@@ -35,7 +34,6 @@ _POSIX_OBSERVE = frozenset(
         "stat",
         "du",
         "tree",
-        "sort",
         "diff",
         "more",
         "less",
@@ -50,6 +48,17 @@ _POSIX_OBSERVE = frozenset(
         "false",
     }
 )
+
+# Commands that are observational by default but have destructive flags.
+# Handled with flag-specific checks below.
+_POSIX_CONDITIONALLY_SAFE = frozenset({"find", "sort"})
+
+# find flags that make it destructive or capable of running arbitrary commands.
+# Cannot use \b before the hyphen — both space and hyphen are \W, so no
+# word boundary exists between them.
+_FIND_DANGEROUS_RE = re.compile(r"(?:^|\s)(?:-exec|-execdir|-delete|-ok|-okdir)\b")
+# sort -o overwrites the target file
+_SORT_OUTPUT_RE = re.compile(r"(?:^|\s)-o\b|(?:^|\s)--output(?:=|\s)")
 
 # tee: can write to arbitrary paths including pseudo-devices (/dev/tcp);
 # classified as irreversible + contained, not observe.
@@ -342,8 +351,24 @@ _TEST_SUBCOMMAND_BINARIES = frozenset(
 )
 
 
+# Single-quote regex: in bash, single quotes suppress ALL expansion
+# including $() and backticks.  Double quotes do NOT suppress them.
+_SINGLE_QUOTE_RE = re.compile(r"'[^']*'")
+
+
 def _strip_quotes(cmd: str) -> str:
+    """Strip both single- and double-quoted strings for compound splitting."""
     return _QUOTED_STRING_RE.sub('""', cmd)
+
+
+def _strip_single_quotes_only(cmd: str) -> str:
+    """Strip only single-quoted strings for subshell detection.
+
+    In bash, command substitution ($(), backticks) and process substitution
+    (<(), >()) are expanded inside double quotes but NOT inside single quotes.
+    So for subshell detection we must preserve double-quoted content.
+    """
+    return _SINGLE_QUOTE_RE.sub('""', cmd)
 
 
 # Regex to extract the host from a URL (scheme://host or //host)
@@ -352,19 +377,22 @@ _URL_HOST_RE = re.compile(
 )
 
 
-def _extract_target_host(command: str) -> str | None:
-    """Extract the target host from a curl/wget command.
+def _extract_target_hosts(command: str) -> list[str]:
+    """Extract ALL target hosts from a curl/wget command.
 
     Parses positional arguments (URLs) rather than matching the word
     'localhost' anywhere in the command string, which would match
     inside headers, query params, or comments.
+
+    Returns all hosts found — the caller must verify that ALL targets
+    are localhost, not just the first (curl fetches multiple URLs).
     """
     try:
         tokens = shlex.split(command)
     except ValueError:
         tokens = command.split()
 
-    # Find URL-like positional args (not flags)
+    hosts: list[str] = []
     skip_next = False
     for token in tokens[1:]:  # skip the binary itself
         if skip_next:
@@ -374,20 +402,26 @@ def _extract_target_host(command: str) -> str | None:
             # Flags that take an argument — skip the next token
             if token in ("-X", "--request", "-o", "--output", "-H",
                          "--header", "-u", "--user", "-A", "--user-agent",
-                         "-e", "--referer", "--url"):
-                if token == "--url":
-                    # --url <url> is the explicit target
-                    skip_next = False  # handled below
-                else:
-                    skip_next = True
+                         "-e", "--referer"):
+                skip_next = True
+                continue
+            # --url <url> is an explicit target URL
+            if token == "--url":
+                skip_next = False  # next token processed normally
                 continue
             continue
-        # Looks like a positional arg — check if it's a URL
+        # Positional arg — check if it's a URL
         m = _URL_HOST_RE.search(token)
         if m:
-            return m.group(1).lower()
+            hosts.append(m.group(1).lower())
 
-    return None
+    return hosts
+
+
+def _extract_target_host(command: str) -> str | None:
+    """Legacy single-host wrapper (returns first host found)."""
+    hosts = _extract_target_hosts(command)
+    return hosts[0] if hosts else None
 
 
 def _extract_binary_and_sub(cmd: str) -> tuple[str, str | None]:
@@ -430,11 +464,13 @@ def classify_shell(command: str) -> tuple[bool, bool]:
     # but not inside quotes.
     clean = _strip_quotes(command)
 
-    # Detect command substitution / process substitution in the cleaned
-    # command (after quote removal).  These can execute arbitrary
-    # commands invisibly inside an otherwise-safe outer command.
-    # Conservative: (False, False) — irreversible and uncontained.
-    if _SUBSHELL_RE.search(clean):
+    # Detect command substitution / process substitution.
+    # IMPORTANT: Only strip single-quoted strings here because bash
+    # expands $() and backticks inside double quotes but NOT inside
+    # single quotes.  Using _strip_quotes (which removes double-quoted
+    # content) would hide subshells like: echo "$(curl evil)"
+    clean_for_subshell = _strip_single_quotes_only(command)
+    if _SUBSHELL_RE.search(clean_for_subshell):
         return False, False
 
     parts = re.split(r"\s*(?:&&|\|\||;|\||\n)\s*", clean)
@@ -496,20 +532,36 @@ def classify_shell(command: str) -> tuple[bool, bool]:
         # tee writes to files/pseudo-devices — irreversible but contained
         return False, True
     if binary in _POSIX_UNCONTAINED:
-        # Check if the *target URL* is localhost, not just if "localhost"
-        # appears anywhere in the command (headers, comments, etc.)
-        target_host = _extract_target_host(command)
-        if target_host and _LOCALHOST_RE.fullmatch(target_host):
-            # Loopback never leaves the machine
+        # Check if ALL target URLs are localhost.  curl/wget fetch
+        # every positional URL — if even one is external, the command
+        # is uncontained.
+        hosts = _extract_target_hosts(command)
+        if hosts and all(_LOCALHOST_RE.fullmatch(h) for h in hosts):
+            # All targets are loopback — never leaves the machine
             if not _CURL_MUTATING_RE.search(command):
                 return True, True
             return False, True
-        # Non-localhost: uncontained.  Read-only GETs are still reversible.
+        # Non-localhost (or no URL found): uncontained.
+        # Read-only GETs are still reversible.
         if not _CURL_MUTATING_RE.search(command):
             return True, False
         return False, False
     if binary in _POSIX_IRREVERSIBLE:
         return False, True
+
+    # --- Conditionally-safe POSIX commands (need flag inspection) ---
+    if binary in _POSIX_CONDITIONALLY_SAFE:
+        if binary == "find":
+            # find with -exec, -execdir, -delete, -ok can run arbitrary
+            # commands or destroy files
+            if _FIND_DANGEROUS_RE.search(command):
+                return False, True
+            return True, True
+        if binary == "sort":
+            # sort -o overwrites the output file
+            if _SORT_OUTPUT_RE.search(command):
+                return False, True
+            return True, True
 
     # --- Test runners (standalone binaries) ---
     if binary in _TEST_RUNNERS:
