@@ -491,7 +491,7 @@ class TestListSDKs:
 
     @pytest.mark.asyncio
     async def test_returns_available_sdks(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        from backend.services.setup_checks import AgentAuthStatus, AgentCLIStatus
+        from backend.services.setup.checks import AgentAuthStatus, AgentCLIStatus
 
         def _mock_check(sdk_id: str) -> AgentCLIStatus:
             return AgentCLIStatus(
@@ -512,8 +512,8 @@ class TestListSDKs:
                 hint="",
             )
 
-        monkeypatch.setattr("backend.services.setup_checks.check_agent_cli", _mock_check)
-        monkeypatch.setattr("backend.services.setup_checks.check_agent_auth", _mock_auth)
+        monkeypatch.setattr("backend.services.setup.checks.check_agent_cli", _mock_check)
+        monkeypatch.setattr("backend.services.setup.checks.check_agent_auth", _mock_auth)
 
         resp = await client.get("/api/sdks")
         assert resp.status_code == 200

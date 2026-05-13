@@ -7,7 +7,7 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
 
 from backend.models.api_schemas import WarmSessionResponse
-from backend.services.sidecar_session import SidecarSessionManager
+from backend.services.sidecar.session import SidecarSessionManager
 
 log = structlog.get_logger()
 

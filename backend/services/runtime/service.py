@@ -44,37 +44,37 @@ from backend.models.domain import (
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.job_repo import JobRepository
 from backend.services.job_service import JobService
-from backend.services.runtime_handoff import (
+from backend.services.runtime.handoff import (
     build_followup_handoff_prompt_for_job,
     build_resume_handoff_prompt_for_job,
     load_handoff_context_for_job,
 )
-from backend.services.runtime_resume import (
+from backend.services.runtime.resume import (
     attempt_resume_fallback as _attempt_resume_fallback_impl,
 )
-from backend.services.runtime_resume import (
+from backend.services.runtime.resume import (
     create_followup_job as _create_followup_job_impl,
 )
-from backend.services.runtime_resume import (
+from backend.services.runtime.resume import (
     ensure_resumable_worktree as _ensure_resumable_worktree_impl,
 )
-from backend.services.runtime_resume import (
+from backend.services.runtime.resume import (
     recover_active_job as _recover_active_job_impl,
 )
-from backend.services.runtime_resume import (
+from backend.services.runtime.resume import (
     resume_job as _resume_job_impl,
 )
-from backend.services.runtime_resume import (
+from backend.services.runtime.resume import (
     resume_orphaned as _resume_orphaned_impl,
 )
-from backend.services.runtime_resume import (
+from backend.services.runtime.resume import (
     rollback_recovery as _rollback_recovery_impl,
 )
-from backend.services.runtime_telemetry import RuntimeTelemetry
-from backend.services.runtime_verify import (
+from backend.services.runtime.telemetry import RuntimeTelemetry
+from backend.services.runtime.verify import (
     run_followup_turn as _run_followup_turn_impl,
 )
-from backend.services.runtime_verify import (
+from backend.services.runtime.verify import (
     run_verify_review as _run_verify_review_impl,
 )
 from backend.validators import REF_PATTERN
@@ -83,10 +83,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from backend.services.coderecon_service import CodeReconService
-    from backend.services.memory_compacter import MemoryCompacter
-    from backend.services.memory_extractor import MemoryExtractor
+    from backend.services.memory.compacter import MemoryCompacter
+    from backend.services.memory.extractor import MemoryExtractor
     from backend.services.preflight_curator import PreflightCurator
-    from backend.services.step_tracker import StepTracker
+    from backend.services.steps.tracker import StepTracker
     from backend.services.terminal_service import TerminalService
     from backend.services.trail import TrailService
 
@@ -177,7 +177,7 @@ if TYPE_CHECKING:
     from backend.services.git_service import GitService
     from backend.services.merge_service import MergeService
     from backend.services.platform_adapter import PlatformRegistry
-    from backend.services.sidecar_session import SidecarSessionManager
+    from backend.services.sidecar.session import SidecarSessionManager
     from backend.services.summarization_service import SummarizationService
 
 log = structlog.get_logger()
@@ -2356,7 +2356,7 @@ class RuntimeService:
         *session_config* with ``memory_context`` populated (or unchanged
         on failure).
         """
-        from backend.services.workspace_memory import load_workspace_memory
+        from backend.services.memory.workspace import load_workspace_memory
 
         raw_memory = load_workspace_memory(job.repo)
         worktree_path = job.worktree_path or job.repo
@@ -2399,7 +2399,7 @@ class RuntimeService:
         if self._shutting_down:
             return
 
-        from backend.services.workspace_memory import (
+        from backend.services.memory.workspace import (
             append_to_inbox,
             merge_inbox,
         )

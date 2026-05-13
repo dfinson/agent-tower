@@ -60,10 +60,10 @@ from backend.services.event_bus import EventBus
 from backend.services.git_service import GitError, GitService
 from backend.services.job_service import JobService
 from backend.services.merge_service import MergeService
-from backend.services.review_story_service import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
-from backend.services.runtime_service import RuntimeService
-from backend.services.step_diff_service import StepDiffService
-from backend.services.story_service import StoryService
+from backend.services.story.review import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
+from backend.services.runtime import RuntimeService
+from backend.services.steps.diff_service import StepDiffService
+from backend.services.story.service import StoryService
 
 log = structlog.get_logger()
 
@@ -1157,7 +1157,7 @@ async def _generate_review_story(
     Applies the full §11 pipeline: edge-case extraction, density classification,
     aggregation when over cognitive budget, and community rollups.
     """
-    from backend.services.review_story_service import classify_story
+    from backend.services.story.review import classify_story
 
     if not coderecon.available or not job.repo or not job.worktree_path:
         return ReviewStoryResponse(job_id=job_id, available=False)

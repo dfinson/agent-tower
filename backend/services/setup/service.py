@@ -17,7 +17,7 @@ from rich.panel import Panel
 from backend.config import get_codeplane_dir, init_config, load_config, save_config
 
 # Re-export everything that external callers import from this module.
-from backend.services.setup_checks import (  # noqa: F401
+from backend.services.setup.checks import (  # noqa: F401
     DEPENDENCIES,
     HOST_PLATFORM,
     AgentAuthStatus,
@@ -33,7 +33,7 @@ from backend.services.setup_checks import (  # noqa: F401
     render_summary,
     verify_requirements,
 )
-from backend.services.setup_wizard import (  # noqa: F401
+from backend.services.setup.wizard import (  # noqa: F401
     execute_setup_wizard,
 )
 

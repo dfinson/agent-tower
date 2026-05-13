@@ -25,7 +25,7 @@ import structlog
 from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.event_enricher import ToolEventEnricher
-from backend.services.watcher_telemetry_mixin import WatcherTelemetryMixin
+from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from backend.services.coderecon_service import CodeReconService
     from backend.services.event_bus import EventBus
     from backend.services.git_service import GitService
-    from backend.services.runtime_service import RuntimeService
+    from backend.services.runtime import RuntimeService
 
 log = structlog.get_logger()
 
@@ -66,7 +66,7 @@ _SESSION_FILE_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}
 
 _MODEL_PRICING: dict[str, dict[str, float]] | None = None
 _PRICING_MTIME: float = 0.0
-_PRICING_PATH = Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
+_PRICING_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "model_pricing.json"
 
 
 def _get_pricing() -> dict[str, dict[str, float]]:

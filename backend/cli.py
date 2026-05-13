@@ -133,7 +133,7 @@ def up(
 
     # Run preflight checks before starting
     if not skip_preflight:
-        from backend.services.setup_service import validate_preflight
+        from backend.services.setup.service import validate_preflight
 
         if not validate_preflight(port):
             raise SystemExit(1)
@@ -458,7 +458,7 @@ def info(host: str, port: int, tunnel_url: str | None, password: str | None) -> 
 @cli.command()
 def setup() -> None:
     """Interactive setup wizard — check dependencies, configure data directory, authenticate."""
-    from backend.services.setup_service import execute_setup_wizard  # type: ignore[attr-defined]
+    from backend.services.setup.service import execute_setup_wizard  # type: ignore[attr-defined]
 
     execute_setup_wizard()
 
@@ -467,7 +467,7 @@ def setup() -> None:
 @click.option("--json", "as_json", is_flag=True, help="Output results as JSON")
 def doctor(as_json: bool) -> None:
     """Full non-interactive health check — deps, auth, SDK, environment."""
-    from backend.services.setup_service import diagnose_configuration
+    from backend.services.setup.service import diagnose_configuration
 
     ok = diagnose_configuration(as_json=as_json)
     if not ok:
@@ -519,7 +519,7 @@ def _is_server_running(host: str, port: int) -> tuple[bool, list[int]]:
     via health-probe alone — callers that need PIDs should fall back to
     ``_find_pids_on_port``.
     """
-    from backend.services.setup_checks import find_cpl_processes
+    from backend.services.setup.checks import find_cpl_processes
 
     # 1. Health endpoint
     status, _ = _api_get(f"http://{host}:{port}", "/health")
@@ -610,7 +610,7 @@ def _stop_server(port: int, timeout_seconds: int = 10) -> bool:
     import os
     import time
 
-    from backend.services.setup_checks import find_cpl_processes
+    from backend.services.setup.checks import find_cpl_processes
 
     pids = _find_pids_on_port(port)
     # Also include parent cpl-up processes that may not own the port directly

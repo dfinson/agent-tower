@@ -423,7 +423,7 @@ def _make_adapter_with_db_session() -> Any:
 
 def _make_runtime_service() -> Any:
     """Create a minimal RuntimeService for testing event handlers."""
-    from backend.services.runtime_service import RuntimeService
+    from backend.services.runtime import RuntimeService
 
     svc = object.__new__(RuntimeService)
     svc._event_bus = EventBus()

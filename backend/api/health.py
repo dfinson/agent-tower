@@ -14,7 +14,7 @@ from backend.models.api_schemas import (
     SidecarSessionMetricsResponse,
 )
 from backend.services.job_service import JobService
-from backend.services.sidecar_session import SidecarSessionManager
+from backend.services.sidecar.session import SidecarSessionManager
 
 router = APIRouter(tags=["health"], route_class=DishkaRoute)
 

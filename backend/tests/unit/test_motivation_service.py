@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.services.motivation_service import (
+from backend.services.story.motivation import (
     MotivationService,
     _build_edit_prompt,
     _build_user_prompt,

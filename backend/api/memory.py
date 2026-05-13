@@ -12,8 +12,8 @@ from pydantic import BaseModel
 
 from backend.config import load_config
 from backend.models.schemas.base import CamelModel
-from backend.services.memory_compacter import MemoryCompacter
-from backend.services.workspace_memory import (
+from backend.services.memory.compacter import MemoryCompacter
+from backend.services.memory.workspace import (
     compact_decisions,
     read_memory_detail,
     read_memory_text,

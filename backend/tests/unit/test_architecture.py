@@ -18,9 +18,9 @@ ALLOWED_EVENT_REPO_CONSUMERS = {
     "backend/persistence/event_repo.py",  # self
     "backend/services/trail/service.py",  # rehydration on session_resumed
     "backend/services/trail/node_builder.py",  # rehydration on session_resumed
-    "backend/services/runtime_service.py",  # hot-path event translation
+    "backend/services/runtime/service.py",  # hot-path event translation
     # --- Infrastructure telemetry (not provenance — see §6.3) ---
-    "backend/services/runtime_telemetry.py",  # log_line_emitted only
+    "backend/services/runtime/telemetry.py",  # log_line_emitted only
     # --- Application wiring (DI, lifecycle, API plumbing) ---
     "backend/di.py",
     "backend/lifespan.py",

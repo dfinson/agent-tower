@@ -11,7 +11,7 @@ import structlog
 from backend.services.trail.prompts import TITLE_PROMPT, strip_code_fences
 
 if TYPE_CHECKING:
-    from backend.services.sidecar_session import SidecarSession
+    from backend.services.sidecar.session import SidecarSession
     from backend.services.trail.models import TrailJobState
 
 log = structlog.get_logger()

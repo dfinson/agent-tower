@@ -25,7 +25,7 @@ from backend.models.api_schemas import (
 from backend.services.ingest_service import IngestService
 from backend.services.job_service import JobService, ProgressPreview
 from backend.services.naming_service import NamingService
-from backend.services.runtime_service import RuntimeService
+from backend.services.runtime import RuntimeService
 from backend.services.tool_formatters import format_tool_display, format_tool_display_full
 
 if TYPE_CHECKING:

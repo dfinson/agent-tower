@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.step_persistence import StepPersistenceSubscriber
+from backend.services.steps.persistence import StepPersistenceSubscriber
 
 
 @pytest.fixture()

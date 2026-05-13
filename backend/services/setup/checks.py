@@ -23,7 +23,7 @@ from pathlib import Path
 from rich.console import Console
 
 from backend.config import get_codeplane_dir
-from backend.services.setup_dependencies import (  # noqa: F401 — re-exported
+from backend.services.setup.dependencies import (  # noqa: F401 — re-exported
     DEPENDENCIES,
     HOST_PLATFORM,
     Dependency,

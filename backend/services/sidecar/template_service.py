@@ -12,7 +12,7 @@ import structlog
 
 if TYPE_CHECKING:
     from backend.persistence.sidecar_template_repo import SidecarTemplateRepository
-    from backend.services.sidecar_session import SidecarSessionManager
+    from backend.services.sidecar.session import SidecarSessionManager
 
 from backend.models.domain import SidecarTemplate
 

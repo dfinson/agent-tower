@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.services.memory_extractor import _EXTRACTOR_CHUNK_CHARS, _split_decisions
-from backend.services.workspace_memory import (
+from backend.services.memory.extractor import _EXTRACTOR_CHUNK_CHARS, _split_decisions
+from backend.services.memory.workspace import (
     _ARCHIVE_THRESHOLD_BYTES,
     _cap_archive,
     _repo_slug,
@@ -31,7 +31,7 @@ def memory_root(tmp_path: Path) -> Path:
     """Create a temp codeplane dir and patch get_codeplane_dir."""
     codeplane_dir = tmp_path / ".codeplane"
     codeplane_dir.mkdir()
-    with patch("backend.services.workspace_memory.get_codeplane_dir", return_value=codeplane_dir):
+    with patch("backend.services.memory.workspace.get_codeplane_dir", return_value=codeplane_dir):
         yield tmp_path
 
 

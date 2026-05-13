@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.models.events import DomainEvent, DomainEventKind
-from backend.services.step_tracker import StepTracker, _extract_file_path
+from backend.services.steps.tracker import StepTracker, _extract_file_path
 
 
 def _make_event(

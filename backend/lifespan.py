@@ -32,19 +32,19 @@ from backend.services.coderecon_service import CodeReconService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
 from backend.services.git_service import GitService
-from backend.services.memory_compacter import MemoryCompacter
+from backend.services.memory.compacter import MemoryCompacter
 from backend.services.merge_service import MergeService
 from backend.services.narrator_completer import NarratorCompleter
 from backend.services.platform_adapter import PlatformRegistry
 from backend.services.push_service import PushService
 from backend.services.retention_service import RetentionService
-from backend.services.runtime_service import RuntimeService
+from backend.services.runtime import RuntimeService
 from backend.services.share_service import ShareService
-from backend.services.sidecar_dispatcher import SidecarDispatcher
-from backend.services.sidecar_session import SidecarSessionManager
+from backend.services.sidecar.dispatcher import SidecarDispatcher
+from backend.services.sidecar.session import SidecarSessionManager
 from backend.services.sse_manager import SSEManager
-from backend.services.step_persistence import StepPersistenceSubscriber
-from backend.services.step_tracker import StepTracker
+from backend.services.steps.persistence import StepPersistenceSubscriber
+from backend.services.steps.tracker import StepTracker
 from backend.services.summarization_service import SummarizationService
 from backend.services.terminal_service import TerminalService
 from backend.services.vapid_keys import get_or_create_vapid_keys
@@ -463,7 +463,7 @@ async def _wire_core_services(
     preflight_curator = PreflightCurator(adapter=utility_adapter, coderecon=coderecon_service)
 
     # --- Memory extractor (post-job knowledge extraction) ---
-    from backend.services.memory_extractor import MemoryExtractor
+    from backend.services.memory.extractor import MemoryExtractor
 
     memory_extractor = MemoryExtractor(adapter=utility_adapter)
 
@@ -787,7 +787,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_bus.subscribe(_push_subscriber)
 
     # --- Motivation summarization service (background) ---
-    from backend.services.motivation_service import MotivationService
+    from backend.services.story.motivation import MotivationService
 
     motivation_service = MotivationService(
         session_factory=session_factory,
@@ -1071,7 +1071,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Watchers feed events through RuntimeService so imported sessions get the
     # full pipeline: sidecar sessions, heartbeat, stall detection, plan
     # inference, turn classification, and trail enrichment.
-    from backend.services.session_state_watcher import SessionStateWatcher
+    from backend.services.watcher.copilot import SessionStateWatcher
 
     session_state_watcher = SessionStateWatcher(
         event_bus=event_bus,
@@ -1085,7 +1085,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await session_state_watcher.start()
 
     # --- ClaudeSessionStateWatcher (auto-discover Claude CLI sessions) ---
-    from backend.services.claude_session_watcher import ClaudeSessionStateWatcher
+    from backend.services.watcher.claude import ClaudeSessionStateWatcher
 
     claude_session_watcher = ClaudeSessionStateWatcher(
         event_bus=event_bus,

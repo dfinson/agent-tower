@@ -26,7 +26,7 @@ from backend.models.events import DomainEvent, DomainEventKind
 if TYPE_CHECKING:
     from backend.services.diff_service import DiffService
     from backend.services.event_bus import EventBus
-    from backend.services.step_tracker import StepTracker
+    from backend.services.steps.tracker import StepTracker
     from backend.services.trail import TrailService
 
 log = structlog.get_logger()

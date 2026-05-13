@@ -24,7 +24,7 @@ import structlog
 from backend.models.domain import Job, JobSource, JobState, SessionEvent, SessionEventKind
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.services.event_enricher import ToolEventEnricher
-from backend.services.watcher_telemetry_mixin import WatcherTelemetryMixin
+from backend.services.watcher.telemetry_mixin import WatcherTelemetryMixin
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from backend.services.copilot_steer import CopilotSteerClient
     from backend.services.event_bus import EventBus
     from backend.services.git_service import GitService
-    from backend.services.runtime_service import RuntimeService
+    from backend.services.runtime import RuntimeService
 
 log = structlog.get_logger()
 

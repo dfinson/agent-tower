@@ -19,7 +19,7 @@ from backend.config import CPLConfig
 from backend.models.db import Base
 from backend.models.domain import SessionEventKind
 from backend.persistence.database import _set_sqlite_pragmas
-from backend.services.claude_session_watcher import (
+from backend.services.watcher.claude import (
     _SESSION_FILE_RE,
     ClaudeSessionStateWatcher,
     _encode_cwd,
@@ -170,7 +170,7 @@ class TestPendingMessages:
 class TestHookInstallation:
     def test_install_creates_settings(self, watcher: ClaudeSessionStateWatcher, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
-        with patch("backend.services.claude_session_watcher._CLAUDE_SETTINGS_PATH", settings_path):
+        with patch("backend.services.watcher.claude._CLAUDE_SETTINGS_PATH", settings_path):
             watcher._install_stop_hook()
 
         settings = json.loads(settings_path.read_text())
@@ -180,7 +180,7 @@ class TestHookInstallation:
 
     def test_install_idempotent(self, watcher: ClaudeSessionStateWatcher, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
-        with patch("backend.services.claude_session_watcher._CLAUDE_SETTINGS_PATH", settings_path):
+        with patch("backend.services.watcher.claude._CLAUDE_SETTINGS_PATH", settings_path):
             watcher._install_stop_hook()
             watcher._install_stop_hook()
 
@@ -193,7 +193,7 @@ class TestHookInstallation:
         existing = {"permissions": {"allow": ["Read"]}, "hooks": {"Stop": ["http://other:9999/hook"]}}
         settings_path.write_text(json.dumps(existing))
 
-        with patch("backend.services.claude_session_watcher._CLAUDE_SETTINGS_PATH", settings_path):
+        with patch("backend.services.watcher.claude._CLAUDE_SETTINGS_PATH", settings_path):
             watcher._install_stop_hook()
 
         settings = json.loads(settings_path.read_text())
@@ -350,7 +350,7 @@ class TestDiscoveryScan:
         session_file = project_dir / "a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl"
         session_file.write_text("")
 
-        with patch("backend.services.claude_session_watcher._CLAUDE_PROJECTS_DIR", tmp_path):
+        with patch("backend.services.watcher.claude._CLAUDE_PROJECTS_DIR", tmp_path):
             results = watcher._scan_for_new_sessions()
 
         assert len(results) == 1
@@ -371,7 +371,7 @@ class TestDiscoveryScan:
         # Non-UUID file
         (project_dir / "random-notes.jsonl").write_text("")
 
-        with patch("backend.services.claude_session_watcher._CLAUDE_PROJECTS_DIR", tmp_path):
+        with patch("backend.services.watcher.claude._CLAUDE_PROJECTS_DIR", tmp_path):
             results = watcher._scan_for_new_sessions()
 
         assert len(results) == 0
@@ -391,7 +391,7 @@ class TestDiscoveryScan:
         # Pre-mark as tracked
         watcher._tracked_sessions.add("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 
-        with patch("backend.services.claude_session_watcher._CLAUDE_PROJECTS_DIR", tmp_path):
+        with patch("backend.services.watcher.claude._CLAUDE_PROJECTS_DIR", tmp_path):
             results = watcher._scan_for_new_sessions()
 
         assert len(results) == 0
@@ -407,7 +407,7 @@ class TestDiscoveryScan:
         project_dir.mkdir(parents=True)
         (project_dir / "a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl").write_text("")
 
-        with patch("backend.services.claude_session_watcher._CLAUDE_PROJECTS_DIR", tmp_path):
+        with patch("backend.services.watcher.claude._CLAUDE_PROJECTS_DIR", tmp_path):
             results = watcher._scan_for_new_sessions()
 
         assert len(results) == 0
@@ -620,7 +620,7 @@ class TestLivenessCheck:
 
 class TestCostCalculation:
     def test_compute_cost_known_model(self) -> None:
-        from backend.services.claude_session_watcher import _compute_cost
+        from backend.services.watcher.claude import _compute_cost
 
         # Use a model that exists in pricing data
         cost = _compute_cost(
@@ -634,7 +634,7 @@ class TestCostCalculation:
         assert cost > 0
 
     def test_compute_cost_unknown_model(self) -> None:
-        from backend.services.claude_session_watcher import _compute_cost
+        from backend.services.watcher.claude import _compute_cost
 
         cost = _compute_cost(
             "totally-fake-model-xyz",
@@ -646,7 +646,7 @@ class TestCostCalculation:
         assert cost == 0.0
 
     def test_compute_cost_includes_cache(self) -> None:
-        from backend.services.claude_session_watcher import _compute_cost
+        from backend.services.watcher.claude import _compute_cost
 
         cost_no_cache = _compute_cost(
             "claude-sonnet-4-20250514",
@@ -834,7 +834,7 @@ class TestPidLiveness:
 class TestPricingReload:
     def test_pricing_reloads_on_mtime_change(self, tmp_path: Path) -> None:
         """_get_pricing should reload when file mtime changes."""
-        import backend.services.claude_session_watcher as mod
+        import backend.services.watcher.claude as mod
 
         pricing_file = tmp_path / "model_pricing.json"
         pricing_file.write_text(json.dumps({"model-a": {"input": 1.0, "output": 2.0}}))

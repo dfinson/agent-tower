@@ -20,7 +20,7 @@ from backend.models.api_schemas import (
 from backend.services.approval_service import ApprovalService
 from backend.services.ingest_service import IngestService
 from backend.services.job_service import JobService
-from backend.services.runtime_service import RuntimeService
+from backend.services.runtime import RuntimeService
 
 if TYPE_CHECKING:
     from backend.models.domain import Approval

@@ -191,7 +191,7 @@ async def get_repo_summary(
     sf: FromDishka[async_sessionmaker[AsyncSession]],
 ) -> RepoSummaryResponse:
     """Aggregated dashboard overview for a single repository."""
-    from backend.services.workspace_memory import read_memory_detail
+    from backend.services.memory.workspace import read_memory_detail
 
     log = structlog.get_logger()
 
@@ -553,7 +553,7 @@ async def list_sdks() -> SDKListResponse:
     import asyncio
 
     from backend.models.domain import AgentSDK
-    from backend.services.setup_checks import check_agent_auth, check_agent_cli
+    from backend.services.setup.checks import check_agent_auth, check_agent_cli
 
     config = load_config()
     default_sdk = config.runtime.default_sdk

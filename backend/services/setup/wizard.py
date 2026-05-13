@@ -15,7 +15,7 @@ import questionary
 from rich.panel import Panel
 
 from backend.config import get_codeplane_dir, init_config, load_config, save_config
-from backend.services.setup_checks import (
+from backend.services.setup.checks import (
     DEPENDENCIES,
     HOST_PLATFORM,
     Dependency,

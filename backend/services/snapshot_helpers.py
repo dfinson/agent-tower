@@ -24,7 +24,7 @@ from backend.models.api_schemas import (
 from backend.models.domain import JobState
 from backend.models.events import DomainEventKind
 from backend.services.git_service import GitError
-from backend.services.step_tracker import hydrate_plan_steps
+from backend.services.steps.tracker import hydrate_plan_steps
 
 if TYPE_CHECKING:
     from backend.persistence.approval_repo import ApprovalRepository

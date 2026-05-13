@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.event_bus import EventBus
-    from backend.services.sidecar_session import SidecarSession
+    from backend.services.sidecar.session import SidecarSession
     from backend.services.trail.title_generator import TitleGenerator
 
 log = structlog.get_logger()

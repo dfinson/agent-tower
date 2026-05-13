@@ -19,7 +19,7 @@ from backend.models.domain import CodePlaneError, SessionConfig
 from backend.models.events import DomainEvent, DomainEventKind
 
 if TYPE_CHECKING:
-    from backend.services.runtime_service import RuntimeService
+    from backend.services.runtime.service import RuntimeService
 
 log = structlog.get_logger()
 
@@ -39,7 +39,7 @@ async def run_followup_turn(
     Returns ``(new_session_id, error_reason)``.  *error_reason* is set if
     the turn encountered an error; callers decide whether to abort.
     """
-    from backend.services.runtime_service import AgentSession, EventAction
+    from backend.services.runtime.service import AgentSession, EventAction
 
     followup_session = AgentSession()
     followup_config = dataclass_replace(

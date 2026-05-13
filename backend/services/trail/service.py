@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.event_bus import EventBus
-    from backend.services.sidecar_session import SidecarSessionManager
+    from backend.services.sidecar.session import SidecarSessionManager
     from backend.services.trail.models import TrailJobState, TrailResponse, TrailSummary
 
 log = structlog.get_logger()

@@ -49,8 +49,8 @@ if TYPE_CHECKING:
     from backend.config import CPLConfig
     from backend.models.domain import Job
     from backend.services.approval_service import ApprovalService
-    from backend.services.runtime_service import RuntimeService
-    from backend.services.sidecar_session import SidecarSessionManager
+    from backend.services.runtime import RuntimeService
+    from backend.services.sidecar.session import SidecarSessionManager
 
 log = structlog.get_logger()
 

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.services.sidecar_session import (
+from backend.services.sidecar.session import (
     _DEFAULT_SYSTEM_PROMPT,
     SidecarSession,
     SidecarSessionManager,
@@ -409,7 +409,7 @@ class TestCloseJobAndMetrics:
     def test_closed_jobs_capped(self) -> None:
         mgr = _make_manager()
         mgr._fill_pool()
-        from backend.services.sidecar_session import _CLOSED_JOBS_MAX
+        from backend.services.sidecar.session import _CLOSED_JOBS_MAX
 
         for i in range(_CLOSED_JOBS_MAX + 10):
             s = mgr.open(f"j-{i}", "test")

@@ -39,8 +39,8 @@ from backend.services.git_service import GitService
 from backend.services.ingest_service import IngestService
 from backend.services.merge_service import MergeService
 from backend.services.platform_adapter import PlatformRegistry
-from backend.services.runtime_service import RuntimeService
-from backend.services.sidecar_session import SidecarSessionManager
+from backend.services.runtime import RuntimeService
+from backend.services.sidecar.session import SidecarSessionManager
 from backend.services.sse_manager import SSEManager
 from backend.services.terminal_service import TerminalService
 from backend.services.voice_service import VoiceService

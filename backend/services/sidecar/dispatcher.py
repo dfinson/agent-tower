@@ -37,7 +37,7 @@ import structlog
 if TYPE_CHECKING:
     from backend.models.events import DomainEvent
     from backend.services.event_bus import EventBus
-    from backend.services.sidecar_session import SidecarSessionManager
+    from backend.services.sidecar.session import SidecarSessionManager
 
 from backend.models.domain import SidecarConfig
 

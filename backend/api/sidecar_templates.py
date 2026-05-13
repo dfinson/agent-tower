@@ -15,7 +15,7 @@ from backend.models.api_schemas import (
     SidecarTemplateResponse,
     UpdateSidecarTemplateRequest,
 )
-from backend.services.sidecar_template_service import SidecarTemplateService
+from backend.services.sidecar.template_service import SidecarTemplateService
 
 log = structlog.get_logger()
 

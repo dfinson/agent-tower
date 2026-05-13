@@ -30,7 +30,7 @@ from backend.persistence.job_repo import JobRepository
 
 if TYPE_CHECKING:
     from backend.models.domain import SessionConfig
-    from backend.services.runtime_service import (
+    from backend.services.runtime.service import (
         RecoverySnapshot,
         RuntimeService,
         SessionAttemptResult,
@@ -109,7 +109,7 @@ async def recover_active_job(
     instruction: str = _SERVER_RESTART_RECOVERY_INSTRUCTION,
 ) -> Job:
     """Restart an active job after backend restart without marking it failed."""
-    from backend.services.runtime_service import RecoverySnapshot
+    from backend.services.runtime.service import RecoverySnapshot
 
     async with host._session_factory() as session:
         job_repo = JobRepository(session)
@@ -201,7 +201,7 @@ async def attempt_resume_fallback(
     session_number: int = 1,
 ) -> SessionAttemptResult:
     """Try a fresh session after a failed resume."""
-    from backend.services.runtime_service import AgentSession, SessionAttemptResult
+    from backend.services.runtime.service import AgentSession, SessionAttemptResult
 
     await host._clear_sdk_session_id(job_id)
     try:

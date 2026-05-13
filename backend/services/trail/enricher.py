@@ -14,7 +14,7 @@ from backend.config import TrailConfig
 from backend.models.db import TrailNodeRow
 from backend.models.events import DomainEvent, DomainEventKind
 from backend.persistence.trail_repo import TrailNodeRepository
-from backend.services.motivation_service import (
+from backend.services.story.motivation import (
     _EDIT_SYSTEM_PROMPT,
     _SYSTEM_PROMPT,
     _build_edit_prompt,
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from backend.services.event_bus import EventBus
-    from backend.services.sidecar_session import SidecarSessionManager
+    from backend.services.sidecar.session import SidecarSessionManager
 
 log = structlog.get_logger()
 

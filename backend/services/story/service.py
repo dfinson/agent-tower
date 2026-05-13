@@ -320,7 +320,7 @@ def _col_for_verbosity(verbosity: str) -> str:
 # Token estimation and model-context lookup
 # ---------------------------------------------------------------------------
 
-_PRICING_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent / "data" / "model_pricing.json"
+_PRICING_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "data" / "model_pricing.json"
 
 
 def _get_model_max_input_tokens(model: str) -> int | None:

@@ -26,7 +26,7 @@ from backend.services.trail.prompts import (
 
 if TYPE_CHECKING:
     from backend.services.event_bus import EventBus
-    from backend.services.sidecar_session import SidecarSession, SidecarSessionManager
+    from backend.services.sidecar.session import SidecarSession, SidecarSessionManager
 
 from backend.models.domain import SIDECAR_PLANNER
 

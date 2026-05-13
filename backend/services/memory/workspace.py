@@ -27,7 +27,7 @@ import structlog
 from backend.config import get_codeplane_dir
 
 if TYPE_CHECKING:
-    from backend.services.memory_compacter import MemoryCompacter
+    from backend.services.memory.compacter import MemoryCompacter
 
 log = structlog.get_logger()
 

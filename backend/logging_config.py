@@ -36,7 +36,7 @@ _CONSOLE_NOISE_PREFIXES: tuple[str, ...] = (
     "mcp.server.streamable_http_manager",
     "backend.services.sse_manager",
     "backend.services.voice_service",
-    "backend.services.sidecar_session",
+    "backend.services.sidecar.session",
 )
 
 # Warning-level messages that are safe to suppress on the console.
