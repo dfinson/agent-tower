@@ -1049,6 +1049,12 @@ class RuntimeService:
                 router = self._policy_routers[job_id]
                 if hasattr(router, "_trust") and hasattr(router._trust, "load"):
                     await router._trust.load()
+
+                # Disable/enable monitor based on preset change
+                if effective_preset == "locked" and router._monitor is not None:
+                    log.info("monitor_disabled_preset_locked", job_id=job_id)
+                    router._monitor = None
+
                 # Update batcher window if changed
                 batcher = self._policy_batchers.get(job_id)
                 if batcher is not None and hasattr(batcher, "set_batch_window"):
@@ -1086,6 +1092,11 @@ class RuntimeService:
         # Clean up action policy router state
         router = self._policy_routers.pop(job_id, None)
         if router is not None:
+            # Revoke job-scoped trust grants from DB and memory
+            try:
+                await router._trust.revoke_by_job(job_id)
+            except Exception:
+                log.warning("trust_grant_cleanup_failed", job_id=job_id, exc_info=True)
             router.cleanup_job(job_id)
         self._policy_batchers.pop(job_id, None)
         self._echo_suppress.pop(job_id, None)

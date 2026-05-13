@@ -158,6 +158,25 @@ class TrustStore:
         now = datetime.now(UTC)
         return [g for g in self._grants.values() if not g.expires_at or g.expires_at >= now]
 
+    async def revoke_by_job(self, job_id: str) -> int:
+        """Remove all job-scoped grants for a given job from DB and memory."""
+        from backend.persistence.policy_repo import PolicyRepository
+
+        to_remove = [gid for gid, g in self._grants.items() if g.job_id == job_id]
+        for gid in to_remove:
+            del self._grants[gid]
+
+        count = 0
+        if to_remove:
+            async with self._session_factory() as session:
+                repo = PolicyRepository(session)
+                for gid in to_remove:
+                    if await repo.delete_trust_grant(gid):
+                        count += 1
+                await session.commit()
+            log.debug("trust_grants_revoked_for_job", job_id=job_id, count=count)
+        return count
+
     async def create_from_action(
         self,
         action: Action,

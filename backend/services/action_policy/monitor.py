@@ -12,7 +12,9 @@ On any failure: escalate (fail-safe to human).
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -94,6 +96,11 @@ class MonitorSession:
         self._trail_repo = trail_repo
         self._coderecon = coderecon
         self._context = ProjectContext(worktree, repo)
+        self._context_lock = asyncio.Lock()
+        # LLM rate limiter: track timestamps of recent LLM calls
+        self._llm_call_times: list[float] = []
+        # Track the highest trail seq we've checked for invalidation
+        self._invalidation_hwm: int = 0
 
     @property
     def project_context(self) -> ProjectContext:
@@ -119,12 +126,13 @@ class MonitorSession:
         action: Action,
         classification: Classification,
     ) -> tuple[MonitorVerdict, str]:
-        # Ensure project context is built
-        if not self._context.built:
-            await self._context.build(self._coderecon)
+        # Ensure project context is built (under lock to avoid concurrent rebuild)
+        async with self._context_lock:
+            if not self._context.built:
+                await self._context.build(self._coderecon)
 
-        # Check if trail shows a manifest was modified — invalidate context
-        await self._check_context_invalidation()
+            # Check if trail shows a manifest was modified — rebuild context
+            await self._check_context_invalidation()
 
         # Phase 1: Structured checks (no LLM)
         verdict, evidence = self._structural_check(action)
@@ -179,42 +187,28 @@ class MonitorSession:
         return None, ""
 
     async def _trail_check(self, action: Action) -> tuple[MonitorVerdict | None, str]:
-        """Check recent trail nodes for evidence the agent is using this resource.
+        """Check recent trail nodes for structural evidence.
 
-        Only inspects structured fields (files written, tool names) — NOT
-        agent_message, which is agent-controlled and could be manipulated
-        to plant evidence for later auto-approval.
+        Only inspects structured fields (file paths written) — NOT
+        agent_message, which is agent-controlled.  And we do NOT match
+        hostnames/packages against raw filenames because the agent can
+        create files with adversarial names to plant evidence.
+
+        Instead, we check if recently-written files include manifest or
+        config files that contain the target host/package (via project
+        context, which is rebuilt when manifests change).
         """
-        from backend.services.trail.models import CONTEXT_WINDOW_SIZE
-
-        nodes = await self._trail_repo.get_by_job(
-            self._job_id,
-            limit=CONTEXT_WINDOW_SIZE,
-        )
-
-        host = self._extract_host(action)
-        package = self._extract_package(action)
-
-        for node in reversed(nodes):  # most recent first
-            files = getattr(node, "files", None)
-            if files is None and hasattr(node, "files_json"):
-                import json as _json
-
-                try:
-                    files = _json.loads(node.files_json) if node.files_json else []
-                except (ValueError, TypeError):
-                    files = []
-
-            # Check if recently written files reference the host or package
-            # (files list is from tool outputs, not agent-controlled text)
-            if files:
-                files_text = " ".join(str(f) for f in files).lower()
-                if host and host.lower() in files_text:
-                    return MonitorVerdict.approve, f"agent recently wrote files referencing {host}"
-                if package and package.lower() in files_text:
-                    return MonitorVerdict.approve, f"agent recently wrote files referencing '{package}'"
-
+        # The trail check's value is in context invalidation (handled by
+        # _check_context_invalidation) and in the project context's
+        # dependency/host data.  Direct trail evidence is too easy to
+        # manipulate, so we fall through to LLM for ambiguous cases.
         return None, ""
+
+    # Maximum LLM calls per sliding window.  Derived from the practical
+    # ceiling: a gate-tier action takes ≥1s (checkpoint + monitor + LLM)
+    # so ≥20 unique gated actions in 60s indicates runaway behaviour.
+    _LLM_RATE_WINDOW_SECONDS = 60.0
+    _LLM_RATE_MAX_CALLS = 20
 
     async def _llm_evaluate(
         self,
@@ -223,6 +217,19 @@ class MonitorSession:
     ) -> tuple[MonitorVerdict, str]:
         """Use the LLM for ambiguous cases. Returns verdict + evidence."""
         from backend.services.trail.models import CONTEXT_WINDOW_SIZE
+
+        # Rate limiter — auto-escalate if too many LLM calls in window
+        now = time.monotonic()
+        cutoff = now - self._LLM_RATE_WINDOW_SECONDS
+        self._llm_call_times = [t for t in self._llm_call_times if t > cutoff]
+        if len(self._llm_call_times) >= self._LLM_RATE_MAX_CALLS:
+            log.warning(
+                "monitor_llm_rate_limited",
+                job_id=self._job_id,
+                calls_in_window=len(self._llm_call_times),
+            )
+            return MonitorVerdict.escalate, "Monitor LLM rate limited — escalating to human"
+        self._llm_call_times.append(now)
 
         # Build trail summary for the prompt
         nodes = await self._trail_repo.get_by_job(
@@ -285,12 +292,24 @@ class MonitorSession:
         return MonitorVerdict.escalate, "No clear evidence — escalating to human"
 
     async def _check_context_invalidation(self) -> None:
-        """Check if recent trail nodes modified a manifest file."""
+        """Check if trail nodes since last check modified a manifest file.
+
+        Uses a high-water mark (``_invalidation_hwm``) so we only scan
+        new nodes, not the oldest-N nodes.  Must be called under
+        ``_context_lock``.
+        """
         if not self._context.built:
             return
 
-        nodes = await self._trail_repo.get_by_job(self._job_id, limit=5)
+        nodes = await self._trail_repo.get_by_job(
+            self._job_id,
+            after_seq=self._invalidation_hwm if self._invalidation_hwm else None,
+        )
         for node in nodes:
+            seq = getattr(node, "seq", 0) or 0
+            if seq > self._invalidation_hwm:
+                self._invalidation_hwm = seq
+
             files = getattr(node, "files", None)
             if files is None and hasattr(node, "files_json"):
                 import json as _json

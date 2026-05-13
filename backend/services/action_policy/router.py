@@ -127,8 +127,7 @@ class PolicyRouter:
                 cwd=cwd,
             )
 
-        # Monitor evaluation — skip if no monitor (locked preset) or
-        # requires_explicit_approval (hard gate)
+        # Monitor evaluation — skip if no monitor (locked preset)
         if self._monitor is not None:
             verdict, evidence = await self._monitor.evaluate(action, classification)
 
@@ -205,3 +204,4 @@ class PolicyRouter:
         """Clean up router state for a completed/failed job."""
         self._checkpoint.cleanup_job(job_id)
         self._batcher.cleanup_job(job_id)
+        self._monitor = None  # release monitor resources
