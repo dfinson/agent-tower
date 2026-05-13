@@ -81,16 +81,6 @@ async def delete_session(session_id: str, svc: FromDishka[TerminalService]) -> N
         raise HTTPException(status_code=404, detail="Session not found")
 
 
-@router.get("/terminal/observer/{job_id}", response_model=TerminalSessionInfo)
-def get_observer_terminal(job_id: str, svc: FromDishka[TerminalService]) -> TerminalSessionInfo:
-    """Return the observer terminal session for a running job, if one exists."""
-    svc = _require_svc(svc)
-    for info in svc.list_sessions():
-        if info.get("jobId") == job_id and info.get("observer"):
-            return TerminalSessionInfo(**info)
-    raise HTTPException(status_code=404, detail="No observer terminal for this job")
-
-
 @router.post("/terminal/ask", response_model=TerminalAskResponse)
 async def ask_ai(
     req: TerminalAskRequest,
@@ -221,9 +211,7 @@ async def terminal_ws(ws: WebSocket) -> None:
                     data = msg.get("data", "")
                     if isinstance(data, str):
                         input_bytes = data.encode("utf-8")
-                        handled = await svc.handle_observer_input(attached_session_id, input_bytes)
-                        if not handled:
-                            svc.write(attached_session_id, input_bytes)
+                        svc.write(attached_session_id, input_bytes)
 
             elif msg_type == "resize":
                 if attached_session_id:

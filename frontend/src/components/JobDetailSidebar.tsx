@@ -48,9 +48,6 @@ interface JobDetailSidebarProps {
   hasWorktree: boolean;
   jobTerminalCount: number;
   onOpenTerminal: () => void;
-  // Agent terminal
-  isRunning: boolean;
-  onOpenAgentTerminal: () => void;
 }
 
 export function JobDetailSidebar({
@@ -83,8 +80,6 @@ export function JobDetailSidebar({
   hasWorktree,
   jobTerminalCount,
   onOpenTerminal,
-  isRunning,
-  onOpenAgentTerminal,
 }: JobDetailSidebarProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navExpanded, setNavExpanded] = useState(true);
@@ -167,16 +162,6 @@ export function JobDetailSidebar({
               </button>
             </Tooltip>
           </>
-        )}
-        {isRunning && (
-          <Tooltip content="Open agent terminal">
-            <button
-              onClick={onOpenAgentTerminal}
-              className="flex items-center justify-center w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors relative"
-            >
-              <Radio size={18} className="text-green-500 animate-pulse" />
-            </button>
-          </Tooltip>
         )}
         <div className="flex-1" />
         <Tooltip content={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
@@ -385,15 +370,6 @@ export function JobDetailSidebar({
                       {jobTerminalCount > 0 && (
                         <span className="ml-auto text-[10px] font-semibold text-primary">×{jobTerminalCount}</span>
                       )}
-                    </button>
-                  )}
-                  {isRunning && (
-                    <button
-                      onClick={onOpenAgentTerminal}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                    >
-                      <Radio size={15} className="shrink-0 text-green-500 animate-pulse" />
-                      <span>Agent Terminal</span>
                     </button>
                   )}
                 </nav>

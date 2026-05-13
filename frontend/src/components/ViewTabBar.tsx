@@ -21,8 +21,6 @@ interface ViewTabBarProps {
   hasWorktree: boolean;
   jobTerminalCount: number;
   onOpenTerminal: () => void;
-  isRunning: boolean;
-  onOpenAgentTerminal: () => void;
 }
 
 export function ViewTabBar({
@@ -35,8 +33,6 @@ export function ViewTabBar({
   hasWorktree,
   jobTerminalCount,
   onOpenTerminal,
-  isRunning,
-  onOpenAgentTerminal,
 }: ViewTabBarProps) {
   const visibleTabs = TAB_ITEMS.filter((t) => {
     if (t.id === "review") return hasChanges;
@@ -84,20 +80,6 @@ export function ViewTabBar({
               {jobTerminalCount > 0 && (
                 <span className="text-[9px] font-bold text-primary">{jobTerminalCount}</span>
               )}
-            </button>
-          </Tooltip>
-        </>
-      )}
-      {isRunning && (
-        <>
-          {!hasWorktree && <div className="w-px h-4 bg-border mx-1" />}
-          <Tooltip content="Watch the agent's live shell output" side="bottom">
-            <button
-              onClick={onOpenAgentTerminal}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors whitespace-nowrap"
-            >
-              <Radio size={14} className="shrink-0 text-green-500 animate-pulse" />
-              <span>Agent</span>
             </button>
           </Tooltip>
         </>

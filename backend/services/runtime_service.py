@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import enum
+import time
 import uuid
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
@@ -242,6 +243,7 @@ class RuntimeService:
         self._agent_sessions: dict[str, AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_activity: dict[str, float] = {}
+        self._active_tool: dict[str, tuple[str, str]] = {}  # job_id → (tool_name, started_iso)
         self._waiting_for_approval: set[str] = set()
         self._session_ids: dict[str, str] = {}
         self._policy_routers: dict[str, Any] = {}  # job_id → PolicyRouter
@@ -266,7 +268,6 @@ class RuntimeService:
         self._trail_service = trail_service
         # Observer terminals: job_id → terminal session ID
         self._terminal_service: TerminalService | None = None
-        self._observer_terminals: dict[str, str] = {}
         # Telemetry subsystem (extracted)
         self._telemetry = RuntimeTelemetry(
             session_factory=session_factory,
@@ -282,9 +283,8 @@ class RuntimeService:
         self._telemetry.set_trail_service(svc)
 
     def set_terminal_service(self, svc: TerminalService) -> None:
-        """Wire the TerminalService for agent observer terminals."""
+        """Wire the TerminalService for job terminals."""
         self._terminal_service = svc
-        svc.set_observer_interrupt_callback(self._handle_observer_interrupt)
 
     def set_memory_compacter(self, compacter: MemoryCompacter) -> None:
         """Wire the MemoryCompacter for workspace memory compaction."""
@@ -297,10 +297,6 @@ class RuntimeService:
     def set_memory_extractor(self, extractor: MemoryExtractor) -> None:
         """Wire the MemoryExtractor for post-job knowledge extraction."""
         self._memory_extractor = extractor
-
-    async def _handle_observer_interrupt(self, job_id: str) -> bool:
-        """Callback from TerminalService when Ctrl+C is received on an observer terminal."""
-        return await self.interrupt(job_id)
 
     def _resolve_adapter(self, sdk: str) -> AgentAdapterInterface:
         """Resolve the adapter for a given SDK via the registry."""
@@ -557,14 +553,6 @@ class RuntimeService:
         tel.start_job_span(job_id, sdk=config.sdk, model=config.model or "")
 
         asyncio.create_task(self._telemetry.init_telemetry_row(job_id, config), name=f"telemetry-init-{job_id[:8]}")
-
-        # Create observer terminal for live agent shell output
-        if self._terminal_service is not None:
-            try:
-                observer = self._terminal_service.create_observer_session(job_id=job_id)
-                self._observer_terminals[job_id] = observer.id
-            except (OSError, RuntimeError):
-                log.warning("observer_terminal_create_failed", job_id=job_id, exc_info=True)
 
         # Emit environment_setup phase
         self._resolve_adapter(config.sdk).set_execution_phase(job_id, ExecutionPhase.environment_setup)
@@ -1041,6 +1029,7 @@ class RuntimeService:
         self._tasks.pop(job_id, None)
         self._agent_sessions.pop(job_id, None)
         self._last_activity.pop(job_id, None)
+        self._active_tool.pop(job_id, None)
         self._waiting_for_approval.discard(job_id)
         self._session_ids.pop(job_id, None)
         # Clean up action policy router state
@@ -1053,7 +1042,6 @@ class RuntimeService:
         self._pending_starts.pop(job_id, None)
         self._queued_override_prompts.pop(job_id, None)
         self._queued_resume_session_ids.pop(job_id, None)
-        self._observer_terminals.pop(job_id, None)
         if self._sister_sessions is not None:
             try:
                 self._sister_sessions.close_job(job_id)
@@ -1250,9 +1238,17 @@ class RuntimeService:
           should keep draining.
         * **abort** – caller should ``break``; *error_reason* explains why.
         """
-        import time
 
         self._last_activity[job_id] = time.monotonic()
+
+        # Track active tool call for heartbeat reporting
+        if session_event.kind == SessionEventKind.transcript:
+            role = str(session_event.payload.get("role", ""))
+            if role == "tool_running":
+                tool_name = str(session_event.payload.get("tool_name", session_event.payload.get("content", "")))
+                self._active_tool[job_id] = (tool_name, datetime.now(UTC).isoformat())
+            elif role == "tool_call":
+                self._active_tool.pop(job_id, None)
 
         _diff_eligible = self._diff_service is not None and worktree_path and base_ref
 
@@ -1331,9 +1327,6 @@ class RuntimeService:
 
         async for session_event in agent_session.execute(config, self._resolve_adapter(config.sdk)):
             made_progress = made_progress or _session_event_counts_as_resume_progress(session_event)
-
-            # Forward shell events to observer terminal (before action filtering).
-            self._forward_to_observer(job_id, session_event)
 
             action, domain_event, evt_error = await self._process_agent_event(
                 job_id,
@@ -1463,17 +1456,29 @@ class RuntimeService:
                     return
 
                 session_id = self._session_ids.get(job_id, "")
+                now = datetime.now(UTC)
+                last_activity_at = now - __import__("datetime").timedelta(
+                    seconds=time.monotonic() - last
+                )
+
+                payload: dict[str, Any] = {
+                    "job_id": job_id,
+                    "session_id": session_id,
+                    "timestamp": now.isoformat(),
+                    "last_activity_at": last_activity_at.isoformat(),
+                }
+                active = self._active_tool.get(job_id)
+                if active:
+                    payload["active_tool_name"] = active[0]
+                    payload["active_tool_since"] = active[1]
+
                 await self._event_bus.publish(
                     DomainEvent(
                         event_id=DomainEvent.make_event_id(),
                         job_id=job_id,
-                        timestamp=datetime.now(UTC),
+                        timestamp=now,
                         kind=DomainEventKind.session_heartbeat,
-                        payload={
-                            "job_id": job_id,
-                            "session_id": session_id,
-                            "timestamp": datetime.now(UTC).isoformat(),
-                        },
+                        payload=payload,
                     )
                 )
         except asyncio.CancelledError:
@@ -1513,64 +1518,6 @@ class RuntimeService:
     # ------------------------------------------------------------------
     # Observer terminal bridge
     # ------------------------------------------------------------------
-
-    # Tool names that represent shell execution across SDKs.
-    _SHELL_TOOL_NAMES: frozenset[str] = frozenset(
-        {
-            "bash",
-            "Bash",
-            "run_in_terminal",
-            "execute_command",
-            "run_terminal_command",
-            "shell",
-        }
-    )
-
-    def _forward_to_observer(self, job_id: str, event: SessionEvent) -> None:
-        """Forward shell-tool transcript events to the observer terminal."""
-        if self._terminal_service is None:
-            return
-        terminal_id = self._observer_terminals.get(job_id)
-        if not terminal_id:
-            return
-        if event.kind != SessionEventKind.transcript:
-            return
-
-        payload = event.payload
-        role = payload.get("role", "")
-        tool_name = payload.get("tool_name", "")
-        is_shell = tool_name in self._SHELL_TOOL_NAMES
-
-        if role == "tool_running" and is_shell:
-            # Show the command the agent is about to run.
-            cmd = ""
-            raw_args = payload.get("tool_args")
-            if raw_args:
-                from backend.services.parsing_utils import ensure_dict
-
-                args = ensure_dict(raw_args)
-                cmd = args.get("command", "") or args.get("input", "") if args is not None else str(raw_args)
-            if cmd:
-                self._terminal_service.write_observer_output(
-                    terminal_id,
-                    f"\x1b[1;34m$ \x1b[0m{cmd}\n",
-                )
-
-        elif role == "tool_output_delta" and is_shell:
-            # Streaming stdout/stderr — write chunks as they arrive.
-            chunk = str(payload.get("content", ""))
-            if chunk:
-                self._terminal_service.write_observer_output(terminal_id, chunk)
-
-        elif role == "tool_call" and is_shell:
-            # Tool completed — write a separator line.
-            success = payload.get("tool_success", True)
-            if not success:
-                issue = payload.get("tool_issue") or "command failed"
-                self._terminal_service.write_observer_output(
-                    terminal_id,
-                    f"\x1b[1;31m✗ {issue}\x1b[0m\n",
-                )
 
     async def send_message(self, job_id: str, message: str) -> bool:
         """Send an operator message to a running job.

@@ -6,7 +6,7 @@ import { useStore, selectJobs, enrichJob, selectJobDiffs } from "../store";
 import type { JobSummary } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { formatJobTerminalLabel } from "../lib/terminalLabels";
-import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot, fetchObserverTerminal, fetchRepoMemory } from "../api/client";
+import { fetchJob, cancelJob, fetchJobTranscript, fetchJobDiff, fetchApprovals, resolveJob, fetchArtifacts, resumeJob, archiveJob, fetchJobSnapshot, fetchRepoMemory } from "../api/client";
 import { CuratedFeed } from "./CuratedFeed";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { lazyRetry } from "../lib/lazyRetry";
@@ -259,25 +259,6 @@ export function JobDetailScreen() {
     const label = formatJobTerminalLabel(job, jobId);
     createTerminalSession({ cwd: job.worktreePath, label, jobId });
   }, [job, jobId, createTerminalSession]);
-
-  // Open the agent's observer terminal in the TerminalDrawer.
-  const addTerminalSession = useStore((s) => s.addTerminalSession);
-  const handleOpenAgentTerminal = useCallback(async () => {
-    if (!jobId) return;
-    const info = await fetchObserverTerminal(jobId);
-    if (!info) {
-      toast.error("No agent terminal session found");
-      return;
-    }
-    // Avoid duplicating if already in the drawer.
-    const existing = useStore.getState().terminalSessions[info.id];
-    if (existing) {
-      useStore.setState({ activeTerminalTab: info.id, terminalDrawerOpen: true });
-      return;
-    }
-    const label = `Agent: ${formatJobTerminalLabel(job!, jobId)}`;
-    addTerminalSession({ id: info.id, label, jobId });
-  }, [jobId, job, addTerminalSession]);
 
   // Open a job-scoped SSE connection for full event streaming (no suppression
   // even when >20 active jobs). Closed automatically when navigating away.
@@ -580,8 +561,6 @@ export function JobDetailScreen() {
         hasWorktree={hasWorktree}
         jobTerminalCount={jobTerminalCount}
         onOpenTerminal={handleOpenJobTerminal}
-        isRunning={isRunning}
-        onOpenAgentTerminal={handleOpenAgentTerminal}
       />
 
       {completeOpen && job && (

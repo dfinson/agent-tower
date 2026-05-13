@@ -704,24 +704,6 @@ export async function deleteTerminalSession(id: string): Promise<void> {
   });
 }
 
-export interface ObserverTerminalInfo {
-  id: string;
-  jobId: string | null;
-  observer: boolean;
-}
-
-export async function fetchObserverTerminal(
-  jobId: string,
-): Promise<ObserverTerminalInfo | null> {
-  try {
-    return await request<ObserverTerminalInfo>(
-      `/terminal/observer/${encodeURIComponent(jobId)}`,
-    );
-  } catch {
-    return null;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Push notifications
 // ---------------------------------------------------------------------------

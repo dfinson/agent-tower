@@ -56,9 +56,6 @@ async def run_followup_turn(
 
     try:
         async for event in followup_session.execute(followup_config, host._resolve_adapter(base_config.sdk)):
-            # Forward shell events to observer terminal.
-            host._forward_to_observer(job_id, event)
-
             action, domain_event, evt_error = await host._process_agent_event(
                 job_id,
                 event,

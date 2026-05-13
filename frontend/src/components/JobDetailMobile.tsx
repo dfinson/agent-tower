@@ -1,4 +1,4 @@
-import { ArrowLeft, RotateCcw, XCircle, GitMerge, GitPullRequest, Trash2, FolderTree, TerminalSquare, MoreHorizontal, ListTree, Radio, Package, BarChart3, CheckCircle2, Archive, ScanSearch } from "lucide-react";
+import { ArrowLeft, Radio, RotateCcw, XCircle, GitMerge, GitPullRequest, Trash2, FolderTree, TerminalSquare, MoreHorizontal, ListTree, Package, BarChart3, CheckCircle2, Archive, ScanSearch } from "lucide-react";
 import type { JobSummary } from "../store";
 import { StateBadge } from "./StateBadge";
 import { Button } from "./ui/button";
@@ -19,9 +19,6 @@ interface MobileStatusRailProps {
   canResume: boolean;
   hasWorktree: boolean;
   jobTerminalCount: number;
-  // Agent terminal
-  isRunning: boolean;
-  onOpenAgentTerminal: () => void;
   // Action props (for overflow menu)
   needsResolution: boolean;
   hasChanges: boolean;
@@ -45,8 +42,6 @@ export function MobileStatusRail({
   canResume,
   hasWorktree,
   jobTerminalCount,
-  isRunning,
-  onOpenAgentTerminal,
   needsResolution,
   hasChanges,
   hasMergeConflict,
@@ -186,16 +181,6 @@ export function MobileStatusRail({
                   </button>
                 </PopoverPrimitive.Close>
               </>
-            )}
-            {isRunning && (
-              <PopoverPrimitive.Close asChild>
-                <button
-                  onClick={onOpenAgentTerminal}
-                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <Radio size={13} className="text-green-500 animate-pulse" /> Agent Terminal
-                </button>
-              </PopoverPrimitive.Close>
             )}
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>

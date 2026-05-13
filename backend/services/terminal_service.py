@@ -144,7 +144,6 @@ class PtySession:
     clients: set[WebSocket] = field(default_factory=set)
     scrollback: str = ""
     scrollback_limit: int = 500 * 1024  # bytes
-    observer: bool = False
     _exit_task: asyncio.Task[None] | None = field(default=None, repr=False)
     _zdotdir: str | None = field(default=None, repr=False)
     _win_reader_task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -176,85 +175,10 @@ class TerminalService:
         self._default_shell = default_shell or _detect_shell()
         self._scrollback_limit = scrollback_size_kb * 1024
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._observer_interrupt_cb: Callable[[str], Awaitable[bool]] | None = None
 
     @property
     def sessions(self) -> dict[str, PtySession]:
         return self._sessions
-
-    def set_observer_interrupt_callback(
-        self,
-        cb: Callable[[str], Awaitable[bool]],
-    ) -> None:
-        """Register callback invoked when Ctrl+C is received on an observer session.
-
-        The callback receives the ``job_id`` and should return ``True`` if the
-        interrupt was delivered.
-        """
-        self._observer_interrupt_cb = cb
-
-    def create_observer_session(self, *, job_id: str) -> PtySession:
-        """Create a virtual observer session for watching agent shell output.
-
-        Observer sessions have no backing process — output is pushed via
-        :meth:`write_observer_output` and input is limited to Ctrl+C which
-        triggers the registered interrupt callback.
-        """
-        if self._loop is None:
-            self._loop = asyncio.get_event_loop()
-
-        session_id = secrets.token_hex(16)
-        session = PtySession(
-            id=session_id,
-            master_fd=-1,
-            process=None,
-            shell="observer",
-            cwd="",
-            job_id=job_id,
-            scrollback_limit=self._scrollback_limit,
-            observer=True,
-        )
-        # Observer sessions don't count toward max_sessions limit.
-        self._sessions[session_id] = session
-        log.info("observer_session_created", session_id=session_id, job_id=job_id)
-        return session
-
-    def write_observer_output(self, session_id: str, text: str) -> None:
-        """Write text to an observer session and broadcast to attached clients."""
-        session = self._sessions.get(session_id)
-        if session is None:
-            return
-        self._broadcast_to_clients(session, text)
-
-    async def handle_observer_input(self, session_id: str, data: bytes) -> bool:
-        """Handle input on an observer session.  Returns True if handled.
-
-        Only Ctrl+C (``\\x03``) is meaningful — it triggers the registered
-        interrupt callback.  All other input is silently discarded.
-        """
-        session = self._sessions.get(session_id)
-        if session is None or not session.observer:
-            return False
-        if b"\x03" in data and session.job_id and self._observer_interrupt_cb:
-            await self._observer_interrupt_cb(session.job_id)
-        return True
-
-    def _broadcast_to_clients(self, session: PtySession, text: str) -> None:
-        """Append *text* to scrollback and fan-out to all attached WebSocket clients."""
-        session.append_scrollback(text)
-        if not session.clients:
-            return
-        import json as _json
-
-        msg = _json.dumps({"type": "output", "data": text})
-        dead: list[WebSocket] = []
-        for ws in session.clients:
-            try:
-                asyncio.ensure_future(ws.send_text(msg))
-            except (ConnectionError, RuntimeError):
-                dead.append(ws)
-        for ws in dead:
-            session.clients.discard(ws)
 
     def create_session(
         self,
@@ -460,10 +384,26 @@ class TerminalService:
                     "jobId": s.job_id,
                     "pid": s.process.pid if s.process else None,
                     "clients": len(s.clients),
-                    "observer": s.observer,
                 }
             )
         return result
+
+    def _broadcast_to_clients(self, session: PtySession, text: str) -> None:
+        """Append *text* to scrollback and fan-out to all attached WebSocket clients."""
+        session.append_scrollback(text)
+        if not session.clients:
+            return
+        import json as _json
+
+        msg = _json.dumps({"type": "output", "data": text})
+        dead: list[WebSocket] = []
+        for ws in session.clients:
+            try:
+                asyncio.ensure_future(ws.send_text(msg))
+            except (ConnectionError, RuntimeError):
+                dead.append(ws)
+        for ws in dead:
+            session.clients.discard(ws)
 
     async def kill_session(self, session_id: str) -> bool:
         """Kill a terminal session and clean up resources."""
@@ -626,25 +566,24 @@ class TerminalService:
             if not task.done():
                 task.cancel()
 
-        if not session.observer:
-            # Real PTY session — kill the backing process and close fds.
-            if sys.platform == "win32":
+        # Kill the backing process and close fds.
+        if sys.platform == "win32":
+            with contextlib.suppress(OSError):
+                session.process.close(force=True)
+        else:
+            if self._loop:
+                with contextlib.suppress(ValueError, OSError):
+                    self._loop.remove_reader(session.master_fd)
+            try:
+                session.process.kill()
+                await asyncio.to_thread(session.process.wait)
+            except (OSError, ProcessLookupError):
+                log.debug("terminal_process_kill_failed", session_id=session.id)
+                pass
+            if session.master_fd >= 0:
                 with contextlib.suppress(OSError):
-                    session.process.close(force=True)
-            else:
-                if self._loop:
-                    with contextlib.suppress(ValueError, OSError):
-                        self._loop.remove_reader(session.master_fd)
-                try:
-                    session.process.kill()
-                    await asyncio.to_thread(session.process.wait)
-                except (OSError, ProcessLookupError):
-                    log.debug("terminal_process_kill_failed", session_id=session.id)
-                    pass
-                if session.master_fd >= 0:
-                    with contextlib.suppress(OSError):
-                        os.close(session.master_fd)
-                    session.master_fd = -1
+                    os.close(session.master_fd)
+                session.master_fd = -1
 
         msg = json.dumps({"type": "exit", "code": -1})
         for ws in list(session.clients):
