@@ -298,9 +298,9 @@ export function JobCreationScreen() {
             <div className={`flex gap-2 transition-opacity ${!settingsLoaded ? "opacity-50 pointer-events-none" : ""}`}>
               {(
                 [
-                  { value: "autonomous" as const, label: "Autonomous", tip: "Agent runs freely. Monitor handles approvals. You'll rarely be asked." },
-                  { value: "supervised" as const, label: "Supervised", tip: "Agent works locally without interruption. Monitor approves known externals. You decide the rest." },
-                  { value: "locked" as const, label: "Locked", tip: "Every action outside the worktree needs your approval." },
+                  { value: "autonomous" as const, label: "Autonomous", tip: "Network actions need approval. Everything else runs." },
+                  { value: "supervised" as const, label: "Supervised", tip: "Network and irreversible actions need approval. Reversible local-only actions run." },
+                  { value: "locked" as const, label: "Locked", tip: "Reversible local-only actions run with a rollback snapshot. Everything else needs approval." },
                 ]
               ).map(({ value, label, tip }) => (
                 <Tooltip key={value} content={tip}>
@@ -319,9 +319,9 @@ export function JobCreationScreen() {
               ))}
             </div>
             <p className="text-xs text-muted-foreground leading-snug">
-              {preset === "autonomous" && "Agent runs freely. Monitor handles approvals. You'll rarely be asked."}
-              {preset === "supervised" && "Agent works locally without interruption. Monitor approves known externals. You decide the rest."}
-              {preset === "locked" && "Every action outside the worktree needs your approval."}
+              {preset === "autonomous" && "Network actions need approval. Everything else runs."}
+              {preset === "supervised" && "Network and irreversible actions need approval. Reversible local-only actions run."}
+              {preset === "locked" && "Reversible local-only actions run with a rollback snapshot. Everything else needs approval."}
             </p>
           </div>
 

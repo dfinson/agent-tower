@@ -23,9 +23,9 @@ import { ConfirmDialog } from "./ui/confirm-dialog";
 import { useStore } from "../store";
 
 const PRESETS = [
-  { value: "autonomous", label: "Autonomous", description: "Agent runs freely — monitor handles gate-tier approvals" },
-  { value: "supervised", label: "Supervised", description: "Default — monitor approves known externals, human decides the rest" },
-  { value: "locked", label: "Locked", description: "Every action outside the worktree requires human approval" },
+  { value: "autonomous", label: "Autonomous", description: "Network actions need approval. Everything else runs." },
+  { value: "supervised", label: "Supervised", description: "Network and irreversible actions need approval. Reversible local-only actions run." },
+  { value: "locked", label: "Locked", description: "Reversible local-only actions run with a rollback snapshot. Everything else needs approval." },
 ];
 
 const TIERS = [
