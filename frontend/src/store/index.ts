@@ -251,6 +251,7 @@ export const useStore = create<AppState>((set, get) => ({
   reconnectAttempt: 0,
   hoveredPlanItemId: null,
   policySettingsVersion: 0,
+  jobHeartbeats: {},
 
   // SDK + model catalogue
   sdks: [],

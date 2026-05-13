@@ -34,11 +34,26 @@ export function handleSnapshot(_state: AppState, payload: Record<string, unknown
   };
 }
 
-export function handleSessionHeartbeat(state: AppState): Partial<AppState> | null {
+export function handleSessionHeartbeat(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {
+  const jobId = payload.jobId as string | undefined;
+  const lastActivityAt = payload.lastActivityAt as string | undefined;
+  const activeToolName = payload.activeToolName as string | undefined;
+  const activeToolSince = payload.activeToolSince as string | undefined;
+
+  const updates: Partial<AppState> = {};
+
   if (state.connectionStatus !== "connected") {
-    return { connectionStatus: "connected" as ConnectionStatus };
+    updates.connectionStatus = "connected" as ConnectionStatus;
   }
-  return null;
+
+  if (jobId && lastActivityAt) {
+    const entry: { lastActivityAt: string; activeToolName?: string; activeToolSince?: string } = { lastActivityAt };
+    if (activeToolName) entry.activeToolName = activeToolName;
+    if (activeToolSince) entry.activeToolSince = activeToolSince;
+    updates.jobHeartbeats = { ...state.jobHeartbeats, [jobId]: entry };
+  }
+
+  return Object.keys(updates).length > 0 ? updates : null;
 }
 
 export function handleDiffUpdate(state: AppState, payload: Record<string, unknown>): Partial<AppState> | null {

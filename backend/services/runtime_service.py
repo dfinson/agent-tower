@@ -191,6 +191,22 @@ _SERVER_RESTART_RECOVERY_INSTRUCTION = (
 # Heartbeat configuration
 _HEARTBEAT_INTERVAL_S = 30
 
+# Stall detection — after this many seconds of tool inactivity, ask the sister
+# session whether the tool is likely stuck or legitimately slow.
+_STALL_CHECK_THRESHOLD_S = 120  # 2 minutes before first check
+_STALL_RECHECK_INTERVAL_S = 120  # re-ask every 2 minutes if sister says wait
+
+_STALL_ARBITER_PROMPT = """\
+A coding agent is running tool `{tool_name}` which has been active for {elapsed}.
+Tool arguments (truncated): {tool_args}
+
+Is this tool call likely stuck (no useful work happening) or legitimately slow
+(e.g. a large test suite, long build, big download)?
+
+Respond with ONLY one JSON object:
+{{"action": "wait" | "interrupt", "reason": "one sentence"}}
+"""
+
 
 def _session_event_counts_as_resume_progress(event: SessionEvent) -> bool:
     """Return True once a resumed session has produced real agent work."""
@@ -243,7 +259,9 @@ class RuntimeService:
         self._agent_sessions: dict[str, AgentSession] = {}
         self._heartbeat_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_activity: dict[str, float] = {}
-        self._active_tool: dict[str, tuple[str, str]] = {}  # job_id → (tool_name, started_iso)
+        self._active_tool: dict[str, tuple[str, str, str]] = {}  # job_id → (tool_name, started_iso, tool_args)
+        self._stall_check_pending: set[str] = set()  # job_ids currently being checked
+        self._last_stall_check: dict[str, float] = {}  # job_id → monotonic time of last check
         self._waiting_for_approval: set[str] = set()
         self._session_ids: dict[str, str] = {}
         self._policy_routers: dict[str, Any] = {}  # job_id → PolicyRouter
@@ -1030,6 +1048,8 @@ class RuntimeService:
         self._agent_sessions.pop(job_id, None)
         self._last_activity.pop(job_id, None)
         self._active_tool.pop(job_id, None)
+        self._stall_check_pending.discard(job_id)
+        self._last_stall_check.pop(job_id, None)
         self._waiting_for_approval.discard(job_id)
         self._session_ids.pop(job_id, None)
         # Clean up action policy router state
@@ -1246,9 +1266,13 @@ class RuntimeService:
             role = str(session_event.payload.get("role", ""))
             if role == "tool_running":
                 tool_name = str(session_event.payload.get("tool_name", session_event.payload.get("content", "")))
-                self._active_tool[job_id] = (tool_name, datetime.now(UTC).isoformat())
+                tool_args = str(session_event.payload.get("tool_args", ""))[:500]
+                self._active_tool[job_id] = (tool_name, datetime.now(UTC).isoformat(), tool_args)
+                # Reset stall tracking for the new tool call
+                self._last_stall_check.pop(job_id, None)
             elif role == "tool_call":
                 self._active_tool.pop(job_id, None)
+                self._last_stall_check.pop(job_id, None)
 
         _diff_eligible = self._diff_service is not None and worktree_path and base_ref
 
@@ -1446,7 +1470,7 @@ class RuntimeService:
         )
 
     async def _heartbeat_loop(self, job_id: str) -> None:
-        """Emit periodic heartbeats for session health display."""
+        """Emit periodic heartbeats for session health display and stall detection."""
         try:
             while True:
                 await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
@@ -1457,9 +1481,7 @@ class RuntimeService:
 
                 session_id = self._session_ids.get(job_id, "")
                 now = datetime.now(UTC)
-                last_activity_at = now - __import__("datetime").timedelta(
-                    seconds=time.monotonic() - last
-                )
+                last_activity_at = now - __import__("datetime").timedelta(seconds=time.monotonic() - last)
 
                 payload: dict[str, Any] = {
                     "job_id": job_id,
@@ -1481,8 +1503,123 @@ class RuntimeService:
                         payload=payload,
                     )
                 )
+
+                # --- Stall detection via sister session ---
+                await self._check_stall(job_id)
+
         except asyncio.CancelledError:
             log.debug("heartbeat_loop_cancelled", job_id=job_id)
+
+    async def _check_stall(self, job_id: str) -> None:
+        """Ask the sister session whether the active tool is stuck."""
+        active = self._active_tool.get(job_id)
+        if not active:
+            return
+        if self._sister_sessions is None:
+            return
+        if job_id in self._stall_check_pending:
+            return  # already checking
+        if job_id in self._waiting_for_approval:
+            return  # tool is paused waiting for human, not stalled
+
+        tool_name, started_iso, tool_args = active
+        # Calculate how long the tool has been running
+        from datetime import datetime as _dt
+
+        try:
+            started = _dt.fromisoformat(started_iso)
+        except (ValueError, TypeError):
+            return
+        elapsed_s = (datetime.now(UTC) - started).total_seconds()
+
+        if elapsed_s < _STALL_CHECK_THRESHOLD_S:
+            return
+
+        # Respect recheck interval
+        last_check = self._last_stall_check.get(job_id, 0.0)
+        if (time.monotonic() - last_check) < _STALL_RECHECK_INTERVAL_S:
+            return
+
+        # Ask the sister session
+        sister = self._sister_sessions.get(job_id)
+        if sister is None:
+            return
+
+        self._stall_check_pending.add(job_id)
+        try:
+            elapsed_human = f"{int(elapsed_s // 60)}m{int(elapsed_s % 60)}s"
+            prompt = _STALL_ARBITER_PROMPT.format(
+                tool_name=tool_name,
+                elapsed=elapsed_human,
+                tool_args=tool_args[:300],
+            )
+            response = await sister.complete(prompt, timeout=15.0)
+            self._last_stall_check[job_id] = time.monotonic()
+
+            # Parse response
+            import json
+
+            try:
+                verdict = json.loads(response.strip())
+            except (json.JSONDecodeError, ValueError):
+                log.debug("stall_check_unparseable", job_id=job_id, response=response[:200])
+                return
+
+            action = verdict.get("action", "wait")
+            reason = verdict.get("reason", "")
+
+            if action == "interrupt":
+                log.info(
+                    "stall_detected_interrupting",
+                    job_id=job_id,
+                    tool_name=tool_name,
+                    elapsed=elapsed_human,
+                    reason=reason,
+                )
+                await self._handle_stall_interrupt(job_id, tool_name, elapsed_human, reason)
+            else:
+                log.debug(
+                    "stall_check_wait",
+                    job_id=job_id,
+                    tool_name=tool_name,
+                    elapsed=elapsed_human,
+                    reason=reason,
+                )
+        except (TimeoutError, OSError, RuntimeError):
+            log.debug("stall_check_failed", job_id=job_id, exc_info=True)
+        finally:
+            self._stall_check_pending.discard(job_id)
+
+    async def _handle_stall_interrupt(self, job_id: str, tool_name: str, elapsed: str, reason: str) -> None:
+        """Interrupt the stalled tool and re-prompt the agent."""
+        # Publish stall event for UI visibility
+        await self._event_bus.publish(
+            DomainEvent(
+                event_id=DomainEvent.make_event_id(),
+                job_id=job_id,
+                timestamp=datetime.now(UTC),
+                kind=DomainEventKind.stall_detected,
+                payload={
+                    "job_id": job_id,
+                    "tool_name": tool_name,
+                    "elapsed": elapsed,
+                    "reason": reason,
+                },
+            )
+        )
+
+        # Interrupt the running tool
+        interrupted = await self.interrupt(job_id)
+        if not interrupted:
+            return
+
+        # Re-prompt the agent with context
+        message = (
+            f"Your `{tool_name}` tool call was interrupted after being idle for {elapsed}. "
+            f"Reason: {reason}. "
+            f"Retry the command, try an alternative approach, or report the failure."
+        )
+        await self.send_message(job_id, message)
 
     async def cancel(self, job_id: str) -> None:
         """Cancel a running job by cancelling its asyncio task.

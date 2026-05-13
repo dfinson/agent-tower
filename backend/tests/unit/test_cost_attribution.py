@@ -89,10 +89,11 @@ def test_classify_turn_intent_overhead() -> None:
     assert _classify_turn_intent(_ctx(cats=["bookkeeping", "bookkeeping"])) == "overhead"
 
 
-def test_classify_turn_intent_subagents_are_delegation() -> None:
-    # Pure agent tool turns are classified as "delegation" — the per-tool
-    # weighted path resolves the actual activity from sub-agent turns.
-    assert _classify_turn_intent(_ctx(cats=["agent"])) == "delegation"
+def test_classify_turn_intent_subagents_are_investigation() -> None:
+    # Pure agent tool turns are classified as "investigation" — the per-tool
+    # weighted path resolves the actual activity from sub-agent turns;
+    # this fallback is conservative.
+    assert _classify_turn_intent(_ctx(cats=["agent"])) == "investigation"
 
 
 def test_classify_turn_intent_no_debugging_category() -> None:
@@ -110,15 +111,59 @@ def test_classify_turn_intent_communication_and_reasoning() -> None:
 
 
 def test_classify_shell_command() -> None:
+    # Verification: test runners
     assert classify_shell_command("pytest tests/") == "verification"
+    assert classify_shell_command("uv run pytest -x") == "verification"
+    assert classify_shell_command("npx jest --watch") == "verification"
+    assert classify_shell_command("cargo test") == "verification"
+    assert classify_shell_command("go test ./...") == "verification"
+    assert classify_shell_command("npm test") == "verification"
+    assert classify_shell_command("npm run test") == "verification"
+    assert classify_shell_command("make test") == "verification"
+    assert classify_shell_command("make lint") == "verification"
+    # Verification: linters and type checkers
+    assert classify_shell_command("mypy src/") == "verification"
+    assert classify_shell_command("eslint .") == "verification"
+    assert classify_shell_command("ruff check .") == "verification"
+    assert classify_shell_command("tsc --noEmit") == "verification"
+    # Verification: build commands
+    assert classify_shell_command("npm run build") == "verification"
+    assert classify_shell_command("cargo build") == "verification"
+    assert classify_shell_command("go build ./...") == "verification"
+    # Git write → git_ops
     assert classify_shell_command("git commit -m 'fix'") == "git_ops"
-    assert classify_shell_command("uv sync") == "setup"
-    # Git read commands are investigation, not git_ops
+    assert classify_shell_command("git push origin main") == "git_ops"
+    assert classify_shell_command("git add -A && git commit -m 'fix'") == "git_ops"
+    # Git read → investigation (checkout/switch/stash are now read)
     assert classify_shell_command("git diff HEAD") == "investigation"
     assert classify_shell_command("git status") == "investigation"
     assert classify_shell_command("git log --oneline") == "investigation"
+    assert classify_shell_command("git checkout main") == "investigation"
+    assert classify_shell_command("git stash") == "investigation"
+    # Setup
+    assert classify_shell_command("uv sync") == "setup"
+    assert classify_shell_command("pip install requests") == "setup"
+    assert classify_shell_command("docker build -t foo .") == "setup"
+    assert classify_shell_command("docker compose up -d") == "setup"
+    # Investigation: exploration commands
     assert classify_shell_command("find . -name '*.py'") == "investigation"
+    assert classify_shell_command("cat README.md") == "investigation"
+    assert classify_shell_command("grep -r TODO .") == "investigation"
+    # Implementation: file-modifying commands
+    assert classify_shell_command("sed -i 's/old/new/' file.txt") == "implementation"
+    assert classify_shell_command("rm -rf build/") == "implementation"
+    assert classify_shell_command("mkdir -p src/foo") == "implementation"
+    # Compound: highest priority wins
+    assert classify_shell_command("cd src && pytest") == "verification"
+    assert classify_shell_command("cat file.txt | grep foo") == "investigation"
+    # Env vars stripped
+    assert classify_shell_command("CI=1 pytest tests/") == "verification"
+    assert classify_shell_command("PYTHONPATH=. uv run pytest") == "verification"
+    # Unknown
     assert classify_shell_command("echo hello") == "shell_other"
+    # False-positive guard: tool names as arguments don't match
+    assert classify_shell_command("pip install pytest") == "setup"
+    assert classify_shell_command("pip install jest") == "setup"
 
 
 def test_classify_tool_list_agents() -> None:

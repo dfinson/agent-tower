@@ -36,6 +36,7 @@ from backend.models.api_schemas import (
     SessionHeartbeatPayload,
     SessionResumedPayload,
     SnapshotPayload,
+    StallDetectedPayload,
     StepEntriesReassignedPayload,
     StructuralWarningPayload,
     TelemetryUpdatedPayload,
@@ -99,6 +100,7 @@ _SSE_EVENT_TYPE: dict[DomainEventKind, str | None] = {
     DomainEventKind.repo_index_progress: "repo_index_progress",
     DomainEventKind.repo_index_complete: "repo_index_complete",
     DomainEventKind.structural_warning: "structural_warning",
+    DomainEventKind.stall_detected: "stall_detected",
 }
 
 # State implied by each domain event kind (for job_state_changed payloads)
@@ -358,6 +360,9 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
         {
             "session_id": ("session_id", ""),
             "timestamp": ("timestamp", _TS_FALLBACK),
+            "last_activity_at": ("last_activity_at", None),
+            "active_tool_name": ("active_tool_name", None),
+            "active_tool_since": ("active_tool_since", None),
         },
     ),
     "merge_completed": (
@@ -495,6 +500,15 @@ _SSE_PAYLOAD_REGISTRY: dict[str, tuple[type, FieldMap] | _BuilderFn] = {
             "repo": ("repo", ""),
             "warning_type": ("warning_type", ""),
             "detail": ("detail", ""),
+        },
+    ),
+    "stall_detected": (
+        StallDetectedPayload,
+        {
+            "job_id": ("job_id", ""),
+            "tool_name": ("tool_name", ""),
+            "elapsed": ("elapsed", ""),
+            "reason": ("reason", ""),
         },
     ),
 }

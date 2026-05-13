@@ -139,57 +139,246 @@ _CATEGORY_TO_ACTIVITY: dict[str, str] = {
 #
 # When we know the actual command a shell tool executed, we can assign a
 # more precise activity than the generic "investigation" default.
+#
+# Architecture: commands are split on shell separators (&&, ||, |, ;),
+# leading environment variables are stripped, and each segment is
+# classified independently.  Regexes anchor to ^ so tool names appearing
+# as arguments (pip install pytest) or in strings don't false-positive.
+# The highest-priority match across all segments wins.
 # ---------------------------------------------------------------------------
 
-_RE_SHELL_TEST = re.compile(
-    r"\b(pytest|vitest|jest|mocha|npm\s+test|npx\s+vitest|npx\s+jest|"
-    r"cargo\s+test|go\s+test|rspec|phpunit|unittest|npm\s+run\s+test)\b",
+# -- Helpers ----------------------------------------------------------------
+
+
+def _split_shell(cmd: str) -> list[str]:
+    """Split a compound command on shell separators, respecting quotes.
+
+    Splits on &&, ||, |, ; but only when they appear outside single/double
+    quotes.  Handles escaped quotes within strings.
+    """
+    segments: list[str] = []
+    current: list[str] = []
+    i = 0
+    n = len(cmd)
+    while i < n:
+        c = cmd[i]
+        # Handle escaped characters
+        if c == "\\" and i + 1 < n:
+            current.append(cmd[i : i + 2])
+            i += 2
+            continue
+        # Handle quoted strings
+        if c in ('"', "'"):
+            quote = c
+            current.append(c)
+            i += 1
+            while i < n and cmd[i] != quote:
+                if cmd[i] == "\\" and i + 1 < n:
+                    current.append(cmd[i : i + 2])
+                    i += 2
+                else:
+                    current.append(cmd[i])
+                    i += 1
+            if i < n:
+                current.append(cmd[i])  # closing quote
+                i += 1
+            continue
+        # Check for separators (order matters: && and || before | and ;)
+        if cmd[i : i + 2] in ("&&", "||"):
+            seg = "".join(current).strip()
+            if seg:
+                segments.append(seg)
+            current = []
+            i += 2
+            continue
+        if c in ("|", ";"):
+            seg = "".join(current).strip()
+            if seg:
+                segments.append(seg)
+            current = []
+            i += 1
+            continue
+        current.append(c)
+        i += 1
+    seg = "".join(current).strip()
+    if seg:
+        segments.append(seg)
+    return segments
+
+
+def _strip_env_vars(seg: str) -> str:
+    """Remove leading command wrappers and VAR=value tokens from a segment.
+
+    Loops to handle stacked wrappers: sudo env FOO=1 cmd → cmd.
+    Strips: sudo, env, time, nice, nohup, and KEY=val prefixes.
+    """
+    while True:
+        prev = seg
+        seg = re.sub(r"^(sudo|env|time|nice|nohup)\s+", "", seg).strip()
+        seg = re.sub(r"^(\w+=\S+\s+)*", "", seg).strip()
+        if seg == prev:
+            break
+    return seg
+
+
+# -- Verification (tests, linters, type-checkers, build validation) ---------
+
+# Group A: Known test runner names at command position
+_RUNNER_PREFIXES = r"(?:uv\s+run\s+|npx\s+|bunx\s+|bundle\s+exec\s+|python\s+-m\s+)?"
+_RE_TEST_RUNNER = re.compile(
+    r"^" + _RUNNER_PREFIXES + r"(pytest|jest|vitest|mocha|rspec|phpunit|unittest|playwright|ctest|bats|pest|tap)\b",
     re.IGNORECASE,
 )
+
+# Group B: Any tool with "test" as subcommand
+_RE_GENERIC_TEST = re.compile(
+    r"^(?:" + _RUNNER_PREFIXES + r")?"
+    r"(cargo|go|swift|dart|flutter|dotnet|mvn|gradle|"
+    r"\.?/?gradlew|sbt|mix|zig|rake|rails|composer|npm|npm\s+run)\s+tests?\b",
+    re.IGNORECASE,
+)
+
+# Group C: Make targets that are verification
+_RE_MAKE_VERIFY = re.compile(
+    r"^make\s+(tests?|lint|check|verify|e2e|integration|unit)\b",
+    re.IGNORECASE,
+)
+
+# Group D: Linters and type-checkers (only when NOT in fix/write mode)
+_RE_LINT_CHECK = re.compile(
+    r"^" + _RUNNER_PREFIXES + r"("
+    # Python
+    r"mypy|pyright|pytype|pyre(?:\s+check)?|flake8|pylint|"
+    r"ruff\s+check|ruff\s+format\s+--check|black\s+--check|"
+    # JS/TS
+    r"eslint|biome\s+(?:check|lint)|oxlint|deno\s+lint|"
+    r"tsc\s+--noEmit|flow\s+check|stylelint|prettier\s+--check|"
+    # Ruby
+    r"rubocop|"
+    # Go
+    r"golangci-lint\s+run|"
+    # Rust
+    r"cargo\s+clippy|"
+    # Swift
+    r"swiftlint|"
+    # Shell/DevOps
+    r"shellcheck|hadolint|actionlint"
+    r")\b"
+    r"(?!.*\s--fix\b)(?!.*\s--write\b)",
+    re.IGNORECASE,
+)
+
+# Group E: Build commands (compilation validates correctness)
+_RE_BUILD = re.compile(
+    r"^(?:" + _RUNNER_PREFIXES + r")?"
+    r"(npm\s+run\s+build|cargo\s+build|go\s+build|gradle\s+build|"
+    r"\.?/?gradlew\s+build|mvn\s+(?:compile|package)|dotnet\s+build|"
+    r"make\s+(?:build|all|dist)|cmake\s+--build)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_verification_segment(seg: str) -> bool:
+    """Check if a single (stripped) command segment is verification."""
+    return bool(
+        _RE_TEST_RUNNER.search(seg)
+        or _RE_GENERIC_TEST.search(seg)
+        or _RE_MAKE_VERIFY.search(seg)
+        or _RE_LINT_CHECK.search(seg)
+        or _RE_BUILD.search(seg)
+    )
+
+
+# -- Git (split write vs read; checkout/switch/stash removed from write) ----
+
+# Allow common flags between 'git' and subcommand:
+# --no-pager, -C <path>, -c <key=val>, --git-dir=<x>, --work-tree=<x>
+_GIT_FLAGS = r"(?:(?:--[\w-]+(?:=\S+)?|-\w(?:\s+\S+)?)\s+)*"
+
 _RE_SHELL_GIT_WRITE = re.compile(
-    r"\bgit\s+(add|commit|push|merge|rebase|checkout|cherry-pick|stash|tag|reset)\b",
+    r"^git\s+" + _GIT_FLAGS + r"(add|commit|push|merge|rebase|cherry-pick|tag|reset)\b",
     re.IGNORECASE,
 )
 _RE_SHELL_GIT_READ = re.compile(
-    r"\bgit\s+(diff|log|status|show|blame|branch)\b",
+    r"^git\s+" + _GIT_FLAGS + r"(diff|log|status|show|blame|branch|checkout|switch|stash)\b",
     re.IGNORECASE,
 )
+
+# -- Setup (install/deploy — docker scoped to setup subcommands) ------------
+
 _RE_SHELL_SETUP = re.compile(
-    r"\b(uv\s+sync|uv\s+add|pip\s+install|npm\s+install|npm\s+ci|"
-    r"yarn\s+install|cargo\s+build|make\s+build|docker|deploy|"
-    r"brew\s+install|apt\s+install|apt-get\s+install)\b",
+    r"^(uv\s+sync|uv\s+add|pip\s+install|npm\s+install|npm\s+ci|"
+    r"yarn\s+install|brew\s+install|apt\s+install|apt-get\s+install|"
+    r"docker\s+(?:build|pull|push|compose\s+(?:up|build|pull))|deploy)\b",
     re.IGNORECASE,
 )
+
+# -- Investigation (read-only exploration commands) -------------------------
+
 _RE_SHELL_INVESTIGATE = re.compile(
-    r"\b(find|ls|cat|head|tail|wc|tree|du|file|grep|awk|diff|less|more|stat|strings)\b",
+    r"^(find|ls|cat|head|tail|wc|tree|du|file|grep|awk|diff|less|more|stat|strings|curl|wget)\b",
     re.IGNORECASE,
 )
+
+# -- Implementation (commands that modify files) ----------------------------
+
 _RE_SHELL_IMPLEMENT = re.compile(
-    r"\b(sed|rm|mv|cp|chmod|chown|mkdir|touch|tee|patch|install)\b",
+    r"^(sed|rm|mv|cp|chmod|chown|mkdir|patch)\b",
     re.IGNORECASE,
 )
+
+
+# -- Priority ladder applied per-segment -----------------------------------
+
+# Activity priority (higher index = higher priority)
+_ACTIVITY_PRIORITY = {
+    "shell_other": 0,
+    "investigation": 1,
+    "setup": 2,
+    "git_ops": 3,
+    "verification": 4,
+    "implementation": 5,
+}
+
+
+def _classify_segment(seg: str) -> str:
+    """Classify a single shell command segment into an activity."""
+    if _is_verification_segment(seg):
+        return "verification"
+    if _RE_SHELL_GIT_WRITE.search(seg):
+        return "git_ops"
+    if _RE_SHELL_SETUP.search(seg):
+        return "setup"
+    if _RE_SHELL_GIT_READ.search(seg):
+        return "investigation"
+    if _RE_SHELL_IMPLEMENT.search(seg):
+        return "implementation"
+    if _RE_SHELL_INVESTIGATE.search(seg):
+        return "investigation"
+    return "shell_other"
 
 
 def classify_shell_command(cmd: str) -> str:
     """Classify a shell command string into an activity.
 
-    Returns one of: verification, git_ops, setup, implementation, investigation, shell_other.
-    Git write commands (commit, push, merge, etc.) → git_ops.
-    Git read commands (diff, log, status, etc.) → investigation.
+    Splits compound commands (&&, ||, |, ;), strips leading env vars,
+    classifies each segment, and returns the highest-priority activity.
+
+    Returns one of: verification, git_ops, setup, implementation,
+    investigation, shell_other.
     """
-    if _RE_SHELL_TEST.search(cmd):
-        return "verification"
-    if _RE_SHELL_GIT_WRITE.search(cmd):
-        return "git_ops"
-    if _RE_SHELL_SETUP.search(cmd):
-        return "setup"
-    if _RE_SHELL_GIT_READ.search(cmd):
-        return "investigation"
-    if _RE_SHELL_IMPLEMENT.search(cmd):
-        return "implementation"
-    if _RE_SHELL_INVESTIGATE.search(cmd):
-        return "investigation"
-    return "shell_other"
+    best = "shell_other"
+    best_pri = -1
+    for seg in _split_shell(cmd):
+        seg = _strip_env_vars(seg)
+        if not seg:
+            continue
+        activity = _classify_segment(seg)
+        pri = _ACTIVITY_PRIORITY.get(activity, 0)
+        if pri > best_pri:
+            best = activity
+            best_pri = pri
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -212,19 +401,22 @@ _CATEGORY_TO_ACTION: dict[str, str] = {
 
 
 def shell_action(cmd: str) -> str:
-    """Map a shell command to an action bucket (test/vcs/vcs_read/read/execute).
+    """Map a shell command to an action bucket (test/vcs/read/execute).
 
-    Priority: test > vcs (write) > vcs_read > read > execute.
+    Priority: test > vcs (write) > read > execute.
+    Uses the same segment-splitting as classify_shell_command.
     """
-    if _RE_SHELL_TEST.search(cmd):
-        return "test"
-    if _RE_SHELL_GIT_WRITE.search(cmd):
-        return "vcs"
-    if _RE_SHELL_GIT_READ.search(cmd):
-        return "vcs_read"
-    if _RE_SHELL_INVESTIGATE.search(cmd):
-        return "read"
-    return "execute"
+    activity = classify_shell_command(cmd)
+    # Map from activity names to action buckets
+    _map = {
+        "verification": "test",
+        "git_ops": "vcs",
+        "implementation": "execute",
+        "setup": "execute",
+        "investigation": "read",
+        "shell_other": "execute",
+    }
+    return _map.get(activity, "execute")
 
 
 def classify_action_from_tools(
@@ -255,10 +447,9 @@ def classify_action_from_tools(
         return "execute"
     if has_delegate:
         return "delegate"
-    if (
-        any(c in tool_categories for c in ("file_read", "file_search", "browser", "git_read"))
-        or "vcs_read" in shell_actions
-    ):
+    if any(c in tool_categories for c in ("file_read", "file_search", "browser", "git_read")):
+        return "read"
+    if "read" in shell_actions:
         return "read"
     return "think"
 
@@ -292,10 +483,14 @@ def refine_shell_category(tool_args_json: str | None) -> str | None:
     cmd = str(parsed.get("command", "") or parsed.get("cmd", "") or parsed.get("input", ""))
     if not cmd:
         return None
-    if _RE_SHELL_GIT_WRITE.search(cmd):
-        return "git_write"
-    if _RE_SHELL_GIT_READ.search(cmd):
-        return "git_read"
+    for seg in _split_shell(cmd):
+        seg = _strip_env_vars(seg)
+        if not seg:
+            continue
+        if _RE_SHELL_GIT_WRITE.search(seg):
+            return "git_write"
+        if _RE_SHELL_GIT_READ.search(seg):
+            return "git_read"
     return None
 
 

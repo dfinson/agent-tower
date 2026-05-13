@@ -60,6 +60,7 @@ class DomainEventKind(StrEnum):
     repo_index_progress = "RepoIndexProgress"
     repo_index_complete = "RepoIndexComplete"
     structural_warning = "StructuralWarning"
+    stall_detected = "StallDetected"
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +179,9 @@ class JobFailedPayloadDict(_BasePayload, total=False):
 class SessionHeartbeatPayloadDict(_BasePayload, total=False):
     session_id: str
     timestamp: str
+    last_activity_at: str
+    active_tool_name: str
+    active_tool_since: str
 
 
 class MergeCompletedPayloadDict(_BasePayload, total=False):

@@ -135,8 +135,9 @@ def _classify_turn_intent(
     # Priority 5b: Pure delegation — only agent tools, no other content tools.
     # The per-tool weighted path resolves this to the sub-agent's actual activity;
     # this fallback only fires when tool_activity_weights is empty.
+    # Conservative: if we can't resolve sub-agent activity, classify as investigation.
     if has_agents:
-        return "delegation"
+        return "investigation"
 
     # Priority 6: Unclassified shell commands (arbitrary bash)
     if "shell_other" in shell_intents:
@@ -155,9 +156,6 @@ def _classify_turn_intent(
     if out_tok > 0:
         return "communication"
     return "reasoning"
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -352,8 +350,6 @@ async def _compute_attribution(
     job_row = job_meta.mappings().first()
     job_row_dict: dict[str, Any] = dict(job_row) if job_row else {}
     job_model = job_row_dict.get("model", "") or ""
-    job_description = job_row_dict.get("description", "") or ""
-    job_prompt = job_row_dict.get("prompt", "") or ""
 
     # --- Aggregate by dimension ---
     by_turn: dict[int, CostBucket] = defaultdict(lambda: _zero_bucket())
@@ -507,7 +503,7 @@ async def _compute_attribution(
                         activity_call_counts[act] += max(1, int(delegation_calls * frac))
                 else:
                     # No sub-agent turns found — redistribute to other tools in this turn,
-                    # or fall back to "delegation" if this is a pure delegation turn
+                    # or fall back to "investigation" if this is a pure delegation turn
                     if activity_weight_sums:
                         # Redistribute proportionally to existing activities
                         existing_total = sum(activity_weight_sums.values())
@@ -515,8 +511,8 @@ async def _compute_attribution(
                             share = activity_weight_sums[act] / existing_total if existing_total > 0 else 1
                             activity_weight_sums[act] += int(delegation_weight * share)
                     else:
-                        activity_weight_sums["delegation"] = delegation_weight
-                        activity_call_counts["delegation"] = delegation_calls
+                        activity_weight_sums["investigation"] = delegation_weight
+                        activity_call_counts["investigation"] = delegation_calls
 
             for activity, weight_sum in activity_weight_sums.items():
                 fraction = weight_sum / total_weight if total_weight > 0 else 1 / len(activity_weight_sums)

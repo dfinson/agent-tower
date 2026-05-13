@@ -50,7 +50,7 @@ _CATEGORY_TO_ACTIVITY: dict[str, str] = {
     "file_read": "investigation",
     "file_search": "investigation",
     "browser": "investigation",
-    "agent": "delegation",
+    "agent": "investigation",
     "bookkeeping": "overhead",
     "thinking": "reasoning",
 }

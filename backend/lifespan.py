@@ -97,7 +97,6 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
     If neither strategy can confirm Access is active, shuts down to prevent
     unprotected exposure.
     """
-    import base64
     import urllib.error
     import urllib.request
 
@@ -126,9 +125,18 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
                     if hostname in self_hosted:
                         log.info("cloudflare_access_verified", url=tunnel_url, method="sdk", app_name=access_app.name)
                         return
-                log.warning("cf_access_sdk_no_match", hostname=hostname, msg="No Access application found covering this hostname via API")
+                log.warning(
+                    "cf_access_sdk_no_match",
+                    hostname=hostname,
+                    msg="No Access application found covering this hostname via API",
+                )
             except Exception as exc:
-                log.warning("cf_access_sdk_failed", error=str(exc), type=type(exc).__name__, msg="Falling back to HTTP probe")
+                log.warning(
+                    "cf_access_sdk_failed",
+                    error=str(exc),
+                    type=type(exc).__name__,
+                    msg="Falling back to HTTP probe",
+                )
 
     # --- Strategy 2: HTTP probe with retries ---
     # Wait for the local server to be ready (it just yielded, so should be immediate)

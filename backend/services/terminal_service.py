@@ -27,8 +27,6 @@ import structlog
 from backend.models.domain import ServiceInitError
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from fastapi import WebSocket
 
 log = structlog.get_logger()

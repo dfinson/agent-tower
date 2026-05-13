@@ -493,6 +493,9 @@ class SessionHeartbeatPayload(CamelModel):
     job_id: str
     session_id: str
     timestamp: datetime
+    last_activity_at: datetime | None = None
+    active_tool_name: str | None = None
+    active_tool_since: datetime | None = None
 
 
 class MergeCompletedPayload(CamelModel):
@@ -653,6 +656,13 @@ class StructuralWarningPayload(CamelModel):
     repo: str = ""
     warning_type: str = ""
     detail: str = ""
+
+
+class StallDetectedPayload(CamelModel):
+    job_id: str = ""
+    tool_name: str = ""
+    elapsed: str = ""
+    reason: str = ""
 
 
 class SnapshotPayload(CamelModel):

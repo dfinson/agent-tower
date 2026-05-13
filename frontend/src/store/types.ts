@@ -246,6 +246,8 @@ export interface AppState {
   hoveredPlanItemId: string | null;
   /** Incremented when policy settings change via SSE — triggers re-fetch. */
   policySettingsVersion: number;
+  /** Per-job heartbeat info — last activity timestamp and active tool. */
+  jobHeartbeats: Record<string, { lastActivityAt: string; activeToolName?: string; activeToolSince?: string }>;
 
   // Actions
   setConnectionStatus: (status: ConnectionStatus) => void;
