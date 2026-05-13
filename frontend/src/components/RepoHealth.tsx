@@ -43,7 +43,16 @@ export function RepoHealth() {
     }
   }, [decoded]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let ignore = false;
+    if (!decoded) return;
+    setLoading(true);
+    fetchHealth(decoded)
+      .then((res) => { if (!ignore) setHealth(res); })
+      .catch(() => { if (!ignore) toast.error("Failed to load health data"); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, [decoded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">

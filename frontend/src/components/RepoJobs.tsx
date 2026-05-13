@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Briefcase } from "lucide-react";
 import { toast } from "sonner";
@@ -60,20 +60,16 @@ export function RepoJobs() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [period, setPeriod] = useState(30);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
     if (!decoded) return;
+    let ignore = false;
     setLoading(true);
-    try {
-      const res = await fetchAnalyticsJobs({ period, repo: decoded, limit: 100 });
-      setJobs((res as { jobs?: JobRow[] }).jobs ?? []);
-    } catch {
-      toast.error("Failed to load jobs");
-    } finally {
-      setLoading(false);
-    }
+    fetchAnalyticsJobs({ period, repo: decoded, limit: 100 })
+      .then((res) => { if (!ignore) setJobs(res.jobs as unknown as JobRow[]); })
+      .catch(() => { if (!ignore) toast.error("Failed to load jobs"); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [decoded, period]);
-
-  useEffect(() => { load(); }, [load]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">

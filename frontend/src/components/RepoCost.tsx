@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, DollarSign, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,28 +26,25 @@ export function RepoCost() {
   const [totalCost, setTotalCost] = useState(0);
   const [totalJobs, setTotalJobs] = useState(0);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
     if (!decoded) return;
+    let ignore = false;
     setLoading(true);
-    try {
-      const [modelRes, yieldRes] = await Promise.all([
-        fetchModelComparison(period, decoded),
-        fetchYield(period, decoded),
-      ]);
-      setModels(modelRes.models);
-      setYieldData(yieldRes.categories);
-
-      // Aggregate totals from model comparison
-      setTotalCost(modelRes.models.reduce((s, m) => s + (m.totalCostUsd || 0), 0));
-      setTotalJobs(modelRes.models.reduce((s, m) => s + (m.jobCount || 0), 0));
-    } catch {
-      toast.error("Failed to load cost data");
-    } finally {
-      setLoading(false);
-    }
+    Promise.all([
+      fetchModelComparison(period, decoded),
+      fetchYield(period, decoded),
+    ])
+      .then(([modelRes, yieldRes]) => {
+        if (ignore) return;
+        setModels(modelRes.models);
+        setYieldData(yieldRes.categories);
+        setTotalCost(modelRes.models.reduce((s, m) => s + (m.totalCostUsd || 0), 0));
+        setTotalJobs(modelRes.models.reduce((s, m) => s + (m.jobCount || 0), 0));
+      })
+      .catch(() => { if (!ignore) toast.error("Failed to load cost data"); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [decoded, period]);
-
-  useEffect(() => { load(); }, [load]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">

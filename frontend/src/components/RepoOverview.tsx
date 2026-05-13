@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   GitBranch, Globe, Activity, DollarSign, Brain, Boxes,
@@ -66,21 +66,19 @@ export function RepoOverview() {
 
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<RepoSummaryResponse | null>(null);
+  const [error, setError] = useState(false);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
     if (!decoded) return;
+    let ignore = false;
     setLoading(true);
-    try {
-      const res = await fetchRepoSummary(decoded);
-      setSummary(res);
-    } catch {
-      toast.error("Failed to load repository summary");
-    } finally {
-      setLoading(false);
-    }
+    setError(false);
+    fetchRepoSummary(decoded)
+      .then((res) => { if (!ignore) setSummary(res); })
+      .catch(() => { if (!ignore) { setError(true); toast.error("Failed to load repository summary"); } })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [decoded]);
-
-  useEffect(() => { load(); }, [load]);
 
   if (loading) {
     return (
@@ -90,10 +88,10 @@ export function RepoOverview() {
     );
   }
 
-  if (!summary) {
+  if (error || !summary) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <p>Repository not found</p>
+        <p>{error ? "Failed to load repository" : "Repository not found"}</p>
       </div>
     );
   }

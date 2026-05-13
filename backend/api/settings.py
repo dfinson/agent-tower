@@ -155,6 +155,7 @@ async def get_repo_health(
     coderecon: FromDishka[CodeReconService],
 ) -> RepoHealthResponse:
     """Structural health status for a repository (§6.2)."""
+    log = structlog.get_logger()
     resolved = str(Path(repo_path).expanduser().resolve())
     if resolved not in config.repos:
         raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
@@ -163,8 +164,14 @@ async def get_repo_health(
         return RepoHealthResponse(repo=resolved)
 
     try:
-        repo_name = await coderecon.ensure_repo_indexed(resolved)
+        repo_name = await asyncio.wait_for(
+            coderecon.ensure_repo_indexed(resolved), timeout=30.0
+        )
+    except TimeoutError:
+        log.warning("repo_health.index_timeout", repo=resolved)
+        return RepoHealthResponse(repo=resolved, index_status="timeout")
     except Exception:
+        log.warning("repo_health.index_failed", repo=resolved, exc_info=True)
         return RepoHealthResponse(repo=resolved, index_status="error")
 
     # Gather health metrics
@@ -181,19 +188,19 @@ async def get_repo_health(
             file_count = status.get("file_count", 0)
             last_sha = status.get("last_indexed_sha")
     except Exception:
-        pass
+        log.debug("repo_health.status_failed", repo=resolved, exc_info=True)
 
     try:
         communities = await coderecon.graph_communities(repo_name, worktree="main")
         community_count = len(communities.communities) if communities.communities else 0
     except Exception:
-        pass
+        log.debug("repo_health.communities_failed", repo=resolved, exc_info=True)
 
     try:
         cycles = await coderecon.graph_cycles(repo_name, worktree="main")
         cycle_count = len(cycles.cycles) if cycles.cycles else 0
     except Exception:
-        pass
+        log.debug("repo_health.cycles_failed", repo=resolved, exc_info=True)
 
     return RepoHealthResponse(
         repo=resolved,
