@@ -116,38 +116,6 @@ def list_repos(
     return RepoListResponse(items=config.repos)
 
 
-@router.get("/settings/repos/{repo_path:path}", response_model=RepoDetailResponse)
-async def get_repo_detail(
-    repo_path: str,
-    config: FromDishka[CPLConfig],
-    git_service: FromDishka[GitService],
-) -> RepoDetailResponse:
-    """Get detailed config for a single registered repository."""
-    resolved = str(Path(repo_path).expanduser().resolve())
-    if resolved not in config.repos:
-        raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
-
-    origin_url: str | None = None
-    base_branch: str | None = None
-    current_branch: str | None = None
-    with contextlib.suppress(GitError):
-        raw_url = await git_service.get_origin_url(resolved)
-        if raw_url:
-            origin_url = GitService.strip_url_credentials(raw_url)
-    with contextlib.suppress(GitError):
-        base_branch = await git_service.get_default_branch(resolved)
-    with contextlib.suppress(GitError):
-        current_branch = await git_service.get_current_branch(cwd=resolved)
-
-    return RepoDetailResponse(
-        path=resolved,
-        origin_url=origin_url,
-        base_branch=base_branch,
-        current_branch=current_branch,
-        platform=detect_platform(origin_url),
-    )
-
-
 @router.get("/settings/repos/{repo_path:path}/health", response_model=RepoHealthResponse)
 async def get_repo_health(
     repo_path: str,
@@ -361,6 +329,41 @@ async def get_repo_summary(
         cost=cost_summary,
         memory=memory_preview,
         health=health,
+    )
+
+
+# NOTE: This catch-all route MUST be registered AFTER more specific
+# /health and /summary routes, because {repo_path:path} is greedy
+# and would otherwise consume the suffix as part of repo_path.
+@router.get("/settings/repos/{repo_path:path}", response_model=RepoDetailResponse)
+async def get_repo_detail(
+    repo_path: str,
+    config: FromDishka[CPLConfig],
+    git_service: FromDishka[GitService],
+) -> RepoDetailResponse:
+    """Get detailed config for a single registered repository."""
+    resolved = str(Path(repo_path).expanduser().resolve())
+    if resolved not in config.repos:
+        raise HTTPException(status_code=404, detail=f"Repository '{repo_path}' is not registered.")
+
+    origin_url: str | None = None
+    base_branch: str | None = None
+    current_branch: str | None = None
+    with contextlib.suppress(GitError):
+        raw_url = await git_service.get_origin_url(resolved)
+        if raw_url:
+            origin_url = GitService.strip_url_credentials(raw_url)
+    with contextlib.suppress(GitError):
+        base_branch = await git_service.get_default_branch(resolved)
+    with contextlib.suppress(GitError):
+        current_branch = await git_service.get_current_branch(cwd=resolved)
+
+    return RepoDetailResponse(
+        path=resolved,
+        origin_url=origin_url,
+        base_branch=base_branch,
+        current_branch=current_branch,
+        platform=detect_platform(origin_url),
     )
 
 
