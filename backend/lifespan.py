@@ -88,16 +88,49 @@ log = structlog.get_logger()
 async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> None:
     """Verify Cloudflare Access is active after the server starts accepting connections.
 
-    Waits for the local health endpoint, then probes through the tunnel.
-    If no Access gate is detected, logs a critical error and initiates shutdown.
+    Uses two strategies in order:
+    1. Cloudflare SDK — queries the Zero Trust Access API directly (requires
+       CLOUDFLARE_API_TOKEN with Access:Read permission).
+    2. HTTP probe fallback — probes through the tunnel looking for a CF Access
+       redirect (retries on transient connection errors).
+
+    If neither strategy can confirm Access is active, shuts down to prevent
+    unprotected exposure.
     """
+    import base64
     import urllib.error
     import urllib.request
 
     banner_args = getattr(app.state, "banner_args", {})
     local_port = banner_args.get("port", 8080)
     tunnel_url = tunnel_handle.origin
+    hostname = tunnel_url.removeprefix("https://").rstrip("/")
 
+    # --- Strategy 1: Cloudflare SDK ---
+    api_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    if api_token:
+        account_id = _extract_account_id_from_tunnel_token()
+        if account_id:
+            try:
+                from cloudflare import AsyncCloudflare
+
+                client = AsyncCloudflare(api_token=api_token)
+                apps = await client.zero_trust.access.applications.list(account_id=account_id)
+                for access_app in apps:
+                    # Check if any Access application covers this hostname
+                    if access_app.domain and access_app.domain == hostname:
+                        log.info("cloudflare_access_verified", url=tunnel_url, method="sdk", app_name=access_app.name)
+                        return
+                    # Also check self_hosted_domains for multi-domain apps
+                    self_hosted = getattr(access_app, "self_hosted_domains", None) or []
+                    if hostname in self_hosted:
+                        log.info("cloudflare_access_verified", url=tunnel_url, method="sdk", app_name=access_app.name)
+                        return
+                log.warning("cf_access_sdk_no_match", hostname=hostname, msg="No Access application found covering this hostname via API")
+            except Exception as exc:
+                log.warning("cf_access_sdk_failed", error=str(exc), type=type(exc).__name__, msg="Falling back to HTTP probe")
+
+    # --- Strategy 2: HTTP probe with retries ---
     # Wait for the local server to be ready (it just yielded, so should be immediate)
     for _ in range(20):
         try:
@@ -118,27 +151,42 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
             return None
 
     opener = urllib.request.build_opener(_NoRedirect)
-    try:
-        req = urllib.request.Request(f"{tunnel_url}/api/health", method="HEAD")
-        req.add_header("User-Agent", "cpl-preflight/1.0")
-        resp = opener.open(req, timeout=10)  # noqa: S310
-        log.info("cf_access_probe_response", status=resp.status, headers=dict(resp.headers))
-        if resp.headers.get("CF-Access-Domain"):
-            log.info("cloudflare_access_verified", url=tunnel_url)
-            return
-    except urllib.error.HTTPError as exc:
-        location = exc.headers.get("Location", "")
-        log.info(
-            "cf_access_probe_httperror",
-            status=exc.code,
-            location=location,
-            headers=dict(exc.headers) if exc.headers else {},
-        )
-        if "cloudflareaccess.com" in location or exc.headers.get("CF-Access-Domain"):
-            log.info("cloudflare_access_verified", url=tunnel_url)
-            return
-    except Exception as exc:
-        log.warning("cf_access_probe_exception", error=str(exc), type=type(exc).__name__)
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            req = urllib.request.Request(f"{tunnel_url}/api/health", method="HEAD")
+            req.add_header("User-Agent", "cpl-preflight/1.0")
+            resp = opener.open(req, timeout=10)  # noqa: S310
+            log.info("cf_access_probe_response", status=resp.status, headers=dict(resp.headers))
+            if resp.headers.get("CF-Access-Domain"):
+                log.info("cloudflare_access_verified", url=tunnel_url, method="http_probe")
+                return
+            # Got a 2xx without CF-Access-Domain — no Access gate
+            break
+        except urllib.error.HTTPError as exc:
+            location = exc.headers.get("Location", "")
+            log.info(
+                "cf_access_probe_httperror",
+                status=exc.code,
+                location=location,
+                headers=dict(exc.headers) if exc.headers else {},
+            )
+            if "cloudflareaccess.com" in location or exc.headers.get("CF-Access-Domain"):
+                log.info("cloudflare_access_verified", url=tunnel_url, method="http_probe")
+                return
+            # Non-Access HTTP error (e.g. 502 from tunnel not yet routing) — retry
+            if attempt < max_attempts - 1:
+                log.info("cf_access_probe_retrying", attempt=attempt + 1, status=exc.code)
+                await asyncio.sleep(2)
+                continue
+            break
+        except Exception as exc:
+            # Connection errors, timeouts — transient, retry
+            log.warning("cf_access_probe_exception", error=str(exc), type=type(exc).__name__, attempt=attempt + 1)
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(2)
+                continue
+            break
 
     # No Access gate detected — refuse to serve unprotected
     log.critical(
@@ -151,6 +199,22 @@ async def _deferred_cloudflare_access_check(tunnel_handle: Any, app: Any) -> Non
     import signal
 
     os.kill(os.getpid(), signal.SIGTERM)
+
+
+def _extract_account_id_from_tunnel_token() -> str | None:
+    """Extract the Cloudflare account ID from the tunnel token (base64 JSON with 'a' field)."""
+    import base64
+
+    token = os.environ.get("CPL_CLOUDFLARE_TUNNEL_TOKEN")
+    if not token:
+        return None
+    try:
+        # Token is base64-encoded JSON: {"a": "<account_id>", "t": "<tunnel_id>", "s": "..."}
+        decoded = base64.b64decode(token + "==")
+        data = json.loads(decoded)
+        return data.get("a")
+    except Exception:
+        return None
 
 
 def _print_qr_code(url: str) -> None:
