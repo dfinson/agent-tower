@@ -272,6 +272,7 @@ class _CoreServices:
     platform_registry: PlatformRegistry
     merge_service: MergeService
     sidecar_sessions: SidecarSessionManager
+    sidecar_dispatcher: SidecarDispatcher
     narrator_completer: NarratorCompleter
     memory_compacter: MemoryCompacter
     runtime_service: RuntimeService
@@ -516,6 +517,7 @@ async def _wire_core_services(
         platform_registry=platform_registry,
         merge_service=merge_service,
         sidecar_sessions=sidecar_sessions,
+        sidecar_dispatcher=sidecar_dispatcher,
         narrator_completer=narrator_completer,
         memory_compacter=memory_compacter,
         runtime_service=runtime_service,
@@ -1119,7 +1121,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             MergeService: services.merge_service,
             PlatformRegistry: services.platform_registry,
             SidecarSessionManager: services.sidecar_sessions,
-            SidecarDispatcher: sidecar_dispatcher,
+            SidecarDispatcher: services.sidecar_dispatcher,
             NarratorCompleter: services.narrator_completer,
             MemoryCompacter: services.memory_compacter,
             VoiceService: optional.voice_service,
@@ -1196,7 +1198,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if _ephemeral_tasks:
             await asyncio.gather(*_ephemeral_tasks, return_exceptions=True)
         await coderecon_service.stop()
-        await sidecar_dispatcher.shutdown()
+        await services.sidecar_dispatcher.shutdown()
         await services.sidecar_sessions.shutdown()
         await services.runtime_service.shutdown()
         sse_manager.close_all()

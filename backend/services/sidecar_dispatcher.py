@@ -29,6 +29,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from fnmatch import fnmatch
+from string import Formatter
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -38,7 +39,26 @@ if TYPE_CHECKING:
     from backend.services.event_bus import EventBus
     from backend.services.sidecar_session import SidecarSessionManager
 
+from backend.models.domain import SidecarConfig
+
 log = structlog.get_logger()
+
+
+class _SafeFormatter(Formatter):
+    """String formatter that only allows simple {key} substitutions.
+
+    Blocks attribute access ({key.attr}), index access ({key[0]}), and
+    format specs that could leak object internals.
+    """
+
+    def get_field(self, field_name: str, args: Any, kwargs: Any) -> tuple[Any, str]:
+        # Only allow simple key names — no dots, brackets, or conversions
+        if not field_name.isidentifier():
+            raise KeyError(field_name)
+        return super().get_field(field_name, args, kwargs)
+
+
+_safe_fmt = _SafeFormatter()
 
 # ---------------------------------------------------------------------------
 # Public type aliases
@@ -92,6 +112,7 @@ class RegexCondition:
     pattern: str
     source: str = "messages"
     once: bool = False
+    _compiled: re.Pattern[str] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -260,10 +281,16 @@ def _hydrate_condition(raw: dict[str, Any]) -> TriggerCondition:
             once=raw.get("once", False),
         )
     if kind == "regex":
+        pattern_str = raw.get("pattern", "")
+        try:
+            compiled = re.compile(pattern_str)
+        except re.error as exc:
+            raise ValueError(f"Invalid regex pattern: {exc}") from exc
         return RegexCondition(
-            pattern=raw.get("pattern", ""),
+            pattern=pattern_str,
             source=raw.get("source", "messages"),
             once=raw.get("once", False),
+            _compiled=compiled,
         )
     if kind == "file_pattern":
         return FilePatternCondition(
@@ -297,8 +324,11 @@ def _hydrate_parser(raw: dict[str, Any] | None) -> OutputParser:
 def _hydrate_route(raw: dict[str, Any]) -> OutputRoute:
     kind = raw.get("kind", "event_bus")
     if kind == "event_bus":
+        event_kind = raw.get("eventKind", "sidecar_result")
+        if not event_kind.startswith("sidecar_"):
+            event_kind = f"sidecar_{event_kind}"
         return EventBusRoute(
-            event_kind=raw.get("eventKind", "sidecar_result"),
+            event_kind=event_kind,
             payload_mapping=raw.get("payloadMapping") or {},
         )
     if kind == "job_metadata":
@@ -427,9 +457,14 @@ class SidecarDispatcher:
                 self._session_manager.open(
                     job_id,
                     defn.name,
-                    system_prompt=defn.system_prompt,
-                    max_turns=defn.max_turns,
-                    timeout_s=defn.timeout_s,
+                    config=SidecarConfig(
+                        name=defn.name,
+                        phase=defn.phase,
+                        lifetime=defn.lifetime,
+                        system_prompt=defn.system_prompt,
+                        max_turns=defn.max_turns,
+                        timeout_s=defn.timeout_s,
+                    ),
                 )
 
         log.info(
@@ -486,7 +521,7 @@ class SidecarDispatcher:
                             continue
                         if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
                             continue
-                        match = re.search(cond.pattern, content)
+                        match = (cond._compiled or re.compile(cond.pattern)).search(content)  # noqa: SLF001
                         if not match:
                             continue
                         if cond.once and (defn.name, idx) in state.fired_once:
@@ -589,9 +624,14 @@ class SidecarDispatcher:
             self._session_manager.open(
                 job_id,
                 defn.name,
-                system_prompt=defn.system_prompt,
-                max_turns=defn.max_turns,
-                timeout_s=defn.timeout_s,
+                config=SidecarConfig(
+                    name=defn.name,
+                    phase=defn.phase,
+                    lifetime=defn.lifetime,
+                    system_prompt=defn.system_prompt,
+                    max_turns=defn.max_turns,
+                    timeout_s=defn.timeout_s,
+                ),
             )
             for idx, pipeline in enumerate(defn.triggers):
                 await self._try_execute(job_id, state, defn, idx, None)
@@ -658,7 +698,12 @@ class SidecarDispatcher:
             if pipeline.concurrency == Concurrency.skip_if_running:
                 return
             if pipeline.concurrency == Concurrency.queue:
-                state.queued.append((defn, pipeline_idx, extra_context))
+                # Natural bound: one queued item per (definition, pipeline) pair.
+                max_queued = sum(len(d.triggers) for d in state.definitions)
+                if len(state.queued) < max_queued:
+                    state.queued.append((defn, pipeline_idx, extra_context))
+                else:
+                    log.warning("dispatcher_queue_full", job_id=job_id, sidecar=defn.name, cap=max_queued)
                 return
             # parallel — fall through
 
@@ -731,7 +776,7 @@ class SidecarDispatcher:
         if not pipeline.prompt_template:
             return
         try:
-            prompt = pipeline.prompt_template.format_map(ctx)
+            prompt = _safe_fmt.vformat(pipeline.prompt_template, (), ctx)
         except KeyError as e:
             log.warning(
                 "dispatcher_template_key_error",
@@ -744,7 +789,7 @@ class SidecarDispatcher:
         # 3. Get or create session
         if defn.lifetime == "ephemeral":
             # Ephemeral: create a one-shot session, call, discard
-            session = self._session_manager._make_session(
+            session = self._session_manager.make_ephemeral(
                 system_prompt=defn.system_prompt,
                 max_turns=1,
             )
@@ -756,9 +801,14 @@ class SidecarDispatcher:
                     self._session_manager.open(
                         job_id,
                         defn.name,
-                        system_prompt=defn.system_prompt,
-                        max_turns=defn.max_turns,
-                        timeout_s=defn.timeout_s,
+                        config=SidecarConfig(
+                            name=defn.name,
+                            phase=defn.phase,
+                            lifetime=defn.lifetime,
+                            system_prompt=defn.system_prompt,
+                            max_turns=defn.max_turns,
+                            timeout_s=defn.timeout_s,
+                        ),
                     )
                     session = self._session_manager.get(job_id, defn.name)
                 if session is None:

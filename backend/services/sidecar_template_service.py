@@ -31,6 +31,13 @@ _ALLOWED_CONDITIONS = ["event", "threshold", "manual", "regex", "file_pattern", 
 _ALLOWED_PHASES = ["preflight", "midflight", "postflight"]
 _ALLOWED_LIFETIMES = ["ephemeral", "windowed", "persistent"]
 _ALLOWED_SCOPES = ["global", "repo", "job"]
+_ALLOWED_ICONS = {
+    "shield", "eye", "search", "zap", "brain", "target", "flask", "bug",
+    "lock", "key", "compass", "gauge", "microscope", "alarm", "bookmark",
+    "clipboard", "filter", "flag", "heart", "lightbulb", "megaphone",
+    "palette", "radar", "satellite", "scanner", "scale", "siren",
+    "telescope", "wand",
+}
 
 _GENERATE_SYSTEM_PROMPT = """\
 You are a sidecar definition generator for CodePlane, a coding agent control plane.
@@ -247,6 +254,11 @@ def _validate_definition(definition_json: str) -> None:
     if scope not in _ALLOWED_SCOPES:
         raise ValueError(
             f"Invalid scope {scope!r}. Allowed: {_ALLOWED_SCOPES}"
+        )
+    icon = defn.get("icon")
+    if icon and icon not in _ALLOWED_ICONS:
+        raise ValueError(
+            f"Invalid icon {icon!r}. Allowed: {sorted(_ALLOWED_ICONS)}"
         )
     if defn["phase"] not in _ALLOWED_PHASES:
         raise ValueError(

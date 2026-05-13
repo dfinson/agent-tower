@@ -279,6 +279,17 @@ class SidecarSessionManager:
         self._fill_pool()
         return session
 
+    # -- Ephemeral sessions -------------------------------------------------
+
+    def make_ephemeral(
+        self,
+        *,
+        system_prompt: str | None = None,
+        max_turns: int | None = None,
+    ) -> SidecarSession:
+        """Create a disposable one-shot session (not tracked per-job)."""
+        return self._make_session(system_prompt=system_prompt, max_turns=max_turns)
+
     # -- Pre-warm (new-job panel) -------------------------------------------
 
     def warm(self) -> str:
