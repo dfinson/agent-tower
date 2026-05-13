@@ -268,13 +268,17 @@ def _grant_matches(grant: TrustGrant, action: Action) -> bool:
     if grant.job_id and grant.job_id != action.job_id:
         return False
 
-    # Path pattern (for file actions)
+    # Path pattern (for file actions) — normalize to prevent bypass
+    # via ./ or ../ tricks (e.g. "./secrets/key" vs "secrets/key")
     if grant.path_pattern:
-        if not action.path or not fnmatch.fnmatch(action.path, grant.path_pattern):
+        import os
+
+        norm_path = os.path.normpath(action.path) if action.path else None
+        if not norm_path or not fnmatch.fnmatch(norm_path, grant.path_pattern):
             return False
         # Check excludes
         for exclude in grant.excludes:
-            if fnmatch.fnmatch(action.path, exclude):
+            if fnmatch.fnmatch(norm_path, exclude):
                 return False
 
     # Command pattern (for shell actions)

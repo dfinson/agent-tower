@@ -60,6 +60,20 @@ _FIND_DANGEROUS_RE = re.compile(r"(?:^|\s)(?:-exec|-execdir|-delete|-ok|-okdir)\
 # sort -o overwrites the target file
 _SORT_OUTPUT_RE = re.compile(r"(?:^|\s)-o\b|(?:^|\s)--output(?:=|\s)")
 
+# docker run/exec flags that grant host-level access: container escape
+# risk via --privileged, host networking via --net=host/--network=host,
+# host PID namespace via --pid=host, and host filesystem mount via
+# -v /:/... or --volume /:/...  (mount source starting with /)
+_DOCKER_ESCAPE_RE = re.compile(
+    r"--privileged\b"
+    r"|--net(?:work)?[= ]host\b"
+    r"|--pid[= ]host\b"
+    r"|--cap-add[= ]\S*(?:ALL|SYS_ADMIN)\b"
+    r"|(?:^|\s)(?:-v\s+|--volume[= ])/:?"
+    r"|(?:^|\s)(?:-v\s+|--volume[= ])/[^: ]+:",
+    re.IGNORECASE,
+)
+
 # tee: can write to arbitrary paths including pseudo-devices (/dev/tcp);
 # classified as irreversible + contained, not observe.
 _POSIX_TEE = frozenset({"tee"})
@@ -216,8 +230,8 @@ _NPM_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
     "install": (True, True),
     "ci": (True, True),
     "test": (True, True),
-    "run": (True, True),
-    "start": (True, True),
+    "run": (False, True),  # executes arbitrary scripts from package.json
+    "start": (False, True),  # delegates to scripts.start
     "build": (True, True),
     "publish": (False, False),
     "unpublish": (False, False),
@@ -229,7 +243,7 @@ _CARGO_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
     "build": (True, True),
     "test": (True, True),
     "check": (True, True),
-    "run": (True, True),
+    "run": (False, True),  # compiles + runs arbitrary code
     "clippy": (True, True),
     "fmt": (True, True),
     "publish": (False, False),
@@ -238,7 +252,7 @@ _CARGO_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
 
 _DOCKER_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
     "build": (True, True),
-    "run": (True, True),
+    "run": (False, True),  # default; flag inspection below
     "exec": (False, True),
     "ps": (True, True),
     "images": (True, True),
@@ -493,6 +507,11 @@ def classify_shell(command: str) -> tuple[bool, bool]:
         # Special case: git reset --hard
         if binary == "git" and _GIT_RESET_HARD_RE.search(_strip_quotes(command)):
             return False, True
+
+        # Special case: docker run/exec with host-escape flags
+        if binary == "docker" and subcmd in ("run", "exec"):
+            if _DOCKER_ESCAPE_RE.search(command):
+                return False, False  # uncontained: host access
 
         if subcmd:
             result = tool_table.get(subcmd)

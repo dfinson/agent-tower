@@ -7,6 +7,7 @@ Tier resolution: explicit rules → preset logic → default.
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
 import threading
 from dataclasses import dataclass, field
@@ -340,8 +341,10 @@ def _match_explicit_rule(action: Action, policy: RepoPolicy) -> Tier | None:
     """Check if any explicit rule matches this action. Returns tier or None."""
     # Path rules (file actions)
     if action.kind == ActionKind.file and action.path:
+        # Normalize the path to prevent bypass via ./ or ../ tricks
+        norm_path = os.path.normpath(action.path)
         for rule in policy.path_rules:
-            if fnmatch.fnmatch(action.path, rule["path_pattern"]):
+            if fnmatch.fnmatch(norm_path, rule["path_pattern"]):
                 return Tier(rule["tier"])
 
     # Action rules (regex match against command or tool name)
