@@ -99,11 +99,7 @@ class PreflightCurator:
             return ""
 
         context_block = "\n\n".join(sections)
-        prompt = (
-            f"{_PREFLIGHT_SYSTEM_PROMPT}\n\n"
-            f"## Task\n{task}\n\n"
-            f"{context_block}"
-        )
+        prompt = f"{_PREFLIGHT_SYSTEM_PROMPT}\n\n## Task\n{task}\n\n{context_block}"
         t0 = time.monotonic()
         result = await self._adapter.complete(prompt)
         elapsed_ms = (time.monotonic() - t0) * 1000

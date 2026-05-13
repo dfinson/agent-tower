@@ -83,8 +83,8 @@ if TYPE_CHECKING:
 
     from backend.services.coderecon_service import CodeReconService
     from backend.services.memory_compacter import MemoryCompacter
-    from backend.services.preflight_curator import PreflightCurator
     from backend.services.memory_extractor import MemoryExtractor
+    from backend.services.preflight_curator import PreflightCurator
     from backend.services.step_tracker import StepTracker
     from backend.services.terminal_service import TerminalService
     from backend.services.trail import TrailService
@@ -2057,7 +2057,8 @@ class RuntimeService:
         if self._coderecon_service is not None and self._coderecon_service.available:
             try:
                 understand_result = await self._coderecon_service.understand(
-                    str(job.repo), worktree=worktree_path,
+                    str(job.repo),
+                    worktree=worktree_path,
                 )
             except Exception:
                 log.debug("preflight_curator.understand_failed", job_id=job.id, exc_info=True)

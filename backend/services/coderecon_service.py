@@ -167,9 +167,7 @@ class CodeReconService:
         """Circular dependency detection."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.graph_cycles(worktree=Path(worktree).name)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.graph_cycles(worktree=Path(worktree).name))
 
     async def graph_communities(
         self,
@@ -180,9 +178,7 @@ class CodeReconService:
         """Module community detection."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.graph_communities(worktree=Path(worktree).name)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.graph_communities(worktree=Path(worktree).name))
 
     async def check_structural_health(
         self,
@@ -207,9 +203,7 @@ class CodeReconService:
         if not hasattr(kit, "impact"):
             raise CodeReconUnavailableError
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.impact(target, worktree=Path(worktree).name)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.impact(target, worktree=Path(worktree).name))
 
     async def understand(
         self,
@@ -270,9 +264,7 @@ class CodeReconService:
         """Run coderecon recon_map."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.recon_map(worktree=Path(worktree).name)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.recon_map(worktree=Path(worktree).name))
 
     async def recon_impact(
         self,
@@ -294,9 +286,7 @@ class CodeReconService:
         """Run coderecon scaffold."""
         kit = self._get_kit(repo)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            self._executor, lambda: kit.scaffold(path=path, worktree=Path(worktree).name)
-        )
+        return await loop.run_in_executor(self._executor, lambda: kit.scaffold(path=path, worktree=Path(worktree).name))
 
     async def get_sdk(self) -> Any:
         """Return the raw coderecon SDK for direct access."""
