@@ -25,7 +25,7 @@ _ALLOWED_CONTEXT_SOURCES = ["trigger_event", "job_diff", "job_prompt", "recent_m
 _ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata", "agent_message", "gate"]
 
 # Trigger conditions available to custom sidecars.
-_ALLOWED_CONDITIONS = ["event", "threshold", "manual"]
+_ALLOWED_CONDITIONS = ["event", "threshold", "manual", "regex", "file_pattern", "content_match"]
 
 # Allowed phases and lifetimes.
 _ALLOWED_PHASES = ["preflight", "midflight", "postflight"]
@@ -48,10 +48,13 @@ Available fields:
 - "triggers": Array of trigger pipeline objects. Required, at least one.
 
 Each trigger object has:
-- "condition": {"kind": "<kind>"} where kind is one of: "event", "threshold", "manual".
+- "condition": {"kind": "<kind>"} where kind is one of: "event", "threshold", "manual", "regex", "file_pattern", "content_match".
   - event conditions: {"kind": "event", "eventKind": "<event_type>"}
   - threshold conditions: {"kind": "threshold", "metric": "messages"|"tool_calls", "value": <int>}
   - manual conditions: {"kind": "manual"}
+  - regex conditions: {"kind": "regex", "pattern": "<regex>", "source": "messages"|"tool_calls"|"tool_output"}. Named capture groups become template variables.
+  - file_pattern conditions: {"kind": "file_pattern", "glob": "<glob>", "changeKind": "any"|"added"|"modified"|"deleted"}. Fires when changed files match the glob.
+  - content_match conditions: {"kind": "content_match", "keywords": ["<word>", ...], "caseSensitive": false}. Fires when agent output contains any keyword.
 - "contextSources": Array of context provider names. Available: "trigger_event", "job_diff", "job_prompt", "recent_messages".
 - "promptTemplate": Jinja-style template string with {variable} placeholders matching context source keys.
 - "outputParser": {"kind": "plain_text"} or {"kind": "json_object"} or {"kind": "json_array"}.
@@ -64,6 +67,8 @@ Each trigger object has:
 Guidelines:
 - For code review tasks, use phase "postflight" with manual trigger and "job_diff" context.
 - For monitoring tasks (watching progress), use phase "midflight" with threshold triggers.
+- For pattern-matching tasks (detecting phrases, bad patterns), use regex or content_match conditions.
+- For file-type-specific reviews (SQL migrations, configs), use file_pattern conditions.
 - For one-shot analysis, use lifetime "ephemeral". For ongoing monitoring, use "persistent".
 - When the sidecar should influence the agent's behavior, use "agent_message" to send feedback.
 - When the sidecar must approve/block agent actions, use "gate" with a json_object output parser that returns {"verdict": "approve"|"reject", "reason": "..."}.

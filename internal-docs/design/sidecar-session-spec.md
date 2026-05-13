@@ -64,7 +64,7 @@ condition met?
 
 ## Trigger conditions
 
-Four kinds. All parametrized. No handler functions.
+Seven kinds. All parametrized. No handler functions.
 
 ```python
 @dataclass(frozen=True)
@@ -92,8 +92,52 @@ class ManualCondition:
     """Fires on explicit API call."""
     pass
 
-TriggerCondition = EventCondition | TimerCondition | ThresholdCondition | ManualCondition
+@dataclass(frozen=True)
+class RegexCondition:
+    """Fires when agent output matches a regex pattern.
+
+    The dispatcher applies the pattern against each new agent message.
+    Named capture groups are injected into the trigger context as
+    template variables (in addition to the standard context sources).
+    """
+    pattern: str                            # Python-flavored regex
+    source: str = "messages"                # "messages" | "tool_calls" | "tool_output"
+    once: bool = False                      # fire only the first match
+
+@dataclass(frozen=True)
+class FilePatternCondition:
+    """Fires when changed files match a glob pattern.
+
+    Evaluated after each tool call that modifies the worktree. The
+    dispatcher diffs the working tree and tests each changed path
+    against the pattern.
+    """
+    glob: str                               # e.g. "**/*.sql", "src/api/**"
+    change_kind: str = "any"                # "any" | "added" | "modified" | "deleted"
+
+@dataclass(frozen=True)
+class ContentMatchCondition:
+    """Fires when agent messages contain a substring or keyword.
+
+    Simpler than RegexCondition for plain keyword detection.
+    Case-insensitive by default.
+    """
+    keywords: tuple[str, ...]               # any match triggers
+    case_sensitive: bool = False
+    source: str = "messages"                # "messages" | "tool_calls" | "tool_output"
+    once: bool = False
+
+TriggerCondition = (
+    EventCondition | TimerCondition | ThresholdCondition | ManualCondition
+    | RegexCondition | FilePatternCondition | ContentMatchCondition
+)
 ```
+
+### Custom sidecar allowed conditions
+
+Custom sidecars may use: `event`, `threshold`, `manual`, `regex`,
+`file_pattern`, `content_match`. `timer` conditions are reserved for
+built-in sidecars (they require a system-level tick loop).
 
 ## Context providers
 
@@ -622,7 +666,8 @@ Custom sidecars are `SidecarDefinition` instances constructed from the
 
 - `name` must not collide with a built-in unless the definition also sets
   `"override": true`.
-- Custom sidecars may use: `event`, `threshold`, `manual` conditions.
+- Custom sidecars may use: `event`, `threshold`, `manual`, `regex`,
+  `file_pattern`, `content_match` conditions.
   `timer` conditions are reserved for built-in sidecars (they require a
   system-level tick loop).
 - `contextSources` for custom sidecars are restricted to a safe subset:

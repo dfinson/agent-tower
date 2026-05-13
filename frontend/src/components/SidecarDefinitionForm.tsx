@@ -3,6 +3,7 @@ import { Info, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { generateSidecarDefinition } from "../api/client";
 import { MicButton } from "./VoiceButton";
+import { TriggerPipelineEditor, type TriggerPipeline } from "./TriggerPipelineEditor";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -43,6 +44,23 @@ function FieldTip({ text }: { text: string }) {
   );
 }
 
+const DEFAULT_TRIGGERS: TriggerPipeline[] = [{
+  condition: { kind: "manual" },
+  contextSources: ["job_diff"],
+  promptTemplate: "{diff}",
+  outputParser: { kind: "plain_text" },
+  outputRoutes: [{ kind: "event_bus", eventKind: "sidecar_result" }],
+}];
+
+function parseTriggersString(raw: string | undefined): TriggerPipeline[] {
+  if (!raw) return DEFAULT_TRIGGERS;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch { /* fall through */ }
+  return DEFAULT_TRIGGERS;
+}
+
 interface SidecarDefinitionFormProps {
   initial?: Partial<SidecarDefinitionFormData>;
   onSave: (data: SidecarDefinitionFormData, definitionJson: string) => void;
@@ -66,7 +84,9 @@ export function SidecarDefinitionForm({
   const [lifetime, setLifetime] = useState(initial?.lifetime ?? "ephemeral");
   const [model, setModel] = useState(initial?.model ?? "claude-sonnet-4-20250514");
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? "");
-  const [triggers, setTriggers] = useState(initial?.triggers ?? '[{"condition":{"kind":"manual"},"contextSources":["job_diff"],"promptTemplate":"{diff}","outputParser":{"kind":"plain_text"},"outputRoutes":[{"kind":"event_bus","eventKind":"sidecar_result"}]}]');
+  const [triggers, setTriggers] = useState<TriggerPipeline[]>(
+    parseTriggersString(initial?.triggers),
+  );
   const [formPopulated, setFormPopulated] = useState(!!initial?.name);
   const waveformRef = useRef<HTMLDivElement>(null);
 
@@ -82,8 +102,8 @@ export function SidecarDefinitionForm({
       setLifetime(defn.lifetime as string || "ephemeral");
       setModel(defn.model as string || "claude-sonnet-4-20250514");
       setSystemPrompt(defn.systemPrompt as string || "");
-      if (defn.triggers) {
-        setTriggers(JSON.stringify(defn.triggers, null, 2));
+      if (Array.isArray(defn.triggers) && defn.triggers.length > 0) {
+        setTriggers(defn.triggers as TriggerPipeline[]);
       }
       setFormPopulated(true);
     } catch (e) {
@@ -102,13 +122,11 @@ export function SidecarDefinitionForm({
       toast.error("Description is required");
       return;
     }
-    let parsedTriggers;
-    try {
-      parsedTriggers = JSON.parse(triggers);
-    } catch {
-      toast.error("Invalid triggers JSON");
+    if (triggers.length === 0) {
+      toast.error("At least one trigger is required");
       return;
     }
+    const triggersJson = JSON.stringify(triggers);
     const definition = {
       name: name.trim(),
       description: description.trim(),
@@ -116,11 +134,11 @@ export function SidecarDefinitionForm({
       lifetime,
       model: model || undefined,
       systemPrompt,
-      triggers: parsedTriggers,
+      triggers,
     };
     const definitionJson = JSON.stringify(definition);
     onSave(
-      { name: name.trim(), description: description.trim(), phase, lifetime, model, systemPrompt, triggers },
+      { name: name.trim(), description: description.trim(), phase, lifetime, model, systemPrompt, triggers: triggersJson },
       definitionJson,
     );
   }, [name, description, phase, lifetime, model, systemPrompt, triggers, onSave]);
@@ -265,26 +283,11 @@ export function SidecarDefinitionForm({
           {/* Triggers */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">
-              <Tooltip
-                content={
-                  <div className="max-w-xs space-y-1.5">
-                    <p className="font-medium">Trigger pipeline configuration</p>
-                    <p><strong>Conditions:</strong> event, threshold, manual</p>
-                    <p><strong>Context:</strong> trigger_event, job_diff, job_prompt, recent_messages</p>
-                    <p><strong>Output routes:</strong> event_bus, job_metadata, agent_message, gate</p>
-                    <p className="text-muted-foreground">agent_message injects feedback into the agent's conversation. gate blocks the agent until the sidecar approves.</p>
-                  </div>
-                }
-              >
+              <Tooltip content="Pipeline stages that fire this sidecar. Each trigger has a condition, context, prompt template, parser, and output routes.">
                 <Label className="cursor-help w-fit">Triggers</Label>
               </Tooltip>
             </div>
-            <Textarea
-              value={triggers}
-              onChange={(e) => setTriggers(e.target.value)}
-              autoResize
-              className="min-h-[80px] font-mono text-xs"
-            />
+            <TriggerPipelineEditor value={triggers} onChange={setTriggers} />
           </div>
 
           {/* Actions */}
