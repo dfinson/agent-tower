@@ -165,7 +165,9 @@ class JobTelemetrySummaryRow(Base):
     __tablename__ = "job_telemetry_summary"
 
     job_id: Mapped[str] = mapped_column(String, ForeignKey("jobs.id"), primary_key=True)
-    session_kind: Mapped[str] = mapped_column(String, nullable=False, default="job", server_default="job", primary_key=True)
+    session_kind: Mapped[str] = mapped_column(
+        String, nullable=False, default="job", server_default="job", primary_key=True
+    )
     sdk: Mapped[str] = mapped_column(String, nullable=False)
     model: Mapped[str] = mapped_column(String, nullable=False, default="")
     repo: Mapped[str] = mapped_column(String, nullable=False, default="")

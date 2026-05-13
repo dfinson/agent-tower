@@ -301,7 +301,8 @@ class ClaudeAdapter(BaseAgentAdapter):
 
             session_kind = self.get_session_kind(session_id)
             tel.messages_counter.add(
-                1, {"job_id": job_id, "sdk": "claude", "role": "operator", "session_kind": session_kind},
+                1,
+                {"job_id": job_id, "sdk": "claude", "role": "operator", "session_kind": session_kind},
             )
             self._schedule_db_write(
                 self._db_write_increment(job_id=job_id, session_kind=session_kind, operator_messages=1),
@@ -346,7 +347,8 @@ class ClaudeAdapter(BaseAgentAdapter):
                     from backend.services import telemetry as tel
 
                     tel.messages_counter.add(
-                        1, {"job_id": job_id, "sdk": "claude", "role": "agent", "session_kind": session_kind},
+                        1,
+                        {"job_id": job_id, "sdk": "claude", "role": "agent", "session_kind": session_kind},
                     )
                     self._schedule_db_write(
                         self._db_write_increment(

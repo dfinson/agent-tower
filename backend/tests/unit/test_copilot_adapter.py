@@ -706,13 +706,24 @@ class TestEventTelemetry:
         ):
             session.fire_event(_FakeSdkSessionEvent("assistant.usage", data))
 
-            mock_in.add.assert_called_once_with(100, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"})
-            mock_out.add.assert_called_once_with(50, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"})
-            mock_cr.add.assert_called_once_with(10, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"})
-            mock_cw.add.assert_called_once_with(5, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"})
-            mock_cost.add.assert_called_once_with(0.002, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"})
+            mock_in.add.assert_called_once_with(
+                100, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+            )
+            mock_out.add.assert_called_once_with(
+                50, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+            )
+            mock_cr.add.assert_called_once_with(
+                10, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+            )
+            mock_cw.add.assert_called_once_with(
+                5, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+            )
+            mock_cost.add.assert_called_once_with(
+                0.002, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job"}
+            )
             mock_dur.record.assert_called_once_with(
-                1500.0, {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job", "is_subagent": False}
+                1500.0,
+                {"job_id": "job-tel", "sdk": "copilot", "model": "gpt-4o", "session_kind": "job", "is_subagent": False},
             )
 
     @pytest.mark.asyncio
@@ -938,7 +949,9 @@ class TestEventTelemetry:
         with patch("backend.services.telemetry.context_window_gauge") as mock_gauge:
             session.fire_event(_FakeSdkSessionEvent("session.truncation", data))
 
-            mock_gauge.set.assert_called_once_with(128000, {"job_id": "job-tel", "sdk": "copilot", "session_kind": "job"})
+            mock_gauge.set.assert_called_once_with(
+                128000, {"job_id": "job-tel", "sdk": "copilot", "session_kind": "job"}
+            )
 
     @pytest.mark.asyncio
     async def test_session_model_change(self, adapter: CopilotAdapter) -> None:
@@ -960,7 +973,9 @@ class TestEventTelemetry:
         with patch("backend.services.telemetry.messages_counter") as mock_msg:
             session.fire_event(_FakeSdkSessionEvent("assistant.message", data))
 
-            mock_msg.add.assert_called_once_with(1, {"job_id": "job-tel", "sdk": "copilot", "role": "agent", "session_kind": "job"})
+            mock_msg.add.assert_called_once_with(
+                1, {"job_id": "job-tel", "sdk": "copilot", "role": "agent", "session_kind": "job"}
+            )
 
     @pytest.mark.asyncio
     async def test_user_message_records_telemetry(self, adapter: CopilotAdapter) -> None:
@@ -971,7 +986,9 @@ class TestEventTelemetry:
         with patch("backend.services.telemetry.messages_counter") as mock_msg:
             session.fire_event(_FakeSdkSessionEvent("user.message", data))
 
-            mock_msg.add.assert_called_once_with(1, {"job_id": "job-tel", "sdk": "copilot", "role": "operator", "session_kind": "job"})
+            mock_msg.add.assert_called_once_with(
+                1, {"job_id": "job-tel", "sdk": "copilot", "role": "operator", "session_kind": "job"}
+            )
 
 
 # ---------------------------------------------------------------------------

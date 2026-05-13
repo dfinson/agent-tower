@@ -17,18 +17,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.config import CPLConfig
 from backend.persistence.approval_repo import ApprovalRepository
 from backend.persistence.cost_attribution_repo import CostAttributionRepository
-from backend.persistence.sidecar_template_repo import SidecarTemplateRepository
 from backend.persistence.event_repo import EventRepository
 from backend.persistence.file_access_repo import FileAccessRepository
 from backend.persistence.job_repo import JobRepository
 from backend.persistence.latency_attribution_repo import LatencyAttributionRepository
+from backend.persistence.sidecar_template_repo import SidecarTemplateRepository
 from backend.persistence.step_repo import StepRepository
 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 from backend.persistence.telemetry_summary_repo import TelemetrySummaryRepository
 from backend.services.analytics_service import AnalyticsService
 from backend.services.approval_service import ApprovalService
 from backend.services.artifact_service import ArtifactService
-from backend.services.watcher.claude import ClaudeSessionStateWatcher
 from backend.services.coderecon_service import CodeReconService
 from backend.services.diff_service import DiffService
 from backend.services.event_bus import EventBus
@@ -38,7 +37,6 @@ from backend.services.job_service import JobService
 from backend.services.memory.compacter import MemoryCompacter
 from backend.services.merge_service import MergeService
 from backend.services.naming_service import NamingService
-from backend.services.sidecar.template_service import SidecarTemplateService
 from backend.services.narrator_completer import NarratorCompleter
 from backend.services.platform_adapter import PlatformRegistry
 from backend.services.push_service import PushService
@@ -46,6 +44,7 @@ from backend.services.runtime import RuntimeService
 from backend.services.share_service import ShareService
 from backend.services.sidecar.dispatcher import SidecarDispatcher
 from backend.services.sidecar.session import SidecarSessionManager
+from backend.services.sidecar.template_service import SidecarTemplateService
 from backend.services.sse_manager import SSEManager
 from backend.services.steps.diff_service import StepDiffService
 from backend.services.story.service import StoryService
@@ -53,6 +52,7 @@ from backend.services.telemetry_query_service import TelemetryQueryService
 from backend.services.terminal_service import TerminalService
 from backend.services.trail import TrailService
 from backend.services.voice_service import VoiceService
+from backend.services.watcher.claude import ClaudeSessionStateWatcher
 
 # NewType wrappers for plain values that need unique DI keys
 CachedModelsBySdk = NewType("CachedModelsBySdk", dict[str, Any])

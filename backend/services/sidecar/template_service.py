@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -32,11 +31,35 @@ _ALLOWED_PHASES = ["preflight", "midflight", "postflight"]
 _ALLOWED_LIFETIMES = ["ephemeral", "windowed", "persistent"]
 _ALLOWED_SCOPES = ["global", "repo", "job"]
 _ALLOWED_ICONS = {
-    "shield", "eye", "search", "zap", "brain", "target", "flask", "bug",
-    "lock", "key", "compass", "gauge", "microscope", "alarm", "bookmark",
-    "clipboard", "filter", "flag", "heart", "lightbulb", "megaphone",
-    "palette", "radar", "satellite", "scanner", "scale", "siren",
-    "telescope", "wand",
+    "shield",
+    "eye",
+    "search",
+    "zap",
+    "brain",
+    "target",
+    "flask",
+    "bug",
+    "lock",
+    "key",
+    "compass",
+    "gauge",
+    "microscope",
+    "alarm",
+    "bookmark",
+    "clipboard",
+    "filter",
+    "flag",
+    "heart",
+    "lightbulb",
+    "megaphone",
+    "palette",
+    "radar",
+    "satellite",
+    "scanner",
+    "scale",
+    "siren",
+    "telescope",
+    "wand",
 }
 
 _GENERATE_SYSTEM_PROMPT = """\
@@ -183,11 +206,7 @@ class SidecarTemplateService:
 
         Returns the parsed JSON definition dict.
         """
-        prompt = (
-            _GENERATE_SYSTEM_PROMPT
-            + "\n\n"
-            + _GENERATE_USER_PROMPT.format(description=description)
-        )
+        prompt = _GENERATE_SYSTEM_PROMPT + "\n\n" + _GENERATE_USER_PROMPT.format(description=description)
         raw = await self._sidecar_sessions.complete(prompt)
         if not raw:
             raise ValueError("Empty response from LLM")
@@ -252,22 +271,14 @@ def _validate_definition(definition_json: str) -> None:
 
     scope = defn.get("scope", "global")
     if scope not in _ALLOWED_SCOPES:
-        raise ValueError(
-            f"Invalid scope {scope!r}. Allowed: {_ALLOWED_SCOPES}"
-        )
+        raise ValueError(f"Invalid scope {scope!r}. Allowed: {_ALLOWED_SCOPES}")
     icon = defn.get("icon")
     if icon and icon not in _ALLOWED_ICONS:
-        raise ValueError(
-            f"Invalid icon {icon!r}. Allowed: {sorted(_ALLOWED_ICONS)}"
-        )
+        raise ValueError(f"Invalid icon {icon!r}. Allowed: {sorted(_ALLOWED_ICONS)}")
     if defn["phase"] not in _ALLOWED_PHASES:
-        raise ValueError(
-            f"Invalid phase {defn['phase']!r}. Allowed: {_ALLOWED_PHASES}"
-        )
+        raise ValueError(f"Invalid phase {defn['phase']!r}. Allowed: {_ALLOWED_PHASES}")
     if defn["lifetime"] not in _ALLOWED_LIFETIMES:
-        raise ValueError(
-            f"Invalid lifetime {defn['lifetime']!r}. Allowed: {_ALLOWED_LIFETIMES}"
-        )
+        raise ValueError(f"Invalid lifetime {defn['lifetime']!r}. Allowed: {_ALLOWED_LIFETIMES}")
     if not isinstance(defn["systemPrompt"], str) or not defn["systemPrompt"].strip():
         raise ValueError("systemPrompt must be a non-empty string")
 
@@ -283,8 +294,7 @@ def _validate_definition(definition_json: str) -> None:
         for source in trigger.get("contextSources", []):
             if source not in _ALLOWED_CONTEXT_SOURCES:
                 raise ValueError(
-                    f"Context source {source!r} is not allowed for custom sidecars. "
-                    f"Allowed: {_ALLOWED_CONTEXT_SOURCES}"
+                    f"Context source {source!r} is not allowed for custom sidecars. Allowed: {_ALLOWED_CONTEXT_SOURCES}"
                 )
 
         # Validate output routes
@@ -292,8 +302,7 @@ def _validate_definition(definition_json: str) -> None:
             kind = route.get("kind")
             if kind not in _ALLOWED_OUTPUT_ROUTES:
                 raise ValueError(
-                    f"Output route kind {kind!r} is not allowed for custom sidecars. "
-                    f"Allowed: {_ALLOWED_OUTPUT_ROUTES}"
+                    f"Output route kind {kind!r} is not allowed for custom sidecars. Allowed: {_ALLOWED_OUTPUT_ROUTES}"
                 )
 
         # Validate trigger conditions
@@ -301,6 +310,5 @@ def _validate_definition(definition_json: str) -> None:
         cond_kind = condition.get("kind")
         if cond_kind and cond_kind not in _ALLOWED_CONDITIONS:
             raise ValueError(
-                f"Trigger condition {cond_kind!r} is not allowed for custom sidecars. "
-                f"Allowed: {_ALLOWED_CONDITIONS}"
+                f"Trigger condition {cond_kind!r} is not allowed for custom sidecars. Allowed: {_ALLOWED_CONDITIONS}"
             )

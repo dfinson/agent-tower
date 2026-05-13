@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -48,9 +48,9 @@ _CONFIG_FILES = (
 
 # Regex to extract hostnames from env files and docker-compose
 _HOST_RE = re.compile(
-    r"(?:https?://|//)"            # scheme or protocol-relative
+    r"(?:https?://|//)"  # scheme or protocol-relative
     r"([a-zA-Z0-9._-]+\.[a-zA-Z]{2,})"  # hostname with TLD
-    r"(?::\d+)?",                  # optional port
+    r"(?::\d+)?",  # optional port
 )
 
 # Known dependency key patterns per manifest type

@@ -344,9 +344,7 @@ class SessionStateWatcher(WatcherTelemetryMixin):
 
         # Register with RuntimeService for full pipeline processing
         # (sidecar session, heartbeat, stall detection, step tracking)
-        await self._runtime.register_external_session(
-            job_id, self._job_worktrees[job_id], self._job_base_refs[job_id]
-        )
+        await self._runtime.register_external_session(job_id, self._job_worktrees[job_id], self._job_base_refs[job_id])
 
         # Start tailing events.jsonl
         events_path = _SESSION_STATE_DIR / session_id / "events.jsonl"

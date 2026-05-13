@@ -72,6 +72,7 @@ OutputCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 # Concurrency policy
 # ---------------------------------------------------------------------------
 
+
 class Concurrency(StrEnum):
     skip_if_running = "skip_if_running"
     queue = "queue"
@@ -81,6 +82,7 @@ class Concurrency(StrEnum):
 # ---------------------------------------------------------------------------
 # Condition dataclasses (frozen, parametrized, no handler functions)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class EventCondition:
@@ -130,14 +132,20 @@ class ContentMatchCondition:
 
 
 TriggerCondition = (
-    EventCondition | TimerCondition | ThresholdCondition | ManualCondition
-    | RegexCondition | FilePatternCondition | ContentMatchCondition
+    EventCondition
+    | TimerCondition
+    | ThresholdCondition
+    | ManualCondition
+    | RegexCondition
+    | FilePatternCondition
+    | ContentMatchCondition
 )
 
 
 # ---------------------------------------------------------------------------
 # Output parsers
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class PlainText:
@@ -160,6 +168,7 @@ OutputParser = PlainText | JsonObject | JsonArray
 # ---------------------------------------------------------------------------
 # Output routes
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class EventBusRoute:
@@ -197,15 +206,13 @@ class GateRoute:
     timeout_s: float = 30.0
 
 
-OutputRoute = (
-    EventBusRoute | JobMetadataRoute | CallbackRoute
-    | ConditionalRoute | AgentMessageRoute | GateRoute
-)
+OutputRoute = EventBusRoute | JobMetadataRoute | CallbackRoute | ConditionalRoute | AgentMessageRoute | GateRoute
 
 
 # ---------------------------------------------------------------------------
 # Trigger pipeline + sidecar definition
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class TriggerPipeline:
@@ -239,9 +246,11 @@ class SidecarDefinition:
 # Per-job runtime state
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _JobState:
     """Mutable per-job dispatcher state."""
+
     definitions: list[SidecarDefinition] = field(default_factory=list)
     counters: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     in_flight: set[str] = field(default_factory=set)  # sidecar names currently executing
@@ -254,6 +263,7 @@ class _JobState:
 # ---------------------------------------------------------------------------
 # JSON → dataclass hydration (for template definitions from DB)
 # ---------------------------------------------------------------------------
+
 
 def _hydrate_condition(raw: dict[str, Any]) -> TriggerCondition:
     """Convert a JSON condition dict to a frozen dataclass."""
@@ -359,14 +369,16 @@ def hydrate_definition(raw: dict[str, Any]) -> SidecarDefinition:
     """Convert a JSON definition dict (from DB or API) to a SidecarDefinition."""
     triggers = []
     for t in raw.get("triggers", []):
-        triggers.append(TriggerPipeline(
-            condition=_hydrate_condition(t.get("condition", {})),
-            context_sources=tuple(t.get("contextSources", ())),
-            prompt_template=t.get("promptTemplate", ""),
-            output_parser=_hydrate_parser(t.get("outputParser")),
-            output_routes=tuple(_hydrate_route(r) for r in t.get("outputRoutes", [])),
-            concurrency=Concurrency(t.get("concurrency", "skip_if_running")),
-        ))
+        triggers.append(
+            TriggerPipeline(
+                condition=_hydrate_condition(t.get("condition", {})),
+                context_sources=tuple(t.get("contextSources", ())),
+                prompt_template=t.get("promptTemplate", ""),
+                output_parser=_hydrate_parser(t.get("outputParser")),
+                output_routes=tuple(_hydrate_route(r) for r in t.get("outputRoutes", [])),
+                concurrency=Concurrency(t.get("concurrency", "skip_if_running")),
+            )
+        )
     return SidecarDefinition(
         name=raw.get("name", "unnamed"),
         phase=raw.get("phase", "midflight"),
@@ -388,6 +400,7 @@ def hydrate_definition(raw: dict[str, Any]) -> SidecarDefinition:
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
+
 
 class SidecarDispatcher:
     """Central dispatcher for all sidecar trigger evaluation and execution.
@@ -499,10 +512,7 @@ class SidecarDispatcher:
                         # Check event filter (payload key=value matching)
                         if cond.event_filter:
                             payload = event.payload or {}
-                            if not all(
-                                str(payload.get(k)) == v
-                                for k, v in cond.event_filter.items()
-                            ):
+                            if not all(str(payload.get(k)) == v for k, v in cond.event_filter.items()):
                                 continue
                         # Check job_id match (events carry job_id)
                         if hasattr(event, "job_id") and event.job_id and event.job_id != job_id:
@@ -540,8 +550,7 @@ class SidecarDispatcher:
                             continue
                         check_content = content if cond.case_sensitive else content.lower()
                         matched = any(
-                            (kw if cond.case_sensitive else kw.lower()) in check_content
-                            for kw in cond.keywords
+                            (kw if cond.case_sensitive else kw.lower()) in check_content for kw in cond.keywords
                         )
                         if not matched:
                             continue
@@ -561,7 +570,8 @@ class SidecarDispatcher:
                         if not changed_files:
                             continue
                         matched_files = [
-                            f for f in changed_files
+                            f
+                            for f in changed_files
                             if fnmatch(f.get("path", ""), cond.glob)
                             and (cond.change_kind == "any" or f.get("change_kind") == cond.change_kind)
                         ]
@@ -598,7 +608,10 @@ class SidecarDispatcher:
                 )
 
     async def fire(
-        self, job_id: str, sidecar_name: str, context: dict[str, Any] | None = None,
+        self,
+        job_id: str,
+        sidecar_name: str,
+        context: dict[str, Any] | None = None,
     ) -> None:
         """Manual trigger — fires all ManualCondition pipelines for a sidecar."""
         state = self._jobs.get(job_id)
@@ -723,7 +736,10 @@ class SidecarDispatcher:
             await self._drain_queue(job_id, state, defn.name)
 
     async def _drain_queue(
-        self, job_id: str, state: _JobState, sidecar_name: str,
+        self,
+        job_id: str,
+        state: _JobState,
+        sidecar_name: str,
     ) -> None:
         """Execute the next queued pipeline for a sidecar, if any."""
         remaining = []
@@ -734,7 +750,10 @@ class SidecarDispatcher:
                 state.in_flight.add(sidecar_name)
                 try:
                     await self._execute_pipeline(
-                        job_id, queued_defn, queued_defn.triggers[queued_idx], queued_ctx,
+                        job_id,
+                        queued_defn,
+                        queued_defn.triggers[queued_idx],
+                        queued_ctx,
                     )
                 except Exception:
                     log.error("dispatcher_queued_error", exc_info=True)
@@ -896,7 +915,8 @@ class SidecarDispatcher:
         route: OutputRoute,
     ) -> None:
         """Deliver parsed output to a destination."""
-        from backend.models.events import DomainEvent as DE, DomainEventKind
+        from backend.models.events import DomainEvent as DE
+        from backend.models.events import DomainEventKind
 
         if isinstance(route, EventBusRoute):
             payload: dict[str, Any] = {"sidecar_name": defn.name}
@@ -910,22 +930,28 @@ class SidecarDispatcher:
                 payload["content"] = parsed
             else:
                 payload["result"] = parsed
-            await self._event_bus.publish(DE(
-                job_id=job_id,
-                timestamp=None,
-                kind=route.event_kind,
-                payload=payload,
-            ))
+            await self._event_bus.publish(
+                DE(
+                    job_id=job_id,
+                    timestamp=None,
+                    kind=route.event_kind,
+                    payload=payload,
+                )
+            )
 
         elif isinstance(route, JobMetadataRoute):
             # Publish a metadata update event — consumers (job service) handle persistence
             value = parsed if isinstance(parsed, str) else json.dumps(parsed)
-            await self._event_bus.publish(DE(
-                job_id=job_id,
-                timestamp=None,
-                kind=DomainEventKind.job_title_updated if route.field_name == "title" else "sidecar_metadata_update",
-                payload={"field": route.field_name, "value": value, "sidecar_name": defn.name},
-            ))
+            await self._event_bus.publish(
+                DE(
+                    job_id=job_id,
+                    timestamp=None,
+                    kind=DomainEventKind.job_title_updated
+                    if route.field_name == "title"
+                    else "sidecar_metadata_update",
+                    payload={"field": route.field_name, "value": value, "sidecar_name": defn.name},
+                )
+            )
 
         elif isinstance(route, CallbackRoute):
             callback = self._callbacks.get(route.callback_name)
@@ -942,17 +968,19 @@ class SidecarDispatcher:
         elif isinstance(route, AgentMessageRoute):
             content = parsed if isinstance(parsed, str) else json.dumps(parsed)
             label_prefix = f"[{route.label or defn.name}] " if (route.label or defn.name) else ""
-            await self._event_bus.publish(DE(
-                job_id=job_id,
-                timestamp=None,
-                kind="sidecar_agent_message",
-                payload={
-                    "role": route.role,
-                    "content": f"{label_prefix}{content}",
-                    "sidecar_name": defn.name,
-                    "sidecar_icon": defn.icon,
-                },
-            ))
+            await self._event_bus.publish(
+                DE(
+                    job_id=job_id,
+                    timestamp=None,
+                    kind="sidecar_agent_message",
+                    payload={
+                        "role": route.role,
+                        "content": f"{label_prefix}{content}",
+                        "sidecar_name": defn.name,
+                        "sidecar_icon": defn.icon,
+                    },
+                )
+            )
 
         elif isinstance(route, GateRoute):
             if not isinstance(parsed, dict):
@@ -960,38 +988,45 @@ class SidecarDispatcher:
                 return
             verdict = str(parsed.get(route.verdict_field, "")).lower()
             reason = str(parsed.get(route.reason_field, ""))
-            await self._event_bus.publish(DE(
-                job_id=job_id,
-                timestamp=None,
-                kind="sidecar_gate_verdict",
-                payload={
-                    "sidecar_name": defn.name,
-                    "verdict": verdict,
-                    "reason": reason,
-                },
-            ))
+            await self._event_bus.publish(
+                DE(
+                    job_id=job_id,
+                    timestamp=None,
+                    kind="sidecar_gate_verdict",
+                    payload={
+                        "sidecar_name": defn.name,
+                        "verdict": verdict,
+                        "reason": reason,
+                    },
+                )
+            )
 
     # -- Transcript event ---------------------------------------------------
 
     async def _emit_transcript_event(
-        self, job_id: str, defn: SidecarDefinition, parsed: Any,
+        self,
+        job_id: str,
+        defn: SidecarDefinition,
+        parsed: Any,
     ) -> None:
         """Publish a transcript event so the sidecar's output appears in the feed."""
         from backend.models.events import DomainEvent as DE
 
         content = parsed if isinstance(parsed, str) else json.dumps(parsed)
-        await self._event_bus.publish(DE(
-            job_id=job_id,
-            timestamp=None,
-            kind="sidecar_transcript",
-            payload={
-                "sidecar_name": defn.name,
-                "sidecar_icon": defn.icon,
-                "sidecar_description": defn.description,
-                "sidecar_template_id": defn.template_id,
-                "content": content,
-            },
-        ))
+        await self._event_bus.publish(
+            DE(
+                job_id=job_id,
+                timestamp=None,
+                kind="sidecar_transcript",
+                payload={
+                    "sidecar_name": defn.name,
+                    "sidecar_icon": defn.icon,
+                    "sidecar_description": defn.description,
+                    "sidecar_template_id": defn.template_id,
+                    "content": content,
+                },
+            )
+        )
 
     # -- Helpers ------------------------------------------------------------
 
@@ -1039,8 +1074,5 @@ class SidecarDispatcher:
         payload = event.payload or {}
         files = payload.get("files") or payload.get("changed_files") or []
         if isinstance(files, list):
-            return [
-                f if isinstance(f, dict) else {"path": str(f), "change_kind": "any"}
-                for f in files
-            ]
+            return [f if isinstance(f, dict) else {"path": str(f), "change_kind": "any"} for f in files]
         return []

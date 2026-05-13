@@ -39,136 +39,324 @@ _Result = tuple[bool, bool] | None
 
 # ── POSIX ─────────────────────────────────────────────────────────────────
 
-_POSIX_OBSERVE = frozenset({
-    "ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "wc",
-    "echo", "pwd", "printenv", "whoami", "date", "file", "stat", "du",
-    "tree", "diff", "more", "less", "which", "type", "basename", "dirname",
-    "realpath", "readlink", "test", "true", "false",
-})
+_POSIX_OBSERVE = frozenset(
+    {
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "wc",
+        "echo",
+        "pwd",
+        "printenv",
+        "whoami",
+        "date",
+        "file",
+        "stat",
+        "du",
+        "tree",
+        "diff",
+        "more",
+        "less",
+        "which",
+        "type",
+        "basename",
+        "dirname",
+        "realpath",
+        "readlink",
+        "test",
+        "true",
+        "false",
+    }
+)
 
 #: Transparent wrappers pass through to a wrapped command.
-_TRANSPARENT_WRAPPERS = frozenset({
-    "env", "nice", "timeout", "stdbuf", "nohup", "command",
-})
+_TRANSPARENT_WRAPPERS = frozenset(
+    {
+        "env",
+        "nice",
+        "timeout",
+        "stdbuf",
+        "nohup",
+        "command",
+    }
+)
 
-_POSIX_UNCONTAINED = frozenset({
-    "curl", "wget", "ssh", "scp", "rsync", "nc", "ncat", "telnet",
-    "ftp", "sftp", "sendmail", "mail", "socat", "nmap", "dig",
-    "nslookup", "host",
-})
+_POSIX_UNCONTAINED = frozenset(
+    {
+        "curl",
+        "wget",
+        "ssh",
+        "scp",
+        "rsync",
+        "nc",
+        "ncat",
+        "telnet",
+        "ftp",
+        "sftp",
+        "sendmail",
+        "mail",
+        "socat",
+        "nmap",
+        "dig",
+        "nslookup",
+        "host",
+    }
+)
 
-_POSIX_IRREVERSIBLE = frozenset({
-    "rm", "shred", "dd", "mkfs", "fdisk", "kill", "killall", "pkill",
-    "shutdown", "reboot", "halt",
-})
+_POSIX_IRREVERSIBLE = frozenset(
+    {
+        "rm",
+        "shred",
+        "dd",
+        "mkfs",
+        "fdisk",
+        "kill",
+        "killall",
+        "pkill",
+        "shutdown",
+        "reboot",
+        "halt",
+    }
+)
 
 _POSIX_TEE = frozenset({"tee"})
 
 _POSIX_CONDITIONALLY_SAFE = frozenset({"find", "sort"})
 
-_TEST_RUNNERS = frozenset({
-    "pytest", "jest", "vitest", "mocha", "ava", "tap", "bats",
-    "phpunit", "rspec", "minitest",
-})
+_TEST_RUNNERS = frozenset(
+    {
+        "pytest",
+        "jest",
+        "vitest",
+        "mocha",
+        "ava",
+        "tap",
+        "bats",
+        "phpunit",
+        "rspec",
+        "minitest",
+    }
+)
 
-_TEST_SUBCOMMAND_BINARIES = frozenset({
-    "go", "dotnet", "swift", "mix", "elixir",
-})
+_TEST_SUBCOMMAND_BINARIES = frozenset(
+    {
+        "go",
+        "dotnet",
+        "swift",
+        "mix",
+        "elixir",
+    }
+)
 
-_INTERPRETERS = frozenset({
-    "python", "python3", "node", "ruby", "perl", "bash", "sh", "zsh",
-})
+_INTERPRETERS = frozenset(
+    {
+        "python",
+        "python3",
+        "node",
+        "ruby",
+        "perl",
+        "bash",
+        "sh",
+        "zsh",
+    }
+)
 
-_CODE_EXEC_PRIMITIVES = frozenset({
-    "eval", "exec", "source", ".",
-})
+_CODE_EXEC_PRIMITIVES = frozenset(
+    {
+        "eval",
+        "exec",
+        "source",
+        ".",
+    }
+)
 
-_BUILD_TOOLS = frozenset({
-    "make", "cmake", "gradle", "mvn", "ant",
-})
+_BUILD_TOOLS = frozenset(
+    {
+        "make",
+        "cmake",
+        "gradle",
+        "mvn",
+        "ant",
+    }
+)
 
-_PROXY_ENV_VARS = frozenset({
-    "http_proxy", "https_proxy", "all_proxy", "ftp_proxy",
-})
+_PROXY_ENV_VARS = frozenset(
+    {
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "ftp_proxy",
+    }
+)
 
 # ── PowerShell ────────────────────────────────────────────────────────────
 
-_PS_OBSERVE_VERBS = frozenset({
-    "Get", "Find", "Search", "Test", "Measure", "Compare", "Select",
-    "Format", "Out", "Show", "Read", "Watch", "Write",
-})
+_PS_OBSERVE_VERBS = frozenset(
+    {
+        "Get",
+        "Find",
+        "Search",
+        "Test",
+        "Measure",
+        "Compare",
+        "Select",
+        "Format",
+        "Out",
+        "Show",
+        "Read",
+        "Watch",
+        "Write",
+    }
+)
 
-_PS_MUTATING_VERBS = frozenset({
-    "Set", "New", "Add", "Remove", "Clear", "Move", "Rename", "Copy",
-    "Update", "Reset", "Enable", "Disable",
-})
+_PS_MUTATING_VERBS = frozenset(
+    {
+        "Set",
+        "New",
+        "Add",
+        "Remove",
+        "Clear",
+        "Move",
+        "Rename",
+        "Copy",
+        "Update",
+        "Reset",
+        "Enable",
+        "Disable",
+    }
+)
 
-_PS_UNCONTAINED_VERBS = frozenset({
-    "Send", "Connect", "Disconnect", "Publish", "Push", "Invoke-Web",
-})
+_PS_UNCONTAINED_VERBS = frozenset(
+    {
+        "Send",
+        "Connect",
+        "Disconnect",
+        "Publish",
+        "Push",
+        "Invoke-Web",
+    }
+)
 
 # ── cmd.exe ───────────────────────────────────────────────────────────────
 
-_CMD_OBSERVE = frozenset({
-    "dir", "type", "echo", "set", "ver", "where", "findstr", "find",
-    "more", "tree", "path", "vol",
-})
+_CMD_OBSERVE = frozenset(
+    {
+        "dir",
+        "type",
+        "echo",
+        "set",
+        "ver",
+        "where",
+        "findstr",
+        "find",
+        "more",
+        "tree",
+        "path",
+        "vol",
+    }
+)
 
-_CMD_IRREVERSIBLE = frozenset({
-    "del", "erase", "rmdir", "rd", "format",
-})
+_CMD_IRREVERSIBLE = frozenset(
+    {
+        "del",
+        "erase",
+        "rmdir",
+        "rd",
+        "format",
+    }
+)
 
 # ── Cross-platform tool subcommand tables ─────────────────────────────────
 #
 # Each entry maps subcommand → (reversible, contained).
 
 _GIT_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "status": _OBSERVE, "log": _OBSERVE, "diff": _OBSERVE,
-    "show": _OBSERVE, "branch": _OBSERVE, "stash": _OBSERVE,
-    "add": _OBSERVE, "commit": _OBSERVE, "checkout": _OBSERVE,
-    "switch": _OBSERVE, "restore": _OBSERVE, "revert": _OBSERVE,
-    "tag": _OBSERVE, "remote": _OBSERVE, "merge": _OBSERVE,
-    "rebase": _OBSERVE, "cherry-pick": _OBSERVE,
+    "status": _OBSERVE,
+    "log": _OBSERVE,
+    "diff": _OBSERVE,
+    "show": _OBSERVE,
+    "branch": _OBSERVE,
+    "stash": _OBSERVE,
+    "add": _OBSERVE,
+    "commit": _OBSERVE,
+    "checkout": _OBSERVE,
+    "switch": _OBSERVE,
+    "restore": _OBSERVE,
+    "revert": _OBSERVE,
+    "tag": _OBSERVE,
+    "remote": _OBSERVE,
+    "merge": _OBSERVE,
+    "rebase": _OBSERVE,
+    "cherry-pick": _OBSERVE,
     "reset": _OBSERVE,  # default; --hard overridden by flag check
-    "fetch": _UNCONTAINED, "pull": _UNCONTAINED,
-    "push": _UNCONTAINED, "clone": _UNCONTAINED,
+    "fetch": _UNCONTAINED,
+    "pull": _UNCONTAINED,
+    "push": _UNCONTAINED,
+    "clone": _UNCONTAINED,
     "force-push": _BLOCKED,
     "clean": _IRREVERSIBLE,
 }
 
 _NPM_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "install": _OBSERVE, "ci": _OBSERVE, "test": _OBSERVE,
-    "build": _OBSERVE, "link": _OBSERVE, "uninstall": _OBSERVE,
-    "run": _IRREVERSIBLE,    # executes arbitrary scripts from package.json
+    "install": _OBSERVE,
+    "ci": _OBSERVE,
+    "test": _OBSERVE,
+    "build": _OBSERVE,
+    "link": _OBSERVE,
+    "uninstall": _OBSERVE,
+    "run": _IRREVERSIBLE,  # executes arbitrary scripts from package.json
     "start": _IRREVERSIBLE,  # delegates to scripts.start
-    "publish": _BLOCKED, "unpublish": _BLOCKED,
+    "publish": _BLOCKED,
+    "unpublish": _BLOCKED,
 }
 
 _CARGO_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "build": _OBSERVE, "test": _OBSERVE, "check": _OBSERVE,
-    "clippy": _OBSERVE, "fmt": _OBSERVE, "install": _OBSERVE,
+    "build": _OBSERVE,
+    "test": _OBSERVE,
+    "check": _OBSERVE,
+    "clippy": _OBSERVE,
+    "fmt": _OBSERVE,
+    "install": _OBSERVE,
     "run": _IRREVERSIBLE,  # compiles + runs arbitrary code
     "publish": _BLOCKED,
 }
 
 _DOCKER_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "build": _OBSERVE, "ps": _OBSERVE, "images": _OBSERVE,
-    "logs": _OBSERVE, "rm": _OBSERVE, "rmi": _OBSERVE,
-    "stop": _OBSERVE, "start": _OBSERVE, "compose": _OBSERVE,
-    "run": _IRREVERSIBLE,   # default; flag inspection may escalate
+    "build": _OBSERVE,
+    "ps": _OBSERVE,
+    "images": _OBSERVE,
+    "logs": _OBSERVE,
+    "rm": _OBSERVE,
+    "rmi": _OBSERVE,
+    "stop": _OBSERVE,
+    "start": _OBSERVE,
+    "compose": _OBSERVE,
+    "run": _IRREVERSIBLE,  # default; flag inspection may escalate
     "exec": _IRREVERSIBLE,
-    "pull": _UNCONTAINED, "push": _BLOCKED,
+    "pull": _UNCONTAINED,
+    "push": _BLOCKED,
 }
 
 _PIP_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "install": _OBSERVE, "uninstall": _OBSERVE, "list": _OBSERVE,
-    "show": _OBSERVE, "freeze": _OBSERVE,
+    "install": _OBSERVE,
+    "uninstall": _OBSERVE,
+    "list": _OBSERVE,
+    "show": _OBSERVE,
+    "freeze": _OBSERVE,
 }
 
 _UV_SUBCOMMANDS: dict[str, tuple[bool, bool]] = {
-    "sync": _OBSERVE, "add": _OBSERVE, "remove": _OBSERVE,
-    "lock": _OBSERVE, "pip": _OBSERVE,
-    "run": _BLOCKED,      # Turing-complete: uv run python/curl/bash
+    "sync": _OBSERVE,
+    "add": _OBSERVE,
+    "remove": _OBSERVE,
+    "lock": _OBSERVE,
+    "pip": _OBSERVE,
+    "run": _BLOCKED,  # Turing-complete: uv run python/curl/bash
     "publish": _BLOCKED,
 }
 
@@ -212,7 +400,8 @@ _DOCKER_ESCAPE_RE = re.compile(
 )
 
 _GIT_RESET_HARD_RE = re.compile(
-    r"\bgit\s+reset\b[^|;&\n]*?\s--hard\b", re.IGNORECASE,
+    r"\bgit\s+reset\b[^|;&\n]*?\s--hard\b",
+    re.IGNORECASE,
 )
 
 _GIT_PUSH_FORCE_RE = re.compile(
@@ -246,19 +435,22 @@ _URL_HOST_RE = re.compile(
 )
 
 # sh-guard risk factors that indicate injection/exfiltration — fail-closed.
-_INJECTION_RISKS = frozenset({
-    "command_substitution",   # $(cmd) / `cmd`
-    "network_exfiltration",   # pipeline taint to network
-    "process_substitution",   # <(cmd) as FD source
-    "path_injection",         # PATH= shadows safe binaries
-    "obfuscated_command",     # $'\x24(...)' encoding tricks
-    "command_execution",      # eval/source
-})
+_INJECTION_RISKS = frozenset(
+    {
+        "command_substitution",  # $(cmd) / `cmd`
+        "network_exfiltration",  # pipeline taint to network
+        "process_substitution",  # <(cmd) as FD source
+        "path_injection",  # PATH= shadows safe binaries
+        "obfuscated_command",  # $'\x24(...)' encoding tricks
+        "command_execution",  # eval/source
+    }
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Parsing utilities
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _shlex_split(command: str) -> list[str]:
     """shlex.split with fallback to naive split on parse errors."""
@@ -317,8 +509,18 @@ def _extract_target_hosts(command: str) -> list[str]:
             continue
         if token.startswith("-"):
             if token in (
-                "-X", "--request", "-o", "--output", "-H", "--header",
-                "-u", "--user", "-A", "--user-agent", "-e", "--referer",
+                "-X",
+                "--request",
+                "-o",
+                "--output",
+                "-H",
+                "--header",
+                "-u",
+                "--user",
+                "-A",
+                "--user-agent",
+                "-e",
+                "--referer",
             ):
                 skip_next = True
                 continue
@@ -400,6 +602,7 @@ def _collect_risk_factors(result: dict[str, Any]) -> set[str]:
 # Public API
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def classify_shell(command: str) -> tuple[bool, bool]:
     """Classify a shell command as (reversible, contained).
 
@@ -446,6 +649,7 @@ def classify_shell(command: str) -> tuple[bool, bool]:
 # Classifier chain — each returns a result or None (= pass to next)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def _classify_single(command: str) -> tuple[bool, bool]:
     """Classify a single (non-compound) shell command via classifier chain."""
     binary, subcmd = _extract_binary_and_sub(command)
@@ -478,8 +682,12 @@ def _classify_single(command: str) -> tuple[bool, bool]:
 
 # ── Individual classifiers ────────────────────────────────────────────────
 
+
 def _classify_cross_platform_tool(
-    command: str, binary: str, subcmd: str | None, is_path: bool,
+    command: str,
+    binary: str,
+    subcmd: str | None,
+    is_path: bool,
 ) -> _Result:
     """git, npm, docker, pip, uv, cargo, etc."""
     table = _CROSS_PLATFORM_TOOLS.get(binary)
@@ -515,7 +723,10 @@ def _classify_cross_platform_tool(
 
 
 def _classify_powershell(
-    command: str, binary: str, subcmd: str | None, is_path: bool,
+    command: str,
+    binary: str,
+    subcmd: str | None,
+    is_path: bool,
 ) -> _Result:
     """PowerShell Verb-Noun cmdlets."""
     m = _PS_CMDLET_RE.match(binary)
@@ -532,7 +743,10 @@ def _classify_powershell(
 
 
 def _classify_posix(
-    command: str, binary: str, subcmd: str | None, is_path: bool,
+    command: str,
+    binary: str,
+    subcmd: str | None,
+    is_path: bool,
 ) -> _Result:
     """POSIX builtins: observe, uncontained, irreversible, conditionally-safe."""
     if binary in _POSIX_OBSERVE:
@@ -563,7 +777,10 @@ def _classify_posix(
 
 
 def _classify_test_runner(
-    command: str, binary: str, subcmd: str | None, is_path: bool,
+    command: str,
+    binary: str,
+    subcmd: str | None,
+    is_path: bool,
 ) -> _Result:
     """Standalone test runners and test subcommands."""
     if binary in _TEST_RUNNERS:
@@ -574,7 +791,10 @@ def _classify_test_runner(
 
 
 def _classify_cmd_exe(
-    command: str, binary: str, subcmd: str | None, is_path: bool,
+    command: str,
+    binary: str,
+    subcmd: str | None,
+    is_path: bool,
 ) -> _Result:
     """Windows cmd.exe builtins."""
     if binary in _CMD_OBSERVE:
@@ -585,7 +805,10 @@ def _classify_cmd_exe(
 
 
 def _classify_interpreter(
-    command: str, binary: str, subcmd: str | None, is_path: bool,
+    command: str,
+    binary: str,
+    subcmd: str | None,
+    is_path: bool,
 ) -> _Result:
     """Turing-complete interpreters and code-execution primitives."""
     if binary in _INTERPRETERS or binary in _CODE_EXEC_PRIMITIVES:
@@ -594,7 +817,10 @@ def _classify_interpreter(
 
 
 def _classify_build_tool(
-    command: str, binary: str, subcmd: str | None, is_path: bool,
+    command: str,
+    binary: str,
+    subcmd: str | None,
+    is_path: bool,
 ) -> _Result:
     """Build tools that execute arbitrary recipes with full shell + network."""
     if binary in _BUILD_TOOLS:

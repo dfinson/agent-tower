@@ -80,22 +80,14 @@ class SidecarTemplateRepository(BaseRepository):
             values["definition_json"] = definition_json
         if not values:
             return await self.get(template_id)
-        stmt = (
-            update(SidecarTemplateRow)
-            .where(SidecarTemplateRow.id == template_id)
-            .values(**values)
-        )
+        stmt = update(SidecarTemplateRow).where(SidecarTemplateRow.id == template_id).values(**values)
         await self._session.execute(stmt)
         await self._session.flush()
         return await self.get(template_id)
 
     async def touch_last_used(self, template_id: str, used_at: datetime) -> None:
         """Update the last_used_at timestamp."""
-        stmt = (
-            update(SidecarTemplateRow)
-            .where(SidecarTemplateRow.id == template_id)
-            .values(last_used_at=used_at)
-        )
+        stmt = update(SidecarTemplateRow).where(SidecarTemplateRow.id == template_id).values(last_used_at=used_at)
         await self._session.execute(stmt)
         await self._session.flush()
 

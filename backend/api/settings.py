@@ -132,9 +132,7 @@ async def get_repo_health(
         return RepoHealthResponse(repo=resolved)
 
     try:
-        repo_name = await asyncio.wait_for(
-            coderecon.ensure_repo_indexed(resolved), timeout=30.0
-        )
+        repo_name = await asyncio.wait_for(coderecon.ensure_repo_indexed(resolved), timeout=30.0)
     except TimeoutError:
         log.warning("repo_health.index_timeout", repo=resolved)
         return RepoHealthResponse(repo=resolved, index_status="timeout")
@@ -221,13 +219,14 @@ async def get_repo_summary(
     try:
         async with sf() as session:
             rows = (
-                await session.execute(
-                    select(JobRow)
-                    .where(JobRow.repo == resolved)
-                    .order_by(JobRow.created_at.desc())
-                    .limit(5)
+                (
+                    await session.execute(
+                        select(JobRow).where(JobRow.repo == resolved).order_by(JobRow.created_at.desc()).limit(5)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for r in rows:
                 recent_jobs.append(
                     RepoJobSummary(
@@ -271,9 +270,7 @@ async def get_repo_summary(
     health: RepoHealthResponse | None = None
     if coderecon.available:
         try:
-            repo_name = await asyncio.wait_for(
-                coderecon.ensure_repo_indexed(resolved), timeout=30.0
-            )
+            repo_name = await asyncio.wait_for(coderecon.ensure_repo_indexed(resolved), timeout=30.0)
             h_symbol_count = 0
             h_file_count = 0
             h_last_sha = None

@@ -9,7 +9,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -122,9 +122,7 @@ class TestPlanTrackingToggle:
 
         trail_service.disable_plan_tracking("job-1")
 
-        with patch.object(
-            trail_service._plan_manager, "feed_transcript", new_callable=AsyncMock
-        ) as feed_mock:
+        with patch.object(trail_service._plan_manager, "feed_transcript", new_callable=AsyncMock) as feed_mock:
             event = _make_event(
                 DomainEventKind.transcript_updated,
                 payload={"role": "agent", "content": "I will do stuff"},
@@ -143,9 +141,7 @@ class TestPlanTrackingToggle:
 
         trail_service.disable_plan_tracking("job-1")
 
-        with patch.object(
-            trail_service._plan_manager, "feed_native_plan", new_callable=AsyncMock
-        ) as plan_mock:
+        with patch.object(trail_service._plan_manager, "feed_native_plan", new_callable=AsyncMock) as plan_mock:
             event = _make_event(
                 DomainEventKind.transcript_updated,
                 payload={

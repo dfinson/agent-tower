@@ -60,9 +60,9 @@ from backend.services.event_bus import EventBus
 from backend.services.git_service import GitError, GitService
 from backend.services.job_service import JobService
 from backend.services.merge_service import MergeService
-from backend.services.story.review import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
 from backend.services.runtime import RuntimeService
 from backend.services.steps.diff_service import StepDiffService
+from backend.services.story.review import _ADDITIVE_CAP, _ATTENTION_CAP, _BODY_CAP
 from backend.services.story.service import StoryService
 
 log = structlog.get_logger()

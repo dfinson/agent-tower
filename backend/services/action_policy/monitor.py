@@ -16,7 +16,7 @@ import asyncio
 import re
 import time
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -179,7 +179,7 @@ class MonitorSession:
         # package means the entire install goes to LLM/human.
         if packages:
             if all(self._context.has_initial_dependency(p) for p in packages):
-                return MonitorVerdict.approve, f"all packages are existing project dependencies (pre-existing)"
+                return MonitorVerdict.approve, "all packages are existing project dependencies (pre-existing)"
 
         # Docker/compose service check — word-boundary match, skip
         # dangerously short names (db, ws, …) that match as substrings.
@@ -391,7 +391,7 @@ class MonitorSession:
 
         # Everything after the install keyword is potential packages
         # (until a flag like -- or -r)
-        after_cmd = text[m.start(1):]
+        after_cmd = text[m.start(1) :]
         tokens = after_cmd.split()
         packages: list[str] = []
         for token in tokens:

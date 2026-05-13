@@ -248,9 +248,9 @@ class SidecarConfig:
 
 
 # Well-known sidecar names used by built-in consumers.
-SIDECAR_ARBITER = "arbiter"        # stall detection
-SIDECAR_PLANNER = "planner"        # plan inference + turn classification
-SIDECAR_ENRICHER = "enricher"      # trail enrichment + activity titles
+SIDECAR_ARBITER = "arbiter"  # stall detection
+SIDECAR_PLANNER = "planner"  # plan inference + turn classification
+SIDECAR_ENRICHER = "enricher"  # trail enrichment + activity titles
 
 
 @dataclass

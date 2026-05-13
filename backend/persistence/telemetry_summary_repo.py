@@ -61,8 +61,13 @@ class TelemetrySummaryRepository(BaseRepository):
                     updated_at = excluded.updated_at
             """),
             {
-                "job_id": job_id, "session_kind": session_kind, "sdk": sdk,
-                "model": model, "repo": repo, "branch": branch, "now": now,
+                "job_id": job_id,
+                "session_kind": session_kind,
+                "sdk": sdk,
+                "model": model,
+                "repo": repo,
+                "branch": branch,
+                "now": now,
             },
         )
         await self._session.flush()

@@ -253,13 +253,16 @@ class CopilotAdapter(BaseAgentAdapter):
                 }
                 # OTEL gauges
                 tel.quota_used_gauge.set(
-                    used, {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
+                    used,
+                    {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
                 )
                 tel.quota_entitlement_gauge.set(
-                    entitlement, {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
+                    entitlement,
+                    {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
                 )
                 tel.quota_remaining_gauge.set(
-                    remaining, {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
+                    remaining,
+                    {"job_id": job_id, "sdk": "copilot", "resource": key, "session_kind": session_kind},
                 )
 
             self._schedule_db_write(
@@ -349,7 +352,11 @@ class CopilotAdapter(BaseAgentAdapter):
         )
 
     def _handle_context_changed(
-        self, data: SessionUsageInfoData, job_id: str, *, session_kind: str = "job",
+        self,
+        data: SessionUsageInfoData,
+        job_id: str,
+        *,
+        session_kind: str = "job",
     ) -> None:
         from backend.services import telemetry as tel
 
@@ -365,7 +372,11 @@ class CopilotAdapter(BaseAgentAdapter):
         )
 
     def _handle_compaction(
-        self, data: SessionCompactionCompleteData, job_id: str, *, session_kind: str = "job",
+        self,
+        data: SessionCompactionCompleteData,
+        job_id: str,
+        *,
+        session_kind: str = "job",
     ) -> None:
         from backend.services import telemetry as tel
 
@@ -759,22 +770,29 @@ class CopilotAdapter(BaseAgentAdapter):
                     self._handle_tool_start(cast("ToolExecutionStartData", data), job_id)
                 elif kind_str == "tool.execution_complete":
                     self._handle_tool_end(
-                        cast("ToolExecutionCompleteData", data), job_id, session_kind=session_kind,
+                        cast("ToolExecutionCompleteData", data),
+                        job_id,
+                        session_kind=session_kind,
                     )
                 elif kind_str == "session.usage_info":
                     self._handle_context_changed(
-                        cast("SessionUsageInfoData", data), job_id, session_kind=session_kind,
+                        cast("SessionUsageInfoData", data),
+                        job_id,
+                        session_kind=session_kind,
                     )
                 elif kind_str == "session.compaction_complete":
                     self._handle_compaction(
-                        cast("SessionCompactionCompleteData", data), job_id, session_kind=session_kind,
+                        cast("SessionCompactionCompleteData", data),
+                        job_id,
+                        session_kind=session_kind,
                     )
                 elif kind_str == "session.truncation":
                     trunc = cast("SessionTruncationData", data)
                     if trunc.token_limit:
                         window = int(trunc.token_limit)
                         tel.context_window_gauge.set(
-                            window, {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind},
+                            window,
+                            {"job_id": job_id, "sdk": "copilot", "session_kind": session_kind},
                         )
                         self._schedule_db_write(self._db_write_set_context(job_id=job_id, window_size=window))
                 elif kind_str == "session.model_change":
@@ -784,14 +802,16 @@ class CopilotAdapter(BaseAgentAdapter):
                         self._schedule_db_write(self._db_write_set_model(job_id=job_id, model=mc.new_model))
                 elif kind_str == "assistant.message":
                     tel.messages_counter.add(
-                        1, {"job_id": job_id, "sdk": "copilot", "role": "agent", "session_kind": session_kind},
+                        1,
+                        {"job_id": job_id, "sdk": "copilot", "role": "agent", "session_kind": session_kind},
                     )
                     self._schedule_db_write(
                         self._db_write_increment(job_id=job_id, session_kind=session_kind, agent_messages=1),
                     )
                 elif kind_str == "user.message":
                     tel.messages_counter.add(
-                        1, {"job_id": job_id, "sdk": "copilot", "role": "operator", "session_kind": session_kind},
+                        1,
+                        {"job_id": job_id, "sdk": "copilot", "role": "operator", "session_kind": session_kind},
                     )
                     self._schedule_db_write(
                         self._db_write_increment(job_id=job_id, session_kind=session_kind, operator_messages=1),

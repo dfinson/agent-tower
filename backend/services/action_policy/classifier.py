@@ -366,7 +366,9 @@ def _match_explicit_rule(action: Action, policy: RepoPolicy) -> Tier | None:
             # safe (fail-closed: escalate to human).
             safe_on_timeout = rule_tier == Tier.gate
             if _safe_regex_search(
-                rule["match_pattern"], identifier, on_timeout=safe_on_timeout,
+                rule["match_pattern"],
+                identifier,
+                on_timeout=safe_on_timeout,
             ):
                 return rule_tier
 

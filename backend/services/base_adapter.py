@@ -369,7 +369,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
 
                 repo = TelemetrySummaryRepository(session)
                 totals = await repo.increment(
-                    job_id=job_id, session_kind=session_kind, **counters,
+                    job_id=job_id,
+                    session_kind=session_kind,
+                    **counters,
                 )
                 # increment() returns zeroed dict when no row matched the WHERE.
                 # For sidecars this means the row doesn't exist yet — create it
@@ -377,7 +379,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 if session_kind != "job" and not totals.get("_row_found") and counters:
                     await repo.init_job(job_id, sdk="unknown", session_kind=session_kind)
                     totals = await repo.increment(
-                        job_id=job_id, session_kind=session_kind, **counters,
+                        job_id=job_id,
+                        session_kind=session_kind,
+                        **counters,
                     )
         except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="increment", exc_info=True)
@@ -391,7 +395,9 @@ class BaseAgentAdapter(AgentAdapterInterface):
                 from backend.persistence.telemetry_spans_repo import TelemetrySpansRepository
 
                 await TelemetrySpansRepository(session).insert(
-                    job_id=job_id, session_kind=session_kind, **span_fields,
+                    job_id=job_id,
+                    session_kind=session_kind,
+                    **span_fields,
                 )
         except (_NoSessionFactoryError, DBAPIError, OSError):
             log.warning("telemetry_db_write_failed", fn="insert_span", exc_info=True)
@@ -565,7 +571,10 @@ class BaseAgentAdapter(AgentAdapterInterface):
         from backend.services import telemetry as tel
 
         attrs: dict[str, Any] = {
-            "job_id": job_id, "sdk": sdk_name, "model": model, "session_kind": session_kind,
+            "job_id": job_id,
+            "sdk": sdk_name,
+            "model": model,
+            "session_kind": session_kind,
         }
         tel.tokens_input.add(input_tokens, attrs)
         tel.tokens_output.add(output_tokens, attrs)

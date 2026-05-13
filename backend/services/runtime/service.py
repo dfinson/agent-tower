@@ -396,6 +396,7 @@ class RuntimeService:
         # Open the built-in sidecar sessions for this job
         if self._sidecar_sessions is not None:
             from backend.models.domain import SIDECAR_ARBITER, SIDECAR_ENRICHER, SIDECAR_PLANNER
+
             try:
                 for name in (SIDECAR_ARBITER, SIDECAR_PLANNER, SIDECAR_ENRICHER):
                     self._sidecar_sessions.open(job.id, name, token=session_token if name == SIDECAR_ARBITER else None)
@@ -1306,6 +1307,7 @@ class RuntimeService:
         # Open built-in sidecar sessions for external jobs
         if self._sidecar_sessions is not None:
             from backend.models.domain import SIDECAR_ARBITER, SIDECAR_ENRICHER, SIDECAR_PLANNER
+
             try:
                 for name in (SIDECAR_ARBITER, SIDECAR_PLANNER, SIDECAR_ENRICHER):
                     self._sidecar_sessions.open(job_id, name)
@@ -1764,6 +1766,7 @@ class RuntimeService:
 
         # Ask the arbiter sidecar
         from backend.models.domain import SIDECAR_ARBITER
+
         sidecar = self._sidecar_sessions.get(job_id, SIDECAR_ARBITER)
         if sidecar is None:
             return
