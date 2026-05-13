@@ -82,15 +82,13 @@ _WRITE_TOOL_CATEGORIES = {"file_write", "git_write"}
 
 def _classify_turn_intent(
     context: TurnContext,
-    *,
-    is_debug_job: bool = False,
 ) -> str:
     """Assign a single dominant activity to a turn based on its tools.
 
     Uses a priority ladder: the highest-value action wins the whole turn.
 
-    9 canonical categories:
-        implementation, debugging, investigation, verification,
+    8 canonical categories:
+        implementation, investigation, verification,
         git_ops, communication, setup, reasoning, overhead
     """
     cats = set(context.get("tool_categories", []))
@@ -110,13 +108,13 @@ def _classify_turn_intent(
     has_thinking = "thinking" in cats
     has_agents = "agent" in cats
 
-    # Priority 1: If the agent edited files — implementation or debugging
+    # Priority 1: If the agent edited files — implementation
     if has_writes:
-        return "debugging" if is_debug_job else "implementation"
+        return "implementation"
 
     # Priority 1b: Shell commands that modify files (sed, rm, mv, cp, etc.)
     if "implementation" in shell_intents:
-        return "debugging" if is_debug_job else "implementation"
+        return "implementation"
 
     # Priority 2: If the agent ran tests, this is verification
     if "verification" in shell_intents:
@@ -159,22 +157,7 @@ def _classify_turn_intent(
     return "reasoning"
 
 
-# ---------------------------------------------------------------------------
-# Sub-classification: implementation → debugging (when job context suggests it)
-# ---------------------------------------------------------------------------
 
-import re as _re  # noqa: E402
-
-_DEBUG_RE = _re.compile(
-    r"\b(fix|bug|error|broken|failing|crash|debug|issue|wrong|incorrect)\b",
-    _re.IGNORECASE,
-)
-
-
-def _is_debugging_context(description: str | None, motivation: str | None) -> bool:
-    """Detect whether the job context indicates debugging work."""
-    text = (description or "") + " " + (motivation or "")
-    return bool(_DEBUG_RE.search(text))
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +172,6 @@ def _is_debugging_context(description: str | None, motivation: str | None) -> bo
 
 def _compute_subagent_distributions(
     turn_contexts: dict[int, TurnContext],
-    *,
-    is_debug_job: bool = False,
 ) -> dict[int, dict[str, float]]:
     """Map invoking turn numbers → activity distributions of their sub-agent turns.
 
@@ -256,7 +237,7 @@ def _compute_subagent_distributions(
                     activity_costs[resolved_act] += sa_cost * fraction
             else:
                 # No tools — use intent classifier
-                intent = _classify_turn_intent(sa_ctx, is_debug_job=is_debug_job)
+                intent = _classify_turn_intent(sa_ctx)
                 activity_costs[intent] += sa_cost
             total_cost += sa_cost
 
@@ -373,7 +354,6 @@ async def _compute_attribution(
     job_model = job_row_dict.get("model", "") or ""
     job_description = job_row_dict.get("description", "") or ""
     job_prompt = job_row_dict.get("prompt", "") or ""
-    is_debug_job = _is_debugging_context(job_description, job_prompt)
 
     # --- Aggregate by dimension ---
     by_turn: dict[int, CostBucket] = defaultdict(lambda: _zero_bucket())
@@ -475,7 +455,7 @@ async def _compute_attribution(
     # --- Sub-agent activity propagation (Option 3) ---
     # Compute what each sub-agent range actually did so we can attribute
     # the invoking turn's delegation cost to the correct activities.
-    subagent_distributions = _compute_subagent_distributions(turn_contexts, is_debug_job=is_debug_job)
+    subagent_distributions = _compute_subagent_distributions(turn_contexts)
 
     for turn_num_a, context in turn_contexts.items():
         # Deterministic action from tool categories
@@ -551,7 +531,7 @@ async def _compute_attribution(
                 )
         else:
             # No tools — use turn-level fallback (reasoning / communication)
-            activity = _classify_turn_intent(context, is_debug_job=is_debug_job)
+            activity = _classify_turn_intent(context)
             _accumulate(
                 by_activity[activity],
                 turn_cost,

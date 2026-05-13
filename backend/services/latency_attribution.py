@@ -25,7 +25,6 @@ from backend.services.cost_attribution import (
     TurnContext,
     _classify_turn_intent,
     _compute_subagent_distributions,
-    _is_debugging_context,
 )
 from backend.services.tool_classifier import classify_tool, refine_shell_category
 
@@ -57,7 +56,7 @@ _CATEGORY_TO_ACTIVITY: dict[str, str] = {
 }
 
 
-def _classify_turnless_span_activity(span: Mapping[str, Any], *, is_debug_job: bool = False) -> str:
+def _classify_turnless_span_activity(span: Mapping[str, Any]) -> str:
     """Classify a span without a turn_number into an activity bucket."""
     span_type = span.get("span_type", "")
     if span_type == "llm":
@@ -68,8 +67,6 @@ def _classify_turnless_span_activity(span: Mapping[str, Any], *, is_debug_job: b
         tool_name = span.get("name") or ""
         cat = classify_tool(tool_name)
         activity = _CATEGORY_TO_ACTIVITY.get(cat, "investigation")
-        if activity == "implementation" and is_debug_job:
-            return "debugging"
         return activity
     return "reasoning"
 
@@ -136,18 +133,6 @@ async def _compute_latency(
     if not spans:
         log.info("latency_attribution_skip_no_spans", job_id=job_id)
         return
-
-    from sqlalchemy import text as sa_text
-
-    # Load job metadata for debugging detection
-    job_meta = await session.execute(
-        sa_text("SELECT j.description, j.prompt FROM jobs j WHERE j.id = :jid"),
-        {"jid": job_id},
-    )
-    job_row = job_meta.mappings().first()
-    job_description: str = str(job_row["description"]) if job_row and "description" in job_row else ""
-    job_prompt: str = str(job_row["prompt"]) if job_row and "prompt" in job_row else ""
-    is_debug_job = _is_debugging_context(job_description, job_prompt)
 
     # Get job total duration from summary
     summary = await summary_repo.get(job_id)
@@ -269,7 +254,7 @@ async def _compute_latency(
 
     # --- Activity dimension: classify each turn's activity, aggregate durations ---
     # Compute sub-agent activity distributions for delegation propagation
-    subagent_distributions = _compute_subagent_distributions(turn_contexts, is_debug_job=is_debug_job)
+    subagent_distributions = _compute_subagent_distributions(turn_contexts)
 
     by_activity: dict[str, list[int]] = defaultdict(list)
     activity_intervals: dict[str, list[tuple[float, float]]] = defaultdict(list)
@@ -294,7 +279,7 @@ async def _compute_latency(
                     activity_intervals[dominant].extend(turn_ints)
                 continue
 
-        activity = _classify_turn_intent(context, is_debug_job=is_debug_job)
+        activity = _classify_turn_intent(context)
         by_activity[activity].extend(turn_durations.get(turn_num, []))
         activity_intervals[activity].extend(turn_span_intervals.get(turn_num, []))
 
@@ -305,7 +290,7 @@ async def _compute_latency(
             continue
         turn = span.get("turn_number")
         if turn is None:
-            activity = _classify_turnless_span_activity(span, is_debug_job=is_debug_job)
+            activity = _classify_turnless_span_activity(span)
             by_activity[activity].append(duration_ms)
             offset_sec = float(span.get("started_at", 0) or 0)
             start_ms = offset_sec * 1000

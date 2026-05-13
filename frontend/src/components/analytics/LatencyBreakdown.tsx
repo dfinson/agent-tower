@@ -25,7 +25,6 @@ function formatDuration(ms: number): string {
 
 const ACTIVITY_COLORS: Record<string, string> = {
   implementation: "bg-emerald-500",
-  debugging: "bg-orange-500",
   investigation: "bg-blue-500",
   verification: "bg-amber-500",
   git_ops: "bg-purple-500",

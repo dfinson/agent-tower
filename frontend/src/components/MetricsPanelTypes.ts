@@ -230,11 +230,9 @@ export function formatUsd(amount: number): string {
 
 export function formatActivityBucket(bucket: string): string {
   switch (bucket) {
-    // New intent-based categories (9 canonical)
+    // Intent-based categories (8 canonical)
     case "implementation":
       return "Implementation";
-    case "debugging":
-      return "Debugging";
     case "investigation":
       return "Investigation";
     case "verification":
@@ -292,9 +290,8 @@ export function formatActivityBucket(bucket: string): string {
 // ---------------------------------------------------------------------------
 
 export const ACTIVITY_DESCRIPTIONS: Record<string, string> = {
-  // 9 canonical categories
-  implementation: "Turns where the agent edited or created files — the actual coding work",
-  debugging: "Turns where the agent fixed bugs, errors, or failing tests",
+  // 8 canonical categories
+  implementation: "Turns where the agent edited or created files \u2014 the actual coding work",
   investigation: "Turns where the agent read code, searched, browsed, checked diffs/status, or delegated to sub-agents",
   verification: "Turns where the agent ran tests to validate changes",
   git_ops: "Turns where the agent committed, pushed, merged, or managed branches",
@@ -357,7 +354,6 @@ export function estimateCostWithoutCache(
 
 export const ACTIVITY_COLORS: Record<string, string> = {
   implementation: "bg-emerald-500",
-  debugging: "bg-orange-500",
   investigation: "bg-blue-500",
   verification: "bg-amber-500",
   git_ops: "bg-purple-500",

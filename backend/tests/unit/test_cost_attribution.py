@@ -95,11 +95,9 @@ def test_classify_turn_intent_subagents_are_delegation() -> None:
     assert _classify_turn_intent(_ctx(cats=["agent"])) == "delegation"
 
 
-def test_classify_turn_intent_debugging_context() -> None:
-    # When is_debug_job=True, file writes become "debugging" instead of "implementation"
-    assert _classify_turn_intent(_ctx(cats=["file_write"]), is_debug_job=True) == "debugging"
-    # Non-file-write turns are unaffected
-    assert _classify_turn_intent(_ctx(cats=["file_read"]), is_debug_job=True) == "investigation"
+def test_classify_turn_intent_no_debugging_category() -> None:
+    # File writes are always "implementation" regardless of job context
+    assert _classify_turn_intent(_ctx(cats=["file_write"])) == "implementation"
 
 
 def test_classify_turn_intent_communication_and_reasoning() -> None:
