@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { fetchSidecarTemplates, createSidecarTemplate } from "../api/client";
 import type { SidecarTemplate } from "../api/types";
 import { SidecarDefinitionForm, type SidecarDefinitionFormData } from "./SidecarDefinitionForm";
 import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Tooltip } from "./ui/tooltip";
 
 interface SidecarPickerProps {
   /** Currently selected template IDs */
@@ -71,13 +73,23 @@ export function SidecarPicker({
   }, [inlineDefinitions, onInlineDefinitions]);
 
   if (loading) {
-    return <p className="text-xs text-muted-foreground">Loading templates…</p>;
+    return <p className="text-xs text-muted-foreground py-1">Loading templates…</p>;
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-foreground">Sidecars</p>
+        <div className="flex items-center gap-1.5">
+          <Tooltip content="Autonomous LLM sessions that run alongside the agent — for reviews, gating, monitoring, or injecting feedback">
+            <span className="text-xs font-medium text-foreground cursor-help flex items-center gap-1">
+              <Zap size={12} className="text-muted-foreground" />
+              Sidecars
+            </span>
+          </Tooltip>
+          {selected.length > 0 && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{selected.length}</Badge>
+          )}
+        </div>
         <Button size="sm" variant="ghost" onClick={() => setCreating(true)} className="h-7 text-xs">
           <Plus size={12} />
           New
@@ -85,29 +97,48 @@ export function SidecarPicker({
       </div>
 
       {templates.length === 0 && inlineDefinitions.length === 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground py-1">
           No saved templates. Create one to attach a sidecar to this job.
         </p>
       )}
 
       {/* Saved templates with checkboxes */}
-      {templates.map((t) => (
-        <label
-          key={t.id}
-          className="flex items-start gap-2 rounded border border-border px-2.5 py-2 cursor-pointer hover:bg-accent/50 transition-colors"
-        >
-          <input
-            type="checkbox"
-            checked={selected.includes(t.id)}
-            onChange={() => toggleTemplate(t.id)}
-            className="mt-0.5 accent-primary"
-          />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-foreground truncate">{t.name}</p>
-            <p className="text-[11px] text-muted-foreground truncate">{t.description}</p>
-          </div>
-        </label>
-      ))}
+      {templates.map((t) => {
+        let defn: Record<string, unknown> = {};
+        try { defn = JSON.parse(t.definitionJson); } catch { /* ok */ }
+        const phase = (defn.phase as string) ?? "";
+        const hasGate = JSON.stringify(defn.triggers ?? []).includes('"gate"');
+        const hasAgentMsg = JSON.stringify(defn.triggers ?? []).includes('"agent_message"');
+
+        return (
+          <label
+            key={t.id}
+            className="flex items-start gap-2.5 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-accent/40 transition-colors"
+          >
+            <input
+              type="checkbox"
+              checked={selected.includes(t.id)}
+              onChange={() => toggleTemplate(t.id)}
+              className="mt-0.5 accent-primary"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-medium text-foreground truncate">{t.name}</span>
+                {phase && (
+                  <Badge variant="secondary" className="text-[9px] px-1 py-0">{phase}</Badge>
+                )}
+                {hasGate && (
+                  <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/50 text-amber-600">gate</Badge>
+                )}
+                {hasAgentMsg && (
+                  <Badge variant="outline" className="text-[9px] px-1 py-0 border-blue-500/50 text-blue-600">msg</Badge>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5">{t.description}</p>
+            </div>
+          </label>
+        );
+      })}
 
       {/* Inline definitions (created in this session, not yet saved) */}
       {inlineDefinitions.map((defJson, i) => {

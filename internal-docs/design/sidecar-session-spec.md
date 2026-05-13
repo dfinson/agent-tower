@@ -189,8 +189,57 @@ class ConditionalRoute:
     value: str
     inner: OutputRoute                      # the actual route to use
 
-OutputRoute = EventBusRoute | JobMetadataRoute | CallbackRoute | ConditionalRoute
+OutputRoute = EventBusRoute | JobMetadataRoute | CallbackRoute | ConditionalRoute | AgentMessageRoute | GateRoute
 ```
+
+### Agent interaction routes
+
+Two additional route types allow sidecars to communicate with the primary
+agent session directly.
+
+```python
+@dataclass(frozen=True)
+class AgentMessageRoute:
+    """Inject a system-level message into the primary agent's conversation.
+
+    The parsed sidecar output becomes the message content. The agent sees it
+    as a system/tool message on its next turn — it cannot distinguish it
+    from platform-generated guidance.
+
+    Use cases: mid-run course corrections, security warnings, style nudges,
+    injecting review feedback the agent should act on.
+    """
+    role: str = "system"                    # "system" | "tool_result"
+    label: str = ""                         # optional prefix: "[security-reviewer]"
+
+@dataclass(frozen=True)
+class GateRoute:
+    """Block agent execution until the sidecar produces a verdict.
+
+    When a trigger fires with a GateRoute, the dispatcher:
+    1. Pauses the agent's session (holds the next tool-call or response)
+    2. Runs the sidecar pipeline to completion
+    3. Parses the verdict from the sidecar output
+    4. If approved → resumes the agent
+    5. If rejected → cancels the pending action and injects the rejection
+       reason as a system message so the agent can course-correct
+
+    The parsed output MUST contain a `verdict` field ("approve" | "reject")
+    and an optional `reason` field.
+    """
+    verdict_field: str = "verdict"          # key in parsed output
+    reason_field: str = "reason"            # key for rejection reason
+    timeout_s: float = 30.0                 # max wait before auto-approve
+```
+
+**Availability:** Both `agent_message` and `gate` routes are available to
+custom sidecars. They are the primary mechanism for user-defined sidecars to
+influence agent behavior.
+
+**Custom sidecar allowed output routes (updated):**
+`event_bus`, `job_metadata`, `agent_message`, `gate`
+
+`callback` routes remain reserved for built-in sidecars.
 
 **Callbacks** are the escape hatch for complex output processing. The
 planner needs to create `PlanStep` objects in `TrailJobState`. The enricher
@@ -581,7 +630,8 @@ Custom sidecars are `SidecarDefinition` instances constructed from the
   that touch internal state (`active_tool`, `pending_enrichment`) are not
   exposed.
 - `outputRoutes` for custom sidecars are restricted to: `event_bus`,
-  `job_metadata`. `callback` routes are reserved for built-in sidecars.
+  `job_metadata`, `agent_message`, `gate`. `callback` routes are reserved
+  for built-in sidecars.
 
 ### Overriding built-ins
 

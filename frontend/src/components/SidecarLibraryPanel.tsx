@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Copy, Pencil, Plus, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchSidecarTemplates,
@@ -10,8 +10,10 @@ import {
 import type { SidecarTemplate } from "../api/types";
 import { SidecarDefinitionForm, type SidecarDefinitionFormData } from "./SidecarDefinitionForm";
 import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { ConfirmDialog } from "./ui/confirm-dialog";
+import { Tooltip } from "./ui/tooltip";
 
 export function SidecarLibraryPanel() {
   const [templates, setTemplates] = useState<SidecarTemplate[]>([]);
@@ -121,13 +123,18 @@ export function SidecarLibraryPanel() {
   })() : undefined;
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground py-2">Loading sidecar templates…</p>;
+    return <p className="text-sm text-muted-foreground py-4 text-center">Loading sidecar templates…</p>;
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-foreground">Sidecar Templates</h3>
+        <div>
+          <h3 className="text-sm font-medium text-foreground">Sidecar Templates</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Reusable sidecar definitions that can be attached to any job
+          </p>
+        </div>
         <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
           <Plus size={14} />
           New Template
@@ -135,38 +142,81 @@ export function SidecarLibraryPanel() {
       </div>
 
       {templates.length === 0 && !creating && (
-        <p className="text-sm text-muted-foreground py-4 text-center">
-          No saved sidecar templates yet. Create one to reuse across jobs.
-        </p>
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <div className="rounded-full bg-muted p-3">
+            <Zap size={20} className="text-muted-foreground" />
+          </div>
+          <p className="text-sm text-muted-foreground">No saved sidecar templates yet</p>
+          <p className="text-xs text-muted-foreground max-w-xs">
+            Create a template to define autonomous LLM sessions that run alongside your coding agent — for reviews, gating, monitoring, and more.
+          </p>
+        </div>
       )}
 
-      {templates.map((t) => (
-        <div
-          key={t.id}
-          className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2.5"
-        >
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">{t.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{t.description}</p>
-            {t.lastUsedAt && (
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Last used {new Date(t.lastUsedAt).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <Button size="icon-sm" variant="ghost" onClick={() => setEditingId(t.id)} title="Edit">
-              <Pencil size={14} />
-            </Button>
-            <Button size="icon-sm" variant="ghost" onClick={() => handleDuplicate(t)} title="Duplicate">
-              <Copy size={14} />
-            </Button>
-            <Button size="icon-sm" variant="ghost" onClick={() => setDeleteTarget(t)} title="Delete" className="text-destructive hover:text-destructive">
-              <Trash2 size={14} />
-            </Button>
-          </div>
-        </div>
-      ))}
+      <div className="flex flex-col gap-2">
+        {templates.map((t) => {
+          let defn: Record<string, unknown> = {};
+          try { defn = JSON.parse(t.definitionJson); } catch { /* ok */ }
+          const phase = (defn.phase as string) ?? "";
+          const hasGate = JSON.stringify(defn.triggers ?? []).includes('"gate"');
+          const hasAgentMsg = JSON.stringify(defn.triggers ?? []).includes('"agent_message"');
+
+          return (
+            <div
+              key={t.id}
+              className="group flex items-start justify-between gap-3 rounded-lg border border-border px-4 py-3 transition-colors hover:bg-accent/30"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-medium text-foreground truncate">{t.name}</p>
+                  {phase && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                      {phase}
+                    </Badge>
+                  )}
+                  {hasGate && (
+                    <Tooltip content="This sidecar can gate (approve/reject) agent actions">
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/50 text-amber-600">
+                        gate
+                      </Badge>
+                    </Tooltip>
+                  )}
+                  {hasAgentMsg && (
+                    <Tooltip content="This sidecar can inject messages into the agent's conversation">
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-500/50 text-blue-600">
+                        agent message
+                      </Badge>
+                    </Tooltip>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">{t.description}</p>
+                {t.lastUsedAt && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Last used {new Date(t.lastUsedAt).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Tooltip content="Edit">
+                  <Button size="icon-sm" variant="ghost" onClick={() => setEditingId(t.id)}>
+                    <Pencil size={14} />
+                  </Button>
+                </Tooltip>
+                <Tooltip content="Duplicate">
+                  <Button size="icon-sm" variant="ghost" onClick={() => handleDuplicate(t)}>
+                    <Copy size={14} />
+                  </Button>
+                </Tooltip>
+                <Tooltip content="Delete">
+                  <Button size="icon-sm" variant="ghost" onClick={() => setDeleteTarget(t)} className="text-destructive hover:text-destructive">
+                    <Trash2 size={14} />
+                  </Button>
+                </Tooltip>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {/* Create dialog */}
       <Dialog open={creating} onOpenChange={setCreating}>

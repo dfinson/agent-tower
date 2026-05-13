@@ -22,7 +22,7 @@ log = structlog.get_logger()
 _ALLOWED_CONTEXT_SOURCES = ["trigger_event", "job_diff", "job_prompt", "recent_messages"]
 
 # Output routes available to custom sidecars.
-_ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata"]
+_ALLOWED_OUTPUT_ROUTES = ["event_bus", "job_metadata", "agent_message", "gate"]
 
 # Trigger conditions available to custom sidecars.
 _ALLOWED_CONDITIONS = ["event", "threshold", "manual"]
@@ -58,11 +58,15 @@ Each trigger object has:
 - "outputRoutes": Array of route objects:
   - {"kind": "event_bus", "eventKind": "<custom_event_name>"}
   - {"kind": "job_metadata", "field": "<metadata_field_name>"}
+  - {"kind": "agent_message"} — inject a message into the agent's conversation. Optional "role": "system"|"tool_result", "label": "<prefix>".
+  - {"kind": "gate", "verdictField": "verdict", "reasonField": "reason"} — block agent until sidecar approves. Parsed output must contain verdict ("approve"|"reject") and optional reason. Optional "timeoutS": <seconds>.
 
 Guidelines:
 - For code review tasks, use phase "postflight" with manual trigger and "job_diff" context.
 - For monitoring tasks (watching progress), use phase "midflight" with threshold triggers.
 - For one-shot analysis, use lifetime "ephemeral". For ongoing monitoring, use "persistent".
+- When the sidecar should influence the agent's behavior, use "agent_message" to send feedback.
+- When the sidecar must approve/block agent actions, use "gate" with a json_object output parser that returns {"verdict": "approve"|"reject", "reason": "..."}.
 - Keep system prompts focused and actionable.
 - Generate a descriptive but concise name in kebab-case.
 
